@@ -35,6 +35,25 @@ public sealed class AnalyticsTests : IDisposable
         Assert.Equal(1000,data.Summary.WeixinIncomeFen); Assert.Equal(2000,data.Summary.KuaishouIncomeFen);
     }
 
+    [Fact]
+    public void QueryTreatsSameGlobalAccountAcrossPlatformsAsOneAccountWithoutMixingMetrics()
+    {
+        var repository=Repository(); var date=new DateOnly(2026,9,2);
+        repository.UpsertSnapshot(new AccountAnalyticsSnapshot{Platform=PublishPlatform.WeixinChannel,AccountId="global-1",CollectedAt=DateTimeOffset.UtcNow,VideoTotal=10});
+        repository.UpsertSubjects([new SubjectDailyAnalyticsRecord{Platform=PublishPlatform.KuaishouPersonalRevenue,AccountId="global-1",SubjectId="s",SubjectName="剧",MetricDate=date,CollectedAt=DateTimeOffset.UtcNow,Status=AnalyticsRecordStatus.Success,Views=20}]);
+
+        var data=new AnalyticsQueryService(repository).Query([
+            new("global-1",PublishPlatform.WeixinChannel,"账号1",""),
+            new("global-1",PublishPlatform.KuaishouPersonalRevenue,"账号1","")
+        ],date,date);
+
+        Assert.Equal(1,data.Summary.AccountCount);
+        Assert.Equal(2,data.Accounts.Count);
+        Assert.Equal(10,data.Accounts.Single(item=>item.Account.Platform==PublishPlatform.WeixinChannel).Snapshot?.VideoTotal);
+        Assert.Equal(20,data.Accounts.Single(item=>item.Account.Platform==PublishPlatform.KuaishouPersonalRevenue).KuaishouSummary?.Views);
+        Assert.Null(data.Accounts.Single(item=>item.Account.Platform==PublishPlatform.KuaishouPersonalRevenue).Snapshot);
+    }
+
     [Theory]
     [InlineData("1.4万",14000)] [InlineData("2亿",200000000)]
     public void WeixinNumbersAreParsed(string value, decimal expected)=>Assert.Equal(expected,WeixinAnalyticsCollector.Parse(value));

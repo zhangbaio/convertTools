@@ -30,10 +30,10 @@ public sealed partial class AccountItemViewModel : ViewModelBase
     public string CostReportSealPath { get => Model.CostReportSealPath; set { if (Model.CostReportSealPath == value) return; Model.CostReportSealPath = value; OnPropertyChanged(); } }
     public string CostReportLegalRepresentative { get => Model.CostReportLegalRepresentative; set { if (Model.CostReportLegalRepresentative == value) return; Model.CostReportLegalRepresentative = value; OnPropertyChanged(); } }
     public string CostReportActorPayRatio { get => Model.CostReportActorPayRatio; set { if (Model.CostReportActorPayRatio == value) return; Model.CostReportActorPayRatio = value; OnPropertyChanged(); } }
-    public string KuaishouPersonalAccount { get => Model.KuaishouPersonalAccount; set { if (Model.KuaishouPersonalAccount == value) return; Model.KuaishouPersonalAccount = value; OnPropertyChanged(); } }
-    public string KuaishouPersonalConfigPath { get => Model.KuaishouPersonalConfigPath; set { if (Model.KuaishouPersonalConfigPath == value) return; Model.KuaishouPersonalConfigPath = value; OnPropertyChanged(); } }
-    public string KuaishouEnterpriseAccount { get => Model.KuaishouEnterpriseAccount; set { if (Model.KuaishouEnterpriseAccount == value) return; Model.KuaishouEnterpriseAccount = value; OnPropertyChanged(); } }
-    public string KuaishouEnterpriseConfigPath { get => Model.KuaishouEnterpriseConfigPath; set { if (Model.KuaishouEnterpriseConfigPath == value) return; Model.KuaishouEnterpriseConfigPath = value; OnPropertyChanged(); } }
+    public string KuaishouPersonalAccount { get => Model.KuaishouPersonalAccount; set { if (Model.KuaishouPersonalAccount == value) return; Model.KuaishouPersonalAccount = value; OnPropertyChanged(); OnPropertyChanged(nameof(PlatformSummary)); } }
+    public string KuaishouPersonalConfigPath { get => Model.KuaishouPersonalConfigPath; set { if (Model.KuaishouPersonalConfigPath == value) return; Model.KuaishouPersonalConfigPath = value; OnPropertyChanged(); OnPropertyChanged(nameof(PlatformSummary)); } }
+    public string KuaishouEnterpriseAccount { get => Model.KuaishouEnterpriseAccount; set { if (Model.KuaishouEnterpriseAccount == value) return; Model.KuaishouEnterpriseAccount = value; OnPropertyChanged(); OnPropertyChanged(nameof(PlatformSummary)); } }
+    public string KuaishouEnterpriseConfigPath { get => Model.KuaishouEnterpriseConfigPath; set { if (Model.KuaishouEnterpriseConfigPath == value) return; Model.KuaishouEnterpriseConfigPath = value; OnPropertyChanged(); OnPropertyChanged(nameof(PlatformSummary)); } }
     public string WorkRootDirectory { get => Model.WorkRootDirectory; set { if (Model.WorkRootDirectory == value) return; Model.WorkRootDirectory = value; OnPropertyChanged(); } }
     public string DownloadDirectory { get => Model.DownloadDirectory; set { if (Model.DownloadDirectory == value) return; Model.DownloadDirectory = value; OnPropertyChanged(); } }
     public string ArchiveRootDirectory { get => Model.ArchiveRootDirectory; set { if (Model.ArchiveRootDirectory == value) return; Model.ArchiveRootDirectory = value; OnPropertyChanged(); } }
@@ -53,6 +53,18 @@ public sealed partial class AccountItemViewModel : ViewModelBase
         _ => "离线",
     };
 
+    public string PlatformSummary
+    {
+        get
+        {
+            var personal = !string.IsNullOrWhiteSpace(Model.KuaishouPersonalAccount) ||
+                           !string.IsNullOrWhiteSpace(Model.KuaishouPersonalConfigPath);
+            var enterprise = !string.IsNullOrWhiteSpace(Model.KuaishouEnterpriseAccount) ||
+                             !string.IsNullOrWhiteSpace(Model.KuaishouEnterpriseConfigPath);
+            return $"视频号：{StatusText} · 快手个人：{(personal ? "已配置" : "未配置")} · 快手企业：{(enterprise ? "已配置" : "未配置")}";
+        }
+    }
+
     partial void OnNameChanged(string value) => Model.Name = value;
     partial void OnNicknameChanged(string value) => Model.Nickname = value;
 
@@ -60,5 +72,6 @@ public sealed partial class AccountItemViewModel : ViewModelBase
     {
         Model.Status = value;
         OnPropertyChanged(nameof(StatusText));
+        OnPropertyChanged(nameof(PlatformSummary));
     }
 }

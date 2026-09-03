@@ -43,6 +43,15 @@ public partial class MaterialPublishView : UserControl
     public IReadOnlyList<PublishAccount> AccountProfiles => _vm?.Accounts.Select(item => item.Model).ToArray() ?? [];
     public bool HasActivePublish => _publishCts is not null;
 
+    public void SetSidebarVisible(bool visible)
+    {
+        AccountSidebar.IsVisible = visible;
+        RootLayout.ColumnDefinitions[0].Width = new GridLength(visible ? 198 : 0);
+        RootLayout.ColumnSpacing = visible ? 12 : 0;
+    }
+
+    public Task RunPublishTestAsync() => PublishTestAsync();
+
     public async Task<string> EnsureAccountCdpEndpointAsync(string accountId, CancellationToken cancellationToken)
     {
         if (_vm?.Accounts.FirstOrDefault(item => item.Id == accountId) is not { } account)
@@ -80,6 +89,11 @@ public partial class MaterialPublishView : UserControl
     public void ShowUnifiedPublish()
     {
         WorkspaceTabs.SelectedIndex = 0;
+    }
+
+    public void ShowAccountSettings()
+    {
+        WorkspaceTabs.SelectedIndex = 1;
     }
 
     public void SetWorkflowContent(Control content)
@@ -221,7 +235,9 @@ public partial class MaterialPublishView : UserControl
     }
 
     // 发布测试：选视频 → 经当前账号 WebView2 的 CDP 端点跑发布流程（只填不发，安全）
-    private async void OnPublishClick(object? sender, RoutedEventArgs e)
+    private void OnAccountSettingsRequested(object? sender, EventArgs e) => ShowAccountSettings();
+
+    private async Task PublishTestAsync()
     {
         var vm = _vm;
         var account = vm?.SelectedAccount;

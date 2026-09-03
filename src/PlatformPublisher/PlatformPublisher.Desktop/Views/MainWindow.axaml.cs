@@ -18,11 +18,17 @@ namespace PlatformPublisher.Desktop.Views;
 
 public partial class MainWindow : Window
 {
+    private const double ExpandedSidebarWidth = 198;
+    private const double CollapsedSidebarWidth = 42;
     private PlatformDatabase? _platformDatabase;
     private DatabaseBackupService? _databaseBackupService;
+    private bool _isGlobalSidebarCollapsed;
+
     public MainWindow()
     {
         InitializeComponent();
+        WeixinPublisherView.SetSidebarVisible(false);
+        GlobalAccountSidebar.UseShellChrome();
         Opened += (_, _) => ShowWeixinPage();
     }
 
@@ -66,8 +72,14 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetArchivedProjectsContent(new WeixinArchivedProjectsView { DataContext = viewModel });
     }
 
-    public void BindAccountDatabase(ChannelsPublisher.Core.Services.AccountStore accountStore) =>
+    public void BindAccountDatabase(ChannelsPublisher.Core.Services.AccountStore accountStore)
+    {
         WeixinPublisherView.UseAccountStore(accountStore);
+        GlobalAccountSidebar.DataContext = WeixinPublisherView.DataContext;
+        WeixinPublisherView.SelectedAccountChanged += account =>
+            ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, account);
+        ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, WeixinPublisherView.SelectedAccountProfile);
+    }
 
     public void BindWeixinDownload(MainWindowViewModel mainViewModel)
     {
@@ -121,6 +133,21 @@ public partial class MainWindow : Window
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
+
+    private void OnGlobalSidebarToggleClick(object? sender, RoutedEventArgs e)
+    {
+        _isGlobalSidebarCollapsed = !_isGlobalSidebarCollapsed;
+        ShellLayout.ColumnDefinitions[0].Width = new GridLength(
+            _isGlobalSidebarCollapsed ? CollapsedSidebarWidth : ExpandedSidebarWidth);
+        ExpandedGlobalSidebar.IsVisible = !_isGlobalSidebarCollapsed;
+        CollapsedGlobalSidebar.IsVisible = _isGlobalSidebarCollapsed;
+    }
+
+    private void OnGlobalAccountSettingsRequested(object? sender, EventArgs e)
+    {
+        ShowWeixinPage();
+        WeixinPublisherView.ShowAccountSettings();
+    }
 
     private void OnWeixinNavClick(object? sender, RoutedEventArgs e) => ShowWeixinPage();
 
@@ -227,7 +254,13 @@ public partial class MainWindow : Window
             ],
         });
         if (files.Count > 0 && ViewModel is not null)
-            ViewModel.DraftConfigPath = files[0].Path.LocalPath;
+        {
+            var path = files[0].Path.LocalPath;
+            if (ViewModel.SelectedPlatform.Value is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+                await ViewModel.UpdateSelectedAccountConfigPathAsync(path);
+            else
+                ViewModel.DraftConfigPath = path;
+        }
     }
 
     private async void PickCustomVideoFiles_Click(object? sender, RoutedEventArgs e)

@@ -10,17 +10,74 @@
         MinWidth="1180"
         MinHeight="720"
         Title="云帆多平台发布助手">
-    <Grid RowDefinitions="58,*,30">
-        <Border Grid.Row="0" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="198,*">
-                <Border BorderBrush="#D8E2EC" BorderThickness="0,0,1,0" Padding="18,0">
+    <Grid x:Name="ShellLayout" RowDefinitions="58,*,30">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="198" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 全局账号栏：跨越顶部品牌区和所有一级页面。 -->
+        <Grid x:Name="ExpandedGlobalSidebar"
+              Grid.Row="0"
+              Grid.RowSpan="2"
+              Grid.Column="0"
+              RowDefinitions="58,*"
+              Background="#FBFCFE">
+            <Border Grid.Row="0"
+                    Background="#FFFFFF"
+                    BorderBrush="#D8E2EC"
+                    BorderThickness="0,0,1,1"
+                    Padding="12,0,8,0">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
                     <TextBlock Text="云帆多平台发布助手"
                                VerticalAlignment="Center"
-                               FontSize="17"
+                               FontSize="15"
                                FontWeight="Bold"
-                               Foreground="#0B74D1" />
-                </Border>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0">
+                               Foreground="#0B74D1"
+                               TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="1"
+                            Content="‹"
+                            Width="28"
+                            Height="30"
+                            MinHeight="30"
+                            Padding="0"
+                            FontSize="17"
+                            FontWeight="Bold"
+                            VerticalAlignment="Center"
+                            ToolTip.Tip="收起账号栏"
+                            Click="OnGlobalSidebarToggleClick" />
+                </Grid>
+            </Border>
+            <channelsViews:AccountSidebarView x:Name="GlobalAccountSidebar"
+                                              Grid.Row="1"
+                                              AccountSettingsRequested="OnGlobalAccountSettingsRequested" />
+        </Grid>
+
+        <Border x:Name="CollapsedGlobalSidebar"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Grid.Column="0"
+                IsVisible="False"
+                Background="#FBFCFE"
+                BorderBrush="#D8E2EC"
+                BorderThickness="0,0,1,0">
+            <Button Content="›"
+                    Width="30"
+                    Height="30"
+                    MinHeight="30"
+                    Margin="6,14,6,0"
+                    Padding="0"
+                    FontSize="17"
+                    FontWeight="Bold"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    ToolTip.Tip="展开账号栏"
+                    Click="OnGlobalSidebarToggleClick" />
+        </Border>
+
+        <Border Grid.Row="0" Grid.Column="1" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel Orientation="Horizontal" Margin="10,0">
                     <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
                     <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
                     <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
@@ -31,86 +88,9 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" ColumnDefinitions="198,*">
-        <Grid x:Name="PipelinePage" Grid.ColumnSpan="2" Classes="platformPipeline" ColumnDefinitions="198,*" IsVisible="False">
-            <Border Grid.Column="0" Classes="platformSidebar" Background="#FBFCFE" BorderBrush="#D8E2EC" BorderThickness="0,0,1,0" Padding="12">
-                <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
-                    <StackPanel Spacing="4" Margin="4,4,4,8">
-                        <TextBlock Text="发布平台" FontWeight="SemiBold" FontSize="15" />
-                        <TextBlock Text="各平台账号和任务相互隔离"
-                                   FontSize="11"
-                                   Foreground="#64748B" />
-                    </StackPanel>
-
-                    <ListBox Grid.Row="1"
-                             ItemsSource="{Binding Platforms}"
-                             SelectedItem="{Binding SelectedPlatform}"
-                             MaxHeight="210">
-                        <ListBox.Styles>
-                            <Style Selector="ListBoxItem">
-                                <Setter Property="Padding" Value="10" />
-                                <Setter Property="Margin" Value="0,0,0,6" />
-                                <Setter Property="CornerRadius" Value="7" />
-                            </Style>
-                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                <Setter Property="Background" Value="#DCEBFF" />
-                            </Style>
-                        </ListBox.Styles>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:PlatformOptionViewModel">
-                                <StackPanel Spacing="3">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding Description}"
-                                               FontSize="11"
-                                               Foreground="#64748B"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-
-                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="5">
-                        <TextBlock Text="账号档案" VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <Button Grid.Column="1" Padding="7,4" MinHeight="28"
-                                Command="{Binding NewAccountCommand}" Content="新增" />
-                        <Button Grid.Column="2" Padding="7,4" MinHeight="28"
-                                Command="{Binding SaveAccountCommand}" Content="保存" />
-                        <Button Grid.Column="3" Padding="7,4" MinHeight="28"
-                                Command="{Binding DeleteAccountCommand}" Content="删除" />
-                    </Grid>
-
-                    <ListBox Grid.Row="3"
-                             ItemsSource="{Binding VisibleAccounts}"
-                             SelectedItem="{Binding SelectedAccount}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:PublishAccountItemViewModel">
-                                <StackPanel Spacing="3" Margin="4">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding ConfigSummary}"
-                                               FontSize="11"
-                                               Foreground="#64748B"
-                                               TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-
-                    <Border Grid.Row="4" Classes="panel" Padding="10">
-                        <StackPanel Spacing="5">
-                            <TextBlock Text="隔离状态" FontWeight="SemiBold" />
-                            <TextBlock Text="独立程序 / 独立队列 / 独立配置"
-                                       Foreground="#047857"
-                                       FontSize="11"
-                                       TextWrapping="Wrap" />
-                            <TextBlock Text="不会写入 TikTok 助手数据"
-                                       Foreground="#64748B"
-                                       FontSize="11" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
-            </Border>
-
-            <Grid x:Name="PipelineContent" Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+        <Grid Grid.Row="1" Grid.Column="1">
+        <Grid x:Name="PipelinePage" Classes="platformPipeline" IsVisible="False">
+            <Grid x:Name="PipelineContent" Margin="16,14" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
                 <Border Classes="panel" Padding="14">
                     <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="任务类型" VerticalAlignment="Center" />
@@ -144,17 +124,19 @@
                         <TextBlock Grid.Row="2" Text="账号配置" VerticalAlignment="Center" />
                         <TextBox Grid.Row="2" Grid.Column="1"
                                  Text="{Binding DraftConfigPath}"
+                                 IsReadOnly="True"
                                  Watermark="可选；当前账号使用的平台配置 JSON" />
                         <Button Grid.Row="2" Grid.Column="2" Click="PickConfigFile_Click" Content="选择配置" />
 
-                        <TextBlock Grid.Row="3" Text="账号备注" VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="3" Text="当前账号" VerticalAlignment="Center" />
                         <TextBox Grid.Row="3" Grid.Column="1"
-                                 Text="{Binding DraftAccountName}"
-                                 Watermark="例如：视频号主账号" />
+                                  Text="{Binding DraftAccountName}"
+                                  IsReadOnly="True"
+                                  Watermark="请先在左侧选择全局账号" />
                         <Button Grid.Row="3" Grid.Column="2"
                                 Classes="primary"
                                 Command="{Binding AddJobCommand}"
-                                Content="加入当前平台" />
+                                Content="加入任务队列" />
 
                         <TextBlock Grid.Row="4" Text="发表选项" VerticalAlignment="Center" />
                         <WrapPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
@@ -351,12 +333,12 @@
                 </Border>
             </Grid>
         </Grid>
-        <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" Grid.ColumnSpan="2" />
-        <views:AnalyticsView x:Name="AnalyticsPage" Grid.ColumnSpan="2" IsVisible="False" />
-        <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" Grid.Column="1" IsVisible="False" />
+        <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" />
+        <views:AnalyticsView x:Name="AnalyticsPage" IsVisible="False" />
+        <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" IsVisible="False" />
         </Grid>
 
-        <Border Grid.Row="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">
+        <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">
             <TextBlock Text="{Binding StatusMessage}"
                        VerticalAlignment="Center"
                        FontSize="12"

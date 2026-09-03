@@ -44,6 +44,7 @@ public partial class App : Application
                 PlatformPublisherPaths.LegacyAnalyticsDatabasePath);
             KuaishouPersonalConfig.ConfigureDatabase(_services.GetRequiredService<AccountJsonSettingStore>());
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
+            viewModel.Initialization.GetAwaiter().GetResult();
             var migratedDrafts=_services.GetRequiredService<LegacyPublishDraftMigrator>().MigrateAsync().GetAwaiter().GetResult();
             var settingsViewModel = _services.GetRequiredService<SystemSettingsViewModel>();
             var publishCoordinator = _services.GetRequiredService<PlatformPublishCoordinator>();
@@ -151,7 +152,7 @@ public partial class App : Application
         services.AddSingleton<UnifiedPublishViewModel>();
         services.AddSingleton(_ => new SystemSettingsViewModel(PlatformPublisherPaths.SettingsDatabasePath)
         {
-            LoginSettingsHint = "短剧搜索、下载和数据链路参数为多平台助手独立配置；平台登录信息请到左侧账号档案中维护。",
+            LoginSettingsHint = "短剧搜索、下载和数据链路参数为多平台助手独立配置；平台登录信息请在左侧全局账号的账号设置中维护。",
         });
         return services.BuildServiceProvider();
     }

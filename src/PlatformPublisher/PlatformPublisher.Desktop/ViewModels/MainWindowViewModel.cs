@@ -15,6 +15,8 @@ using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Queue;
+using GlobalAccount = ChannelsPublisher.Core.Models.PublishAccount;
+using GlobalAccountStore = ChannelsPublisher.Core.Services.AccountStore;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 
@@ -42,6 +44,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     ];
     private readonly PublishJobStore _store;
     private readonly PublishAccountStore _accountStore;
+    private readonly GlobalAccountStore _globalAccountStore;
     private readonly PlatformPublishCoordinator _coordinator;
     private readonly IWorkflowInteractionService _interactionService;
     private readonly IWorkService _workService;
@@ -57,7 +60,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly KuaishouPersonalPreparationService _kuaishouPersonalPreparationService;
     private readonly DramaTitleImportService _dramaTitleImportService;
     private readonly List<PublishJob> _jobs = [];
-    private readonly List<PublishAccount> _accounts = [];
+    private readonly List<GlobalAccount> _globalAccounts = [];
     private readonly DispatcherTimer _scheduleTimer;
     private CancellationTokenSource? _operationCts;
     private bool _scheduleTickRunning;
@@ -65,10 +68,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private WorkflowInteractionRequest? _currentInteractionRequest;
     private string _activeWeixinAccountId = string.Empty;
     private string _activeWeixinAccountSessionDirectory = string.Empty;
+    private GlobalAccount? _activeGlobalAccount;
 
     public MainWindowViewModel(
         PublishJobStore store,
         PublishAccountStore accountStore,
+        GlobalAccountStore globalAccountStore,
         PlatformPublishCoordinator coordinator,
         IWorkflowInteractionService interactionService,
         IWorkService workService,
@@ -86,6 +91,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         _store = store;
         _accountStore = accountStore;
+        _globalAccountStore = globalAccountStore;
         _coordinator = coordinator;
         _interactionService = interactionService;
         _workService = workService;
@@ -130,9 +136,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected);
         RunRunnableCommand = new AsyncRelayCommand(RunRunnableAsync, CanRunRunnable);
         RetryFailedCommand = new AsyncRelayCommand(RetryFailedAsync, CanRetryFailed);
-        NewAccountCommand = new RelayCommand(BeginNewAccount, () => !IsBusy);
-        SaveAccountCommand = new AsyncRelayCommand(SaveAccountAsync, CanSaveAccount);
-        DeleteAccountCommand = new AsyncRelayCommand(DeleteAccountAsync, () => SelectedAccount is not null && !IsBusy);
         OpenLoginCommand = new AsyncRelayCommand(OpenLoginAsync, CanOpenLogin);
         RemoveSelectedCommand = new AsyncRelayCommand(RemoveSelectedAsync, () => SelectedJob is not null && !IsBusy);
         StopCommand = new RelayCommand(Stop, () => IsBusy);
@@ -168,10 +171,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _scheduleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _scheduleTimer.Tick += OnScheduleTimerTick;
         _scheduleTimer.Start();
-        _ = LoadAsync();
+        Initialization = LoadAsync();
     }
 
     public IReadOnlyList<PlatformOptionViewModel> Platforms { get; }
+    public Task Initialization { get; }
     public IReadOnlyList<PublishJobKindOptionViewModel> JobKinds { get; }
     public IReadOnlyList<PublishJobKindOptionViewModel> MaterialJobKinds { get; }
     public IReadOnlyList<PublishJobStatusOptionViewModel> JobStatusChoices { get; }
@@ -186,9 +190,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public IAsyncRelayCommand RunSelectedCommand { get; }
     public IAsyncRelayCommand RunRunnableCommand { get; }
     public IAsyncRelayCommand RetryFailedCommand { get; }
-    public IRelayCommand NewAccountCommand { get; }
-    public IAsyncRelayCommand SaveAccountCommand { get; }
-    public IAsyncRelayCommand DeleteAccountCommand { get; }
     public IAsyncRelayCommand OpenLoginCommand { get; }
     public IAsyncRelayCommand RemoveSelectedCommand { get; }
     public IRelayCommand StopCommand { get; }
@@ -359,8 +360,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string SelectedPlatformCapability =>
         _coordinator.GetAdapter(SelectedPlatform.Value).AvailabilityMessage;
 
-    public string QueueSummary =>
-        $"当前平台 {VisibleJobs.Count} 条任务、{VisibleAccounts.Count} 个账号，共 {_jobs.Count} 条独立任务";
+    public string QueueSummary => _activeGlobalAccount is null
+        ? $"尚未选择全局账号，当前平台 {VisibleJobs.Count} 条任务"
+        : $"当前账号 {_activeGlobalAccount.Name}，当前平台 {VisibleJobs.Count} 条任务，共 {_jobs.Count} 条任务";
 
     public void SelectPlatform(PublishPlatform platform)
     {
@@ -382,6 +384,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AddJobCommand.NotifyCanExecuteChanged();
         ScanWorkspaceCommand.NotifyCanExecuteChanged();
         CreateNamedProjectCommand.NotifyCanExecuteChanged();
+    }
+
+    public void UseGlobalAccount(GlobalAccount? account)
+    {
+        _activeGlobalAccount = account;
+        UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
+        DraftAccountName = account?.Name ?? string.Empty;
+        DraftConfigPath = ResolveGlobalConfigPath(account, SelectedPlatform.Value);
+        RefreshVisibleAccounts(account?.Id);
+        OnPropertyChanged(nameof(QueueSummary));
+        NotifyCommands();
+    }
+
+    public void UseGlobalAccounts(IEnumerable<GlobalAccount> accounts, GlobalAccount? selectedAccount)
+    {
+        _globalAccounts.Clear();
+        _globalAccounts.AddRange(accounts);
+        UseGlobalAccount(selectedAccount);
     }
 
     public bool IsSystemHighlightKind => SelectedJobKind.Value == PublishJobKind.SystemHighlight;
@@ -419,7 +439,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnSelectedPlatformChanged(PlatformOptionViewModel value)
     {
         RefreshVisibleJobs();
-        RefreshVisibleAccounts();
+        DraftAccountName = _activeGlobalAccount?.Name ?? string.Empty;
+        DraftConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, value.Value);
+        RefreshVisibleAccounts(_activeGlobalAccount?.Id);
         OnPropertyChanged(nameof(SelectedPlatformCapability));
         OnPropertyChanged(nameof(IsWeixinPlatform));
         OnPropertyChanged(nameof(IsKuaishouPersonalPlatform));
@@ -428,12 +450,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task UpdateSelectedAccountConfigPathAsync(string configPath)
     {
-        if (SelectedAccount is null) throw new InvalidOperationException("请先在左侧选择快手分账个人版账号。");
-        SelectedAccount.Model.BaseConfigPath = Path.GetFullPath(configPath);
-        DraftConfigPath = SelectedAccount.Model.BaseConfigPath;
-        await PersistAsync();
-        RefreshVisibleAccounts(SelectedAccount.Model.Id);
-        StatusMessage = $"快手分账个人版配置已保存：{SelectedAccount.Model.BaseConfigPath}";
+        if (_activeGlobalAccount is null) throw new InvalidOperationException("请先在左侧选择全局账号。");
+        var path = Path.GetFullPath(configPath);
+        switch (SelectedPlatform.Value)
+        {
+            case PublishPlatform.KuaishouPersonalRevenue:
+                _activeGlobalAccount.KuaishouPersonalConfigPath = path;
+                if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouPersonalAccount))
+                    _activeGlobalAccount.KuaishouPersonalAccount = _activeGlobalAccount.Name;
+                break;
+            case PublishPlatform.KuaishouEnterpriseRevenue:
+                _activeGlobalAccount.KuaishouEnterpriseConfigPath = path;
+                if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouEnterpriseAccount))
+                    _activeGlobalAccount.KuaishouEnterpriseAccount = _activeGlobalAccount.Name;
+                break;
+            default:
+                throw new InvalidOperationException("当前平台不使用独立配置文件。");
+        }
+        _globalAccountStore.Update(_activeGlobalAccount);
+        DraftConfigPath = path;
+        RefreshVisibleAccounts(_activeGlobalAccount.Id);
+        StatusMessage = $"{SelectedPlatform.Name}配置已保存到全局账号「{_activeGlobalAccount.Name}」：{path}";
+        await Task.CompletedTask;
     }
 
     partial void OnSelectedJobChanged(PublishJobRowViewModel? value)
@@ -481,7 +519,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         CreateNamedProjectCommand.NotifyCanExecuteChanged();
     }
     partial void OnDraftDramaTitleChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
-    partial void OnDraftAccountNameChanged(string value) => SaveAccountCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleEnabledChanged(bool value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftScheduleTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftCustomVideoFilesTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
@@ -504,6 +541,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         try
         {
+            _globalAccountStore.Load();
+            _globalAccounts.Clear();
+            _globalAccounts.AddRange(_globalAccountStore.Accounts);
             var loadJobs = _store.LoadAsync();
             var loadAccounts = _accountStore.LoadAsync();
             var loadWorkflowSettings = _workflowSettingsStore.LoadAsync();
@@ -521,7 +561,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     recoveredSteps++;
                 }
             }
-            _accounts.AddRange(await loadAccounts);
+            var legacyAccounts = await loadAccounts;
+            await MigrateLegacyPlatformAccountsAsync(legacyAccounts);
             ApplyWorkflowSettings(await loadWorkflowSettings);
             var recovered = PublishSchedulePolicy.RecoverInterrupted(_jobs);
             if (recovered > 0 || recoveredSteps > 0)
@@ -530,7 +571,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 StatusMessage = $"已恢复 {recovered} 条任务、{recoveredSteps} 个中断步骤。";
             }
             RefreshVisibleJobs();
-            RefreshVisibleAccounts();
+            RefreshVisibleAccounts(_activeGlobalAccount?.Id);
         }
         catch (Exception ex)
         {
@@ -540,7 +581,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private bool CanAddJob() =>
         !IsBusy &&
-        (SelectedPlatform.Value != PublishPlatform.WeixinChannel || HasActiveWeixinAccount || SelectedAccount is not null) &&
+        _activeGlobalAccount is not null &&
         HasValidDraftSource() &&
         (SelectedJobKind.Value != PublishJobKind.SystemHighlight || !string.IsNullOrWhiteSpace(DraftDramaTitle)) &&
         (!DraftScheduleEnabled || PublishSchedulePolicy.TryParseLocal(DraftScheduleText, out _));
@@ -580,15 +621,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ? DraftDramaTitle.Trim()
                 : Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
             ProjectDirectory = directory,
-            ConfigPath = DraftConfigPath.Trim(),
-            AccountId = SelectedPlatform.Value == PublishPlatform.WeixinChannel && HasActiveWeixinAccount
-                ? _activeWeixinAccountId
-                : SelectedAccount?.Model.Id ?? string.Empty,
-            AccountName = SelectedPlatform.Value == PublishPlatform.WeixinChannel && HasActiveWeixinAccount
-                ? ActiveWeixinAccountName
-                : DraftAccountName.Trim(),
-            AccountSessionDirectory = SelectedPlatform.Value == PublishPlatform.WeixinChannel && HasActiveWeixinAccount
-                ? _activeWeixinAccountSessionDirectory
+            ConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, SelectedPlatform.Value),
+            AccountId = _activeGlobalAccount!.Id,
+            AccountName = _activeGlobalAccount.Name,
+            AccountSessionDirectory = SelectedPlatform.Value == PublishPlatform.WeixinChannel
+                ? _activeGlobalAccount.ProfileDir
                 : string.Empty,
             DeclareOriginal = DraftDeclareOriginal,
             HideLocation = DraftHideLocation,
@@ -1244,49 +1281,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _coordinator.GetAdapter(row.Platform).IsAvailable);
     private bool CanRetryFailed() => !IsBusy && VisibleJobs.Any(row => row.Model.Status == PublishJobStatus.Failed);
     private bool CanOpenLogin() => SelectedJob is not null && !IsBusy;
-
-    private bool CanSaveAccount() => !IsBusy && !string.IsNullOrWhiteSpace(DraftAccountName);
-
-    private void BeginNewAccount()
-    {
-        SelectedAccount = null;
-        DraftAccountName = string.Empty;
-        DraftConfigPath = string.Empty;
-        StatusMessage = $"正在新增{SelectedPlatform.Name}账号档案。";
-    }
-
-    private async Task SaveAccountAsync()
-    {
-        var account = SelectedAccount?.Model;
-        if (account is null || account.Platform != SelectedPlatform.Value)
-        {
-            account = new PublishAccount
-            {
-                Platform = SelectedPlatform.Value,
-                CreatedAt = DateTimeOffset.Now,
-            };
-            _accounts.Add(account);
-        }
-
-        account.Name = DraftAccountName.Trim();
-        account.BaseConfigPath = DraftConfigPath.Trim();
-        account.UpdatedAt = DateTimeOffset.Now;
-        await _accountStore.SaveAsync(_accounts);
-        RefreshVisibleAccounts(account.Id);
-        StatusMessage = $"已保存{account.Platform.DisplayName()}账号：{account.Name}";
-    }
-
-    private async Task DeleteAccountAsync()
-    {
-        if (SelectedAccount is null)
-            return;
-
-        var account = SelectedAccount.Model;
-        _accounts.Remove(account);
-        await _accountStore.SaveAsync(_accounts);
-        RefreshVisibleAccounts();
-        StatusMessage = $"已删除账号档案：{account.Name}；授权文件和历史任务均未删除。";
-    }
 
     private async Task RunSelectedAsync()
     {
@@ -2144,16 +2138,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
         void Refresh()
         {
             VisibleAccounts.Clear();
-            foreach (var account in _accounts
-                         .Where(account => account.Platform == SelectedPlatform.Value)
-                         .OrderBy(account => account.Name, StringComparer.CurrentCultureIgnoreCase))
+            if (_activeGlobalAccount is not null)
             {
-                VisibleAccounts.Add(new PublishAccountItemViewModel(account));
+                VisibleAccounts.Add(new PublishAccountItemViewModel(new PublishAccount
+                {
+                    Id = _activeGlobalAccount.Id,
+                    Platform = SelectedPlatform.Value,
+                    Name = _activeGlobalAccount.Name,
+                    BaseConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, SelectedPlatform.Value),
+                }));
             }
 
-            SelectedAccount = selectId is null
-                ? VisibleAccounts.FirstOrDefault()
-                : VisibleAccounts.FirstOrDefault(account => account.Id == selectId);
+            SelectedAccount = VisibleAccounts.FirstOrDefault(account =>
+                                  string.IsNullOrWhiteSpace(selectId) || account.Id == selectId)
+                              ?? VisibleAccounts.FirstOrDefault();
             OnPropertyChanged(nameof(QueueSummary));
         }
 
@@ -2163,15 +2161,104 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Dispatcher.UIThread.Post(Refresh);
     }
 
+    private static string ResolveGlobalConfigPath(GlobalAccount? account, PublishPlatform platform) => platform switch
+    {
+        PublishPlatform.KuaishouPersonalRevenue => account?.KuaishouPersonalConfigPath?.Trim() ?? string.Empty,
+        PublishPlatform.KuaishouEnterpriseRevenue => account?.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty,
+        _ => string.Empty,
+    };
+
+    private async Task MigrateLegacyPlatformAccountsAsync(IReadOnlyList<PublishAccount> legacyAccounts)
+    {
+        if (legacyAccounts.Count == 0)
+            return;
+
+        var globalChanged = false;
+        var jobsChanged = false;
+        foreach (var legacy in legacyAccounts)
+        {
+            var global = FindMatchingGlobalAccount(legacy);
+            if (global is null)
+            {
+                global = _globalAccountStore.Add(legacy.Name);
+                _globalAccounts.Add(global);
+                globalChanged = true;
+            }
+
+            switch (legacy.Platform)
+            {
+                case PublishPlatform.KuaishouPersonalRevenue:
+                    if (string.IsNullOrWhiteSpace(global.KuaishouPersonalAccount))
+                    {
+                        global.KuaishouPersonalAccount = legacy.Name;
+                        globalChanged = true;
+                    }
+                    if (string.IsNullOrWhiteSpace(global.KuaishouPersonalConfigPath) &&
+                        !string.IsNullOrWhiteSpace(legacy.BaseConfigPath))
+                    {
+                        global.KuaishouPersonalConfigPath = legacy.BaseConfigPath;
+                        globalChanged = true;
+                    }
+                    break;
+                case PublishPlatform.KuaishouEnterpriseRevenue:
+                    if (string.IsNullOrWhiteSpace(global.KuaishouEnterpriseAccount))
+                    {
+                        global.KuaishouEnterpriseAccount = legacy.Name;
+                        globalChanged = true;
+                    }
+                    if (string.IsNullOrWhiteSpace(global.KuaishouEnterpriseConfigPath) &&
+                        !string.IsNullOrWhiteSpace(legacy.BaseConfigPath))
+                    {
+                        global.KuaishouEnterpriseConfigPath = legacy.BaseConfigPath;
+                        globalChanged = true;
+                    }
+                    break;
+            }
+
+            foreach (var job in _jobs.Where(job =>
+                         job.Platform == legacy.Platform &&
+                         string.Equals(job.AccountId, legacy.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                job.AccountId = global.Id;
+                job.AccountName = global.Name;
+                if (string.IsNullOrWhiteSpace(job.ConfigPath))
+                    job.ConfigPath = ResolveGlobalConfigPath(global, job.Platform);
+                job.UpdatedAt = DateTimeOffset.Now;
+                jobsChanged = true;
+            }
+        }
+
+        if (globalChanged && _globalAccounts.Count > 0)
+            _globalAccountStore.Update(_globalAccounts[0]);
+        if (jobsChanged)
+            await PersistAsync();
+
+        // 迁移完成后软删除旧 owner='platform' 账号，避免形成第二套账号源。
+        await _accountStore.SaveAsync([]);
+        AppendActivityLog($"账号体系迁移完成：已合并 {legacyAccounts.Count} 个旧平台账号档案。");
+    }
+
+    private GlobalAccount? FindMatchingGlobalAccount(PublishAccount legacy)
+    {
+        var byId = _globalAccounts.FirstOrDefault(account =>
+            string.Equals(account.Id, legacy.Id, StringComparison.OrdinalIgnoreCase));
+        if (byId is not null)
+            return byId;
+
+        return _globalAccounts.FirstOrDefault(account =>
+            string.Equals(account.Name, legacy.Name, StringComparison.CurrentCultureIgnoreCase) ||
+            legacy.Platform == PublishPlatform.KuaishouPersonalRevenue &&
+            string.Equals(account.KuaishouPersonalAccount, legacy.Name, StringComparison.CurrentCultureIgnoreCase) ||
+            legacy.Platform == PublishPlatform.KuaishouEnterpriseRevenue &&
+            string.Equals(account.KuaishouEnterpriseAccount, legacy.Name, StringComparison.CurrentCultureIgnoreCase));
+    }
+
     private void NotifyCommands()
     {
         AddJobCommand.NotifyCanExecuteChanged();
         RunSelectedCommand.NotifyCanExecuteChanged();
         RunRunnableCommand.NotifyCanExecuteChanged();
         RetryFailedCommand.NotifyCanExecuteChanged();
-        NewAccountCommand.NotifyCanExecuteChanged();
-        SaveAccountCommand.NotifyCanExecuteChanged();
-        DeleteAccountCommand.NotifyCanExecuteChanged();
         OpenLoginCommand.NotifyCanExecuteChanged();
         RemoveSelectedCommand.NotifyCanExecuteChanged();
         StopCommand.NotifyCanExecuteChanged();

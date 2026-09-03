@@ -100,8 +100,13 @@ public sealed class AnalyticsQueryService
 
         var rows = filtered.Select(account =>
         {
-            var accountActivities = activities.Where(item => item.AccountId.Equals(account.Id, StringComparison.OrdinalIgnoreCase)).ToArray();
-            var accountSubjectsAll = subjects.Where(item => item.AccountId.Equals(account.Id, StringComparison.OrdinalIgnoreCase) && item.Status == AnalyticsRecordStatus.Success).ToArray();
+            var accountActivities = activities.Where(item =>
+                item.AccountId.Equals(account.Id, StringComparison.OrdinalIgnoreCase) &&
+                item.Platform == account.Platform).ToArray();
+            var accountSubjectsAll = subjects.Where(item =>
+                item.AccountId.Equals(account.Id, StringComparison.OrdinalIgnoreCase) &&
+                item.Platform == account.Platform &&
+                item.Status == AnalyticsRecordStatus.Success).ToArray();
             var latestSubjectDate = accountSubjectsAll.Length == 0 ? (DateOnly?)null : accountSubjectsAll.Max(item => item.MetricDate);
             var accountSubjects = accountSubjectsAll.Where(item => item.MetricDate == latestSubjectDate).ToArray();
             SubjectDailyAnalyticsRecord? summary = accountSubjects.Length == 0 ? null : new SubjectDailyAnalyticsRecord
@@ -113,7 +118,9 @@ public sealed class AnalyticsQueryService
                 Favorites = Sum(accountSubjects, item => item.Favorites), AdIncomeFen = Sum(accountSubjects, item => item.AdIncomeFen),
             };
             return new AnalyticsAccountRow(account,
-                snapshots.FirstOrDefault(item => item.AccountId.Equals(account.Id, StringComparison.OrdinalIgnoreCase)),
+                snapshots.FirstOrDefault(item =>
+                    item.AccountId.Equals(account.Id, StringComparison.OrdinalIgnoreCase) &&
+                    item.Platform == account.Platform),
                 accountActivities.Sum(item => item.ItemCount),
                 accountActivities.Where(item => item.Status == "success").Sum(item => item.ItemCount),
                 accountActivities.Where(item => item.Status == "failed").Sum(item => item.ItemCount),
@@ -126,7 +133,9 @@ public sealed class AnalyticsQueryService
                 group.Where(item => item.Status == "success").Sum(item => item.ItemCount),
                 group.Where(item => item.Status == "failed").Sum(item => item.ItemCount),
                 group.Where(item => item.Status == "draft").Sum(item => item.ItemCount))).ToArray();
-        var summary = new AnalyticsSummary(filtered.Length, filtered.Select(item => item.Platform).Distinct().Count(),
+        var summary = new AnalyticsSummary(
+            filtered.Select(item => item.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            filtered.Select(item => item.Platform).Distinct().Count(),
             rows.Sum(item => item.TaskCount), rows.Sum(item => item.Succeeded), rows.Sum(item => item.Failed), rows.Sum(item => item.Drafts),
             rows.Sum(item => item.Snapshot?.VideoTotal ?? 0), rows.Sum(item => item.Snapshot?.FollowerTotal ?? 0),
             rows.Sum(item => item.Snapshot?.YesterdayViews ?? item.KuaishouSummary?.Views ?? 0),
