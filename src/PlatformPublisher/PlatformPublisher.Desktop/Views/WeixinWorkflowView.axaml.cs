@@ -63,6 +63,17 @@ public partial class WeixinWorkflowView : UserControl
             await ViewModel.ImportLocalProjectDirectoriesAsync(folders.Select(folder => folder.Path.LocalPath));
     }
 
+    private async void OnUploadDramasClick(object? sender,RoutedEventArgs e)
+    {
+        var owner=TopLevel.GetTopLevel(this) as Window;if(owner is null||ViewModel is null)return;
+        if(string.IsNullOrWhiteSpace(ViewModel.DraftProjectDirectory)||!Directory.Exists(ViewModel.DraftProjectDirectory))
+        {
+            ViewModel.StatusMessage="请先选择有效的工作目录。";return;
+        }
+        var titles=await UploadDramaTitlesDialog.ShowAsync(owner);if(string.IsNullOrWhiteSpace(titles))return;
+        await ViewModel.ImportDramaTitlesAsync(titles);
+    }
+
     private async void OnPickConfigClick(object? sender, RoutedEventArgs e)
     {
         var storage = TopLevel.GetTopLevel(this)?.StorageProvider;

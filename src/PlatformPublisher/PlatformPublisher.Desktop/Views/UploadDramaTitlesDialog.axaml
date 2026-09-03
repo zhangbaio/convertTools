@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PlatformPublisher.Desktop.Views.UploadDramaTitlesDialog"
+        Title="上传短剧 - 视频号" Width="570" Height="390"
+        MinWidth="500" MinHeight="340" WindowStartupLocation="CenterOwner"
+        CanResize="True">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16" RowSpacing="10">
+    <TextBlock Text="一行输入一个短剧名称。确定后会按精确搜索模式匹配短剧，创建项目并加入项目执行队列。"
+               TextWrapping="Wrap" />
+    <TextBlock Grid.Row="1" Text="当前导入集数限制：最少 10 集、最多 200 集；超出范围的结果会自动过滤。下载队列与项目队列相互独立。"
+               TextWrapping="Wrap" Foreground="#64748B" />
+    <TextBox x:Name="TitlesTextBox" Grid.Row="2" AcceptsReturn="True" TextWrapping="Wrap"
+             Watermark="例如：&#10;她的豪门，我的刑场&#10;岁岁冥婚鬼夫夜夜来" />
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="取消" Click="OnCancelClick" />
+      <Button Content="确定" Click="OnConfirmClick" Classes="primaryAction" />
+    </StackPanel>
+  </Grid>
+</Window>

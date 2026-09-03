@@ -123,6 +123,7 @@ public partial class App : Application
         services.AddSingleton<MaterialDraftFactory>();
         services.AddSingleton<UnifiedPublishRepository>();
         services.AddSingleton<LegacyPublishDraftMigrator>();
+        services.AddSingleton<DramaTitleImportService>();
         services.AddSingleton<IPublishBatchStore>(provider=>provider.GetRequiredService<UnifiedPublishRepository>());
         services.AddSingleton<AccountOperationGate>();
         services.AddSingleton<IUnifiedMaterialExecutor, WeixinUnifiedMaterialExecutor>();

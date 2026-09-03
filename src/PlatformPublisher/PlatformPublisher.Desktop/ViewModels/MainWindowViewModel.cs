@@ -55,6 +55,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly WeixinProofArtifactsService _proofArtifactsService;
     private readonly KuaishouPersonalProjectDataService _kuaishouPersonalProjectDataService;
     private readonly KuaishouPersonalPreparationService _kuaishouPersonalPreparationService;
+    private readonly DramaTitleImportService _dramaTitleImportService;
     private readonly List<PublishJob> _jobs = [];
     private readonly List<PublishAccount> _accounts = [];
     private readonly DispatcherTimer _scheduleTimer;
@@ -80,7 +81,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         WeixinManagementSyncService managementSyncService,
         WeixinProofArtifactsService proofArtifactsService,
         KuaishouPersonalProjectDataService kuaishouPersonalProjectDataService,
-        KuaishouPersonalPreparationService kuaishouPersonalPreparationService)
+        KuaishouPersonalPreparationService kuaishouPersonalPreparationService,
+        DramaTitleImportService dramaTitleImportService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -97,6 +99,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _proofArtifactsService = proofArtifactsService;
         _kuaishouPersonalProjectDataService = kuaishouPersonalProjectDataService;
         _kuaishouPersonalPreparationService = kuaishouPersonalPreparationService;
+        _dramaTitleImportService=dramaTitleImportService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -654,6 +657,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
         StatusMessage = $"导入本地项目完成：新增 {added} 个任务。";
         AppendActivityLog(StatusMessage);
         return added;
+    }
+
+    public async Task ImportDramaTitlesAsync(string titlesText)
+    {
+        if(!HasActiveWeixinAccount){StatusMessage="请先在左侧选择视频号账号。";return;}
+        if(!Directory.Exists(DraftProjectDirectory)){StatusMessage="请先选择有效的工作目录。";return;}
+        await RunBusyAsync(async cancellationToken=>
+        {
+            try
+            {
+                StatusMessage="正在按剧名精确搜索并创建短剧项目…";AppendActivityLog(StatusMessage);
+                var outcome=await _dramaTitleImportService.ImportAsync(DraftProjectDirectory,titlesText,AppendActivityLog,cancellationToken);
+                var added=await AddImportedProjectJobsAsync(outcome.ProjectDirectories);
+                var existing=outcome.ProjectDirectories.Count-added;
+                StatusMessage=$"上传短剧完成：请求 {outcome.RequestedCount} 个，新增 {added} 个，已存在 {existing} 个，失败 {outcome.Failures.Count} 个。";
+                AppendActivityLog(StatusMessage);
+                foreach(var failure in outcome.Failures.Take(20))AppendActivityLog($"[{failure.Title}] {failure.Reason}");
+            }
+            catch(OperationCanceledException){StatusMessage="上传短剧已停止。";AppendActivityLog(StatusMessage);}
+            catch(Exception ex){StatusMessage="上传短剧失败："+ex.Message;AppendActivityLog(StatusMessage);}
+        });
     }
 
     private async Task<int> AddImportedProjectJobsAsync(IEnumerable<string> directories)
