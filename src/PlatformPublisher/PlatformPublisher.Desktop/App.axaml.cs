@@ -13,6 +13,9 @@ using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Desktop.Views;
 using ShortDrama.Infrastructure.DependencyInjection;
 using TikTokPublisher.Ui.ViewModels;
+using PlatformPublisher.Adx.Automation;
+using PlatformPublisher.Adx.Security;
+using PlatformPublisher.Adx.Storage;
 
 namespace PlatformPublisher.Desktop;
 
@@ -33,7 +36,7 @@ public partial class App : Application
             var mainWindow = new MainWindow { DataContext = viewModel };
             mainWindow.BindSettings(settingsViewModel);
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
-            mainWindow.BindWeixinWorkflow(viewModel);
+            mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>());
             mainWindow.BindWeixinDownload(viewModel);
             desktop.MainWindow = mainWindow;
             desktop.Exit += (_, _) => viewModel.Shutdown();
@@ -53,6 +56,17 @@ public partial class App : Application
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
         services.AddSingleton<WeixinSystemHighlightPublishService>();
         services.AddSingleton<WeixinLocalVideoPublishService>();
+        services.AddSingleton<WeixinAdxMaterialPublishService>();
+        services.AddSingleton<IAdxDataProtector, WindowsAdxDataProtector>();
+        services.AddSingleton(_ => new AdxSettingsStore(Path.Combine(PlatformPublisherPaths.DataRoot, "adx", "settings.json")));
+        services.AddSingleton(provider => new AdxCredentialStore(
+            Path.Combine(PlatformPublisherPaths.DataRoot, "adx", "password.dat"),
+            provider.GetRequiredService<IAdxDataProtector>()));
+        services.AddSingleton(provider => new AdxSessionStore(
+            Path.Combine(PlatformPublisherPaths.DataRoot, "adx", "auth-state.dat"),
+            provider.GetRequiredService<IAdxDataProtector>()));
+        services.AddSingleton<AdxBatchStore>();
+        services.AddSingleton<AdxAutomationService>();
         services.AddSingleton<WeixinAutoShelfService>();
         services.AddSingleton<WeixinSmartRecutService>();
         services.AddSingleton<WeixinManagementSyncService>();

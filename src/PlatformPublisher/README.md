@@ -38,6 +38,7 @@ PlatformPublisher.Desktop
 - 批量与定时：支持顺序执行当前平台待办任务；应用保持运行时每 30 秒检查到期任务，异常退出后会把遗留的“执行中”任务恢复为待执行。
 - 视频号系统高光：支持按剧名、数量和“混剪/解说/切片”类型发表，可选择发表后重新生成高光。
 - 视频号普通素材：支持项目 `material-videos/videos`、本地目录顶层视频和手工选择多个视频文件，复用视频号描述、原创、位置和重复发表选项。
+- 视频号 ADX 素材：支持独立加密账号与登录态、按原剧名查询、候选指标选择、1–5 路并发下载、ADX/项目封面、v1/v2 下载批次恢复，以及下载完成后创建持久化任务并自动保存到视频号草稿。每条素材完成后立即按账号回写批次清单，重试不会覆盖历史成功项。
 - 视频号剧集任务覆盖：读取项目原始 JSON，在独立任务目录生成临时配置，可按高级配置筛选上传集数；原始项目配置保持只读。
 - AI/ASR 配置注入：视频号素材配置从多平台独立系统设置读取 AI Endpoint、Key、模型、超时和 ASR 参数，不读取 TikTok 助手设置库。
 - 视频号二级导航：视频号助手内提供“多账号素材发布”“账号配置”“剧集上架”“项目流水线”“短剧下载”和“已归档项目”六个 TAB，共用左侧账号区。短剧下载页支持搜索/今日短剧、批量选择、指定集数下载并自动加入视频号队列。项目流水线支持扫描工作根目录、导入多个本地项目、按剧名创建项目，并已接入剧集、目录素材、系统高光、项目素材、本地视频和自选视频任务，支持筛选分页、逐步骤状态持久化与中断恢复、ASR/剧情信号驱动的智能重剪、AI 制作证明、可信时间戳本地模板证书（非第三方 TSA 认证）、自动扫描未上架剧集并连续上架、短剧资料/上传状态/上传者同步管理系统、勾选式批量执行/重置/改状态/改归属账号/移出、保存步骤设置、定时执行、失败重试、人工介入、待上传优先、上传后自动归档、持久化队列及独立运行日志；同时复用公共短剧服务执行下载、改写、海报、转码、一键修复、无损重封装、字段补齐、成本报表、工程图和素材校验。归档页可按工作根目录读取归档元数据并打开归档、源项目和工作项目目录。
@@ -52,5 +53,22 @@ PlatformPublisher.Desktop
 ```powershell
 & "D:\code\convertTools-main\.dotnet\dotnet.exe" run --project "D:\code\convertTools-main\src\PlatformPublisher\PlatformPublisher.Desktop\PlatformPublisher.Desktop.csproj" -c Release
 ```
+
+源码启动、任务栏、发布 EXE、安装程序和安装后的快捷方式统一使用
+`PlatformPublisher.Desktop/Assets/jushu-assistant-logo-v2.ico`。
+
+## 打包
+
+```powershell
+& "D:\code\convertTools-main\packaging\package-platform-installer.ps1" -Version "1.0.0"
+```
+
+仅生成发布目录、不编译安装程序：
+
+```powershell
+& "D:\code\convertTools-main\packaging\package-platform-installer.ps1" -Version "1.0.0" -SkipInstallerCompile
+```
+
+发布目录为 `artifacts/publish/YunfanPlatformPublisher`，安装包输出到 `artifacts/INSTALL`。
 
 独立任务存储位置：`%LocalAppData%\YunfanPlatformPublisher\publish-jobs.json`。

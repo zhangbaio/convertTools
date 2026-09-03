@@ -8,6 +8,8 @@ using PlatformPublisher.Common.Services;
 using PlatformPublisher.Weixin.Publishing;
 using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Ui.ViewModels;
+using PlatformPublisher.Adx.Automation;
+using PlatformPublisher.Adx.Storage;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -32,12 +34,12 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetSeriesPublishContent(seriesView);
     }
 
-    public void BindWeixinWorkflow(MainWindowViewModel viewModel)
+    public void BindWeixinWorkflow(MainWindowViewModel viewModel, AdxAutomationService adxService, AdxBatchStore adxBatchStore)
     {
         var workflowView = new WeixinWorkflowView { DataContext = viewModel };
         workflowView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
         var materialView = new WeixinMaterialUploadView { DataContext = viewModel };
-        materialView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
+        materialView.Bind(() => WeixinPublisherView.SelectedAccountProfile, adxService, adxBatchStore);
         WeixinPublisherView.SelectedAccountChanged += account =>
         {
             workflowView.ApplyAccount(account);

@@ -17,6 +17,7 @@ public enum PublishJobKind
     ProjectMaterials,
     LocalVideos,
     CustomVideos,
+    AdxMaterials,
 }
 
 public static class PublishJobKindExtensions
@@ -29,6 +30,7 @@ public static class PublishJobKindExtensions
         PublishJobKind.ProjectMaterials => "项目素材发表",
         PublishJobKind.LocalVideos => "本地视频发表",
         PublishJobKind.CustomVideos => "自选视频发表",
+        PublishJobKind.AdxMaterials => "ADX素材发表",
         _ => kind.ToString(),
     };
 }

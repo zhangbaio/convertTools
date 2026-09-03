@@ -796,6 +796,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                                 new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "用户停止"))
                         };
                         SaveMaterialPublishState(statePath, publishState);
+                        ReportMaterialItemCompleted(request, videoPath, "cancelled", "用户停止");
                         return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "微信素材上传已停止，可继续运行。");
                     }
                 }
@@ -820,6 +821,13 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                         new MaterialPublishStateEntry("success", videoPath, DateTimeOffset.Now, null))
                 };
                 SaveMaterialPublishState(statePath, publishState);
+                ReportMaterialItemCompleted(
+                    request,
+                    videoPath,
+                    string.Equals(config.VideoPublish.FinalAction, "draft", StringComparison.OrdinalIgnoreCase)
+                        ? "draft_saved"
+                        : "success",
+                    config.VideoPublish.FinalActionText + "完成");
             }
             catch (OperationCanceledException)
             {
@@ -831,6 +839,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                         new MaterialPublishStateEntry("interrupted", videoPath, DateTimeOffset.Now, "已取消"))
                 };
                 SaveMaterialPublishState(statePath, publishState);
+                ReportMaterialItemCompleted(request, videoPath, "cancelled", "已取消");
                 throw;
             }
             catch (Exception ex)
@@ -843,6 +852,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
                         new MaterialPublishStateEntry("failed", videoPath, DateTimeOffset.Now, ex.Message))
                 };
                 SaveMaterialPublishState(statePath, publishState);
+                ReportMaterialItemCompleted(request, videoPath, "failed", ex.Message);
 
                 if (!config.VideoPublish.PauseOnError)
                 {
@@ -869,6 +879,26 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             ProjectDir: request.ProjectDir,
             ConfigPath: resolvedConfigPath,
             Message: $"C# 微信素材上传已完成，共处理 {selectedVideos.Count} 条视频。");
+    }
+
+    private static void ReportMaterialItemCompleted(
+        WeixinUploadRequest request,
+        string videoPath,
+        string status,
+        string message)
+    {
+        try
+        {
+            request.MaterialItemCompleted?.Invoke(new WeixinMaterialPublishItemResult(
+                videoPath,
+                status,
+                message,
+                DateTimeOffset.UtcNow));
+        }
+        catch
+        {
+            // 状态观察者失败不能反向破坏已经完成的平台发布动作。
+        }
     }
 
     private static bool ShouldUseNewDramaMountLiveMergePipeline(

@@ -25,6 +25,7 @@
                         <Button Content="项目素材发表" Click="OnProjectMaterialsClick" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
                         <Button Content="本地视频发表" Click="OnLocalVideosClick" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
                         <Button Content="自选视频发表" Click="OnCustomVideosClick" Classes="secondaryAction compactAction" />
+                        <Button Content="ADX素材下载" Click="OnAdxMaterialsClick" Classes="primaryAction compactAction" Margin="7,0,0,0" />
                     </WrapPanel>
                 </Grid>
                 <Grid Grid.Row="2" ColumnDefinitions="88,*" ColumnSpacing="8">

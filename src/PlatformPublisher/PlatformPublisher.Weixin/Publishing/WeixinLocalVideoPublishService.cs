@@ -75,7 +75,7 @@ public sealed class WeixinLocalVideoPublishService
 
     public WeixinLocalVideoPublishPlan Prepare(PublishJob job)
     {
-        if (job.Kind is not (PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos))
+        if (job.Kind is not (PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos or PublishJobKind.AdxMaterials))
             throw new InvalidOperationException($"不支持的视频素材任务：{job.Kind}");
 
         var resolvedFiles = ResolveVideoFiles(job);
@@ -91,6 +91,7 @@ public sealed class WeixinLocalVideoPublishService
         {
             PublishJobKind.ProjectMaterials => "project_materials",
             PublishJobKind.CustomVideos => "custom_files",
+            PublishJobKind.AdxMaterials => "custom_files",
             _ => "source_videos",
         };
         var accountId = PublishAccountStorageKey.ForJob(job);
@@ -179,6 +180,7 @@ public sealed class WeixinLocalVideoPublishService
         IEnumerable<string> candidates = job.Kind switch
         {
             PublishJobKind.CustomVideos => job.CustomVideoFiles,
+            PublishJobKind.AdxMaterials => job.CustomVideoFiles,
             PublishJobKind.LocalVideos => EnumerateTopLevelVideos(job.ProjectDirectory),
             PublishJobKind.ProjectMaterials => ResolveProjectMaterialFiles(job.ProjectDirectory),
             _ => [],

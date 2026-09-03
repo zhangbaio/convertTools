@@ -13,6 +13,7 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
     private readonly WeixinSystemHighlightPublishService _systemHighlightPublishService;
     private readonly WeixinLocalVideoPublishService _localVideoPublishService;
     private readonly WeixinSeriesConfigOverrideService _seriesConfigOverrideService;
+    private readonly WeixinAdxMaterialPublishService _adxMaterialPublishService;
 
     public WeixinChannelPublishAdapter(
         IWeixinChannelUploader uploader,
@@ -20,7 +21,8 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         WeixinDirectoryMaterialPublishService directoryMaterialPublishService,
         WeixinSystemHighlightPublishService systemHighlightPublishService,
         WeixinLocalVideoPublishService localVideoPublishService,
-        WeixinSeriesConfigOverrideService seriesConfigOverrideService)
+        WeixinSeriesConfigOverrideService seriesConfigOverrideService,
+        WeixinAdxMaterialPublishService adxMaterialPublishService)
     {
         _uploader = uploader;
         _browserSessionLauncher = browserSessionLauncher;
@@ -28,6 +30,7 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         _systemHighlightPublishService = systemHighlightPublishService;
         _localVideoPublishService = localVideoPublishService;
         _seriesConfigOverrideService = seriesConfigOverrideService;
+        _adxMaterialPublishService = adxMaterialPublishService;
     }
 
     public PublishPlatform Platform => PublishPlatform.WeixinChannel;
@@ -55,6 +58,12 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         if (job.Kind is PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos)
         {
             await _localVideoPublishService.PublishAsync(job, progress, cancellationToken);
+            return;
+        }
+
+        if (job.Kind == PublishJobKind.AdxMaterials)
+        {
+            await _adxMaterialPublishService.PublishAsync(job, progress, cancellationToken);
             return;
         }
 

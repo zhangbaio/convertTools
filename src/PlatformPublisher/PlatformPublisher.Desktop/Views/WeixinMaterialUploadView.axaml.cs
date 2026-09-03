@@ -4,6 +4,8 @@ using Avalonia.Platform.Storage;
 using ChannelsPublisher.Core.Models;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Weixin.Publishing;
+using PlatformPublisher.Adx.Automation;
+using PlatformPublisher.Adx.Storage;
 using PublishJobKind = PlatformPublisher.Common.Models.PublishJobKind;
 
 namespace PlatformPublisher.Desktop.Views;
@@ -11,6 +13,8 @@ namespace PlatformPublisher.Desktop.Views;
 public partial class WeixinMaterialUploadView : UserControl
 {
     private Func<PublishAccount?>? _accountProvider;
+    private AdxAutomationService? _adxService;
+    private AdxBatchStore? _adxBatchStore;
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
     public WeixinMaterialUploadView()
@@ -23,9 +27,11 @@ public partial class WeixinMaterialUploadView : UserControl
         };
     }
 
-    public void Bind(Func<PublishAccount?> accountProvider)
+    public void Bind(Func<PublishAccount?> accountProvider, AdxAutomationService adxService, AdxBatchStore adxBatchStore)
     {
         _accountProvider = accountProvider;
+        _adxService = adxService;
+        _adxBatchStore = adxBatchStore;
         ApplyAccount(accountProvider());
     }
 
@@ -43,6 +49,25 @@ public partial class WeixinMaterialUploadView : UserControl
     private void OnProjectMaterialsClick(object? sender, RoutedEventArgs e) => ViewModel?.SelectMaterialJobKind(PublishJobKind.ProjectMaterials);
     private void OnLocalVideosClick(object? sender, RoutedEventArgs e) => ViewModel?.SelectMaterialJobKind(PublishJobKind.LocalVideos);
     private void OnCustomVideosClick(object? sender, RoutedEventArgs e) => ViewModel?.SelectMaterialJobKind(PublishJobKind.CustomVideos);
+
+    private async void OnAdxMaterialsClick(object? sender, RoutedEventArgs e)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var account = _accountProvider?.Invoke();
+        if (owner is null || ViewModel is null || account is null || _adxService is null || _adxBatchStore is null)
+        {
+            if (ViewModel is not null) ViewModel.StatusMessage = "请先选择视频号账号。";
+            return;
+        }
+        var selected = ViewModel.SelectedJob;
+        var dialog = new AdxMaterialsDialog(
+            _adxService, _adxBatchStore, account.Id, account.Name, account.ProfileDir,
+            ViewModel.DraftProjectDirectory,
+            selected?.OriginalTitle ?? string.Empty,
+            selected?.NewTitle ?? selected?.ProjectName ?? string.Empty,
+            ViewModel.QueueAdxPublishAsync);
+        await dialog.ShowDialog(owner);
+    }
 
     private async void OnPickProjectDirectoryClick(object? sender, RoutedEventArgs e)
     {
