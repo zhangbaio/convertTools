@@ -6,6 +6,7 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Services;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using PlatformPublisher.Analytics.Services;
 
 namespace PlatformPublisher.Weixin.Publishing;
 
@@ -33,40 +34,50 @@ public sealed class WeixinLocalVideoPublishService
     private readonly IWeixinChannelUploader _uploader;
     private readonly string _dataRoot;
     private readonly IAiRuntimeSettingsProvider _aiSettingsProvider;
+    private readonly IAnalyticsActivitySink _analyticsSink;
 
     public WeixinLocalVideoPublishService(IWeixinChannelUploader uploader)
-        : this(uploader, PlatformPublisherPaths.DataRoot, EmptyAiRuntimeSettingsProvider.Instance)
+        : this(uploader, PlatformPublisherPaths.DataRoot, EmptyAiRuntimeSettingsProvider.Instance, NullAnalyticsActivitySink.Instance)
     {
     }
 
     public WeixinLocalVideoPublishService(
         IWeixinChannelUploader uploader,
         IAiRuntimeSettingsProvider aiSettingsProvider)
-        : this(uploader, PlatformPublisherPaths.DataRoot, aiSettingsProvider)
+        : this(uploader, PlatformPublisherPaths.DataRoot, aiSettingsProvider, NullAnalyticsActivitySink.Instance)
     {
     }
 
     public WeixinLocalVideoPublishService(IWeixinChannelUploader uploader, string dataRoot)
-        : this(uploader, dataRoot, EmptyAiRuntimeSettingsProvider.Instance)
+        : this(uploader, dataRoot, EmptyAiRuntimeSettingsProvider.Instance, NullAnalyticsActivitySink.Instance)
     {
     }
 
     private WeixinLocalVideoPublishService(
         IWeixinChannelUploader uploader,
         string dataRoot,
-        IAiRuntimeSettingsProvider aiSettingsProvider)
+        IAiRuntimeSettingsProvider aiSettingsProvider,
+        IAnalyticsActivitySink analyticsSink)
     {
         _uploader = uploader;
         _dataRoot = Path.GetFullPath(dataRoot);
         _aiSettingsProvider = aiSettingsProvider;
+        _analyticsSink = analyticsSink;
     }
+
+    public WeixinLocalVideoPublishService(IWeixinChannelUploader uploader, IAiRuntimeSettingsProvider aiSettingsProvider,
+        IAnalyticsActivitySink analyticsSink) : this(uploader, PlatformPublisherPaths.DataRoot, aiSettingsProvider, analyticsSink) { }
 
     public async Task PublishAsync(PublishJob job, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         var plan = Prepare(job);
         progress?.Report($"{job.Kind.DisplayName()}：检测到 {plan.AvailableVideoCount} 个视频，本次发表 {plan.PublishCount} 个。");
+        var request = new WeixinUploadRequest(job.Id, job.ProjectDirectory, job.ProjectName, plan.ConfigPath, Path.GetFileName(plan.ConfigPath))
+        {
+            MaterialItemCompleted = item => _analyticsSink.Record(job, item.VideoPath, item.Status, item.CompletedAt),
+        };
         var result = await _uploader.UploadAsync(
-            new WeixinUploadRequest(job.Id, job.ProjectDirectory, job.ProjectName, plan.ConfigPath, Path.GetFileName(plan.ConfigPath)),
+            request,
             progress,
             cancellationToken);
         if (!result.Ok)

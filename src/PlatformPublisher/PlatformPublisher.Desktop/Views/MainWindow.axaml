@@ -3,6 +3,7 @@
         xmlns:vm="using:PlatformPublisher.Desktop.ViewModels"
         xmlns:tiktokViews="using:TikTokPublisher.Ui.Views"
         xmlns:channelsViews="using:ChannelsPublisher.Desktop.Views"
+        xmlns:views="using:PlatformPublisher.Desktop.Views"
         x:Class="PlatformPublisher.Desktop.Views.MainWindow"
         Width="1496"
         Height="860"
@@ -23,6 +24,7 @@
                     <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
                     <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
                     <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
+                    <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
                     <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
                 </StackPanel>
             </Grid>
@@ -349,6 +351,7 @@
             </Grid>
         </Grid>
         <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" Grid.ColumnSpan="2" />
+        <views:AnalyticsView x:Name="AnalyticsPage" Grid.ColumnSpan="2" IsVisible="False" />
         <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" Grid.Column="1" IsVisible="False" />
         </Grid>
 

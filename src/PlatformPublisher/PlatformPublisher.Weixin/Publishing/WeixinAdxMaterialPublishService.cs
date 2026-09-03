@@ -5,6 +5,7 @@ using PlatformPublisher.Adx.Storage;
 using PlatformPublisher.Common.Models;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using PlatformPublisher.Analytics.Services;
 
 namespace PlatformPublisher.Weixin.Publishing;
 
@@ -14,13 +15,16 @@ public sealed class WeixinAdxMaterialPublishService
     private readonly IWeixinChannelUploader _uploader;
     private readonly WeixinLocalVideoPublishService _localPublishService;
     private readonly AdxBatchStore _batchStore;
+    private readonly IAnalyticsActivitySink _analyticsSink;
 
     public WeixinAdxMaterialPublishService(IWeixinChannelUploader uploader,
-        WeixinLocalVideoPublishService localPublishService, AdxBatchStore batchStore)
+        WeixinLocalVideoPublishService localPublishService, AdxBatchStore batchStore,
+        IAnalyticsActivitySink? analyticsSink = null)
     {
         _uploader = uploader;
         _localPublishService = localPublishService;
         _batchStore = batchStore;
+        _analyticsSink = analyticsSink ?? NullAnalyticsActivitySink.Instance;
     }
 
     public static AdxPublishPayload ReadPayload(PublishJob job)
@@ -52,6 +56,7 @@ public sealed class WeixinAdxMaterialPublishService
             {
                 if (!byPath.TryGetValue(Path.GetFullPath(outcome.VideoPath), out var item)) return;
                 _batchStore.RecordItem(item.ManifestPath, job.AccountId, item.MaterialId, outcome.Status, outcome.Message);
+                _analyticsSink.Record(job, item.MaterialId, outcome.Status, outcome.CompletedAt);
                 progress?.Report($"ADX TOP 素材 {item.MaterialId}：{outcome.Message}");
             },
         };

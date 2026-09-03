@@ -16,6 +16,10 @@ using TikTokPublisher.Ui.ViewModels;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Security;
 using PlatformPublisher.Adx.Storage;
+using PlatformPublisher.Analytics.Services;
+using PlatformPublisher.Analytics.Storage;
+using PlatformPublisher.Kuaishou.Analytics;
+using PlatformPublisher.Weixin.Analytics;
 
 namespace PlatformPublisher.Desktop;
 
@@ -38,6 +42,7 @@ public partial class App : Application
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
             mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>());
             mainWindow.BindWeixinDownload(viewModel);
+            mainWindow.BindAnalytics(_services.GetRequiredService<AnalyticsViewModel>(), viewModel);
             desktop.MainWindow = mainWindow;
             desktop.Exit += (_, _) => viewModel.Shutdown();
         }
@@ -52,6 +57,14 @@ public partial class App : Application
         services.AddShortDramaServices();
         services.AddSingleton<PublishJobStore>();
         services.AddSingleton<PublishAccountStore>();
+        services.AddSingleton(_ => new AnalyticsRepository(PlatformPublisherPaths.AnalyticsDatabasePath));
+        services.AddSingleton<AnalyticsQueryService>();
+        services.AddSingleton<LocalPublishActivitySyncService>();
+        services.AddSingleton<IAnalyticsActivitySink, AnalyticsActivitySink>();
+        services.AddSingleton<AnalyticsCollectionCoordinator>();
+        services.AddSingleton<YunfanAnalyticsImporter>();
+        services.AddSingleton<WeixinAnalyticsCollector>();
+        services.AddSingleton<KuaishouAnalyticsCollector>();
         services.AddSingleton<WeixinWorkflowSettingsStore>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
         services.AddSingleton<WeixinSystemHighlightPublishService>();
@@ -86,6 +99,7 @@ public partial class App : Application
             _ => new UnavailableKuaishouPublishAdapter(PublishPlatform.KuaishouEnterpriseRevenue));
         services.AddSingleton<PlatformPublishCoordinator>();
         services.AddSingleton<MainWindowViewModel>();
+        services.AddSingleton<AnalyticsViewModel>();
         services.AddSingleton(_ => new SystemSettingsViewModel(PlatformPublisherPaths.SettingsDatabasePath)
         {
             LoginSettingsHint = "短剧搜索、下载和数据链路参数为多平台助手独立配置；平台登录信息请到左侧账号档案中维护。",

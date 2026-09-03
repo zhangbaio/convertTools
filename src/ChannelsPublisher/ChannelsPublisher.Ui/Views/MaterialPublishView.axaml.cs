@@ -40,6 +40,28 @@ public partial class MaterialPublishView : UserControl
     }
 
     public PublishAccount? SelectedAccountProfile => _vm?.SelectedAccount?.Model;
+    public IReadOnlyList<PublishAccount> AccountProfiles => _vm?.Accounts.Select(item => item.Model).ToArray() ?? [];
+    public bool HasActivePublish => _publishCts is not null;
+
+    public async Task<string> EnsureAccountCdpEndpointAsync(string accountId, CancellationToken cancellationToken)
+    {
+        if (_vm?.Accounts.FirstOrDefault(item => item.Id == accountId) is not { } account)
+            throw new InvalidOperationException("未找到视频号账号。");
+        var host = GetOrCreateHost(account);
+        if (host.CdpEndpoint is { } ready) return ready;
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnReady()
+        {
+            if (host.CdpEndpoint is { } endpoint) completion.TrySetResult(endpoint);
+        }
+        host.Ready += OnReady;
+        try
+        {
+            using var registration = cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
+            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        }
+        finally { host.Ready -= OnReady; }
+    }
 
     public event Action<PublishAccount?>? SelectedAccountChanged;
 

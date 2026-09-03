@@ -10,6 +10,7 @@ using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Ui.ViewModels;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Storage;
+using PlatformPublisher.Analytics.Models;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -86,6 +87,22 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetDramaDownloadContent(view);
     }
 
+    public void BindAnalytics(AnalyticsViewModel analyticsViewModel, MainWindowViewModel mainViewModel)
+    {
+        analyticsViewModel.Bind(
+            () => WeixinPublisherView.AccountProfiles
+                .Select(account => new AnalyticsAccount(account.Id, PublishPlatform.WeixinChannel, account.Name, account.ProfileDir))
+                .Concat(mainViewModel.ListAnalyticsAccounts().Where(account => account.Platform != PublishPlatform.WeixinChannel))
+                .ToArray(),
+            async (accountId, cancellationToken) =>
+            {
+                if (mainViewModel.IsBusy || WeixinPublisherView.HasActivePublish)
+                    throw new InvalidOperationException("当前有发布任务运行，暂时不能采集视频号数据。");
+                return await WeixinPublisherView.EnsureAccountCdpEndpointAsync(accountId, cancellationToken);
+            });
+        AnalyticsPage.DataContext = analyticsViewModel;
+    }
+
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
     private void OnWeixinNavClick(object? sender, RoutedEventArgs e) => ShowWeixinPage();
@@ -97,6 +114,7 @@ public partial class MainWindow : Window
         ShowKuaishouPage(PublishPlatform.KuaishouEnterpriseRevenue);
 
     private void OnSettingsNavClick(object? sender, RoutedEventArgs e) => ShowSettingsPage();
+    private void OnAnalyticsNavClick(object? sender, RoutedEventArgs e) => ShowAnalyticsPage();
 
     private void ShowWeixinPage()
     {
@@ -104,6 +122,7 @@ public partial class MainWindow : Window
         WeixinPublisherView.IsVisible = true;
         PipelinePage.IsVisible = false;
         SharedSettingsView.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
         SetActiveNavigation(WeixinNavButton);
     }
 
@@ -114,6 +133,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = true;
         SharedSettingsView.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
             ? KuaishouPersonalNavButton
             : KuaishouEnterpriseNavButton);
@@ -125,7 +145,17 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         SharedSettingsView.IsVisible = true;
+        AnalyticsPage.IsVisible = false;
         SetActiveNavigation(SettingsNavButton);
+    }
+
+    private void ShowAnalyticsPage()
+    {
+        WeixinPublisherView.IsVisible = false;
+        PipelinePage.IsVisible = false;
+        SharedSettingsView.IsVisible = false;
+        AnalyticsPage.IsVisible = true;
+        SetActiveNavigation(AnalyticsNavButton);
     }
 
     private void SetActiveNavigation(Button activeButton)
@@ -135,6 +165,7 @@ public partial class MainWindow : Window
                      WeixinNavButton,
                      KuaishouPersonalNavButton,
                      KuaishouEnterpriseNavButton,
+                     AnalyticsNavButton,
                      SettingsNavButton,
                  })
         {
