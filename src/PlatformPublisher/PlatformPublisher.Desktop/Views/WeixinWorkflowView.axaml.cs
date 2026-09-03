@@ -49,7 +49,7 @@ public partial class WeixinWorkflowView : UserControl
             AllowMultiple = false,
         });
         if (folders.Count > 0)
-            ViewModel.DraftProjectDirectory = folders[0].Path.LocalPath;
+            ViewModel.SetActiveAccountWorkRootDirectory(folders[0].Path.LocalPath);
     }
 
     private async void OnImportLocalProjectsClick(object? sender, RoutedEventArgs e)
@@ -77,7 +77,7 @@ public partial class WeixinWorkflowView : UserControl
                 AllowMultiple=false,
             });
             if(folders.Count==0)return;
-            ViewModel.DraftProjectDirectory=folders[0].Path.LocalPath;
+            if(!ViewModel.SetActiveAccountWorkRootDirectory(folders[0].Path.LocalPath))return;
         }
         var sourceStatus=ViewModel.GetDramaSourceConfigurationStatus();
         if(!sourceStatus.IsConfigured)

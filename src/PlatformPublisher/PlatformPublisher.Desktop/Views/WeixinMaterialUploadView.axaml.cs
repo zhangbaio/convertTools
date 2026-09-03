@@ -134,7 +134,7 @@ public partial class WeixinMaterialUploadView : UserControl
             Title = "选择素材上传工作目录",
             AllowMultiple = false,
         });
-        if (folders.Count > 0) ViewModel.DraftProjectDirectory = folders[0].Path.LocalPath;
+        if (folders.Count > 0) ViewModel.SetActiveAccountWorkRootDirectory(folders[0].Path.LocalPath);
     }
 
     private async void OnPickCustomVideosClick(object? sender, RoutedEventArgs e)

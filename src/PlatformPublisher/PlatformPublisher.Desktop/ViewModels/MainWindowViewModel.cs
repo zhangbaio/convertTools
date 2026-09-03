@@ -24,6 +24,8 @@ namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel : ObservableObject
 {
+    public event Action? ActiveAccountWorkRootDirectoryChanged;
+
     private static readonly (string Key, string Label)[] WorkflowStepDefinitions =
     [
         ("download", "下载剧集"),
@@ -410,6 +412,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
         UseGlobalAccount(selectedAccount);
     }
 
+    public bool SetActiveAccountWorkRootDirectory(string? directory)
+    {
+        if (_activeGlobalAccount is null)
+        {
+            StatusMessage = "请先在左侧选择账号。";
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            StatusMessage = "请选择有效的视频号工作目录。";
+            return false;
+        }
+
+        var normalized = Path.GetFullPath(directory);
+        _activeGlobalAccount.WorkRootDirectory = normalized;
+        _globalAccountStore.Update(_activeGlobalAccount);
+        DraftProjectDirectory = normalized;
+        StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的视频号工作目录：{normalized}";
+        AppendActivityLog(StatusMessage);
+        ActiveAccountWorkRootDirectoryChanged?.Invoke();
+        return true;
+    }
+
     public DramaSourceConfigurationStatus GetDramaSourceConfigurationStatus()
     {
         var status = DramaSourceConfigurationValidator.Check(
@@ -673,7 +698,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     private IReadOnlyList<string> ParseCustomVideoFiles() =>
-        DraftCustomVideoFilesText
+        (DraftCustomVideoFilesText ?? string.Empty)
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();

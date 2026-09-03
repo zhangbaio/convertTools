@@ -110,6 +110,7 @@ public partial class MainWindow : Window
                 : new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, workspace));
         }
         WeixinPublisherView.SelectedAccountChanged += _ => RefreshTarget();
+        mainViewModel.ActiveAccountWorkRootDirectoryChanged += RefreshTarget;
         viewModel.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(TikTokPublisher.Ui.ViewModels.DramaDownloadViewModel.DownloadWorkspace))
