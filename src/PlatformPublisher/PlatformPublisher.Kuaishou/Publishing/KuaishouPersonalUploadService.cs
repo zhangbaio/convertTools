@@ -14,6 +14,7 @@ public sealed class KuaishouPersonalUploadService
     private readonly KuaishouCommitmentService _commitmentService;
     private readonly KuaishouContentComplianceService _contentComplianceService;
     private readonly KuaishouDistributionService _distributionService;
+    private readonly KuaishouOnlineQueueStore _onlineQueueStore;
 
     public KuaishouPersonalUploadService(
         KuaishouPersonalSessionService sessionService,
@@ -23,7 +24,8 @@ public sealed class KuaishouPersonalUploadService
         KuaishouPersonalUploadStateStore stateStore,
         KuaishouCommitmentService commitmentService,
         KuaishouContentComplianceService contentComplianceService,
-        KuaishouDistributionService distributionService)
+        KuaishouDistributionService distributionService,
+        KuaishouOnlineQueueStore onlineQueueStore)
     {
         _sessionService = sessionService;
         _projectDataService = projectDataService;
@@ -33,6 +35,7 @@ public sealed class KuaishouPersonalUploadService
         _commitmentService = commitmentService;
         _contentComplianceService = contentComplianceService;
         _distributionService = distributionService;
+        _onlineQueueStore = onlineQueueStore;
     }
 
     public async Task RunAsync(
@@ -108,7 +111,19 @@ public sealed class KuaishouPersonalUploadService
                 state.Status = "completed";
                 state.CurrentStage = state.ReviewSubmitted ? "review_submitted" : "videos_uploaded";
                 await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
-                await _distributionService.ApplyAsync(state.MiniSeriesId, effectiveConfig, progress, ct);
+                if (state.ReviewSubmitted)
+                {
+                    var onlineItem = _onlineQueueStore.Register(job, data, state, effectiveConfig);
+                    if (onlineItem is not null)
+                        progress?.Report($"{label}：已加入当前账号的自动上架队列，等待审核通过。 ");
+                    else if (effectiveConfig.AutoOnlineEnabled || effectiveConfig.StepOnlineSeries)
+                        progress?.Report($"{label}：未取得短剧 ID，无法加入自动上架队列，请在视频管理中补录。 ");
+                }
+                if (effectiveConfig.OnlineAutoDistributionEnabled &&
+                    (effectiveConfig.AutoOnlineEnabled || effectiveConfig.StepOnlineSeries))
+                    progress?.Report($"{label}：分销已设置为上架成功后执行。 ");
+                else
+                    await _distributionService.ApplyAsync(state.MiniSeriesId, effectiveConfig, progress, ct);
             }, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

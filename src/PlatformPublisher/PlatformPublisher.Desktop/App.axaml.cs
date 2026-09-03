@@ -152,6 +152,7 @@ public partial class App : Application
         services.AddSingleton<KuaishouCommitmentService>();
         services.AddSingleton<KuaishouContentComplianceService>();
         services.AddSingleton<KuaishouDistributionService>();
+        services.AddSingleton<KuaishouOnlineQueueStore>();
         services.AddSingleton<KuaishouPersonalUploadService>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouPersonalPublishAdapter>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouEnterprisePublishAdapter>();

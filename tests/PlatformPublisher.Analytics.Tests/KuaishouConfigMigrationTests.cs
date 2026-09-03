@@ -170,6 +170,38 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         Assert.Contains("【测试短剧】", renderer.RenderedDocumentText);
     }
 
+    [Fact]
+    public void OnlineQueueIsIsolatedByAccountAndEdition()
+    {
+        Directory.CreateDirectory(_root);
+        var database = new PlatformDatabase(Path.Combine(_root, "queue.db"));
+        var queue = new KuaishouOnlineQueueStore(new AccountJsonSettingStore(database));
+        var data = new KuaishouPersonalProjectData(
+            _root, _root, "待上架短剧", "简介", "短标题", [], "", "", "", [], [], []);
+        var state = new KuaishouPersonalUploadState
+        {
+            MiniSeriesId = "12345",
+            ReviewSubmitted = true,
+        };
+        var config = new KuaishouPersonalConfig
+        {
+            AutoOnlineEnabled = true,
+            AdvertiserId = "67890",
+        };
+        var job = new PublishJob
+        {
+            AccountId = "account-a",
+            Platform = PublishPlatform.KuaishouPersonalRevenue,
+        };
+
+        var item = queue.Register(job, data, state, config);
+
+        Assert.NotNull(item);
+        Assert.Single(queue.Load("account-a", PublishPlatform.KuaishouPersonalRevenue));
+        Assert.Empty(queue.Load("account-b", PublishPlatform.KuaishouPersonalRevenue));
+        Assert.Empty(queue.Load("account-a", PublishPlatform.KuaishouEnterpriseRevenue));
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root)) Directory.Delete(_root, true);

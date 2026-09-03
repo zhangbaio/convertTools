@@ -16,7 +16,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
     {
         if (!resumeAtVideoPage)
         {
-            await ConfigureEpisodeInfoAsync(page, data, cancellationToken);
+            await ConfigureEpisodeInfoAsync(page, data, config, cancellationToken);
             if (stageChanged is not null) await stageChanged("episode_info_completed");
             if (!await ClickVisibleAsync(page, ["下一步"], 10_000))
                 throw new InvalidOperationException("快手个人版第一页未找到“下一步”按钮。");
@@ -57,7 +57,11 @@ public sealed class KuaishouPersonalEpisodeUploadService
         }
     }
 
-    private static async Task ConfigureEpisodeInfoAsync(IPage page, KuaishouPersonalProjectData data, CancellationToken cancellationToken)
+    private static async Task ConfigureEpisodeInfoAsync(
+        IPage page,
+        KuaishouPersonalProjectData data,
+        KuaishouPersonalConfig config,
+        CancellationToken cancellationToken)
     {
         if (!await ClickVisibleAsync(page, ["添加单集信息"], 8_000))
             throw new InvalidOperationException("未找到“添加单集信息”按钮。");
@@ -78,6 +82,8 @@ public sealed class KuaishouPersonalEpisodeUploadService
         }
         var titleInput = dialog.Locator("input[placeholder*=标题], input[placeholder*=单集]").Last;
         if (await titleInput.CountAsync() > 0) await titleInput.FillAsync(data.Title);
+        if (config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)
+            await ConfigureEnterpriseEpisodePriceAsync(dialog, config);
         if (string.IsNullOrWhiteSpace(data.VerticalCoverPath) || !File.Exists(data.VerticalCoverPath))
             throw new FileNotFoundException("缺少快手个人版竖屏单集封面。", data.VerticalCoverPath);
         var fileInput = dialog.Locator("input[type=file]").Last;
@@ -85,7 +91,48 @@ public sealed class KuaishouPersonalEpisodeUploadService
         await fileInput.SetInputFilesAsync(data.VerticalCoverPath);
         await HandleCropDialogAsync(page, 18, cancellationToken);
         await ClickDialogConfirmAsync(dialog);
+        if (config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)
+            await ConfirmEnterpriseFreeEpisodeWarningAsync(page);
     }
+
+    private static async Task ConfigureEnterpriseEpisodePriceAsync(ILocator dialog, KuaishouPersonalConfig config)
+    {
+        var price = First(config.SeriesPrice, config.EpisodePrice);
+        if (string.IsNullOrWhiteSpace(price)) return;
+        var candidates = dialog.Locator(
+            "input[placeholder*=价格], input[placeholder*=金额], input[name*=price i], input[id*=price i]");
+        var count = Math.Min(await candidates.CountAsync(), 10);
+        for (var index = count - 1; index >= 0; index--)
+        {
+            var input = candidates.Nth(index);
+            if (!await input.IsVisibleAsync() || !await input.IsEnabledAsync()) continue;
+            await input.FillAsync(price);
+            return;
+        }
+    }
+
+    private static async Task ConfirmEnterpriseFreeEpisodeWarningAsync(IPage page)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var dialogs = page.Locator("[role=dialog]:visible, .ks-dialog:visible, .ant-modal:visible");
+            var count = await dialogs.CountAsync();
+            for (var index = count - 1; index >= 0; index--)
+            {
+                var dialog = dialogs.Nth(index);
+                var text = await dialog.InnerTextAsync();
+                if (!text.Contains("免费", StringComparison.Ordinal) &&
+                    !text.Contains("付费", StringComparison.Ordinal)) continue;
+                await ClickDialogConfirmAsync(dialog);
+                return;
+            }
+            await page.WaitForTimeoutAsync(100);
+        }
+    }
+
+    private static string First(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 
     private static async Task<ILocator> FindVideoInputAsync(IPage page)
     {

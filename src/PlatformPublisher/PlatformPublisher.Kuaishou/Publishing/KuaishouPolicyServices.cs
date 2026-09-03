@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -11,6 +12,12 @@ public static class KuaishouConfigurationValidator
         var issues = new List<string>();
         if (string.IsNullOrWhiteSpace(config.EntryUrl)) issues.Add("经营者平台入口不能为空");
         if (config.QueueMaxParallelProjects < 1) issues.Add("并行项目数必须大于 0");
+        if (config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)
+        {
+            var price = string.IsNullOrWhiteSpace(config.SeriesPrice) ? config.EpisodePrice : config.SeriesPrice;
+            if (!decimal.TryParse(price, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount) || amount < 0)
+                issues.Add("企业版单集价格必须是大于或等于 0 的数字");
+        }
         if (config.DistributionDefaultRatePercent is < 0 or > 100) issues.Add("分销比例必须为 0–100");
         ValidateJson(config.DistributionDistributorAccountsJson, "分销商账号 JSON", issues);
         ValidateJson(config.SynopsisPolicyJson, "简介策略 JSON", issues);
