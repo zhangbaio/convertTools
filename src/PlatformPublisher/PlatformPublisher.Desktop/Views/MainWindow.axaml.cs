@@ -36,8 +36,15 @@ public partial class MainWindow : Window
     {
         var workflowView = new WeixinWorkflowView { DataContext = viewModel };
         workflowView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
-        WeixinPublisherView.SelectedAccountChanged += account => workflowView.ApplyAccount(account);
+        var materialView = new WeixinMaterialUploadView { DataContext = viewModel };
+        materialView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
+        WeixinPublisherView.SelectedAccountChanged += account =>
+        {
+            workflowView.ApplyAccount(account);
+            materialView.ApplyAccount(account);
+        };
         WeixinPublisherView.SetWorkflowContent(workflowView);
+        WeixinPublisherView.SetMaterialWorkflowContent(materialView);
         WeixinPublisherView.SetArchivedProjectsContent(new WeixinArchivedProjectsView { DataContext = viewModel });
     }
 

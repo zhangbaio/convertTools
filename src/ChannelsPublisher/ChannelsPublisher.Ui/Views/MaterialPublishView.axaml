@@ -234,31 +234,84 @@
 
         <TabItem Header="账号配置">
             <Grid RowDefinitions="Auto,*" Margin="0,4,0,0">
-                <Border Classes="panel" Padding="16" Margin="0,0,0,10">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                        <StackPanel Spacing="3">
-                            <TextBlock Text="账号配置" FontSize="18" FontWeight="Bold" Foreground="#0B74D1" />
-                            <TextBlock Text="配置跟随左侧当前账号，浏览器会话目录保持独立。" Foreground="#64748B" />
+                <Border Classes="panel" Padding="14" Margin="0,0,0,10">
+                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="8" ColumnSpacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding CurrentAccountTitle}" FontSize="16" FontWeight="Bold" Foreground="#0B74D1" />
+                            <TextBlock Text="（当前账号）" VerticalAlignment="Center" FontWeight="SemiBold" />
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                            <Button Content="登录当前账号" Command="{Binding LoginCommand}" Classes="secondaryAction" />
-                            <Button Content="保存配置" Command="{Binding SaveAccountConfigCommand}" Classes="primaryAction" />
+                        <Button Grid.Column="1" Content="保存账号配置" Command="{Binding SaveAccountConfigCommand}" Classes="primaryAction" />
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
+                            <TextBlock Text="登录状态" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <TextBlock Text="●" Foreground="#047857" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding CurrentLoginStatusText}" VerticalAlignment="Center" />
+                            <TextBlock Text="最近登录" Foreground="#64748B" VerticalAlignment="Center" Margin="14,0,0,0" />
+                            <TextBlock Text="{Binding CurrentLastLoginText}" Foreground="#64748B" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="登录账号" Command="{Binding LoginCommand}" Classes="secondaryAction compactAction" />
+                            <Button Content="重新登录账号" Command="{Binding LoginCommand}" Classes="secondaryAction compactAction" />
+                            <Border Background="#EEF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="6" Padding="10,6">
+                                <TextBlock Text="{Binding CurrentRuntimeStatusText}" Foreground="#0B74D1" FontWeight="SemiBold" />
+                            </Border>
                         </StackPanel>
                     </Grid>
                 </Border>
-                <Border Grid.Row="1" Classes="panel" Padding="18">
-                    <Grid ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
-                        <TextBlock Text="账号名称" VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <TextBox Grid.Column="1" Text="{Binding SelectedAccount.Name}" Watermark="用于左侧列表和任务归属展示" />
-                        <TextBlock Grid.Row="1" Text="视频号昵称" VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedAccount.Nickname}" Watermark="可选；填写平台显示昵称" />
-                        <TextBlock Grid.Row="2" Text="稳定账号 ID" VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedAccount.Id}" IsReadOnly="True" />
-                        <TextBlock Grid.Row="3" Text="独立会话目录" VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.ProfileDir}" IsReadOnly="True" />
-                        <TextBlock Grid.Row="4" Text="最近登录" VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedAccount.LastLoginText}" VerticalAlignment="Center" Foreground="#64748B" />
-                    </Grid>
+                <Border Grid.Row="1" Classes="panel" Padding="12">
+                    <TabControl>
+                        <TabItem Header="基础信息">
+                            <Grid Margin="12" ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                                <TextBlock Text="账号名称" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Column="1" Text="{Binding SelectedAccount.Name}" Watermark="用于左侧列表和任务归属展示" />
+                                <TextBlock Grid.Row="1" Text="视频号昵称" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedAccount.Nickname}" Watermark="可选；填写平台显示昵称" />
+                                <TextBlock Grid.Row="2" Text="稳定账号 ID" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedAccount.Id}" IsReadOnly="True" />
+                                <TextBlock Grid.Row="3" Text="独立会话目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.ProfileDir}" IsReadOnly="True" />
+                                <TextBlock Grid.Row="4" Text="最近登录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedAccount.LastLoginText}" VerticalAlignment="Center" Foreground="#64748B" />
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="成本报表">
+                            <Grid Margin="12" ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                                <TextBlock Text="制作公司" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Column="1" Text="{Binding SelectedAccount.CostReportCompanyName}" Watermark="成本报表公司名称" />
+                                <TextBlock Grid.Row="1" Text="报表模板" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.CostReportTemplatePath}" Watermark="成本报表模板 DOCX 路径" />
+                                <TextBlock Grid.Row="2" Text="签名图片" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.CostReportSignPath}" Watermark="签名图片路径" />
+                                <TextBlock Grid.Row="3" Text="印章图片" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.CostReportSealPath}" Watermark="印章图片路径" />
+                                <TextBlock Grid.Row="4" Text="法定代表人" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding SelectedAccount.CostReportLegalRepresentative}" />
+                                <TextBlock Grid.Row="5" Text="演员薪酬占比" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding SelectedAccount.CostReportActorPayRatio}" Watermark="例如：30%" />
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="快手账号">
+                            <Grid Margin="12" ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                                <TextBlock Text="快手分账个人" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Column="1" Text="{Binding SelectedAccount.KuaishouPersonalAccount}" Watermark="快手个人版账号或备注" />
+                                <TextBlock Grid.Row="1" Text="个人版配置" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.KuaishouPersonalConfigPath}" Watermark="快手个人版配置 JSON 路径" />
+                                <TextBlock Grid.Row="2" Text="快手分账企业" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedAccount.KuaishouEnterpriseAccount}" Watermark="快手企业版账号或备注" />
+                                <TextBlock Grid.Row="3" Text="企业版配置" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.KuaishouEnterpriseConfigPath}" Watermark="快手企业版配置 JSON 路径" />
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="工作目录">
+                            <Grid Margin="12" ColumnDefinitions="150,*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                                <TextBlock Text="工作根目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Column="1" Text="{Binding SelectedAccount.WorkRootDirectory}" Watermark="该账号默认项目工作根目录" />
+                                <TextBlock Grid.Row="1" Text="下载目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedAccount.DownloadDirectory}" Watermark="该账号默认短剧下载目录" />
+                                <TextBlock Grid.Row="2" Text="归档目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedAccount.ArchiveRootDirectory}" Watermark="上传完成后的默认归档根目录" />
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
                 </Border>
             </Grid>
         </TabItem>
@@ -274,6 +327,14 @@
         <TabItem Header="项目流水线">
             <ContentControl x:Name="WorkflowContentHost">
                 <TextBlock Text="当前宿主尚未绑定视频号项目流水线。"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="#64748B" />
+            </ContentControl>
+        </TabItem>
+
+        <TabItem Header="素材上传">
+            <ContentControl x:Name="MaterialWorkflowContentHost">
+                <TextBlock Text="当前宿主尚未绑定视频号素材上传工作台。"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            Foreground="#64748B" />
             </ContentControl>

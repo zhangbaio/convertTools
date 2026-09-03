@@ -1,0 +1,171 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlatformPublisher.Desktop.ViewModels"
+             x:Class="PlatformPublisher.Desktop.Views.WeixinMaterialUploadView"
+             x:DataType="vm:MainWindowViewModel"
+             Background="#F3F6FA">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,105,30" RowSpacing="8">
+        <Border Classes="panel" Padding="10">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="7">
+                <Grid ColumnDefinitions="88,*" ColumnSpacing="8">
+                    <Border Background="#EDF3F9" Padding="8,7"><TextBlock Text="执行控制" FontWeight="SemiBold" /></Border>
+                    <WrapPanel Grid.Column="1">
+                        <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,7,0" />
+                        <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
+                        <Button Content="取消全选" Command="{Binding UncheckAllVisibleCommand}" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
+                        <Button Content="发表配置" Click="OnAdvancedConfigClick" Classes="secondaryAction compactAction" Margin="0,0,12,0" />
+                        <TextBlock Text="计划：按任务设置执行" VerticalAlignment="Center" Foreground="#64748B" />
+                    </WrapPanel>
+                </Grid>
+                <Grid Grid.Row="1" ColumnDefinitions="88,*" ColumnSpacing="8">
+                    <Border Background="#EDF3F9" Padding="8,7"><TextBlock Text="素材来源" FontWeight="SemiBold" /></Border>
+                    <WrapPanel Grid.Column="1">
+                        <Button Content="系统高光发表" Click="OnSystemHighlightClick" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
+                        <Button Content="目录批量发表" Click="OnDirectoryMaterialsClick" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
+                        <Button Content="项目素材发表" Click="OnProjectMaterialsClick" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
+                        <Button Content="本地视频发表" Click="OnLocalVideosClick" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
+                        <Button Content="自选视频发表" Click="OnCustomVideosClick" Classes="secondaryAction compactAction" />
+                    </WrapPanel>
+                </Grid>
+                <Grid Grid.Row="2" ColumnDefinitions="88,*" ColumnSpacing="8">
+                    <Border Background="#EDF3F9" Padding="8,7"><TextBlock Text="启用步骤" FontWeight="SemiBold" /></Border>
+                    <WrapPanel Grid.Column="1">
+                        <CheckBox Content="声明原创" IsChecked="{Binding DraftDeclareOriginal}" Margin="0,0,16,0" />
+                        <CheckBox Content="不显示位置" IsChecked="{Binding DraftHideLocation}" Margin="0,0,16,0" />
+                        <CheckBox Content="允许重复发表素材" IsChecked="{Binding DraftAllowDuplicatePublish}" Margin="0,0,16,0" />
+                        <CheckBox Content="定时执行" IsChecked="{Binding DraftScheduleEnabled}" Margin="0,0,8,0" />
+                        <TextBox Width="170" Text="{Binding DraftScheduleText}" IsEnabled="{Binding DraftScheduleEnabled}"
+                                 Watermark="yyyy-MM-dd HH:mm" />
+                    </WrapPanel>
+                </Grid>
+                <Grid Grid.Row="3" ColumnDefinitions="88,*" ColumnSpacing="8">
+                    <Border Background="#EDF3F9" Padding="8,7"><TextBlock Text="工作账号" FontWeight="SemiBold" /></Border>
+                    <WrapPanel Grid.Column="1">
+                        <Border Background="#EEF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="6" Padding="12,6" Margin="0,0,8,0">
+                            <TextBlock Text="{Binding ActiveWeixinAccountName}" Foreground="#0B74D1" FontWeight="SemiBold" />
+                        </Border>
+                        <Button Content="登录 / 打开浏览器" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,8,0" />
+                        <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,8,0" />
+                        <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" />
+                    </WrapPanel>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="panel" Padding="9">
+            <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
+                <Grid ColumnDefinitions="78,*,Auto,Auto" ColumnSpacing="8">
+                    <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}" Watermark="素材根目录、项目目录或本地视频目录" />
+                    <Button Grid.Column="2" Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="secondaryAction compactAction" />
+                    <Button Grid.Column="3" Content="加入任务" Command="{Binding AddJobCommand}" Classes="primaryAction compactAction" />
+                </Grid>
+                <Grid Grid.Row="1" ColumnDefinitions="78,310,Auto,*" ColumnSpacing="8">
+                    <TextBlock Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <ComboBox Grid.Column="1" ItemsSource="{Binding MaterialJobKinds}" SelectedItem="{Binding SelectedJobKind}">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PublishJobKindOptionViewModel">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding Description}" Foreground="#64748B" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                    <TextBlock Grid.Column="2" Text="发表描述" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <TextBox Grid.Column="3" Text="{Binding DraftPublishDescription}" Watermark="素材发表描述" />
+                </Grid>
+                <Grid Grid.Row="2" ColumnDefinitions="78,*,Auto" ColumnSpacing="8">
+                    <TextBlock Text="自选视频" VerticalAlignment="Center" IsVisible="{Binding IsCustomVideoKind}" />
+                    <TextBox Grid.Column="1" Text="{Binding DraftCustomVideoFilesText}" Watermark="每行一个视频文件"
+                             IsVisible="{Binding IsCustomVideoKind}" />
+                    <Button Grid.Column="2" Content="选择视频" Click="OnPickCustomVideosClick" Classes="secondaryAction compactAction"
+                            IsVisible="{Binding IsCustomVideoKind}" />
+                    <Grid Grid.ColumnSpan="3" ColumnDefinitions="78,1.2*,Auto,80,Auto,1.1*,Auto" ColumnSpacing="8"
+                          IsVisible="{Binding IsSystemHighlightKind}">
+                        <TextBlock Text="系统高光" VerticalAlignment="Center" />
+                        <TextBox Grid.Column="1" Text="{Binding DraftDramaTitle}" Watermark="剧名" />
+                        <TextBlock Grid.Column="2" Text="数量" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="3" Value="{Binding DraftPublishCount}" Minimum="1" Maximum="100" />
+                        <TextBlock Grid.Column="4" Text="类型" VerticalAlignment="Center" />
+                        <TextBox Grid.Column="5" Text="{Binding DraftPublishVideoTypes}" Watermark="混剪,解说,切片" />
+                        <CheckBox Grid.Column="6" Content="发表后重新生成" IsChecked="{Binding DraftRegenerateHighlightsAfterPublish}" VerticalAlignment="Center" />
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2" Classes="panel" Padding="9">
+            <Grid ColumnDefinitions="58,*,Auto" ColumnSpacing="8">
+                <TextBlock Text="搜索" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox Grid.Column="1" Text="{Binding WorkflowFilterText}" Watermark="搜索原剧名 / 新剧名 / 账号 / 状态 / 问题" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                    <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="secondaryAction compactAction" />
+                    <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" />
+                    <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" />
+                    <Button Content="移出当前" Command="{Binding RemoveSelectedCommand}" Classes="secondaryAction compactAction" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3" Classes="panel" ClipToBounds="True">
+            <Grid RowDefinitions="42,*">
+                <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,0">
+                    <Grid ColumnDefinitions="52,150,1.15*,1.15*,100,72,120,90,1.5*" ColumnSpacing="10">
+                        <TextBlock Text="执行" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="原剧名 / 项目" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="新剧名" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="4" Text="账号" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="5" Text="集数" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="6" Text="计划时间" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="7" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="8" Text="当前信息" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
+                         Background="#FFFFFF" BorderThickness="0">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
+                        <Style Selector="ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="#DCEBFF" /></Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PublishJobRowViewModel">
+                            <Border BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="10,8">
+                                <Grid ColumnDefinitions="52,150,1.15*,1.15*,100,72,120,90,1.5*" ColumnSpacing="10">
+                                    <CheckBox IsChecked="{Binding IsChecked}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding KindName}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="2" Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="3" Text="{Binding NewTitle}" Foreground="#0369A1" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="4" Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="5" Text="{Binding EpisodeCountText}" />
+                                    <TextBlock Grid.Column="6" Text="{Binding ScheduleText}" />
+                                    <TextBlock Grid.Column="7" Text="{Binding StatusText}" Foreground="#047857" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="8" Text="{Binding StatusMessage}" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="4" Classes="panel" ClipToBounds="True">
+            <Grid RowDefinitions="Auto,*">
+                <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,5">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="运行日志" FontWeight="SemiBold" />
+                        <Button Grid.Column="1" Content="清空日志" Command="{Binding ClearActivityLogsCommand}" Classes="secondaryAction compactAction" />
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="1" ItemsSource="{Binding ActivityLogs}" Background="#FBFCFE" BorderThickness="0"
+                         FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI" FontSize="12">
+                    <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="8,3" Foreground="#334155" /></DataTemplate></ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+        <Border Grid.Row="5" Background="#EEF3F8" BorderBrush="#D9E2EC" BorderThickness="1,0,1,1">
+            <TextBlock Text="{Binding StatusMessage}" Margin="10,0" VerticalAlignment="Center" FontSize="12" Foreground="#64748B" />
+        </Border>
+    </Grid>
+</UserControl>

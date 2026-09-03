@@ -22,6 +22,18 @@ public sealed partial class MainViewModel : ViewModelBase
 
     [ObservableProperty] private AccountItemViewModel? _selectedAccount;
     [ObservableProperty] private string _statusMessage = "就绪";
+    public string CurrentAccountTitle => SelectedAccount?.Name ?? "请先在左侧选择账号";
+    public string CurrentLoginStatusText => SelectedAccount?.LoginStatusText ?? "尚未选择账号";
+    public string CurrentLastLoginText => SelectedAccount?.LastLoginText ?? "-";
+    public string CurrentRuntimeStatusText => SelectedAccount?.StatusText ?? "未选择";
+
+    partial void OnSelectedAccountChanged(AccountItemViewModel? value)
+    {
+        OnPropertyChanged(nameof(CurrentAccountTitle));
+        OnPropertyChanged(nameof(CurrentLoginStatusText));
+        OnPropertyChanged(nameof(CurrentLastLoginText));
+        OnPropertyChanged(nameof(CurrentRuntimeStatusText));
+    }
 
     partial void OnStatusMessageChanged(string value)
     {
@@ -125,6 +137,19 @@ public sealed partial class MainViewModel : ViewModelBase
             ? SelectedAccount.Id
             : SelectedAccount.Name.Trim();
         SelectedAccount.Nickname = SelectedAccount.Nickname?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportCompanyName = SelectedAccount.CostReportCompanyName?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportTemplatePath = SelectedAccount.CostReportTemplatePath?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportSignPath = SelectedAccount.CostReportSignPath?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportSealPath = SelectedAccount.CostReportSealPath?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportLegalRepresentative = SelectedAccount.CostReportLegalRepresentative?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportActorPayRatio = SelectedAccount.CostReportActorPayRatio?.Trim() ?? string.Empty;
+        SelectedAccount.KuaishouPersonalAccount = SelectedAccount.KuaishouPersonalAccount?.Trim() ?? string.Empty;
+        SelectedAccount.KuaishouPersonalConfigPath = SelectedAccount.KuaishouPersonalConfigPath?.Trim() ?? string.Empty;
+        SelectedAccount.KuaishouEnterpriseAccount = SelectedAccount.KuaishouEnterpriseAccount?.Trim() ?? string.Empty;
+        SelectedAccount.KuaishouEnterpriseConfigPath = SelectedAccount.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty;
+        SelectedAccount.WorkRootDirectory = SelectedAccount.WorkRootDirectory?.Trim() ?? string.Empty;
+        SelectedAccount.DownloadDirectory = SelectedAccount.DownloadDirectory?.Trim() ?? string.Empty;
+        SelectedAccount.ArchiveRootDirectory = SelectedAccount.ArchiveRootDirectory?.Trim() ?? string.Empty;
         _store.Update(SelectedAccount.Model);
         StatusMessage = $"[{SelectedAccount.Name}] 账号配置已保存";
     }

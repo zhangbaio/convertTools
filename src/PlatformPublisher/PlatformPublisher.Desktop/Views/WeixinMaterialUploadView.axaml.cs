@@ -4,25 +4,24 @@ using Avalonia.Platform.Storage;
 using ChannelsPublisher.Core.Models;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Weixin.Publishing;
+using PublishJobKind = PlatformPublisher.Common.Models.PublishJobKind;
 
 namespace PlatformPublisher.Desktop.Views;
 
-public partial class WeixinWorkflowView : UserControl
+public partial class WeixinMaterialUploadView : UserControl
 {
     private Func<PublishAccount?>? _accountProvider;
+    private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
-    public WeixinWorkflowView()
+    public WeixinMaterialUploadView()
     {
         InitializeComponent();
-        AttachedToVisualTree += (_, _) => ViewModel?.ActivateSeriesWorkflow();
+        AttachedToVisualTree += (_, _) => Activate();
         PropertyChanged += (_, args) =>
         {
-            if (args.Property == IsVisibleProperty && IsVisible)
-                ViewModel?.ActivateSeriesWorkflow();
+            if (args.Property == IsVisibleProperty && IsVisible) Activate();
         };
     }
-
-    private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
     public void Bind(Func<PublishAccount?> accountProvider)
     {
@@ -30,12 +29,20 @@ public partial class WeixinWorkflowView : UserControl
         ApplyAccount(accountProvider());
     }
 
-    public void ApplyAccount(PublishAccount? account)
-    {
+    public void ApplyAccount(PublishAccount? account) =>
         ViewModel?.UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
+
+    private void Activate()
+    {
+        ViewModel?.ActivateMaterialWorkflow();
+        ApplyAccount(_accountProvider?.Invoke());
     }
 
-    private void OnRefreshAccountClick(object? sender, RoutedEventArgs e) => ApplyAccount(_accountProvider?.Invoke());
+    private void OnDirectoryMaterialsClick(object? sender, RoutedEventArgs e) => ViewModel?.SelectMaterialJobKind(PublishJobKind.DirectoryMaterials);
+    private void OnSystemHighlightClick(object? sender, RoutedEventArgs e) => ViewModel?.SelectMaterialJobKind(PublishJobKind.SystemHighlight);
+    private void OnProjectMaterialsClick(object? sender, RoutedEventArgs e) => ViewModel?.SelectMaterialJobKind(PublishJobKind.ProjectMaterials);
+    private void OnLocalVideosClick(object? sender, RoutedEventArgs e) => ViewModel?.SelectMaterialJobKind(PublishJobKind.LocalVideos);
+    private void OnCustomVideosClick(object? sender, RoutedEventArgs e) => ViewModel?.SelectMaterialJobKind(PublishJobKind.CustomVideos);
 
     private async void OnPickProjectDirectoryClick(object? sender, RoutedEventArgs e)
     {
@@ -43,42 +50,10 @@ public partial class WeixinWorkflowView : UserControl
         if (storage is null || ViewModel is null) return;
         var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "选择视频号项目或素材目录",
+            Title = "选择素材上传工作目录",
             AllowMultiple = false,
         });
-        if (folders.Count > 0)
-            ViewModel.DraftProjectDirectory = folders[0].Path.LocalPath;
-    }
-
-    private async void OnImportLocalProjectsClick(object? sender, RoutedEventArgs e)
-    {
-        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
-        if (storage is null || ViewModel is null) return;
-        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "选择要导入的视频号短剧项目",
-            AllowMultiple = true,
-        });
-        if (folders.Count > 0)
-            await ViewModel.ImportLocalProjectDirectoriesAsync(folders.Select(folder => folder.Path.LocalPath));
-    }
-
-    private async void OnPickConfigClick(object? sender, RoutedEventArgs e)
-    {
-        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
-        if (storage is null || ViewModel is null) return;
-        var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择视频号自动化配置",
-            AllowMultiple = false,
-            FileTypeFilter =
-            [
-                new FilePickerFileType("JSON 配置") { Patterns = ["*.json"] },
-                FilePickerFileTypes.All,
-            ],
-        });
-        if (files.Count > 0)
-            ViewModel.DraftConfigPath = files[0].Path.LocalPath;
+        if (folders.Count > 0) ViewModel.DraftProjectDirectory = folders[0].Path.LocalPath;
     }
 
     private async void OnPickCustomVideosClick(object? sender, RoutedEventArgs e)
@@ -91,10 +66,7 @@ public partial class WeixinWorkflowView : UserControl
             AllowMultiple = true,
             FileTypeFilter =
             [
-                new FilePickerFileType("视频文件")
-                {
-                    Patterns = ["*.mp4", "*.mov", "*.m4v", "*.mkv", "*.avi", "*.flv", "*.ts", "*.wmv", "*.webm"],
-                },
+                new FilePickerFileType("视频文件") { Patterns = ["*.mp4", "*.mov", "*.m4v", "*.mkv", "*.avi", "*.flv", "*.wmv", "*.webm"] },
                 FilePickerFileTypes.All,
             ],
         });
@@ -122,6 +94,6 @@ public partial class WeixinWorkflowView : UserControl
         ViewModel.DraftPublishDescription = result.DescriptionTemplate;
         ViewModel.DraftDeclareOriginal = result.DeclareOriginal;
         ViewModel.DraftHideLocation = !string.IsNullOrWhiteSpace(result.LocationOptionText);
-        ViewModel.StatusMessage = "视频号高级发表配置已应用到新任务。";
+        ViewModel.StatusMessage = "视频号素材发表配置已应用到新任务。";
     }
 }

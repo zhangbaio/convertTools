@@ -53,6 +53,11 @@ public partial class MaterialPublishView : UserControl
         WorkflowContentHost.Content = content;
     }
 
+    public void SetMaterialWorkflowContent(Control content)
+    {
+        MaterialWorkflowContentHost.Content = content;
+    }
+
     public void SetArchivedProjectsContent(Control content)
     {
         ArchivedProjectsContentHost.Content = content;

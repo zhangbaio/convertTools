@@ -13,6 +13,19 @@ public sealed class PublishAccount
     /// <summary>每账号独立会话目录（WebView2 UserDataFolder / persistent profile）。</summary>
     public string ProfileDir { get; set; } = "";
     public DateTimeOffset? LastLoginAt { get; set; }
+    public string CostReportCompanyName { get; set; } = "";
+    public string CostReportTemplatePath { get; set; } = "";
+    public string CostReportSignPath { get; set; } = "";
+    public string CostReportSealPath { get; set; } = "";
+    public string CostReportLegalRepresentative { get; set; } = "";
+    public string CostReportActorPayRatio { get; set; } = "";
+    public string KuaishouPersonalAccount { get; set; } = "";
+    public string KuaishouPersonalConfigPath { get; set; } = "";
+    public string KuaishouEnterpriseAccount { get; set; } = "";
+    public string KuaishouEnterpriseConfigPath { get; set; } = "";
+    public string WorkRootDirectory { get; set; } = "";
+    public string DownloadDirectory { get; set; } = "";
+    public string ArchiveRootDirectory { get; set; } = "";
 
     /// <summary>运行期状态，不持久化。</summary>
     [JsonIgnore]

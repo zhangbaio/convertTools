@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using PlatformPublisher.Common.Models;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 
@@ -9,15 +11,22 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     {
         Model = model;
         _isChecked = model.IsChecked;
+        _tableInfo = ResolveTableInfo(model);
     }
 
     public PublishJob Model { get; }
+    private readonly ProjectTableInfo _tableInfo;
     public string Id => Model.Id;
     public PublishPlatform Platform => Model.Platform;
     public string PlatformName => Model.Platform.DisplayName();
     public string KindName => Model.Kind.DisplayName();
     public string ProjectName => Model.ProjectName;
     public string ProjectDirectory => Model.ProjectDirectory;
+    public string OriginalTitle => _tableInfo.OriginalTitle;
+    public string NewTitle => _tableInfo.NewTitle;
+    public string SourceText => _tableInfo.Source;
+    public string EpisodeCountText => _tableInfo.EpisodeCount > 0 ? _tableInfo.EpisodeCount.ToString() : "-";
+    public string CreatedAtText => Model.CreatedAt.ToLocalTime().ToString("MM-dd HH:mm");
     public string AccountName => string.IsNullOrWhiteSpace(Model.AccountName) ? "默认账号" : Model.AccountName;
     public string StatusText => Model.Status switch
     {
@@ -81,6 +90,60 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         };
     }
 
+    private static ProjectTableInfo ResolveTableInfo(PublishJob model)
+    {
+        var original = model.ProjectName;
+        var renamed = model.ProjectName;
+        var source = model.Kind == PublishJobKind.Series ? "本地" : model.Kind.DisplayName();
+        var episodeCount = 0;
+        try
+        {
+            var selected = model.ProjectDirectory;
+            var metadataPath = Path.Combine(selected, "shortdrama-project.json");
+            if (File.Exists(metadataPath))
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+                var root = document.RootElement;
+                original = JsonText(root, "originalTitle", "title", "sourceName") ?? original;
+                source = JsonText(root, "sourceType", "queueEntrySource") ?? source;
+                if (root.TryGetProperty("episodeCount", out var count) && count.TryGetInt32(out var parsed)) episodeCount = parsed;
+                var workflow = JsonText(root, "workflowProjectDir");
+                if (!string.IsNullOrWhiteSpace(workflow) && Directory.Exists(workflow)) selected = workflow;
+            }
+            var infoPath = Path.Combine(selected, "短剧信息.txt");
+            if (File.Exists(infoPath))
+            {
+                foreach (var line in File.ReadLines(infoPath))
+                {
+                    var index = line.IndexOfAny([':', '：']);
+                    if (index <= 0) continue;
+                    var key = line[..index].Trim();
+                    var value = line[(index + 1)..].Trim();
+                    if (key == "原剧名" && !string.IsNullOrWhiteSpace(value)) original = value;
+                    if (key == "新剧名" && !string.IsNullOrWhiteSpace(value)) renamed = value;
+                    if (key == "集数")
+                    {
+                        var match = Regex.Match(value, @"\d+");
+                        if (match.Success) episodeCount = int.Parse(match.Value);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // 表格摘要读取失败时使用任务自身字段，不影响队列执行。
+        }
+        return new ProjectTableInfo(original, renamed, source, episodeCount);
+    }
+
+    private static string? JsonText(JsonElement root, params string[] names)
+    {
+        foreach (var name in names)
+            if (root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString()))
+                return value.GetString();
+        return null;
+    }
+
     public void Refresh()
     {
         OnPropertyChanged(nameof(StatusText));
@@ -104,4 +167,6 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(ManagementSyncStepStatus));
         OnPropertyChanged(nameof(StepProgressSummary));
     }
+
+    private sealed record ProjectTableInfo(string OriginalTitle, string NewTitle, string Source, int EpisodeCount);
 }

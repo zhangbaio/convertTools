@@ -110,6 +110,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             new(PublishJobKind.LocalVideos, "本地视频发表", "发表所选目录顶层的视频"),
             new(PublishJobKind.CustomVideos, "自选视频发表", "手工选择一个或多个视频文件"),
         ];
+        MaterialJobKinds = JobKinds.Where(item => item.Value != PublishJobKind.Series).ToArray();
         JobStatusChoices =
         [
             new(PublishJobStatus.Pending, "待执行"),
@@ -165,6 +166,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public IReadOnlyList<PlatformOptionViewModel> Platforms { get; }
     public IReadOnlyList<PublishJobKindOptionViewModel> JobKinds { get; }
+    public IReadOnlyList<PublishJobKindOptionViewModel> MaterialJobKinds { get; }
     public IReadOnlyList<PublishJobStatusOptionViewModel> JobStatusChoices { get; }
     public ObservableCollection<PublishJobRowViewModel> VisibleJobs { get; } = [];
     public ObservableCollection<PublishJobRowViewModel> PagedJobs { get; } = [];
@@ -357,6 +359,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public bool IsCustomVideoKind => SelectedJobKind.Value == PublishJobKind.CustomVideos;
     public bool IsStandardMaterialKind => SelectedJobKind.Value is
         PublishJobKind.ProjectMaterials or PublishJobKind.LocalVideos or PublishJobKind.CustomVideos;
+
+    private bool _materialWorkflowActive;
+
+    public void ActivateSeriesWorkflow()
+    {
+        _materialWorkflowActive = false;
+        SelectedJobKind = JobKinds.First(item => item.Value == PublishJobKind.Series);
+        RefreshVisibleJobs();
+    }
+
+    public void ActivateMaterialWorkflow()
+    {
+        _materialWorkflowActive = true;
+        if (SelectedJobKind.Value == PublishJobKind.Series)
+            SelectedJobKind = MaterialJobKinds[0];
+        RefreshVisibleJobs();
+    }
+
+    public void SelectMaterialJobKind(PublishJobKind kind)
+    {
+        var option = MaterialJobKinds.FirstOrDefault(item => item.Value == kind);
+        if (option is not null) SelectedJobKind = option;
+    }
 
     partial void OnSelectedPlatformChanged(PlatformOptionViewModel value)
     {
@@ -1839,6 +1864,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             VisibleJobs.Clear();
             foreach (var job in _jobs
                          .Where(job => job.Platform == SelectedPlatform.Value)
+                         .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
+                                       (_materialWorkflowActive
+                                           ? job.Kind != PublishJobKind.Series
+                                           : job.Kind == PublishJobKind.Series))
                          .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
                                        string.IsNullOrWhiteSpace(WorkflowFilterText) ||
                                        job.ProjectName.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
