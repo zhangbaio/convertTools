@@ -10,7 +10,7 @@
                 <Grid ColumnDefinitions="88,*" ColumnSpacing="8">
                     <Border Background="#EDF3F9" Padding="8,7"><TextBlock Text="执行控制" FontWeight="SemiBold" /></Border>
                     <WrapPanel Grid.Column="1">
-                        <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,7,0" />
+                        <Button Content="前往一键发布" Click="OnOpenUnifiedPublishClick" Classes="primaryAction compactAction" Margin="0,0,7,0" />
                         <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
                         <Button Content="取消全选" Command="{Binding UncheckAllVisibleCommand}" Classes="secondaryAction compactAction" Margin="0,0,7,0" />
                         <Button Content="发表配置" Click="OnAdvancedConfigClick" Classes="secondaryAction compactAction" Margin="0,0,12,0" />
@@ -46,8 +46,7 @@
                             <TextBlock Text="{Binding ActiveWeixinAccountName}" Foreground="#0B74D1" FontWeight="SemiBold" />
                         </Border>
                         <Button Content="登录 / 打开浏览器" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,8,0" />
-                        <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,8,0" />
-                        <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" />
+                        <TextBlock Text="素材页仅整理草稿；执行、停止和失败重试统一在一键发布中完成。" VerticalAlignment="Center" Foreground="#64748B" />
                     </WrapPanel>
                 </Grid>
             </Grid>
@@ -59,7 +58,7 @@
                     <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                     <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}" Watermark="素材根目录、项目目录或本地视频目录" />
                     <Button Grid.Column="2" Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="secondaryAction compactAction" />
-                    <Button Grid.Column="3" Content="加入任务" Command="{Binding AddJobCommand}" Classes="primaryAction compactAction" />
+                    <Button Grid.Column="3" Content="生成发布草稿" Click="OnCreateUnifiedDraftClick" Classes="primaryAction compactAction" />
                 </Grid>
                 <Grid Grid.Row="1" ColumnDefinitions="78,310,Auto,*" ColumnSpacing="8">
                     <TextBlock Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" />
@@ -102,8 +101,6 @@
                 <TextBox Grid.Column="1" Text="{Binding WorkflowFilterText}" Watermark="搜索原剧名 / 新剧名 / 账号 / 状态 / 问题" />
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
                     <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="secondaryAction compactAction" />
-                    <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" />
-                    <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" />
                     <Button Content="移出当前" Command="{Binding RemoveSelectedCommand}" Classes="secondaryAction compactAction" />
                 </StackPanel>
             </Grid>

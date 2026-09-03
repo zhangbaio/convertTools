@@ -28,6 +28,8 @@
     <ProjectReference Include="..\PlatformPublisher.Adx\PlatformPublisher.Adx.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Analytics\PlatformPublisher.Analytics.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Persistence\PlatformPublisher.Persistence.csproj" />
+    <ProjectReference Include="..\PlatformPublisher.Publishing\PlatformPublisher.Publishing.csproj" />
+    <ProjectReference Include="..\PlatformPublisher.Materials\PlatformPublisher.Materials.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Weixin\PlatformPublisher.Weixin.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Kuaishou\PlatformPublisher.Kuaishou.csproj" />
     <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Ui\TikTokPublisher.Ui.csproj" />

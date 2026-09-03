@@ -79,9 +79,11 @@
             </DockPanel>
         </Border>
 
-        <TabControl Grid.Column="1" Grid.RowSpan="5" Classes="secondaryTabs" SelectedIndex="0">
-        <TabItem Header="多账号素材发布">
-        <Grid RowDefinitions="Auto,*,190,150,30">
+        <TabControl x:Name="WorkspaceTabs" Grid.Column="1" Grid.RowSpan="5" Classes="secondaryTabs" SelectedIndex="0">
+        <TabItem Header="一键发布">
+        <Grid>
+        <ContentControl x:Name="UnifiedPublishContentHost" />
+        <Grid RowDefinitions="Auto,*,190,150,30" IsVisible="False">
 
         <!-- 所有发布与配置按钮统一置于右侧顶部。 -->
         <Border Grid.Row="0"
@@ -229,6 +231,7 @@
                        Text="{Binding StatusMessage}" />
         </Border>
 
+        </Grid>
         </Grid>
         </TabItem>
 

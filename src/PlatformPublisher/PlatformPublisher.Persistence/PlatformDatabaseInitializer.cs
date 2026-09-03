@@ -50,6 +50,38 @@ public static class PlatformDatabaseInitializer
               migration_key TEXT PRIMARY KEY, source_path TEXT NOT NULL DEFAULT '', source_hash TEXT NOT NULL DEFAULT '',
               imported_count INTEGER NOT NULL DEFAULT 0, skipped_count INTEGER NOT NULL DEFAULT 0,
               completed_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS publish_drafts(
+              draft_id TEXT PRIMARY KEY, source_kind INTEGER NOT NULL, source_label TEXT NOT NULL,
+              workflow_directory TEXT NOT NULL DEFAULT '', original_title TEXT NOT NULL DEFAULT '',
+              new_title TEXT NOT NULL DEFAULT '', form_json TEXT NOT NULL, media_profile_json TEXT NOT NULL,
+              source_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS material_items(
+              draft_id TEXT NOT NULL, item_id TEXT NOT NULL, sequence INTEGER NOT NULL,
+              video_path TEXT NOT NULL, cover_path TEXT, description TEXT, short_title TEXT,
+              origin_json TEXT NOT NULL DEFAULT '{}', content_finalized INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY(draft_id,item_id), FOREIGN KEY(draft_id) REFERENCES publish_drafts(draft_id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS publish_batches(
+              batch_id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, retry_of_batch_id TEXT,
+              distribution_mode INTEGER NOT NULL, failure_policy INTEGER NOT NULL,
+              status INTEGER NOT NULL, form_json TEXT NOT NULL, media_profile_json TEXT NOT NULL,
+              started_at TEXT NOT NULL, finished_at TEXT, message TEXT NOT NULL DEFAULT '');
+            CREATE TABLE IF NOT EXISTS publish_batch_accounts(
+              batch_id TEXT NOT NULL, account_id TEXT NOT NULL, account_order INTEGER NOT NULL,
+              account_name TEXT NOT NULL, status INTEGER NOT NULL, item_total INTEGER NOT NULL,
+              completed_count INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '',
+              PRIMARY KEY(batch_id,account_id), FOREIGN KEY(batch_id) REFERENCES publish_batches(batch_id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS publish_batch_items(
+              batch_id TEXT NOT NULL, account_id TEXT NOT NULL, item_id TEXT NOT NULL,
+              item_order INTEGER NOT NULL, status INTEGER NOT NULL, message TEXT NOT NULL DEFAULT '',
+              started_at TEXT, finished_at TEXT, source_json TEXT NOT NULL,
+              PRIMARY KEY(batch_id,account_id,item_id),
+              FOREIGN KEY(batch_id,account_id) REFERENCES publish_batch_accounts(batch_id,account_id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS publish_item_attempts(
+              attempt_id TEXT PRIMARY KEY, batch_id TEXT NOT NULL, account_id TEXT NOT NULL,
+              item_id TEXT NOT NULL, attempt_number INTEGER NOT NULL, status INTEGER NOT NULL,
+              error_kind INTEGER NOT NULL, message TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL, finished_at TEXT);
+            CREATE INDEX IF NOT EXISTS idx_publish_drafts_updated ON publish_drafts(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_publish_batches_started ON publish_batches(started_at DESC);
             """);
         EnsureColumn(connection, transaction, "platform_accounts", "owner", "TEXT NOT NULL DEFAULT 'platform'");
         Execute(connection, transaction, """
@@ -59,6 +91,7 @@ public static class PlatformDatabaseInitializer
             """);
         RecordMigration(connection, transaction, 1, "initial-main-schema", "main-v1");
         RecordMigration(connection, transaction, 2, "account-settings-and-owner", "main-v2");
+        RecordMigration(connection, transaction, 3, "unified-material-publishing", "main-v3");
         transaction.Commit();
     }
 

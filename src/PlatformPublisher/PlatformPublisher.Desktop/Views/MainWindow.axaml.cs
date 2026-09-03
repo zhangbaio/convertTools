@@ -12,6 +12,7 @@ using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Storage;
 using PlatformPublisher.Analytics.Models;
 using PlatformPublisher.Persistence;
+using PlatformPublisher.Publishing.Models;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -43,16 +44,21 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetSeriesPublishContent(seriesView);
     }
 
-    public void BindWeixinWorkflow(MainWindowViewModel viewModel, AdxAutomationService adxService, AdxBatchStore adxBatchStore)
+    public void BindWeixinWorkflow(MainWindowViewModel viewModel, AdxAutomationService adxService, AdxBatchStore adxBatchStore, UnifiedPublishViewModel unifiedPublishViewModel)
     {
+        unifiedPublishViewModel.BindAccounts(() => WeixinPublisherView.AccountProfiles.Select((account,index) =>
+            new PublishTarget(account.Id,account.Name,account.ProfileDir,index)).ToArray());
+        var unifiedPublishView=new UnifiedPublishView{DataContext=unifiedPublishViewModel};
+        WeixinPublisherView.SetUnifiedPublishContent(unifiedPublishView);
         var workflowView = new WeixinWorkflowView { DataContext = viewModel };
         workflowView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
         var materialView = new WeixinMaterialUploadView { DataContext = viewModel };
-        materialView.Bind(() => WeixinPublisherView.SelectedAccountProfile, adxService, adxBatchStore);
+        materialView.Bind(() => WeixinPublisherView.SelectedAccountProfile, adxService, adxBatchStore,unifiedPublishViewModel,WeixinPublisherView.ShowUnifiedPublish);
         WeixinPublisherView.SelectedAccountChanged += account =>
         {
             workflowView.ApplyAccount(account);
             materialView.ApplyAccount(account);
+            unifiedPublishViewModel.RefreshCommand.Execute(null);
         };
         WeixinPublisherView.SetWorkflowContent(workflowView);
         WeixinPublisherView.SetMaterialWorkflowContent(materialView);

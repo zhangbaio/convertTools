@@ -12,6 +12,7 @@
     <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Adx\PlatformPublisher.Adx.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Analytics\PlatformPublisher.Analytics.csproj" />
+    <ProjectReference Include="..\PlatformPublisher.Publishing\PlatformPublisher.Publishing.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Clip\ChannelsPublisher.Clip.csproj" />

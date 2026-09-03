@@ -21,6 +21,9 @@ using PlatformPublisher.Analytics.Storage;
 using PlatformPublisher.Kuaishou.Analytics;
 using PlatformPublisher.Weixin.Analytics;
 using PlatformPublisher.Persistence;
+using PlatformPublisher.Materials;
+using PlatformPublisher.Publishing.Execution;
+using PlatformPublisher.Publishing.Storage;
 
 namespace PlatformPublisher.Desktop;
 
@@ -41,6 +44,7 @@ public partial class App : Application
                 PlatformPublisherPaths.LegacyAnalyticsDatabasePath);
             KuaishouPersonalConfig.ConfigureDatabase(_services.GetRequiredService<AccountJsonSettingStore>());
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
+            var migratedDrafts=_services.GetRequiredService<LegacyPublishDraftMigrator>().MigrateAsync().GetAwaiter().GetResult();
             var settingsViewModel = _services.GetRequiredService<SystemSettingsViewModel>();
             var publishCoordinator = _services.GetRequiredService<PlatformPublishCoordinator>();
             var mainWindow = new MainWindow { DataContext = viewModel };
@@ -48,7 +52,8 @@ public partial class App : Application
             mainWindow.BindAccountDatabase(_services.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>());
             mainWindow.BindSettings(settingsViewModel);
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
-            mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>());
+            mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>(), _services.GetRequiredService<UnifiedPublishViewModel>());
+            if(migratedDrafts>0)viewModel.StatusMessage=$"已将 {migratedDrafts} 个旧素材任务迁移为统一发布草稿。";
             mainWindow.BindWeixinDownload(viewModel);
             mainWindow.BindAnalytics(_services.GetRequiredService<AnalyticsViewModel>(), viewModel);
             desktop.MainWindow = mainWindow;
@@ -107,6 +112,21 @@ public partial class App : Application
             provider.GetRequiredService<ISecureBlobStore>()));
         services.AddSingleton<AdxBatchStore>();
         services.AddSingleton<AdxAutomationService>();
+        services.AddSingleton<IMaterialSourceResolver, ProjectMaterialResolver>();
+        services.AddSingleton<IMaterialSourceResolver, LocalDirectoryMaterialResolver>();
+        services.AddSingleton<IMaterialSourceResolver, DirectoryGroupMaterialResolver>();
+        services.AddSingleton<IMaterialSourceResolver, CustomFileMaterialResolver>();
+        services.AddSingleton<IMaterialSourceResolver, AdxMaterialResolver>();
+        services.AddSingleton<IMaterialSourceResolver, SystemHighlightMaterialResolver>();
+        services.AddSingleton<IMaterialSourceResolver, DownloadedWorkMaterialResolver>();
+        services.AddSingleton<MaterialResolverRegistry>();
+        services.AddSingleton<MaterialDraftFactory>();
+        services.AddSingleton<UnifiedPublishRepository>();
+        services.AddSingleton<LegacyPublishDraftMigrator>();
+        services.AddSingleton<IPublishBatchStore>(provider=>provider.GetRequiredService<UnifiedPublishRepository>());
+        services.AddSingleton<AccountOperationGate>();
+        services.AddSingleton<IUnifiedMaterialExecutor, WeixinUnifiedMaterialExecutor>();
+        services.AddSingleton<PublishBatchCoordinator>();
         services.AddSingleton<WeixinAutoShelfService>();
         services.AddSingleton<WeixinSmartRecutService>();
         services.AddSingleton<WeixinManagementSyncService>();
@@ -127,6 +147,7 @@ public partial class App : Application
         services.AddSingleton<PlatformPublishCoordinator>();
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<AnalyticsViewModel>();
+        services.AddSingleton<UnifiedPublishViewModel>();
         services.AddSingleton(_ => new SystemSettingsViewModel(PlatformPublisherPaths.SettingsDatabasePath)
         {
             LoginSettingsHint = "短剧搜索、下载和数据链路参数为多平台助手独立配置；平台登录信息请到左侧账号档案中维护。",

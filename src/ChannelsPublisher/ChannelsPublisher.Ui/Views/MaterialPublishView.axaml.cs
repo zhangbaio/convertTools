@@ -72,6 +72,16 @@ public partial class MaterialPublishView : UserControl
         SeriesPublishContentHost.Content = content;
     }
 
+    public void SetUnifiedPublishContent(Control content)
+    {
+        UnifiedPublishContentHost.Content = content;
+    }
+
+    public void ShowUnifiedPublish()
+    {
+        WorkspaceTabs.SelectedIndex = 0;
+    }
+
     public void SetWorkflowContent(Control content)
     {
         WorkflowContentHost.Content = content;
