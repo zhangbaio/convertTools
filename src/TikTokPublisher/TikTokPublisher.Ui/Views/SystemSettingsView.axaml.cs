@@ -104,6 +104,7 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.Items.Add(CreateItem("红果高码率", "hghigh"));
         DramaSourceCombo.Items.Add(CreateItem("Mapleleaf", "mapleleaf"));
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
+        DramaSourceCombo.Items.Add(CreateItem("统一下载器", "downloader"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
 

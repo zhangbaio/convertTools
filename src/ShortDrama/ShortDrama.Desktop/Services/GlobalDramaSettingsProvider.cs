@@ -27,6 +27,8 @@ public sealed class GlobalDramaSettingsProvider : IDramaSettingsProvider
     {
         DramaSourceChain = settings.DramaSourceChain,
         DownloadFileSegments = settings.DownloadFileSegments,
+        DownloaderApiBaseUrl = settings.DownloaderApiBaseUrl,
+        DownloaderApiKey = settings.DownloaderApiKey,
         HgnewAccount = settings.HgnewAccount,
         HgnewPassword = settings.HgnewPassword,
         HgnewUdid = settings.HgnewUdid,

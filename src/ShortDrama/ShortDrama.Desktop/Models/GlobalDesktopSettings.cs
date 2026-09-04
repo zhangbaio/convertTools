@@ -4,6 +4,8 @@ public sealed class GlobalDesktopSettings
 {
     public string DramaSourceChain { get; set; } = "hgnew";
     public int DownloadFileSegments { get; set; } = 4;
+    public string DownloaderApiBaseUrl { get; set; } = "http://127.0.0.1:17891";
+    public string DownloaderApiKey { get; set; } = string.Empty;
     public bool XingeEnabled { get; set; }
     public string XingeServerUrl { get; set; } = string.Empty;
     public string XingeUsername { get; set; } = string.Empty;
