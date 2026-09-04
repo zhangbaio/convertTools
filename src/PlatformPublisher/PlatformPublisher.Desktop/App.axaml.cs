@@ -57,6 +57,7 @@ public partial class App : Application
             var mainWindow = new MainWindow { DataContext = viewModel };
             mainWindow.BindDatabaseMaintenance(_services.GetRequiredService<PlatformDatabase>(),_services.GetRequiredService<DatabaseBackupService>());
             mainWindow.BindAccountDatabase(_services.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>());
+            mainWindow.BindLegacySessionImport(_services.GetRequiredService<LegacyAccountSessionImportService>());
             mainWindow.BindSettings(settingsViewModel);
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
             mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<ShortDrama.Core.Interfaces.IProjectScanner>(),
@@ -119,6 +120,7 @@ public partial class App : Application
         services.AddSingleton<WeixinAnalyticsCollector>();
         services.AddSingleton<KuaishouAnalyticsCollector>();
         services.AddSingleton<WeixinWorkflowSettingsStore>();
+        services.AddSingleton<LegacyAccountSessionImportService>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
         services.AddSingleton<WeixinMaterialDownloadService>();
         services.AddSingleton<WeixinHighlightScheduleService>();

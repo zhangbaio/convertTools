@@ -62,8 +62,11 @@ public sealed class WeixinMaterialDownloadService
             ViewportSize = ViewportSize.NoViewport,
             UserAgent = config.Browser.UserAgent,
         };
-        if (!string.IsNullOrWhiteSpace(config.AuthFilePath) && File.Exists(config.AuthFilePath))
-            contextOptions.StorageStatePath = config.AuthFilePath;
+        var authStatePath = !string.IsNullOrWhiteSpace(request.AuthStatePath) && File.Exists(request.AuthStatePath)
+            ? request.AuthStatePath
+            : config.AuthFilePath;
+        if (!string.IsNullOrWhiteSpace(authStatePath) && File.Exists(authStatePath))
+            contextOptions.StorageStatePath = authStatePath;
         await using var context = await browser.NewContextAsync(contextOptions);
         var page = await context.NewPageAsync();
         await page.GotoAsync(Origin, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60_000 });
@@ -71,8 +74,8 @@ public sealed class WeixinMaterialDownloadService
             throw new InvalidOperationException("当前登录态未登录视频号助手，请先登录后再下载素材。");
 
         var result = await action(page, request, progress, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(config.AuthFilePath))
-            await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthFilePath });
+        if (!string.IsNullOrWhiteSpace(authStatePath))
+            await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = authStatePath });
         return result;
     }
 
@@ -350,7 +353,7 @@ public sealed class WeixinMaterialDownloadService
 }
 
 public sealed record MaterialDownloadRequest(string AccountId, string WorkspaceDirectory,
-    IReadOnlyList<string> Values, int Limit = 10);
+    IReadOnlyList<string> Values, int Limit = 10, string AuthStatePath = "");
 public sealed record DownloadedMaterial(string Title, string VideoPath, string? CoverPath,
     string Description, string ShortTitle);
 public sealed record MaterialDownloadResult(string DownloadRoot, IReadOnlyList<DownloadedMaterial> Items)

@@ -37,6 +37,9 @@ public sealed partial class AccountItemViewModel : ViewModelBase
     public string WorkRootDirectory { get => Model.WorkRootDirectory; set { if (Model.WorkRootDirectory == value) return; Model.WorkRootDirectory = value; OnPropertyChanged(); } }
     public string DownloadDirectory { get => Model.DownloadDirectory; set { if (Model.DownloadDirectory == value) return; Model.DownloadDirectory = value; OnPropertyChanged(); } }
     public string ArchiveRootDirectory { get => Model.ArchiveRootDirectory; set { if (Model.ArchiveRootDirectory == value) return; Model.ArchiveRootDirectory = value; OnPropertyChanged(); } }
+    public string LegacySessionSummary => string.IsNullOrWhiteSpace(Model.LegacyProfileId)
+        ? "尚未导入旧版登录状态"
+        : $"旧账号 {Model.LegacyProfileId} · 最近导入 {Model.LegacySessionImportedAt?.LocalDateTime:yyyy-MM-dd HH:mm}";
 
     public void MarkLoggedIn(DateTimeOffset timestamp)
     {
@@ -44,6 +47,12 @@ public sealed partial class AccountItemViewModel : ViewModelBase
         Status = AccountStatus.Online;
         OnPropertyChanged(nameof(LastLoginText));
         OnPropertyChanged(nameof(LoginStatusText));
+    }
+
+    public void RefreshLegacySessionState()
+    {
+        OnPropertyChanged(nameof(LegacySessionSummary));
+        OnPropertyChanged(nameof(PlatformSummary));
     }
 
     public string StatusText => Status switch

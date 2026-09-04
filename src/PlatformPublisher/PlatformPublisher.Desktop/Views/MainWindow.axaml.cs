@@ -131,6 +131,19 @@ public partial class MainWindow : Window
         ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, WeixinPublisherView.SelectedAccountProfile);
     }
 
+    public void BindLegacySessionImport(LegacyAccountSessionImportService importService)
+    {
+        WeixinPublisherView.LegacySessionImportRequested += async (_, _) =>
+        {
+            var dialog = new LegacySessionImportDialog(importService, WeixinPublisherView.AccountProfiles);
+            if (!await dialog.ShowDialog<bool>(this) || dialog.ImportedAccounts.Count == 0) return;
+            WeixinPublisherView.RefreshImportedAccounts(dialog.ImportedAccounts);
+            ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, WeixinPublisherView.SelectedAccountProfile);
+            if (ViewModel is not null)
+                ViewModel.StatusMessage = $"已导入 {dialog.ImportedAccounts.Count} 个旧版账号登录状态。";
+        };
+    }
+
     public void BindWeixinDownload(MainWindowViewModel mainViewModel)
     {
         var viewModel = new TikTokPublisher.Ui.ViewModels.DramaDownloadViewModel(PlatformPublisherPaths.SettingsDatabasePath);

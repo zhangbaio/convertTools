@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PlatformPublisher.Desktop.Views.LegacySessionImportDialog"
+        Width="820" Height="560" MinWidth="720" MinHeight="500"
+        Title="导入旧版登录状态" WindowStartupLocation="CenterOwner">
+    <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" RowSpacing="14">
+        <StackPanel Spacing="4">
+            <TextBlock Text="复用短剧助手登录状态" FontSize="21" FontWeight="Bold" />
+            <TextBlock Text="从旧工具读取 Playwright 登录态快照；不会修改旧文件，也不会共用浏览器 Profile。"
+                       Foreground="#667085" TextWrapping="Wrap" />
+        </StackPanel>
+        <Grid Grid.Row="1" ColumnDefinitions="110,*,Auto" ColumnSpacing="8">
+            <TextBlock Text="旧数据目录" VerticalAlignment="Center" />
+            <TextBox x:Name="SourceRootInput" Grid.Column="1" IsReadOnly="True" />
+            <Button Grid.Column="2" Content="重新扫描" Click="OnRefreshClick" />
+        </Grid>
+        <Border Grid.Row="2" Classes="panel" Padding="12">
+            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="110,*" RowSpacing="10" ColumnSpacing="8">
+                <TextBlock Text="旧账号" VerticalAlignment="Center" />
+                <ComboBox x:Name="LegacyAccountInput" Grid.Column="1" SelectionChanged="OnLegacySelectionChanged" />
+                <TextBlock Grid.Row="1" Text="可用状态" VerticalAlignment="Center" />
+                <TextBlock x:Name="LegacySummaryText" Grid.Row="1" Grid.Column="1" Foreground="#245BD6" TextWrapping="Wrap" />
+            </Grid>
+        </Border>
+        <Border Grid.Row="3" Classes="panel" Padding="12">
+            <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="110,*" RowSpacing="10" ColumnSpacing="8">
+                <TextBlock Text="导入到" VerticalAlignment="Center" />
+                <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <ComboBox x:Name="TargetAccountInput" />
+                    <CheckBox x:Name="CreateAccountInput" Grid.Column="1" Content="创建同名新账号" IsChecked="True" />
+                </Grid>
+                <TextBlock Grid.Row="1" Text="导入平台" VerticalAlignment="Center" />
+                <WrapPanel Grid.Row="1" Grid.Column="1">
+                    <CheckBox x:Name="WeixinInput" Content="视频号" Margin="0,0,20,0" />
+                    <CheckBox x:Name="KuaishouPersonalInput" Content="快手个人版" Margin="0,0,20,0" />
+                    <CheckBox x:Name="KuaishouEnterpriseInput" Content="快手企业版" />
+                </WrapPanel>
+                <TextBlock Grid.Row="2" Text="安全策略" VerticalAlignment="Top" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="登录态复制到当前应用独立目录；只保存来源账号和导入时间，不记录 Cookie/Token 内容。"
+                           Foreground="#667085" TextWrapping="Wrap" />
+            </Grid>
+        </Border>
+        <Border Grid.Row="4" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="7" Padding="12">
+            <ScrollViewer><TextBlock x:Name="ResultText" TextWrapping="Wrap" Foreground="#475467" /></ScrollViewer>
+        </Border>
+        <Grid Grid.Row="5" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="#667085" />
+            <Button Grid.Column="1" Content="关闭" Click="OnCloseClick" />
+            <Button Grid.Column="2" Content="导入当前账号" Click="OnImportCurrentClick" />
+            <Button Grid.Column="3" Content="一键创建并导入全部" Click="OnImportAllClick" Classes="primaryAction" />
+        </Grid>
+    </Grid>
+</Window>

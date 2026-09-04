@@ -73,6 +73,7 @@ public partial class MaterialPublishView : UserControl
     }
 
     public event Action<PublishAccount?>? SelectedAccountChanged;
+    public event EventHandler? LegacySessionImportRequested;
 
     public void UseAccountStore(AccountStore store) => DataContext = new MainViewModel(store);
 
@@ -231,6 +232,7 @@ public partial class MaterialPublishView : UserControl
         var host = new WebView2Host
         {
             UserDataFolder = account.Model.ProfileDir,
+            StorageStatePath = account.Model.WeixinAuthStatePath,
             RemoteDebuggingPort = 9222 + _hosts.Count, // 每账号唯一 CDP 端口
             IsVisible = false,
         };
@@ -242,8 +244,37 @@ public partial class MaterialPublishView : UserControl
         return host;
     }
 
+    public void ReloadAccountSession(string accountId)
+    {
+        if (_hosts.Remove(accountId, out var host)) BrowserArea.Children.Remove(host);
+        if (_vm?.Accounts.FirstOrDefault(item => item.Id == accountId) is { } account)
+            ShowAccount(account);
+    }
+
+    public void RefreshImportedAccount(PublishAccount account)
+    {
+        var item = _vm?.Accounts.FirstOrDefault(value => value.Id == account.Id);
+        if (item is null) return;
+        item.RefreshLegacySessionState();
+        ReloadAccountSession(account.Id);
+        SelectedAccountChanged?.Invoke(account);
+    }
+
+    public void RefreshImportedAccounts(IEnumerable<PublishAccount> importedAccounts)
+    {
+        var ids = importedAccounts.Select(account => account.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var preferred = importedAccounts.LastOrDefault()?.Id ?? _vm?.SelectedAccount?.Id;
+        _vm?.ReloadAccounts(preferred);
+        foreach (var id in ids)
+            if (_hosts.Remove(id, out var host)) BrowserArea.Children.Remove(host);
+        ShowAccount(_vm?.SelectedAccount);
+        SelectedAccountChanged?.Invoke(_vm?.SelectedAccount?.Model);
+    }
+
     // 发布测试：选视频 → 经当前账号 WebView2 的 CDP 端点跑发布流程（只填不发，安全）
     private void OnAccountSettingsRequested(object? sender, EventArgs e) => ShowAccountSettings();
+    private void OnLegacySessionImportClick(object? sender, RoutedEventArgs e) =>
+        LegacySessionImportRequested?.Invoke(this, EventArgs.Empty);
 
     private async Task PublishTestAsync()
     {

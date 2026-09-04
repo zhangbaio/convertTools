@@ -246,7 +246,10 @@ public sealed class KuaishouPersonalConfig
         config.EntryUrl = string.IsNullOrWhiteSpace(config.EntryUrl)
             ? "https://kdj.kuaishou.com/home/content/content-management"
             : config.EntryUrl.Trim();
-        config.AuthStatePath = Resolve(config.AuthStatePath, accountRoot, "kuaishou_personal_kdj_auth_state.json");
+        config.AuthStatePath = Resolve(config.AuthStatePath, accountRoot,
+            platform == PublishPlatform.KuaishouEnterpriseRevenue
+                ? "kuaishou_enterprise_kdj_auth_state.json"
+                : "kuaishou_personal_kdj_auth_state.json");
         config.BrowserProfileDirectory = Resolve(config.BrowserProfileDirectory, accountRoot, "browser-profile");
         if (!string.IsNullOrWhiteSpace(config.CommitmentPdfPath))
             config.CommitmentPdfPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(config.CommitmentPdfPath));

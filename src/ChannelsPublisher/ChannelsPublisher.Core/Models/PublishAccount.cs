@@ -26,6 +26,12 @@ public sealed class PublishAccount
     public string WorkRootDirectory { get; set; } = "";
     public string DownloadDirectory { get; set; } = "";
     public string ArchiveRootDirectory { get; set; } = "";
+    public string LegacyProfileId { get; set; } = "";
+    public string LegacySessionSourceRoot { get; set; } = "";
+    public string WeixinAuthStatePath { get; set; } = "";
+    public string KuaishouPersonalAuthStatePath { get; set; } = "";
+    public string KuaishouEnterpriseAuthStatePath { get; set; } = "";
+    public DateTimeOffset? LegacySessionImportedAt { get; set; }
 
     /// <summary>运行期状态，不持久化。</summary>
     [JsonIgnore]

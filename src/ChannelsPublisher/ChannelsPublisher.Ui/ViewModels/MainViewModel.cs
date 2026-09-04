@@ -65,6 +65,16 @@ public sealed partial class MainViewModel : ViewModelBase
                ?? Accounts.FirstOrDefault(a => a.Name == key);
     }
 
+    public void ReloadAccounts(string? selectedAccountId = null)
+    {
+        var selectedId = string.IsNullOrWhiteSpace(selectedAccountId) ? SelectedAccount?.Id : selectedAccountId;
+        _store.Load();
+        Accounts.Clear();
+        foreach (var account in _store.Accounts) Accounts.Add(new AccountItemViewModel(account));
+        SelectedAccount = Accounts.FirstOrDefault(account => account.Id == selectedId) ?? Accounts.FirstOrDefault();
+        StatusMessage = $"账号列表已刷新，共 {Accounts.Count} 个账号。";
+    }
+
     public void RecordAccountLogin(AccountItemViewModel account)
     {
         account.MarkLoggedIn(DateTimeOffset.Now);

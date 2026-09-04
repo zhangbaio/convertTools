@@ -196,7 +196,10 @@
                             <TextBlock Text="{Binding CurrentAccountTitle}" FontSize="16" FontWeight="Bold" Foreground="#0B74D1" />
                             <TextBlock Text="（当前账号）" VerticalAlignment="Center" FontWeight="SemiBold" />
                         </StackPanel>
-                        <Button Grid.Column="1" Content="保存账号配置" Command="{Binding SaveAccountConfigCommand}" Classes="primaryAction" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <Button Content="导入旧版登录状态" Click="OnLegacySessionImportClick" Classes="secondaryAction" />
+                            <Button Content="保存账号配置" Command="{Binding SaveAccountConfigCommand}" Classes="primaryAction" />
+                        </StackPanel>
                         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
                             <TextBlock Text="登录状态" FontWeight="SemiBold" VerticalAlignment="Center" />
                             <TextBlock Text="●" Foreground="#047857" VerticalAlignment="Center" />
@@ -216,7 +219,7 @@
                 <Border Grid.Row="1" Classes="panel" Padding="12">
                     <TabControl>
                         <TabItem Header="基础信息">
-                            <Grid Margin="12" ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                            <Grid Margin="12" ColumnDefinitions="150,560,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
                                 <TextBlock Text="账号名称" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBox Grid.Column="1" Text="{Binding SelectedAccount.Name}" Watermark="用于左侧列表和任务归属展示" />
                                 <TextBlock Grid.Row="1" Text="视频号昵称" VerticalAlignment="Center" FontWeight="SemiBold" />
@@ -227,6 +230,8 @@
                                 <TextBox Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.ProfileDir}" IsReadOnly="True" />
                                 <TextBlock Grid.Row="4" Text="最近登录" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedAccount.LastLoginText}" VerticalAlignment="Center" Foreground="#64748B" />
+                                <TextBlock Grid.Row="5" Text="旧版登录态" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding SelectedAccount.LegacySessionSummary}" VerticalAlignment="Center" Foreground="#64748B" />
                             </Grid>
                         </TabItem>
                         <TabItem Header="成本报表">

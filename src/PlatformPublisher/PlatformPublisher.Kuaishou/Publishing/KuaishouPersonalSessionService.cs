@@ -17,9 +17,17 @@ public sealed class KuaishouPersonalSessionService
         {
             await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
             await page.BringToFrontAsync();
+            var saved = false;
             while (!ct.IsCancellationRequested && context.Pages.Count > 0)
+            {
+                if (!saved && await IsLoggedInAsync(page))
+                {
+                    await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthStatePath });
+                    saved = true;
+                }
                 await Task.Delay(500, ct);
-        }, cancellationToken);
+            }
+        }, cancellationToken, allowInvalidStateFallback: true);
     }
 
     public async Task ValidateLoginAsync(PublishJob job, IProgress<string>? progress, CancellationToken cancellationToken)
@@ -60,7 +68,8 @@ public sealed class KuaishouPersonalSessionService
         KuaishouPersonalConfig config,
         bool headless,
         Func<IPage, IBrowserContext, CancellationToken, Task> action,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowInvalidStateFallback = false)
     {
         var runtime = await _runtimeService.InspectAsync(cancellationToken);
         if (!runtime.IsReady) throw new InvalidOperationException(runtime.Message);
@@ -74,20 +83,26 @@ public sealed class KuaishouPersonalSessionService
         });
         var options = new BrowserNewContextOptions { ViewportSize = headless ? new ViewportSize { Width = 1920, Height = 1030 } : ViewportSize.NoViewport };
         if (File.Exists(config.AuthStatePath)) options.StorageStatePath = config.AuthStatePath;
-        await using var context = await CreateContextAsync(browser, options);
+        await using var context = await CreateContextAsync(browser, options, allowInvalidStateFallback);
         var page = await context.NewPageAsync();
-        try { await action(page, context, cancellationToken); }
+        var succeeded = false;
+        try { await action(page, context, cancellationToken); succeeded = true; }
         finally
         {
-            try { await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthStatePath }); }
+            try
+            {
+                if (succeeded && context.Pages.Count > 0)
+                    await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthStatePath });
+            }
             catch { /* 登录态保存失败由下次校验暴露。 */ }
         }
     }
 
-    private static async Task<IBrowserContext> CreateContextAsync(IBrowser browser, BrowserNewContextOptions options)
+    private static async Task<IBrowserContext> CreateContextAsync(IBrowser browser, BrowserNewContextOptions options,
+        bool allowInvalidStateFallback)
     {
         try { return await browser.NewContextAsync(options); }
-        catch when (!string.IsNullOrWhiteSpace(options.StorageStatePath))
+        catch when (allowInvalidStateFallback && !string.IsNullOrWhiteSpace(options.StorageStatePath))
         {
             options.StorageStatePath = null;
             return await browser.NewContextAsync(options);

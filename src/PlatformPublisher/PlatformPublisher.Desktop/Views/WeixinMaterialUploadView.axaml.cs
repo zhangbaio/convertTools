@@ -252,7 +252,8 @@ public partial class WeixinMaterialUploadView : UserControl
         try
         {
             ViewModel.IsBusy = true;
-            var request = new MaterialDownloadRequest(account.Id, ViewModel.WorkspaceRoot, dialog.Values, dialog.Limit);
+            var request = new MaterialDownloadRequest(account.Id, ViewModel.WorkspaceRoot, dialog.Values,
+                dialog.Limit, account.WeixinAuthStatePath);
             var progress = new Progress<string>(SetStatus);
             var result = systemHighlights
                 ? await _materialDownloadService.DownloadSystemHighlightsAsync(request, progress, CancellationToken.None)
