@@ -1,5 +1,6 @@
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
@@ -16,8 +17,11 @@ public static class DramaSourceSettingsMapping
         HgnewClientVersion = settings.HgnewClientVersion ?? ClientSettings.DefaultHongguoClientVersion,
         HghighAccount = settings.HghighAccount ?? "",
         HghighPassword = settings.HghighPassword ?? "",
+        HghighEdition = HongguoClientProfile.NormalizeEdition(settings.HghighEdition),
         HghighDeviceId = settings.HghighDeviceId ?? "",
         HghighClientExe = settings.HghighClientExe ?? "",
+        HghighStandardDeviceId = settings.HghighStandardDeviceId ?? "",
+        HghighStandardClientExe = settings.HghighStandardClientExe ?? "",
         MapleleafAccount = settings.MapleleafAccount ?? "",
         MapleleafPassword = settings.MapleleafPassword ?? "",
         MapleleafUdid = settings.MapleleafUdid ?? "",

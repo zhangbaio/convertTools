@@ -21,8 +21,11 @@ public sealed class GlobalDesktopSettings
     public string HgnewClientVersion { get; set; } = "1.4.2";
     public string HghighAccount { get; set; } = string.Empty;
     public string HghighPassword { get; set; } = string.Empty;
+    public string HghighEdition { get; set; } = "high";
     public string HghighDeviceId { get; set; } = string.Empty;
     public string HghighClientExe { get; set; } = string.Empty;
+    public string HghighStandardDeviceId { get; set; } = string.Empty;
+    public string HghighStandardClientExe { get; set; } = string.Empty;
     public string MapleleafAccount { get; set; } = string.Empty;
     public string MapleleafPassword { get; set; } = string.Empty;
     public string MapleleafUdid { get; set; } = string.Empty;

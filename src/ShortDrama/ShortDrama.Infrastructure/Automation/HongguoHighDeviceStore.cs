@@ -23,23 +23,36 @@ public static class HongguoHighDeviceStore
 
     public static string MastersCachePath => Path.Combine(CacheDirectory, "startup_masters.json");
 
+    public static string GetCacheDirectory(HongguoClientProfile profile)
+    {
+        _ = profile;
+        return CacheDirectory;
+    }
+
+    public static string GetMastersCachePath(HongguoClientProfile profile) =>
+        Path.Combine(GetCacheDirectory(profile), "startup_masters.json");
+
     public static string GenerateDeviceId() => HongguoHighCrypto.GenerateDeviceId();
 
-    public static HongguoHighDevice DetectDevice()
+    public static HongguoHighDevice DetectDevice() => DetectDevice(HongguoClientProfile.High);
+
+    public static HongguoHighDevice DetectDevice(HongguoClientProfile profile)
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new HongguoHighException("高码率版设备身份仅支持 Windows");
+            throw new HongguoHighException($"{profile.DisplayName}设备身份仅支持 Windows");
         }
 
-        return DetectDeviceWindows();
+        return DetectDeviceWindows(profile);
     }
 
-    public static string TryReadDeviceId()
+    public static string TryReadDeviceId() => TryReadDeviceId(HongguoClientProfile.High);
+
+    public static string TryReadDeviceId(HongguoClientProfile profile)
     {
         try
         {
-            using var device = DetectDevice();
+            using var device = DetectDevice(profile);
             return device.DeviceId;
         }
         catch
@@ -48,12 +61,14 @@ public static class HongguoHighDeviceStore
         }
     }
 
-    public static bool IsReady()
+    public static bool IsReady() => IsReady(HongguoClientProfile.High);
+
+    public static bool IsReady(HongguoClientProfile profile)
     {
         try
         {
-            using var device = DetectDevice();
-            LoadStartupMasters(device);
+            using var device = DetectDevice(profile);
+            LoadStartupMasters(device, profile);
             return true;
         }
         catch
@@ -62,8 +77,16 @@ public static class HongguoHighDeviceStore
         }
     }
 
-    public static string CacheStartupMasters(string encB64, string signB64, string? deviceId = null)
+    public static string CacheStartupMasters(string encB64, string signB64, string? deviceId = null) =>
+        CacheStartupMasters(encB64, signB64, deviceId, HongguoClientProfile.High);
+
+    public static string CacheStartupMasters(
+        string encB64,
+        string signB64,
+        string? deviceId,
+        HongguoClientProfile profile)
     {
+        _ = deviceId;
         var enc = Compact(encB64);
         var sign = Compact(signB64);
         if (HongguoHighCrypto.FromBase64Url(enc).Length != 48 ||
@@ -74,22 +97,29 @@ public static class HongguoHighDeviceStore
 
         var payload = new JsonObject
         {
-            ["device_id"] = deviceId ?? "",
+            // The two official products use the same startup masters. They are not
+            // device credentials, so keep one DPAPI-protected cache for both editions.
+            ["device_id"] = "",
             ["enc"] = enc,
             ["sign"] = sign
         };
-        Directory.CreateDirectory(CacheDirectory);
-        File.WriteAllText(MastersCachePath, Protect(payload.ToJsonString()), Encoding.UTF8);
-        return MastersCachePath;
+        var directory = GetCacheDirectory(profile);
+        var path = GetMastersCachePath(profile);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(path, Protect(payload.ToJsonString(), HongguoClientProfile.High), Encoding.UTF8);
+        return path;
     }
 
-    public static void ClearStartupMasters()
+    public static void ClearStartupMasters() => ClearStartupMasters(HongguoClientProfile.High);
+
+    public static void ClearStartupMasters(HongguoClientProfile profile)
     {
         try
         {
-            if (File.Exists(MastersCachePath))
+            var path = GetMastersCachePath(profile);
+            if (File.Exists(path))
             {
-                File.Delete(MastersCachePath);
+                File.Delete(path);
             }
         }
         catch (Exception ex)
@@ -98,11 +128,14 @@ public static class HongguoHighDeviceStore
         }
     }
 
-    public static (string Enc, string Sign) LoadStartupMastersRaw()
+    public static (string Enc, string Sign) LoadStartupMastersRaw() =>
+        LoadStartupMastersRaw(HongguoClientProfile.High);
+
+    public static (string Enc, string Sign) LoadStartupMastersRaw(HongguoClientProfile profile)
     {
         try
         {
-            var record = ReadMastersRecord();
+            var record = ReadMastersRecord(profile);
             if (record is null)
             {
                 return ("", "");
@@ -116,36 +149,42 @@ public static class HongguoHighDeviceStore
         }
     }
 
-    public static (string Enc, string Sign) LoadStartupMasters(HongguoHighDevice device)
+    public static (string Enc, string Sign) LoadStartupMasters(HongguoHighDevice device) =>
+        LoadStartupMasters(device, HongguoClientProfile.High);
+
+    public static (string Enc, string Sign) LoadStartupMasters(
+        HongguoHighDevice device,
+        HongguoClientProfile profile)
     {
-        var envEnc = Compact(Environment.GetEnvironmentVariable("HGHIGH_STARTUP_ENC"));
-        var envSign = Compact(Environment.GetEnvironmentVariable("HGHIGH_STARTUP_SIGN"));
+        var envEnc = Compact(Environment.GetEnvironmentVariable(profile.EnvironmentPrefix + "_STARTUP_ENC"));
+        var envSign = Compact(Environment.GetEnvironmentVariable(profile.EnvironmentPrefix + "_STARTUP_SIGN"));
         if (!string.IsNullOrWhiteSpace(envEnc) && !string.IsNullOrWhiteSpace(envSign))
         {
             return (envEnc, envSign);
         }
 
-        var record = ReadMastersRecord();
+        var record = ReadMastersRecord(profile);
         if (record is not null)
         {
             var enc = Compact(record["enc"]?.GetValue<string>());
             var sign = Compact(record["sign"]?.GetValue<string>());
-            var cachedDevice = (record["device_id"]?.GetValue<string>() ?? "").Trim();
             if (!string.IsNullOrWhiteSpace(enc) &&
-                !string.IsNullOrWhiteSpace(sign) &&
-                (string.IsNullOrWhiteSpace(cachedDevice) || cachedDevice == device.DeviceId))
+                !string.IsNullOrWhiteSpace(sign))
             {
                 return (enc, sign);
             }
         }
 
         throw new HongguoHighException(
-            "未找到本设备的启动密钥。请在「系统设置 → 登录设置」选择官方高码率客户端后点击「提取启动密钥」。");
+            $"未找到本设备的启动密钥。请在「系统设置 → 登录设置」选择官方{profile.DisplayName}客户端后点击「提取启动密钥」。");
     }
 
-    public static string ResolveDeviceProof(HongguoHighDevice device)
+    public static string ResolveDeviceProof(HongguoHighDevice device) =>
+        ResolveDeviceProof(device, HongguoClientProfile.High);
+
+    public static string ResolveDeviceProof(HongguoHighDevice device, HongguoClientProfile profile)
     {
-        var env = (Environment.GetEnvironmentVariable("HGHIGH_DEVICE_PROOF") ?? "").Trim();
+        var env = (Environment.GetEnvironmentVariable(profile.EnvironmentPrefix + "_DEVICE_PROOF") ?? "").Trim();
         if (!string.IsNullOrWhiteSpace(env))
         {
             return env;
@@ -153,7 +192,7 @@ public static class HongguoHighDeviceStore
 
         try
         {
-            var record = ReadMastersRecord();
+            var record = ReadMastersRecord(profile);
             var cachedDevice = (record?["device_id"]?.GetValue<string>() ?? "").Trim();
             var cachedProof = (record?["device_proof"]?.GetValue<string>() ?? "").Trim();
             if (!string.IsNullOrWhiteSpace(cachedProof) &&
@@ -167,10 +206,13 @@ public static class HongguoHighDeviceStore
             // Fall through to hardware proof.
         }
 
-        return ComputeHardwareDeviceProof(device);
+        return ComputeHardwareDeviceProof(device, profile);
     }
 
-    public static string? FindOfficialClientExe(string? configuredPath = null)
+    public static string? FindOfficialClientExe(string? configuredPath = null) =>
+        FindOfficialClientExe(configuredPath, HongguoClientProfile.High);
+
+    public static string? FindOfficialClientExe(string? configuredPath, HongguoClientProfile profile)
     {
         var configured = (configuredPath ?? "").Trim();
         if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
@@ -184,7 +226,7 @@ public static class HongguoHighDeviceStore
             return null;
         }
 
-        var folder = Path.Combine(localApp, "HongguoHighDownloader");
+        var folder = Path.Combine(localApp, profile.LocalDataDirectory);
         if (!Directory.Exists(folder))
         {
             return null;
@@ -195,7 +237,10 @@ public static class HongguoHighDeviceStore
             .FirstOrDefault();
     }
 
-    public static string ComputeHardwareDeviceProof(HongguoHighDevice device)
+    public static string ComputeHardwareDeviceProof(HongguoHighDevice device) =>
+        ComputeHardwareDeviceProof(device, HongguoClientProfile.High);
+
+    public static string ComputeHardwareDeviceProof(HongguoHighDevice device, HongguoClientProfile profile)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -225,7 +270,7 @@ public static class HongguoHighDeviceStore
 
         var block =
             "device-proof-v2\n" +
-            $"app_id={HongguoHighCrypto.AppId}\n" +
+            $"app_id={profile.AppId}\n" +
             $"device_id={device.DeviceId}\n" +
             $"machine_guid={machineGuid}\n" +
             $"csproduct_uuid={csproductUuid}\n" +
@@ -237,16 +282,16 @@ public static class HongguoHighDeviceStore
     }
 
     [SupportedOSPlatform("windows")]
-    private static HongguoHighDevice DetectDeviceWindows()
+    private static HongguoHighDevice DetectDeviceWindows(HongguoClientProfile profile)
     {
         string deviceRaw = "";
         string keyRaw = "";
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(HongguoHighCrypto.RegistryKey);
+            using var key = Registry.CurrentUser.OpenSubKey(profile.RegistryKey);
             if (key is null)
             {
-                throw new HongguoHighException(@"未找到高码率版注册表 HKCU\Software\HongGuoHighDownloader");
+                throw new HongguoHighException($@"未找到{profile.DisplayName}注册表 HKCU\{profile.RegistryKey}");
             }
 
             deviceRaw = key.GetValue("DeviceId") as string ?? "";
@@ -258,14 +303,14 @@ public static class HongguoHighDeviceStore
         }
         catch (Exception ex)
         {
-            throw new HongguoHighException(@"未找到高码率版注册表 HKCU\Software\HongGuoHighDownloader", inner: ex);
+            throw new HongguoHighException($@"未找到{profile.DisplayName}注册表 HKCU\{profile.RegistryKey}", inner: ex);
         }
 
         if (string.IsNullOrWhiteSpace(keyRaw))
         {
             var keyPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "HongguoHighDownloader",
+                profile.LocalDataDirectory,
                 "device.key");
             if (File.Exists(keyPath))
             {
@@ -275,31 +320,32 @@ public static class HongguoHighDeviceStore
 
         if (string.IsNullOrWhiteSpace(deviceRaw) || string.IsNullOrWhiteSpace(keyRaw))
         {
-            throw new HongguoHighException("高码率版 DeviceId / DeviceKey 缺失，请先运行并登录官方 HG 短剧下载器高码率版");
+            throw new HongguoHighException($"{profile.DisplayName} DeviceId / DeviceKey 缺失，请先运行并登录官方 HG 短剧下载器{profile.DisplayName}");
         }
 
-        var deviceId = Encoding.UTF8.GetString(Unprotect(deviceRaw)).Trim();
-        var keyText = Encoding.UTF8.GetString(Unprotect(keyRaw));
+        var deviceId = Encoding.UTF8.GetString(Unprotect(deviceRaw, profile)).Trim();
+        var keyText = Encoding.UTF8.GetString(Unprotect(keyRaw, profile));
         if (string.IsNullOrWhiteSpace(deviceId))
         {
-            throw new HongguoHighException("高码率版 DeviceId 为空");
+            throw new HongguoHighException($"{profile.DisplayName} DeviceId 为空");
         }
 
         return new HongguoHighDevice(deviceId, HongguoHighCrypto.ParseDeviceKeyText(keyText));
     }
 
-    private static JsonObject? ReadMastersRecord()
+    private static JsonObject? ReadMastersRecord(HongguoClientProfile profile)
     {
-        if (!File.Exists(MastersCachePath))
+        var path = GetMastersCachePath(profile);
+        if (!File.Exists(path))
         {
             return null;
         }
 
-        var json = Encoding.UTF8.GetString(Unprotect(File.ReadAllText(MastersCachePath)));
+        var json = Encoding.UTF8.GetString(Unprotect(File.ReadAllText(path), HongguoClientProfile.High));
         return JsonNode.Parse(json)?.AsObject();
     }
 
-    private static string Protect(string plaintext)
+    private static string Protect(string plaintext, HongguoClientProfile profile)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -308,12 +354,12 @@ public static class HongguoHighDeviceStore
 
         var protectedBytes = ProtectedData.Protect(
             Encoding.UTF8.GetBytes(plaintext),
-            HongguoHighCrypto.DpapiEntropy,
+            profile.DpapiEntropy,
             DataProtectionScope.CurrentUser);
         return Convert.ToBase64String(protectedBytes);
     }
 
-    private static byte[] Unprotect(string raw)
+    private static byte[] Unprotect(string raw, HongguoClientProfile profile)
     {
         var text = (raw ?? "").Trim();
         if (text.StartsWith("dpapi:", StringComparison.OrdinalIgnoreCase))
@@ -329,7 +375,7 @@ public static class HongguoHighDeviceStore
 
         try
         {
-            return ProtectedData.Unprotect(blob, HongguoHighCrypto.DpapiEntropy, DataProtectionScope.CurrentUser);
+            return ProtectedData.Unprotect(blob, profile.DpapiEntropy, DataProtectionScope.CurrentUser);
         }
         catch (CryptographicException ex)
         {

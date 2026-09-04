@@ -1,4 +1,5 @@
 using ShortDrama.Desktop.Models;
+using ShortDrama.Infrastructure.Automation;
 using System.Globalization;
 using System.Text.Json;
 
@@ -52,8 +53,11 @@ public sealed class GlobalSettingsService
             HgnewClientVersion = snapshot.HgnewClientVersion,
             HghighAccount = snapshot.HghighAccount,
             HghighPassword = snapshot.HghighPassword,
+            HghighEdition = HongguoClientProfile.NormalizeEdition(snapshot.HghighEdition),
             HghighDeviceId = snapshot.HghighDeviceId,
             HghighClientExe = snapshot.HghighClientExe,
+            HghighStandardDeviceId = snapshot.HghighStandardDeviceId,
+            HghighStandardClientExe = snapshot.HghighStandardClientExe,
             MapleleafAccount = snapshot.MapleleafAccount,
             MapleleafPassword = snapshot.MapleleafPassword,
             MapleleafUdid = snapshot.MapleleafUdid,
@@ -307,8 +311,11 @@ public sealed class GlobalSettingsService
             HgnewClientVersion = PickString(current.HgnewClientVersion, "hgnew_client_version", "1.4.2"),
             HghighAccount = PickString(current.HghighAccount, "hghigh_account"),
             HghighPassword = PickString(current.HghighPassword, "hghigh_password"),
+            HghighEdition = HongguoClientProfile.NormalizeEdition(PickString(current.HghighEdition, "hghigh_edition", "high")),
             HghighDeviceId = PickString(current.HghighDeviceId, "hghigh_device_id"),
             HghighClientExe = PickString(current.HghighClientExe, "hghigh_client_exe"),
+            HghighStandardDeviceId = PickString(current.HghighStandardDeviceId, "hghigh_standard_device_id"),
+            HghighStandardClientExe = PickString(current.HghighStandardClientExe, "hghigh_standard_client_exe"),
             MapleleafAccount = PickString(current.MapleleafAccount, "mapleleaf_account"),
             MapleleafPassword = PickString(current.MapleleafPassword, "mapleleaf_password"),
             MapleleafUdid = PickString(current.MapleleafUdid, "mapleleaf_udid"),
@@ -424,8 +431,11 @@ public sealed class GlobalSettingsService
             HgnewClientVersion: dto.HgnewClientVersion,
             HghighAccount: dto.HghighAccount,
             HghighPassword: dto.HghighPassword,
+            HghighEdition: HongguoClientProfile.NormalizeEdition(dto.HghighEdition),
             HghighDeviceId: dto.HghighDeviceId,
             HghighClientExe: dto.HghighClientExe,
+            HghighStandardDeviceId: dto.HghighStandardDeviceId,
+            HghighStandardClientExe: dto.HghighStandardClientExe,
             MapleleafAccount: dto.MapleleafAccount,
             MapleleafPassword: dto.MapleleafPassword,
             MapleleafUdid: dto.MapleleafUdid,

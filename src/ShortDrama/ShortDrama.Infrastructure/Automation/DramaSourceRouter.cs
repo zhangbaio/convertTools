@@ -457,11 +457,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
                 separateResolveConcurrency: Math.Min(4, Math.Clamp(request.Concurrent, 1, 10)),
-                registerResolvePlan: (videoIds, batchSize) =>
-                {
-                    progress?.Report($"高码率播放地址启用批量解析：每批 {batchSize} 集，共 {videoIds.Count} 集");
-                    return _hghighApiService.RegisterBatchParsePlan(settings, videoIds, request.Quality, batchSize);
-                });
+                registerResolvePlan: HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition
+                    ? null
+                    : (videoIds, batchSize) =>
+                    {
+                        progress?.Report($"高码率播放地址启用批量解析：每批 {batchSize} 集，共 {videoIds.Count} 集");
+                        return _hghighApiService.RegisterBatchParsePlan(settings, videoIds, request.Quality, batchSize);
+                    });
         }
 
         if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase) ||

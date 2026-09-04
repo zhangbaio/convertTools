@@ -37,6 +37,7 @@ public partial class SystemSettingsView : UserControl
         vm.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName is nameof(SystemSettingsViewModel.DramaSourceChain)
+                or nameof(SystemSettingsViewModel.HghighEdition)
                 or nameof(SystemSettingsViewModel.PikachuDramaType)
                 or nameof(SystemSettingsViewModel.HongguoLocalDownloadMode)
                 or nameof(SystemSettingsViewModel.HongguoLocalTranscodeEngine)
@@ -105,6 +106,11 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
+
+        HghighEditionCombo.Items.Clear();
+        HghighEditionCombo.Items.Add(CreateItem("高码率版 2.1.6", HongguoClientProfile.HighEdition));
+        HghighEditionCombo.Items.Add(CreateItem("标准版 2.1.7", HongguoClientProfile.StandardEdition));
+        HghighEditionCombo.SelectionChanged += OnHghighEditionChanged;
 
         PikachuTypeCombo.Items.Clear();
         PikachuTypeCombo.Items.Add(CreateItem("红果短剧（需要番茄 Cookie）", "short"));
@@ -180,6 +186,7 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null) return;
         SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
+        SelectComboItem(HghighEditionCombo, _vm.HghighEdition);
         SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
         SelectComboItem(HongguoLocalDownloadModeCombo, _vm.HongguoLocalDownloadMode);
         SelectComboItem(HongguoLocalTranscodeEngineCombo, _vm.HongguoLocalTranscodeEngine);
@@ -278,6 +285,12 @@ public partial class SystemSettingsView : UserControl
             ?? ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
     }
 
+    private void OnHghighEditionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || HghighEditionCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.HghighEdition = item.Tag as string ?? HongguoClientProfile.HighEdition;
+    }
+
     private void OnRoleVectorViewModeChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_vm is null || RoleVectorViewModeCombo.SelectedItem is not ComboBoxItem item) return;
@@ -371,9 +384,9 @@ public partial class SystemSettingsView : UserControl
 
     private async void OnBrowseHghighClientExeClick(object? sender, RoutedEventArgs e)
     {
-        var path = await PickFileAsync("选择高码率客户端", "*.exe");
+        var path = await PickFileAsync("选择 HG 短剧下载器客户端", "*.exe");
         if (_vm is not null && !string.IsNullOrWhiteSpace(path))
-            _vm.HghighClientExe = path;
+            _vm.HghighActiveClientExe = path;
     }
 
     private async Task<string?> PickFileAsync(string title, params string[] patterns)

@@ -43,8 +43,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     [ObservableProperty] private string _hghighAccount = "";
     [ObservableProperty] private string _hghighPassword = "";
+    [ObservableProperty] private string _hghighEdition = HongguoClientProfile.HighEdition;
     [ObservableProperty] private string _hghighDeviceId = "";
     [ObservableProperty] private string _hghighClientExe = "";
+    [ObservableProperty] private string _hghighStandardDeviceId = "";
+    [ObservableProperty] private string _hghighStandardClientExe = "";
     [ObservableProperty] private string _hghighEncMaster = "";
     [ObservableProperty] private string _hghighSignMaster = "";
     [ObservableProperty] private string _hghighProbeStatus = "";
@@ -60,6 +63,30 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public string HghighRevealEncButtonText => HghighRevealEnc ? "隐藏密钥" : "显示密钥";
     public string HghighRevealSignButtonText => HghighRevealSign ? "隐藏密钥" : "显示密钥";
+    public string HghighEditionLabel => SelectedHghighProfile.DisplayName;
+    public string HghighDeviceLabel => HghighEdition == HongguoClientProfile.StandardEdition ? "标准版设备 ID" : "高码率设备 ID";
+    public string HghighClientExeLabel => HghighEdition == HongguoClientProfile.StandardEdition ? "标准版客户端 exe" : "高码率客户端 exe";
+    public string HghighActiveDeviceId
+    {
+        get => HghighEdition == HongguoClientProfile.StandardEdition ? HghighStandardDeviceId : HghighDeviceId;
+        set
+        {
+            if (HghighEdition == HongguoClientProfile.StandardEdition) HghighStandardDeviceId = value;
+            else HghighDeviceId = value;
+            OnPropertyChanged();
+        }
+    }
+    public string HghighActiveClientExe
+    {
+        get => HghighEdition == HongguoClientProfile.StandardEdition ? HghighStandardClientExe : HghighClientExe;
+        set
+        {
+            if (HghighEdition == HongguoClientProfile.StandardEdition) HghighStandardClientExe = value;
+            else HghighClientExe = value;
+            OnPropertyChanged();
+        }
+    }
+    private HongguoClientProfile SelectedHghighProfile => HongguoClientProfile.Resolve(HghighEdition);
 
     [ObservableProperty] private string _hongguoLocalBaseUrl = "";
     [ObservableProperty] private string _hongguoLocalApiKey = "";
@@ -207,8 +234,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
         HghighAccount = HghighAccount.Trim(),
         HghighPassword = HghighPassword,
+        HghighEdition = HongguoClientProfile.NormalizeEdition(HghighEdition),
         HghighDeviceId = HghighDeviceId.Trim(),
         HghighClientExe = HghighClientExe.Trim(),
+        HghighStandardDeviceId = HghighStandardDeviceId.Trim(),
+        HghighStandardClientExe = HghighStandardClientExe.Trim(),
         MapleleafAccount = MapleleafAccount.Trim(),
         MapleleafPassword = MapleleafPassword,
         MapleleafUdid = MapleleafUdid.Trim(),
@@ -471,15 +501,16 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [RelayCommand]
     private void ReadHghighDeviceId()
     {
-        var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
+        var profile = SelectedHghighProfile;
+        var deviceId = HongguoHighDeviceStore.TryReadDeviceId(profile);
         if (string.IsNullOrWhiteSpace(deviceId))
         {
-            HghighProbeStatus = "未读到高码率 DeviceId。请先安装并登录一次官方 HG 高码率版客户端。";
+            HghighProbeStatus = $"未读到{profile.DisplayName} DeviceId。请先安装并登录一次对应的官方 HG 客户端。";
             return;
         }
 
-        HghighDeviceId = deviceId;
-        HghighProbeStatus = "已从本机官方高码率客户端读取 DeviceId。";
+        HghighActiveDeviceId = deviceId;
+        HghighProbeStatus = $"已从本机官方{profile.DisplayName}客户端读取 DeviceId。";
     }
 
     [RelayCommand]
@@ -491,7 +522,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             return;
         }
 
-        if (!HongguoHighDeviceStore.IsReady())
+        if (!HongguoHighDeviceStore.IsReady(SelectedHghighProfile))
         {
             HghighProbeStatus = "本机还没有启动密钥。请先选择官方客户端 exe，再点「提取启动密钥」。";
             return;
@@ -522,22 +553,24 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         }
 
         IsHghighBusy = true;
-        HghighMastersStatus = "正在关闭已运行的官方高码率客户端并提取密钥…";
+        var profile = SelectedHghighProfile;
+        HghighMastersStatus = $"正在关闭已运行的官方{profile.DisplayName}客户端并提取密钥…";
         try
         {
             var progress = new Progress<string>(message => HghighMastersStatus = message);
             var result = await HongguoHighMasterProvisioner.ExtractAsync(
-                HghighClientExe,
+                HghighActiveClientExe,
+                profile,
                 progress,
                 CancellationToken.None);
-            if (string.IsNullOrWhiteSpace(HghighClientExe))
+            if (string.IsNullOrWhiteSpace(HghighActiveClientExe))
             {
-                HghighClientExe = HongguoHighDeviceStore.FindOfficialClientExe(null) ?? "";
+                HghighActiveClientExe = HongguoHighDeviceStore.FindOfficialClientExe(null, profile) ?? "";
             }
 
-            if (string.IsNullOrWhiteSpace(HghighDeviceId))
+            if (string.IsNullOrWhiteSpace(HghighActiveDeviceId))
             {
-                HghighDeviceId = result.DeviceId;
+                HghighActiveDeviceId = result.DeviceId;
             }
 
             ShowExtractedMasters(result.EncMaster, result.SignMaster);
@@ -598,6 +631,30 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     partial void OnHghighRevealSignChanged(bool value) => OnPropertyChanged(nameof(HghighRevealSignButtonText));
 
+    partial void OnHghighEditionChanged(string value)
+    {
+        var normalized = HongguoClientProfile.NormalizeEdition(value);
+        if (!string.Equals(value, normalized, StringComparison.Ordinal))
+        {
+            HghighEdition = normalized;
+            return;
+        }
+
+        OnPropertyChanged(nameof(HghighEditionLabel));
+        OnPropertyChanged(nameof(HghighDeviceLabel));
+        OnPropertyChanged(nameof(HghighClientExeLabel));
+        OnPropertyChanged(nameof(HghighActiveDeviceId));
+        OnPropertyChanged(nameof(HghighActiveClientExe));
+        var masters = HongguoHighDeviceStore.LoadStartupMastersRaw(SelectedHghighProfile);
+        ApplyMastersToForm(masters.Enc, masters.Sign);
+        RefreshHghighMastersStatus();
+    }
+
+    partial void OnHghighDeviceIdChanged(string value) => OnPropertyChanged(nameof(HghighActiveDeviceId));
+    partial void OnHghighStandardDeviceIdChanged(string value) => OnPropertyChanged(nameof(HghighActiveDeviceId));
+    partial void OnHghighClientExeChanged(string value) => OnPropertyChanged(nameof(HghighActiveClientExe));
+    partial void OnHghighStandardClientExeChanged(string value) => OnPropertyChanged(nameof(HghighActiveClientExe));
+
     private void ShowExtractedMasters(string enc, string sign)
     {
         HghighRevealEnc = false;
@@ -632,30 +689,34 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     {
         if (string.IsNullOrWhiteSpace(HghighEncMaster) || string.IsNullOrWhiteSpace(HghighSignMaster))
         {
-            HongguoHighDeviceStore.ClearStartupMasters();
+            HongguoHighDeviceStore.ClearStartupMasters(SelectedHghighProfile);
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(HghighDeviceId))
+        if (string.IsNullOrWhiteSpace(HghighActiveDeviceId))
         {
-            HghighDeviceId = HongguoHighDeviceStore.TryReadDeviceId();
+            HghighActiveDeviceId = HongguoHighDeviceStore.TryReadDeviceId(SelectedHghighProfile);
         }
 
-        HongguoHighDeviceStore.CacheStartupMasters(HghighEncMaster, HghighSignMaster, HghighDeviceId);
+        HongguoHighDeviceStore.CacheStartupMasters(
+            HghighEncMaster,
+            HghighSignMaster,
+            HghighActiveDeviceId,
+            SelectedHghighProfile);
     }
 
     private void RefreshHghighMastersStatus()
     {
-        if (HongguoHighDeviceStore.IsReady())
+        if (HongguoHighDeviceStore.IsReady(SelectedHghighProfile))
         {
             HghighMastersStatus = "本机已缓存启动密钥，可正常登录。";
             return;
         }
 
-        var (enc, sign) = HongguoHighDeviceStore.LoadStartupMastersRaw();
+        var (enc, sign) = HongguoHighDeviceStore.LoadStartupMastersRaw(SelectedHghighProfile);
         if (!string.IsNullOrWhiteSpace(enc) && !string.IsNullOrWhiteSpace(sign))
         {
-            HghighMastersStatus = "已有启动密钥缓存，但尚未读取到本机高码率设备身份。请先运行官方客户端一次。";
+            HghighMastersStatus = $"已有共享启动密钥缓存，但尚未读取到本机{HghighEditionLabel}设备身份。请先运行对应客户端一次。";
             return;
         }
 
@@ -913,16 +974,21 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewClientVersion = settings.HgnewClientVersion;
         HghighAccount = settings.HghighAccount;
         HghighPassword = settings.HghighPassword;
+        HghighEdition = HongguoClientProfile.NormalizeEdition(settings.HghighEdition);
         HghighDeviceId = string.IsNullOrWhiteSpace(settings.HghighDeviceId)
-            ? HongguoHighDeviceStore.TryReadDeviceId()
+            ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.High)
             : settings.HghighDeviceId;
         HghighClientExe = settings.HghighClientExe;
+        HghighStandardDeviceId = string.IsNullOrWhiteSpace(settings.HghighStandardDeviceId)
+            ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.Standard)
+            : settings.HghighStandardDeviceId;
+        HghighStandardClientExe = settings.HghighStandardClientExe;
         MapleleafAccount = settings.MapleleafAccount;
         MapleleafPassword = settings.MapleleafPassword;
         MapleleafUdid = string.IsNullOrWhiteSpace(settings.MapleleafUdid)
             ? MapleleafDeviceStore.TryReadDeviceId()
             : settings.MapleleafUdid;
-        var masters = HongguoHighDeviceStore.LoadStartupMastersRaw();
+        var masters = HongguoHighDeviceStore.LoadStartupMastersRaw(SelectedHghighProfile);
         HghighEncMaster = masters.Enc;
         HghighSignMaster = masters.Sign;
         RefreshHghighMastersStatus();
