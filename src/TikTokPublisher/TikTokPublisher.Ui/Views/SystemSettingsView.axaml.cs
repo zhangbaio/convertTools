@@ -108,8 +108,8 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
 
         HghighEditionCombo.Items.Clear();
-        HghighEditionCombo.Items.Add(CreateItem("高码率版 2.1.6", HongguoClientProfile.HighEdition));
-        HghighEditionCombo.Items.Add(CreateItem("标准版 2.1.7", HongguoClientProfile.StandardEdition));
+        HghighEditionCombo.Items.Add(CreateItem("高码率版", HongguoClientProfile.HighEdition));
+        HghighEditionCombo.Items.Add(CreateItem("标准版", HongguoClientProfile.StandardEdition));
         HghighEditionCombo.SelectionChanged += OnHghighEditionChanged;
 
         PikachuTypeCombo.Items.Clear();
