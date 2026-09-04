@@ -497,6 +497,8 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnSelectedAccountChanged(AccountItemViewModel? value)
     {
         UpdateDramaDownloadQueueTarget();
+        // Never keep another account's completed count visible while the async refresh runs.
+        TodayUploadCount = 0;
         if (value is null)
         {
             RestoreQueueSearchTextForSelectedAccount();
@@ -506,6 +508,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (_store.ActiveAccountId == value.Id)
         {
             RestoreQueueSearchTextForSelectedAccount();
+            RefreshTodayUploadCount();
             return;
         }
 

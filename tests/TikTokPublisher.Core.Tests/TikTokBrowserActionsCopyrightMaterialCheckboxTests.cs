@@ -1,10 +1,34 @@
 using FluentAssertions;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokBrowserActionsCopyrightMaterialCheckboxTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Unselected_source_information_does_not_evaluate_its_file_requirements(
+        bool included,
+        bool shouldUpload)
+    {
+        var incompleteSelection = new TikTokSourceFileInfoPackageSelection(
+            IncludeOutline: false,
+            IncludeScript: false,
+            IncludeRoleVector: false,
+            IncludeRoleSceneScreenshot: false);
+
+        var action = () => TikTokBrowserActions.ResolveExpectedSourceInfoFileCount(
+            included,
+            shouldUpload,
+            incompleteSelection);
+
+        action.Should().NotThrow();
+        action().Should().Be(0);
+    }
+
     [Fact]
     public void SelectedState_AcceptsNativeCheckbox()
     {

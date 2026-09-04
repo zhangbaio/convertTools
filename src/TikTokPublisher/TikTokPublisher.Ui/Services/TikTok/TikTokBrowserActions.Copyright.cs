@@ -26,6 +26,16 @@ internal sealed record CopyrightMaterialCheckbox(
 
 public static partial class TikTokBrowserActions
 {
+    internal static int ResolveExpectedSourceInfoFileCount(
+        bool includeSourceFileInformation,
+        bool uploadSourceFileInformation,
+        TikTokSourceFileInfoPackageSelection selection)
+    {
+        return includeSourceFileInformation && uploadSourceFileInformation
+            ? TikTokSourceFileInfoUploadPackageService.RequiredFileCountFor(selection)
+            : 0;
+    }
+
     private const int CopyrightControlTimeoutMs = 15000;
     private const int CopyrightUploadTimeoutMs = 120000;
     private const int CopyrightUploadMaxAttempts = 2;
@@ -575,7 +585,9 @@ public static partial class TikTokBrowserActions
         var sourceInfoFiles = includeSourceFileInformation && uploadSourceFileInformation
             ? ResolveSourceFileInformationFiles(options)
             : [];
-        var expectedSourceInfoFileCount = TikTokSourceFileInfoUploadPackageService.RequiredFileCountFor(
+        var expectedSourceInfoFileCount = ResolveExpectedSourceInfoFileCount(
+            includeSourceFileInformation,
+            uploadSourceFileInformation,
             options.SourceInfoPackageSelection);
         if (includeSourceFileInformation && uploadSourceFileInformation &&
             sourceInfoFiles.Count != expectedSourceInfoFileCount)
