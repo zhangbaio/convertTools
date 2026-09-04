@@ -19,14 +19,21 @@ public static class HongguoHighMasterProvisioner
     public static async Task<HongguoHighProvisionResult> ExtractAsync(
         string? configuredExePath,
         IProgress<string>? progress,
+        CancellationToken cancellationToken) =>
+        await ExtractAsync(configuredExePath, HongguoClientProfile.High, progress, cancellationToken);
+
+    public static async Task<HongguoHighProvisionResult> ExtractAsync(
+        string? configuredExePath,
+        HongguoClientProfile profile,
+        IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        var exePath = HongguoHighDeviceStore.FindOfficialClientExe(configuredExePath);
+        var exePath = HongguoHighDeviceStore.FindOfficialClientExe(configuredExePath, profile);
         if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
         {
             throw new HongguoHighException(
-                "未找到官方高码率客户端 exe。请在「高码率客户端 exe」选择 HG短剧下载器高码率版 2.1.6，" +
-                @"默认目录通常为 %LOCALAPPDATA%\HongguoHighDownloader。");
+                $"未找到官方{profile.DisplayName}客户端 exe。请先选择对应的 HG 短剧下载器，" +
+                $@"默认目录通常为 %LOCALAPPDATA%\{profile.LocalDataDirectory}。");
         }
 
         var python = ResolvePython();
@@ -38,15 +45,15 @@ public static class HongguoHighMasterProvisioner
                 "源码启动可用系统 Python（pip install frida==16.7.19）。");
         }
 
-        var closed = CloseOfficialClient(exePath);
+        var closed = CloseOfficialClient(exePath, profile);
         if (closed > 0)
         {
-            progress?.Report($"已关闭 {closed} 个正在运行的官方高码率客户端，随后重新启动以提取密钥。");
+            progress?.Report($"已关闭 {closed} 个正在运行的官方{profile.DisplayName}客户端，随后重新启动以提取密钥。");
             await Task.Delay(1200, cancellationToken);
         }
         else
         {
-            progress?.Report("正在启动官方高码率客户端并提取 Enc/Sign Master…");
+            progress?.Report($"正在启动官方{profile.DisplayName}客户端并提取 Enc/Sign Master…");
         }
         var outputPath = Path.Combine(Path.GetTempPath(), $"hghigh-masters-{Guid.NewGuid():N}.json");
         try
@@ -119,8 +126,8 @@ public static class HongguoHighMasterProvisioner
                     if (TryReadMastersFile(outputPath, out var enc, out var sign) ||
                         TryParseMastersJson(Snapshot(stdout, logGate), out enc, out sign))
                     {
-                        var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
-                        var cachePath = HongguoHighDeviceStore.CacheStartupMasters(enc, sign, deviceId);
+                        var deviceId = HongguoHighDeviceStore.TryReadDeviceId(profile);
+                        var cachePath = HongguoHighDeviceStore.CacheStartupMasters(enc, sign, deviceId, profile);
                         Interlocked.Exchange(ref completed[0], 1);
                         progress?.Report("已提取 Enc Master 和 Sign Master，正在填入表单…");
                         TryKill(process, entireProcessTree: false);
@@ -132,8 +139,8 @@ public static class HongguoHighMasterProvisioner
                         if (TryReadMastersFile(outputPath, out enc, out sign) ||
                             TryParseMastersJson(Snapshot(stdout, logGate), out enc, out sign))
                         {
-                            var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
-                            var cachePath = HongguoHighDeviceStore.CacheStartupMasters(enc, sign, deviceId);
+                            var deviceId = HongguoHighDeviceStore.TryReadDeviceId(profile);
+                            var cachePath = HongguoHighDeviceStore.CacheStartupMasters(enc, sign, deviceId, profile);
                             Interlocked.Exchange(ref completed[0], 1);
                             return new HongguoHighProvisionResult(cachePath, deviceId, enc, sign);
                         }
@@ -386,6 +393,12 @@ public static class HongguoHighMasterProvisioner
     }
 
     public static bool IsOfficialClientPath(string? processPath, string? configuredExePath)
+        => IsOfficialClientPath(processPath, configuredExePath, HongguoClientProfile.High);
+
+    public static bool IsOfficialClientPath(
+        string? processPath,
+        string? configuredExePath,
+        HongguoClientProfile profile)
     {
         if (string.IsNullOrWhiteSpace(processPath))
         {
@@ -419,7 +432,7 @@ public static class HongguoHighMasterProvisioner
 
         var folder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "HongguoHighDownloader");
+            profile.LocalDataDirectory);
         try
         {
             folder = Path.GetFullPath(folder);
@@ -435,8 +448,11 @@ public static class HongguoHighMasterProvisioner
     }
 
     public static int CloseOfficialClient(string? configuredExePath)
+        => CloseOfficialClient(configuredExePath, HongguoClientProfile.High);
+
+    public static int CloseOfficialClient(string? configuredExePath, HongguoClientProfile profile)
     {
-        var exePath = HongguoHighDeviceStore.FindOfficialClientExe(configuredExePath);
+        var exePath = HongguoHighDeviceStore.FindOfficialClientExe(configuredExePath, profile);
         var closed = 0;
         foreach (var process in DiagProcess.GetProcesses())
         {
@@ -456,9 +472,12 @@ public static class HongguoHighMasterProvisioner
                 var exeName = string.IsNullOrWhiteSpace(exePath)
                     ? ""
                     : Path.GetFileNameWithoutExtension(exePath);
-                var looksOfficial = IsOfficialClientPath(path, exePath) ||
-                                    name.Contains("HongguoHigh", StringComparison.OrdinalIgnoreCase) ||
-                                    name.Contains("HongGuoHigh", StringComparison.OrdinalIgnoreCase) ||
+                var looksOfficial = IsOfficialClientPath(path, exePath, profile) ||
+                                    (profile.Edition == HongguoClientProfile.HighEdition &&
+                                     (name.Contains("HongguoHigh", StringComparison.OrdinalIgnoreCase) ||
+                                      name.Contains("HongGuoHigh", StringComparison.OrdinalIgnoreCase))) ||
+                                    (profile.Edition == HongguoClientProfile.StandardEdition &&
+                                     name.Contains("HongguoDownloader", StringComparison.OrdinalIgnoreCase)) ||
                                     (!string.IsNullOrWhiteSpace(exeName) &&
                                      name.Equals(exeName, StringComparison.OrdinalIgnoreCase));
                 if (!looksOfficial)

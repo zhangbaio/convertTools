@@ -224,14 +224,15 @@ public static class HongguoHighCrypto
         string nonceB64,
         string ivB64,
         string dataB64,
-        string tagB64) =>
+        string tagB64,
+        HongguoClientProfile? profile = null) =>
         Encoding.UTF8.GetBytes(string.Join("\n",
         [
             (method ?? "").ToUpperInvariant(),
             path ?? "",
-            AppId,
+            (profile ?? HongguoClientProfile.High).AppId,
             "win",
-            ClientVersion,
+            (profile ?? HongguoClientProfile.High).ClientVersion,
             "",
             "",
             "",
@@ -258,14 +259,15 @@ public static class HongguoHighCrypto
         string hB64,
         string flowId,
         int seq,
-        string payloadHash) =>
+        string payloadHash,
+        HongguoClientProfile? profile = null) =>
         string.Join("\n",
         [
             (method ?? "").ToUpperInvariant(),
             path ?? "",
-            AppId,
+            (profile ?? HongguoClientProfile.High).AppId,
             "win",
-            ClientVersion,
+            (profile ?? HongguoClientProfile.High).ClientVersion,
             deviceId,
             token,
             sessionId,
@@ -309,8 +311,10 @@ public static class HongguoHighCrypto
         HongguoHighDevice device,
         string path,
         JsonObject data,
-        string deviceProof)
+        string deviceProof,
+        HongguoClientProfile? profile = null)
     {
+        profile ??= HongguoClientProfile.High;
         var pubB64 = ToBase64Url(Ecs1PublicBlob(device.PrivateKey));
         var param = new JsonObject
         {
@@ -326,15 +330,15 @@ public static class HongguoHighCrypto
         MergeObject(param, data);
         return new JsonObject
         {
-            ["appId"] = AppId,
-            ["app_id"] = AppId,
-            ["clientVersion"] = ClientVersion,
+            ["appId"] = profile.AppId,
+            ["app_id"] = profile.AppId,
+            ["clientVersion"] = profile.ClientVersion,
             ["name"] = path,
             ["param"] = param,
             ["path"] = path,
             ["payload"] = param.DeepClone(),
             ["platform"] = "win",
-            ["version"] = ClientVersion
+            ["version"] = profile.ClientVersion
         };
     }
 
@@ -343,15 +347,17 @@ public static class HongguoHighCrypto
         HongguoHighSession session,
         string path,
         JsonObject data,
-        string deviceProof)
+        string deviceProof,
+        HongguoClientProfile? profile = null)
     {
+        profile ??= HongguoClientProfile.High;
         var pubB64 = ToBase64Url(Ecs1PublicBlob(device.PrivateKey));
         var flowId = string.IsNullOrWhiteSpace(session.FlowId)
             ? ToBase64Url(RandomNumberGenerator.GetBytes(18))[..24]
             : session.FlowId;
         var inner = new JsonObject
         {
-            ["app_id"] = AppId,
+            ["app_id"] = profile.AppId,
             ["device_id"] = device.DeviceId,
             ["deviceId"] = device.DeviceId,
             ["deviceProof"] = deviceProof,
@@ -371,9 +377,9 @@ public static class HongguoHighCrypto
             ["risk_findings"] = new JsonArray(),
             ["risk_level"] = "normal",
             ["risk_score"] = 0,
-            ["version"] = ClientVersion,
-            ["clientVersion"] = ClientVersion,
-            ["client_version"] = ClientVersion
+            ["version"] = profile.ClientVersion,
+            ["clientVersion"] = profile.ClientVersion,
+            ["client_version"] = profile.ClientVersion
         };
         if (!string.IsNullOrWhiteSpace(session.SessionId))
         {
@@ -398,8 +404,10 @@ public static class HongguoHighCrypto
         string method,
         string path,
         byte[] encKey,
-        byte[] signKey)
+        byte[] signKey,
+        HongguoClientProfile? profile = null)
     {
+        profile ??= HongguoClientProfile.High;
         var ts = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var raw = Encoding.UTF8.GetBytes(inner.ToJsonString(CompactJson));
         var (nonce, ciphertext, tag) = AesGcmEncrypt(raw, encKey);
@@ -407,12 +415,12 @@ public static class HongguoHighCrypto
         var ivB64 = ToBase64Url(nonce);
         var tagB64 = ToBase64Url(tag);
         var nonceB64 = ToBase64Url(RandomNumberGenerator.GetBytes(16));
-        var message = StartupSignMessage(method, path, ts, nonceB64, ivB64, dataB64, tagB64);
+        var message = StartupSignMessage(method, path, ts, nonceB64, ivB64, dataB64, tagB64, profile);
         var sign = Convert.ToHexString(HMACSHA256.HashData(signKey, message)).ToLowerInvariant();
         return new JsonObject
         {
             ["alg"] = StartupAlg,
-            ["app_id"] = AppId,
+            ["app_id"] = profile.AppId,
             ["data"] = dataB64,
             ["iv"] = ivB64,
             ["key_id"] = StartupKid,
@@ -425,7 +433,7 @@ public static class HongguoHighCrypto
             ["time"] = ts,
             ["ts"] = ts,
             ["v"] = ProtocolStartup,
-            ["version"] = ClientVersion
+            ["version"] = profile.ClientVersion
         };
     }
 
@@ -434,8 +442,10 @@ public static class HongguoHighCrypto
         HongguoHighSession session,
         JsonObject inner,
         string method,
-        string path)
+        string path,
+        HongguoClientProfile? profile = null)
     {
+        profile ??= HongguoClientProfile.High;
         var seq = session.NextSeq();
         var ts = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var raw = Encoding.UTF8.GetBytes(inner.ToJsonString(CompactJson));
@@ -459,16 +469,16 @@ public static class HongguoHighCrypto
             .ToLowerInvariant();
         var canonical = LetterCanonical(
             method, path, device.DeviceId, bearer, sessionId, riskLevel, ts,
-            eB64, fB64, gB64, hB64, flowId, seq, payloadHash);
+            eB64, fB64, gB64, hB64, flowId, seq, payloadHash, profile);
         var signKey = DeriveSessionSignKey(session.SessionKeyB64, session.SessionKeyId, session.SessionId, device.DeviceId);
         var rHex = Convert.ToHexString(HMACSHA256.HashData(signKey, Encoding.UTF8.GetBytes(canonical)))
             .ToLowerInvariant();
         var signMessage = Encoding.UTF8.GetBytes(LetterSignDomain + "\n" + canonical + "\n" + rHex);
         var env = new JsonObject
         {
-            ["a"] = AppId,
+            ["a"] = profile.AppId,
             ["b"] = "win",
-            ["c"] = ClientVersion,
+            ["c"] = profile.ClientVersion,
             ["d"] = ts,
             ["e"] = eB64,
             ["f"] = fB64,

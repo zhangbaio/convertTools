@@ -232,10 +232,19 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string hghighPassword = string.Empty;
 
     [ObservableProperty]
+    private string hghighEdition = HongguoClientProfile.HighEdition;
+
+    [ObservableProperty]
     private string hghighDeviceId = string.Empty;
 
     [ObservableProperty]
     private string hghighClientExe = string.Empty;
+
+    [ObservableProperty]
+    private string hghighStandardDeviceId = string.Empty;
+
+    [ObservableProperty]
+    private string hghighStandardClientExe = string.Empty;
 
     [ObservableProperty]
     private string mapleleafAccount = string.Empty;
@@ -472,13 +481,15 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
     public void ReadHghighDeviceId()
     {
-        var deviceId = HongguoHighDeviceStore.TryReadDeviceId();
+        var profile = HongguoClientProfile.Resolve(HghighEdition);
+        var deviceId = HongguoHighDeviceStore.TryReadDeviceId(profile);
         HghighProbeStatus = string.IsNullOrWhiteSpace(deviceId)
-            ? "未读到高码率 DeviceId。请先安装并登录一次官方高码率客户端。"
-            : "已从本机官方高码率客户端读取 DeviceId。";
+            ? $"未读到{profile.DisplayName} DeviceId。请先安装并登录一次对应客户端。"
+            : $"已从本机官方{profile.DisplayName}客户端读取 DeviceId。";
         if (!string.IsNullOrWhiteSpace(deviceId))
         {
-            HghighDeviceId = deviceId;
+            if (profile.Edition == HongguoClientProfile.StandardEdition) HghighStandardDeviceId = deviceId;
+            else HghighDeviceId = deviceId;
         }
     }
 
@@ -502,10 +513,14 @@ public partial class ConfigWindowViewModel : ViewModelBase
         try
         {
             HghighMastersStatus = "正在提取启动密钥…请确保官方客户端已完全退出。";
-            var result = await HongguoHighMasterProvisioner.ExtractAsync(HghighClientExe, null, CancellationToken.None);
-            if (string.IsNullOrWhiteSpace(HghighDeviceId))
+            var profile = HongguoClientProfile.Resolve(HghighEdition);
+            var exe = profile.Edition == HongguoClientProfile.StandardEdition ? HghighStandardClientExe : HghighClientExe;
+            var result = await HongguoHighMasterProvisioner.ExtractAsync(exe, profile, null, CancellationToken.None);
+            var currentDeviceId = profile.Edition == HongguoClientProfile.StandardEdition ? HghighStandardDeviceId : HghighDeviceId;
+            if (string.IsNullOrWhiteSpace(currentDeviceId))
             {
-                HghighDeviceId = result.DeviceId;
+                if (profile.Edition == HongguoClientProfile.StandardEdition) HghighStandardDeviceId = result.DeviceId;
+                else HghighDeviceId = result.DeviceId;
             }
 
             RefreshHghighMastersStatus();
@@ -521,7 +536,7 @@ public partial class ConfigWindowViewModel : ViewModelBase
 
     private void RefreshHghighMastersStatus()
     {
-        HghighMastersStatus = HongguoHighDeviceStore.IsReady()
+        HghighMastersStatus = HongguoHighDeviceStore.IsReady(HongguoClientProfile.Resolve(HghighEdition))
             ? "本机已缓存启动密钥，可正常登录。"
             : "尚未缓存启动密钥。选择官方客户端后点「提取启动密钥」（安装包已内置 Frida）。";
     }
@@ -663,10 +678,15 @@ public partial class ConfigWindowViewModel : ViewModelBase
         HgnewClientVersion = _loadedGlobalConfig.HgnewClientVersion;
         HghighAccount = _loadedGlobalConfig.HghighAccount;
         HghighPassword = _loadedGlobalConfig.HghighPassword;
+        HghighEdition = HongguoClientProfile.NormalizeEdition(_loadedGlobalConfig.HghighEdition);
         HghighDeviceId = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HghighDeviceId)
-            ? HongguoHighDeviceStore.TryReadDeviceId()
+            ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.High)
             : _loadedGlobalConfig.HghighDeviceId;
         HghighClientExe = _loadedGlobalConfig.HghighClientExe;
+        HghighStandardDeviceId = string.IsNullOrWhiteSpace(_loadedGlobalConfig.HghighStandardDeviceId)
+            ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.Standard)
+            : _loadedGlobalConfig.HghighStandardDeviceId;
+        HghighStandardClientExe = _loadedGlobalConfig.HghighStandardClientExe;
         MapleleafAccount = _loadedGlobalConfig.MapleleafAccount;
         MapleleafPassword = _loadedGlobalConfig.MapleleafPassword;
         MapleleafUdid = string.IsNullOrWhiteSpace(_loadedGlobalConfig.MapleleafUdid)
@@ -783,8 +803,11 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
             HghighAccount = HghighAccount.Trim(),
             HghighPassword = HghighPassword,
+            HghighEdition = HongguoClientProfile.NormalizeEdition(HghighEdition),
             HghighDeviceId = HghighDeviceId.Trim(),
             HghighClientExe = HghighClientExe.Trim(),
+            HghighStandardDeviceId = HghighStandardDeviceId.Trim(),
+            HghighStandardClientExe = HghighStandardClientExe.Trim(),
             MapleleafAccount = MapleleafAccount.Trim(),
             MapleleafPassword = MapleleafPassword,
             MapleleafUdid = MapleleafUdid.Trim(),
@@ -900,8 +923,11 @@ public partial class ConfigWindowViewModel : ViewModelBase
             HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
             HghighAccount = HghighAccount.Trim(),
             HghighPassword = HghighPassword,
+            HghighEdition = HongguoClientProfile.NormalizeEdition(HghighEdition),
             HghighDeviceId = HghighDeviceId.Trim(),
             HghighClientExe = HghighClientExe.Trim(),
+            HghighStandardDeviceId = HghighStandardDeviceId.Trim(),
+            HghighStandardClientExe = HghighStandardClientExe.Trim(),
             MapleleafAccount = MapleleafAccount.Trim(),
             MapleleafPassword = MapleleafPassword,
             MapleleafUdid = MapleleafUdid.Trim(),
@@ -954,6 +980,18 @@ public partial class ConfigWindowViewModel : ViewModelBase
         }
     }
 
+
+    partial void OnHghighEditionChanged(string value)
+    {
+        var normalized = HongguoClientProfile.NormalizeEdition(value);
+        if (!string.Equals(value, normalized, StringComparison.Ordinal))
+        {
+            HghighEdition = normalized;
+            return;
+        }
+
+        RefreshHghighMastersStatus();
+    }
 
     partial void OnSelectedProjectImageTemplateOptionChanged(WorkflowStepOption? value)
     {

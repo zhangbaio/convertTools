@@ -54,11 +54,14 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(Row("测试结果", ReadOnlyText(nameof(ConfigWindowViewModel.HgnewProbeStatus))));
 
         panel.Children.Add(SectionTitle("hghigh"));
-        panel.Children.Add(Hint("独立账号与启动密钥。点「提取启动密钥」会先关闭官方高码率客户端，再用内置 Frida 抽出密钥；不依赖短剧助手。"));
+        panel.Children.Add(Hint("高码率版与标准版共用账号、密码和 Enc/Sign Master；DeviceId、客户端与登录会话按版本隔离。"));
+        panel.Children.Add(Row("客户端版本", BuildHghighEditionCombo()));
         panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.HghighAccount))));
         panel.Children.Add(Row("密码", BindPassword(nameof(ConfigWindowViewModel.HghighPassword))));
-        panel.Children.Add(Row("DeviceId", BindText(nameof(ConfigWindowViewModel.HghighDeviceId))));
-        panel.Children.Add(Row("客户端 exe", BindText(nameof(ConfigWindowViewModel.HghighClientExe))));
+        panel.Children.Add(Row("高码率 DeviceId", BindText(nameof(ConfigWindowViewModel.HghighDeviceId))));
+        panel.Children.Add(Row("高码率客户端 exe", BindText(nameof(ConfigWindowViewModel.HghighClientExe))));
+        panel.Children.Add(Row("标准版 DeviceId", BindText(nameof(ConfigWindowViewModel.HghighStandardDeviceId))));
+        panel.Children.Add(Row("标准版客户端 exe", BindText(nameof(ConfigWindowViewModel.HghighStandardClientExe))));
         panel.Children.Add(Row("密钥状态", ReadOnlyText(nameof(ConfigWindowViewModel.HghighMastersStatus))));
         panel.Children.Add(Row("测试结果", BuildHghighProbeRow()));
 
@@ -340,6 +343,19 @@ public sealed class LoginSettingsTab : UserControl
         {
             await viewModel.ProbeHghighLoginAsync();
         }
+    }
+
+    private static Control BuildHghighEditionCombo()
+    {
+        var combo = new ComboBox
+        {
+            ItemsSource = new[] { "high", "standard" }
+        };
+        combo[!SelectingItemsControl.SelectedItemProperty] = new Binding(nameof(ConfigWindowViewModel.HghighEdition))
+        {
+            Mode = BindingMode.TwoWay
+        };
+        return combo;
     }
 
     private static void ReadMapleleafUdid_Click(object? sender, RoutedEventArgs e)

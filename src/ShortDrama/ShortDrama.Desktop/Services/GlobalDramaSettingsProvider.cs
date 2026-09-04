@@ -2,6 +2,7 @@ using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Desktop.Models;
 using ShortDrama.Desktop.Services;
+using ShortDrama.Infrastructure.Automation;
 
 namespace ShortDrama.Desktop.Services;
 
@@ -32,8 +33,11 @@ public sealed class GlobalDramaSettingsProvider : IDramaSettingsProvider
         HgnewClientVersion = settings.HgnewClientVersion,
         HghighAccount = settings.HghighAccount,
         HghighPassword = settings.HghighPassword,
+        HghighEdition = HongguoClientProfile.NormalizeEdition(settings.HghighEdition),
         HghighDeviceId = settings.HghighDeviceId,
         HghighClientExe = settings.HghighClientExe,
+        HghighStandardDeviceId = settings.HghighStandardDeviceId,
+        HghighStandardClientExe = settings.HghighStandardClientExe,
         MapleleafAccount = settings.MapleleafAccount,
         MapleleafPassword = settings.MapleleafPassword,
         MapleleafUdid = settings.MapleleafUdid,

@@ -40,4 +40,29 @@ public sealed class SystemSettingsViewModelIsolationTests
 
         Assert.Equal(ClientSettingsStore.MainDatabasePath, viewModel.MainDatabasePath);
     }
+
+    [Fact]
+    public void HongguoEditionSharesCredentialsButKeepsDeviceAndExeProfilesSeparate()
+    {
+        var viewModel = new SystemSettingsViewModel
+        {
+            HghighAccount = "shared@example.test",
+            HghighPassword = "shared-password",
+            HghighDeviceId = "high-device",
+            HghighClientExe = "high.exe",
+            HghighStandardDeviceId = "standard-device",
+            HghighStandardClientExe = "standard.exe",
+            HghighEdition = "standard"
+        };
+
+        Assert.Equal("standard-device", viewModel.HghighActiveDeviceId);
+        Assert.Equal("standard.exe", viewModel.HghighActiveClientExe);
+
+        var settings = viewModel.ToSettings();
+        Assert.Equal("shared@example.test", settings.HghighAccount);
+        Assert.Equal("shared-password", settings.HghighPassword);
+        Assert.Equal("high-device", settings.HghighDeviceId);
+        Assert.Equal("standard-device", settings.HghighStandardDeviceId);
+        Assert.Equal("standard", settings.HghighEdition);
+    }
 }
