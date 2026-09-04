@@ -18,4 +18,8 @@
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Clip\ChannelsPublisher.Clip.csproj" />
     <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\ShortDrama\ShortDrama.Desktop\Services\WeixinMaterialChannelVideoDeleteService.cs"
+             Link="Publishing\WeixinMaterialChannelVideoDeleteService.cs" />
+  </ItemGroup>
 </Project>

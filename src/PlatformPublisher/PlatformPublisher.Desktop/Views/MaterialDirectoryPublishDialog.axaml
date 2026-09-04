@@ -1,0 +1,55 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PlatformPublisher.Desktop.Views.MaterialDirectoryPublishDialog"
+        Width="980" Height="680" MinWidth="820" MinHeight="560"
+        Title="目录批量发表" WindowStartupLocation="CenterOwner">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="18" RowSpacing="12">
+        <StackPanel Spacing="3">
+            <TextBlock Text="目录批量发表" FontSize="20" FontWeight="Bold" />
+            <TextBlock Text="扫描一级子目录，预览并编辑进入一键发布的素材。" Foreground="#667085" />
+        </StackPanel>
+        <Border Grid.Row="1" Classes="panel" Padding="12">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox x:Name="WorkspaceTextBox" Grid.Column="1" Watermark="每个一级子目录生成一条素材" />
+                <Button Grid.Column="2" Content="选择目录" Click="OnChooseDirectoryClick" />
+                <Button x:Name="ScanButton" Grid.Column="3" Content="扫描预览" Click="OnScanClick" Classes="primaryAction" />
+            </Grid>
+        </Border>
+        <Border Grid.Row="2" Classes="panel" ClipToBounds="True">
+            <Grid RowDefinitions="38,*">
+                <Border Background="#EAF0F7" Padding="10,0">
+                    <Grid ColumnDefinitions="58,1.2*,1.4*,1.4*,110" ColumnSpacing="10">
+                        <TextBlock Text="发布" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="视频" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="描述" VerticalAlignment="Center" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="3" Text="封面" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+                <ListBox x:Name="ItemsList" Grid.Row="1" BorderThickness="0">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem"><Setter Property="Padding" Value="0" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="10,7">
+                                <Grid ColumnDefinitions="58,1.2*,1.4*,1.4*,110" ColumnSpacing="10">
+                                    <CheckBox IsChecked="{Binding IsEnabled}" HorizontalAlignment="Center" />
+                                    <TextBlock Grid.Column="1" Text="{Binding FileName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                    <TextBox Grid.Column="2" Text="{Binding Description}" />
+                                    <TextBlock Grid.Column="3" Text="{Binding CoverPath}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="#667085" />
+                                    <Button Grid.Column="4" Content="选择封面" Click="OnChooseCoverClick" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" Foreground="#667085" />
+            <Button Grid.Column="1" Content="取消" Click="OnCancelClick" />
+            <Button x:Name="AcceptButton" Grid.Column="2" Content="进入一键发布" Click="OnAcceptClick" Classes="primaryAction" IsEnabled="False" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,21 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PlatformPublisher.Desktop.Views.MaterialChannelDeleteDialog"
+        Width="620" Height="280" CanResize="False"
+        Title="删除视频号素材" WindowStartupLocation="CenterOwner">
+    <Grid Margin="22" RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="110,*" RowSpacing="14" ColumnSpacing="12">
+        <Border Grid.ColumnSpan="2" Background="#FFF4E5" BorderBrush="#F7B955" BorderThickness="1" CornerRadius="7" Padding="12">
+            <TextBlock Text="此操作会从视频号平台永久删除匹配素材，无法恢复。请核对关键词和数量。" TextWrapping="Wrap" Foreground="#8A4B08" />
+        </Border>
+        <TextBlock Grid.Row="1" Text="目标项目" VerticalAlignment="Center" />
+        <TextBlock x:Name="ProjectText" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" />
+        <TextBlock Grid.Row="2" Text="搜索关键词" VerticalAlignment="Center" />
+        <TextBox x:Name="KeywordTextBox" Grid.Row="2" Grid.Column="1" Watermark="必填：剧名或素材关键词" />
+        <TextBlock Grid.Row="3" Text="删除数量" VerticalAlignment="Center" />
+        <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="160,*,Auto,Auto" ColumnSpacing="8">
+            <NumericUpDown x:Name="DeleteCountInput" Minimum="1" Maximum="100" Value="1" />
+            <Button Grid.Column="2" Content="取消" Click="OnCancelClick" />
+            <Button Grid.Column="3" Content="确认删除" Click="OnDeleteClick" Background="#DC2626" Foreground="White" />
+        </Grid>
+    </Grid>
+</Window>

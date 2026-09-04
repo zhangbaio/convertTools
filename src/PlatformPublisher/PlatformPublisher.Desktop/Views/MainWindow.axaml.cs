@@ -13,6 +13,8 @@ using PlatformPublisher.Adx.Storage;
 using PlatformPublisher.Analytics.Models;
 using PlatformPublisher.Persistence;
 using PlatformPublisher.Publishing.Models;
+using ShortDrama.Core.Interfaces;
+using ShortDrama.Desktop.Services;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -54,7 +56,11 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetSeriesPublishContent(seriesView);
     }
 
-    public void BindWeixinWorkflow(MainWindowViewModel viewModel, AdxAutomationService adxService, AdxBatchStore adxBatchStore, UnifiedPublishViewModel unifiedPublishViewModel)
+    public void BindWeixinWorkflow(MainWindowViewModel viewModel, IProjectScanner projectScanner,
+        AdxAutomationService adxService, AdxBatchStore adxBatchStore,
+        WeixinDirectoryMaterialPublishService directoryPublishService,
+        WeixinMaterialChannelVideoDeleteService channelVideoDeleteService,
+        UnifiedPublishViewModel unifiedPublishViewModel)
     {
         unifiedPublishViewModel.BindAccounts(() => WeixinPublisherView.AccountProfiles.Select((account,index) =>
             new PublishTarget(account.Id,account.Name,account.ProfileDir,index)).ToArray());
@@ -63,8 +69,19 @@ public partial class MainWindow : Window
         var workflowView = new WeixinWorkflowView { DataContext = viewModel };
         workflowView.Bind(() => WeixinPublisherView.SelectedAccountProfile);
         workflowView.SettingsRequested += (_, _) => ShowSettingsPage();
-        var materialView = new WeixinMaterialUploadView { DataContext = viewModel };
-        materialView.Bind(() => WeixinPublisherView.SelectedAccountProfile, adxService, adxBatchStore,unifiedPublishViewModel,WeixinPublisherView.ShowUnifiedPublish);
+        var materialView = new WeixinMaterialUploadView();
+        materialView.Bind(
+            () => WeixinPublisherView.AccountProfiles,
+            () => WeixinPublisherView.SelectedAccountProfile,
+            WeixinPublisherView.SelectAccount,
+            viewModel,
+            projectScanner,
+            adxService,
+            adxBatchStore,
+            directoryPublishService,
+            channelVideoDeleteService,
+            unifiedPublishViewModel,
+            WeixinPublisherView.ShowUnifiedPublish);
         WeixinPublisherView.SelectedAccountChanged += account =>
         {
             workflowView.ApplyAccount(account);

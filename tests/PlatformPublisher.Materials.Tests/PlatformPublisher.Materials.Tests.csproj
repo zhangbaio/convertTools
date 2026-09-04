@@ -4,6 +4,12 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
     <PackageReference Include="xunit" Version="2.9.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
   </ItemGroup>
-  <ItemGroup><ProjectReference Include="..\..\src\PlatformPublisher\PlatformPublisher.Materials\PlatformPublisher.Materials.csproj" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PlatformPublisher\PlatformPublisher.Materials\PlatformPublisher.Materials.csproj" />
+    <ProjectReference Include="..\..\src\PlatformPublisher\PlatformPublisher.Desktop\PlatformPublisher.Desktop.csproj" />
+    <ProjectReference Include="..\..\src\ChannelsPublisher\ChannelsPublisher.Core\ChannelsPublisher.Core.csproj" />
+    <ProjectReference Include="..\..\src\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
+  </ItemGroup>
 </Project>

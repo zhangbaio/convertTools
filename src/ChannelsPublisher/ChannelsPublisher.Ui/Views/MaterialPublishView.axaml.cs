@@ -96,6 +96,14 @@ public partial class MaterialPublishView : UserControl
         WorkspaceTabs.SelectedIndex = 1;
     }
 
+    public void SelectAccount(string accountId)
+    {
+        var account = _vm?.Accounts.FirstOrDefault(item =>
+            string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase));
+        if (account is not null && _vm is not null)
+            _vm.SelectedAccount = account;
+    }
+
     public void SetWorkflowContent(Control content)
     {
         WorkflowContentHost.Content = content;

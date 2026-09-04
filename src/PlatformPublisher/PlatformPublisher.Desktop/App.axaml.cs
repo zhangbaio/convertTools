@@ -59,7 +59,11 @@ public partial class App : Application
             mainWindow.BindAccountDatabase(_services.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>());
             mainWindow.BindSettings(settingsViewModel);
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
-            mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>(), _services.GetRequiredService<UnifiedPublishViewModel>());
+            mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<ShortDrama.Core.Interfaces.IProjectScanner>(),
+                _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>(),
+                _services.GetRequiredService<WeixinDirectoryMaterialPublishService>(),
+                _services.GetRequiredService<ShortDrama.Desktop.Services.WeixinMaterialChannelVideoDeleteService>(),
+                _services.GetRequiredService<UnifiedPublishViewModel>());
             mainWindow.BindKuaishouAdx(_services.GetRequiredService<AdxAutomationService>(),
                 _services.GetRequiredService<AdxBatchStore>(), _services.GetRequiredService<KuaishouAdxBatchResolver>());
             if(migratedDrafts>0)viewModel.StatusMessage=$"已将 {migratedDrafts} 个旧素材任务迁移为统一发布草稿。";
@@ -111,6 +115,7 @@ public partial class App : Application
         services.AddSingleton<KuaishouAnalyticsCollector>();
         services.AddSingleton<WeixinWorkflowSettingsStore>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
+        services.AddSingleton<ShortDrama.Desktop.Services.WeixinMaterialChannelVideoDeleteService>();
         services.AddSingleton<WeixinSystemHighlightPublishService>();
         services.AddSingleton<WeixinLocalVideoPublishService>();
         services.AddSingleton<WeixinAdxMaterialPublishService>();
