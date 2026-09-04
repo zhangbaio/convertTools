@@ -14,7 +14,11 @@ public sealed class AdxAutomationService
     private readonly AdxCredentialStore _credentialStore;
     private readonly AdxSessionStore _sessionStore;
     private readonly AdxBatchStore _batchStore;
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
     private AdxLoginStatus? _runtimeStatus;
+
+    public event EventHandler<AdxLoginStatus>? LoginStatusChanged;
+    public bool IsBusy => _operationGate.CurrentCount == 0;
 
     public AdxAutomationService(AdxSettingsStore settingsStore, AdxCredentialStore credentialStore,
         AdxSessionStore sessionStore, AdxBatchStore batchStore)
@@ -26,8 +30,25 @@ public sealed class AdxAutomationService
     }
 
     public AdxSettings LoadSettings() => _settingsStore.Load();
-    public void SaveSettings(AdxSettings settings) => _settingsStore.Save(settings);
-    public void SavePassword(string password) { _credentialStore.Save(password); _sessionStore.Clear(); _runtimeStatus = null; }
+
+    public void SaveSettings(AdxSettings settings)
+    {
+        var previousIdentity = _settingsStore.Load().Identity;
+        var normalized = settings.Normalize();
+        _settingsStore.Save(normalized);
+        if (!string.Equals(previousIdentity, normalized.Identity, StringComparison.Ordinal))
+            _sessionStore.Clear();
+        _runtimeStatus = null;
+        NotifyStatus();
+    }
+
+    public void SavePassword(string password)
+    {
+        _credentialStore.Save(password);
+        _sessionStore.Clear();
+        _runtimeStatus = null;
+        NotifyStatus();
+    }
 
     public AdxLoginStatus GetLoginStatus()
     {
@@ -43,10 +64,14 @@ public sealed class AdxAutomationService
 
     public async Task<AdxLoginStatus> LoginAsync(CancellationToken cancellationToken = default)
     {
+        await _operationGate.WaitAsync(cancellationToken);
         var settings = LoadSettings();
         if (string.IsNullOrWhiteSpace(settings.Username) || !_credentialStore.IsConfigured)
+        {
+            _operationGate.Release();
             throw new InvalidOperationException("请先保存 ADX 账号和密码。");
-        _runtimeStatus = new(AdxLoginState.Checking, settings.Username, true, Message: "正在验证 ADX 登录状态…");
+        }
+        SetStatus(new(AdxLoginState.Checking, settings.Username, true, Message: "正在验证 ADX 登录状态…"));
         try
         {
             await WithPageAsync(settings, async (page, context) =>
@@ -56,21 +81,33 @@ public sealed class AdxAutomationService
                 return true;
             }, cancellationToken);
             _runtimeStatus = null;
-            return GetLoginStatus();
+            var status = GetLoginStatus();
+            LoginStatusChanged?.Invoke(this, status);
+            return status;
         }
         catch (Exception ex)
         {
             _sessionStore.Clear();
-            _runtimeStatus = new(AdxLoginState.Failed, settings.Username, true, Message: ex.Message);
+            SetStatus(new(AdxLoginState.Failed, settings.Username, true, Message: ex.Message));
             throw;
         }
+        finally { _operationGate.Release(); }
     }
 
-    public void Logout() { _sessionStore.Clear(); _runtimeStatus = null; }
+    public void Logout()
+    {
+        if (IsBusy) throw new InvalidOperationException("ADX 正在执行任务，请等待任务结束后退出登录。");
+        _sessionStore.Clear();
+        _runtimeStatus = null;
+        NotifyStatus();
+    }
 
     public async Task<AdxQueryResult> QueryAsync(AdxQueryRequest request, IProgress<AdxProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        await _operationGate.WaitAsync(cancellationToken);
+        try
+        {
         ValidateRequest(request.OriginalTitle, request.WorkflowDirectory);
         var settings = LoadSettings();
         EnsureConfigured(settings);
@@ -98,11 +135,16 @@ public sealed class AdxAutomationService
             progress?.Report(new("query", $"ADX 查询完成：返回 {candidates.Count}/{total} 条素材。", candidates.Count, total));
             return new AdxQueryResult(Guid.NewGuid().ToString("N"), total, candidates);
         }, cancellationToken);
+        }
+        finally { _operationGate.Release(); }
     }
 
     public async Task<AdxDownloadResult> DownloadAsync(AdxDownloadRequest request,
         IProgress<AdxProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        await _operationGate.WaitAsync(cancellationToken);
+        try
+        {
         ValidateRequest(request.OriginalTitle, request.WorkflowDirectory);
         if (request.MaterialIds.Count == 0) throw new ArgumentException("请至少选择一条 ADX 素材。", nameof(request));
         var settings = LoadSettings();
@@ -113,6 +155,7 @@ public sealed class AdxAutomationService
             var cards = page.Locator(".adx-material-card");
             var available = await cards.CountAsync();
             var requested = request.MaterialIds.ToHashSet(StringComparer.Ordinal);
+            var redownload = request.RedownloadMaterialIds?.ToHashSet(StringComparer.Ordinal) ?? [];
             var candidates = new List<AdxCandidate>();
             for (var index = 0; index < available; index++)
             {
@@ -139,7 +182,7 @@ public sealed class AdxAutomationService
                 cancellationToken.ThrowIfCancellationRequested();
                 var stem = $"{SafeName(request.SeriesName, "视频号剧集")}-TOP{candidate.Rank:000}-{candidate.MaterialId}";
                 var existing = FindDownloadedFile(baseDirectory, stem + ".mp4");
-                if (existing is not null)
+                if (existing is not null && !redownload.Contains(candidate.MaterialId))
                 {
                     var existingCover = Path.Combine(Path.GetDirectoryName(existing)!, stem + ".cover.jpg");
                     records.Add(new AdxBatchItem { MaterialId = candidate.MaterialId, Rank = candidate.Rank,
@@ -203,7 +246,17 @@ public sealed class AdxAutomationService
             progress?.Report(new("completed", message, records.Count, records.Count));
             return new AdxDownloadResult(downloadDirectory, records, message);
         }, cancellationToken);
+        }
+        finally { _operationGate.Release(); }
     }
+
+    private void SetStatus(AdxLoginStatus status)
+    {
+        _runtimeStatus = status;
+        LoginStatusChanged?.Invoke(this, status);
+    }
+
+    private void NotifyStatus() => LoginStatusChanged?.Invoke(this, GetLoginStatus());
 
     private static async Task SaveDownloadAsync(IDownload download, AdxCandidate candidate, AdxDownloadRequest request,
         IBrowserContext context, string directory, string stem, Action<AdxBatchItem> add,
@@ -286,6 +339,13 @@ public sealed class AdxAutomationService
         });
         using var registration = cancellationToken.Register(() => _ = context.CloseAsync());
         try { return await action(await context.NewPageAsync(), context); }
+        catch (AdxAuthenticationException ex)
+        {
+            _sessionStore.Clear();
+            SetStatus(new(AdxLoginState.Expired, settings.Username, _credentialStore.IsConfigured,
+                Message: "ADX 登录状态已失效，请在系统设置中重新登录。"));
+            throw new InvalidOperationException("ADX 登录状态已失效，请在系统设置中重新登录。", ex);
+        }
         catch (PlaywrightException ex) when (cancellationToken.IsCancellationRequested) { throw new OperationCanceledException("ADX 操作已取消。", ex, cancellationToken); }
     }
 
@@ -308,6 +368,7 @@ public sealed class AdxAutomationService
         var passwordInput = page.Locator("input[type=password]").First;
         var materialInput = page.GetByPlaceholder("剧名（需全匹配）", new() { Exact = true });
         var state = await WaitForViewAsync(passwordInput, materialInput);
+        if (state == "unknown") throw new AdxAuthenticationException("无法识别 ADX 登录页面。");
         if (state == "login")
         {
             await page.Locator("input[type=text]").First.FillAsync(settings.Username);
@@ -317,7 +378,8 @@ public sealed class AdxAutomationService
         }
         if (!page.Url.Contains("material-by-playlet", StringComparison.OrdinalIgnoreCase))
             await page.GotoAsync(root + MaterialRoute, new() { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60_000 });
-        await materialInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 });
+        try { await materialInput.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 30_000 }); }
+        catch (PlaywrightException ex) { throw new AdxAuthenticationException("ADX 登录未通过或登录状态已失效。", ex); }
     }
 
     private static async Task<string> WaitForViewAsync(ILocator passwordInput, ILocator materialInput)
@@ -380,5 +442,12 @@ public sealed class AdxAutomationService
     {
         if (string.IsNullOrWhiteSpace(settings.Username) || !_credentialStore.IsConfigured)
             throw new InvalidOperationException("请先保存 ADX 账号和密码并完成登录。");
+        if (_sessionStore.Load(settings.Identity) is null)
+            throw new InvalidOperationException("ADX 尚未登录，请先在系统设置的“ADX素材服务”中登录。");
+    }
+
+    private sealed class AdxAuthenticationException : Exception
+    {
+        public AdxAuthenticationException(string message, Exception? inner = null) : base(message, inner) { }
     }
 }

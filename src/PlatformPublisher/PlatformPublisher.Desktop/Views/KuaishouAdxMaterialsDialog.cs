@@ -18,10 +18,6 @@ public sealed class KuaishouAdxMaterialsDialog : Window
     private readonly Func<KuaishouAdxPublishPayload, KuaishouAdxProjectContext, bool, Task> _queue;
     private readonly int _topCount;
     private KuaishouPersonalConfig? _kuaishouConfig;
-    private readonly TextBox _baseUrl = new();
-    private readonly TextBox _username = new();
-    private readonly TextBox _password = new() { PasswordChar = '●', Watermark = "密码留空则不修改" };
-    private readonly NumericUpDown _queryLimit = new() { Minimum = 1, Maximum = 200 };
     private readonly TextBox _titleTemplate = new() { Text = "{新剧名}{排名}-{素材ID}" };
     private readonly TextBox _materialType = new() { Text = "高光" };
     private readonly TextBox _authorDeclaration = new() { Text = "含AI生成内容" };
@@ -64,14 +60,18 @@ public sealed class KuaishouAdxMaterialsDialog : Window
         };
         root.Children.Add(heading);
 
-        var login = new Grid { ColumnDefinitions = new("70,2*,55,*,55,*,75,80,Auto"), ColumnSpacing = 6 };
-        Add(login, new TextBlock { Text = "ADX服务", VerticalAlignment = VerticalAlignment.Center }, 0);
-        Add(login, _baseUrl, 1); Add(login, Label("账号"), 2); Add(login, _username, 3);
-        Add(login, Label("密码"), 4); Add(login, _password, 5); Add(login, Label("查询数"), 6); Add(login, _queryLimit, 7);
-        var loginButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
-        loginButtons.Children.Add(Button("保存", SaveSettingsAsync));
-        loginButtons.Children.Add(Button("登录ADX", LoginAsync));
-        Add(login, loginButtons, 8); Grid.SetRow(login, 1); root.Children.Add(login);
+        var login = new Border
+        {
+            Background = Avalonia.Media.Brush.Parse("#F8FAFC"),
+            BorderBrush = Avalonia.Media.Brush.Parse("#E2E8F0"), BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6), Padding = new Thickness(10, 7),
+            Child = new TextBlock
+            {
+                Text = "ADX 登录状态由“系统设置 → ADX素材服务”统一维护，本页面自动复用。",
+                Foreground = Avalonia.Media.Brush.Parse("#667085"),
+            },
+        };
+        Grid.SetRow(login, 1); root.Children.Add(login);
 
         var config = new Grid { ColumnDefinitions = new("70,2*,70,100,70,110,70,*"), ColumnSpacing = 6 };
         Add(config, Label("标题模板"), 0); Add(config, _titleTemplate, 1);
@@ -111,8 +111,6 @@ public sealed class KuaishouAdxMaterialsDialog : Window
 
     private void LoadSettings()
     {
-        var settings = _adx.LoadSettings();
-        _baseUrl.Text = settings.BaseUrl; _username.Text = settings.Username; _queryLimit.Value = settings.QueryLimit;
         var config = KuaishouPersonalConfig.Load(new PlatformPublisher.Common.Models.PublishJob
         {
             Platform = PlatformPublisher.Common.Models.PublishPlatform.KuaishouPersonalRevenue,
@@ -127,23 +125,6 @@ public sealed class KuaishouAdxMaterialsDialog : Window
         _status.Text = _adx.GetLoginStatus().Message;
     }
 
-    private async Task SaveSettingsAsync()
-    {
-        var existing = _adx.LoadSettings();
-        existing.BaseUrl = _baseUrl.Text ?? string.Empty; existing.Username = _username.Text ?? string.Empty;
-        existing.QueryLimit = (int)(_queryLimit.Value ?? 50); _adx.SaveSettings(existing);
-        if (!string.IsNullOrWhiteSpace(_password.Text)) { _adx.SavePassword(_password.Text); _password.Text = string.Empty; }
-        _status.Text = "ADX 配置已保存。"; await Task.CompletedTask;
-    }
-
-    private async Task LoginAsync()
-    {
-        if (!Begin()) return;
-        try { await SaveSettingsAsync(); _status.Text = (await _adx.LoginAsync(_cts!.Token)).Message; }
-        catch (Exception ex) { _status.Text = "ADX 登录失败：" + ex.Message; }
-        finally { End(); }
-    }
-
     private async Task QueryAsync()
     {
         if (!Begin()) return;
@@ -151,7 +132,7 @@ public sealed class KuaishouAdxMaterialsDialog : Window
         {
             _list.Children.Clear(); _remote.Clear();
             var result = await _adx.QueryAsync(new AdxQueryRequest(_context.AccountId, _context.NewTitle,
-                _context.OriginalTitle, _context.WorkflowDirectory, (int)(_queryLimit.Value ?? 50)), Progress(), _cts!.Token);
+                _context.OriginalTitle, _context.WorkflowDirectory, _adx.LoadSettings().QueryLimit), Progress(), _cts!.Token);
             foreach (var candidate in result.Candidates)
             {
                 var check = new CheckBox

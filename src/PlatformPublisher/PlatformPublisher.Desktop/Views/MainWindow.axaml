@@ -339,7 +339,14 @@
         </Grid>
         <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" />
         <views:AnalyticsView x:Name="AnalyticsPage" IsVisible="False" />
-        <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" IsVisible="False" />
+        <TabControl x:Name="SettingsPage" Classes="secondaryTabs" IsVisible="False">
+            <TabItem Header="通用配置">
+                <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" />
+            </TabItem>
+            <TabItem Header="ADX素材服务">
+                <views:AdxSettingsView x:Name="AdxSettingsView" />
+            </TabItem>
+        </TabControl>
         </Grid>
 
         <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">

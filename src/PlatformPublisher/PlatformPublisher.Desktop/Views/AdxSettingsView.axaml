@@ -1,0 +1,76 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PlatformPublisher.Desktop.Views.AdxSettingsView">
+    <ScrollViewer>
+        <Grid Margin="28,22" RowDefinitions="Auto,Auto,*" RowSpacing="18">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="5">
+                    <TextBlock Text="ADX MATERIAL SERVICE" FontSize="11" FontWeight="Bold" Foreground="#2563EB" />
+                    <TextBlock Text="ADX素材服务" FontSize="24" FontWeight="Bold" Foreground="#101828" />
+                    <TextBlock Text="统一配置 ADX 账号并安全保存登录状态，素材查询和下载将自动复用。"
+                               Foreground="#667085" />
+                </StackPanel>
+                <Border x:Name="StatusBadge" Grid.Column="1" CornerRadius="14" Padding="11,5"
+                        Background="#F2F4F7" VerticalAlignment="Center">
+                    <TextBlock x:Name="StatusBadgeText" Text="未配置" FontSize="12" FontWeight="SemiBold" />
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1"
+                    CornerRadius="9" Padding="22">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="*,*"
+                      RowSpacing="14" ColumnSpacing="16">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="服务地址" Foreground="#475467" />
+                        <TextBox x:Name="BaseUrlBox" Watermark="https://adx.example.com/admin/" MinHeight="37" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="6">
+                        <TextBlock Text="登录账号" Foreground="#475467" />
+                        <TextBox x:Name="UsernameBox" MinHeight="37" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1" Spacing="6">
+                        <TextBlock Text="登录密码" Foreground="#475467" />
+                        <TextBox x:Name="PasswordBox" PasswordChar="●" Watermark="留空表示不修改已保存密码" MinHeight="37" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6">
+                        <TextBlock Text="默认选择 TOP 数" Foreground="#475467" />
+                        <NumericUpDown x:Name="DefaultTopBox" Minimum="1" Maximum="20" MinHeight="37" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2" Spacing="6">
+                        <TextBlock Text="素材查询条数" Foreground="#475467" />
+                        <NumericUpDown x:Name="QueryLimitBox" Minimum="1" Maximum="200" MinHeight="37" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Spacing="6">
+                        <TextBlock Text="视频下载并发数" Foreground="#475467" />
+                        <NumericUpDown x:Name="ConcurrencyBox" Minimum="1" Maximum="5" MinHeight="37" />
+                    </StackPanel>
+
+                    <Border Grid.Row="3" Grid.ColumnSpan="2" Background="#F8FAFC" BorderBrush="#E2E8F0"
+                            BorderThickness="1" CornerRadius="7" Padding="14,11">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="高级选项" FontWeight="SemiBold" />
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <CheckBox x:Name="HeadlessBox" Content="后台运行 ADX 浏览器" />
+                                <TextBlock Text="网络不稳定时可关闭；并发范围为 1–5。" Foreground="#98A2B3"
+                                           FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Grid Grid.Row="4" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="9">
+                        <Button x:Name="LoginButton" Content="登录 ADX" Classes="primary" Click="OnLoginClick" />
+                        <Button x:Name="LogoutButton" Grid.Column="1" Content="退出登录" Click="OnLogoutClick" />
+                        <TextBlock x:Name="StatusText" Grid.Column="2" Foreground="#667085" VerticalAlignment="Center"
+                                   TextWrapping="Wrap" />
+                        <Button x:Name="SaveButton" Grid.Column="3" Content="保存配置" Classes="primary" Click="OnSaveClick" />
+                    </Grid>
+
+                    <ProgressBar x:Name="BusyBar" Grid.Row="5" Grid.ColumnSpan="2" IsIndeterminate="True"
+                                 IsVisible="False" Height="3" />
+                </Grid>
+            </Border>
+        </Grid>
+    </ScrollViewer>
+</UserControl>

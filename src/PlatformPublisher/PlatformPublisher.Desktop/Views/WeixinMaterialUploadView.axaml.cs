@@ -1,6 +1,10 @@
 using System.Diagnostics;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using ChannelsPublisher.Core.Models;
 using PlatformPublisher.Adx.Automation;
@@ -34,6 +38,13 @@ public partial class WeixinMaterialUploadView : UserControl
     private WeixinMaterialChannelVideoDeleteService? _channelVideoDeleteService;
     private UnifiedPublishViewModel? _unifiedPublishViewModel;
     private Action? _showUnifiedPublish;
+    private Action? _showSettings;
+    private MaterialProjectRowViewModel? _activeAdxRow;
+    private PublishAccount? _activeAdxAccount;
+    private readonly List<AdxCandidateSelection> _adxCandidates = [];
+    private CancellationTokenSource? _adxCancellation;
+    private bool _adxBusy;
+    private static readonly HttpClient AdxImageClient = new() { Timeout = TimeSpan.FromSeconds(15) };
 
     private WeixinMaterialsWorkspaceViewModel? ViewModel => DataContext as WeixinMaterialsWorkspaceViewModel;
     private Window? OwnerWindow => TopLevel.GetTopLevel(this) as Window;
@@ -61,7 +72,8 @@ public partial class WeixinMaterialUploadView : UserControl
         WeixinHighlightScheduleService highlightScheduleService,
         WeixinMaterialChannelVideoDeleteService channelVideoDeleteService,
         UnifiedPublishViewModel unifiedPublishViewModel,
-        Action showUnifiedPublish)
+        Action showUnifiedPublish,
+        Action showSettings)
     {
         _accountsProvider = accountsProvider;
         _accountProvider = accountProvider;
@@ -75,6 +87,7 @@ public partial class WeixinMaterialUploadView : UserControl
         _channelVideoDeleteService = channelVideoDeleteService;
         _unifiedPublishViewModel = unifiedPublishViewModel;
         _showUnifiedPublish = showUnifiedPublish;
+        _showSettings = showSettings;
 
         var workspace = new WeixinMaterialsWorkspaceViewModel(projectScanner);
         workspace.AccountSelectionRequested += account => _selectAccount?.Invoke(account.Id);
@@ -174,15 +187,229 @@ public partial class WeixinMaterialUploadView : UserControl
     private async Task OpenAdxAsync(MaterialProjectRowViewModel row)
     {
         var account = _accountProvider?.Invoke();
-        if (OwnerWindow is null || account is null || _adxService is null || _adxBatchStore is null)
+        if (account is null || _adxService is null || _adxBatchStore is null)
         {
             SetStatus("请先选择视频号账号。");
             return;
         }
-        var dialog = new AdxMaterialsDialog(_adxService, _adxBatchStore, account.Id, account.Name,
-            account.ProfileDir, row.WorkflowDirectory, row.OriginalTitle, row.NewTitle, QueueUnifiedAdxAsync);
-        await dialog.ShowDialog(OwnerWindow);
+        _activeAdxRow = row;
+        _activeAdxAccount = account;
+        AdxDrawerTitle.Text = row.NewTitle;
+        AdxDrawerOriginalTitle.Text = $"原剧名：{row.OriginalTitle}";
+        AdxDrawer.IsVisible = true;
+        var settings = _adxService.LoadSettings();
+        SelectDefaultTopButton.Content = $"选择前{settings.DefaultTopCount}条";
+        AdxCandidatePanel.Children.Clear();
+        _adxCandidates.Clear();
+        UpdateAdxSelectionSummary();
+        var status = _adxService.GetLoginStatus();
+        if (status.State != AdxLoginState.LoggedIn)
+        {
+            AdxLoginNotice.IsVisible = true;
+            AdxLoginNoticeText.Text = status.Message ?? "请先在系统设置中登录 ADX。";
+            SetAdxEmpty("ADX尚未登录", "完成一次登录后，视频号和快手页面都会复用该登录状态。", false);
+            return;
+        }
+        AdxLoginNotice.IsVisible = false;
+        await QueryAdxAsync();
     }
+
+    private async Task QueryAdxAsync()
+    {
+        if (_adxService is null || _activeAdxRow is null || _activeAdxAccount is null || !BeginAdxOperation()) return;
+        try
+        {
+            SetAdxEmpty("正在查询 ADX 素材…", $"按原剧名“{_activeAdxRow.OriginalTitle}”精确查询", true);
+            var settings = _adxService.LoadSettings();
+            var result = await _adxService.QueryAsync(new AdxQueryRequest(_activeAdxAccount.Id,
+                _activeAdxRow.NewTitle, _activeAdxRow.OriginalTitle, _activeAdxRow.WorkflowDirectory,
+                settings.QueryLimit), AdxProgress(), _adxCancellation!.Token);
+            AdxCandidatePanel.Children.Clear();
+            _adxCandidates.Clear();
+            foreach (var candidate in result.Candidates)
+                AddAdxCandidate(candidate);
+            SetAdxEmpty("未找到匹配素材", "请确认项目原剧名与 ADX 中的名称完全一致。", false,
+                result.Candidates.Count == 0);
+            SelectAdxTop(settings.DefaultTopCount);
+            AdxDrawerStatus.Text = $"ADX 返回 {result.Candidates.Count}/{result.Total} 条素材。";
+        }
+        catch (OperationCanceledException) { AdxDrawerStatus.Text = "ADX 查询已取消。"; }
+        catch (Exception ex)
+        {
+            AdxDrawerStatus.Text = "ADX 查询失败：" + ex.Message;
+            SetAdxEmpty("查询失败", ex.Message, false);
+        }
+        finally { EndAdxOperation(); }
+    }
+
+    private void AddAdxCandidate(AdxCandidate candidate)
+    {
+        var select = new CheckBox { HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top, Margin = new Thickness(0, 5, 5, 0) };
+        var redownload = new CheckBox { Content = "重新下载", FontSize = 10,
+            IsVisible = candidate.Downloaded, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+        select.IsCheckedChanged += (_, _) => UpdateAdxSelectionSummary();
+        redownload.IsCheckedChanged += (_, _) =>
+        {
+            if (redownload.IsChecked == true) select.IsChecked = true;
+        };
+
+        var image = new Image { Height = 184, Stretch = Stretch.UniformToFill };
+        var imageHost = new Grid { Height = 184, ClipToBounds = true, Background = Brush.Parse("#E9EEF5") };
+        imageHost.Children.Add(image);
+        imageHost.Children.Add(new Border
+        {
+            Background = Brush.Parse("#B2141B2A"), CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 3), Margin = new Thickness(6), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
+            Child = new TextBlock { Text = $"TOP {candidate.Rank}", Foreground = Brushes.White, FontSize = 10, FontWeight = FontWeight.Bold },
+        });
+        imageHost.Children.Add(select);
+
+        var details = new StackPanel { Spacing = 4, Margin = new Thickness(8, 7) };
+        details.Children.Add(new TextBlock { Text = $"ID: {candidate.MaterialId}", FontSize = 11, FontWeight = FontWeight.SemiBold });
+        details.Children.Add(new TextBlock
+        {
+            Text = $"曝光 {FormatMetric(candidate.Exposure)}   播放 {FormatMetric(candidate.PlayCount)}   点赞 {FormatMetric(candidate.LikeCount)}",
+            FontSize = 10, Foreground = Brush.Parse("#98A2B3"), TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        var state = new Grid { ColumnDefinitions = new("*,Auto") };
+        state.Children.Add(new TextBlock
+        {
+            Text = candidate.Downloaded ? "已下载" : "未下载", FontSize = 10,
+            Foreground = Brush.Parse(candidate.Downloaded ? "#087A42" : "#667085"), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        });
+        Grid.SetColumn(redownload, 1);
+        state.Children.Add(redownload);
+        details.Children.Add(state);
+
+        var card = new Border
+        {
+            Width = 179, Height = 276, Margin = new Thickness(4), Background = Brushes.White,
+            BorderBrush = Brush.Parse("#DDE4ED"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7),
+            ClipToBounds = true, Child = new StackPanel { Children = { imageHost, details } },
+        };
+        _adxCandidates.Add(new(candidate, select, redownload));
+        AdxCandidatePanel.Children.Add(card);
+        if (!string.IsNullOrWhiteSpace(candidate.CoverUrl)) _ = LoadAdxCoverAsync(image, candidate.CoverUrl!);
+    }
+
+    private async Task LoadAdxCoverAsync(Image image, string source)
+    {
+        try
+        {
+            var baseUri = new Uri(_adxService?.LoadSettings().BaseUrl ?? "https://localhost/");
+            var uri = Uri.TryCreate(source, UriKind.Absolute, out var absolute) ? absolute : new Uri(baseUri, source);
+            await using var stream = await AdxImageClient.GetStreamAsync(uri);
+            var bitmap = new Bitmap(stream);
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => image.Source = bitmap);
+        }
+        catch { }
+    }
+
+    private async void OnAdxDownloadClick(object? sender, RoutedEventArgs e) => await DownloadAdxAsync(false);
+    private async void OnAdxDownloadPublishClick(object? sender, RoutedEventArgs e) => await DownloadAdxAsync(true);
+
+    private async Task DownloadAdxAsync(bool autoPublish)
+    {
+        if (_adxService is null || _adxBatchStore is null || _activeAdxRow is null || _activeAdxAccount is null) return;
+        var selected = _adxCandidates.Where(item => item.Select.IsChecked == true).ToArray();
+        if (selected.Length == 0) { AdxDrawerStatus.Text = "请先选择要下载的 ADX 素材。"; return; }
+        if (!BeginAdxOperation()) return;
+        try
+        {
+            AdxDownloadProgress.IsVisible = true;
+            var result = await _adxService.DownloadAsync(new AdxDownloadRequest(_activeAdxAccount.Id,
+                _activeAdxRow.NewTitle, _activeAdxRow.OriginalTitle, _activeAdxRow.WorkflowDirectory,
+                selected.Select(item => item.Candidate.MaterialId).ToArray(), RedownloadMaterialIds:
+                selected.Where(item => item.Redownload.IsChecked == true).Select(item => item.Candidate.MaterialId).ToArray()),
+                AdxProgress(), _adxCancellation!.Token);
+            AdxDrawerStatus.Text = result.Message;
+            if (!autoPublish) return;
+            var manifestPath = Path.Combine(result.DownloadDirectory, AdxBatchStore.ManifestFileName);
+            var manifest = _adxBatchStore.Read(manifestPath) ?? throw new InvalidOperationException("下载完成但无法读取 ADX 批次清单。");
+            var payload = new AdxPublishPayload
+            {
+                OriginalTitle = _activeAdxRow.OriginalTitle,
+                NewTitle = _activeAdxRow.NewTitle,
+                PublishOptionsJson = new WeixinPublishOptions
+                {
+                    EpisodeSelectionMode = "all", FinalAction = AdxFinalAction.SelectedIndex == 1 ? "publish" : "draft",
+                    ReplaceCoverWithLocalImage = true,
+                }.ToJson(),
+                Items = manifest.Items.Select(item => new AdxPublishItem(item.MaterialId, item.VideoPath,
+                    item.CoverPath, item.Description, item.ShortTitle, manifestPath)).ToList(),
+            };
+            await QueueUnifiedAdxAsync(payload, _activeAdxRow.WorkflowDirectory, _activeAdxAccount.Id,
+                _activeAdxAccount.Name, _activeAdxAccount.ProfileDir, true);
+            AdxDrawer.IsVisible = false;
+        }
+        catch (OperationCanceledException) { AdxDrawerStatus.Text = "ADX 下载已取消。"; }
+        catch (Exception ex) { AdxDrawerStatus.Text = "ADX 下载失败：" + ex.Message; }
+        finally { EndAdxOperation(); }
+    }
+
+    private IProgress<AdxProgress> AdxProgress() => new Progress<AdxProgress>(value =>
+    {
+        AdxDrawerStatus.Text = value.Message;
+        if (value.Total > 0)
+        {
+            AdxDownloadProgress.Maximum = value.Total;
+            AdxDownloadProgress.Value = value.Current;
+        }
+    });
+
+    private bool BeginAdxOperation()
+    {
+        if (_adxBusy) return false;
+        _adxBusy = true;
+        _adxCancellation?.Dispose();
+        _adxCancellation = new CancellationTokenSource();
+        AdxDownloadButton.IsEnabled = false;
+        AdxDownloadPublishButton.IsEnabled = false;
+        return true;
+    }
+
+    private void EndAdxOperation()
+    {
+        _adxBusy = false;
+        AdxDownloadButton.IsEnabled = true;
+        AdxDownloadPublishButton.IsEnabled = true;
+        AdxDownloadProgress.IsVisible = false;
+    }
+
+    private void OnCloseAdxDrawerClick(object? sender, RoutedEventArgs e) => CloseAdxDrawer();
+    private void OnAdxScrimPressed(object? sender, PointerPressedEventArgs e) => CloseAdxDrawer();
+    private void CloseAdxDrawer() { _adxCancellation?.Cancel(); AdxDrawer.IsVisible = false; }
+    private void OnOpenAdxSettingsClick(object? sender, RoutedEventArgs e) { CloseAdxDrawer(); _showSettings?.Invoke(); }
+    private void OnSelectAllUndownloadedClick(object? sender, RoutedEventArgs e)
+    {
+        foreach (var item in _adxCandidates) item.Select.IsChecked = !item.Candidate.Downloaded;
+    }
+    private void OnSelectDefaultTopClick(object? sender, RoutedEventArgs e) => SelectAdxTop(_adxService?.LoadSettings().DefaultTopCount ?? 5);
+    private void OnSelectTopClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string value } && int.TryParse(value, out var count)) SelectAdxTop(count);
+    }
+    private void OnClearAdxSelectionClick(object? sender, RoutedEventArgs e)
+    {
+        foreach (var item in _adxCandidates) item.Select.IsChecked = false;
+    }
+    private void SelectAdxTop(int count)
+    {
+        foreach (var item in _adxCandidates)
+            item.Select.IsChecked = item.Candidate.Rank <= count && !item.Candidate.Downloaded;
+    }
+    private void UpdateAdxSelectionSummary() => AdxSelectionText.Text = $"已选 {_adxCandidates.Count(item => item.Select.IsChecked == true)} 条";
+    private void SetAdxEmpty(string title, string description, bool loading, bool visible = true)
+    {
+        AdxEmptyPanel.IsVisible = visible;
+        AdxEmptyTitle.Text = title;
+        AdxEmptyDescription.Text = description;
+        AdxQueryProgress.IsVisible = loading;
+    }
+    private static string FormatMetric(long value) => value >= 10_000 ? $"{value / 10_000d:0.#}万" : value.ToString("N0");
+    private sealed record AdxCandidateSelection(AdxCandidate Candidate, CheckBox Select, CheckBox Redownload);
 
     private async void OnCustomProjectClick(object? sender, RoutedEventArgs e)
     {

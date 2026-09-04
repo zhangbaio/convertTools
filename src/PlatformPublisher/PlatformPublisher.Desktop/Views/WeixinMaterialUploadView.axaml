@@ -4,6 +4,7 @@
              x:Class="PlatformPublisher.Desktop.Views.WeixinMaterialUploadView"
              x:DataType="vm:WeixinMaterialsWorkspaceViewModel"
              Background="#F4F7FB">
+    <Grid>
     <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12" Margin="16,12,16,10">
         <Grid ColumnDefinitions="*,230" ColumnSpacing="24">
             <StackPanel Spacing="3">
@@ -112,5 +113,82 @@
         <Border Grid.Row="3" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="7" Padding="12,8">
             <TextBlock Text="{Binding StatusMessage}" Foreground="#667085" FontSize="11" TextWrapping="Wrap" />
         </Border>
+    </Grid>
+
+    <Grid x:Name="AdxDrawer" IsVisible="False" ZIndex="20">
+        <Border Background="#660F172A" PointerPressed="OnAdxScrimPressed" />
+        <Border Width="820" HorizontalAlignment="Right" Background="#F8FAFC" BorderBrush="#CBD5E1"
+                BorderThickness="1,0,0,0" BoxShadow="-12 0 28 0 #260F172A">
+            <Grid RowDefinitions="88,52,Auto,*,68">
+                <Border Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="18,13">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="ADX素材选择" FontSize="11" Foreground="#667085" />
+                            <TextBlock x:Name="AdxDrawerTitle" FontSize="17" FontWeight="Bold" Foreground="#101828"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="AdxDrawerOriginalTitle" FontSize="11" Foreground="#98A2B3" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="×" Width="34" Height="34" Padding="0" FontSize="22"
+                                Click="OnCloseAdxDrawerClick" AutomationProperties.Name="关闭 ADX 素材选择" />
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1"
+                        Padding="14,8">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <WrapPanel>
+                            <Button Content="选择全部未下载" Click="OnSelectAllUndownloadedClick" Margin="0,0,6,0" />
+                            <Button x:Name="SelectDefaultTopButton" Content="选择前5条" Click="OnSelectDefaultTopClick" Margin="0,0,6,0" />
+                            <Button Content="选择前8条" Tag="8" Click="OnSelectTopClick" Margin="0,0,6,0" />
+                            <Button Content="选择前10条" Tag="10" Click="OnSelectTopClick" Margin="0,0,6,0" />
+                            <Button Content="取消全选" Click="OnClearAdxSelectionClick" />
+                        </WrapPanel>
+                        <TextBlock x:Name="AdxSelectionText" Grid.Column="1" Text="已选 0 条" Foreground="#2563EB"
+                                   FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <Border x:Name="AdxLoginNotice" Grid.Row="2" Margin="14,12,14,0" Background="#FFF7E8"
+                        BorderBrush="#FEDF89" BorderThickness="1" CornerRadius="7" Padding="12" IsVisible="False">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <TextBlock x:Name="AdxLoginNoticeText" Text="请先在系统设置中登录 ADX。" Foreground="#93370D"
+                                   TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="前往ADX配置" Click="OnOpenAdxSettingsClick" />
+                    </Grid>
+                </Border>
+
+                <Grid Grid.Row="3">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12">
+                        <WrapPanel x:Name="AdxCandidatePanel" ItemWidth="187" ItemHeight="286" />
+                    </ScrollViewer>
+                    <StackPanel x:Name="AdxEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                        <TextBlock x:Name="AdxEmptyTitle" Text="正在查询 ADX 素材…" FontSize="15" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock x:Name="AdxEmptyDescription" Text="查询结果将在这里显示" Foreground="#98A2B3"
+                                   HorizontalAlignment="Center" />
+                        <ProgressBar x:Name="AdxQueryProgress" IsIndeterminate="True" Width="220" Height="4" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Grid.Row="4" Background="#FFFFFF" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="12,9">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="5">
+                        <TextBlock x:Name="AdxDrawerStatus" Text="等待查询" Foreground="#667085" FontSize="11"
+                                   TextTrimming="CharacterEllipsis" />
+                        <WrapPanel Grid.Column="1">
+                            <ComboBox x:Name="AdxFinalAction" Width="98" SelectedIndex="0" Margin="0,0,7,0">
+                                <ComboBoxItem Content="保存草稿" />
+                                <ComboBoxItem Content="直接发表" />
+                            </ComboBox>
+                            <Button x:Name="AdxDownloadButton" Content="下载所选" Click="OnAdxDownloadClick" Margin="0,0,7,0" />
+                            <Button x:Name="AdxDownloadPublishButton" Content="下载后自动发布" Classes="primary"
+                                    Click="OnAdxDownloadPublishClick" />
+                        </WrapPanel>
+                        <ProgressBar x:Name="AdxDownloadProgress" Grid.Row="1" Grid.ColumnSpan="2" Minimum="0" Maximum="1"
+                                     Value="0" Height="3" IsVisible="False" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
     </Grid>
 </UserControl>

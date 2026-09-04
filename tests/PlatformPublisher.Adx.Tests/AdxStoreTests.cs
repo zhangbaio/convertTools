@@ -86,6 +86,28 @@ public sealed class AdxStoreTests : IDisposable
     }
 
     [Fact]
+    public void ChangingAdxIdentityInvalidatesTheSharedLoginSession()
+    {
+        Directory.CreateDirectory(_root);
+        var settingsStore = new AdxSettingsStore(Path.Combine(_root, "settings.json"));
+        var protector = new ReversingProtector();
+        var credentialStore = new AdxCredentialStore(Path.Combine(_root, "password.dat"), protector);
+        var sessionStore = new AdxSessionStore(Path.Combine(_root, "session.dat"), protector);
+        var service = new AdxAutomationService(settingsStore, credentialStore, sessionStore, new AdxBatchStore());
+        var first = new AdxSettings { BaseUrl = "https://adx.example.test/admin/", Username = "first" };
+        service.SaveSettings(first);
+        service.SavePassword("secret");
+        sessionStore.Save(first.Identity, "{\"cookies\":[]}");
+
+        Assert.Equal(AdxLoginState.LoggedIn, service.GetLoginStatus().State);
+
+        service.SaveSettings(new AdxSettings { BaseUrl = first.BaseUrl, Username = "second" });
+
+        Assert.Equal(AdxLoginState.LoggedOut, service.GetLoginStatus().State);
+        Assert.Null(sessionStore.Load(first.Identity));
+    }
+
+    [Fact]
     public void BatchIsMirroredToProjectDatabase()
     {
         var workflow=Path.Combine(_root,"db-workflow");var directory=Path.Combine(workflow,"materials","adx","202609031300");Directory.CreateDirectory(directory);

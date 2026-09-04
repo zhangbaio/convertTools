@@ -45,6 +45,8 @@ public partial class MainWindow : Window
         viewModel.SettingsSaved += _ => ViewModel?.RefreshDramaSourceStatus();
     }
 
+    public void BindAdxSettings(AdxAutomationService service) => AdxSettingsView.Bind(service);
+
     public void BindDatabaseMaintenance(PlatformDatabase database,DatabaseBackupService backupService)
     {
         _platformDatabase=database;_databaseBackupService=backupService;
@@ -86,7 +88,8 @@ public partial class MainWindow : Window
             highlightScheduleService,
             channelVideoDeleteService,
             unifiedPublishViewModel,
-            WeixinPublisherView.ShowUnifiedPublish);
+            WeixinPublisherView.ShowUnifiedPublish,
+            ShowSettingsPage);
         WeixinPublisherView.SelectedAccountChanged += account =>
         {
             workflowView.ApplyAccount(account);
@@ -236,7 +239,7 @@ public partial class MainWindow : Window
         WeixinPublisherView.IsVisible = true;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
-        SharedSettingsView.IsVisible = false;
+        SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(WeixinNavButton);
     }
@@ -248,7 +251,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = true;
-        SharedSettingsView.IsVisible = false;
+        SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
             ? KuaishouPersonalNavButton
@@ -261,7 +264,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
-        SharedSettingsView.IsVisible = true;
+        SettingsPage.IsVisible = true;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(SettingsNavButton);
     }
@@ -271,7 +274,7 @@ public partial class MainWindow : Window
         WeixinPublisherView.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
-        SharedSettingsView.IsVisible = false;
+        SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = true;
         SetActiveNavigation(AnalyticsNavButton);
     }
