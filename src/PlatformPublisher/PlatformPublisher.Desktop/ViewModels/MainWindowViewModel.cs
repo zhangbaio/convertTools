@@ -421,7 +421,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
         {
-            StatusMessage = "请选择有效的视频号工作目录。";
+            StatusMessage = $"请选择有效的{SelectedPlatform.Name}工作目录。";
             return false;
         }
 
@@ -429,7 +429,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _activeGlobalAccount.WorkRootDirectory = normalized;
         _globalAccountStore.Update(_activeGlobalAccount);
         DraftProjectDirectory = normalized;
-        StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的视频号工作目录：{normalized}";
+        StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的{SelectedPlatform.Name}工作目录：{normalized}";
         AppendActivityLog(StatusMessage);
         ActiveAccountWorkRootDirectoryChanged?.Invoke();
         return true;
@@ -714,7 +714,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         var directory = Path.Combine(Path.GetFullPath(DraftProjectDirectory), DraftNewProjectName.Trim());
         Directory.CreateDirectory(directory);
-        var added = await AddImportedProjectJobsAsync([directory]);
+        var added = await AddImportedProjectJobsAsync([directory], platform: SelectedPlatform.Value);
         StatusMessage = added > 0
             ? $"已按剧名创建项目：{DraftNewProjectName.Trim()}"
             : $"项目已存在于队列：{DraftNewProjectName.Trim()}";
@@ -734,13 +734,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task<int> ImportLocalProjectDirectoriesAsync(IEnumerable<string> directories)
     {
-        if (!HasActiveWeixinAccount)
+        if (_activeGlobalAccount is null)
         {
-            StatusMessage = "请先在左侧选择视频号账号。";
+            StatusMessage = "请先在左侧选择账号。";
             return 0;
         }
-        var added = await AddImportedProjectJobsAsync(directories);
-        StatusMessage = $"导入本地项目完成：新增 {added} 个任务。";
+        var added = await AddImportedProjectJobsAsync(directories, platform: SelectedPlatform.Value);
+        StatusMessage = $"导入{SelectedPlatform.Name}本地项目完成：新增 {added} 个任务。";
         AppendActivityLog(StatusMessage);
         return added;
     }
@@ -769,7 +769,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task<string> ImportDramaTitlesAsync(string titlesText)
     {
-        if(!HasActiveWeixinAccount){StatusMessage="请先在左侧选择视频号账号。";return StatusMessage;}
+        if(_activeGlobalAccount is null){StatusMessage="请先在左侧选择账号。";return StatusMessage;}
         if(!Directory.Exists(DraftProjectDirectory)){StatusMessage="请先选择有效的工作目录。";return StatusMessage;}
         var sourceStatus=GetDramaSourceConfigurationStatus();
         if(!sourceStatus.IsConfigured){StatusMessage=sourceStatus.Message;AppendActivityLog(StatusMessage);return StatusMessage;}
@@ -781,7 +781,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 StatusMessage="正在按剧名精确搜索并创建短剧项目…";AppendActivityLog(StatusMessage);
                 var outcome=await _dramaTitleImportService.ImportAsync(DraftProjectDirectory,titlesText,AppendActivityLog,cancellationToken);
-                var added=await AddImportedProjectJobsAsync(outcome.ProjectDirectories);
+                var added=await AddImportedProjectJobsAsync(outcome.ProjectDirectories, platform: SelectedPlatform.Value);
                 var existing=outcome.ProjectDirectories.Count-added;
                 StatusMessage=$"上传短剧完成：请求 {outcome.RequestedCount} 个，新增 {added} 个，已存在 {existing} 个，失败 {outcome.Failures.Count} 个。";
                 if(outcome.Failures.Count>0)
@@ -801,11 +801,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IEnumerable<string> directories,
         string? targetAccountId = null,
         string? targetAccountName = null,
-        string? targetSessionDirectory = null)
+        string? targetSessionDirectory = null,
+        PublishPlatform? platform = null)
     {
+        var effectivePlatform = platform ?? PublishPlatform.WeixinChannel;
         var effectiveAccountId = string.IsNullOrWhiteSpace(targetAccountId) ? _activeWeixinAccountId : targetAccountId;
         var existing = _jobs
-            .Where(job => job.Platform == PublishPlatform.WeixinChannel && job.Kind == PublishJobKind.Series)
+            .Where(job => job.Platform == effectivePlatform && job.Kind == PublishJobKind.Series)
             .Where(job => string.Equals(job.AccountId, effectiveAccountId, StringComparison.OrdinalIgnoreCase))
             .Where(job => !string.IsNullOrWhiteSpace(job.ProjectDirectory))
             .Select(job => Path.GetFullPath(job.ProjectDirectory))
@@ -818,16 +820,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
             if (!existing.Add(directory)) continue;
             var job = new PublishJob
             {
-                Platform = PublishPlatform.WeixinChannel,
+                Platform = effectivePlatform,
                 Kind = PublishJobKind.Series,
                 ProjectName = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
                 ProjectDirectory = directory,
-                ConfigPath = ResolveScannedWeixinConfig(directory),
+                ConfigPath = effectivePlatform == PublishPlatform.WeixinChannel
+                    ? ResolveScannedWeixinConfig(directory)
+                    : ResolveGlobalConfigPath(_activeGlobalAccount, effectivePlatform),
                 AccountId = effectiveAccountId,
                 AccountName = string.IsNullOrWhiteSpace(targetAccountName) ? ActiveWeixinAccountName : targetAccountName,
-                AccountSessionDirectory = string.IsNullOrWhiteSpace(targetSessionDirectory)
-                    ? _activeWeixinAccountSessionDirectory
-                    : targetSessionDirectory,
+                AccountSessionDirectory = effectivePlatform == PublishPlatform.WeixinChannel
+                    ? string.IsNullOrWhiteSpace(targetSessionDirectory) ? _activeWeixinAccountSessionDirectory : targetSessionDirectory
+                    : string.Empty,
                 Status = PublishJobStatus.Pending,
                 StatusMessage = "本地导入，等待执行",
             };
@@ -861,21 +865,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
          PipelineRemuxEnabled);
 
     private bool CanScanWorkspace() =>
-        !IsBusy && HasActiveWeixinAccount && Directory.Exists(DraftProjectDirectory);
+        !IsBusy && _activeGlobalAccount is not null && Directory.Exists(DraftProjectDirectory);
 
     private async Task ScanWorkspaceAsync()
     {
         var rootDirectory = Path.GetFullPath(DraftProjectDirectory);
+        var platform = SelectedPlatform.Value;
         ArchiveRootDirectory = rootDirectory;
         await RunBusyAsync(async cancellationToken =>
         {
             try
             {
-                StatusMessage = $"正在扫描视频号工作目录：{rootDirectory}";
+                StatusMessage = $"正在扫描{platform.DisplayName()}工作目录：{rootDirectory}";
                 AppendActivityLog(StatusMessage);
                 var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
                 var existing = _jobs
-                    .Where(job => job.Platform == PublishPlatform.WeixinChannel && job.Kind == PublishJobKind.Series)
+                    .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
                     .Select(job => Path.GetFullPath(job.ProjectDirectory))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var added = 0;
@@ -885,14 +890,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     if (!existing.Add(sourceDirectory)) continue;
                     var job = new PublishJob
                     {
-                        Platform = PublishPlatform.WeixinChannel,
+                        Platform = platform,
                         Kind = PublishJobKind.Series,
                         ProjectName = project.DisplayName,
                         ProjectDirectory = sourceDirectory,
-                        ConfigPath = ResolveScannedWeixinConfig(project.WorkflowProjectDir),
+                        ConfigPath = platform == PublishPlatform.WeixinChannel
+                            ? ResolveScannedWeixinConfig(project.WorkflowProjectDir)
+                            : ResolveGlobalConfigPath(_activeGlobalAccount, platform),
                         AccountId = _activeWeixinAccountId,
                         AccountName = ActiveWeixinAccountName,
-                        AccountSessionDirectory = _activeWeixinAccountSessionDirectory,
+                        AccountSessionDirectory = platform == PublishPlatform.WeixinChannel
+                            ? _activeWeixinAccountSessionDirectory
+                            : string.Empty,
                         Status = PublishJobStatus.Pending,
                         StatusMessage = "扫描导入，等待执行",
                     };
@@ -1101,12 +1110,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         });
                     }
 
-                    if (SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue)
+                    if (IsKuaishouPlatform)
                     {
-                        await RunTrackedStepAsync(trackedJob, trackedRow, "kuaishou-personal-artifacts", "快手个人版产物", PipelineForceRerun, async () =>
+                        var kuaishouPlatform = SelectedPlatform.Value;
+                        await RunTrackedStepAsync(trackedJob, trackedRow, "kuaishou-personal-artifacts", "快手分账产物", PipelineForceRerun, async () =>
                         {
                             var config = KuaishouPersonalConfig.Load(new PublishJob
                             {
+                                Platform = kuaishouPlatform,
                                 AccountId = SelectedAccount?.Model.Id ?? string.Empty,
                                 ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
                                 ProjectDirectory = projectDirectory,
@@ -1115,16 +1126,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             await _kuaishouPersonalPreparationService.PrepareAsync(projectData, config, PipelineForceRerun, cancellationToken);
                             var issues = await _kuaishouPersonalPreparationService.ValidateAsync(projectData.WorkflowDirectory, cancellationToken);
                             if (issues.Count > 0)
-                                throw new InvalidOperationException($"快手个人版产物校验失败：{string.Join("；", issues.Select(item => item.Message))}");
-                            AppendActivityLog("快手个人版产物：横屏封面、竖屏海报、自动补齐字段和 payload 预览已生成并通过校验。");
+                                throw new InvalidOperationException($"{kuaishouPlatform.DisplayName()}产物校验失败：{string.Join("；", issues.Select(item => item.Message))}");
+                            AppendActivityLog($"{kuaishouPlatform.DisplayName()}产物：横屏封面、竖屏海报、自动补齐字段和 payload 预览已生成并通过校验。");
                         });
                     }
 
                     if (PipelineMaterialValidateEnabled)
                     {
-                        if (SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue)
+                        if (IsKuaishouPlatform)
                         {
-                            AppendActivityLog("素材校验：快手个人版已使用其专属产物校验，跳过视频号校验器。");
+                            AppendActivityLog($"素材校验：{SelectedPlatform.Name}已使用专属产物校验，跳过视频号校验器。");
                         }
                         else
                         {

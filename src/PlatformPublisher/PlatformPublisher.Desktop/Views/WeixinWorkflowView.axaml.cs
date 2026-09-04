@@ -11,7 +11,19 @@ namespace PlatformPublisher.Desktop.Views;
 public partial class WeixinWorkflowView : UserControl
 {
     private Func<PublishAccount?>? _accountProvider;
+    private bool _isKuaishouMode;
     public event EventHandler? SettingsRequested;
+    public event EventHandler? KuaishouConfigRequested;
+
+    public bool IsKuaishouMode
+    {
+        get => _isKuaishouMode;
+        set
+        {
+            _isKuaishouMode = value;
+            ApplyMode();
+        }
+    }
 
     public WeixinWorkflowView()
     {
@@ -22,6 +34,25 @@ public partial class WeixinWorkflowView : UserControl
             if (args.Property == IsVisibleProperty && IsVisible)
                 ViewModel?.ActivateSeriesWorkflow();
         };
+    }
+
+    private void ApplyMode()
+    {
+        if (!_isKuaishouMode) return;
+        TaskTypeLabel.IsVisible = false;
+        TaskTypeSummary.IsVisible = false;
+        CreateProjectNameBox.IsVisible = false;
+        CreateProjectButton.IsVisible = false;
+        KuaishouConfigButton.IsVisible = true;
+        OpenLoginButton.Content = "经营者管理平台";
+        SmartRecutStep.IsVisible = false;
+        TranscodeStep.IsVisible = false;
+        AutoRepairStep.IsVisible = false;
+        CostReportStep.IsVisible = false;
+        AiProofStep.IsVisible = false;
+        TimestampStep.IsVisible = false;
+        MaterialValidateStep.IsVisible = false;
+        RemuxStep.IsVisible = false;
     }
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
@@ -45,7 +76,7 @@ public partial class WeixinWorkflowView : UserControl
         if (storage is null || ViewModel is null) return;
         var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "选择视频号项目或素材目录",
+            Title = _isKuaishouMode ? "选择快手分账工作目录" : "选择视频号项目或素材目录",
             AllowMultiple = false,
         });
         if (folders.Count > 0)
@@ -58,7 +89,7 @@ public partial class WeixinWorkflowView : UserControl
         if (storage is null || ViewModel is null) return;
         var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "选择要导入的视频号短剧项目",
+            Title = _isKuaishouMode ? "选择要导入的快手分账短剧项目" : "选择要导入的视频号短剧项目",
             AllowMultiple = true,
         });
         if (folders.Count > 0)
@@ -102,6 +133,9 @@ public partial class WeixinWorkflowView : UserControl
             UploadDramasButton.IsEnabled=true;
         }
     }
+
+    private void OnKuaishouConfigClick(object? sender, RoutedEventArgs e) =>
+        KuaishouConfigRequested?.Invoke(this, EventArgs.Empty);
 
     private async void OnPickConfigClick(object? sender, RoutedEventArgs e)
     {

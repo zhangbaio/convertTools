@@ -29,6 +29,9 @@ public partial class MainWindow : Window
         InitializeComponent();
         WeixinPublisherView.SetSidebarVisible(false);
         GlobalAccountSidebar.UseShellChrome();
+        KuaishouWorkflowPage.KuaishouConfigRequested += (_, _) =>
+            OpenKuaishouPersonalConfig_Click(null, new RoutedEventArgs());
+        KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
         Opened += (_, _) => ShowWeixinPage();
     }
 
@@ -174,6 +177,7 @@ public partial class MainWindow : Window
         ViewModel?.SelectPlatform(PublishPlatform.WeixinChannel);
         WeixinPublisherView.IsVisible = true;
         PipelinePage.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
         SharedSettingsView.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(WeixinNavButton);
@@ -184,7 +188,8 @@ public partial class MainWindow : Window
         ViewModel?.SelectPlatform(platform);
         WeixinPublisherView.IsVisible = false;
         PipelinePage.IsVisible = true;
-        PipelineContent.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = true;
         SharedSettingsView.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
@@ -197,6 +202,7 @@ public partial class MainWindow : Window
         WeixinPublisherView.IsVisible = false;
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
         SharedSettingsView.IsVisible = true;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(SettingsNavButton);
@@ -206,6 +212,7 @@ public partial class MainWindow : Window
     {
         WeixinPublisherView.IsVisible = false;
         PipelinePage.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
         SharedSettingsView.IsVisible = false;
         AnalyticsPage.IsVisible = true;
         SetActiveNavigation(AnalyticsNavButton);

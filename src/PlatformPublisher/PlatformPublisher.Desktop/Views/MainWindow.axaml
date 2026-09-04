@@ -332,6 +332,10 @@
                     </Grid>
                 </Border>
             </Grid>
+            <views:WeixinWorkflowView x:Name="KuaishouWorkflowPage"
+                                      IsVisible="False"
+                                      IsKuaishouMode="True"
+                                      DataContext="{Binding}" />
         </Grid>
         <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" />
         <views:AnalyticsView x:Name="AnalyticsPage" IsVisible="False" />

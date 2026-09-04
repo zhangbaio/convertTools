@@ -14,12 +14,14 @@
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
                         <Button Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="secondaryAction compactAction" />
                         <Button Content="重置" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" />
+                        <Button x:Name="KuaishouConfigButton" Content="快手分账配置" Click="OnKuaishouConfigClick"
+                                Classes="secondaryAction compactAction" IsVisible="False" />
                     </StackPanel>
                 </Grid>
 
                 <WrapPanel Grid.Row="1" Orientation="Horizontal">
-                    <TextBlock Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,6,0" />
-                    <Border Background="#EEF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="6" Padding="12,6" Margin="0,0,6,0">
+                    <TextBlock x:Name="TaskTypeLabel" Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,6,0" />
+                    <Border x:Name="TaskTypeSummary" Background="#EEF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="6" Padding="12,6" Margin="0,0,6,0">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="剧集上传" FontWeight="SemiBold" Foreground="#0B74D1" />
                             <TextBlock Text="使用项目内剧集配置创建并上传分集" Foreground="#64748B" />
@@ -31,9 +33,9 @@
                              ToolTip.Tip="按剧名精确搜索，创建项目并加入执行队列" />
                     <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <TextBox Width="220" Text="{Binding DraftNewProjectName}" Watermark="按剧名创建项目" Margin="0,0,6,0" />
-                    <Button Content="创建并入队" Command="{Binding CreateNamedProjectCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="登录 / 打开浏览器" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <TextBox x:Name="CreateProjectNameBox" Width="220" Text="{Binding DraftNewProjectName}" Watermark="按剧名创建项目" Margin="0,0,6,0" />
+                    <Button x:Name="CreateProjectButton" Content="创建并入队" Command="{Binding CreateNamedProjectCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <Button x:Name="OpenLoginButton" Content="登录 / 打开浏览器" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" Margin="0,0,12,0" />
@@ -60,19 +62,19 @@
                 </Grid>
                 <WrapPanel Grid.Row="1">
                     <CheckBox Content="下载剧集" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,14,3" />
-                    <CheckBox Content="智能重剪" IsChecked="{Binding PipelineSmartRecutEnabled}" Margin="0,0,14,3" />
+                    <CheckBox x:Name="SmartRecutStep" Content="智能重剪" IsChecked="{Binding PipelineSmartRecutEnabled}" Margin="0,0,14,3" />
                     <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,14,3" />
                     <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,14,3" />
-                    <CheckBox Content="素材转码" IsChecked="{Binding PipelineTranscodeEnabled}" Margin="0,0,14,3" />
-                    <CheckBox Content="一键修复" IsChecked="{Binding PipelineAutoRepairEnabled}" Margin="0,0,14,3" />
+                    <CheckBox x:Name="TranscodeStep" Content="素材转码" IsChecked="{Binding PipelineTranscodeEnabled}" Margin="0,0,14,3" />
+                    <CheckBox x:Name="AutoRepairStep" Content="一键修复" IsChecked="{Binding PipelineAutoRepairEnabled}" Margin="0,0,14,3" />
                     <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,14,3" />
-                    <CheckBox Content="成本报表" IsChecked="{Binding PipelineCostReportEnabled}" Margin="0,0,14,3" />
+                    <CheckBox x:Name="CostReportStep" Content="成本报表" IsChecked="{Binding PipelineCostReportEnabled}" Margin="0,0,14,3" />
                     <CheckBox Content="工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,14,3" />
-                    <CheckBox Content="AI制作证明" IsChecked="{Binding PipelineGenerateAiProofEnabled}" Margin="0,0,14,3" />
-                    <CheckBox Content="可信时间戳" IsChecked="{Binding PipelineGenerateTimestampCertificateEnabled}" Margin="0,0,14,3"
+                    <CheckBox x:Name="AiProofStep" Content="AI制作证明" IsChecked="{Binding PipelineGenerateAiProofEnabled}" Margin="0,0,14,3" />
+                    <CheckBox x:Name="TimestampStep" Content="可信时间戳" IsChecked="{Binding PipelineGenerateTimestampCertificateEnabled}" Margin="0,0,14,3"
                               ToolTip.Tip="本地模板，非 TSA 认证" />
-                    <CheckBox Content="素材校验" IsChecked="{Binding PipelineMaterialValidateEnabled}" Margin="0,0,14,3" />
-                    <CheckBox Content="无损重封装" IsChecked="{Binding PipelineRemuxEnabled}" Margin="0,0,14,3" />
+                    <CheckBox x:Name="MaterialValidateStep" Content="素材校验" IsChecked="{Binding PipelineMaterialValidateEnabled}" Margin="0,0,14,3" />
+                    <CheckBox x:Name="RemuxStep" Content="无损重封装" IsChecked="{Binding PipelineRemuxEnabled}" Margin="0,0,14,3" />
                 </WrapPanel>
                 <WrapPanel Grid.Row="2">
                     <TextBlock Text="执行策略" FontWeight="SemiBold" Foreground="#475569" VerticalAlignment="Center" Margin="0,0,14,3" />
