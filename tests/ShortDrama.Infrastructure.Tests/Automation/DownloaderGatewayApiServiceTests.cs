@@ -78,6 +78,44 @@ public sealed class DownloaderGatewayApiServiceTests
         health.Ok.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Live_SearchEpisodesAndPlayback_RoundTripsThroughInstalledDownloader_WhenEnabled()
+    {
+        if (Environment.GetEnvironmentVariable("DOWNLOADER_GATEWAY_FULL_LIVE_TEST") != "1") return;
+        var settings = new DramaSourceSettings
+        {
+            DownloaderApiBaseUrl = "http://127.0.0.1:17891",
+            DownloaderApiKey = ""
+        };
+        var keyword = Environment.GetEnvironmentVariable("DOWNLOADER_GATEWAY_TEST_KEYWORD") ?? "人间烟火热";
+        var service = new DownloaderGatewayApiService(new HttpClient { Timeout = TimeSpan.FromSeconds(60) });
+
+        var results = await service.SearchAsync(settings, keyword, 1, CancellationToken.None);
+        results.Should().NotBeEmpty();
+        DownloaderGatewayApiService.GatewayPlayback? playback = null;
+        foreach (var result in results.Take(3))
+        {
+            var episodes = await service.GetEpisodesAsync(settings, result.BookId, CancellationToken.None);
+            foreach (var episode in episodes.Take(5))
+            {
+                try
+                {
+                    playback = await service.GetPlaybackAsync(
+                        settings, episode.VideoId, "1080p", CancellationToken.None);
+                    break;
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("视频流", StringComparison.Ordinal))
+                {
+                    // Some upstream records have no playable rendition; continue probing the returned catalog.
+                }
+            }
+            if (playback is not null) break;
+        }
+
+        playback.Should().NotBeNull();
+        playback!.Url.Should().StartWith("http");
+    }
+
     private static DramaSourceSettings Settings() => new()
     {
         DownloaderApiBaseUrl = "http://127.0.0.1:17891",

@@ -11,6 +11,26 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 public sealed class MapleleafApiServiceTests
 {
     [Fact]
+    public async Task Live_OfficialPlayback_WhenEnabled()
+    {
+        if (Environment.GetEnvironmentVariable("MAPLELEAF_FULL_LIVE_TEST") != "1") return;
+        var settings = new DramaSourceSettings
+        {
+            DramaSourceChain = "mapleleaf",
+            MapleleafAccount = Environment.GetEnvironmentVariable("MAPLELEAF_TEST_ACCOUNT") ?? "",
+            MapleleafPassword = Environment.GetEnvironmentVariable("MAPLELEAF_TEST_PASSWORD") ?? "",
+            MapleleafUdid = Environment.GetEnvironmentVariable("MAPLELEAF_TEST_UDID") ?? ""
+        };
+        var service = new MapleleafApiService(new HttpClient { Timeout = TimeSpan.FromSeconds(60) });
+        var results = await service.SearchAsync(settings, "人间烟火热", 1, CancellationToken.None);
+        results.Should().NotBeEmpty();
+        var episodes = await service.GetEpisodesAsync(settings, results[0].BookId, CancellationToken.None);
+        episodes.Should().NotBeEmpty();
+        var playback = await service.GetVideoPlaybackAsync(settings, episodes[0].VideoId, "1080p", CancellationToken.None);
+        playback.Url.Should().StartWith("http");
+    }
+
+    [Fact]
     public async Task ProbeLogin_Uses_165_Headers_And_Reads_AccessToken()
     {
         var handler = new MapleleafHandler();
