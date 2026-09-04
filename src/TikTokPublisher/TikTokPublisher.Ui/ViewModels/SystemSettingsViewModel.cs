@@ -44,6 +44,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _dramaDownloadConcurrent = 5;
     [ObservableProperty] private int _dramaDownloadMaxParallelProjects = 1;
     [ObservableProperty] private int _downloadFileSegments = 4;
+    [ObservableProperty] private string _downloaderApiBaseUrl = "http://127.0.0.1:17891";
+    [ObservableProperty] private string _downloaderApiKey = "";
+    [ObservableProperty] private string _downloaderProbeStatus = "";
     [ObservableProperty] private int _hongguoDownloadTimeoutSeconds = 60;
     [ObservableProperty] private int _hongguoEpisodeDownloadAttempts = 5;
 
@@ -237,6 +240,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         DramaDownloadConcurrent = DramaDownloadConcurrent,
         DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects,
         DownloadFileSegments = DownloadFileSegments,
+        DownloaderApiBaseUrl = DownloaderApiBaseUrl.Trim(),
+        DownloaderApiKey = DownloaderApiKey.Trim(),
         HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds,
         HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts,
         HgnewAccount = HgnewAccount.Trim(),
@@ -738,6 +743,25 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task ProbeDownloaderAsync()
+    {
+        DownloaderProbeStatus = "连接中...";
+        try
+        {
+            var service = new DownloaderGatewayApiService(ProbeHttp);
+            var health = await service.GetHealthAsync(
+                DramaSourceSettingsMapping.FromClientSettings(ToSettings()), CancellationToken.None);
+            DownloaderProbeStatus = health.Ok
+                ? $"已连接：来源 {health.ActiveSource}，红果版本 {health.HighEdition}"
+                : "下载器返回未就绪状态。";
+        }
+        catch (Exception ex)
+        {
+            DownloaderProbeStatus = $"连接失败：{ex.Message}";
+        }
+    }
+
+    [RelayCommand]
     private async Task ProbeHongguoLocalAsync()
     {
         HongguoLocalProbeStatus = "测试中...";
@@ -980,6 +1004,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         DramaDownloadConcurrent = settings.DramaDownloadConcurrent;
         DramaDownloadMaxParallelProjects = settings.DramaDownloadMaxParallelProjects;
         DownloadFileSegments = settings.DownloadFileSegments;
+        DownloaderApiBaseUrl = string.IsNullOrWhiteSpace(settings.DownloaderApiBaseUrl)
+            ? "http://127.0.0.1:17891" : settings.DownloaderApiBaseUrl;
+        DownloaderApiKey = settings.DownloaderApiKey;
         HongguoDownloadTimeoutSeconds = settings.HongguoDownloadTimeoutSeconds;
         HongguoEpisodeDownloadAttempts = settings.HongguoEpisodeDownloadAttempts;
         HgnewAccount = settings.HgnewAccount;

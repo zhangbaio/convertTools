@@ -125,7 +125,7 @@ public static class ClientSettingsStore
                 continue;
             }
 
-            if (property.Key is "hgnew_password" or "hghigh_password" &&
+            if (property.Key is "hgnew_password" or "hghigh_password" or "downloader_api_key" &&
                 property.Value is JsonValue passwordValue &&
                 string.IsNullOrEmpty(passwordValue.GetValue<string?>()))
             {
@@ -151,6 +151,7 @@ public static class ClientSettingsStore
         existing["hgnew_password"] = "";
         existing["hghigh_account"] = "";
         existing["hghigh_password"] = "";
+        existing["downloader_api_key"] = "";
         existing["ai_text_api_key"] = "";
         existing["image_model_api_key"] = "";
         existing["ofox_image2_api_key"] = "";
@@ -286,7 +287,7 @@ public static class ClientSettingsStore
         var chain = (settings.DramaSourceChain ?? "hgnew").Trim().ToLowerInvariant();
         settings.DramaSourceChain = chain switch
         {
-            "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" => chain,
+            "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" or "downloader" => chain,
             _ => "hgnew"
         };
 

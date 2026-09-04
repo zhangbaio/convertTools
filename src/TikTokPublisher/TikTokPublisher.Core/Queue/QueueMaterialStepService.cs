@@ -912,7 +912,7 @@ public static class QueueMaterialStepService
     internal static string NormalizeDramaSource(string? source)
     {
         var value = (source ?? string.Empty).Trim().ToLowerInvariant();
-        return value is "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf"
+        return value is "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" or "downloader"
             ? value
             : "hgnew";
     }
@@ -924,6 +924,8 @@ public static class QueueMaterialStepService
             id.StartsWith("mapleleaf_ep:", StringComparison.OrdinalIgnoreCase)) return "mapleleaf";
         if (id.StartsWith("hglocal:", StringComparison.OrdinalIgnoreCase) ||
             id.StartsWith("hglocal_ep:", StringComparison.OrdinalIgnoreCase)) return "hglocal";
+        if (id.StartsWith("downloader:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("downloader_ep:", StringComparison.OrdinalIgnoreCase)) return "downloader";
         if (id.StartsWith("hghigh:", StringComparison.OrdinalIgnoreCase) ||
             id.StartsWith("hghigh_ep:", StringComparison.OrdinalIgnoreCase)) return "hghigh";
         if (id.StartsWith("pikachu:", StringComparison.OrdinalIgnoreCase)) return "pikachu";

@@ -14,6 +14,8 @@ public sealed class QueueMaterialStepServiceTests
     [InlineData("hglocal:123456", "hglocal")]
     [InlineData("pikachu:123456", "pikachu")]
     [InlineData("mapleleaf:123456", "mapleleaf")]
+    [InlineData("downloader:standard|123456", "downloader")]
+    [InlineData("downloader_ep:standard|123456|video-1|1", "downloader")]
     public void Book_id_source_is_inferred_without_cross_source_conversion(
         string bookId,
         string expectedSource)

@@ -16,6 +16,7 @@ public sealed class LoginSettingsTab : UserControl
     private readonly RadioButton _mapleleafButton;
     private readonly RadioButton _hglocalButton;
     private readonly RadioButton _pikachuButton;
+    private readonly RadioButton _downloaderButton;
 
     public LoginSettingsTab()
     {
@@ -24,6 +25,7 @@ public sealed class LoginSettingsTab : UserControl
         _mapleleafButton = BuildSourceButton("mapleleaf", "Mapleleaf");
         _hglocalButton = BuildSourceButton("hglocal", "hglocal");
         _pikachuButton = BuildSourceButton("pikachu", "pikachu");
+        _downloaderButton = BuildSourceButton("downloader", "统一下载器");
         DataContextChanged += (_, _) => SyncSourceButtons();
 
         Content = new ScrollViewer
@@ -42,6 +44,11 @@ public sealed class LoginSettingsTab : UserControl
 
         panel.Children.Add(Hint("登录设置支持 hgnew / hghigh / Mapleleaf / hglocal / pikachu；短剧搜索、下载和上新只使用当前选择的数据源，不再自动降级。"));
         panel.Children.Add(BuildSourceRow());
+
+        panel.Children.Add(SectionTitle("统一下载器"));
+        panel.Children.Add(Hint("新增独立 downloader 数据链路；账号、设备和实际来源统一在下载器中配置。"));
+        panel.Children.Add(Row("本地 API 地址", BindText(nameof(ConfigWindowViewModel.DownloaderApiBaseUrl))));
+        panel.Children.Add(Row("API Key", BindPassword(nameof(ConfigWindowViewModel.DownloaderApiKey))));
 
         panel.Children.Add(SectionTitle("hgnew"));
         panel.Children.Add(Hint("仅支持 1.4.x AES 协议；设备唯一标识必须是大写 GUID。"));
@@ -100,6 +107,7 @@ public sealed class LoginSettingsTab : UserControl
         row.Children.Add(_mapleleafButton);
         row.Children.Add(_hglocalButton);
         row.Children.Add(_pikachuButton);
+        row.Children.Add(_downloaderButton);
         return row;
     }
 
@@ -132,6 +140,7 @@ public sealed class LoginSettingsTab : UserControl
         _mapleleafButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "mapleleaf", StringComparison.OrdinalIgnoreCase);
         _hglocalButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "hglocal", StringComparison.OrdinalIgnoreCase);
         _pikachuButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "pikachu", StringComparison.OrdinalIgnoreCase);
+        _downloaderButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "downloader", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Control BuildHgnewUdidRow()

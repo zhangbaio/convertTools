@@ -10,6 +10,8 @@ public sealed class ClientSettings
     public int DramaDownloadConcurrent { get; set; } = 5;
     public int DramaDownloadMaxParallelProjects { get; set; } = 1;
     public int DownloadFileSegments { get; set; } = 4;
+    public string DownloaderApiBaseUrl { get; set; } = "http://127.0.0.1:17891";
+    public string DownloaderApiKey { get; set; } = "";
     public int HongguoDownloadTimeoutSeconds { get; set; } = 60;
     public int HongguoEpisodeDownloadAttempts { get; set; } = 5;
 
@@ -179,6 +181,8 @@ public sealed class ClientSettings
         DramaDownloadConcurrent = DramaDownloadConcurrent,
         DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects,
         DownloadFileSegments = DownloadFileSegments,
+        DownloaderApiBaseUrl = DownloaderApiBaseUrl,
+        DownloaderApiKey = DownloaderApiKey,
         HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds,
         HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts,
         HgnewAccount = HgnewAccount,

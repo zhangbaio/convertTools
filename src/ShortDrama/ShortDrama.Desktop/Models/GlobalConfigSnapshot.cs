@@ -4,6 +4,8 @@ public sealed record GlobalConfigSnapshot(
     string SettingsFilePath,
     string DramaSourceChain,
     string DownloadFileSegments,
+    string DownloaderApiBaseUrl,
+    string DownloaderApiKey,
     bool XingeEnabled,
     string XingeServerUrl,
     string XingeUsername,

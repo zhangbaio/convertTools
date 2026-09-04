@@ -34,6 +34,8 @@ public sealed class GlobalSettingsService
             DownloadFileSegments = int.TryParse(snapshot.DownloadFileSegments, out var downloadFileSegments) && downloadFileSegments > 0
                 ? Math.Clamp(downloadFileSegments, 1, 8)
                 : 4,
+            DownloaderApiBaseUrl = snapshot.DownloaderApiBaseUrl,
+            DownloaderApiKey = snapshot.DownloaderApiKey,
             XingeEnabled = snapshot.XingeEnabled,
             XingeServerUrl = snapshot.XingeServerUrl,
             XingeUsername = snapshot.XingeUsername,
@@ -285,7 +287,7 @@ public sealed class GlobalSettingsService
         }
 
         var mergedDramaSourceChain = PickString(current.DramaSourceChain, "drama_source_chain", "hgnew");
-        if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf"))
+        if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" or "downloader"))
         {
             mergedDramaSourceChain = "hgnew";
         }
@@ -294,6 +296,8 @@ public sealed class GlobalSettingsService
         {
             DramaSourceChain = mergedDramaSourceChain,
             DownloadFileSegments = current.DownloadFileSegments <= 0 ? 4 : Math.Clamp(current.DownloadFileSegments, 1, 8),
+            DownloaderApiBaseUrl = PickString(current.DownloaderApiBaseUrl, "downloader_api_base_url", "http://127.0.0.1:17891"),
+            DownloaderApiKey = PickString(current.DownloaderApiKey, "downloader_api_key"),
             XingeEnabled = current.XingeEnabled,
             XingeServerUrl = current.XingeServerUrl,
             XingeUsername = current.XingeUsername,
@@ -414,6 +418,8 @@ public sealed class GlobalSettingsService
             SettingsFilePath: settingsFilePath,
             DramaSourceChain: dto.DramaSourceChain,
             DownloadFileSegments: Math.Clamp(dto.DownloadFileSegments <= 0 ? 4 : dto.DownloadFileSegments, 1, 8).ToString(),
+            DownloaderApiBaseUrl: dto.DownloaderApiBaseUrl,
+            DownloaderApiKey: dto.DownloaderApiKey,
             XingeEnabled: dto.XingeEnabled,
             XingeServerUrl: dto.XingeServerUrl,
             XingeUsername: dto.XingeUsername,

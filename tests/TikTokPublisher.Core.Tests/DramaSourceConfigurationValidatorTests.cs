@@ -46,4 +46,24 @@ public sealed class DramaSourceConfigurationValidatorTests
         Assert.False(status.IsConfigured);
         Assert.Contains("本地服务地址", status.Message);
     }
+
+    [Fact]
+    public void DownloaderSourceRequiresAddressAndAllowsAutomaticLocalKeyDiscovery()
+    {
+        var missing = DramaSourceConfigurationValidator.Check(new ClientSettings
+        {
+            DramaSourceChain = "downloader",
+            DownloaderApiBaseUrl = "",
+        });
+        Assert.False(missing.IsConfigured);
+        Assert.Contains("下载器地址", missing.Message);
+
+        var configured = DramaSourceConfigurationValidator.Check(new ClientSettings
+        {
+            DramaSourceChain = "downloader",
+            DownloaderApiBaseUrl = "http://127.0.0.1:17891",
+            DownloaderApiKey = ""
+        });
+        Assert.True(configured.IsConfigured);
+    }
 }

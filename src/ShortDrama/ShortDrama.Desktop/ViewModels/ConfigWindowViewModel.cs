@@ -208,6 +208,12 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string downloadFileSegments = "4";
 
     [ObservableProperty]
+    private string downloaderApiBaseUrl = "http://127.0.0.1:17891";
+
+    [ObservableProperty]
+    private string downloaderApiKey = string.Empty;
+
+    [ObservableProperty]
     private bool xingeUploadLoginQr = true;
 
     [ObservableProperty]
@@ -660,6 +666,8 @@ public partial class ConfigWindowViewModel : ViewModelBase
         WeixinFillRecommendation = merged.WeixinFillRecommendation;
         DramaSourceChain = string.IsNullOrWhiteSpace(_loadedGlobalConfig.DramaSourceChain) ? "hgnew" : _loadedGlobalConfig.DramaSourceChain;
         DownloadFileSegments = string.IsNullOrWhiteSpace(_loadedGlobalConfig.DownloadFileSegments) ? "4" : _loadedGlobalConfig.DownloadFileSegments;
+        DownloaderApiBaseUrl = _loadedGlobalConfig.DownloaderApiBaseUrl;
+        DownloaderApiKey = _loadedGlobalConfig.DownloaderApiKey;
         XingeEnabled = _loadedGlobalConfig.XingeEnabled;
         XingeServerUrl = _loadedGlobalConfig.XingeServerUrl;
         XingeUsername = _loadedGlobalConfig.XingeUsername;
@@ -786,6 +794,8 @@ public partial class ConfigWindowViewModel : ViewModelBase
         {
             DramaSourceChain = DramaSourceChain.Trim(),
             DownloadFileSegments = DownloadFileSegments.Trim(),
+            DownloaderApiBaseUrl = DownloaderApiBaseUrl.Trim(),
+            DownloaderApiKey = DownloaderApiKey.Trim(),
             XingeEnabled = XingeEnabled,
             XingeServerUrl = XingeServerUrl.Trim(),
             XingeUsername = XingeUsername.Trim(),
@@ -917,6 +927,8 @@ public partial class ConfigWindowViewModel : ViewModelBase
         return _loadedGlobalConfig with
         {
             DownloadFileSegments = DownloadFileSegments.Trim(),
+            DownloaderApiBaseUrl = DownloaderApiBaseUrl.Trim(),
+            DownloaderApiKey = DownloaderApiKey.Trim(),
             HgnewAccount = HgnewAccount.Trim(),
             HgnewPassword = HgnewPassword,
             HgnewUdid = HongguoDeviceId.Normalize(HgnewUdid),
