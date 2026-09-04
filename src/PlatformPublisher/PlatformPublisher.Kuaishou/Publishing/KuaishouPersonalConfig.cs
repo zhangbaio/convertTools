@@ -82,6 +82,11 @@ public sealed class KuaishouPersonalConfig
     public string PlotLabels { get; set; } = string.Empty;
     public string TagLabels { get; set; } = string.Empty;
     public string AuthorDeclaration { get; set; } = string.Empty;
+    public string MaterialTitleTemplate { get; set; } = "{新剧名}{排名}-{素材ID}";
+    public string MaterialType { get; set; } = "高光";
+    public string MaterialAuthorDeclaration { get; set; } = "含AI生成内容";
+    public string MaterialCoverMode { get; set; } = "adx";
+    public string MaterialCoverPath { get; set; } = string.Empty;
     public bool HasCopyrightProof { get; set; }
     public string CopyrightProofType { get; set; } = string.Empty;
     public string CopyrightValidStartTime { get; set; } = string.Empty;

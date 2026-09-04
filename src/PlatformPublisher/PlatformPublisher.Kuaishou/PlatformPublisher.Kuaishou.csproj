@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />
+    <ProjectReference Include="..\PlatformPublisher.Adx\PlatformPublisher.Adx.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Analytics\PlatformPublisher.Analytics.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />

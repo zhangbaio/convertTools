@@ -60,6 +60,8 @@ public partial class App : Application
             mainWindow.BindSettings(settingsViewModel);
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
             mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>(), _services.GetRequiredService<UnifiedPublishViewModel>());
+            mainWindow.BindKuaishouAdx(_services.GetRequiredService<AdxAutomationService>(),
+                _services.GetRequiredService<AdxBatchStore>(), _services.GetRequiredService<KuaishouAdxBatchResolver>());
             if(migratedDrafts>0)viewModel.StatusMessage=$"已将 {migratedDrafts} 个旧素材任务迁移为统一发布草稿。";
             mainWindow.BindWeixinDownload(viewModel);
             mainWindow.BindAnalytics(_services.GetRequiredService<AnalyticsViewModel>(), viewModel);
@@ -150,6 +152,8 @@ public partial class App : Application
         services.AddSingleton<IAiRuntimeSettingsProvider, PlatformAiRuntimeSettingsProvider>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
         services.AddSingleton<KuaishouPersonalSessionService>();
+        services.AddSingleton<KuaishouAdxBatchResolver>();
+        services.AddSingleton<KuaishouPersonalAdxPublishService>();
         services.AddSingleton<KuaishouPersonalProjectDataService>();
         services.AddSingleton<KuaishouPersonalPreparationService>();
         services.AddSingleton<KuaishouPersonalFirstPageService>();

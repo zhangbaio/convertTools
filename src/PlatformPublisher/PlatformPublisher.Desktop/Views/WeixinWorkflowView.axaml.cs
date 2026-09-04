@@ -14,6 +14,7 @@ public partial class WeixinWorkflowView : UserControl
     private bool _isKuaishouMode;
     public event EventHandler? SettingsRequested;
     public event EventHandler? KuaishouConfigRequested;
+    public event EventHandler<KuaishouAdxRequestedEventArgs>? KuaishouAdxRequested;
 
     public bool IsKuaishouMode
     {
@@ -137,6 +138,12 @@ public partial class WeixinWorkflowView : UserControl
     private void OnKuaishouConfigClick(object? sender, RoutedEventArgs e) =>
         KuaishouConfigRequested?.Invoke(this, EventArgs.Empty);
 
+    private void OnKuaishouAdxDownloadClick(object? sender, RoutedEventArgs e) =>
+        KuaishouAdxRequested?.Invoke(this, new KuaishouAdxRequestedEventArgs(false, (int)(KuaishouAdxCount.Value ?? 8)));
+
+    private void OnKuaishouAdxPublishClick(object? sender, RoutedEventArgs e) =>
+        KuaishouAdxRequested?.Invoke(this, new KuaishouAdxRequestedEventArgs(true, (int)(KuaishouAdxCount.Value ?? 8)));
+
     private async void OnPickConfigClick(object? sender, RoutedEventArgs e)
     {
         var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
@@ -199,3 +206,5 @@ public partial class WeixinWorkflowView : UserControl
         ViewModel.StatusMessage = "视频号高级发表配置已应用到新任务。";
     }
 }
+
+public sealed record KuaishouAdxRequestedEventArgs(bool PublishLocal, int TopCount);

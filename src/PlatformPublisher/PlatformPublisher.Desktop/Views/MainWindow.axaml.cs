@@ -77,6 +77,29 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetArchivedProjectsContent(new WeixinArchivedProjectsView { DataContext = viewModel });
     }
 
+    public void BindKuaishouAdx(AdxAutomationService adxService, AdxBatchStore adxBatchStore,
+        KuaishouAdxBatchResolver resolver)
+    {
+        KuaishouWorkflowPage.KuaishouAdxRequested += async (_, request) =>
+        {
+            var context = ViewModel?.GetKuaishouAdxProjectContext();
+            if (context is null)
+            {
+                if (ViewModel is not null)
+                    ViewModel.StatusMessage = "请先在快手分账个人版列表中选择一个剧集项目。";
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(context.OriginalTitle) || string.IsNullOrWhiteSpace(context.NewTitle))
+            {
+                ViewModel!.StatusMessage = "所选项目必须同时包含原剧名和新剧名。";
+                return;
+            }
+            var dialog = new KuaishouAdxMaterialsDialog(adxService, adxBatchStore, resolver,
+                context, request.TopCount, request.PublishLocal, ViewModel!.QueueKuaishouAdxPublishAsync);
+            await dialog.ShowDialog(this);
+        };
+    }
+
     public void BindAccountDatabase(ChannelsPublisher.Core.Services.AccountStore accountStore)
     {
         WeixinPublisherView.UseAccountStore(accountStore);

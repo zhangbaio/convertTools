@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\PlatformPublisher\PlatformPublisher.Adx\PlatformPublisher.Adx.csproj" />
+    <ProjectReference Include="..\..\src\PlatformPublisher\PlatformPublisher.Kuaishou\PlatformPublisher.Kuaishou.csproj" />
   </ItemGroup>
 </Project>

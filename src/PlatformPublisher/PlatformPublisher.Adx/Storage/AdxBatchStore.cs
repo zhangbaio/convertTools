@@ -20,6 +20,12 @@ public sealed class AdxBatchStore
     public AdxBatchStore(ProjectStateDocumentStore projectStateStore) => _projectStateStore = projectStateStore;
 
     public IReadOnlyList<AdxBatchManifest> List(string workflowDirectory)
+        => ListCore(workflowDirectory, includeMissingFiles: false);
+
+    public IReadOnlyList<AdxBatchManifest> ListInventory(string workflowDirectory)
+        => ListCore(workflowDirectory, includeMissingFiles: true);
+
+    private IReadOnlyList<AdxBatchManifest> ListCore(string workflowDirectory, bool includeMissingFiles)
     {
         var baseDirectory = Path.Combine(Path.GetFullPath(workflowDirectory), "materials", "adx");
         if (!Directory.Exists(baseDirectory)) return [];
@@ -29,15 +35,23 @@ public sealed class AdxBatchStore
         {
             var manifestPath = Path.Combine(directory, ManifestFileName);
             if (!File.Exists(manifestPath)) manifestPath = Recover(workflowDirectory, directory) ?? string.Empty;
-            var manifest = Read(manifestPath);
+            var manifest = ReadCore(manifestPath, includeMissingFiles);
             if (manifest is not null && manifest.Items.Count > 0) result.Add(manifest);
         }
         if (result.Count == 0 && _projectStateStore?.Load<List<AdxBatchManifest>>(workflowDirectory, "adx_batches") is { } stored)
-            result.AddRange(stored.Where(batch => batch.Items.Any(item => File.Exists(item.VideoPath))));
+            result.AddRange(stored.Where(batch => includeMissingFiles
+                ? batch.Items.Count > 0
+                : batch.Items.Any(item => File.Exists(item.VideoPath))));
         return result.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.BatchId).ToArray();
     }
 
     public AdxBatchManifest? Read(string manifestPath)
+        => ReadCore(manifestPath, includeMissingFiles: false);
+
+    public AdxBatchManifest? ReadInventory(string manifestPath)
+        => ReadCore(manifestPath, includeMissingFiles: true);
+
+    private AdxBatchManifest? ReadCore(string manifestPath, bool includeMissingFiles)
     {
         if (string.IsNullOrWhiteSpace(manifestPath) || !File.Exists(manifestPath)) return null;
         try
@@ -50,7 +64,8 @@ public sealed class AdxBatchStore
                 : manifest.BatchId;
             manifest.NewTitle = string.IsNullOrWhiteSpace(manifest.NewTitle) ? manifest.SeriesName : manifest.NewTitle;
             manifest.Items = manifest.Items
-                .Where(item => !string.IsNullOrWhiteSpace(item.MaterialId) && File.Exists(item.VideoPath))
+                .Where(item => !string.IsNullOrWhiteSpace(item.MaterialId) &&
+                               (includeMissingFiles || File.Exists(item.VideoPath)))
                 .OrderBy(item => item.Rank)
                 .ToList();
             return manifest;
@@ -82,7 +97,10 @@ public sealed class AdxBatchStore
     {
         lock (_gate)
         {
-            var manifest = Read(manifestPath) ?? throw new InvalidOperationException("ADX 批次清单不存在或格式错误。");
+            // Preserve missing inventory entries while updating one item's status. A normal
+            // publish read filters missing files, but rewriting that filtered view would
+            // permanently erase the missing rows from the manifest.
+            var manifest = ReadInventory(manifestPath) ?? throw new InvalidOperationException("ADX 批次清单不存在或格式错误。");
             if (!manifest.PublishByAccount.TryGetValue(accountId, out var account))
                 manifest.PublishByAccount[accountId] = account = new AdxAccountPublishStatus();
             var previousSucceeded = account.Items.TryGetValue(materialId, out var previous) && IsSucceeded(previous.Status);

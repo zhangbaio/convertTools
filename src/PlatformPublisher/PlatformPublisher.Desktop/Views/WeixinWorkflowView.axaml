@@ -31,6 +31,12 @@
                             ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
                     <Button x:Name="UploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,0"
                              ToolTip.Tip="按剧名精确搜索，创建项目并加入执行队列" />
+                    <TextBlock x:Name="KuaishouAdxCountLabel" Text="ADX素材数" VerticalAlignment="Center" Margin="2,0,4,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <NumericUpDown x:Name="KuaishouAdxCount" Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <Button x:Name="KuaishouAdxDownloadButton" Content="下载ADX素材" Click="OnKuaishouAdxDownloadClick"
+                            Classes="secondaryAction compactAction" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <Button x:Name="KuaishouAdxPublishButton" Content="发布ADX素材" Click="OnKuaishouAdxPublishClick"
+                            Classes="primaryAction compactAction" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
                     <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <TextBox x:Name="CreateProjectNameBox" Width="220" Text="{Binding DraftNewProjectName}" Watermark="按剧名创建项目" Margin="0,0,6,0" />
