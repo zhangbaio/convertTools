@@ -17,7 +17,7 @@ public sealed record HongguoClientProfile(
 
     public static HongguoClientProfile High { get; } = new(
         HighEdition,
-        "高码率版 2.1.6",
+        "高码率版",
         "https://m.iusc.cc/api/hbr/client/v1",
         "hongguo_high_bitrate_desktop",
         "2.1.6",
@@ -29,7 +29,7 @@ public sealed record HongguoClientProfile(
 
     public static HongguoClientProfile Standard { get; } = new(
         StandardEdition,
-        "标准版 2.1.7",
+        "标准版",
         "https://m.iusc.cc/api/hongguo/client/v1",
         "hongguo_desktop",
         "2.1.7",
