@@ -7,6 +7,7 @@ using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Models;
 using PlatformPublisher.Adx.Storage;
 using PlatformPublisher.Desktop.ViewModels;
+using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Publishing.Models;
 using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
@@ -28,6 +29,8 @@ public partial class WeixinMaterialUploadView : UserControl
     private AdxAutomationService? _adxService;
     private AdxBatchStore? _adxBatchStore;
     private WeixinDirectoryMaterialPublishService? _directoryPublishService;
+    private WeixinMaterialDownloadService? _materialDownloadService;
+    private WeixinHighlightScheduleService? _highlightScheduleService;
     private WeixinMaterialChannelVideoDeleteService? _channelVideoDeleteService;
     private UnifiedPublishViewModel? _unifiedPublishViewModel;
     private Action? _showUnifiedPublish;
@@ -54,6 +57,8 @@ public partial class WeixinMaterialUploadView : UserControl
         AdxAutomationService adxService,
         AdxBatchStore adxBatchStore,
         WeixinDirectoryMaterialPublishService directoryPublishService,
+        WeixinMaterialDownloadService materialDownloadService,
+        WeixinHighlightScheduleService highlightScheduleService,
         WeixinMaterialChannelVideoDeleteService channelVideoDeleteService,
         UnifiedPublishViewModel unifiedPublishViewModel,
         Action showUnifiedPublish)
@@ -65,6 +70,8 @@ public partial class WeixinMaterialUploadView : UserControl
         _adxService = adxService;
         _adxBatchStore = adxBatchStore;
         _directoryPublishService = directoryPublishService;
+        _materialDownloadService = materialDownloadService;
+        _highlightScheduleService = highlightScheduleService;
         _channelVideoDeleteService = channelVideoDeleteService;
         _unifiedPublishViewModel = unifiedPublishViewModel;
         _showUnifiedPublish = showUnifiedPublish;
@@ -161,13 +168,7 @@ public partial class WeixinMaterialUploadView : UserControl
 
     private async void OnDiscoverMaterialsClick(object? sender, RoutedEventArgs e)
     {
-        var row = ViewModel?.Projects.FirstOrDefault(item => item.IsSelected) ?? ViewModel?.Projects.FirstOrDefault();
-        if (row is null)
-        {
-            SetStatus("请先扫描并选择一个项目，再按项目原剧名发现素材。");
-            return;
-        }
-        await OpenAdxAsync(row);
+        await RunDownloadAsync(systemHighlights: false);
     }
 
     private async Task OpenAdxAsync(MaterialProjectRowViewModel row)
@@ -227,11 +228,72 @@ public partial class WeixinMaterialUploadView : UserControl
             row.OriginalTitle, row.NewTitle, [], "{\"count\":10,\"videoTypes\":\"混剪,解说,切片\"}");
     }
 
-    private void OnDownloadSystemHighlightClick(object? sender, RoutedEventArgs e) =>
-        SetStatus("系统高光下载面板将在第 3 阶段接入；当前可使用“发布系统高光视频”。");
+    private async void OnDownloadSystemHighlightClick(object? sender, RoutedEventArgs e) =>
+        await RunDownloadAsync(systemHighlights: true);
 
-    private void OnHighlightScheduleClick(object? sender, RoutedEventArgs e) =>
-        SetStatus("系统高光自动发布配置将在第 4 阶段接入。");
+    private async Task RunDownloadAsync(bool systemHighlights)
+    {
+        var account = _accountProvider?.Invoke();
+        if (OwnerWindow is null || ViewModel is null || account is null || _materialDownloadService is null)
+        {
+            SetStatus("请先选择视频号工作账号。");
+            return;
+        }
+        if (!Directory.Exists(ViewModel.WorkspaceRoot))
+        {
+            SetStatus("请先选择有效的素材工作目录。");
+            return;
+        }
+        var initial = systemHighlights
+            ? string.Join(Environment.NewLine, ViewModel.Projects.Where(item => item.IsSelected).Select(item => item.OriginalTitle))
+            : string.Empty;
+        var dialog = new MaterialDownloadDialog(systemHighlights, initial);
+        if (!await dialog.ShowDialog<bool>(OwnerWindow)) return;
+        try
+        {
+            ViewModel.IsBusy = true;
+            var request = new MaterialDownloadRequest(account.Id, ViewModel.WorkspaceRoot, dialog.Values, dialog.Limit);
+            var progress = new Progress<string>(SetStatus);
+            var result = systemHighlights
+                ? await _materialDownloadService.DownloadSystemHighlightsAsync(request, progress, CancellationToken.None)
+                : await _materialDownloadService.DownloadByQueriesAsync(request, progress, CancellationToken.None);
+            SetStatus($"{(systemHighlights ? "系统高光" : "素材视频")}下载完成：新下载 {result.DownloadedCount} 条。");
+            await ViewModel.ScanAsync();
+        }
+        catch (Exception ex)
+        {
+            SetStatus("素材下载失败：" + ex.Message);
+        }
+        finally
+        {
+            ViewModel.IsBusy = false;
+        }
+    }
+
+    private async void OnHighlightScheduleClick(object? sender, RoutedEventArgs e)
+    {
+        var account = _accountProvider?.Invoke();
+        if (OwnerWindow is null || ViewModel is null || account is null || _highlightScheduleService is null)
+        {
+            SetStatus("请先选择视频号工作账号。");
+            return;
+        }
+        var rules = _highlightScheduleService.LoadRules()
+            .Where(item => string.Equals(item.AccountId, account.Id, StringComparison.OrdinalIgnoreCase)).ToArray();
+        var dialog = new HighlightScheduleDialog(rules, account.Id, ViewModel.WorkspaceRoot);
+        if (!await dialog.ShowDialog<bool>(OwnerWindow)) return;
+        var otherRules = _highlightScheduleService.LoadRules()
+            .Where(item => !string.Equals(item.AccountId, account.Id, StringComparison.OrdinalIgnoreCase));
+        _highlightScheduleService.SaveRules(otherRules.Concat(dialog.Rules));
+        SetStatus($"已保存 {dialog.Rules.Count} 条系统高光自动发布规则。");
+        if (string.IsNullOrWhiteSpace(dialog.RunNowRuleId)) return;
+        try
+        {
+            var progress = new Progress<string>(SetStatus);
+            await _highlightScheduleService.RunNowAsync(dialog.RunNowRuleId, progress, CancellationToken.None);
+        }
+        catch (Exception ex) { SetStatus("系统高光自动发布失败：" + ex.Message); }
+    }
 
     private async void OnDeleteChannelMaterialsClick(object? sender, RoutedEventArgs e)
     {

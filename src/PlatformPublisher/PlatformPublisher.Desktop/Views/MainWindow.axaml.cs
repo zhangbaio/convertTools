@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using PlatformPublisher.Desktop.ViewModels;
+using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Common.Services;
@@ -59,6 +60,8 @@ public partial class MainWindow : Window
     public void BindWeixinWorkflow(MainWindowViewModel viewModel, IProjectScanner projectScanner,
         AdxAutomationService adxService, AdxBatchStore adxBatchStore,
         WeixinDirectoryMaterialPublishService directoryPublishService,
+        WeixinMaterialDownloadService materialDownloadService,
+        WeixinHighlightScheduleService highlightScheduleService,
         WeixinMaterialChannelVideoDeleteService channelVideoDeleteService,
         UnifiedPublishViewModel unifiedPublishViewModel)
     {
@@ -79,6 +82,8 @@ public partial class MainWindow : Window
             adxService,
             adxBatchStore,
             directoryPublishService,
+            materialDownloadService,
+            highlightScheduleService,
             channelVideoDeleteService,
             unifiedPublishViewModel,
             WeixinPublisherView.ShowUnifiedPublish);

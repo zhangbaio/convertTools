@@ -92,6 +92,7 @@ public sealed partial class WeixinMaterialsWorkspaceViewModel : ObservableObject
                 };
                 _allProjects.Add(row);
             }
+            AddDownloadedMaterialProjects(Path.GetFullPath(WorkspaceRoot));
             ApplyFilter();
             StatusMessage = $"扫描完成：发现 {_allProjects.Count} 个项目。";
         }
@@ -169,6 +170,39 @@ public sealed partial class WeixinMaterialsWorkspaceViewModel : ObservableObject
             CountMaterials(workflowDirectory),
             sourceType.Label,
             sourceType.Kind);
+    }
+
+    private void AddDownloadedMaterialProjects(string workspaceRoot)
+    {
+        var root = Path.Combine(workspaceRoot, "系统高光下载");
+        if (!Directory.Exists(root)) return;
+        foreach (var directory in Directory.EnumerateDirectories(root).OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            var fullPath = Path.GetFullPath(directory);
+            if (_allProjects.Any(item => string.Equals(item.WorkflowDirectory, fullPath, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            var title = Path.GetFileName(fullPath);
+            var count = CountDirectVideos(fullPath);
+            if (count == 0) continue;
+            var row = new MaterialProjectRowViewModel("downloaded:" + title, fullPath, fullPath, title, title,
+                count, count, "下载的系统高光", "downloaded_system_highlight");
+            row.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(MaterialProjectRowViewModel.IsSelected))
+                    OnPropertyChanged(nameof(SelectionSummary));
+            };
+            _allProjects.Add(row);
+        }
+    }
+
+    private static int CountDirectVideos(string directory)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(directory, "*.*", SearchOption.TopDirectoryOnly)
+                .Count(path => VideoExtensions.Contains(Path.GetExtension(path)));
+        }
+        catch { return 0; }
     }
 
     private static (string Label, string Kind) DetectSourceType(string directory)

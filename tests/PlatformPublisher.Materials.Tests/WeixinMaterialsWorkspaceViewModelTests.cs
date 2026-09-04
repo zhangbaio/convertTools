@@ -1,5 +1,6 @@
 using ChannelsPublisher.Core.Models;
 using PlatformPublisher.Desktop.ViewModels;
+using PlatformPublisher.Desktop.Services;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using Xunit;
@@ -59,6 +60,22 @@ public sealed class WeixinMaterialsWorkspaceViewModelTests
 
         Assert.Same(second, viewModel.SelectedAccount);
         Assert.Equal("D:\\乙", viewModel.WorkspaceRoot);
+    }
+
+    [Fact]
+    public void Highlight_interval_schedule_respects_last_run_time()
+    {
+        var now = new DateTimeOffset(2026, 9, 4, 10, 0, 0, TimeSpan.FromHours(8));
+        var rule = WeixinHighlightScheduleRule.Create("account", "D:\\workspace") with
+        {
+            TriggerMode = "interval",
+            IntervalMinutes = 30,
+        };
+
+        Assert.False(WeixinHighlightScheduleService.IsDue(rule,
+            new WeixinHighlightScheduleState(now.AddMinutes(-10), string.Empty), now, startup: false));
+        Assert.True(WeixinHighlightScheduleService.IsDue(rule,
+            new WeixinHighlightScheduleState(now.AddMinutes(-31), string.Empty), now, startup: false));
     }
 
     private static string Temp()

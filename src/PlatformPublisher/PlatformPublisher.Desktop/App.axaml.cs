@@ -62,6 +62,8 @@ public partial class App : Application
             mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<ShortDrama.Core.Interfaces.IProjectScanner>(),
                 _services.GetRequiredService<AdxAutomationService>(), _services.GetRequiredService<AdxBatchStore>(),
                 _services.GetRequiredService<WeixinDirectoryMaterialPublishService>(),
+                _services.GetRequiredService<WeixinMaterialDownloadService>(),
+                _services.GetRequiredService<WeixinHighlightScheduleService>(),
                 _services.GetRequiredService<ShortDrama.Desktop.Services.WeixinMaterialChannelVideoDeleteService>(),
                 _services.GetRequiredService<UnifiedPublishViewModel>());
             mainWindow.BindKuaishouAdx(_services.GetRequiredService<AdxAutomationService>(),
@@ -69,9 +71,12 @@ public partial class App : Application
             if(migratedDrafts>0)viewModel.StatusMessage=$"已将 {migratedDrafts} 个旧素材任务迁移为统一发布草稿。";
             mainWindow.BindWeixinDownload(viewModel);
             mainWindow.BindAnalytics(_services.GetRequiredService<AnalyticsViewModel>(), viewModel);
+            var highlightScheduler = _services.GetRequiredService<WeixinHighlightScheduleService>();
+            highlightScheduler.Start();
             desktop.MainWindow = mainWindow;
             desktop.Exit += (_, _) =>
             {
+                highlightScheduler.Dispose();
                 kuaishouOnlineWorker.Dispose();
                 viewModel.Shutdown();
             };
@@ -115,6 +120,8 @@ public partial class App : Application
         services.AddSingleton<KuaishouAnalyticsCollector>();
         services.AddSingleton<WeixinWorkflowSettingsStore>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
+        services.AddSingleton<WeixinMaterialDownloadService>();
+        services.AddSingleton<WeixinHighlightScheduleService>();
         services.AddSingleton<ShortDrama.Desktop.Services.WeixinMaterialChannelVideoDeleteService>();
         services.AddSingleton<WeixinSystemHighlightPublishService>();
         services.AddSingleton<WeixinLocalVideoPublishService>();
