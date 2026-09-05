@@ -1,6 +1,7 @@
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using ShortDrama.Infrastructure.Automation;
 using System.Globalization;
@@ -492,17 +493,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveVideo: (videoId, quality, ct) => GetHghighVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: HongguoHighCrypto.BookPrefix,
                 validateVideoEncoding: true,
-                downloadFileSegments: downloadFileSegments,
+                downloadFileSegments: Math.Max(downloadFileSegments, 8),
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
                 separateResolveConcurrency: Math.Min(4, Math.Clamp(request.Concurrent, 1, 10)),
-                registerResolvePlan: HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition
-                    ? null
-                    : (videoIds, batchSize) =>
-                    {
-                        progress?.Report($"高码率播放地址启用批量解析：每批 {batchSize} 集，共 {videoIds.Count} 集");
-                        return _hghighApiService.RegisterBatchParsePlan(settings, videoIds, request.Quality, batchSize);
-                    });
+                registerResolvePlan: (videoIds, batchSize) =>
+                {
+                    var mode = HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition
+                        ? "标准版明文直链"
+                        : "高码率";
+                    progress?.Report($"{mode}播放地址启用批量解析：每批 {batchSize} 集，共 {videoIds.Count} 集");
+                    return _hghighApiService.RegisterBatchParsePlan(settings, videoIds, request.Quality, batchSize);
+                });
         }
 
         if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -816,6 +818,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         detail.Url,
                         tempPath,
                         finalPath,
+                        detail.ExpectedSize,
                         downloadTimeoutSeconds,
                         cancellationToken,
                         detail.PikachuDecryptKey,
@@ -904,6 +907,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             url,
             tempPath,
             finalPath,
+            expectedSize: 0,
             timeoutSeconds,
             cancellationToken,
             pikachuDecryptKey: null,
@@ -918,6 +922,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string url,
         string tempPath,
         string finalPath,
+        long expectedSize,
         int timeoutSeconds,
         CancellationToken cancellationToken,
         string? pikachuDecryptKey,
@@ -980,6 +985,22 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             if (!usedHongguoCdn && hasPikachuDecryptKey)
             {
                 await DecryptPikachuCencVideoAsync(pikachuDecryptKey!.Trim(), downloadTargetPath, tempPath, timeoutSeconds, cancellationToken);
+            }
+
+            var actualSize = new FileInfo(tempPath).Length;
+            if (expectedSize > 0 && actualSize != expectedSize)
+            {
+                throw new InvalidDataException($"下载文件长度不完整：预期 {expectedSize} 字节，实际 {actualSize} 字节。");
+            }
+
+            if (LooksLikeMp4(tempPath) && !HasCompleteMp4Structure(tempPath))
+            {
+                throw new InvalidDataException("下载的 MP4 结构不完整。");
+            }
+
+            if (!usedHongguoCdn && ContainsEncryptedMp4SampleEntry(tempPath))
+            {
+                throw new InvalidDataException("下载结果仍为加密 MP4，未获得可直接播放的明文视频。");
             }
 
             if (!HasValidVideoFile(tempPath))
@@ -1168,6 +1189,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken);
         response.EnsureSuccessStatusCode();
+        if (response.StatusCode == System.Net.HttpStatusCode.PartialContent)
+        {
+            throw new InvalidDataException("单流下载意外返回 HTTP 206，拒绝保存不完整分片。");
+        }
         EnsureMediaResponse(response);
         await WriteResponseBodyAsync(response, targetPath, cancellationToken);
     }
@@ -2156,7 +2181,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var detail = await _hghighApiService.GetVideoPlaybackAsync(settings, videoId, quality, cancellationToken);
         return new SourceVideoDetail(
             detail.Url,
-            HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted));
+            HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),
+            ExpectedSize: detail.Size);
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetMapleleafEpisodesAsync(
@@ -2427,6 +2453,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 return false;
             }
 
+            if (LooksLikeMp4(path) && !HasCompleteMp4Structure(path))
+            {
+                return false;
+            }
+
             Span<byte> header = stackalloc byte[512];
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             var read = stream.Read(header);
@@ -2442,6 +2473,98 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                    !prefix.StartsWith('{') &&
                    !prefix.StartsWith('[') &&
                    !prefix.StartsWith("#EXTM3U", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool HasCompleteMp4Structure(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var length = stream.Length;
+            if (length < 8)
+                return false;
+
+            var offset = 0L;
+            var hasFtyp = false;
+            var hasMoov = false;
+            var hasMdat = false;
+            Span<byte> header = stackalloc byte[16];
+            while (offset + 8 <= length)
+            {
+                stream.Position = offset;
+                if (stream.Read(header[..8]) != 8)
+                    return false;
+                var boxSize = BinaryPrimitives.ReadUInt32BigEndian(header[..4]);
+                var type = header.Slice(4, 4);
+                var headerSize = 8L;
+                long resolvedSize;
+                if (boxSize == 1)
+                {
+                    if (offset + 16 > length || stream.Read(header[8..16]) != 8)
+                        return false;
+                    resolvedSize = checked((long)BinaryPrimitives.ReadUInt64BigEndian(header[8..16]));
+                    headerSize = 16;
+                }
+                else
+                {
+                    resolvedSize = boxSize == 0 ? length - offset : boxSize;
+                }
+
+                if (resolvedSize < headerSize || resolvedSize > length - offset)
+                    return false;
+
+                hasFtyp |= type.SequenceEqual("ftyp"u8);
+                hasMoov |= type.SequenceEqual("moov"u8);
+                hasMdat |= type.SequenceEqual("mdat"u8);
+                offset += resolvedSize;
+            }
+
+            return offset == length && hasFtyp && hasMoov && hasMdat;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool LooksLikeMp4(string path)
+    {
+        try
+        {
+            Span<byte> header = stackalloc byte[8];
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            return stream.Read(header) == header.Length && header[4..8].SequenceEqual("ftyp"u8);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool ContainsEncryptedMp4SampleEntry(string path)
+    {
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            var count = (int)Math.Min(stream.Length, 8L * 1024 * 1024);
+            if (count <= 0)
+                return false;
+            var buffer = new byte[count];
+            var read = 0;
+            while (read < count)
+            {
+                var current = stream.Read(buffer, read, count - read);
+                if (current <= 0)
+                    break;
+                read += current;
+            }
+            var data = buffer.AsSpan(0, read);
+            return data.IndexOf("encv"u8) >= 0 || data.IndexOf("enca"u8) >= 0;
         }
         catch
         {
@@ -2533,6 +2656,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     if (!validateVideoEncoding)
                     {
                         return path;
+                    }
+
+                    if (ContainsEncryptedMp4SampleEntry(path))
+                    {
+                        replacementCandidates?.Add(path);
+                        report?.Invoke(
+                            $"发现旧版加密 MP4，将重新获取明文直链并替换：{Path.GetFileName(path)}");
+                        continue;
                     }
 
                     try
@@ -2870,7 +3001,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string? PikachuDecryptKey = null,
         HongguoCdnDownload? HongguoCdn = null,
         bool EnsureWindowsCompatible = false,
-        string TranscodeEngine = "auto");
+        string TranscodeEngine = "auto",
+        long ExpectedSize = 0);
 
     private sealed record HongguoCdnDownload(
         IReadOnlyList<string> EncryptedUrls,

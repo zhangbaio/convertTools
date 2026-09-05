@@ -47,8 +47,8 @@ internal static class HongguoCdnDecryptor
                 }
             }
         }
-        if (totalVideoSamples == 0 || validVideoSamples == 0)
-            throw new InvalidDataException("解密后未发现有效视频样本");
+        if (totalVideoSamples == 0 || validVideoSamples != totalVideoSamples)
+            throw new InvalidDataException($"解密后视频样本校验失败：有效 {validVideoSamples}/{totalVideoSamples}");
         File.WriteAllBytes(outputPath, output);
     }
 

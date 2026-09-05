@@ -32,7 +32,7 @@ public static class HongguoHighCalendarMapper
         ["title", "series_title", "book_name", "bookName", "name"];
 
     private static readonly string[] AuthorKeys =
-        ["author", "author_name", "anchor", "producer"];
+        ["author", "author_name", "authorName", "anchor", "producer", "copyright"];
 
     private static readonly string[] IntroKeys =
         ["intro", "series_intro", "abstract", "description"];

@@ -76,9 +76,6 @@ public sealed class HongguoHighApiService
         string quality,
         int batchSize)
     {
-        if (!HongguoClientProfile.Resolve(settings.HghighEdition).UsesServerBatchPlayback)
-            return EmptyDisposable.Instance;
-
         var episodes = encodedVideoIds
             .Select(id => HongguoHighCrypto.TryDecodeEpisodeId(id, out var bookId, out var number, out var videoId)
                 ? (BookId: bookId, Episode: new BatchEpisode(videoId, number))
@@ -92,6 +89,22 @@ public sealed class HongguoHighApiService
         var planKey = BuildBatchPlanKey(settings, rawBookId, quality);
         var plan = new BatchParsePlan();
         var size = Math.Clamp(batchSize, 1, 10);
+        var useServerBatch = HongguoClientProfile.Resolve(settings.HghighEdition).UsesServerBatchPlayback;
+        if (!useServerBatch)
+        {
+            var captured = episodes
+                .Where(item => string.Equals(item.BookId, rawBookId, StringComparison.Ordinal))
+                .Select(item => item.Episode!)
+                .ToArray();
+            var resolver = new Lazy<Task<IReadOnlyDictionary<string, HongguoHighVideoPlayback>>>(
+                () => ResolveStandardBatchGroupAsync(settings, rawBookId, captured, quality, CancellationToken.None),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            foreach (var episode in captured)
+                plan.GroupsByVideoId[episode.VideoId] = resolver;
+            _batchParsePlans[planKey] = plan;
+            return new BatchPlanLease(this, planKey, plan);
+        }
+
         foreach (var group in episodes
                      .Where(item => string.Equals(item.BookId, rawBookId, StringComparison.Ordinal))
                      .Select(item => item.Episode!)
@@ -135,7 +148,7 @@ public sealed class HongguoHighApiService
         {
             var latest = await SearchLatestClientApiAsync(settings, keyword, page, cancellationToken);
             if (latest.Count > 0)
-                return latest;
+                return await EnrichSearchItemsFromDirectoryAsync(latest, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -148,7 +161,7 @@ public sealed class HongguoHighApiService
         }
 
         var legacy = await SearchLegacyNovelFmAsync(keyword, page, cancellationToken);
-        return await CorrectSearchEpisodeTotalsFromDirectoryAsync(legacy, cancellationToken);
+        return await EnrichSearchItemsFromDirectoryAsync(legacy, cancellationToken);
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> SearchLatestClientApiAsync(
@@ -306,7 +319,15 @@ public sealed class HongguoHighApiService
                     GetString(book, "poster"),
                     GetString(book, "audio_thumb_uri"),
                     GetString(book, "thumb_uri")) ?? "",
-                Author: GetString(book, "author") ?? GetString(book, "anchor") ?? "",
+                Author: FirstMeaningfulString(
+                    book,
+                    entry,
+                    "author",
+                    "author_name",
+                    "authorName",
+                    "anchor",
+                    "producer",
+                    "copyright"),
                 PublishTime: "",
                 FavoriteCount: GetInt(book, "favorite_count") ?? 0));
         }
@@ -314,7 +335,7 @@ public sealed class HongguoHighApiService
         return results;
     }
 
-    private async Task<IReadOnlyList<DramaSearchItem>> CorrectSearchEpisodeTotalsFromDirectoryAsync(
+    private async Task<IReadOnlyList<DramaSearchItem>> EnrichSearchItemsFromDirectoryAsync(
         IReadOnlyList<DramaSearchItem> items,
         CancellationToken cancellationToken)
     {
@@ -331,8 +352,13 @@ public sealed class HongguoHighApiService
                 if (string.IsNullOrWhiteSpace(rawBookId))
                     return item;
                 var directory = await FetchFanqieDirectoryDataAsync(rawBookId, cancellationToken);
+                var enriched = directory["book_info"] is JsonObject bookInfo
+                    ? HongguoHighCalendarMapper.ApplyBookInfo(item, bookInfo)
+                    : directory["bookInfo"] is JsonObject camelBookInfo
+                        ? HongguoHighCalendarMapper.ApplyBookInfo(item, camelBookInfo)
+                        : item;
                 var actualCount = directory["item_list"] is JsonArray episodes ? episodes.Count : 0;
-                return actualCount > 0 ? item with { EpisodeTotal = actualCount } : item;
+                return actualCount > 0 ? enriched with { EpisodeTotal = actualCount } : enriched;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -510,37 +536,77 @@ public sealed class HongguoHighApiService
         if (TryReadPlaybackCache(cacheKey, out var cached))
             return cached;
 
+        var planKey = BuildBatchPlanKey(settings, bookId, normalizedQuality);
+        if (_batchParsePlans.TryGetValue(planKey, out var plan) &&
+            plan.GroupsByVideoId.TryGetValue(rawVideoId, out var groupResolver))
+        {
+            try
+            {
+                var groupResults = await groupResolver.Value.WaitAsync(cancellationToken);
+                if (groupResults.TryGetValue(rawVideoId, out var plannedPlayback))
+                {
+                    _playbackCache[cacheKey] = new PlaybackCacheEntry(DateTimeOffset.UtcNow, plannedPlayback);
+                    return plannedPlayback;
+                }
+            }
+            catch (Exception ex) when (IsRetryablePlaybackParseException(ex, cancellationToken))
+            {
+                // A failed batch is retried below as a fresh single-episode detail request.
+            }
+        }
+
+        var resolved = await ResolveStandardBatchGroupAsync(
+            settings,
+            bookId,
+            [new BatchEpisode(rawVideoId, episodeNumber)],
+            normalizedQuality,
+            cancellationToken);
+        if (!resolved.TryGetValue(rawVideoId, out var playback))
+            throw new HongguoHighException("标准版播放接口未返回可用下载地址");
+        _playbackCache[cacheKey] = new PlaybackCacheEntry(DateTimeOffset.UtcNow, playback);
+        return playback;
+    }
+
+    private async Task<IReadOnlyDictionary<string, HongguoHighVideoPlayback>> ResolveStandardBatchGroupAsync(
+        DramaSourceSettings settings,
+        string bookId,
+        IReadOnlyList<BatchEpisode> episodes,
+        string quality,
+        CancellationToken cancellationToken)
+    {
         var timeout = ParsePlaybackTimeout(settings.HongguoDownloadTimeoutSeconds);
+        var normalizedQuality = HongguoHighCrypto.NormalizeQuality(quality);
         var body = new JsonObject
         {
             ["biz_param"] = new JsonObject
             {
+                ["caller_scene"] = "three_col",
                 ["detail_page_version"] = 0,
-                ["device_level"] = 2,
-                ["need_all_video_definition"] = true,
+                ["image_shrink_datas_str"] =
+                    "W3siaW1hZ2VfdHlwZSI6MywiaW1hZ2Vfd2lkdGgiOjEwODAsInNocmlua190eXBlIjozfSx7Imlt\n" +
+                    "YWdlX3R5cGUiOjQsImltYWdlX3dpZHRoIjoxMDgsInNocmlua190eXBlIjo0fV0=\n",
+                ["need_all_video_definition"] = false,
                 ["need_mp4_align"] = false,
+                ["screen_width_px"] = "1080",
+                ["source"] = 7,
                 ["use_os_player"] = false,
-                ["video_platform"] = 1024
             },
-            ["mixed_video_id_map"] = new JsonObject
-            {
-                ["1"] = new JsonArray(rawVideoId)
-            }
+            ["series_id"] = bookId,
         };
         var packed = HongguoHighCrypto.GzipStoreJson(body);
         var digest = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(packed));
         var spec = new JsonObject
         {
             ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
-            ["path"] = "/novel/player/multi_video_model/v1/",
+            ["path"] = "/novel/player/multi_video_detail/v1/",
             ["method"] = "POST",
-            ["purpose"] = "multi_video_model",
-            ["requestId"] = $"redguo.multi_video_model:{rawVideoId}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            ["purpose"] = "multi_video_detail",
+            ["requestId"] = $"redguo.multi_video_detail:{episodes[0].VideoId}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
             ["device_profile_version"] = DeviceProfileVersion(settings),
             ["deviceProfileVersion"] = DeviceProfileVersion(settings),
-            ["videoId"] = rawVideoId,
+            ["videoId"] = episodes[0].VideoId,
             ["bookId"] = bookId,
-            ["episode"] = episodeNumber,
+            ["episode"] = episodes[0].EpisodeNumber,
             ["quality"] = normalizedQuality,
             ["resolution"] = normalizedQuality,
             ["content_encoding"] = "gzip",
@@ -556,24 +622,76 @@ public sealed class HongguoHighApiService
         var descriptor = AuthedRequestForTests is null
             ? await AuthedRequestAsync(settings, standardVideoPath, spec, timeout, cancellationToken)
             : await AuthedRequestForTests(settings, standardVideoPath, spec, timeout, cancellationToken);
-        var payload = ExecuteSignedRequestForTests is null
+        var detailPayload = ExecuteSignedRequestForTests is null
             ? await ExecuteSignedFanqieRequestAsync(descriptor, packed, timeout, cancellationToken)
             : await ExecuteSignedRequestForTests(descriptor, packed, timeout, cancellationToken);
 
-        var item = FindStandardPlaybackItem(payload, rawVideoId, normalizedQuality)
-                   ?? throw new HongguoHighException(
-                       $"标准版播放接口未返回可用视频信息（结构：{DescribeJsonShape(payload)}）");
-        var url = ReadPlaybackUrl(item);
-        if (!IsHttpUrl(url))
-            throw new HongguoHighException("标准版播放接口未返回可用下载地址");
+        var verifiedEpisodes = episodes
+            .Where(episode => ContainsVideoId(detailPayload, episode.VideoId))
+            .ToArray();
+        if (verifiedEpisodes.Length == 0)
+            throw new HongguoHighException("标准版选中集数未通过详情校验");
 
-        var size = GetLong(item, "size")
-                   ?? GetLong(item, "size_bytes")
-                   ?? GetLong(item, "sizeBytes")
-                   ?? 0;
-        var playback = CreatePlayback(item, url!, size);
-        _playbackCache[cacheKey] = new PlaybackCacheEntry(DateTimeOffset.UtcNow, playback);
-        return playback;
+        var modelBody = new JsonObject
+        {
+            ["biz_param"] = new JsonObject
+            {
+                ["detail_page_version"] = 0,
+                ["device_level"] = 2,
+                ["need_all_video_definition"] = true,
+                ["need_mp4_align"] = false,
+                ["use_os_player"] = false,
+                ["video_platform"] = 1024,
+            },
+            ["mixed_video_id_map"] = new JsonObject
+            {
+                ["1"] = new JsonArray(verifiedEpisodes.Select(item => JsonValue.Create(item.VideoId)).ToArray())
+            },
+        };
+        var modelPacked = HongguoHighCrypto.GzipStoreJson(modelBody);
+        var modelDigest = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(modelPacked));
+        var modelSpec = new JsonObject
+        {
+            ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
+            ["path"] = "/novel/player/multi_video_model/v1/",
+            ["method"] = "POST",
+            ["purpose"] = "multi_video_model",
+            ["requestId"] = $"redguo.multi_video_model:{verifiedEpisodes[0].VideoId}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            ["device_profile_version"] = DeviceProfileVersion(settings),
+            ["deviceProfileVersion"] = DeviceProfileVersion(settings),
+            ["videoId"] = verifiedEpisodes[0].VideoId,
+            ["bookId"] = bookId,
+            ["episode"] = verifiedEpisodes[0].EpisodeNumber,
+            ["quality"] = normalizedQuality,
+            ["resolution"] = normalizedQuality,
+            ["content_encoding"] = "gzip",
+            ["contentEncoding"] = "gzip",
+            ["json"] = modelBody.DeepClone(),
+            ["body_md5"] = modelDigest,
+            ["bodyMd5"] = modelDigest,
+            ["manual"] = false,
+            ["charge"] = true,
+        };
+        var modelDescriptor = AuthedRequestForTests is null
+            ? await AuthedRequestAsync(settings, standardVideoPath, modelSpec, timeout, cancellationToken)
+            : await AuthedRequestForTests(settings, standardVideoPath, modelSpec, timeout, cancellationToken);
+        var payload = ExecuteSignedRequestForTests is null
+            ? await ExecuteSignedFanqieRequestAsync(modelDescriptor, modelPacked, timeout, cancellationToken)
+            : await ExecuteSignedRequestForTests(modelDescriptor, modelPacked, timeout, cancellationToken);
+
+        var resolved = new Dictionary<string, HongguoHighVideoPlayback>(StringComparer.Ordinal);
+        foreach (var episode in verifiedEpisodes)
+        {
+            var item = FindStandardPlaybackItem(payload, episode.VideoId, normalizedQuality);
+            var url = ReadPlaybackUrl(item);
+            if (item is null || !IsHttpUrl(url))
+                continue;
+            resolved[episode.VideoId] = CreatePlayback(item, url!, ReadPlaybackSize(item));
+        }
+        if (resolved.Count == 0)
+            throw new HongguoHighException(
+                $"标准版播放接口未返回可用视频信息（结构：{DescribeJsonShape(payload)}）");
+        return resolved;
     }
 
     private async Task<IReadOnlyDictionary<string, HongguoHighVideoPlayback>> ResolveBatchGroupAsync(
@@ -692,10 +810,30 @@ public sealed class HongguoHighApiService
 
     private static string? ReadPlaybackVideoId(JsonObject item) =>
         GetString(item, "episode_id") ?? GetString(item, "episodeId") ??
-        GetString(item, "video_id") ?? GetString(item, "videoId");
+        GetString(item, "video_id") ?? GetString(item, "videoId") ??
+        GetString(item, "vid");
+
+    private static bool ContainsVideoId(JsonNode? node, string videoId)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                if (string.Equals(ReadPlaybackVideoId(obj), videoId, StringComparison.Ordinal))
+                    return true;
+                return obj.Any(property => ContainsVideoId(property.Value, videoId));
+            case JsonArray array:
+                return array.Any(item => ContainsVideoId(item, videoId));
+            default:
+                return false;
+        }
+    }
 
     private static HongguoHighVideoPlayback CreatePlayback(JsonObject item, string url, long size)
     {
+        var directUrl = ReadDirectPlaybackUrl(item);
+        if (IsHttpUrl(directUrl))
+            return new HongguoHighVideoPlayback(directUrl!, size, [], "", false);
+
         var encryptInfo = item["encrypt_info"] as JsonObject ?? item["encryptInfo"] as JsonObject;
         var spadeA = GetString(item, "spade_a") ?? GetString(item, "spadeA") ??
                      GetString(encryptInfo, "spade_a") ?? GetString(encryptInfo, "spadeA") ?? "";
@@ -813,26 +951,47 @@ public sealed class HongguoHighApiService
     private static JsonObject? FindStandardPlaybackItem(JsonNode? response, string rawVideoId, string quality)
     {
         var candidates = new List<JsonObject>();
-        CollectPlaybackObjects(response, candidates);
-        return candidates
+        CollectPlaybackObjects(response, candidates, inherited: null);
+        var matching = candidates
+            .Where(item => string.Equals(ReadPlaybackVideoId(item), rawVideoId, StringComparison.Ordinal))
+            .ToArray();
+        var pool = matching.Length > 0 ? matching : candidates.ToArray();
+        return pool
             .Where(item => IsHttpUrl(ReadPlaybackUrl(item)))
             .OrderByDescending(item => PlaybackItemScore(item, rawVideoId, quality))
             .FirstOrDefault();
     }
 
-    private static void CollectPlaybackObjects(JsonNode? node, ICollection<JsonObject> candidates)
+    private static void CollectPlaybackObjects(
+        JsonNode? node,
+        ICollection<JsonObject> candidates,
+        JsonObject? inherited)
     {
         switch (node)
         {
             case JsonObject obj:
-                if (ReadPlaybackUrl(obj) is not null)
-                    candidates.Add(obj);
+                var context = inherited?.DeepClone().AsObject() ?? new JsonObject();
                 foreach (var property in obj)
-                    CollectPlaybackObjects(property.Value, candidates);
+                {
+                    if (property.Value is JsonValue ||
+                        property.Key is "encrypt_info" or "encryptInfo")
+                    {
+                        context[property.Key] = property.Value?.DeepClone();
+                    }
+                }
+                if (ReadPlaybackUrl(obj) is not null)
+                {
+                    var candidate = context.DeepClone().AsObject();
+                    foreach (var property in obj)
+                        candidate[property.Key] = property.Value?.DeepClone();
+                    candidates.Add(candidate);
+                }
+                foreach (var property in obj)
+                    CollectPlaybackObjects(property.Value, candidates, context);
                 break;
             case JsonArray array:
                 foreach (var item in array)
-                    CollectPlaybackObjects(item, candidates);
+                    CollectPlaybackObjects(item, candidates, inherited);
                 break;
             case JsonValue value when value.TryGetValue<string>(out var text):
                 var trimmed = text.Trim();
@@ -840,7 +999,7 @@ public sealed class HongguoHighApiService
                 {
                     try
                     {
-                        CollectPlaybackObjects(JsonNode.Parse(trimmed), candidates);
+                        CollectPlaybackObjects(JsonNode.Parse(trimmed), candidates, inherited);
                     }
                     catch (JsonException)
                     {
@@ -855,12 +1014,12 @@ public sealed class HongguoHighApiService
     {
         var keys = new HashSet<string>(StringComparer.Ordinal);
         CollectJsonKeys(node, keys, 0);
-        return keys.Count == 0 ? "empty" : string.Join(",", keys.Take(40));
+        return keys.Count == 0 ? "empty" : string.Join(",", keys.Take(200));
     }
 
     private static void CollectJsonKeys(JsonNode? node, ISet<string> keys, int depth)
     {
-        if (depth > 8 || keys.Count >= 40)
+        if (depth > 12 || keys.Count >= 200)
             return;
         switch (node)
         {
@@ -872,7 +1031,7 @@ public sealed class HongguoHighApiService
                 }
                 break;
             case JsonArray array:
-                foreach (var item in array.Take(3))
+                foreach (var item in array.Take(6))
                     CollectJsonKeys(item, keys, depth + 1);
                 break;
         }
@@ -881,9 +1040,11 @@ public sealed class HongguoHighApiService
     private static long PlaybackItemScore(JsonObject item, string rawVideoId, string quality)
     {
         long score = 0;
+        if (IsHttpUrl(ReadDirectPlaybackUrl(item)))
+            score += 100_000_000_000;
         var candidateId = ReadPlaybackVideoId(item);
         if (string.Equals(candidateId, rawVideoId, StringComparison.Ordinal))
-            score += 1000;
+            score += 1_000_000_000_000;
         var definition = GetString(item, "quality")
                          ?? GetString(item, "resolution")
                          ?? GetString(item, "definition")
@@ -909,7 +1070,8 @@ public sealed class HongguoHighApiService
 
     private static string? ReadPlaybackUrl(JsonObject? item) =>
         ResolveMaybeEncodedUrl(
-            GetString(item, "url")
+            ReadDirectPlaybackUrl(item)
+            ?? GetString(item, "url")
             ?? GetString(item, "video_url")
             ?? GetString(item, "download_url")
             ?? GetString(item, "play_url")
@@ -921,6 +1083,25 @@ public sealed class HongguoHighApiService
             ?? GetString(item, "mainUrl")
             ?? GetString(item, "backup_url")
             ?? GetString(item, "backupUrl"));
+
+    private static string? ReadDirectPlaybackUrl(JsonObject? item) =>
+        ResolveMaybeEncodedUrl(
+            GetString(item, "main_url_direct_url")
+            ?? GetString(item, "mainUrlDirectUrl")
+            ?? GetString(item, "backup_url_direct_url")
+            ?? GetString(item, "backupUrlDirectUrl")
+            ?? GetString(item, "backup_url_1_direct_url")
+            ?? GetString(item, "backupUrl1DirectUrl")
+            ?? GetString(item, "display_url")
+            ?? GetString(item, "displayUrl"));
+
+    private static long ReadPlaybackSize(JsonObject? item) =>
+        GetLong(item, "size")
+        ?? GetLong(item, "size_bytes")
+        ?? GetLong(item, "sizeBytes")
+        ?? GetLong(item, "data_size")
+        ?? GetLong(item, "dataSize")
+        ?? 0;
 
     private static string? ResolveMaybeEncodedUrl(string? value)
     {
@@ -1934,6 +2115,25 @@ public sealed class HongguoHighApiService
             JsonValueKind.Number => node.ToJsonString(),
             _ => null
         };
+    }
+
+    private static string FirstMeaningfulString(
+        JsonObject primary,
+        JsonObject secondary,
+        params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = GetString(primary, name);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+
+            value = GetString(secondary, name);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+        }
+
+        return "";
     }
 
     private static int? GetInt(JsonObject? obj, string name)
