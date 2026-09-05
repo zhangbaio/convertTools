@@ -574,6 +574,31 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
+    public async Task SearchAsync_Uses_Fast_Novelfm_Result_Without_Waiting_For_Signed_Search()
+    {
+        var handler = new RelevantNovelFmSearchHandler();
+        using var httpClient = new HttpClient(handler);
+        var service = new HongguoHighApiService(httpClient)
+        {
+            AuthedRequestForTests = (_, _, _, _, _) =>
+                throw new InvalidOperationException("命中 NovelFM 后不应再等待签名搜索")
+        };
+
+        var results = await service.SearchAsync(
+            new DramaSourceSettings { HghighEdition = "standard" },
+            "我有六个黄毛爹",
+            1,
+            CancellationToken.None);
+
+        results.Should().HaveCount(2);
+        results[0].Title.Should().Be("我有六个黄毛爹");
+        results[0].Author.Should().Be("河马剧场");
+        results[0].EpisodeTotal.Should().Be(72);
+        handler.SearchRequests.Should().Be(1);
+        handler.DirectoryRequests.Should().Be(1, "only the best match should be enriched");
+    }
+
+    [Fact]
     public void Fanqie_Query_Encoding_Matches_The_V216_Client()
     {
         HongguoHighApiService.EscapeFanqieQueryValue("1080*2400").Should().Be("1080*2400");
@@ -1172,6 +1197,47 @@ public sealed class HongguoHighDramaChainTests
                     {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧","drama_chapter_number":60}]}]}}
                     """;
             }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(json)
+            });
+        }
+    }
+
+    private sealed class RelevantNovelFmSearchHandler : HttpMessageHandler
+    {
+        public int SearchRequests { get; private set; }
+        public int DirectoryRequests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            string json;
+            if (request.RequestUri!.AbsolutePath.Contains("/directory/list/", StringComparison.Ordinal))
+            {
+                DirectoryRequests++;
+                var episodes = new JsonArray(
+                    Enumerable.Range(1, 72).Select(index => JsonValue.Create($"vid-{index}")).ToArray());
+                json = new JsonObject
+                {
+                    ["code"] = 0,
+                    ["data"] = new JsonObject
+                    {
+                        ["item_list"] = episodes,
+                        ["book_info"] = new JsonObject { ["author_name"] = "河马剧场" },
+                    },
+                }.ToJsonString();
+            }
+            else
+            {
+                SearchRequests++;
+                json = """
+                    {"code":0,"data":{"search_data":[
+                      {"books":[{"book_id":"target","book_name":"我有六个黄毛爹","author_name":"河马剧场","drama_chapter_number":72}]},
+                      {"books":[{"book_id":"other","book_name":"黄毛爸爸太妹妈妈和保送的我","author_name":"大刘科技","drama_chapter_number":49}]}
+                    ]}}
+                    """;
+            }
+
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(json)

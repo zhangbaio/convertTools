@@ -76,6 +76,9 @@ public sealed class HongguoHighApiService
         string quality,
         int batchSize)
     {
+        if (!HongguoClientProfile.Resolve(settings.HghighEdition).UsesServerBatchPlayback)
+            return EmptyDisposable.Instance;
+
         var episodes = encodedVideoIds
             .Select(id => HongguoHighCrypto.TryDecodeEpisodeId(id, out var bookId, out var number, out var videoId)
                 ? (BookId: bookId, Episode: new BatchEpisode(videoId, number))
@@ -89,22 +92,6 @@ public sealed class HongguoHighApiService
         var planKey = BuildBatchPlanKey(settings, rawBookId, quality);
         var plan = new BatchParsePlan();
         var size = Math.Clamp(batchSize, 1, 10);
-        var useServerBatch = HongguoClientProfile.Resolve(settings.HghighEdition).UsesServerBatchPlayback;
-        if (!useServerBatch)
-        {
-            var captured = episodes
-                .Where(item => string.Equals(item.BookId, rawBookId, StringComparison.Ordinal))
-                .Select(item => item.Episode!)
-                .ToArray();
-            var resolver = new Lazy<Task<IReadOnlyDictionary<string, HongguoHighVideoPlayback>>>(
-                () => ResolveStandardBatchGroupAsync(settings, rawBookId, captured, quality, CancellationToken.None),
-                LazyThreadSafetyMode.ExecutionAndPublication);
-            foreach (var episode in captured)
-                plan.GroupsByVideoId[episode.VideoId] = resolver;
-            _batchParsePlans[planKey] = plan;
-            return new BatchPlanLease(this, planKey, plan);
-        }
-
         foreach (var group in episodes
                      .Where(item => string.Equals(item.BookId, rawBookId, StringComparison.Ordinal))
                      .Select(item => item.Episode!)
@@ -144,11 +131,12 @@ public sealed class HongguoHighApiService
         int page,
         CancellationToken cancellationToken)
     {
+        IReadOnlyList<DramaSearchItem> legacy = [];
         try
         {
-            var latest = await SearchLatestClientApiAsync(settings, keyword, page, cancellationToken);
-            if (latest.Count > 0)
-                return await EnrichSearchItemsFromDirectoryAsync(latest, cancellationToken);
+            legacy = await SearchLegacyNovelFmAsync(keyword, page, cancellationToken);
+            if (legacy.Count > 0 && HasRelevantSearchResult(legacy, keyword))
+                return await EnrichBestSearchItemFromDirectoryAsync(legacy, keyword, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -156,13 +144,41 @@ public sealed class HongguoHighApiService
         }
         catch
         {
-            // Keep the former novelfm endpoint as a compatibility fallback when signing or the
-            // current client endpoint is temporarily unavailable.
+            // The signed client endpoint below remains available when NovelFM is unavailable.
         }
 
-        var legacy = await SearchLegacyNovelFmAsync(keyword, page, cancellationToken);
-        return await EnrichSearchItemsFromDirectoryAsync(legacy, cancellationToken);
+        try
+        {
+            var latest = await SearchLatestClientApiAsync(settings, keyword, page, cancellationToken);
+            if (latest.Count > 0)
+                return await EnrichBestSearchItemFromDirectoryAsync(latest, keyword, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // If both sources have issues, preserve any usable NovelFM results obtained above.
+        }
+
+        return await EnrichBestSearchItemFromDirectoryAsync(legacy, keyword, cancellationToken);
     }
+
+    private static bool HasRelevantSearchResult(IReadOnlyList<DramaSearchItem> items, string keyword)
+    {
+        var normalizedKeyword = NormalizeSearchTitle(keyword);
+        return normalizedKeyword.Length > 0 && items.Any(item =>
+        {
+            var normalizedTitle = NormalizeSearchTitle(item.Title);
+            return normalizedTitle.Length > 0 &&
+                   (normalizedTitle.Contains(normalizedKeyword, StringComparison.OrdinalIgnoreCase) ||
+                    normalizedKeyword.Contains(normalizedTitle, StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    private static string NormalizeSearchTitle(string? value) =>
+        new((value ?? "").Where(char.IsLetterOrDigit).ToArray());
 
     private async Task<IReadOnlyList<DramaSearchItem>> SearchLatestClientApiAsync(
         DramaSourceSettings settings,
@@ -373,6 +389,34 @@ public sealed class HongguoHighApiService
                 gate.Release();
             }
         }));
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> EnrichBestSearchItemFromDirectoryAsync(
+        IReadOnlyList<DramaSearchItem> items,
+        string keyword,
+        CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+            return items;
+
+        var normalizedKeyword = NormalizeSearchTitle(keyword);
+        var bestIndex = normalizedKeyword.Length == 0
+            ? 0
+            : items.Select((item, index) => (Item: item, Index: index))
+                .Where(pair => string.Equals(
+                    NormalizeSearchTitle(pair.Item.Title),
+                    normalizedKeyword,
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(pair => pair.Index)
+                .DefaultIfEmpty(0)
+                .First();
+        var enriched = await EnrichSearchItemsFromDirectoryAsync([items[bestIndex]], cancellationToken);
+        if (enriched.Count == 0 || ReferenceEquals(enriched[0], items[bestIndex]))
+            return items;
+
+        var result = items.ToArray();
+        result[bestIndex] = enriched[0];
+        return result;
     }
 
     public async Task<IReadOnlyList<HongguoNewApiService.HongguoEpisodeInfo>> GetEpisodesAsync(

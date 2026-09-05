@@ -59,6 +59,7 @@ public sealed class LogMessageLevelClassifierTests
     [Theory]
     [InlineData("第 3 集下载超时，准备重试")]
     [InlineData("接口请求超时")]
+    [InlineData("8 路分块响应范围不匹配，将尝试备用地址或刷新地址后重试")]
     public void Actual_timeout_or_retry_events_are_warnings(string message)
     {
         LogMessageLevelClassifier.InferLevel(message).Should().Be("warn");

@@ -9,6 +9,17 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class QueueMaterialStepServiceTests
 {
     [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Failed_force_rerun_does_not_treat_preserved_old_videos_as_success(
+        bool forceRerun,
+        bool expectedRepairFallback)
+    {
+        QueueMaterialStepService.ShouldUseExistingVideosToRepairFailedDownload(forceRerun)
+            .Should().Be(expectedRepairFallback);
+    }
+
+    [Theory]
     [InlineData("123456", "hgnew")]
     [InlineData("hghigh:123456", "hghigh")]
     [InlineData("hglocal:123456", "hglocal")]

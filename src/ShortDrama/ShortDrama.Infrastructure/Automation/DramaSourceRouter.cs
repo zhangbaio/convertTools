@@ -1171,7 +1171,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             catch (Exception ex)
             {
                 DeleteIfExists(targetPath);
-                report?.Invoke($"{segmentCount} 路分块下载失败，已自动回退单流下载：{ex.Message}");
+                if (ex is InvalidDataException)
+                {
+                    report?.Invoke($"{segmentCount} 路分块响应范围不匹配，将尝试备用地址或刷新地址后重试：{ex.Message}");
+                    throw;
+                }
+
+                report?.Invoke($"{segmentCount} 路分块下载不可用，已自动切换单流下载：{ex.Message}");
             }
         }
 
@@ -1227,6 +1233,29 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     }
 
     private async Task DownloadRangeAsync(
+        string url,
+        string targetPath,
+        long start,
+        long end,
+        long totalBytes,
+        CancellationToken cancellationToken)
+    {
+        const int maxRangeAttempts = 3;
+        for (var attempt = 1; attempt <= maxRangeAttempts; attempt++)
+        {
+            try
+            {
+                await DownloadRangeOnceAsync(url, targetPath, start, end, totalBytes, cancellationToken);
+                return;
+            }
+            catch (InvalidDataException) when (attempt < maxRangeAttempts)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(150 * attempt), cancellationToken);
+            }
+        }
+    }
+
+    private async Task DownloadRangeOnceAsync(
         string url,
         string targetPath,
         long start,

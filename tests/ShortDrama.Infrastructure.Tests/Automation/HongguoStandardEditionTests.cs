@@ -143,19 +143,19 @@ public sealed class HongguoStandardEditionTests
     }
 
     [Fact]
-    public async Task Standard_Playback_Batches_Planned_Episodes_In_One_Detail_Request()
+    public async Task Standard_Playback_Skips_Batch_Plan_And_Uses_One_Model_Id_Per_Request()
     {
         using var http = new HttpClient();
         var service = new HongguoHighApiService(http);
         var calls = 0;
         service.AuthedRequestForTests = (_, _, data, _, _) =>
         {
-            calls++;
+            Interlocked.Increment(ref calls);
             var purpose = data["purpose"]!.GetValue<string>();
             if (purpose == "multi_video_detail")
                 data["json"]!["series_id"]!.GetValue<string>().Should().Be("book-1");
             else
-                data["json"]!["mixed_video_id_map"]!["1"]!.AsArray().Should().HaveCount(3);
+                data["json"]!["mixed_video_id_map"]!["1"]!.AsArray().Should().ContainSingle();
             return Task.FromResult<JsonNode?>(new JsonObject { ["descriptor"] = true });
         };
         service.ExecuteSignedRequestForTests = (_, _, _, _) => Task.FromResult<JsonNode?>(
@@ -178,7 +178,7 @@ public sealed class HongguoStandardEditionTests
         var playback = await Task.WhenAll(encoded.Select(id =>
             service.GetVideoPlaybackAsync(settings, id, "1080P", CancellationToken.None)));
 
-        calls.Should().Be(2, "one detail validation and one model request should serve the planned series");
+        calls.Should().Be(6, "standard edition should use one detail and one single-id model request per episode");
         playback.Select(item => item.Url).Should().Equal(
             "https://cdn.example/video-1.mp4",
             "https://cdn.example/video-2.mp4",
