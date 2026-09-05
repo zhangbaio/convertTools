@@ -308,7 +308,7 @@ public sealed class DramaSourceRouterDownloadTests
     }
 
     [Fact]
-    public async Task DownloadAsync_Should_Reject_Downloader_Video_With_Unknown_Codec()
+    public async Task DownloadAsync_Should_Not_Probe_Codec_For_Downloader()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-downloader-invalid-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outputDir);
@@ -320,7 +320,7 @@ public sealed class DramaSourceRouterDownloadTests
         {
             DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
             DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) =>
-                Task.FromResult(ProbeResult("none"));
+                throw new InvalidOperationException("Downloader 链路不应启动编码校验或转码。");
             var settings = new DramaSourceSettings
             {
                 DramaSourceChain = "downloader",
@@ -338,16 +338,16 @@ public sealed class DramaSourceRouterDownloadTests
                 Episodes: "1",
                 Quality: "1080P+",
                 Concurrent: 1,
-                EpisodeNumberMode: "source");
+                EpisodeNumberMode: "source",
+                ExistingVideoPolicy: ExistingVideoPolicy.ReplaceAll);
 
             var result = await CreateRouter(httpClient, settings).DownloadAsync(
                 request,
                 progress: null,
                 CancellationToken.None);
 
-            result.Ok.Should().BeFalse();
-            result.Message.Should().Contain("视频流编码无效（none）");
-            Directory.GetFiles(outputDir, "*.mp4").Should().BeEmpty();
+            result.Ok.Should().BeTrue(result.Message);
+            Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle();
             Directory.GetFiles(outputDir, "*.part").Should().BeEmpty();
         }
         finally
@@ -1071,7 +1071,7 @@ public sealed class DramaSourceRouterDownloadTests
 
             result.Ok.Should().BeTrue(result.Message);
             File.ReadAllText(finalPath).Should().Be("new-valid-video");
-            progress.Messages.Should().Contain(message =>
+            progress.Messages.Should().NotContain(message =>
                 message.Contains("强制重新下载", StringComparison.Ordinal));
             progress.Messages.Should().NotContain(message =>
                 message.Contains("已存在，跳过", StringComparison.Ordinal));
@@ -1121,15 +1121,30 @@ public sealed class DramaSourceRouterDownloadTests
     [Theory]
     [InlineData(false, ExistingVideoPolicy.ReuseValid, false)]
     [InlineData(true, ExistingVideoPolicy.ReuseValid, true)]
-    [InlineData(false, ExistingVideoPolicy.ReplaceInvalid, true)]
-    [InlineData(false, ExistingVideoPolicy.ReplaceAll, true)]
-    public void Replacement_Policies_Require_Codec_Validation_For_Every_Source(
+    [InlineData(false, ExistingVideoPolicy.ReplaceInvalid, false)]
+    [InlineData(false, ExistingVideoPolicy.ReplaceAll, false)]
+    [InlineData(true, ExistingVideoPolicy.ReplaceAll, true)]
+    public void Codec_Validation_Depends_Only_On_Source(
         bool sourceDefault,
         ExistingVideoPolicy policy,
         bool expected)
     {
         DramaSourceRouter.RequiresVideoEncodingValidation(sourceDefault, policy)
             .Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData("hglocal", true)]
+    [InlineData("HGLOCAL", true)]
+    [InlineData("downloader", false)]
+    [InlineData("hghigh", false)]
+    [InlineData("mapleleaf", false)]
+    [InlineData("pikachu", false)]
+    [InlineData("hgnew", false)]
+    [InlineData("", false)]
+    public void Only_Local_Direct_Source_Enables_Codec_Validation(string source, bool expected)
+    {
+        DramaSourceRouter.ShouldValidateVideoEncodingForSource(source).Should().Be(expected);
     }
 
     private static DramaSourceSettings CreateLocalSettings(
