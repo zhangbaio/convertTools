@@ -72,15 +72,15 @@ public sealed class HongguoStandardEditionTests
     }
 
     [Fact]
-    public async Task Standard_Playback_Uses_Preload_Signing_And_Decodes_MainUrl()
+    public async Task Standard_Playback_Uses_Detail_Api_And_Prefers_Plain_DirectUrl()
     {
         using var http = new HttpClient();
         var service = new HongguoHighApiService(http);
-        JsonObject? captured = null;
+        var captured = new List<JsonObject>();
         service.AuthedRequestForTests = (_, path, data, _, _) =>
         {
             path.Should().Be("/redguo/sign");
-            captured = data.DeepClone().AsObject();
+            captured.Add(data.DeepClone().AsObject());
             return Task.FromResult<JsonNode?>(new JsonObject { ["descriptor"] = true });
         };
         service.ExecuteSignedRequestForTests = (_, _, _, _) => Task.FromResult<JsonNode?>(
@@ -94,6 +94,10 @@ public sealed class HongguoStandardEditionTests
                         {
                             ["video_id"] = "video-1",
                             ["main_url"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("https://cdn.example/video-360.mp4")),
+                            ["url_info"] = new JsonObject
+                            {
+                                ["main_url_direct_url"] = "https://cdn.example/video-360-direct.mp4"
+                            },
                             ["spade_a"] = "decrypt-material-low",
                             ["gear_des_key"] = "0:MP4|1:encrypt|4:360p|5:normal"
                         },
@@ -101,8 +105,13 @@ public sealed class HongguoStandardEditionTests
                         {
                             ["video_id"] = "video-1",
                             ["main_url"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("https://cdn.example/video.mp4")),
+                            ["url_info"] = new JsonObject
+                            {
+                                ["main_url_direct_url"] = "https://cdn.example/video-direct.mp4"
+                            },
                             ["spade_a"] = "decrypt-material",
                             ["encrypt"] = false,
+                            ["size"] = 123456L,
                             ["gear_des_key"] = "0:MP4|1:encrypt|4:1080p|5:normal"
                         }
                     }
@@ -115,13 +124,65 @@ public sealed class HongguoStandardEditionTests
             "1080P",
             CancellationToken.None);
 
-        captured!["path"]!.GetValue<string>().Should().Be("/novel/player/multi_video_model/v1/");
-        captured["method"]!.GetValue<string>().Should().Be("POST");
-        captured["json"]!["mixed_video_id_map"]!["1"]![0]!.GetValue<string>().Should().Be("video-1");
-        playback.Url.Should().Be("https://cdn.example/video.mp4");
-        playback.SpadeA.Should().Be("decrypt-material");
-        playback.EncryptedUrls.Should().Contain("https://cdn.example/video.mp4");
-        playback.Encrypted.Should().BeTrue(
-            "spade_a 表明该分集需要解密，即使标准版接口错误返回 encrypt=false");
+        var detailRequest = captured.Single(item => item["purpose"]!.GetValue<string>() == "multi_video_detail");
+        var modelRequest = captured.Single(item => item["purpose"]!.GetValue<string>() == "multi_video_model");
+        detailRequest["path"]!.GetValue<string>().Should().Be("/novel/player/multi_video_detail/v1/");
+        detailRequest["method"]!.GetValue<string>().Should().Be("POST");
+        detailRequest["json"]!["series_id"]!.GetValue<string>().Should().Be("book-1");
+        detailRequest["json"]!["biz_param"]!["caller_scene"]!.GetValue<string>().Should().Be("three_col");
+        detailRequest["json"]!["biz_param"]!["source"]!.GetValue<int>().Should().Be(7);
+        detailRequest["json"]!["biz_param"]!["need_all_video_definition"]!.GetValue<bool>().Should().BeFalse();
+        modelRequest["path"]!.GetValue<string>().Should().Be("/novel/player/multi_video_model/v1/");
+        modelRequest["json"]!["mixed_video_id_map"]!["1"]!.AsArray()
+            .Should().ContainSingle().Which.GetValue<string>().Should().Be("video-1");
+        playback.Url.Should().Be("https://cdn.example/video-direct.mp4");
+        playback.Size.Should().Be(123456L);
+        playback.SpadeA.Should().BeEmpty();
+        playback.EncryptedUrls.Should().BeEmpty();
+        playback.Encrypted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Standard_Playback_Batches_Planned_Episodes_In_One_Detail_Request()
+    {
+        using var http = new HttpClient();
+        var service = new HongguoHighApiService(http);
+        var calls = 0;
+        service.AuthedRequestForTests = (_, _, data, _, _) =>
+        {
+            calls++;
+            var purpose = data["purpose"]!.GetValue<string>();
+            if (purpose == "multi_video_detail")
+                data["json"]!["series_id"]!.GetValue<string>().Should().Be("book-1");
+            else
+                data["json"]!["mixed_video_id_map"]!["1"]!.AsArray().Should().HaveCount(3);
+            return Task.FromResult<JsonNode?>(new JsonObject { ["descriptor"] = true });
+        };
+        service.ExecuteSignedRequestForTests = (_, _, _, _) => Task.FromResult<JsonNode?>(
+            new JsonObject
+            {
+                ["video_list"] = new JsonArray(
+                    Enumerable.Range(1, 3).Select(index => (JsonNode)new JsonObject
+                    {
+                        ["video_id"] = $"video-{index}",
+                        ["main_url_direct_url"] = $"https://cdn.example/video-{index}.mp4",
+                        ["gear_des_key"] = "0:MP4|4:1080p",
+                    }).ToArray())
+            });
+        var settings = new DramaSourceSettings { HghighEdition = "standard" };
+        var encoded = Enumerable.Range(1, 3)
+            .Select(index => HongguoHighCrypto.EncodeEpisodeId("book-1", index, $"video-{index}"))
+            .ToArray();
+
+        using var plan = service.RegisterBatchParsePlan(settings, encoded, "1080P", 3);
+        var playback = await Task.WhenAll(encoded.Select(id =>
+            service.GetVideoPlaybackAsync(settings, id, "1080P", CancellationToken.None)));
+
+        calls.Should().Be(2, "one detail validation and one model request should serve the planned series");
+        playback.Select(item => item.Url).Should().Equal(
+            "https://cdn.example/video-1.mp4",
+            "https://cdn.example/video-2.mp4",
+            "https://cdn.example/video-3.mp4");
+        playback.Should().OnlyContain(item => !item.Encrypted && item.EncryptedUrls.Count == 0);
     }
 }

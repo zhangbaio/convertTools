@@ -10,6 +10,11 @@ namespace TikTokPublisher.Core.Drama;
 public sealed record UploadTitleImportRequest(string Title, int ExpectedEpisodeTotal = 0, string RawText = "");
 public sealed record UploadTitleImportFailure(string Title, string Reason);
 public sealed record UploadTitleImportDownloadPlan(string Episodes, int EffectiveEpisodeCount, bool Truncated);
+public sealed record UnknownAuthorConfirmationRequest(
+    string RequestedTitle,
+    string MatchedTitle,
+    string BookId,
+    int EpisodeTotal);
 
 public sealed class UploadTitleImportResult
 {
@@ -28,6 +33,7 @@ public static class UploadTitleImportService
     public const string NoExactMatchReason = "未找到精确匹配结果";
     public const string EmptySearchResultReason = "红果搜索未返回任何结果，请检查密钥绑定和本地/脱机直连服务状态";
     public const string AuthorExcludedFailurePrefix = "命中作者排除：";
+    public const string UnknownAuthorFailurePrefix = "作者信息为空，无法执行作者排除校验：";
     public const int DefaultEpisodeMin = 10;
     public const int DefaultEpisodeMax = 120;
 
@@ -75,7 +81,8 @@ public static class UploadTitleImportService
         string matchMode = MatchModeTitle,
         Action<string>? log = null,
         CancellationToken ct = default,
-        bool addProjectsToQueue = true)
+        bool addProjectsToQueue = true,
+        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(workspace))
@@ -142,6 +149,20 @@ public static class UploadTitleImportService
                 {
                     var author = string.IsNullOrWhiteSpace(matched.Author) ? authorHit : $"{matched.Author}（包含 {authorHit}）";
                     var failure = $"{AuthorExcludedFailurePrefix}{author}";
+                    result.Failures.Add(new UploadTitleImportFailure(label, failure));
+                    log?.Invoke($"未加入：{label}，{failure}");
+                    continue;
+                }
+
+                if (!await ConfirmUnknownAuthorIfNeededAsync(
+                        matched,
+                        label,
+                        authorExclude,
+                        confirmUnknownAuthor,
+                        log,
+                        ct).ConfigureAwait(false))
+                {
+                    var failure = $"{UnknownAuthorFailurePrefix}{matched.Title}（未确认放行）";
                     result.Failures.Add(new UploadTitleImportFailure(label, failure));
                     log?.Invoke($"未加入：{label}，{failure}");
                     continue;
@@ -397,6 +418,32 @@ public static class UploadTitleImportService
         !string.IsNullOrWhiteSpace(value) &&
         !string.IsNullOrWhiteSpace(token) &&
         value.Contains(token, StringComparison.OrdinalIgnoreCase);
+
+    internal static async Task<bool> ConfirmUnknownAuthorIfNeededAsync(
+        DramaSearchItem matched,
+        string label,
+        IReadOnlyCollection<string> authorExclude,
+        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        if (authorExclude.Count == 0 || !string.IsNullOrWhiteSpace(matched.Author))
+            return true;
+
+        var warning = new UnknownAuthorConfirmationRequest(
+            label,
+            matched.Title,
+            matched.BookId,
+            matched.EpisodeTotal);
+        log?.Invoke($"作者信息为空，暂停导入等待确认：{label}（数据源标识 {matched.BookId}）");
+        if (confirmUnknownAuthor is null)
+            return false;
+
+        var confirmed = await confirmUnknownAuthor(warning, cancellationToken).ConfigureAwait(false);
+        if (confirmed)
+            log?.Invoke($"用户已二次确认放行作者未知的短剧：{label}");
+        return confirmed;
+    }
 
     private static string ResolveQueueEntryDramaType(DramaSearchItem item)
     {

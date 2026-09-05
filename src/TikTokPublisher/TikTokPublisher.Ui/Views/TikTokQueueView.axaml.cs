@@ -1461,6 +1461,41 @@ public partial class TikTokQueueView : UserControl
         return await dialog.ShowDialog<bool>(owner);
     }
 
+    private static Task<bool> ConfirmUnknownAuthorAsync(
+        Window owner,
+        UnknownAuthorConfirmationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var message =
+            $"已启用作者排除，但数据源最终没有返回作者，无法判断该短剧是否命中排除名单。\n\n" +
+            $"输入：{request.RequestedTitle}\n" +
+            $"匹配剧名：{request.MatchedTitle}\n" +
+            $"集数：{request.EpisodeTotal}\n" +
+            $"数据源标识：{request.BookId}\n\n" +
+            "点击“继续”将仅对这部短剧跳过作者排除校验并继续导入；点击“取消”则不导入。";
+        if (Dispatcher.UIThread.CheckAccess())
+            return ConfirmAsync(owner, "作者未知 · 二次确认", message);
+
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                completion.TrySetResult(await ConfirmAsync(owner, "作者未知 · 二次确认", message));
+            }
+            catch (OperationCanceledException)
+            {
+                completion.TrySetCanceled(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                completion.TrySetException(ex);
+            }
+        });
+        return completion.Task;
+    }
+
     private static Button BuildDialogButton(string text, Action click, bool primary = false)
     {
         var button = new Button
@@ -1642,7 +1677,8 @@ public partial class TikTokQueueView : UserControl
                     UploadTitleImportService.DefaultEpisodeMin,
                     UploadTitleImportService.DefaultEpisodeMax,
                     request.MatchMode,
-                    CancellationToken.None);
+                    CancellationToken.None,
+                    (warning, ct) => ConfirmUnknownAuthorAsync(owner, warning, ct));
             }
             catch (Exception ex)
             {

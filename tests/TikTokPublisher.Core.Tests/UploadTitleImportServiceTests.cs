@@ -83,4 +83,82 @@ public sealed class UploadTitleImportServiceTests
 
         notice.Should().Be("作者排除原因：剧A: 命中作者排除：掌玩短剧（包含 掌玩）。");
     }
+
+    [Fact]
+    public async Task Unknown_author_requires_explicit_confirmation_when_exclusions_are_enabled()
+    {
+        var item = new DramaSearchItem
+        {
+            BookId = "hghigh:123",
+            Title = "待确认短剧",
+            EpisodeTotal = 72,
+            Author = "",
+        };
+
+        var allowed = await UploadTitleImportService.ConfirmUnknownAuthorIfNeededAsync(
+            item,
+            item.Title,
+            ["河马"],
+            confirmUnknownAuthor: null,
+            log: null,
+            CancellationToken.None);
+
+        allowed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Unknown_author_can_continue_after_user_confirmation()
+    {
+        var item = new DramaSearchItem
+        {
+            BookId = "hghigh:123",
+            Title = "待确认短剧",
+            EpisodeTotal = 72,
+            Author = "",
+        };
+        UnknownAuthorConfirmationRequest? captured = null;
+
+        var allowed = await UploadTitleImportService.ConfirmUnknownAuthorIfNeededAsync(
+            item,
+            item.Title,
+            ["河马"],
+            (request, _) =>
+            {
+                captured = request;
+                return Task.FromResult(true);
+            },
+            log: null,
+            CancellationToken.None);
+
+        allowed.Should().BeTrue();
+        captured.Should().NotBeNull();
+        captured!.BookId.Should().Be("hghigh:123");
+    }
+
+    [Fact]
+    public async Task Known_author_does_not_request_secondary_confirmation()
+    {
+        var item = new DramaSearchItem
+        {
+            BookId = "hghigh:123",
+            Title = "已知作者短剧",
+            Author = "普通剧场",
+        };
+        var callbackCalled = false;
+
+        var allowed = await UploadTitleImportService.ConfirmUnknownAuthorIfNeededAsync(
+            item,
+            item.Title,
+            ["河马"],
+            (_, _) =>
+            {
+                callbackCalled = true;
+                return Task.FromResult(false);
+            },
+            log: null,
+            CancellationToken.None);
+
+        allowed.Should().BeTrue();
+        callbackCalled.Should().BeFalse();
+    }
 }

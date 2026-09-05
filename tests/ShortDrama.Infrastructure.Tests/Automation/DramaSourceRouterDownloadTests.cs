@@ -2,6 +2,7 @@ using FluentAssertions;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -12,6 +13,56 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public sealed class DramaSourceRouterDownloadTests
 {
+    [Fact]
+    public void Mp4_structure_validation_rejects_truncated_mdat()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"truncated-mp4-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            File.WriteAllBytes(path, BuildMp4WithDeclaredMdatSize(1024, actualPayloadSize: 16));
+
+            DramaSourceRouter.HasCompleteMp4Structure(path).Should().BeFalse();
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Mp4_structure_validation_accepts_complete_file()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"complete-mp4-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            File.WriteAllBytes(path, BuildMp4WithDeclaredMdatSize(24, actualPayloadSize: 16));
+
+            DramaSourceRouter.HasCompleteMp4Structure(path).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Encrypted_mp4_sample_entry_is_detected_for_forced_replacement()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"encrypted-mp4-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var bytes = BuildMp4WithDeclaredMdatSize(28, actualPayloadSize: 20);
+            "encv"u8.CopyTo(bytes.AsSpan(24, 4));
+            File.WriteAllBytes(path, bytes);
+
+            DramaSourceRouter.ContainsEncryptedMp4SampleEntry(path).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
     [Theory]
     [InlineData("mapleleaf", 60, 900)]
     [InlineData("MAPLELEAF", 600, 900)]
@@ -495,6 +546,35 @@ public sealed class DramaSourceRouterDownloadTests
         {
             DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
             DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadAsync_Should_Reject_Unexpected_Partial_Response_In_Single_Stream_Mode()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-partial-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var handler = new LocalStreamRecordingHandler
+        {
+            DownloadBytes = BuildLargeVideoBytes(),
+            ReturnPartialForRequestsWithoutRange = true,
+        };
+        using var httpClient = new HttpClient(handler);
+
+        try
+        {
+            var result = await CreateRouter(
+                    httpClient,
+                    CreateLocalSettings(downloadMode: "fast", fileSegments: "1"))
+                .DownloadAsync(CreateDownloadRequest(outputDir), progress: null, CancellationToken.None);
+
+            result.Ok.Should().BeFalse();
+            result.Message.Should().Contain("意外返回 HTTP 206");
+            Directory.GetFiles(outputDir, "*.mp4").Should().BeEmpty();
+        }
+        finally
+        {
             Directory.Delete(outputDir, recursive: true);
         }
     }
@@ -1107,6 +1187,8 @@ public sealed class DramaSourceRouterDownloadTests
 
         public bool BlockDataRangesUntilCancelled { get; init; }
 
+        public bool ReturnPartialForRequestsWithoutRange { get; init; }
+
         public TaskCompletionSource<bool> DataRangeStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -1222,6 +1304,15 @@ public sealed class DramaSourceRouterDownloadTests
                     return Task.FromResult(partial);
                 }
 
+                if (ReturnPartialForRequestsWithoutRange && requestedRange is null)
+                {
+                    var count = Math.Min(128 * 1024, DownloadBytes.Length);
+                    var bytes = DownloadBytes[..count];
+                    var partial = CreateVideoResponse(HttpStatusCode.PartialContent, bytes);
+                    partial.Content.Headers.ContentRange = new ContentRangeHeaderValue(0, count - 1, DownloadBytes.LongLength);
+                    return Task.FromResult(partial);
+                }
+
                 return Task.FromResult(CreateVideoResponse(HttpStatusCode.OK, DownloadBytes));
             }
 
@@ -1263,6 +1354,21 @@ public sealed class DramaSourceRouterDownloadTests
         }
 
         return bytes;
+    }
+
+    private static byte[] BuildMp4WithDeclaredMdatSize(int declaredMdatSize, int actualPayloadSize)
+    {
+        var bytes = new byte[8 + 8 + 8 + actualPayloadSize];
+        WriteBoxHeader(bytes.AsSpan(0, 8), 8, "ftyp"u8);
+        WriteBoxHeader(bytes.AsSpan(8, 8), 8, "moov"u8);
+        WriteBoxHeader(bytes.AsSpan(16, 8), declaredMdatSize, "mdat"u8);
+        return bytes;
+    }
+
+    private static void WriteBoxHeader(Span<byte> target, int size, ReadOnlySpan<byte> type)
+    {
+        BinaryPrimitives.WriteUInt32BigEndian(target[..4], checked((uint)size));
+        type.CopyTo(target[4..8]);
     }
 
     private sealed class HgnewDownloadRecordingHandler(byte[]? videoBytes = null, string? mediaType = "video/mp4") : HttpMessageHandler

@@ -3971,7 +3971,8 @@ public sealed partial class MainViewModel : ViewModelBase
         string matchMode,
         FinalAction? finalActionOverride,
         bool allowAppendToRunningQueue,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null)
     {
         var root = Path.GetFullPath(workspaceRoot);
         var settings = ClientSettingsStore.Load();
@@ -3985,7 +3986,8 @@ public sealed partial class MainViewModel : ViewModelBase
             matchMode,
             AppendLog,
             ct,
-            addProjectsToQueue: false);
+            addProjectsToQueue: false,
+            confirmUnknownAuthor: confirmUnknownAuthor);
 
         var applyOutcome = ApplyRemoteUploadTitleImportResult(
             result,
@@ -4158,7 +4160,8 @@ public sealed partial class MainViewModel : ViewModelBase
         int episodeMin,
         int episodeMax,
         string matchMode,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null)
     {
         var root = target.WorkspaceRoot.Trim();
         if (string.IsNullOrWhiteSpace(root))
@@ -4183,7 +4186,8 @@ public sealed partial class MainViewModel : ViewModelBase
             matchMode,
             target.FinalActionOverride,
             allowAppendToRunningQueue: true,
-            ct).ConfigureAwait(true);
+            ct: ct,
+            confirmUnknownAuthor: confirmUnknownAuthor).ConfigureAwait(true);
     }
 
     public async Task<UploadTitleImportResult?> ImportUploadTitlesAsync(

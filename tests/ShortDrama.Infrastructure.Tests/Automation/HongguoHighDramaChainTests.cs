@@ -516,6 +516,7 @@ public sealed class HongguoHighDramaChainTests
                       "video_data": [{
                         "series_id": "7677524795017137177",
                         "title": "陆总，迟来的深情我不要",
+                        "authorName": "河马剧场",
                         "episode_cnt": 58,
                         "video_detail": {
                           "episode_cnt": 58,
@@ -536,6 +537,7 @@ public sealed class HongguoHighDramaChainTests
         results[0].Title.Should().Be("陆总，迟来的深情我不要");
         results[0].BookId.Should().Be("hghigh:7677524795017137177");
         results[0].EpisodeTotal.Should().Be(58);
+        results[0].Author.Should().Be("河马剧场");
         results[0].PosterUrl.Should().Be("https://cdn.example.com/cover");
         capturedSpec.Should().NotBeNull();
         capturedSpec!["host"]!.GetValue<string>().Should().Be("api5-normal-sinfonlinea.fqnovel.com");
@@ -566,6 +568,7 @@ public sealed class HongguoHighDramaChainTests
 
         results.Should().ContainSingle();
         results[0].EpisodeTotal.Should().Be(58);
+        results[0].Author.Should().Be("河马剧场");
         handler.Hosts.Should().Contain("api5-sinfonlinea.novelfm.com");
         handler.Hosts.Should().Contain("api-sinfonlinec.fanqiesdk.com");
     }
@@ -1156,13 +1159,17 @@ public sealed class HongguoHighDramaChainTests
                 json = new JsonObject
                 {
                     ["code"] = 0,
-                    ["data"] = new JsonObject { ["item_list"] = episodes },
+                    ["data"] = new JsonObject
+                    {
+                        ["item_list"] = episodes,
+                        ["book_info"] = new JsonObject { ["author_name"] = "河马剧场" },
+                    },
                 }.ToJsonString();
             }
             else
             {
                 json = """
-                    {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","author":"甲","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧","drama_chapter_number":60}]}]}}
+                    {"code":0,"data":{"search_data":[{"books":[{"book_id":"123456","book_name":"高码率剧","audio_thumb_uri":"https://cover","abstract":"简介","category":"漫剧","drama_chapter_number":60}]}]}}
                     """;
             }
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
