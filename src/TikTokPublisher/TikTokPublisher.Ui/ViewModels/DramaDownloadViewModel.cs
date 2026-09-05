@@ -377,7 +377,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var keyword = SearchKeyword.Trim();
         if (string.IsNullOrWhiteSpace(keyword) && !HasSearchFilter())
         {
-            LogRequested?.Invoke("请输入搜索关键词，或填写分类/作者筛选后搜索");
+            LogRequested?.Invoke("请输入搜索关键词，或填写分类筛选后搜索");
             return;
         }
 
@@ -789,7 +789,6 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var keyword = SearchKeyword.Trim();
         var includeCategories = SplitKeywords(CategoryInclude);
         var excludeCategories = SplitKeywords(CategoryExclude);
-        var excludeAuthors = SplitKeywords(AuthorExclude);
         var minEpisodes = Math.Max(0, MinEpisodeFilter);
         var maxEpisodes = Math.Max(0, MaxEpisodeFilter);
 
@@ -809,9 +808,6 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                     return false;
 
                 if (excludeCategories.Any(token => ContainsToken(item.Category, token) || ContainsToken(item.Title, token)))
-                    return false;
-
-                if (excludeAuthors.Any(token => ContainsToken(item.Author, token)))
                     return false;
 
                 return true;
@@ -1261,8 +1257,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private bool HasSearchFilter() =>
         SplitKeywords(CategoryInclude).Count > 0 ||
-        SplitKeywords(CategoryExclude).Count > 0 ||
-        SplitKeywords(AuthorExclude).Count > 0;
+        SplitKeywords(CategoryExclude).Count > 0;
 
     private void RefreshQueueRows()
     {

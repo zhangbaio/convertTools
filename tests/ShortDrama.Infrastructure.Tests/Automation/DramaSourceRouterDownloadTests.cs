@@ -508,7 +508,7 @@ public sealed class DramaSourceRouterDownloadTests
     }
 
     [Fact]
-    public async Task DownloadAsync_Should_Fallback_To_Single_Stream_When_A_Range_Fails()
+    public async Task DownloadAsync_Should_Retry_Range_Instead_Of_Falling_Back_To_Single_Stream()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-range-fallback-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outputDir);
@@ -537,10 +537,49 @@ public sealed class DramaSourceRouterDownloadTests
             result.Ok.Should().BeTrue(result.Message);
             File.ReadAllBytes(Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle().Subject)
                 .Should().Equal(videoBytes);
-            handler.GetCdnRequestsWithoutRange().Should().NotBeEmpty();
-            progress.Messages.Should().Contain(message => message.Contains("回退单流下载", StringComparison.Ordinal));
-            progress.Messages.Should().Contain(message =>
-                message.Contains("分块下载要求 HTTP 206", StringComparison.Ordinal));
+            handler.GetCdnRequestsWithoutRange().Should().BeEmpty();
+            handler.GetCdnDataRangeRequests().Should().HaveCount(5, "one of four ranges should be retried once");
+            progress.Messages.Should().NotContain(message => message.Contains("切换单流下载", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadAsync_Should_Retry_A_Transient_Mismatched_ContentRange()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-range-retry-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var videoBytes = BuildLargeVideoBytes();
+        var handler = new LocalStreamRecordingHandler
+        {
+            DownloadBytes = videoBytes,
+            SupportsRanges = true,
+            ReturnMismatchedContentRangeOnce = true,
+        };
+        using var httpClient = new HttpClient(handler);
+        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+
+        try
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) => Task.FromResult(ProbeResult("h264"));
+
+            var result = await CreateRouter(
+                    httpClient,
+                    CreateLocalSettings(downloadMode: "fast", fileSegments: "4"))
+                .DownloadAsync(CreateDownloadRequest(outputDir), progress: null, CancellationToken.None);
+
+            result.Ok.Should().BeTrue(result.Message);
+            File.ReadAllBytes(Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle().Subject)
+                .Should().Equal(videoBytes);
+            handler.MismatchedContentRangeResponses.Should().Be(1);
+            handler.GetCdnDataRangeRequests().Should().HaveCount(5, "one of four data ranges should be retried once");
         }
         finally
         {
@@ -1189,10 +1228,15 @@ public sealed class DramaSourceRouterDownloadTests
 
         public bool ReturnPartialForRequestsWithoutRange { get; init; }
 
+        public bool ReturnMismatchedContentRangeOnce { get; init; }
+
+        public int MismatchedContentRangeResponses => _mismatchedContentRange;
+
         public TaskCompletionSource<bool> DataRangeStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         private int _rejectedDataRange;
+        private int _mismatchedContentRange;
 
         public IReadOnlyList<RangeItemHeaderValue> GetCdnRanges()
         {
@@ -1300,7 +1344,16 @@ public sealed class DramaSourceRouterDownloadTests
                     var bytes = new byte[count];
                     Buffer.BlockCopy(DownloadBytes, checked((int)start), bytes, 0, count);
                     var partial = CreateVideoResponse(HttpStatusCode.PartialContent, bytes);
-                    partial.Content.Headers.ContentRange = new ContentRangeHeaderValue(start, end, DownloadBytes.LongLength);
+                    if (ReturnMismatchedContentRangeOnce &&
+                        end > start &&
+                        Interlocked.CompareExchange(ref _mismatchedContentRange, 1, 0) == 0)
+                    {
+                        partial.Content.Headers.ContentRange = new ContentRangeHeaderValue(start, end - 1, DownloadBytes.LongLength);
+                    }
+                    else
+                    {
+                        partial.Content.Headers.ContentRange = new ContentRangeHeaderValue(start, end, DownloadBytes.LongLength);
+                    }
                     return Task.FromResult(partial);
                 }
 

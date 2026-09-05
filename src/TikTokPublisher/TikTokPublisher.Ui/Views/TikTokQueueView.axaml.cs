@@ -3734,6 +3734,13 @@ public partial class TikTokQueueView : UserControl
         _queueStopRequestedWorkspaces.Remove(runWorkspaceRoot);
         RefreshQueueRunButtons();
 
+        var clearedOldLogCount = 0;
+        if (ShouldClearAllLogsForNewRun(vm.IsQueueRunning, preserveProjectLogsSince))
+        {
+            clearedOldLogCount = vm.Logs.ClearAllEntries();
+            vm.Logs.SelectedProjectPath = string.Empty;
+        }
+
         var queueRunStarted = false;
         var workerReturnedSummary = false;
         var displayOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
@@ -3753,6 +3760,9 @@ public partial class TikTokQueueView : UserControl
             var host = CreateQueuePublishHost();
             var ct = vm.BeginQueueRun();
             queueRunStarted = true;
+            vm.AppendLog(clearedOldLogCount > 0
+                ? $"开始新一轮 TikTok 队列执行，已清理上一轮界面日志 {clearedOldLogCount} 条。"
+                : "开始新一轮 TikTok 队列执行。");
             RefreshQueueRunButtons();
 
             var summary = await vm.RunQueueWorkerAsync(
@@ -3790,6 +3800,11 @@ public partial class TikTokQueueView : UserControl
 
         return workerReturnedSummary;
     }
+
+    internal static bool ShouldClearAllLogsForNewRun(
+        bool anotherQueueIsRunning,
+        DateTime? preserveProjectLogsSince) =>
+        !anotherQueueIsRunning && preserveProjectLogsSince is null;
 
     private static IReadOnlyCollection<string> BuildLocalManualImportProjectFilter(LocalManualDramaBatchImportResult result)
         => result.ProjectDirs

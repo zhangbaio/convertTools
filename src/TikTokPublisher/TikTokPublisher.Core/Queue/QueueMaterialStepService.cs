@@ -86,7 +86,8 @@ public static class QueueMaterialStepService
             if (ct.IsCancellationRequested)
                 throw new OperationCanceledException(ct);
 
-            if (await TryRepairMissingEpisodesAsync(
+            if (ShouldUseExistingVideosToRepairFailedDownload(forceRerun) &&
+                await TryRepairMissingEpisodesAsync(
                     context,
                     item,
                     metadata,
@@ -100,6 +101,9 @@ public static class QueueMaterialStepService
                 ProjectWorkspaceService.RefreshQueueItemMetadata(item);
                 return;
             }
+
+            if (forceRerun)
+                log("强制重跑下载未成功；已保留原视频作为安全备份，但不会把旧文件计为本轮下载成功。");
 
             throw new InvalidOperationException(result.Message ?? "下载失败");
         }
@@ -118,6 +122,8 @@ public static class QueueMaterialStepService
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
+
+    internal static bool ShouldUseExistingVideosToRepairFailedDownload(bool forceRerun) => !forceRerun;
 
     internal static async Task<ProofMaterialVideoHydrationResult> EnsureProofMaterialVideosAsync(
         QueueProjectItem item,
