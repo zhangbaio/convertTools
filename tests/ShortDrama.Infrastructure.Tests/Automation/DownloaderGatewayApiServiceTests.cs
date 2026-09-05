@@ -42,6 +42,34 @@ public sealed class DownloaderGatewayApiServiceTests
         playback.Encrypted.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("encrypted")]
+    [InlineData("is_encrypted")]
+    public async Task Playback_Accepts_Encryption_Flag_Aliases(string flagName)
+    {
+        var handler = new StubHandler(_ => Json($$"""
+            {"url":"https://cdn.example/video.mp4","spadeA":"material","{{flagName}}":true}
+            """));
+
+        var playback = await new DownloaderGatewayApiService(new HttpClient(handler))
+            .GetPlaybackAsync(Settings(), "downloader_ep:episode-1", "1080p", CancellationToken.None);
+
+        playback.SpadeA.Should().Be("material");
+        playback.Encrypted.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Playback_Infers_Encryption_When_Older_Downloader_Returns_Spade_Without_Flag()
+    {
+        var handler = new StubHandler(_ => Json(
+            """{"url":"https://cdn.example/video.mp4","spade_a":"material"}"""));
+
+        var playback = await new DownloaderGatewayApiService(new HttpClient(handler))
+            .GetPlaybackAsync(Settings(), "downloader_ep:episode-1", "1080p", CancellationToken.None);
+
+        playback.Encrypted.Should().BeTrue();
+    }
+
     [Fact]
     public async Task Health_AlsoProbesAuthenticatedCapabilities()
     {

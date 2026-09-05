@@ -423,7 +423,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetDownloaderEpisodesAsync(downloaderBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetDownloaderVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: DownloaderGatewayApiService.BookPrefix,
-                validateVideoEncoding: false,
+                validateVideoEncoding: true,
                 downloadFileSegments: Math.Max(downloadFileSegments, 8),
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
@@ -1660,12 +1660,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 }
 
                 var codec = GetString(stream, "codec_name")?.Trim().ToLowerInvariant();
-                if (string.IsNullOrWhiteSpace(codec))
+                if (!IsRecognizedVideoCodec(codec))
                 {
-                    throw new InvalidDataException("视频校验失败：视频流缺少编码信息。");
+                    throw new InvalidDataException(
+                        $"视频校验失败：视频流编码无效（{(string.IsNullOrWhiteSpace(codec) ? "缺失" : codec)}）。" +
+                        "下载内容可能仍处于加密状态、封装不完整，或当前 FFmpeg 不支持该编码。");
                 }
 
-                return codec;
+                return codec!;
             }
         }
         catch (JsonException ex)
@@ -1675,6 +1677,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         throw new InvalidDataException("视频校验失败：媒体中没有视频流。");
     }
+
+    internal static bool IsRecognizedVideoCodec(string? codec) =>
+        !string.IsNullOrWhiteSpace(codec) &&
+        !string.Equals(codec.Trim(), "none", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(codec.Trim(), "unknown", StringComparison.OrdinalIgnoreCase);
 
     private static async Task<ProcessRunResult> RunProcessAsyncDefault(ProcessStartInfo startInfo, CancellationToken cancellationToken)
     {
