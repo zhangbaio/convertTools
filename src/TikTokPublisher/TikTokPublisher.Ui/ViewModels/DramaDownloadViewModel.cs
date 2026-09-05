@@ -920,6 +920,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var days = Math.Clamp(QueryDays, 1, 30);
         var dateWindowText = ShortDramaDramaServices.GetHighNewReleaseDateWindowDisplay(days);
         var datedLabel = $"{label} · {dateWindowText}";
+        ReplaceLoadedSearchItems([], sourceMode, preserveSelection: false);
+        ApplyFilteredSearchResults(datedLabel);
         SearchPageText = $"{datedLabel} · 加载中...";
         var pagesDisplayed = 0;
         var latestNetworkStatus = "正在获取第 1 页";
