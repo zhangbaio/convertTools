@@ -102,6 +102,7 @@ public sealed class HongguoStandardEditionTests
                             ["video_id"] = "video-1",
                             ["main_url"] = Convert.ToBase64String(Encoding.UTF8.GetBytes("https://cdn.example/video.mp4")),
                             ["spade_a"] = "decrypt-material",
+                            ["encrypt"] = false,
                             ["gear_des_key"] = "0:MP4|1:encrypt|4:1080p|5:normal"
                         }
                     }
@@ -120,5 +121,7 @@ public sealed class HongguoStandardEditionTests
         playback.Url.Should().Be("https://cdn.example/video.mp4");
         playback.SpadeA.Should().Be("decrypt-material");
         playback.EncryptedUrls.Should().Contain("https://cdn.example/video.mp4");
+        playback.Encrypted.Should().BeTrue(
+            "spade_a 表明该分集需要解密，即使标准版接口错误返回 encrypt=false");
     }
 }

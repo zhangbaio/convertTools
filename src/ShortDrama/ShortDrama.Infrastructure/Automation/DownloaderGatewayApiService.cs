@@ -56,10 +56,13 @@ public sealed class DownloaderGatewayApiService(HttpClient httpClient)
         var url = GetString(root, "url") ?? GetString(root, "main_url")
                   ?? throw new InvalidOperationException("统一下载器未返回播放地址。");
         var spadeA = GetString(root, "spade_a") ?? GetString(root, "spadeA") ?? string.Empty;
-        var encrypted = GetBool(root, "encrypt") ??
-                        GetBool(root, "encrypted") ??
-                        GetBool(root, "is_encrypted") ??
-                        !string.IsNullOrWhiteSpace(spadeA);
+        // Some downloader versions report encrypt=false for individual episodes
+        // even though they also return spade_a and the MP4 contains an encv track.
+        // A usable spade key is stronger evidence than the optional boolean flag.
+        var encrypted = !string.IsNullOrWhiteSpace(spadeA) ||
+                        GetBool(root, "encrypt") == true ||
+                        GetBool(root, "encrypted") == true ||
+                        GetBool(root, "is_encrypted") == true;
         return new GatewayPlayback(
             url,
             spadeA,

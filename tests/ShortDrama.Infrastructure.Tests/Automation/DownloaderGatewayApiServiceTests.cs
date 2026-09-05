@@ -71,6 +71,18 @@ public sealed class DownloaderGatewayApiServiceTests
     }
 
     [Fact]
+    public async Task Playback_Trusts_Spade_When_Downloader_Incorrectly_Reports_Unencrypted_Episode()
+    {
+        var handler = new StubHandler(_ => Json(
+            """{"url":"https://cdn.example/video.mp4","spade_a":"material","encrypt":false}"""));
+
+        var playback = await new DownloaderGatewayApiService(new HttpClient(handler))
+            .GetPlaybackAsync(Settings(), "downloader_ep:episode-2", "1080p", CancellationToken.None);
+
+        playback.Encrypted.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Health_AlsoProbesAuthenticatedCapabilities()
     {
         var requests = new List<HttpRequestMessage>();
