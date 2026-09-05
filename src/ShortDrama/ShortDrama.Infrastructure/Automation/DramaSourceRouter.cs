@@ -424,7 +424,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetDownloaderEpisodesAsync(downloaderBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetDownloaderVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: DownloaderGatewayApiService.BookPrefix,
-                validateVideoEncoding: true,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("downloader"),
                 downloadFileSegments: Math.Max(downloadFileSegments, 8),
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
@@ -458,7 +458,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     mapleleafPlayUrlTimeoutSeconds,
                     ct),
                 posterPrefix: MapleleafApiService.BookPrefix,
-                validateVideoEncoding: false,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("mapleleaf"),
                 downloadFileSegments: Math.Max(downloadFileSegments, 16),
                 downloadTimeoutSeconds: mapleleafTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
@@ -474,7 +474,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetLocalEpisodesAsync(bookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: HongguoLocalBookPrefix,
-                validateVideoEncoding: true,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("hglocal"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
@@ -492,7 +492,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetHghighEpisodesAsync(highBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetHghighVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: HongguoHighCrypto.BookPrefix,
-                validateVideoEncoding: true,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("hghigh"),
                 downloadFileSegments: Math.Max(downloadFileSegments, 8),
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
@@ -518,7 +518,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetPikachuEpisodesAsync(pikachuBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetPikachuVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: PikachuBookPrefix,
-                validateVideoEncoding: false,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("pikachu"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
@@ -533,7 +533,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetHgnewEpisodesAsync(bookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetHgnewVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: string.Empty,
-                validateVideoEncoding: false,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("hgnew"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
@@ -722,8 +722,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     internal static bool RequiresVideoEncodingValidation(
         bool sourceDefault,
-        ExistingVideoPolicy existingVideoPolicy) =>
-        sourceDefault || existingVideoPolicy != ExistingVideoPolicy.ReuseValid;
+        ExistingVideoPolicy existingVideoPolicy) => sourceDefault;
+
+    internal static bool ShouldValidateVideoEncodingForSource(string? source) =>
+        string.Equals(source?.Trim(), "hglocal", StringComparison.OrdinalIgnoreCase);
 
     private async Task DownloadEpisodeAsync(
         string outputDir,
@@ -2669,8 +2671,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     if (existingVideoPolicy == ExistingVideoPolicy.ReplaceAll)
                     {
                         replacementCandidates?.Add(path);
-                        report?.Invoke(
-                            $"强制重新下载：{Path.GetFileName(path)}；新文件校验成功前保留原文件");
                         return null;
                     }
 
