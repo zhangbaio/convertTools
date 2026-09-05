@@ -5,16 +5,12 @@ using Xunit;
 
 namespace TikTokPublisher.Core.Tests;
 
-public sealed class DramaSearchAuthorExclusionTests : IDisposable
+public sealed class DramaSearchAuthorExclusionTests
 {
-    private readonly string _databasePath = Path.Combine(
-        Path.GetTempPath(),
-        "drama-search-author-exclusion-" + Guid.NewGuid().ToString("N") + ".db");
-
     [Fact]
     public void Author_exclusion_keeps_result_visible_but_blocks_queue_import()
     {
-        var viewModel = new DramaDownloadViewModel(_databasePath)
+        var viewModel = new DramaDownloadViewModel
         {
             AuthorExclude = "河马",
             SearchKeyword = "我有六个黄毛爹"
@@ -48,8 +44,4 @@ public sealed class DramaSearchAuthorExclusionTests : IDisposable
         return (T)(method.Invoke(target, arguments) ?? throw new InvalidOperationException($"{methodName} returned null"));
     }
 
-    public void Dispose()
-    {
-        if (File.Exists(_databasePath)) File.Delete(_databasePath);
-    }
 }
