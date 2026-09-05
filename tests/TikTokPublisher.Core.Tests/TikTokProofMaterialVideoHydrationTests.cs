@@ -1,4 +1,5 @@
 using FluentAssertions;
+using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
@@ -9,6 +10,33 @@ public sealed class TikTokProofMaterialVideoHydrationTests
 {
     private static readonly byte[] OnePixelPng = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+
+    [Theory]
+    [InlineData("h264", "avc1", 1080, 1920, 30, true)]
+    [InlineData("hevc", "hvc1", 1080, 1920, 30, true)]
+    [InlineData("unknown", "encv", 1080, 1920, 30, false)]
+    [InlineData("none", "encv", 1080, 1920, 30, false)]
+    [InlineData("h264", "encv", 1080, 1920, 30, false)]
+    [InlineData("h264", "avc1", 0, 1920, 30, false)]
+    public void Proof_material_video_probe_rejects_encrypted_or_undecodable_streams(
+        string codec,
+        string tag,
+        int width,
+        int height,
+        double duration,
+        bool expected)
+    {
+        var probe = new MediaProbe
+        {
+            VideoCodec = codec,
+            VideoCodecTag = tag,
+            Width = width,
+            Height = height,
+            DurationSeconds = duration,
+        };
+
+        QueueMaterialStepService.IsUsableProofMaterialVideo(probe).Should().Be(expected);
+    }
 
     [Theory]
     [InlineData(160, 1, false)]

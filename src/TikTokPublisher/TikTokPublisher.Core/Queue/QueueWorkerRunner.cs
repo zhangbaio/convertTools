@@ -1402,7 +1402,12 @@ public sealed class QueueWorkerRunner
         switch (stepKey)
         {
             case QueueStepRegistry.Download:
-                await QueueMaterialStepService.RunDownloadAsync(item, settings, log, ct).ConfigureAwait(false);
+                await QueueMaterialStepService.RunDownloadAsync(
+                    item,
+                    settings,
+                    options.ForceRerunCompletedSteps,
+                    log,
+                    ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.RewriteInfo:
                 await QueueMaterialStepService.RunRewriteAsync(

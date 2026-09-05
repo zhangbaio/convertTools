@@ -874,7 +874,7 @@ public sealed class DramaSourceRouterDownloadTests
     }
 
     [Fact]
-    public async Task DownloadAsync_Should_Delete_Invalid_Existing_Mp4_And_Redownload()
+    public async Task DownloadAsync_Should_Replace_Invalid_Existing_Mp4_After_Redownload()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-invalid-existing-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outputDir);
@@ -918,6 +918,99 @@ public sealed class DramaSourceRouterDownloadTests
             DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
             Directory.Delete(outputDir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task DownloadAsync_ReplaceAll_Redownloads_Valid_Existing_Video()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-force-replace-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var finalPath = Path.Combine(outputDir, "第1集.mp4");
+        await File.WriteAllTextAsync(finalPath, "old-valid-video");
+        var handler = new LocalStreamRecordingHandler
+        {
+            DownloadBytes = Encoding.UTF8.GetBytes("new-valid-video")
+        };
+        using var httpClient = new HttpClient(handler);
+        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+        var progress = new RecordingProgress();
+
+        try
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) => Task.FromResult(ProbeResult("h264"));
+
+            var request = CreateDownloadRequest(outputDir) with
+            {
+                ExistingVideoPolicy = ExistingVideoPolicy.ReplaceAll
+            };
+            var result = await CreateRouter(httpClient, CreateLocalSettings()).DownloadAsync(
+                request,
+                progress,
+                CancellationToken.None);
+
+            result.Ok.Should().BeTrue(result.Message);
+            File.ReadAllText(finalPath).Should().Be("new-valid-video");
+            progress.Messages.Should().Contain(message =>
+                message.Contains("强制重新下载", StringComparison.Ordinal));
+            progress.Messages.Should().NotContain(message =>
+                message.Contains("已存在，跳过", StringComparison.Ordinal));
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DownloadAsync_ReplaceAll_Preserves_Existing_Video_When_New_Download_Is_Invalid()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-force-preserve-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var finalPath = Path.Combine(outputDir, "第1集.mp4");
+        await File.WriteAllTextAsync(finalPath, "old-valid-video");
+        var handler = new LocalStreamRecordingHandler
+        {
+            DownloadBytes = Encoding.UTF8.GetBytes("{\"error\":\"invalid media\"}")
+        };
+        using var httpClient = new HttpClient(handler);
+
+        try
+        {
+            var request = CreateDownloadRequest(outputDir) with
+            {
+                ExistingVideoPolicy = ExistingVideoPolicy.ReplaceAll
+            };
+            var result = await CreateRouter(httpClient, CreateLocalSettings()).DownloadAsync(
+                request,
+                progress: null,
+                CancellationToken.None);
+
+            result.Ok.Should().BeFalse();
+            File.ReadAllText(finalPath).Should().Be("old-valid-video");
+            Directory.GetFiles(outputDir, "*.part").Should().BeEmpty();
+        }
+        finally
+        {
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, ExistingVideoPolicy.ReuseValid, false)]
+    [InlineData(true, ExistingVideoPolicy.ReuseValid, true)]
+    [InlineData(false, ExistingVideoPolicy.ReplaceInvalid, true)]
+    [InlineData(false, ExistingVideoPolicy.ReplaceAll, true)]
+    public void Replacement_Policies_Require_Codec_Validation_For_Every_Source(
+        bool sourceDefault,
+        ExistingVideoPolicy policy,
+        bool expected)
+    {
+        DramaSourceRouter.RequiresVideoEncodingValidation(sourceDefault, policy)
+            .Should().Be(expected);
     }
 
     private static DramaSourceSettings CreateLocalSettings(

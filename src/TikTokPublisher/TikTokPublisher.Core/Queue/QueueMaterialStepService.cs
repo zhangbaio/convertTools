@@ -32,6 +32,7 @@ public static class QueueMaterialStepService
     public static async Task RunDownloadAsync(
         QueueProjectItem item,
         ClientSettings settings,
+        bool forceRerun,
         Action<string> log,
         CancellationToken ct)
     {
@@ -68,7 +69,14 @@ public static class QueueMaterialStepService
             log,
             ct).ConfigureAwait(false);
 
-        var request = BuildDownloadRequest(context, metadata, settings, displayName, FirstNonEmpty(metadata.Episodes, "all"), concurrent);
+        var request = BuildDownloadRequest(
+            context,
+            metadata,
+            settings,
+            displayName,
+            FirstNonEmpty(metadata.Episodes, "all"),
+            concurrent,
+            forceRerun ? ExistingVideoPolicy.ReplaceAll : ExistingVideoPolicy.ReuseValid);
 
         var progress = CreateDownloadProgress(log);
         var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
@@ -125,9 +133,14 @@ public static class QueueMaterialStepService
 
         var required = Math.Clamp(requiredEpisodeCount, 1, 200);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-        var existingVideos = ProjectVideoResolver.ResolveMaterialVideos(
+        var existingCandidates = ProjectVideoResolver.ResolveMaterialVideos(
             context.SourceProjectDir,
             allowStagedFallback: true);
+        var existingVideos = await FilterUsableProofMaterialVideosAsync(
+                existingCandidates,
+                log,
+                ct)
+            .ConfigureAwait(false);
         var existingEpisodeNumbers = existingVideos
             .Select(path => EpisodeNumberInFileName.Match(Path.GetFileName(path)))
             .Where(match => match.Success)
@@ -227,7 +240,8 @@ public static class QueueMaterialStepService
                     settings,
                     displayName,
                     selection,
-                    concurrent);
+                    concurrent,
+                    ExistingVideoPolicy.ReplaceInvalid);
                 downloadResult = await ShortDramaDramaServices.Downloader
                     .DownloadAsync(request, CreateDownloadProgress(log), ct)
                     .ConfigureAwait(false);
@@ -345,6 +359,59 @@ public static class QueueMaterialStepService
             throw;
         }
     }
+
+    private static async Task<IReadOnlyList<string>> FilterUsableProofMaterialVideosAsync(
+        IReadOnlyList<string> candidates,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        if (candidates.Count == 0)
+            return candidates;
+
+        var ffprobe = MediaBinaryResolver.ResolveFfprobe();
+        var usable = new List<string>(candidates.Count);
+        foreach (var path in candidates)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var probe = await MediaProbe.ProbeAsync(ffprobe, path, ct).ConfigureAwait(false);
+                if (IsUsableProofMaterialVideo(probe))
+                {
+                    usable.Add(path);
+                    continue;
+                }
+
+                log(
+                    $"WARN 证明材料视频不可解码，将按缺失分集重新补源：{Path.GetFileName(path)}；" +
+                    $"codec={DisplayProbeValue(probe.VideoCodec)}，tag={DisplayProbeValue(probe.VideoCodecTag)}。");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log(
+                    $"WARN 证明材料视频体检失败，将按缺失分集重新补源：{Path.GetFileName(path)}；{ex.Message}");
+            }
+        }
+
+        return usable;
+    }
+
+    internal static bool IsUsableProofMaterialVideo(MediaProbe probe)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        var codec = probe.VideoCodec.Trim();
+        var tag = probe.VideoCodecTag.Trim();
+        return codec.Length > 0 &&
+               !string.Equals(codec, "none", StringComparison.OrdinalIgnoreCase) &&
+               !string.Equals(codec, "unknown", StringComparison.OrdinalIgnoreCase) &&
+               !string.Equals(tag, "encv", StringComparison.OrdinalIgnoreCase) &&
+               probe.Width > 0 &&
+               probe.Height > 0 &&
+               probe.DurationSeconds > 0;
+    }
+
+    private static string DisplayProbeValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "<empty>" : value.Trim();
 
     private static async Task<IReadOnlyList<string>> TryHydrateMaterialVideosFromEpisodeFallbackAsync(
         QueueProjectItem item,
@@ -829,7 +896,8 @@ public static class QueueMaterialStepService
         ClientSettings settings,
         string displayName,
         string episodes,
-        int concurrent)
+        int concurrent,
+        ExistingVideoPolicy existingVideoPolicy = ExistingVideoPolicy.ReuseValid)
     {
         return new DramaDownloadRequest(
             ProjectDir: context.SourceProjectDir,
@@ -839,7 +907,8 @@ public static class QueueMaterialStepService
             Episodes: FirstNonEmpty(episodes, "all"),
             Quality: FirstNonEmpty(metadata.Quality, settings.DramaDownloadDefaultQuality, "1080P"),
             Concurrent: Math.Clamp(concurrent, 1, 10),
-            EpisodeNumberMode: FirstNonEmpty(metadata.EpisodeNumberMode, "source"));
+            EpisodeNumberMode: FirstNonEmpty(metadata.EpisodeNumberMode, "source"),
+            ExistingVideoPolicy: existingVideoPolicy);
     }
 
     private static async Task<string> ResolveDownloadBookIdAsync(

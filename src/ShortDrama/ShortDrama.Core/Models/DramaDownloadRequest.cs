@@ -1,5 +1,12 @@
 namespace ShortDrama.Core.Models;
 
+public enum ExistingVideoPolicy
+{
+    ReuseValid,
+    ReplaceInvalid,
+    ReplaceAll,
+}
+
 public sealed record DramaDownloadRequest(
     string ProjectDir,
     string OutputDir,
@@ -8,7 +15,8 @@ public sealed record DramaDownloadRequest(
     string Episodes,
     string Quality,
     int Concurrent,
-    string EpisodeNumberMode = "source");
+    string EpisodeNumberMode = "source",
+    ExistingVideoPolicy ExistingVideoPolicy = ExistingVideoPolicy.ReuseValid);
 
 public sealed record DramaDownloadResult(
     bool Ok,

@@ -491,7 +491,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetHghighEpisodesAsync(highBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetHghighVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: HongguoHighCrypto.BookPrefix,
-                validateVideoEncoding: false,
+                validateVideoEncoding: true,
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
@@ -645,6 +645,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var failures = new List<string>();
         var concurrency = Math.Clamp(request.Concurrent, 1, 10);
         var resolveConcurrency = Math.Clamp(separateResolveConcurrency, 0, 10);
+        var validateReplacement = RequiresVideoEncodingValidation(
+            validateVideoEncoding,
+            request.ExistingVideoPolicy);
         var plannedVideoIds = new List<string>(tasks.Count);
         if (registerResolvePlan is not null)
         {
@@ -654,7 +657,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     request.OutputDir,
                     task.EpisodeNumber,
                     report: null,
-                    validateVideoEncoding,
+                    validateReplacement,
+                    request.ExistingVideoPolicy,
+                    replacementCandidates: null,
                     cancellationToken);
                 if (string.IsNullOrWhiteSpace(existing))
                     plannedVideoIds.Add(task.VideoId);
@@ -677,7 +682,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             downloadSemaphore,
             resolveSemaphore,
             failures,
-            validateVideoEncoding,
+            validateReplacement,
+            request.ExistingVideoPolicy,
             downloadFileSegments,
             downloadTimeoutSeconds,
             downloadAttempts,
@@ -712,6 +718,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return result;
     }
 
+    internal static bool RequiresVideoEncodingValidation(
+        bool sourceDefault,
+        ExistingVideoPolicy existingVideoPolicy) =>
+        sourceDefault || existingVideoPolicy != ExistingVideoPolicy.ReuseValid;
+
     private async Task DownloadEpisodeAsync(
         string outputDir,
         string quality,
@@ -723,6 +734,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         SemaphoreSlim? resolveSemaphore,
         ICollection<string> failures,
         bool validateVideoEncoding,
+        ExistingVideoPolicy existingVideoPolicy,
         int downloadFileSegments,
         int downloadTimeoutSeconds,
         int downloadAttempts,
@@ -738,11 +750,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         {
             var finalPath = Path.Combine(outputDir, BuildEpisodeFileName(task));
             var tempPath = $"{finalPath}.part";
+            var replacementCandidates = new List<string>();
             var existingVideo = await FindExistingEpisodeVideoAsync(
                 outputDir,
                 task.EpisodeNumber,
                 message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"),
                 validateVideoEncoding,
+                existingVideoPolicy,
+                replacementCandidates,
                 cancellationToken);
             if (!string.IsNullOrWhiteSpace(existingVideo))
             {
@@ -757,7 +772,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 return;
             }
 
-            CleanupDownloadArtifacts(finalPath, keepVideo: false);
+            // Preserve an existing final file until the replacement has downloaded,
+            // decrypted and passed validation. SafeReplaceAsync swaps it only after
+            // the new temporary file is ready.
+            CleanupDownloadArtifacts(finalPath, keepVideo: true);
             var started = false;
 
             async Task<SourceVideoDetail> ResolveAsync()
@@ -822,12 +840,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 {
                     var detail = await ResolveAsync();
                     var stats = await DownloadAsync(detail);
+                    DeleteReplacedAlternateFiles(finalPath, replacementCandidates);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
                     return;
                 }
                 catch (Exception ex) when (ShouldRetryDownload(ex))
                 {
-                    CleanupDownloadArtifacts(finalPath, keepVideo: false);
+                    CleanupDownloadArtifacts(finalPath, keepVideo: true);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载重试 {attempt}/{maxAttempts}: {ex.Message}");
                     await Task.Delay(ResolveDownloadRetryDelay(ex, attempt), cancellationToken);
                 }
@@ -837,7 +856,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 }
                 catch (Exception ex)
                 {
-                    CleanupDownloadArtifacts(finalPath, keepVideo: false);
+                    CleanupDownloadArtifacts(finalPath, keepVideo: true);
                     lock (failures)
                     {
                         failures.Add($"第{task.EpisodeNumber:00}集 {ex.Message}");
@@ -851,6 +870,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 var detail = await ResolveAsync();
                 var stats = await DownloadAsync(detail);
+                DeleteReplacedAlternateFiles(finalPath, replacementCandidates);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -859,7 +879,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             }
             catch (Exception ex)
             {
-                CleanupDownloadArtifacts(finalPath, keepVideo: false);
+                CleanupDownloadArtifacts(finalPath, keepVideo: true);
                 lock (failures)
                 {
                     failures.Add($"第{task.EpisodeNumber:00}集 {ex.Message}");
@@ -2473,6 +2493,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int outputEpisodeNumber,
         Action<string>? report,
         bool validateVideoEncoding,
+        ExistingVideoPolicy existingVideoPolicy,
+        ICollection<string>? replacementCandidates,
         CancellationToken cancellationToken)
     {
         foreach (var directory in new[] { outputDir, Path.Combine(outputDir, "videos") })
@@ -2492,10 +2514,19 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
                 if (IsEpisodeFileForOutput(path, outputEpisodeNumber))
                 {
+                    if (existingVideoPolicy == ExistingVideoPolicy.ReplaceAll)
+                    {
+                        replacementCandidates?.Add(path);
+                        report?.Invoke(
+                            $"强制重新下载：{Path.GetFileName(path)}；新文件校验成功前保留原文件");
+                        return null;
+                    }
+
                     if (!HasValidVideoFile(path))
                     {
-                        DeleteIfExists(path);
-                        report?.Invoke($"发现无效的已有视频，已清理并重新下载：{Path.GetFileName(path)}");
+                        replacementCandidates?.Add(path);
+                        report?.Invoke(
+                            $"发现无效的已有视频，将重新下载并在成功后替换：{Path.GetFileName(path)}");
                         continue;
                     }
 
@@ -2511,14 +2542,27 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     }
                     catch (InvalidDataException ex)
                     {
-                        DeleteIfExists(path);
-                        report?.Invoke($"发现无效的已有视频，已清理并重新下载：{Path.GetFileName(path)}（{ex.Message}）");
+                        replacementCandidates?.Add(path);
+                        report?.Invoke(
+                            $"发现无效的已有视频，将重新下载并在成功后替换：{Path.GetFileName(path)}（{ex.Message}）");
                     }
                 }
             }
         }
 
         return null;
+    }
+
+    private static void DeleteReplacedAlternateFiles(
+        string finalPath,
+        IEnumerable<string> replacementCandidates)
+    {
+        var finalFullPath = Path.GetFullPath(finalPath);
+        foreach (var candidate in replacementCandidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!string.Equals(Path.GetFullPath(candidate), finalFullPath, StringComparison.OrdinalIgnoreCase))
+                DeleteIfExists(candidate);
+        }
     }
 
     internal static bool IsEpisodeFileForOutput(string path, int outputEpisodeNumber)

@@ -702,7 +702,13 @@ public sealed class HongguoHighApiService
         var encryptedUrls = new List<string>();
         foreach (var key in new[] { "encrypted_url", "encryptedUrl", "main_url", "mainUrl", "cdn_url", "cdnUrl", "backup", "backup_url", "backupUrl" })
             CollectHttpUrls(item[key], encryptedUrls);
-        var encrypted = GetBool(item, "encrypt") ?? !string.IsNullOrWhiteSpace(spadeA);
+        // Standard-edition responses can report encrypt=false for an individual
+        // rendition while still returning spade_a and an encv MP4. The presence of
+        // usable decryption material is stronger evidence than the optional flag.
+        var encrypted = !string.IsNullOrWhiteSpace(spadeA) ||
+                        GetBool(item, "encrypt") == true ||
+                        GetBool(item, "encrypted") == true ||
+                        GetBool(item, "is_encrypted") == true;
         return new HongguoHighVideoPlayback(url, size, encryptedUrls, spadeA, encrypted);
     }
 
