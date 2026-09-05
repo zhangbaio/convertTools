@@ -55,10 +55,15 @@ public sealed class DownloaderGatewayApiService(HttpClient httpClient)
             cancellationToken);
         var url = GetString(root, "url") ?? GetString(root, "main_url")
                   ?? throw new InvalidOperationException("统一下载器未返回播放地址。");
+        var spadeA = GetString(root, "spade_a") ?? GetString(root, "spadeA") ?? string.Empty;
+        var encrypted = GetBool(root, "encrypt") ??
+                        GetBool(root, "encrypted") ??
+                        GetBool(root, "is_encrypted") ??
+                        !string.IsNullOrWhiteSpace(spadeA);
         return new GatewayPlayback(
             url,
-            GetString(root, "spade_a") ?? string.Empty,
-            GetBool(root, "encrypt") ?? false);
+            spadeA,
+            encrypted);
     }
 
     public async Task<GatewayHealth> GetHealthAsync(

@@ -257,6 +257,69 @@ public sealed class DramaSourceRouterDownloadTests
     }
 
     [Fact]
+    public async Task DownloadAsync_Should_Reject_Downloader_Video_With_Unknown_Codec()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-downloader-invalid-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        using var httpClient = new HttpClient(new DownloaderInvalidVideoHandler());
+        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+
+        try
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) =>
+                Task.FromResult(ProbeResult("none"));
+            var settings = new DramaSourceSettings
+            {
+                DramaSourceChain = "downloader",
+                DownloaderApiBaseUrl = "http://127.0.0.1:17891",
+                DownloaderApiKey = "gateway-key",
+                HongguoDownloadTimeoutSeconds = "10",
+                HongguoEpisodeDownloadAttempts = "1",
+                DownloadFileSegments = "1"
+            };
+            var request = new DramaDownloadRequest(
+                ProjectDir: outputDir,
+                OutputDir: outputDir,
+                DisplayName: "downloader-invalid-drama",
+                BookId: "downloader:series-1",
+                Episodes: "1",
+                Quality: "1080P+",
+                Concurrent: 1,
+                EpisodeNumberMode: "source");
+
+            var result = await CreateRouter(httpClient, settings).DownloadAsync(
+                request,
+                progress: null,
+                CancellationToken.None);
+
+            result.Ok.Should().BeFalse();
+            result.Message.Should().Contain("视频流编码无效（none）");
+            Directory.GetFiles(outputDir, "*.mp4").Should().BeEmpty();
+            Directory.GetFiles(outputDir, "*.part").Should().BeEmpty();
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("none", false)]
+    [InlineData("UNKNOWN", false)]
+    [InlineData("h264", true)]
+    [InlineData("hevc", true)]
+    public void IsRecognizedVideoCodec_rejects_missing_or_unknown_codecs(string? codec, bool expected)
+    {
+        DramaSourceRouter.IsRecognizedVideoCodec(codec).Should().Be(expected);
+    }
+
+    [Fact]
     public async Task DownloadAsync_Should_Use_Local_Stream_And_Transcode_Hevc_To_H264()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-hglocal-{Guid.NewGuid():N}");
@@ -899,6 +962,40 @@ public sealed class DramaSourceRouterDownloadTests
         public List<string> Messages { get; } = [];
 
         public void Report(string value) => Messages.Add(value);
+    }
+
+    private sealed class DownloaderInvalidVideoHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/api/v1/catalog/episodes", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(Json("""{"episodes":[{"vid":"episode-1","index":1,"title":"第1集"}]}"""));
+            }
+
+            if (path.EndsWith("/api/v1/catalog/video-url", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(Json("""{"url":"https://cdn.example/video.mp4","encrypt":false}"""));
+            }
+
+            if (string.Equals(request.RequestUri.Host, "cdn.example", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(Encoding.UTF8.GetBytes("mp4-container-with-unknown-video-codec"))
+                });
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+
+        private static HttpResponseMessage Json(string body) => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
     }
 
     private sealed class LocalStreamRecordingHandler : HttpMessageHandler

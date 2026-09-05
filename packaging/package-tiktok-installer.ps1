@@ -8,7 +8,7 @@ param(
     [switch]$NoBundleLocalAsrModels,
     [switch]$SkipInstallerCompile,
     [string]$InnoSetupCompiler,
-    [string]$FfmpegDownloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    [string]$FfmpegDownloadUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z",
     [string]$PythonEmbedDownloadUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip",
     # HG 2.1.6 启动密钥只在 Frida 16.x 上稳定；17.x 能 attach 但抽不到 enc/sign。
     # 与本机源码环境 `pip show frida` 的 16.7.19 对齐，不要跟 PyPI latest。
@@ -224,19 +224,32 @@ function Ensure-FfmpegDependency {
     $targetDir = Join-Path $DependenciesDir "tools\$Runtime\ffmpeg"
     $ffmpeg = Join-Path $targetDir "ffmpeg.exe"
     $ffprobe = Join-Path $targetDir "ffprobe.exe"
-    if ((Test-Path -LiteralPath $ffmpeg) -and (Test-Path -LiteralPath $ffprobe)) {
+    if ((Test-Path -LiteralPath $ffmpeg) -and
+        (Test-Path -LiteralPath $ffprobe) -and
+        (Test-FfmpegSupportsExtendedVideoDecoders -Ffmpeg $ffmpeg)) {
         return
     }
 
-    $zipPath = Join-Path $DependencyCacheDir "ffmpeg-release-essentials.zip"
-    $extractDir = Join-Path $DependencyCacheDir "ffmpeg-release-essentials"
-    if (-not (Test-Path -LiteralPath $zipPath)) {
-        Invoke-DownloadFile -Url $FfmpegDownloadUrl -Destination $zipPath
+    if ((Test-Path -LiteralPath $ffmpeg) -or (Test-Path -LiteralPath $ffprobe)) {
+        Write-Host "Cached ffmpeg is missing extended video decoders; replacing it with the full build."
+    }
+
+    $archivePath = Join-Path $DependencyCacheDir "ffmpeg-release-full.7z"
+    $extractDir = Join-Path $DependencyCacheDir "ffmpeg-release-full"
+    if (-not (Test-Path -LiteralPath $archivePath)) {
+        Invoke-DownloadFile -Url $FfmpegDownloadUrl -Destination $archivePath
     }
 
     Remove-DependencyCacheDirectorySafe -Path $extractDir
     New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
-    Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
+    $tar = Get-Command "tar.exe" -ErrorAction SilentlyContinue
+    if (-not $tar) {
+        throw "Extracting the FFmpeg full build requires tar.exe (included with supported Windows versions)."
+    }
+    & $tar.Source -xf $archivePath -C $extractDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to extract FFmpeg archive: $archivePath"
+    }
 
     $extractedFfmpeg = Get-ChildItem -LiteralPath $extractDir -Recurse -File -Filter "ffmpeg.exe" |
         Select-Object -First 1
@@ -244,7 +257,11 @@ function Ensure-FfmpegDependency {
         Select-Object -First 1
 
     if (-not $extractedFfmpeg -or -not $extractedFfprobe) {
-        throw "Downloaded ffmpeg archive did not contain ffmpeg.exe and ffprobe.exe: $zipPath"
+        throw "Downloaded ffmpeg archive did not contain ffmpeg.exe and ffprobe.exe: $archivePath"
+    }
+
+    if (-not (Test-FfmpegSupportsExtendedVideoDecoders -Ffmpeg $extractedFfmpeg.FullName)) {
+        throw "Downloaded ffmpeg does not contain the required extended video decoders: $archivePath"
     }
 
     New-Item -ItemType Directory -Force -Path $targetDir | Out-Null
@@ -256,6 +273,24 @@ function Ensure-FfmpegDependency {
         Select-Object -First 1
     if ($license) {
         Copy-Item -LiteralPath $license.FullName -Destination (Join-Path $targetDir $license.Name) -Force
+    }
+}
+
+function Test-FfmpegSupportsExtendedVideoDecoders {
+    param([Parameter(Mandatory = $true)][string]$Ffmpeg)
+
+    if (-not (Test-Path -LiteralPath $Ffmpeg)) {
+        return $false
+    }
+
+    try {
+        $decoderOutput = (& $Ffmpeg -hide_banner -decoders 2>&1 | Out-String)
+        return $LASTEXITCODE -eq 0 -and
+            $decoderOutput.IndexOf("libdavs2", [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+            $decoderOutput.IndexOf("libuavs3d", [StringComparison]::OrdinalIgnoreCase) -ge 0
+    }
+    catch {
+        return $false
     }
 }
 

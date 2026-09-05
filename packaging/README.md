@@ -36,7 +36,7 @@ artifacts\INSTALL\TikTokShortDramaUploader-Setup-<version>.exe
 
 - .NET 运行时：脚本使用 `--self-contained true`，会打进发布目录。
 - 字体：自动复制 `src\ShortDrama\tools\fonts` 到安装目录的 `tools\fonts`。
-- ffmpeg/ffprobe：当前仓库没有内置二进制。需要离线运行时，把文件放到 `packaging\dependencies\tools\win-x64\ffmpeg\ffmpeg.exe` 和 `ffprobe.exe`，脚本会复制进安装包。
+- ffmpeg/ffprobe：当前仓库没有内置二进制。需要离线运行时，把 full build 文件放到 `packaging\dependencies\tools\win-x64\ffmpeg\ffmpeg.exe` 和 `ffprobe.exe`，脚本会复制进安装包。打包脚本会校验扩展视频解码器，避免播放器可正常播放、精简版 FFmpeg 却无法抽帧的情况。
 - Frida / embeddable Python：打包脚本会下载 Python 3.11 embeddable 和 **固定版本** `frida==16.7.19` 的 Windows wheel，放到 `packaging\dependencies\tools\win-x64\python`。不要改成 PyPI latest：Frida 17.x 能挂钩 HG 2.1.6，但抽不到 Enc/Sign Master。不依赖短剧助手，也不要求用户 `pip install frida`。
 - Playwright Chromium：使用 `-InstallPlaywrightChromium` 下载到发布目录，或预先放到 `packaging\dependencies\ms-playwright`。
 - WebView2 Runtime：把 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` 放到 `packaging\dependencies`，安装器会在目标机器上静默安装/修复 WebView2。若文件只有约 2MB，则它是 Evergreen bootstrapper，目标机器安装时仍需联网；纯离线完整包请放入 Microsoft 官方 Evergreen Standalone Installer。
