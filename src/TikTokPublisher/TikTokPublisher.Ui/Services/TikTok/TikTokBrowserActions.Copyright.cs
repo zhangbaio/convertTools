@@ -575,7 +575,9 @@ public static partial class TikTokBrowserActions
         var sourceInfoFiles = includeSourceFileInformation && uploadSourceFileInformation
             ? ResolveSourceFileInformationFiles(options)
             : [];
-        var expectedSourceInfoFileCount = TikTokSourceFileInfoUploadPackageService.RequiredFileCountFor(
+        var expectedSourceInfoFileCount = ResolveExpectedSourceInfoFileCount(
+            includeSourceFileInformation,
+            uploadSourceFileInformation,
             options.SourceInfoPackageSelection);
         if (includeSourceFileInformation && uploadSourceFileInformation &&
             sourceInfoFiles.Count != expectedSourceInfoFileCount)
@@ -932,6 +934,14 @@ public static partial class TikTokBrowserActions
             Log(log, $"TikTok 版权材料已存在，保留并跳过重复上传：{filingLicenseLabel}。");
         }
     }
+
+    internal static int ResolveExpectedSourceInfoFileCount(
+        bool includeSourceFileInformation,
+        bool uploadSourceFileInformation,
+        TikTokSourceFileInfoPackageSelection selection) =>
+        includeSourceFileInformation && uploadSourceFileInformation
+            ? TikTokSourceFileInfoUploadPackageService.RequiredFileCountFor(selection)
+            : 0;
 
     private static void ValidateLocalCopyrightUploadFiles(IEnumerable<string> filePaths)
     {
