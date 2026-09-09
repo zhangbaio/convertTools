@@ -84,7 +84,7 @@
                         <Button Content="下载选中" Command="{Binding DownloadSelectedCommand}" Classes="primaryAction" Margin="0,0,8,8" />
                         <Button Content="{Binding AddToQueueButtonText}" Command="{Binding AddSelectedToTikTokQueueCommand}" Margin="0,0,8,8" />
                         <Button Content="全选" Command="{Binding SelectAllResultsCommand}" Margin="0,0,8,8" />
-                        <Button Content="取消全选" Command="{Binding ClearSelectionCommand}" Margin="0,0,8,8" />
+                        <Button Content="取消选择" Command="{Binding ClearSelectionCommand}" ToolTip.Tip="取消当前列表中所有已勾选的短剧" Margin="0,0,8,8" />
                         <TextBlock Text="{Binding SelectedCountText}" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8" />
                         <TextBlock Text="{Binding TikTokQueueTargetText}"
                                    VerticalAlignment="Center"

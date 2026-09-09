@@ -51,7 +51,12 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
         get => Item.Selected;
         set
         {
-            if (Item.Selected == value) return;
+            if (Item.Selected == value)
+            {
+                // 底层数据可能已被队列操作修改，仍需同步复选框。
+                OnPropertyChanged();
+                return;
+            }
             Item.Selected = value;
             OnPropertyChanged();
             SelectionChanged?.Invoke();
@@ -548,7 +553,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                     CancellationToken.None))
                 .ConfigureAwait(true);
             dirs.Add(projectDir);
-            item.Selected = false;
+            ClearSearchItemSelection(item);
             LogRequested?.Invoke($"已准备{QueuePlatformLabel}队列项目：{item.Title}");
         }
 
@@ -887,7 +892,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 LogRequested?.Invoke($"已更新下载队列：{item.Title}（集数 {episodes}）");
             }
 
-            item.Selected = false;
+            ClearSearchItemSelection(item);
             added++;
         }
 
@@ -895,6 +900,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         SaveState();
         RefreshQueueStats();
         return added;
+    }
+
+    private void ClearSearchItemSelection(DramaSearchItem item)
+    {
+        foreach (var row in SearchResults.Where(row => ReferenceEquals(row.Item, item)))
+            row.Selected = false;
+        item.Selected = false;
     }
 
     private List<DramaSearchItem> SelectedSearchItems() =>

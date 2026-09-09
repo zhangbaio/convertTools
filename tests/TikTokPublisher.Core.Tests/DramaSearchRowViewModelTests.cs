@@ -6,6 +6,32 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class DramaSearchRowViewModelTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClearSelection_RefreshesCheckboxEvenWhenUnderlyingItemWasAlreadyCleared(bool clearedByQueue)
+    {
+        var item = Item("剧一", "");
+        var row = new DramaSearchRowViewModel(item) { Selected = true };
+        var viewModel = new DramaDownloadViewModel();
+        viewModel.SearchResults.Add(row);
+        viewModel.UpdateSelectedCount();
+        var checkboxChecked = row.Selected;
+        row.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(row.Selected))
+                checkboxChecked = row.Selected;
+        };
+        if (clearedByQueue)
+            item.Selected = false;
+
+        viewModel.ClearSelectionCommand.Execute(null);
+
+        checkboxChecked.Should().BeFalse();
+        row.Selected.Should().BeFalse();
+        viewModel.SelectedCountText.Should().Be("已选 0 项");
+    }
+
     [Fact]
     public void UpdateItem_ReusesRowAndPreservesPosterStateWhenUrlIsUnchanged()
     {
