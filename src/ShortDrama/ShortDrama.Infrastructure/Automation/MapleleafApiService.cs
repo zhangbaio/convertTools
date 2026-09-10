@@ -8,13 +8,13 @@ using System.Text.Json.Nodes;
 
 namespace ShortDrama.Infrastructure.Automation;
 
-/// <summary>Mapleleaf 1.6.5 REST data source.</summary>
+/// <summary>Mapleleaf 1.6.6 REST data source.</summary>
 public sealed class MapleleafApiService
 {
     public const string BookPrefix = "mapleleaf:";
     public const string EpisodePrefix = "mapleleaf_ep:";
     public const string ClientName = "Mapleleaf";
-    public const string ClientVersion = "1.6.5";
+    public const string ClientVersion = "1.6.6";
 
     private static readonly string[] DefaultApiBases =
     [
@@ -28,7 +28,7 @@ public sealed class MapleleafApiService
 
     private const string PreferredSearchBase = "http://118.89.198.57/api";
     private const string DefaultPhpParseUrl = "http://47.116.45.15/index.php";
-    private const string DefaultOfficialVideoParseUrl = "http://118.89.198.57/api/jxurl.php";
+    private const string DefaultOfficialVideoParseUrl = "http://8.133.218.237/ffm/jxdecrypt.php";
     private const int SearchPageSize = 10;
     private const int LatestMaxPages = 20;
 
@@ -365,9 +365,9 @@ public sealed class MapleleafApiService
                 requestTimeoutSeconds,
                 cancellationToken).ConfigureAwait(false);
 
-        // Mapleleaf 1.6.5 uses a dedicated PHP endpoint for episode parsing. It is not
+        // Mapleleaf 1.6.6 uses a dedicated PHP endpoint for episode parsing. It is not
         // /ThirdParty/videoparse: the official client posts both videoId aliases and wrap=1
-        // to 118.89.198.57/api/jxurl.php, authenticated with the Mapleleaf bearer token.
+        // to 8.133.218.237/ffm/jxdecrypt.php, authenticated with the Mapleleaf bearer token.
         Exception? lastError = null;
         try
         {
@@ -463,16 +463,25 @@ public sealed class MapleleafApiService
             },
             cancellationToken,
             requestTimeoutSeconds).ConfigureAwait(false);
-        var url = ExtractPlayUrlForQuality(inner, NormalizeQuality(quality));
+        var payload = inner is JsonObject wrapper && wrapper["data"] is { } data ? data : inner;
+        var url = ExtractPlayUrlForQuality(payload, NormalizeQuality(quality));
         if (url.Length == 0)
         {
             throw new MapleleafException(
                 ReadString(inner, "message", "msg") is { Length: > 0 } message
                     ? message
-                    : "Mapleleaf 官方 jxurl.php 未返回播放直链");
+                    : "Mapleleaf 官方 jxdecrypt.php 未返回播放直链");
         }
 
-        return new MapleleafVideoPlayback(url, ReadSize(inner));
+        var selected = payload is JsonArray options
+            ? options.FirstOrDefault(item => ExtractPlayUrl(item) == url)
+            : payload;
+        var key = ReadString(selected, "decryption_key", "decryptionKey");
+        var mode = ReadString(selected, "download_mode", "downloadMode");
+        if ((key.Length > 0 || string.Equals(mode, "cenc", StringComparison.OrdinalIgnoreCase)) &&
+            !System.Text.RegularExpressions.Regex.IsMatch(key, "\\A[0-9a-fA-F]{32}\\z"))
+            throw new MapleleafException("Mapleleaf 未返回有效的 CENC 解密密钥");
+        return new MapleleafVideoPlayback(url, ReadSize(selected), CencDecryptKey: key);
     }
 
     private static string ExtractPlayUrlForQuality(JsonNode? node, string requestedQuality)
@@ -987,7 +996,8 @@ public sealed class MapleleafApiService
         long Size,
         IReadOnlyList<string>? EncryptedUrls = null,
         string SpadeA = "",
-        bool Encrypted = false)
+        bool Encrypted = false,
+        string CencDecryptKey = "")
     {
         public IReadOnlyList<string> CdnUrls => EncryptedUrls ?? [];
     }

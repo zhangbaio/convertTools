@@ -13,6 +13,63 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public sealed class DramaSourceRouterDownloadTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cenc_download_checks_cipher_size_before_remux(bool truncated)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mapleleaf-cenc-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        using var http = new HttpClient(new LocalStreamRecordingHandler());
+        var previousResolver = DramaSourceRouter.ResolveFfmpegBinaryForTests.Value;
+        var previousRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+        var decrypted = false;
+        try
+        {
+            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = () => "fake-ffmpeg";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = async (start, token) =>
+            {
+                start.ArgumentList.Should().Contain("-decryption_key");
+                start.ArgumentList.Should().Contain("0123456789abcdef0123456789abcdef");
+                decrypted = true;
+                await File.WriteAllTextAsync(start.ArgumentList[^1], "plain-video-longer", token);
+                return new DramaSourceRouter.ProcessRunResult(0, "", "");
+            };
+            var router = new DramaSourceRouter(http,
+                new TestDramaSettingsProvider(new DramaSourceSettings()),
+                new HongguoLocalApiService(http), new HongguoNewApiService(http),
+                new HongguoDramaSearchService(http), new HongguoDramaDownloader(http),
+                new HongguoMemoryReaderService());
+            var method = typeof(DramaSourceRouter).GetMethods(
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .Single(item => item.Name == "DownloadVideoFileOnceAsync" && item.GetParameters().Length == 13);
+            var finalPath = Path.Combine(directory, "final.mp4");
+            var task = (Task)method.Invoke(router, new object?[] {
+                "https://cdn.example.com/video.mp4", Path.Combine(directory, "temp.mp4"), finalPath,
+                (long)LocalStreamRecordingHandler.StreamBytes.Length + (truncated ? 1 : 0),
+                30, CancellationToken.None, "0123456789abcdef0123456789abcdef",
+                null, false, 1, false, "auto", null
+            })!;
+            if (truncated)
+            {
+                await Assert.ThrowsAsync<InvalidDataException>(async () => await task);
+                decrypted.Should().BeFalse();
+            }
+            else
+            {
+                await task;
+                File.ReadAllText(finalPath).Should().Be("plain-video-longer");
+                decrypted.Should().BeTrue();
+            }
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = previousResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousRunner;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void Mp4_structure_validation_rejects_truncated_mdat()
     {

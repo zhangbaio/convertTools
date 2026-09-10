@@ -986,11 +986,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
             if (!usedHongguoCdn && hasPikachuDecryptKey)
             {
+                if (expectedSize > 0 && new FileInfo(downloadTargetPath).Length != expectedSize)
+                    throw new InvalidDataException("CENC 密文下载长度不完整。");
                 await DecryptPikachuCencVideoAsync(pikachuDecryptKey!.Trim(), downloadTargetPath, tempPath, timeoutSeconds, cancellationToken);
             }
 
             var actualSize = new FileInfo(tempPath).Length;
-            if (expectedSize > 0 && actualSize != expectedSize)
+            // CENC 的大小是密文大小，已在解密前校验；重封装会改变成品大小。
+            if (!hasPikachuDecryptKey && expectedSize > 0 && actualSize != expectedSize)
             {
                 throw new InvalidDataException($"下载文件长度不完整：预期 {expectedSize} 字节，实际 {actualSize} 字节。");
             }
@@ -2244,7 +2247,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             cancellationToken).ConfigureAwait(false);
         return new SourceVideoDetail(
             detail.Url,
-            HongguoCdn: new HongguoCdnDownload(detail.CdnUrls, detail.SpadeA, detail.Encrypted));
+            PikachuDecryptKey: detail.CencDecryptKey,
+            HongguoCdn: new HongguoCdnDownload(detail.CdnUrls, detail.SpadeA, detail.Encrypted),
+            ExpectedSize: string.IsNullOrWhiteSpace(detail.CencDecryptKey) ? 0 : detail.Size);
     }
 
     private async Task<SourceVideoDetail> GetPikachuVideoUrlAsync(string prefixedVideoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
