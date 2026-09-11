@@ -26,7 +26,7 @@ public sealed class MapleleafApiService
         "http://8.133.218.237/api"
     ];
 
-    private const string PreferredSearchBase = "http://118.89.198.57/api";
+    private const string PreferredSearchBase = "http://8.133.218.237/ffm";
     private const string DefaultPhpParseUrl = "http://47.116.45.15/index.php";
     private const string DefaultOfficialVideoParseUrl = "http://8.133.218.237/ffm/jxdecrypt.php";
     private const int SearchPageSize = 10;
@@ -95,13 +95,15 @@ public sealed class MapleleafApiService
         if (keyword.Length == 0)
             return [];
 
+        // Mapleleaf 1.6.6 的“漫剧”和“AI真人剧”共用 tab_type=13。
+        // 默认只请求一次聚合 tab，并与皮卡丘的数据类型设置解耦。
         var body = new JsonObject
         {
             ["query"] = keyword,
-            ["tabType"] = ResolveTabType(settings),
             ["offset"] = Math.Max(0, page - 1) * SearchPageSize,
+            ["tab_type"] = 13,
             ["count"] = SearchPageSize,
-            ["pointsRequired"] = 1
+            ["wrap"] = "1"
         };
 
         Exception? lastError = null;
@@ -127,7 +129,14 @@ public sealed class MapleleafApiService
         {
             try
             {
-                var inner = await SendAuthenticatedAsync(settings, path, body, cancellationToken);
+                var legacyBody = new JsonObject
+                {
+                    ["query"] = keyword,
+                    ["tabType"] = 13,
+                    ["offset"] = Math.Max(0, page - 1) * SearchPageSize,
+                    ["pointsRequired"] = 1
+                };
+                var inner = await SendAuthenticatedAsync(settings, path, legacyBody, cancellationToken);
                 var mapped = MapSearchItems(inner);
                 if (mapped.Count > 0)
                     return mapped;
@@ -946,9 +955,6 @@ public sealed class MapleleafApiService
         var multiplier = match.Groups[2].Value switch { "KB" => 1024d, "MB" => 1024d * 1024, "GB" => 1024d * 1024 * 1024, "TB" => 1024d * 1024 * 1024 * 1024, _ => 1d };
         return (long)(number * multiplier);
     }
-
-    private static int ResolveTabType(DramaSourceSettings settings) =>
-        (settings.PikachuDramaType ?? string.Empty).Trim().ToLowerInvariant() is "manga" or "comic" ? 1 : 0;
 
     private static string NormalizeQuality(string quality) =>
         (quality ?? string.Empty).Trim().ToLowerInvariant() switch

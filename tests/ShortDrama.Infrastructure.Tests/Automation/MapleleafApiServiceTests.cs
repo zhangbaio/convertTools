@@ -59,7 +59,18 @@ public sealed class MapleleafApiServiceTests
         items[0].Title.Should().Be("测试剧");
         items[0].EpisodeTotal.Should().Be(24);
         items[0].FavoriteCount.Should().Be(8765);
-        handler.Requests.Should().Contain(item => item.Path.EndsWith("/search.php", StringComparison.Ordinal) && item.Body.Contains("\"offset\":10", StringComparison.Ordinal));
+        var request = handler.Requests.First(item =>
+            item.Path.EndsWith("/search.php", StringComparison.Ordinal));
+        request.Host.Should().Be("8.133.218.237");
+        request.Path.Should().Be("/ffm/search.php");
+        using var body = JsonDocument.Parse(request.Body);
+        body.RootElement.GetProperty("query").GetString().Should().Be("测试剧");
+        body.RootElement.GetProperty("offset").GetInt32().Should().Be(10);
+        body.RootElement.GetProperty("tab_type").GetInt32().Should().Be(13);
+        body.RootElement.GetProperty("count").GetInt32().Should().Be(10);
+        body.RootElement.GetProperty("wrap").GetString().Should().Be("1");
+        body.RootElement.TryGetProperty("tabType", out _).Should().BeFalse();
+        body.RootElement.TryGetProperty("pointsRequired", out _).Should().BeFalse();
     }
 
     [Theory]
