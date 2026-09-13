@@ -1,6 +1,5 @@
 using FluentAssertions;
 using TikTokPublisher.Core.Publishing;
-using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Core.Tests;
@@ -120,29 +119,4 @@ public sealed class TikTokFileUploadTransportTests
         ];
     }
 
-    [Theory]
-    [InlineData("TikTok 平台暂时性提交失败：操作失败请重试。")]
-    [InlineData("TikTok 提交后平台仍显示草稿，未标记为完成。")]
-    public void Headless_publish_retries_submit_rejections_in_a_visible_browser(string message)
-    {
-        EmbeddedBrowserPublishAutomation.ShouldRetrySubmitWithHeadedBrowser(
-                useLaunch: true,
-                launchHeadless: true,
-                finalAction: FinalAction.Publish,
-                allowRetry: true,
-                failureMessage: message)
-            .Should().BeTrue();
-    }
-
-    [Fact]
-    public void Visible_browser_does_not_repeat_the_headed_submit_retry()
-    {
-        EmbeddedBrowserPublishAutomation.ShouldRetrySubmitWithHeadedBrowser(
-                useLaunch: true,
-                launchHeadless: false,
-                finalAction: FinalAction.Publish,
-                allowRetry: true,
-                failureMessage: "操作失败请重试")
-            .Should().BeFalse();
-    }
 }

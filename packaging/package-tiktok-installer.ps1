@@ -34,9 +34,45 @@ $AppIconPath = Join-Path $Root "src\TikTokPublisher\TikTokPublisher.Desktop\Asse
 $DependencyCacheDir = Join-Path $DependenciesDir "cache"
 $ModelsDir = Join-Path $Root "models"
 $VersionFile = Join-Path $Root "packaging\tiktok-installer-version.txt"
+$InstallerBaseName = if ((Split-Path -Leaf $PublishDir) -eq "YunfanDramaStudio") {
+    "YunfanDramaStudio-Setup"
+}
+else {
+    "TikTokShortDramaUploader-Setup"
+}
 $BundleDependencies = -not $NoBundleDependencies
 $BundleLocalAsrModels = $BundleDependencies -and -not $NoBundleLocalAsrModels
 $ShouldAdvanceVersion = $false
+
+function Get-NextInstallerVersion {
+    param([Parameter(Mandatory = $true)][string]$CurrentVersion)
+
+    $parts = $CurrentVersion.Split('.')
+    $major = [int]$parts[0]
+    $minor = [int]$parts[1]
+    return "$major.$($minor + 1).0"
+}
+
+function Get-LatestSuccessfulInstallerVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string]$BaseName
+    )
+
+    if (-not (Test-Path -LiteralPath $Directory)) {
+        return $null
+    }
+
+    $pattern = '^' + [regex]::Escape($BaseName) + '-(\d+\.\d+\.\d+)\.exe$'
+    $versions = Get-ChildItem -LiteralPath $Directory -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            if ($_.Name -match $pattern) {
+                [version]$Matches[1]
+            }
+        } |
+        Sort-Object -Descending
+    return $versions | Select-Object -First 1
+}
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
     if (Test-Path -LiteralPath $VersionFile) {
@@ -46,20 +82,24 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
         $Version = "1.0.0"
     }
 
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+        throw "Invalid installer version '$Version'. Expected semantic version format like 1.0.0."
+    }
+
+    $latestSuccessfulVersion = Get-LatestSuccessfulInstallerVersion `
+        -Directory $InstallerDir `
+        -BaseName $InstallerBaseName
+    if ($null -ne $latestSuccessfulVersion -and [version]$Version -le $latestSuccessfulVersion) {
+        $configuredVersion = $Version
+        $Version = Get-NextInstallerVersion -CurrentVersion ($latestSuccessfulVersion.ToString(3))
+        Write-Host "Configured version $configuredVersion is not newer than the latest $InstallerBaseName artifact $latestSuccessfulVersion; continuing with $Version"
+    }
+
     $ShouldAdvanceVersion = $true
 }
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Invalid installer version '$Version'. Expected semantic version format like 1.0.0."
-}
-
-function Get-NextInstallerVersion {
-    param([Parameter(Mandatory = $true)][string]$CurrentVersion)
-
-    $parts = $CurrentVersion.Split('.')
-    $major = [int]$parts[0]
-    $minor = [int]$parts[1]
-    return "$major.$($minor + 1).0"
 }
 
 function Assert-UnderDirectory {
@@ -922,7 +962,7 @@ $isccArgs += $InnoScript
 
 Invoke-Checked -FilePath $iscc -Arguments $isccArgs
 
-$installerPath = Join-Path $InstallerDir "TikTokShortDramaUploader-Setup-$Version.exe"
+$installerPath = Join-Path $InstallerDir "$InstallerBaseName-$Version.exe"
 Write-Host "Installer created: $installerPath"
 
 if ($ShouldAdvanceVersion) {
