@@ -47,9 +47,11 @@ internal static class CdpDomFileUpload
                 ["files"] = normalized,
             }).ConfigureAwait(false);
 
-            var selectedCount = await input.EvaluateAsync<int>(
-                "element => element.files ? element.files.length : 0").ConfigureAwait(false);
-            return selectedCount == normalized.Length;
+            // DOM.setFileInputFiles returning successfully means Chromium accepted the files.
+            // TikTok commonly replaces the input synchronously from its change handler, so
+            // reading element.files through the old locator can fail after a successful upload.
+            // Returning false in that state makes the caller select the same files again.
+            return true;
         }
         catch
         {
