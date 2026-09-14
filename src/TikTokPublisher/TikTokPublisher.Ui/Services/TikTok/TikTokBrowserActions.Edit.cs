@@ -147,6 +147,26 @@ public static partial class TikTokBrowserActions
         }
 
         var tableRowCount = await ReadEditVideoTableRowCountAsync(page);
+        if (ShouldRebuildOverfilledEditVideoTable(tableRowCount, expectedCount))
+        {
+            Log(log,
+                $"TikTok 草稿正片已有 {tableRowCount}/{expectedCount} 行，检测到多传视频；" +
+                "先删除全部正片，再从第1集重新上传。");
+            await DeleteEditVideoRowsFromSlotAsync(page, keepCount: 0, log, ct);
+
+            var remainingCount = await ReadEditVideoTableRowCountAsync(page);
+            if (remainingCount != 0)
+            {
+                throw new InvalidOperationException(
+                    $"TikTok 草稿正片清理后仍有 {remainingCount} 行，未开始重传，避免再次产生错序或重复视频。");
+            }
+
+            Log(log, $"TikTok 草稿正片已全部删除，开始从第1集完整重传 {uploadPaths.Count} 集。");
+            await UploadEditFlowMissingVideosAsync(
+                page, uploadPaths, expectedCount, payload, options, log, ct);
+            return;
+        }
+
         if (rows.Count > 0)
         {
             var aligned = FindAlignedEditVideoPrefixCount(rows);
@@ -160,21 +180,6 @@ public static partial class TikTokBrowserActions
                     $"删除第{firstBad}集及其后所有行并从第{firstBad}集起重传补齐。");
                 await DeleteEditVideoRowsFromSlotAsync(page, aligned, log, ct);
                 missingPaths = uploadPaths.Skip(aligned).ToList();
-            }
-            else if (tableRowCount > expectedCount)
-            {
-                if (aligned < expectedCount)
-                {
-                    throw new InvalidOperationException(
-                        $"TikTok 草稿正片已有 {tableRowCount} 行，超过总集数 {expectedCount}，" +
-                        $"但只完整核对到前 {aligned} 集。为避免误删，请刷新页面后重试。");
-                }
-
-                Log(log,
-                    $"TikTok 草稿正片已有 {tableRowCount}/{expectedCount} 行，" +
-                    $"删除第 {expectedCount + 1} 行及其后的重复或多余视频。");
-                await DeleteEditVideoRowsFromSlotAsync(page, expectedCount, log, ct);
-                return;
             }
             else if (tableRowCount >= expectedCount && rows.Count < expectedCount)
             {
@@ -208,12 +213,6 @@ public static partial class TikTokBrowserActions
             await UploadEditFlowMissingVideosAsync(
                 page, missingPaths, expectedCount, payload, options, log, ct);
             return;
-        }
-
-        if (tableRowCount > expectedCount)
-        {
-            throw new InvalidOperationException(
-                $"TikTok 草稿正片已有 {tableRowCount} 行，超过总集数 {expectedCount}。请先在页面删除多余视频后重试。");
         }
 
         if (tableRowCount >= expectedCount)
@@ -627,6 +626,9 @@ public static partial class TikTokBrowserActions
         return aligned;
     }
 
+    internal static bool ShouldRebuildOverfilledEditVideoTable(int tableRowCount, int expectedCount) =>
+        expectedCount > 0 && tableRowCount > expectedCount;
+
     private static bool TryReadIntProperty(JsonElement item, string name, out int value)
     {
         value = 0;
@@ -666,7 +668,11 @@ public static partial class TikTokBrowserActions
         }
 
         if (deleted > 0)
-            Log(log, $"已删除错位的 {deleted} 行（保留前 {keepCount} 集）。");
+        {
+            Log(log, keepCount == 0
+                ? $"已删除全部正片视频，共 {deleted} 行。"
+                : $"已删除错位的 {deleted} 行（保留前 {keepCount} 集）。");
+        }
         return deleted;
     }
 

@@ -78,6 +78,20 @@ public sealed class TikTokFileUploadTransportTests
     }
 
     [Theory]
+    [InlineData(81, 39, true)]
+    [InlineData(40, 39, true)]
+    [InlineData(39, 39, false)]
+    [InlineData(38, 39, false)]
+    public void Overfilled_edit_video_table_is_rebuilt_from_episode_one(
+        int tableRowCount,
+        int expectedCount,
+        bool expected)
+    {
+        TikTokBrowserActions.ShouldRebuildOverfilledEditVideoTable(tableRowCount, expectedCount)
+            .Should().Be(expected);
+    }
+
+    [Theory]
     [MemberData(nameof(DisorderedVideoRows))]
     public void Edit_video_alignment_stops_before_disorder_or_slot_gaps(
         TikTokBrowserActions.EditVideoRow[] rows,

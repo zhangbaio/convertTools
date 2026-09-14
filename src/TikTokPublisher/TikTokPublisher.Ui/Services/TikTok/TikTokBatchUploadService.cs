@@ -231,6 +231,12 @@ public static class TikTokBatchUploadService
                 return false;
 
             var rowCount = await ReadUploadTableRowCountAsync(page);
+            if (rowCount > targetReady)
+            {
+                throw new InvalidOperationException(
+                    $"TikTok 本批上传后正片表格已有 {rowCount} 行，超过本批目标 {targetReady} 行。" +
+                    "已立即停止后续批次，避免继续产生重复视频；请重新执行编辑，程序会清空正片后从第1集重传。");
+            }
             if (rowCount >= targetReady ||
                 names.Any(name => bodyText.Contains(name, StringComparison.OrdinalIgnoreCase)))
                 return true;
@@ -300,6 +306,13 @@ public static class TikTokBatchUploadService
                 bodyText,
                 await TikTokBrowserActions.ReadUploadTableTextsAsync(page));
             var uploading = activity.Uploading;
+
+            if (rowCount > targetReady)
+            {
+                throw new InvalidOperationException(
+                    $"TikTok 本批上传后正片表格已有 {rowCount} 行，超过本批目标 {targetReady} 行。" +
+                    "已立即停止后续批次，避免继续产生重复视频；请重新执行编辑，程序会清空正片后从第1集重传。");
+            }
 
             if (TikTokUploadProgressParser.IsUploadComplete(ready, targetReady, activity))
                 return BatchWaitOutcome.Done;
