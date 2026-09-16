@@ -143,7 +143,7 @@ public sealed class HongguoStandardEditionTests
     }
 
     [Fact]
-    public async Task Standard_Playback_Skips_Batch_Plan_And_Uses_One_Model_Id_Per_Request()
+    public async Task Standard_Playback_Uses_Batch_Plan_And_One_Series_Detail()
     {
         using var http = new HttpClient();
         var service = new HongguoHighApiService(http);
@@ -155,19 +155,30 @@ public sealed class HongguoStandardEditionTests
             if (purpose == "multi_video_detail")
                 data["json"]!["series_id"]!.GetValue<string>().Should().Be("book-1");
             else
-                data["json"]!["mixed_video_id_map"]!["1"]!.AsArray().Should().ContainSingle();
+                data["json"]!["mixed_video_id_map"]!["1"]!.AsArray().Should().HaveCount(3);
             return Task.FromResult<JsonNode?>(new JsonObject { ["descriptor"] = true });
         };
         service.ExecuteSignedRequestForTests = (_, _, _, _) => Task.FromResult<JsonNode?>(
             new JsonObject
             {
-                ["video_list"] = new JsonArray(
-                    Enumerable.Range(1, 3).Select(index => (JsonNode)new JsonObject
-                    {
-                        ["video_id"] = $"video-{index}",
-                        ["main_url_direct_url"] = $"https://cdn.example/video-{index}.mp4",
-                        ["gear_des_key"] = "0:MP4|4:1080p",
-                    }).ToArray())
+                ["video-1"] = new JsonObject
+                {
+                    ["video_id"] = "video-1",
+                    ["main_url_direct_url"] = "https://cdn.example/video-1.mp4",
+                    ["gear_des_key"] = "0:MP4|4:1080p",
+                },
+                ["video-2"] = new JsonObject
+                {
+                    ["video_id"] = "video-2",
+                    ["main_url_direct_url"] = "https://cdn.example/video-2.mp4",
+                    ["gear_des_key"] = "0:MP4|4:1080p",
+                },
+                ["video-3"] = new JsonObject
+                {
+                    ["video_id"] = "video-3",
+                    ["main_url_direct_url"] = "https://cdn.example/video-3.mp4",
+                    ["gear_des_key"] = "0:MP4|4:1080p",
+                }
             });
         var settings = new DramaSourceSettings { HghighEdition = "standard" };
         var encoded = Enumerable.Range(1, 3)
@@ -178,11 +189,57 @@ public sealed class HongguoStandardEditionTests
         var playback = await Task.WhenAll(encoded.Select(id =>
             service.GetVideoPlaybackAsync(settings, id, "1080P", CancellationToken.None)));
 
-        calls.Should().Be(6, "standard edition should use one detail and one single-id model request per episode");
+        calls.Should().Be(2, "标准版批量计划应只代签一次系列详情和一次多 id model");
         playback.Select(item => item.Url).Should().Equal(
             "https://cdn.example/video-1.mp4",
             "https://cdn.example/video-2.mp4",
             "https://cdn.example/video-3.mp4");
         playback.Should().OnlyContain(item => !item.Encrypted && item.EncryptedUrls.Count == 0);
+    }
+
+    [Fact]
+    public async Task Standard_Playback_Reuses_Cached_Series_Detail_Across_Episodes()
+    {
+        using var http = new HttpClient();
+        var service = new HongguoHighApiService(http);
+        var purposes = new List<string>();
+        service.AuthedRequestForTests = (_, _, data, _, _) =>
+        {
+            lock (purposes)
+                purposes.Add(data["purpose"]!.GetValue<string>());
+            return Task.FromResult<JsonNode?>(new JsonObject { ["descriptor"] = true });
+        };
+        service.ExecuteSignedRequestForTests = (_, _, _, _) => Task.FromResult<JsonNode?>(
+            new JsonObject
+            {
+                ["video_list"] = new JsonArray(
+                    Enumerable.Range(1, 2).Select(index => (JsonNode)new JsonObject
+                    {
+                        ["video_id"] = $"video-{index}",
+                        ["main_url_direct_url"] = $"https://cdn.example/video-{index}.mp4",
+                        ["gear_des_key"] = "0:MP4|4:1080p",
+                    }).ToArray())
+            });
+        var settings = new DramaSourceSettings
+        {
+            HghighEdition = "standard",
+            HghighAccount = "cache@example.com",
+            HghighStandardDeviceId = "std-device"
+        };
+
+        var first = await service.GetVideoPlaybackAsync(
+            settings,
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 1, "video-1"),
+            "1080P",
+            CancellationToken.None);
+        var second = await service.GetVideoPlaybackAsync(
+            settings,
+            HongguoHighCrypto.EncodeEpisodeId("book-1", 2, "video-2"),
+            "1080P",
+            CancellationToken.None);
+
+        purposes.Should().Equal("multi_video_detail", "multi_video_model", "multi_video_model");
+        first.Url.Should().Be("https://cdn.example/video-1.mp4");
+        second.Url.Should().Be("https://cdn.example/video-2.mp4");
     }
 }
