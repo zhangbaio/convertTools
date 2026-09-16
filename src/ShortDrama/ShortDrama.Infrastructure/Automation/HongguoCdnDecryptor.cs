@@ -49,7 +49,57 @@ internal static class HongguoCdnDecryptor
         }
         if (totalVideoSamples == 0 || validVideoSamples != totalVideoSamples)
             throw new InvalidDataException($"解密后视频样本校验失败：有效 {validVideoSamples}/{totalVideoSamples}");
+        UnprotectSampleEntries(output);
         File.WriteAllBytes(outputPath, output);
+    }
+
+    /// <summary>
+    /// 样本已本地解密为明文后，把 stsd 里的 CENC 加密样本条目 encv/enca 改回 sinf/frma 记录的原始
+    /// 格式（如 hvc1/mp4a）。否则合规播放器仍会把该轨当成 DRM 加密、因无密钥而拒播（ffmpeg 宽容可解）。
+    /// 只改 4 字节的条目类型，不改盒子长度、不动样本数据。返回改动的条目数。
+    /// </summary>
+    internal static int UnprotectSampleEntries(byte[] data)
+    {
+        var moov = FindBox(data, ["moov"u8.ToArray()]);
+        if (moov is null)
+            return 0;
+        var changed = 0;
+        foreach (var (type, trak) in EnumerateBoxes(data, moov.Value.ContentStart, moov.Value.End))
+        {
+            if (!type.AsSpan().SequenceEqual("trak"u8))
+                continue;
+            var stsd = FindBox(
+                data,
+                ["mdia"u8.ToArray(), "minf"u8.ToArray(), "stbl"u8.ToArray(), "stsd"u8.ToArray()],
+                trak.ContentStart,
+                trak.End);
+            if (stsd is null)
+                continue;
+            // stsd 内容：4 字节 version/flags + 4 字节 entry_count，随后是样本条目盒子。
+            foreach (var (entryType, entry) in EnumerateBoxes(data, stsd.Value.ContentStart + 8, stsd.Value.End))
+            {
+                if (!entryType.AsSpan().SequenceEqual("encv"u8) && !entryType.AsSpan().SequenceEqual("enca"u8))
+                    continue;
+                var original = FindOriginalFormat(data, entry);
+                if (original is null)
+                    continue;
+                // 样本条目类型字段位于盒子头（8 字节：size4+type4）的 type 处，即 ContentStart-4。
+                Array.Copy(original, 0, data, entry.ContentStart - 4, 4);
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    private static byte[]? FindOriginalFormat(byte[] data, Box entry)
+    {
+        // sinf → frma 盒（12 字节：size4+"frma"4+原始 fourcc4）。在条目范围内定位 frma 取其后 4 字节。
+        for (var index = entry.ContentStart; index + 8 <= entry.End; index++)
+        {
+            if (data.AsSpan(index, 4).SequenceEqual("frma"u8))
+                return data.AsSpan(index + 4, 4).ToArray();
+        }
+        return null;
     }
 
     private static (byte[] Key, ulong Iv)? VerifyKey(

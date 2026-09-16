@@ -21,6 +21,7 @@ public sealed class HongguoHighApiService
     private static readonly TimeSpan CalendarCacheLifetime = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan CalendarDetailCacheLifetime = TimeSpan.FromHours(12);
     private static readonly TimeSpan PlaybackCacheLifetime = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan StandardDetailCacheLifetime = TimeSpan.FromMinutes(5);
     public const string FanqieWeChatUa =
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) " +
         "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 " +
@@ -48,6 +49,7 @@ public sealed class HongguoHighApiService
     private readonly ConcurrentDictionary<string, CalendarDetailCacheEntry> _calendarDetailCache = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, BatchParsePlan> _batchParsePlans = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, PlaybackCacheEntry> _playbackCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, StandardDetailCacheEntry> _standardDetailCache = new(StringComparer.Ordinal);
     private HongguoHighDevice? _device;
     private HongguoClientProfile _activeProfile = HongguoClientProfile.High;
 
@@ -60,6 +62,7 @@ public sealed class HongguoHighApiService
     private sealed record CalendarDetailCacheEntry(DateTimeOffset CreatedAt, JsonObject BookInfo);
     private sealed record BatchEpisode(string VideoId, int EpisodeNumber);
     private sealed record PlaybackCacheEntry(DateTimeOffset CreatedAt, HongguoHighVideoPlayback Playback);
+    private sealed record StandardDetailCacheEntry(DateTimeOffset CreatedAt, JsonNode Payload);
     private sealed class BatchParsePlan
     {
         public Dictionary<string, Lazy<Task<IReadOnlyDictionary<string, HongguoHighVideoPlayback>>>> GroupsByVideoId { get; } = new(StringComparer.Ordinal);
@@ -76,9 +79,6 @@ public sealed class HongguoHighApiService
         string quality,
         int batchSize)
     {
-        if (!HongguoClientProfile.Resolve(settings.HghighEdition).UsesServerBatchPlayback)
-            return EmptyDisposable.Instance;
-
         var episodes = encodedVideoIds
             .Select(id => HongguoHighCrypto.TryDecodeEpisodeId(id, out var bookId, out var number, out var videoId)
                 ? (BookId: bookId, Episode: new BatchEpisode(videoId, number))
@@ -620,55 +620,13 @@ public sealed class HongguoHighApiService
     {
         var timeout = ParsePlaybackTimeout(settings.HongguoDownloadTimeoutSeconds);
         var normalizedQuality = HongguoHighCrypto.NormalizeQuality(quality);
-        var body = new JsonObject
-        {
-            ["biz_param"] = new JsonObject
-            {
-                ["caller_scene"] = "three_col",
-                ["detail_page_version"] = 0,
-                ["image_shrink_datas_str"] =
-                    "W3siaW1hZ2VfdHlwZSI6MywiaW1hZ2Vfd2lkdGgiOjEwODAsInNocmlua190eXBlIjozfSx7Imlt\n" +
-                    "YWdlX3R5cGUiOjQsImltYWdlX3dpZHRoIjoxMDgsInNocmlua190eXBlIjo0fV0=\n",
-                ["need_all_video_definition"] = false,
-                ["need_mp4_align"] = false,
-                ["screen_width_px"] = "1080",
-                ["source"] = 7,
-                ["use_os_player"] = false,
-            },
-            ["series_id"] = bookId,
-        };
-        var packed = HongguoHighCrypto.GzipStoreJson(body);
-        var digest = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(packed));
-        var spec = new JsonObject
-        {
-            ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
-            ["path"] = "/novel/player/multi_video_detail/v1/",
-            ["method"] = "POST",
-            ["purpose"] = "multi_video_detail",
-            ["requestId"] = $"redguo.multi_video_detail:{episodes[0].VideoId}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
-            ["device_profile_version"] = DeviceProfileVersion(settings),
-            ["deviceProfileVersion"] = DeviceProfileVersion(settings),
-            ["videoId"] = episodes[0].VideoId,
-            ["bookId"] = bookId,
-            ["episode"] = episodes[0].EpisodeNumber,
-            ["quality"] = normalizedQuality,
-            ["resolution"] = normalizedQuality,
-            ["content_encoding"] = "gzip",
-            ["contentEncoding"] = "gzip",
-            ["json"] = body.DeepClone(),
-            ["body_md5"] = digest,
-            ["bodyMd5"] = digest,
-            ["manual"] = false,
-            ["charge"] = true
-        };
-
-        const string standardVideoPath = "/redguo/sign";
-        var descriptor = AuthedRequestForTests is null
-            ? await AuthedRequestAsync(settings, standardVideoPath, spec, timeout, cancellationToken)
-            : await AuthedRequestForTests(settings, standardVideoPath, spec, timeout, cancellationToken);
-        var detailPayload = ExecuteSignedRequestForTests is null
-            ? await ExecuteSignedFanqieRequestAsync(descriptor, packed, timeout, cancellationToken)
-            : await ExecuteSignedRequestForTests(descriptor, packed, timeout, cancellationToken);
+        var detailPayload = await FetchStandardSeriesDetailAsync(
+            settings,
+            bookId,
+            episodes,
+            normalizedQuality,
+            timeout,
+            cancellationToken);
 
         var verifiedEpisodes = episodes
             .Where(episode => ContainsVideoId(detailPayload, episode.VideoId))
@@ -716,6 +674,7 @@ public sealed class HongguoHighApiService
             ["manual"] = false,
             ["charge"] = true,
         };
+        const string standardVideoPath = "/redguo/sign";
         var modelDescriptor = AuthedRequestForTests is null
             ? await AuthedRequestAsync(settings, standardVideoPath, modelSpec, timeout, cancellationToken)
             : await AuthedRequestForTests(settings, standardVideoPath, modelSpec, timeout, cancellationToken);
@@ -726,7 +685,8 @@ public sealed class HongguoHighApiService
         var resolved = new Dictionary<string, HongguoHighVideoPlayback>(StringComparer.Ordinal);
         foreach (var episode in verifiedEpisodes)
         {
-            var item = FindStandardPlaybackItem(payload, episode.VideoId, normalizedQuality);
+            var scoped = SelectStandardModelNode(payload, episode.VideoId) ?? payload;
+            var item = FindStandardPlaybackItem(scoped, episode.VideoId, normalizedQuality);
             var url = ReadPlaybackUrl(item);
             if (item is null || !IsHttpUrl(url))
                 continue;
@@ -738,6 +698,72 @@ public sealed class HongguoHighApiService
         return resolved;
     }
 
+    private async Task<JsonNode?> FetchStandardSeriesDetailAsync(
+        DramaSourceSettings settings,
+        string bookId,
+        IReadOnlyList<BatchEpisode> episodes,
+        string normalizedQuality,
+        int timeout,
+        CancellationToken cancellationToken)
+    {
+        var cacheKey = BuildStandardDetailCacheKey(settings, bookId);
+        if (TryReadStandardDetailCache(cacheKey, out var cached))
+            return cached;
+
+        var body = new JsonObject
+        {
+            ["biz_param"] = new JsonObject
+            {
+                ["caller_scene"] = "three_col",
+                ["detail_page_version"] = 0,
+                ["image_shrink_datas_str"] =
+                    "W3siaW1hZ2VfdHlwZSI6MywiaW1hZ2Vfd2lkdGgiOjEwODAsInNocmlua190eXBlIjozfSx7Imlt\n" +
+                    "YWdlX3R5cGUiOjQsImltYWdlX3dpZHRoIjoxMDgsInNocmlua190eXBlIjo0fV0=\n",
+                ["need_all_video_definition"] = false,
+                ["need_mp4_align"] = false,
+                ["screen_width_px"] = "1080",
+                ["source"] = 7,
+                ["use_os_player"] = false,
+            },
+            ["series_id"] = bookId,
+        };
+        var packed = HongguoHighCrypto.GzipStoreJson(body);
+        var digest = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(packed));
+        var spec = new JsonObject
+        {
+            ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
+            ["path"] = "/novel/player/multi_video_detail/v1/",
+            ["method"] = "POST",
+            ["purpose"] = "multi_video_detail",
+            ["requestId"] = $"redguo.multi_video_detail:{bookId}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            ["device_profile_version"] = DeviceProfileVersion(settings),
+            ["deviceProfileVersion"] = DeviceProfileVersion(settings),
+            ["videoId"] = episodes[0].VideoId,
+            ["bookId"] = bookId,
+            ["episode"] = episodes[0].EpisodeNumber,
+            ["quality"] = normalizedQuality,
+            ["resolution"] = normalizedQuality,
+            ["content_encoding"] = "gzip",
+            ["contentEncoding"] = "gzip",
+            ["json"] = body.DeepClone(),
+            ["body_md5"] = digest,
+            ["bodyMd5"] = digest,
+            ["manual"] = false,
+            ["charge"] = true
+        };
+
+        const string standardVideoPath = "/redguo/sign";
+        var descriptor = AuthedRequestForTests is null
+            ? await AuthedRequestAsync(settings, standardVideoPath, spec, timeout, cancellationToken)
+            : await AuthedRequestForTests(settings, standardVideoPath, spec, timeout, cancellationToken);
+        var payload = ExecuteSignedRequestForTests is null
+            ? await ExecuteSignedFanqieRequestAsync(descriptor, packed, timeout, cancellationToken)
+            : await ExecuteSignedRequestForTests(descriptor, packed, timeout, cancellationToken);
+        if (payload is not null)
+            _standardDetailCache[cacheKey] = new StandardDetailCacheEntry(DateTimeOffset.UtcNow, payload);
+        return payload;
+    }
+
     private async Task<IReadOnlyDictionary<string, HongguoHighVideoPlayback>> ResolveBatchGroupAsync(
         DramaSourceSettings settings,
         string bookId,
@@ -745,6 +771,16 @@ public sealed class HongguoHighApiService
         string quality,
         CancellationToken cancellationToken)
     {
+        if (HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition)
+        {
+            return await ResolveStandardBatchGroupAsync(
+                settings,
+                bookId,
+                episodes,
+                quality,
+                cancellationToken);
+        }
+
         var timeout = ParsePlaybackTimeout(settings.HongguoDownloadTimeoutSeconds);
         var missing = episodes.ToDictionary(item => item.VideoId, StringComparer.Ordinal);
         var resolved = new Dictionary<string, HongguoHighVideoPlayback>(StringComparer.Ordinal);
@@ -810,6 +846,16 @@ public sealed class HongguoHighApiService
             HongguoHighCrypto.StripBookPrefix(bookId),
             HongguoHighCrypto.NormalizeQuality(quality));
 
+    private static string BuildStandardDetailCacheKey(DramaSourceSettings settings, string bookId) =>
+        string.Join("\n",
+            settings.HghighAccount?.Trim().ToLowerInvariant() ?? "",
+            (
+                settings.HghighStandardDeviceId ??
+                settings.HghighDeviceId ??
+                ""
+            ).Trim().ToLowerInvariant(),
+            HongguoHighCrypto.StripBookPrefix(bookId));
+
     private static string ActiveConfiguredDeviceId(DramaSourceSettings settings) =>
         HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition
             ? settings.HghighStandardDeviceId ?? ""
@@ -830,6 +876,19 @@ public sealed class HongguoHighApiService
         }
         _playbackCache.TryRemove(key, out _);
         playback = null!;
+        return false;
+    }
+
+    private bool TryReadStandardDetailCache(string key, out JsonNode payload)
+    {
+        if (_standardDetailCache.TryGetValue(key, out var cached) &&
+            DateTimeOffset.UtcNow - cached.CreatedAt <= StandardDetailCacheLifetime)
+        {
+            payload = cached.Payload;
+            return true;
+        }
+        _standardDetailCache.TryRemove(key, out _);
+        payload = null!;
         return false;
     }
 
@@ -862,11 +921,29 @@ public sealed class HongguoHighApiService
         switch (node)
         {
             case JsonObject obj:
+                if (obj.ContainsKey(videoId))
+                    return true;
                 if (string.Equals(ReadPlaybackVideoId(obj), videoId, StringComparison.Ordinal))
                     return true;
                 return obj.Any(property => ContainsVideoId(property.Value, videoId));
             case JsonArray array:
                 return array.Any(item => ContainsVideoId(item, videoId));
+            case JsonValue value when value.TryGetValue<string>(out var text):
+                if (string.Equals(text, videoId, StringComparison.Ordinal))
+                    return true;
+                var trimmed = text.TrimStart();
+                if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
+                {
+                    try
+                    {
+                        return ContainsVideoId(JsonNode.Parse(text), videoId);
+                    }
+                    catch (JsonException)
+                    {
+                        return false;
+                    }
+                }
+                return false;
             default:
                 return false;
         }
@@ -990,6 +1067,38 @@ public sealed class HongguoHighApiService
                    string.Equals(GetString(item, "video_id"), rawVideoId, StringComparison.Ordinal) ||
                    string.Equals(GetString(item, "videoId"), rawVideoId, StringComparison.Ordinal))
                ?? candidates.FirstOrDefault();
+    }
+
+    private static JsonNode? SelectStandardModelNode(JsonNode? response, string videoId)
+    {
+        switch (response)
+        {
+            case JsonObject obj:
+                if (obj[videoId] is { } direct)
+                    return direct;
+                foreach (var key in new[] { "data", "video_list", "video_model", "videoModel" })
+                {
+                    if (obj[key] is JsonObject nested && nested[videoId] is { } found)
+                        return found;
+                }
+                foreach (var property in obj)
+                {
+                    var nested = SelectStandardModelNode(property.Value, videoId);
+                    if (nested is not null)
+                        return nested;
+                }
+                return null;
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    var nested = SelectStandardModelNode(item, videoId);
+                    if (nested is not null)
+                        return nested;
+                }
+                return null;
+            default:
+                return null;
+        }
     }
 
     private static JsonObject? FindStandardPlaybackItem(JsonNode? response, string rawVideoId, string quality)

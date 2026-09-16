@@ -121,6 +121,43 @@ public sealed class DramaSourceRouterDownloadTests
     }
 
     [Theory]
+    [InlineData(3, 0, 3)]
+    [InlineData(3, 6, 6)]
+    [InlineData(8, 6, 8)]
+    [InlineData(1, 6, 6)]
+    [InlineData(12, 6, 10)]
+    public void Hghigh_download_concurrency_uses_configured_value_with_floor(
+        int requested,
+        int minimum,
+        int expected)
+    {
+        DramaSourceRouter.ResolveDownloadConcurrency(requested, minimum).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Hghigh_piece_pool_splits_file_into_fixed_512kb_ranges()
+    {
+        const int pieceSize = 512 * 1024;
+        var ranges = DramaSourceRouter.BuildPooledPieceRanges(5L * 1024 * 1024, pieceSize);
+
+        ranges.Should().HaveCount(10);
+        ranges[0].Should().Be((0, pieceSize - 1));
+        ranges[^1].Should().Be((9L * pieceSize, 5L * 1024 * 1024 - 1));
+        ranges.Should().OnlyContain(range => range.End - range.Start + 1 <= pieceSize);
+    }
+
+    [Fact]
+    public void Hghigh_piece_pool_keeps_tail_piece_for_uneven_size()
+    {
+        const int pieceSize = 512 * 1024;
+        var total = pieceSize * 2 + 17;
+        var ranges = DramaSourceRouter.BuildPooledPieceRanges(total, pieceSize);
+
+        ranges.Should().HaveCount(3);
+        ranges[2].Should().Be((2L * pieceSize, total - 1));
+    }
+
+    [Theory]
     [InlineData("mapleleaf", 60, 900)]
     [InlineData("MAPLELEAF", 600, 900)]
     [InlineData("hghigh", 60, 60)]
