@@ -217,8 +217,7 @@ public sealed class TikTokProofMaterialService
                          (aiCompleted &&
                           TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir));
         var editingReusable = !request.GenerateEditingProjectFiles ||
-                              (editingCompleted &&
-                               TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings));
+                              TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings);
         log?.Invoke(
             "证明材料选择性计划：" +
             $"合作协议={DescribePlan(request.GenerateProductionAgreement, coreReusable)}；" +
@@ -291,8 +290,7 @@ public sealed class TikTokProofMaterialService
             (!aiCompleted || !TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir));
         var editingNeedsVideo =
             request.GenerateEditingProjectFiles &&
-            (!editingCompleted ||
-             !TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings));
+            !editingReusable;
         var proofVideoEpisodeCount = ResolveTemporaryVideoEpisodeCount(
             aiNeedsVideo,
             editingNeedsVideo,
@@ -736,13 +734,11 @@ public sealed class TikTokProofMaterialService
                 fingerprints.AiScreenshots,
                 "ai_generation_screenshots_completed",
                 () => TikTokAiGenerationScreenshotService.HasCurrentOutput(context.WorkflowProjectDir));
-            CheckComponent(
-                request.GenerateEditingProjectFiles,
-                "剪辑工程文件",
-                "editing_project_fingerprint",
-                fingerprints.EditingProject,
-                "editing_project_files_completed",
-                () => TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings));
+            if (request.GenerateEditingProjectFiles &&
+                !TikTokProjectImageService.HasCurrentProjectImages(context.SourceProjectDir, settings))
+            {
+                issues.Add("剪辑工程文件缺失、损坏或数量不足");
+            }
 
             return issues;
 
@@ -1140,11 +1136,8 @@ public sealed class TikTokProofMaterialService
              (!IsComponentCheckpointCurrent(state, "source_info_fingerprint", fingerprints.SourceInfo, legacyFingerprintMatches) ||
               !GetStateBool(state, "source_file_screenshots_completed", fallback: true))) ||
             (request.GenerateAiGenerationScreenshots &&
-             (!IsComponentCheckpointCurrent(state, "ai_screenshot_fingerprint", fingerprints.AiScreenshots, legacyFingerprintMatches) ||
-              !GetStateBool(state, "ai_generation_screenshots_completed", fallback: true))) ||
-            (request.GenerateEditingProjectFiles &&
-             (!IsComponentCheckpointCurrent(state, "editing_project_fingerprint", fingerprints.EditingProject, legacyFingerprintMatches) ||
-              !GetStateBool(state, "editing_project_files_completed", fallback: true))))
+              (!IsComponentCheckpointCurrent(state, "ai_screenshot_fingerprint", fingerprints.AiScreenshots, legacyFingerprintMatches) ||
+               !GetStateBool(state, "ai_generation_screenshots_completed", fallback: true))))
         {
             return false;
         }
