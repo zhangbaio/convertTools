@@ -74,6 +74,18 @@ public static class TikTokProjectImageService
         var mode = ResolveGenerationMode(settings);
         var count = ResolveCount(settings);
         var renderEpisodeLimit = ResolveRenderEpisodeLimit(settings);
+        var outputDir = GetOutputDirectory(workflowDir);
+        Directory.CreateDirectory(outputDir);
+        RecoverInterruptedOutput(outputDir, log);
+
+        // Existing, readable project images are user-owned outputs. Reuse them regardless of
+        // template, title, source-video or saved-fingerprint changes unless a forced rerun was
+        // explicitly requested.
+        if (!forceRerun && HasEnoughOutputs(workflowDir, count))
+        {
+            log?.Invoke($"已存在有效工程图：{CountProjectImages(workflowDir)}/{count} 张，跳过重新生成。");
+            return;
+        }
 
         var templateDir = "";
         var fableCutRoot = "";
@@ -112,18 +124,9 @@ public static class TikTokProjectImageService
             episodeNames,
             count,
             renderEpisodeLimit);
-        var outputDir = GetOutputDirectory(workflowDir);
-        Directory.CreateDirectory(outputDir);
-        RecoverInterruptedOutput(outputDir, log);
-
         log?.Invoke(
             $"工程图输入：模式={DisplayMode(mode)}，视频={sourceVideos.Length}，" +
             $"渲染上限={renderEpisodeLimit}，目标图片={count}。");
-        if (!forceRerun && HasEnoughOutputs(workflowDir, count) && IsSavedSignatureCurrent(context, signature))
-        {
-            log?.Invoke($"工程图已是当前配置：{CountProjectImages(workflowDir)}/{count} 张，跳过。");
-            return;
-        }
 
         if (TryDeleteLegacyInputDirectory(context.WorkflowProjectDir))
             log?.Invoke("工程图旧暂存清理：已删除旧版 .project_image_inputs 视频副本。");
@@ -213,43 +216,7 @@ public static class TikTokProjectImageService
             var context = ProjectWorkspaceService.LoadContext(sourceProjectDir);
             var normalized = NormalizeProjectImageSettings((settings ?? ClientSettingsStore.Load()).Clone());
             var count = ResolveCount(normalized);
-            if (!HasEnoughOutputs(context.WorkflowProjectDir, count))
-                return false;
-
-            var mode = ResolveGenerationMode(normalized);
-            string resourceFingerprint;
-            if (mode == FableCutMode)
-            {
-                var root = FableCutAssetResolver.Resolve(normalized.TiktokProjectImageFableCutRoot);
-                resourceFingerprint = FableCutAssetResolver.ComputeFingerprint(root);
-            }
-            else
-            {
-                var templateDir = ResolveTemplateDirectory(normalized, log: null);
-                if (string.IsNullOrWhiteSpace(templateDir))
-                    return false;
-                resourceFingerprint = ComputeDirectoryFingerprint(templateDir);
-            }
-
-            var renderEpisodeLimit = ResolveRenderEpisodeLimit(normalized);
-            var sourceVideos = ProjectVideoResolver
-                .ResolveMaterialVideos(context.SourceProjectDir, allowStagedFallback: true)
-                .Take(renderEpisodeLimit)
-                .ToArray();
-            if (sourceVideos.Length == 0)
-                return false;
-
-            var episodeNames = ResolveEpisodeNames(sourceVideos);
-            var signature = ComputeSignature(
-                context,
-                normalized,
-                mode,
-                resourceFingerprint,
-                sourceVideos,
-                episodeNames,
-                count,
-                renderEpisodeLimit);
-            return IsSavedSignatureCurrent(context, signature);
+            return HasEnoughOutputs(context.WorkflowProjectDir, count);
         }
         catch
         {

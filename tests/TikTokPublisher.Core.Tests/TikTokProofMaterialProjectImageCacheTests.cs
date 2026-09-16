@@ -13,7 +13,7 @@ public sealed class TikTokProofMaterialProjectImageCacheTests
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
     [Fact]
-    public void Proof_material_rejects_old_project_images_when_current_fablecut_configuration_is_invalid()
+    public async Task Proof_material_reuses_existing_project_images_even_when_current_fablecut_configuration_is_invalid()
     {
         var workspaceRoot = Path.Combine(
             Path.GetTempPath(),
@@ -68,14 +68,21 @@ public sealed class TikTokProofMaterialProjectImageCacheTests
                 },
                 workflowProjectDir);
 
-            // The legacy count-only check sees the stale images, but proof-material reuse
-            // must honor the selected backend and its complete configuration fingerprint.
+            // Existing valid images are authoritative unless the caller explicitly forces a rerun.
             TikTokProjectImageService.HasCurrentOutput(workflowProjectDir).Should().BeTrue();
+            TikTokProjectImageService.HasCurrentProjectImages(sourceProjectDir, settings).Should().BeTrue();
             TikTokProofMaterialService.HasReusableProofMaterialForCopyrightCompletion(
                     item, settings, account)
-                .Should().BeFalse();
-            TikTokProofMaterialService.NeedsGenerateProofMaterial(item, settings, account)
                 .Should().BeTrue();
+            TikTokProofMaterialService.NeedsGenerateProofMaterial(item, settings, account)
+                .Should().BeFalse();
+
+            var originalWriteTimes = Directory.EnumerateFiles(outputDir, "工程图_*.png")
+                .ToDictionary(path => Path.GetFileName(path)!, File.GetLastWriteTimeUtc);
+            await TikTokProjectImageService.GenerateAsync(item, settings, forceRerun: false, log: null, CancellationToken.None);
+            Directory.EnumerateFiles(outputDir, "工程图_*.png")
+                .ToDictionary(path => Path.GetFileName(path)!, File.GetLastWriteTimeUtc)
+                .Should().BeEquivalentTo(originalWriteTimes);
         }
         finally
         {
