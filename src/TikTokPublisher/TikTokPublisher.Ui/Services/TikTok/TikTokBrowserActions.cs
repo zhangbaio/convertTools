@@ -607,7 +607,13 @@ public static partial class TikTokBrowserActions
         bool preserveExistingCopyrightMaterials = false)
     {
         await EnsureSeriesDetailsStepAsync(page, ct);
-        await SetSwitchAsync(page, "#anchorPromotionStatus", options.AnchorPromotionEnabled, ct);
+        await SetOptionalSwitchAsync(
+            page,
+            "#anchorPromotionStatus",
+            options.AnchorPromotionEnabled,
+            "锚点推广",
+            log,
+            ct);
         await PauseBetweenFieldsAsync(page);
 
         await SelectTargetAudienceAsync(page, recommendation.TargetAudience, log, ct);
@@ -790,6 +796,28 @@ public static partial class TikTokBrowserActions
     {
         ct.ThrowIfCancellationRequested();
         var locator = page.Locator(selector).First;
+        await locator.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+        var checkedState = await locator.IsCheckedAsync();
+        if (checkedState != enabled)
+            await locator.ClickAsync(new() { Force = true });
+    }
+
+    private static async Task SetOptionalSwitchAsync(
+        IPage page,
+        string selector,
+        bool enabled,
+        string fieldName,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var locator = page.Locator(selector).First;
+        if (await locator.CountAsync() == 0)
+        {
+            Log(log, $"TikTok 页面未提供“{fieldName}”开关，按平台当前表单跳过。");
+            return;
+        }
+
         await locator.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
         var checkedState = await locator.IsCheckedAsync();
         if (checkedState != enabled)
