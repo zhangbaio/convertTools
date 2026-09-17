@@ -482,7 +482,7 @@ public sealed class BrowserSessionHost
     private void OnHostProcessFailed(AccountItemViewModel account, string message)
     {
         Dispatcher.UIThread.Post(() =>
-            AuthStatusChanged?.Invoke($"账号「{account.DisplayName}」内置浏览器已断开：{message}，下次上传会自动重建。"));
+            AuthStatusChanged?.Invoke($"账号「{account.DisplayName}」内置浏览器已断开：{message}"));
     }
 
     public void InvalidateHostIfNetworkChanged(TikTokAccountProfile account)
