@@ -151,8 +151,8 @@ public sealed class LocalManualDramaImportServiceTests
 
             var changedSettings = requestedSettings.Clone();
             changedSettings.FrameExtractTime += 1.0;
-            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, changedSettings).Should().BeTrue(
-                "视频抽帧配置变化后仍应重新尝试生成");
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, changedSettings).Should().BeFalse(
+                "已有生成记录和有效海报时，配置变化只影响显式强制重跑后的新海报");
         }
         finally
         {

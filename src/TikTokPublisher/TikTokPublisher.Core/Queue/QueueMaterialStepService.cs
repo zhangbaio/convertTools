@@ -2076,6 +2076,41 @@ public static class QueueMaterialStepService
             (right ?? string.Empty).Trim(),
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
+    private static bool RewriteVariantKeysEquivalentForReuse(string? left, string? right)
+    {
+        if (RewriteVariantKeysEqual(left, right))
+            return true;
+
+        return TrySplitRewriteVariantKey(left, out var leftProject, out var leftMode) &&
+               TrySplitRewriteVariantKey(right, out var rightProject, out var rightMode) &&
+               string.Equals(
+                   leftProject,
+                   rightProject,
+                   OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) &&
+               string.Equals(leftMode, rightMode, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TrySplitRewriteVariantKey(
+        string? value,
+        out string projectPath,
+        out string synopsisMode)
+    {
+        projectPath = string.Empty;
+        synopsisMode = string.Empty;
+        var text = (value ?? string.Empty).Trim();
+        var modeIndex = text.LastIndexOf("#synopsis=", StringComparison.OrdinalIgnoreCase);
+        if (modeIndex <= 0)
+            return false;
+
+        var accountIndex = text.LastIndexOf('#', modeIndex - 1);
+        if (accountIndex <= 0)
+            return false;
+
+        projectPath = text[..accountIndex];
+        synopsisMode = text[modeIndex..];
+        return !string.IsNullOrWhiteSpace(projectPath);
+    }
+
     private static int TargetSynopsisLength(string sourceSynopsis)
     {
         var length = (sourceSynopsis ?? "").Trim().Length;
@@ -2178,7 +2213,7 @@ public static class QueueMaterialStepService
             return false;
 
         var variantKey = ReadJsonString(state.GetValueOrDefault("variant_key"));
-        if (!RewriteVariantKeysEqual(variantKey, BuildRewriteVariantKey(context, account)))
+        if (!RewriteVariantKeysEquivalentForReuse(variantKey, BuildRewriteVariantKey(context, account)))
             return false;
 
         var expectedFingerprint = ReadJsonString(state.GetValueOrDefault("synopsis_fingerprint"));

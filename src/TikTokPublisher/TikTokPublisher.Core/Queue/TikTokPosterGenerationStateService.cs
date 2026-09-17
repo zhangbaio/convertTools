@@ -56,17 +56,10 @@ public static class TikTokPosterGenerationStateService
                        !HasLegacyPosterArtifact(context);
             }
 
-            var outputPath = GetOutputPath(context);
-            if (!IsUsableFile(outputPath))
-                return true;
-
-            var inputPath = GetStateString(state, "input_path");
-            if (!IsUsableFile(inputPath))
-                return true;
-
-            var savedFingerprint = GetStateString(state, "fingerprint");
-            return !ProviderAgnosticFingerprints(item, settings, context, inputPath)
-                .Contains(savedFingerprint, StringComparer.OrdinalIgnoreCase);
+            // Once a generated poster has a persisted generation record, the output file is
+            // authoritative across reinstall, settings reset and source timestamp changes.
+            // Regeneration remains available through the queue's explicit force-rerun option.
+            return !IsUsableFile(GetOutputPath(context));
         }
         catch
         {
@@ -156,24 +149,6 @@ public static class TikTokPosterGenerationStateService
         };
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
-    }
-
-    private static IEnumerable<string> ProviderAgnosticFingerprints(
-        QueueProjectItem item,
-        ClientSettings settings,
-        ProjectWorkspaceContext context,
-        string inputPath)
-    {
-        yield return ComputeFingerprint(item, settings, context, inputPath);
-
-        // The provider only decides which service future generations use. It must not
-        // invalidate an already generated poster when users switch between providers.
-        foreach (var provider in new[] { "doubao", "ofox_image2" })
-        {
-            if (string.Equals(provider, settings.ImageProvider?.Trim(), StringComparison.OrdinalIgnoreCase))
-                continue;
-            yield return ComputeFingerprint(item, settings, context, inputPath, provider);
-        }
     }
 
     private static string BuildSourceMediaStamp(

@@ -411,6 +411,14 @@ public sealed class QueueMaterialStepServiceTests
             QueueMaterialStepService.PersistRewriteCompletionState(context, enabled, infoPath, rewriteSynopsis: true);
             QueueMaterialStepService.NeedsAiRewrite(item, enabled).Should().BeFalse();
 
+            var recreatedAccount = new TikTokAccountProfile
+            {
+                Id = "account-after-data-reset",
+                TiktokAiRewriteSynopsis = true,
+            };
+            QueueMaterialStepService.NeedsAiRewrite(item, recreatedAccount).Should().BeFalse(
+                "重置数据后重建账号不应让工作目录中已完成的改写失效");
+
             ProjectWorkspaceService.UpdateProjectInfoField(infoPath, "简介", "后来手工恢复的原始简介内容");
             QueueMaterialStepService.NeedsAiRewrite(item, enabled).Should().BeTrue(
                 "the persisted synopsis fingerprint no longer matches the project info");
