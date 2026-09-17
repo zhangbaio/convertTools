@@ -18,6 +18,15 @@ public sealed class WebView2HostLifecycleTests
         source.Should().Contain("catch (Exception ex) when (IsDisposedControllerException(ex))");
         source.Should().Contain("0x8007139F");
         source.Should().Contain("InvalidateDisposedController(controller, ex)");
+        source.Should().Contain("ScheduleControllerRecovery()");
+        source.Should().Contain("BeginInitialization(_nativeHandle, generation)");
+        source.Should().Contain("_nativeHandle = handle.Handle");
+        source.Should().Contain("_nativeHandle = IntPtr.Zero");
+        source.Should().Contain("_lastRequestedUrl = url");
+        source.Should().Contain(": _lastRequestedUrl;");
+        source.Should().Contain("Interlocked.CompareExchange(ref _initializationInProgress, 1, 0)");
+        source.Should().Contain("createdController.CoreWebView2.ProcessFailed");
+        source.Should().Contain("InvalidateController(createdController, message)");
 
         source.IndexOf("_closed = true;", StringComparison.Ordinal)
             .Should().BeLessThan(

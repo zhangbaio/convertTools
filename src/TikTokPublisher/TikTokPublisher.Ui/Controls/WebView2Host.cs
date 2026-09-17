@@ -32,10 +32,14 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private int _lifecycleGeneration;
     private bool _closed;
     private string? _pendingUrl;
+    private string? _lastRequestedUrl;
     private string? _lastInitError;
     private string? _lastProcessFailure;
     private bool _renderedVisible;
     private bool _nativeHandleAlive;
+    private IntPtr _nativeHandle;
+    private int _initializationInProgress;
+    private int _initializationRequested;
     private bool _staleProcessRecoveryAttempted;
     private string? _storageStateInitScriptId;
 
@@ -139,6 +143,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     public void Navigate(string url)
     {
+        _lastRequestedUrl = url;
         if (_controller?.CoreWebView2 != null) _controller.CoreWebView2.Navigate(url);
         else _pendingUrl = url;
     }
@@ -283,10 +288,12 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     {
         _closed = true;
         _nativeHandleAlive = false;
+        _nativeHandle = IntPtr.Zero;
         Interlocked.Increment(ref _lifecycleGeneration);
         SizeChanged -= _sizeChangedHandler;
         SafeCloseController(Interlocked.Exchange(ref _controller, null));
         _pendingUrl = null;
+        _lastRequestedUrl = null;
         _lastProcessFailure = null;
     }
 
@@ -299,10 +306,11 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         if (_closed)
             return handle;
 
+        _nativeHandle = handle.Handle;
         _nativeHandleAlive = true;
         var generation = Interlocked.Increment(ref _lifecycleGeneration);
         if (_controller is null)
-            _ = InitAsync(handle.Handle, generation);
+            BeginInitialization(handle.Handle, generation);
         else
         {
             ApplyRenderedState();
@@ -310,7 +318,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             // native parent. ApplyRenderedState atomically invalidates it; recreate it
             // immediately for the newly attached HWND instead of leaving a blank host.
             if (_controller is null && IsLifecycleCurrent(generation))
-                _ = InitAsync(handle.Handle, generation);
+                BeginInitialization(handle.Handle, generation);
         }
 
         return handle;
@@ -327,8 +335,41 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         catch { /* ignore */ }
 
         _nativeHandleAlive = false;
+        _nativeHandle = IntPtr.Zero;
         Interlocked.Increment(ref _lifecycleGeneration);
         base.DestroyNativeControlCore(control);
+    }
+
+    private void BeginInitialization(IntPtr hwnd, int generation)
+    {
+        if (hwnd == IntPtr.Zero || !IsLifecycleCurrent(generation))
+            return;
+
+        if (Interlocked.CompareExchange(ref _initializationInProgress, 1, 0) != 0)
+        {
+            Interlocked.Exchange(ref _initializationRequested, 1);
+            return;
+        }
+
+        _ = InitializeWithGateAsync(hwnd, generation);
+    }
+
+    private async Task InitializeWithGateAsync(IntPtr hwnd, int generation)
+    {
+        try
+        {
+            await InitAsync(hwnd, generation).ConfigureAwait(true);
+        }
+        finally
+        {
+            Volatile.Write(ref _initializationInProgress, 0);
+            var retryRequested = Interlocked.Exchange(ref _initializationRequested, 0) != 0;
+            if (retryRequested && !_closed && _nativeHandleAlive && _controller is null)
+            {
+                var currentGeneration = Volatile.Read(ref _lifecycleGeneration);
+                BeginInitialization(_nativeHandle, currentGeneration);
+            }
+        }
     }
 
     private async Task InitAsync(IntPtr hwnd, int generation)
@@ -414,9 +455,8 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
                 createdController.CoreWebView2.ProcessFailed += (_, args) =>
                 {
                     var message = $"WebView2 进程异常：{args.ProcessFailedKind}";
-                    _lastProcessFailure = message;
                     Log($"process-failed udf={UserDataFolder} port={RemoteDebuggingPort} :: {message}");
-                    ProcessFailed?.Invoke(message);
+                    InvalidateController(createdController, message);
                 };
             }
 
@@ -585,7 +625,20 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         !_closed && _nativeHandleAlive && generation == Volatile.Read(ref _lifecycleGeneration);
 
     private void InvalidateDisposedController(CoreWebView2Controller controller, Exception exception)
+        => InvalidateController(
+            controller,
+            "WebView2 Controller 已失效，正在自动重建。",
+            $"{exception.GetType().Name}: {exception.Message}");
+
+    private void InvalidateController(
+        CoreWebView2Controller controller,
+        string message,
+        string? logDetail = null)
     {
+        string? recoveryUrl = null;
+        try { recoveryUrl = controller.CoreWebView2?.Source; }
+        catch { /* disposed process has no readable source */ }
+
         if (!ReferenceEquals(
                 Interlocked.CompareExchange(ref _controller, null, controller),
                 controller))
@@ -593,11 +646,31 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             return;
         }
 
-        _lastProcessFailure = "WebView2 Controller 已失效，下次使用时将自动重建。";
+        _pendingUrl = !string.IsNullOrWhiteSpace(recoveryUrl)
+            ? recoveryUrl
+            : _lastRequestedUrl;
+        _lastProcessFailure = message;
         Log($"controller-invalidated udf={UserDataFolder} port={RemoteDebuggingPort} :: " +
-            $"{exception.GetType().Name}: {exception.Message}");
+            (string.IsNullOrWhiteSpace(logDetail) ? message : logDetail));
         SafeCloseController(controller);
         ProcessFailed?.Invoke(_lastProcessFailure);
+        ScheduleControllerRecovery();
+    }
+
+    private void ScheduleControllerRecovery()
+    {
+        if (_closed)
+            return;
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed || !_nativeHandleAlive || _nativeHandle == IntPtr.Zero || _controller is not null)
+                return;
+
+            var generation = Volatile.Read(ref _lifecycleGeneration);
+            Log($"controller-recovery-start udf={UserDataFolder} port={RemoteDebuggingPort}");
+            BeginInitialization(_nativeHandle, generation);
+        }, DispatcherPriority.Loaded);
     }
 
     private static bool IsDisposedControllerException(Exception exception)
