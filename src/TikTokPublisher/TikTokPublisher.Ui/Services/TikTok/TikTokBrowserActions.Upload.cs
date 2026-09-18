@@ -76,10 +76,10 @@ public static partial class TikTokBrowserActions
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
-            if (!IsTikTokDraftPageUrl(page.Url))
+            if (!IsTikTokSeriesEditorPageUrl(page.Url))
             {
                 throw new InvalidOperationException(
-                    $"等待视频上传时页面已离开 TikTok 草稿上传页：{page.Url}。" +
+                    $"等待视频上传时页面已离开 TikTok 剧集编辑上传页：{page.Url}。" +
                     "已中止等待，避免在无关页面持续误判上传进度。");
             }
 
@@ -265,12 +265,30 @@ public static partial class TikTokBrowserActions
         throw new TimeoutException("等待 TikTok 视频上传完成超时。");
     }
 
-    private static bool IsTikTokDraftPageUrl(string? url)
+    internal static bool IsTikTokSeriesEditorPageUrl(string? url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
             return false;
-        return parsed.Host.EndsWith("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase) &&
-               parsed.AbsolutePath.StartsWith("/series/draft", StringComparison.OrdinalIgnoreCase);
+
+        var isTikTokDramaCenter =
+            parsed.Host.Equals("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase) ||
+            parsed.Host.EndsWith(".tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase);
+        if (!isTikTokDramaCenter)
+            return false;
+
+        var path = parsed.AbsolutePath.TrimEnd('/');
+        if (path.Equals("/series/draft", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/series/draft/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        const string seriesPrefix = "/series/";
+        if (!path.StartsWith(seriesPrefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var seriesId = path[seriesPrefix.Length..];
+        return seriesId.Length > 0 && seriesId.All(char.IsAsciiDigit);
     }
 
     private static bool IsInactiveIncompleteUpload(
