@@ -32,6 +32,63 @@ public static class ManualDeletedCopyrightProofService
             .ToArray();
     }
 
+    /// <summary>
+    /// Exact-match queue → archive → deleted history, then promote remaining Missing titles to
+    /// published-video recovery snapshots (same as manual "unknown original title" rebuild).
+    /// </summary>
+    public static IReadOnlyList<CopyrightProofProjectMatch> MatchByNewTitleExactOrRecover(
+        IEnumerable<string> newTitles,
+        string workspaceRoot,
+        TikTokAccountProfile account,
+        IEnumerable<QueueProjectItem> queueProjects,
+        IEnumerable<ArchivedProjectItem> archivedProjects,
+        IEnumerable<TikTokExecutionProjectSnapshot>? deletedHistoryProjects = null)
+    {
+        var matches = CopyrightProofProjectMatcher.MatchByNewTitleExact(
+            newTitles,
+            queueProjects,
+            archivedProjects,
+            deletedHistoryProjects);
+        return PromoteMissingToPublishedRecovery(matches, workspaceRoot, account);
+    }
+
+    /// <summary>
+    /// Turns Missing matches into DeletedHistory recovery snapshots with empty original title.
+    /// Non-Missing matches (including real history and Conflict) are left unchanged.
+    /// </summary>
+    public static IReadOnlyList<CopyrightProofProjectMatch> PromoteMissingToPublishedRecovery(
+        IReadOnlyList<CopyrightProofProjectMatch> matches,
+        string workspaceRoot,
+        TikTokAccountProfile account)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+        ArgumentNullException.ThrowIfNull(account);
+
+        if (matches.Count == 0)
+            return matches;
+
+        var workspace = Path.GetFullPath(workspaceRoot);
+        var timestamp = DateTimeOffset.Now.ToString("o");
+        var results = new List<CopyrightProofProjectMatch>(matches.Count);
+        foreach (var match in matches)
+        {
+            if (match.Location != CopyrightProofProjectLocation.Missing)
+            {
+                results.Add(match);
+                continue;
+            }
+
+            results.Add(CreateRecoveryMatch(
+                match.NewTitle,
+                originalTitle: string.Empty,
+                workspace,
+                account,
+                timestamp));
+        }
+
+        return results;
+    }
+
     public static IReadOnlyList<CopyrightProofProjectMatch> BuildMatches(
         IEnumerable<ManualDeletedCopyrightProofEntry> entries,
         string workspaceRoot,
@@ -83,44 +140,65 @@ public static class ManualDeletedCopyrightProofService
                 continue;
             }
 
-            var originalTitle = originalTitles[0];
-            var projectDirectoryName = string.IsNullOrWhiteSpace(originalTitle)
-                ? SanitizeFileName(group.Key) + "_版权恢复"
-                : originalTitle;
-            var item = new QueueProjectItem
-            {
-                ProjectDir = Path.Combine(workspace, projectDirectoryName),
-                DisplayName = string.IsNullOrWhiteSpace(originalTitle) ? group.Key : originalTitle,
-                OriginalTitle = originalTitle,
-                NewTitle = group.Key,
-                EpisodeCount = 0,
-                AccountProfileId = account.Id,
-                AccountProfileName = account.DisplayName,
-                QueuedAt = timestamp,
-                // The TikTok series already exists, but its real upload time is unknown.
-                // Leaving this empty prevents a proof-only recovery from counting as today's upload.
-                UploadCompletedAt = string.Empty,
-                Enabled = true,
-                StatusText = QueueStepStatus.Completed,
-                Remark = string.IsNullOrWhiteSpace(originalTitle)
-                    ? "原剧名未知，将从 TikTok 原创管理项目恢复视频并补全版权证明"
-                    : "用户手动指定原剧名，用于重建已删除项目并补全版权证明",
-                StepStates = new Dictionary<string, string>
-                {
-                    [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
-                },
-            };
-            item.NormalizeStepStates();
-            results.Add(new CopyrightProofProjectMatch(
+            results.Add(CreateRecoveryMatch(
                 group.Key,
-                CopyrightProofProjectLocation.DeletedHistory,
-                HistorySnapshot: new TikTokExecutionProjectSnapshot(
-                    workspace,
-                    timestamp,
-                    item)));
+                originalTitles[0],
+                workspace,
+                account,
+                timestamp));
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// True when the match will recover via TikTok published video (empty original title).
+    /// </summary>
+    public static bool IsPublishedRecoveryFallback(CopyrightProofProjectMatch match) =>
+        match.Location == CopyrightProofProjectLocation.DeletedHistory &&
+        string.IsNullOrWhiteSpace(match.HistorySnapshot?.Item.OriginalTitle);
+
+    private static CopyrightProofProjectMatch CreateRecoveryMatch(
+        string newTitle,
+        string originalTitle,
+        string workspace,
+        TikTokAccountProfile account,
+        string timestamp)
+    {
+        var projectDirectoryName = string.IsNullOrWhiteSpace(originalTitle)
+            ? SanitizeFileName(newTitle) + "_版权恢复"
+            : originalTitle;
+        var item = new QueueProjectItem
+        {
+            ProjectDir = Path.Combine(workspace, projectDirectoryName),
+            DisplayName = string.IsNullOrWhiteSpace(originalTitle) ? newTitle : originalTitle,
+            OriginalTitle = originalTitle,
+            NewTitle = newTitle,
+            EpisodeCount = 0,
+            AccountProfileId = account.Id,
+            AccountProfileName = account.DisplayName,
+            QueuedAt = timestamp,
+            // The TikTok series already exists, but its real upload time is unknown.
+            // Leaving this empty prevents a proof-only recovery from counting as today's upload.
+            UploadCompletedAt = string.Empty,
+            Enabled = true,
+            StatusText = QueueStepStatus.Completed,
+            Remark = string.IsNullOrWhiteSpace(originalTitle)
+                ? "原剧名未知，将从 TikTok 原创管理项目恢复视频并补全版权证明"
+                : "用户手动指定原剧名，用于重建已删除项目并补全版权证明",
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepKeys.UploadSeries] = QueueStepStatus.Completed,
+            },
+        };
+        item.NormalizeStepStates();
+        return new CopyrightProofProjectMatch(
+            newTitle,
+            CopyrightProofProjectLocation.DeletedHistory,
+            HistorySnapshot: new TikTokExecutionProjectSnapshot(
+                workspace,
+                timestamp,
+                item));
     }
 
     private static string SanitizeFileName(string value)

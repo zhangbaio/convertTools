@@ -2052,8 +2052,10 @@ public partial class TikTokQueueView : UserControl
 
         var queueProjects = vm.QueueProjectRows.Select(row => row.Item).ToArray();
         IReadOnlyList<CopyrightProofProjectMatch> Match(string input) =>
-            CopyrightProofProjectMatcher.MatchByNewTitleExact(
+            ManualDeletedCopyrightProofService.MatchByNewTitleExactOrRecover(
                 CopyrightProofProjectMatcher.ParseNewTitles(input),
+                workspace,
+                proofAccount,
                 queueProjects,
                 archivedProjects,
                 deletedHistoryProjects);
@@ -2084,13 +2086,18 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        var hasPublishedRecoveryFallback = dialogResult.SelectedMatches.Any(
+            ManualDeletedCopyrightProofService.IsPublishedRecoveryFallback);
         await ExecuteCopyrightProofMatchesAsync(
             owner,
             vm,
             workspace,
             proofAccount,
             dialogResult.SelectedMatches,
-            dialogResult.ExecutionMode);
+            dialogResult.ExecutionMode,
+            manualDeletedMode: hasPublishedRecoveryFallback
+                ? ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle
+                : null);
     }
 
     private async void OnManualDeletedCopyrightProofClick(object? sender, RoutedEventArgs e)
@@ -2328,13 +2335,23 @@ public partial class TikTokQueueView : UserControl
                 ManualDeletedCopyrightProofInputMode.KnownOriginalTitle =>
                     "将根据你填写的新剧名和原剧名恢复项目，并优先使用原片源，",
                 ManualDeletedCopyrightProofInputMode.UnknownOriginalTitle =>
-                    "将根据你批量填写的新剧名恢复项目，并从当前账号的 TikTok 原创管理项目下载必要视频，不限制剧集状态，",
+                    "将根据新剧名恢复项目，并从当前账号的 TikTok 原创管理项目下载必要视频，不限制剧集状态，",
                 _ => "将根据历史记录重新建立项目，",
             };
+            var hasUnknownOriginal = deletedTargets.Any(
+                ManualDeletedCopyrightProofService.IsPublishedRecoveryFallback);
+            var hasKnownOriginal = deletedTargets.Any(match =>
+                match.Location == CopyrightProofProjectLocation.DeletedHistory &&
+                !string.IsNullOrWhiteSpace(match.HistorySnapshot?.Item.OriginalTitle));
+            var rebuildIntro = hasUnknownOriginal && !hasKnownOriginal
+                ? $"以下 {deletedTargets.Length} 个项目本地无记录，将自动新建文件夹，{recoverySource}"
+                : hasUnknownOriginal
+                    ? $"以下 {deletedTargets.Length} 个项目需要重建本地目录，{recoverySource}"
+                    : $"以下 {deletedTargets.Length} 个项目的本地目录已被删除，{recoverySource}";
             var confirmed = await ConfirmAsync(
                 owner,
                 "确认重建已删除项目",
-                $"以下 {deletedTargets.Length} 个项目的本地目录已被删除，{recoverySource}" +
+                rebuildIntro +
                 "并在生成证明材料时按需恢复所需视频：" +
                 $"{Environment.NewLine}{Environment.NewLine}{names}" +
                 $"{Environment.NewLine}{Environment.NewLine}" +

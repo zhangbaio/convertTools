@@ -42,7 +42,9 @@ public sealed class CopyrightProofBatchDialog : Window
         };
         root.Children.Add(new TextBlock
         {
-            Text = "输入新剧名，一行一个。只按新剧名精确匹配；依次查询当前上传队列、已归档项目、历史数据库、Excel 和本地备份。找不到唯一原剧名的项目将自动跳过。",
+            Text = "输入新剧名，一行一个。只按新剧名精确匹配；依次查询当前上传队列、已归档项目、历史数据库、Excel 和本地备份。" +
+                   "找不到本地或历史唯一记录时，将按「补已删除证明」自动新建本地目录，并从 TikTok 原创管理恢复视频。" +
+                   "同名冲突的项目仍会跳过。",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeight.SemiBold,
         });
@@ -144,6 +146,9 @@ public sealed class CopyrightProofBatchDialog : Window
             {
                 CopyrightProofProjectLocation.CurrentQueue => ("当前上传队列", Brushes.SeaGreen),
                 CopyrightProofProjectLocation.Archived => ("已归档（将自动回退）", Brushes.DarkOrange),
+                CopyrightProofProjectLocation.DeletedHistory when
+                    ManualDeletedCopyrightProofService.IsPublishedRecoveryFallback(match) =>
+                    ("本地无记录（将新建并从 TikTok 恢复）", Brushes.DodgerBlue),
                 CopyrightProofProjectLocation.DeletedHistory => ("已删除（将从历史自动重建）", Brushes.DodgerBlue),
                 CopyrightProofProjectLocation.Conflict => ("同名冲突，不能自动执行", Brushes.IndianRed),
                 _ => ("未找到", Brushes.Gray),
