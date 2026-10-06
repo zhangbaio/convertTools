@@ -77,6 +77,12 @@ public sealed class TikTokAccountProfile
     public int TiktokProjectConcurrency { get; set; } = 4;
     // 发布表单扩展（对齐 Python account_profiles 字段）
     public bool TiktokAnchorPromotionEnabled { get; set; } = true;
+    /// <summary>开启后只发布勾选的账号；关闭时仍默认全选。</summary>
+    public bool TiktokCustomPublishAccountsEnabled { get; set; }
+    /// <summary>从剧集表单拉取的已创建发布账号，按国家分组。</summary>
+    public string TiktokPublishAccountCatalogJson { get; set; } = "";
+    /// <summary>已选发布账号键，格式为「国家 + 分隔符 + 显示名」。</summary>
+    public List<string> TiktokSelectedPublishAccountKeys { get; set; } = [];
     public string TiktokTargetAudienceMode { get; set; } = "ai_recommend";
     public int TiktokGenreCount { get; set; } = 3;
     public string TiktokSourceLanguage { get; set; } = "zh";

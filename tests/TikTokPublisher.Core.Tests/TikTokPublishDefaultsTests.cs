@@ -700,6 +700,9 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokContractId.Should().Be("");
         account.TiktokContractIdMode.Should().Be("manual");
         account.TiktokAnchorPromotionEnabled.Should().BeTrue();
+        account.TiktokCustomPublishAccountsEnabled.Should().BeFalse();
+        account.TiktokPublishAccountCatalogJson.Should().BeEmpty();
+        account.TiktokSelectedPublishAccountKeys.Should().BeEmpty();
         account.TiktokTargetAudienceMode.Should().Be("ai_recommend");
         account.TiktokGenreCount.Should().Be(3);
         account.TiktokSourceLanguage.Should().Be("zh");
