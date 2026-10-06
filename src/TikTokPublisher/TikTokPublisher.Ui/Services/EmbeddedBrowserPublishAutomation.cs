@@ -209,8 +209,8 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             var enteredEditFlow = false;
             if (item.ForceEditUpload && hasWorkflow)
             {
-                L("已选择编辑剧集模式，直接查找平台已有草稿…");
-                enteredEditFlow = await TikTokEditFlowService.TryEnterExistingDraftFlowAsync(
+                L("已选择编辑剧集模式，查找平台上的同名剧集…");
+                var editEntry = await TikTokEditFlowService.TryEnterExistingDraftFlowAsync(
                     page,
                     workflowDir,
                     payload,
@@ -222,12 +222,20 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     allowPlatformSearch: true,
                     allowCreateFallback: false)
                     .ConfigureAwait(false);
+                if (editEntry.AlreadyUploaded)
+                {
+                    TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
+                    L(editEntry.Message);
+                    return PublishResult.Success(editEntry.Message);
+                }
+
+                enteredEditFlow = editEntry.Entered;
                 if (!enteredEditFlow)
                     return PublishResult.Fail("未找到可编辑草稿，编辑剧集模式不会新建上传；如需新建请使用执行勾选队列");
             }
             else if (hasWorkflow)
             {
-                enteredEditFlow = await TikTokEditFlowService.TryEnterExistingDraftFlowAsync(
+                var editEntry = await TikTokEditFlowService.TryEnterExistingDraftFlowAsync(
                     page,
                     workflowDir,
                     payload,
@@ -239,6 +247,14 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     allowPlatformSearch: TikTokUploadStateStore.ShouldSearchPlatformForExistingDraft(workflowDir),
                     allowCreateFallback: true)
                     .ConfigureAwait(false);
+                if (editEntry.AlreadyUploaded)
+                {
+                    TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
+                    L(editEntry.Message);
+                    return PublishResult.Success(editEntry.Message);
+                }
+
+                enteredEditFlow = editEntry.Entered;
             }
 
             if (!enteredEditFlow)
