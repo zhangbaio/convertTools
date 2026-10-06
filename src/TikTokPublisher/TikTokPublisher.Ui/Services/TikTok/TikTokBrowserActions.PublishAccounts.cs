@@ -207,9 +207,22 @@ public static partial class TikTokBrowserActions
         if (await cascader.CountAsync() == 0)
             throw new InvalidOperationException("未找到 TikTok「发布账号」级联选择器。");
 
-        await cascader.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
-        await ClickWithFallbackAsync(cascader, ct);
-        await page.WaitForTimeoutAsync(500);
+        await cascader.EvaluateAsync(
+            """
+            element => {
+              element.scrollIntoView({ block: 'center', inline: 'nearest' });
+              element.click();
+            }
+            """);
+        var popup = page.Locator(".semi-cascader-popover .semi-cascader-option-list").First;
+        try
+        {
+            await popup.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 8000 });
+        }
+        catch (TimeoutException)
+        {
+            throw new InvalidOperationException("TikTok「发布账号」下拉框未能打开，未找到账号选项列表。");
+        }
     }
 
     private static readonly JsonSerializerOptions ScrapeJsonOptions = new(JsonSerializerDefaults.Web);
@@ -223,19 +236,20 @@ public static partial class TikTokBrowserActions
             const rect = element.getBoundingClientRect();
             return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
           };
-          const popup = Array.from(document.querySelectorAll('.semi-portal, [role="dialog"]'))
-            .filter(visible)
-            .find(node => node.querySelector('.semi-cascader-option, .semi-cascader-option-list'));
+          const popup = document.querySelector('.semi-cascader-popover')
+            || document.getElementById(document.querySelector("[x-field-id='accountIds'] [role='combobox']")?.getAttribute('aria-controls') || '');
           if (!popup) return JSON.stringify({ error: '未找到发布账号选项列表' });
           const lists = () => Array.from(popup.querySelectorAll('.semi-cascader-option-list')).filter(visible);
           const left = lists()[0];
           if (!left) return JSON.stringify({ error: '未找到国家列表' });
           const optionsOf = list => Array.from(list.querySelectorAll('.semi-cascader-option')).filter(visible);
           const linesOf = option => {
-            const node = option.querySelector('.semi-cascader-option-label') || option;
-            return (node.innerText || '')
-              .split(/\n+/)
-              .map(line => line.replace(/\s+/g, ' ').trim())
+            const explicit = option.querySelector('[class*="optionLabel"]');
+            const explicitText = (explicit?.textContent || '').replace(/\s+/g, ' ').trim();
+            if (explicitText) return [explicitText];
+            return Array.from(option.querySelectorAll('.semi-cascader-option-label span'))
+              .filter(span => span.childElementCount === 0)
+              .map(span => (span.textContent || '').replace(/\s+/g, ' ').trim())
               .filter(line => line.length > 0 && line !== '取消全部');
           };
           const scrollThrough = async (list, visit) => {
@@ -274,8 +288,9 @@ public static partial class TikTokBrowserActions
             }
             if (!option) continue;
             option.scrollIntoView({ block: 'nearest' });
-            const icon = option.querySelector('.semi-cascader-option-icon, .semi-cascader-option-expand-icon');
-            (icon || option).click();
+            const icon = option.querySelector('.semi-cascader-option-icon');
+            if (!icon) continue;
+            icon.click();
             await sleep(150);
             const right = lists()[1];
             if (!right) continue;
@@ -309,14 +324,18 @@ public static partial class TikTokBrowserActions
             const rect = element.getBoundingClientRect();
             return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
           };
-          const popup = Array.from(document.querySelectorAll('.semi-portal, [role="dialog"]'))
-            .filter(visible)
-            .find(node => node.querySelector('.semi-cascader-option, .semi-cascader-option-list'));
+          const popup = document.querySelector('.semi-cascader-popover')
+            || document.getElementById(document.querySelector("[x-field-id='accountIds'] [role='combobox']")?.getAttribute('aria-controls') || '');
           if (!popup) return '未找到发布账号选项列表';
           const lists = () => Array.from(popup.querySelectorAll('.semi-cascader-option-list')).filter(visible);
           const optionsOf = list => Array.from(list.querySelectorAll('.semi-cascader-option')).filter(visible);
           const firstLine = option => {
-            const node = option.querySelector('.semi-cascader-option-label') || option;
+            const explicit = option.querySelector('[class*="optionLabel"]');
+            const explicitText = (explicit?.textContent || '').replace(/\s+/g, ' ').trim();
+            if (explicitText) return explicitText;
+            const textSpan = Array.from(option.querySelectorAll('.semi-cascader-option-label span'))
+              .find(span => span.childElementCount === 0 && (span.textContent || '').trim());
+            const node = textSpan || option.querySelector('.semi-cascader-option-label') || option;
             return ((node.innerText || '').split(/\n+/)[0] || '').replace(/\s+/g, ' ').trim();
           };
           const findOption = async (list, label) => {
@@ -339,8 +358,9 @@ public static partial class TikTokBrowserActions
             const country = await findOption(left, action.country);
             if (!country) return `未找到国家：${action.country}`;
             country.scrollIntoView({ block: 'nearest' });
-            const icon = country.querySelector('.semi-cascader-option-icon, .semi-cascader-option-expand-icon');
-            (icon || country).click();
+            const icon = country.querySelector('.semi-cascader-option-icon');
+            if (!icon) return `未找到国家展开按钮：${action.country}`;
+            icon.click();
             await sleep(150);
             const account = await findOption(lists()[1], action.displayName);
             if (!account) return `未找到账号：${action.country} / ${action.displayName}`;

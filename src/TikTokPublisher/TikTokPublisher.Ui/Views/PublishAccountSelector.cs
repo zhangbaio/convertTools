@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using TikTokPublisher.Core.Models;
@@ -8,44 +10,96 @@ namespace TikTokPublisher.Ui.Views;
 
 public sealed class PublishAccountSelector : UserControl
 {
+    private static readonly IBrush BorderBrushColor = new SolidColorBrush(Color.Parse("#D0D5DD"));
+    private static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#86909C"));
+    private static readonly IBrush ActiveBrush = new SolidColorBrush(Color.Parse("#E8F3FF"));
+    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#1677FF"));
+
+    public static readonly StyledProperty<double> LabelColumnWidthProperty =
+        AvaloniaProperty.Register<PublishAccountSelector, double>(nameof(LabelColumnWidth), 140);
+
     private readonly CheckBox _enabled = new() { Content = "启用" };
-    private readonly StackPanel _details = new() { Spacing = 8, Margin = new(0, 8, 0, 0) };
-    private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.Gray };
-    private readonly StackPanel _groups = new() { Spacing = 8 };
+    private readonly TextBlock _dropdownLabel;
+    private readonly StackPanel _fetchRow = new()
+    {
+        Orientation = Orientation.Horizontal,
+        Spacing = 8,
+        Margin = new(0, 8, 0, 0),
+    };
+    private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Foreground = MutedBrush };
     private readonly Button _fetchButton = new() { Content = "获取已创建账号", MinWidth = 132 };
+    private readonly Border _dropdown;
+    private readonly TextBlock _dropdownText = new() { VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly StackPanel _countryList = new() { Spacing = 2 };
+    private readonly StackPanel _accountList = new() { Spacing = 2 };
+    private readonly TextBlock _selectAll;
+    private readonly TextBlock _clearAll;
     private readonly Dictionary<string, CheckBox> _accountBoxes = new(StringComparer.Ordinal);
-    private readonly List<(string Country, CheckBox Box, string[] Keys)> _countryBoxes = [];
+    private readonly List<CountryRow> _countryRows = [];
     private IReadOnlyList<TikTokPublishAccountOption> _catalog = [];
     private bool _loading;
 
     public event EventHandler? FetchRequested;
 
+    public double LabelColumnWidth
+    {
+        get => GetValue(LabelColumnWidthProperty);
+        set => SetValue(LabelColumnWidthProperty, value);
+    }
+
     public PublishAccountSelector()
     {
-        var root = new StackPanel { Spacing = 4 };
-        root.Children.Add(new TextBlock
+        _selectAll = ActionLink("全选", () => SetAll(true));
+        _clearAll = ActionLink("取消全选", () => SetAll(false));
+        _dropdown = BuildDropdown();
+        _dropdown.Margin = new Thickness(0, 8, 0, 0);
+        _dropdown.IsVisible = false;
+        _dropdownLabel = new TextBlock
+        {
+            Text = "发布账号",
+            Classes = { "formLabel" },
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 8, 0, 0),
+            IsVisible = false,
+        };
+
+        var enableLabel = new TextBlock
+        {
+            Text = "是否启用发布账号",
+            Classes = { "formLabel" },
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 4, 0, 0),
+        };
+        var enableColumn = new StackPanel { Spacing = 4 };
+        enableColumn.Children.Add(_enabled);
+        enableColumn.Children.Add(new TextBlock
         {
             Text = "关闭后发布时仍默认全选全部已创建账号。",
             TextWrapping = TextWrapping.Wrap,
-            Foreground = Brushes.Gray,
+            Foreground = MutedBrush,
             FontSize = 12,
         });
-        root.Children.Add(_enabled);
-        var fetchRow = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-        };
-        fetchRow.Children.Add(_fetchButton);
-        fetchRow.Children.Add(_summary);
         _summary.VerticalAlignment = VerticalAlignment.Center;
-        _details.Children.Add(fetchRow);
-        _details.Children.Add(new ScrollViewer
+        _fetchRow.Children.Add(_fetchButton);
+        _fetchRow.Children.Add(_summary);
+        _fetchRow.IsVisible = false;
+        enableColumn.Children.Add(_fetchRow);
+
+        var root = new Grid
         {
-            Content = _groups,
-            MaxHeight = 240,
-        });
-        root.Children.Add(_details);
+            ColumnDefinitions = new ColumnDefinitions($"{LabelColumnWidth},*"),
+            ColumnSpacing = 10,
+            RowDefinitions = new RowDefinitions("Auto,Auto"),
+        };
+        Grid.SetColumn(enableColumn, 1);
+        Grid.SetColumn(_dropdown, 1);
+        Grid.SetRow(_dropdownLabel, 1);
+        Grid.SetRow(_dropdown, 1);
+        root.Children.Add(enableLabel);
+        root.Children.Add(enableColumn);
+        root.Children.Add(_dropdownLabel);
+        root.Children.Add(_dropdown);
         Content = root;
 
         _enabled.IsCheckedChanged += (_, _) =>
@@ -55,6 +109,7 @@ public sealed class PublishAccountSelector : UserControl
         };
         _fetchButton.Click += (_, _) => FetchRequested?.Invoke(this, EventArgs.Empty);
         UpdateDetailsVisibility();
+        UpdateSummary();
     }
 
     public IReadOnlyList<string> ReadSelectedKeys() =>
@@ -94,37 +149,147 @@ public sealed class PublishAccountSelector : UserControl
 
     public void SetFetchEnabled(bool enabled) => _fetchButton.IsEnabled = enabled;
 
-    private void UpdateDetailsVisibility() =>
-        _details.IsVisible = _enabled.IsChecked == true;
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == LabelColumnWidthProperty && Content is Grid grid)
+            grid.ColumnDefinitions = new ColumnDefinitions($"{change.GetNewValue<double>()},*");
+    }
+
+    private void UpdateDetailsVisibility()
+    {
+        var enabled = _enabled.IsChecked == true;
+        _fetchRow.IsVisible = enabled;
+        _dropdownLabel.IsVisible = enabled;
+        _dropdown.IsVisible = enabled;
+    }
+
+    private Border BuildDropdown()
+    {
+        var popupBody = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("188,1,*"),
+            MinWidth = 440,
+            MinHeight = 168,
+            MaxHeight = 260,
+        };
+        popupBody.Children.Add(new ScrollViewer
+        {
+            Content = _countryList,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        });
+        var divider = new Border { Background = BorderBrushColor };
+        Grid.SetColumn(divider, 1);
+        popupBody.Children.Add(divider);
+        var accountScroll = new ScrollViewer
+        {
+            Content = _accountList,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Margin = new Thickness(8, 0, 0, 0),
+        };
+        Grid.SetColumn(accountScroll, 2);
+        popupBody.Children.Add(accountScroll);
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 16,
+            Margin = new Thickness(12, 8, 12, 8),
+            Children = { _selectAll, _clearAll },
+        };
+        var footer = new Border
+        {
+            BorderBrush = BorderBrushColor,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Child = actions,
+        };
+        var popup = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(footer, Dock.Bottom);
+        popup.Children.Add(footer);
+        popup.Children.Add(popupBody);
+
+        var flyout = new Flyout
+        {
+            Placement = PlacementMode.BottomEdgeAlignedLeft,
+            ShowMode = FlyoutShowMode.Standard,
+            Content = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = BorderBrushColor,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Child = popup,
+            },
+        };
+
+        var caption = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        caption.Children.Add(_dropdownText);
+        var arrow = new TextBlock
+        {
+            Text = "▾",
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = MutedBrush,
+        };
+        Grid.SetColumn(arrow, 1);
+        caption.Children.Add(arrow);
+
+        var trigger = new Border
+        {
+            Background = Brushes.White,
+            BorderBrush = BorderBrushColor,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(10, 6),
+            MinHeight = 34,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Child = caption,
+        };
+        FlyoutBase.SetAttachedFlyout(trigger, flyout);
+        trigger.PointerPressed += (_, e) =>
+        {
+            if (!e.GetCurrentPoint(trigger).Properties.IsLeftButtonPressed)
+                return;
+            FlyoutBase.ShowAttachedFlyout(trigger);
+            e.Handled = true;
+        };
+        return trigger;
+    }
 
     private void RebuildGroups(IReadOnlySet<string> selected)
     {
-        _groups.Children.Clear();
+        _countryList.Children.Clear();
+        _accountList.Children.Clear();
         _accountBoxes.Clear();
-        _countryBoxes.Clear();
-        if (_catalog.Count == 0)
+        _countryRows.Clear();
+        var canSelect = _catalog.Count > 0;
+        _selectAll.IsHitTestVisible = canSelect;
+        _clearAll.IsHitTestVisible = canSelect;
+        _selectAll.Foreground = canSelect ? LinkBrush : MutedBrush;
+        _clearAll.Foreground = canSelect ? LinkBrush : MutedBrush;
+        if (!canSelect)
         {
-            _summary.Text = "请先获取已创建账号。";
+            UpdateSummary();
             return;
         }
 
         foreach (var countryGroup in _catalog.GroupBy(account => account.Country, StringComparer.Ordinal))
         {
+            var country = countryGroup.Key;
             var keys = countryGroup
                 .Select(account => TikTokPublishAccountCatalog.BuildKey(account.Country, account.DisplayName))
                 .ToArray();
-            var countryBox = new CheckBox { Content = countryGroup.Key, FontWeight = FontWeight.SemiBold };
-            var accountPanel = new StackPanel { Margin = new Thickness(22, 0, 0, 0), Spacing = 4 };
+            var countryBox = new CheckBox { Content = country, VerticalAlignment = VerticalAlignment.Center };
             foreach (var account in countryGroup)
             {
                 var key = TikTokPublishAccountCatalog.BuildKey(account.Country, account.DisplayName);
-                var caption = string.IsNullOrWhiteSpace(account.Handle)
-                    ? account.DisplayName
-                    : $"{account.DisplayName}    {account.Handle}";
                 var accountBox = new CheckBox
                 {
-                    Content = caption,
+                    Content = account.DisplayName,
                     IsChecked = selected.Contains(key),
+                    Margin = new Thickness(0, 2),
                 };
                 accountBox.IsCheckedChanged += (_, _) =>
                 {
@@ -133,7 +298,6 @@ public sealed class PublishAccountSelector : UserControl
                     UpdateSummary();
                 };
                 _accountBoxes[key] = accountBox;
-                accountPanel.Children.Add(accountBox);
             }
 
             countryBox.IsCheckedChanged += (_, _) =>
@@ -156,15 +320,72 @@ public sealed class PublishAccountSelector : UserControl
 
                 UpdateSummary();
             };
+
+            var chevron = Chevron();
+            Grid.SetColumn(chevron, 1);
+            var rowGrid = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            };
+            rowGrid.Children.Add(countryBox);
+            rowGrid.Children.Add(chevron);
+            var row = new Border
+            {
+                Padding = new Thickness(8, 4),
+                CornerRadius = new CornerRadius(4),
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Child = rowGrid,
+            };
+            row.PointerPressed += (_, _) => ShowCountry(country);
             SyncCountryBox(countryBox, keys);
-            _countryBoxes.Add((countryGroup.Key, countryBox, keys));
-            var group = new StackPanel { Spacing = 4 };
-            group.Children.Add(countryBox);
-            group.Children.Add(accountPanel);
-            _groups.Children.Add(group);
+            _countryRows.Add(new CountryRow(country, row, keys));
+            _countryList.Children.Add(row);
+        }
+
+        ShowCountry(_countryRows[0].Country);
+        UpdateSummary();
+    }
+
+    private void ShowCountry(string country)
+    {
+        _accountList.Children.Clear();
+        foreach (var row in _countryRows)
+            row.Border.Background = string.Equals(row.Country, country, StringComparison.Ordinal)
+                ? ActiveBrush
+                : Brushes.Transparent;
+
+        var match = _countryRows.FirstOrDefault(row => string.Equals(row.Country, country, StringComparison.Ordinal));
+        if (match == null) return;
+        foreach (var key in match.Keys)
+        {
+            if (_accountBoxes.TryGetValue(key, out var accountBox))
+                _accountList.Children.Add(accountBox);
+        }
+    }
+
+    private void SetAll(bool selected)
+    {
+        if (_catalog.Count == 0) return;
+        _loading = true;
+        try
+        {
+            foreach (var box in _accountBoxes.Values)
+                box.IsChecked = selected;
+            foreach (var row in _countryRows)
+                SyncCountryBox(FindCountryBox(row), row.Keys);
+        }
+        finally
+        {
+            _loading = false;
         }
 
         UpdateSummary();
+    }
+
+    private CheckBox FindCountryBox(CountryRow row)
+    {
+        var grid = (Grid)row.Border.Child!;
+        return (CheckBox)grid.Children[0];
     }
 
     private void SyncCountryBox(CheckBox countryBox, IReadOnlyList<string> keys)
@@ -189,7 +410,58 @@ public sealed class PublishAccountSelector : UserControl
 
     private void UpdateSummary()
     {
-        var selectedCount = ReadSelectedKeys().Count;
-        _summary.Text = $"已获取 {_catalog.Count} 个账号，已选 {selectedCount} 个。";
+        if (_catalog.Count == 0)
+        {
+            _summary.Text = "请先获取已创建账号。";
+            _dropdownText.Text = "暂无发布账号";
+            _dropdownText.Foreground = MutedBrush;
+            return;
+        }
+
+        var selectedKeys = ReadSelectedKeys();
+        _summary.Text = $"已获取 {_catalog.Count} 个账号，已选 {selectedKeys.Count} 个。";
+        if (selectedKeys.Count == 0)
+        {
+            _dropdownText.Text = "请选择发布账号";
+            _dropdownText.Foreground = MutedBrush;
+            return;
+        }
+
+        var firstKey = selectedKeys[0];
+        var first = _catalog.First(account =>
+            TikTokPublishAccountCatalog.BuildKey(account.Country, account.DisplayName) == firstKey);
+        var extra = selectedKeys.Count - 1;
+        _dropdownText.Text = extra > 0
+            ? $"{first.DisplayName} · {first.Country}    +{extra}"
+            : $"{first.DisplayName} · {first.Country}";
+        _dropdownText.Foreground = Brushes.Black;
     }
+
+    private static TextBlock Chevron() => new()
+    {
+        Text = "›",
+        Margin = new Thickness(8, 0, 0, 0),
+        VerticalAlignment = VerticalAlignment.Center,
+        Foreground = MutedBrush,
+        FontSize = 16,
+    };
+
+    private static TextBlock ActionLink(string text, Action action)
+    {
+        var link = new TextBlock
+        {
+            Text = text,
+            Foreground = LinkBrush,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        link.PointerPressed += (_, e) =>
+        {
+            action();
+            e.Handled = true;
+        };
+        return link;
+    }
+
+    private sealed record CountryRow(string Country, Border Border, string[] Keys);
 }
