@@ -358,11 +358,9 @@ public static class TikTokPublishedSeriesVideoDownloadService
                 log(
                     $"平台视频恢复 [{episode}/{targetCount}]：开始下载" +
                     (attempt > 1 ? $"（重试 {attempt}/{DownloadAttempts}）" : "。"));
+                await WaitUntilDownloadButtonReadyAsync(button, ct).ConfigureAwait(false);
                 var download = await page.RunAndWaitForDownloadAsync(
-                        () => button.ClickAsync(new LocatorClickOptions
-                        {
-                            Timeout = 15000,
-                        }),
+                        () => ClickDownloadButtonAsync(page, button),
                         new PageRunAndWaitForDownloadOptions
                         {
                             Timeout = 90000,
@@ -396,6 +394,50 @@ public static class TikTokPublishedSeriesVideoDownloadService
         }
 
         return $"TikTok 第 {episode} 集下载失败：{lastError?.Message ?? "未知错误"}。";
+    }
+
+    private static async Task WaitUntilDownloadButtonReadyAsync(ILocator button, CancellationToken ct)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        while (stopwatch.Elapsed < TimeSpan.FromSeconds(8))
+        {
+            ct.ThrowIfCancellationRequested();
+            string? loading;
+            try
+            {
+                loading = await button.GetAttributeAsync("data-loading").ConfigureAwait(false);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (!string.Equals(loading, "true", StringComparison.OrdinalIgnoreCase))
+                return;
+            await Task.Delay(400, ct).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task ClickDownloadButtonAsync(IPage page, ILocator button)
+    {
+        await page.EvaluateAsync(
+                """
+                () => {
+                  const styleId = 'tiktok-download-tooltip-blocker';
+                  if (!document.getElementById(styleId)) {
+                    const style = document.createElement('style');
+                    style.id = styleId;
+                    style.textContent = '.Tooltip__root{display:none!important;pointer-events:none!important;}';
+                    document.head.appendChild(style);
+                  }
+                  for (const node of document.querySelectorAll('.Tooltip__root')) {
+                    node.style.pointerEvents = 'none';
+                    node.style.display = 'none';
+                  }
+                }
+                """)
+            .ConfigureAwait(false);
+        await button.ClickAsync(new LocatorClickOptions { Timeout = 15000 }).ConfigureAwait(false);
     }
 
     private static async Task OpenContentUploadTabAsync(IPage page, CancellationToken ct)
