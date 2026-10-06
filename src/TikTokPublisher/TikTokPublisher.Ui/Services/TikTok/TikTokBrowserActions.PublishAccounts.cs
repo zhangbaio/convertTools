@@ -103,10 +103,7 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
-        var wanted = selectedKeys
-            .Where(key => !string.IsNullOrWhiteSpace(key))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
+        var wanted = KeepOneAccountPerCountry(selectedKeys);
         if (wanted.Length == 0)
         {
             throw new InvalidOperationException(
@@ -146,6 +143,26 @@ public static partial class TikTokBrowserActions
         }
 
         Log(log, $"TikTok 发布账号已按配置勾选 {selectedAfter} 个。");
+    }
+
+    private static string[] KeepOneAccountPerCountry(IEnumerable<string> selectedKeys)
+    {
+        var seenCountries = new HashSet<string>(StringComparer.Ordinal);
+        var kept = new List<string>();
+        foreach (var raw in selectedKeys)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            var parts = raw.Split(TikTokPublishAccountCatalog.KeySeparator, 2);
+            if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
+                continue;
+            if (!seenCountries.Add(parts[0]))
+                continue;
+            if (!kept.Contains(raw, StringComparer.Ordinal))
+                kept.Add(raw);
+        }
+
+        return kept.ToArray();
     }
 
     private static async Task<IReadOnlyList<ScrapedPublishAccount>> ScrapePublishAccountsAsync(
@@ -319,58 +336,74 @@ public static partial class TikTokBrowserActions
         async argument => {
           const actions = JSON.parse(argument);
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-          const visible = element => {
-            const style = getComputedStyle(element);
-            const rect = element.getBoundingClientRect();
-            return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+          const normalize = text => String(text || '').replace(/\s+/g, ' ').trim();
+          const labelText = node => {
+            if (node == null || node === false) return '';
+            if (typeof node === 'string' || typeof node === 'number') return String(node);
+            if (Array.isArray(node)) return node.map(labelText).join('');
+            const className = String(node.props?.className || '');
+            if (className.includes('optionLabel')) return labelText(node.props.children);
+            return labelText(node.props?.children);
           };
-          const popup = document.querySelector('.semi-cascader-popover')
-            || document.getElementById(document.querySelector("[x-field-id='accountIds'] [role='combobox']")?.getAttribute('aria-controls') || '');
-          if (!popup) return '未找到发布账号选项列表';
-          const lists = () => Array.from(popup.querySelectorAll('.semi-cascader-option-list')).filter(visible);
-          const optionsOf = list => Array.from(list.querySelectorAll('.semi-cascader-option')).filter(visible);
-          const firstLine = option => {
-            const explicit = option.querySelector('[class*="optionLabel"]');
-            const explicitText = (explicit?.textContent || '').replace(/\s+/g, ' ').trim();
-            if (explicitText) return explicitText;
-            const textSpan = Array.from(option.querySelectorAll('.semi-cascader-option-label span'))
-              .find(span => span.childElementCount === 0 && (span.textContent || '').trim());
-            const node = textSpan || option.querySelector('.semi-cascader-option-label') || option;
-            return ((node.innerText || '').split(/\n+/)[0] || '').replace(/\s+/g, ' ').trim();
-          };
-          const findOption = async (list, label) => {
-            if (!list) return null;
-            list.scrollTop = 0;
-            for (let pass = 0; pass < 40; pass += 1) {
-              const found = optionsOf(list).find(option => firstLine(option) === label);
-              if (found) return found;
-              const previous = list.scrollTop;
-              if (list.scrollHeight <= list.clientHeight + 1 ||
-                  list.scrollTop >= list.scrollHeight - list.clientHeight - 1) break;
-              list.scrollTop = Math.min(list.scrollTop + Math.max(80, list.clientHeight * 0.8), list.scrollHeight);
-              await sleep(60);
-              if (list.scrollTop === previous) break;
+          const findProps = root => {
+            if (!root) return null;
+            const fiberKey = Object.keys(root).find(key => key.startsWith('__reactFiber'));
+            let fiber = fiberKey ? root[fiberKey] : null;
+            while (fiber) {
+              const candidate = fiber.memoizedProps || {};
+              if (Array.isArray(candidate.value) && Array.isArray(candidate.treeData) && typeof candidate.onChange === 'function')
+                return candidate;
+              fiber = fiber.return;
             }
             return null;
           };
-          for (const action of actions) {
-            const left = lists()[0];
-            const country = await findOption(left, action.country);
-            if (!country) return `未找到国家：${action.country}`;
-            country.scrollIntoView({ block: 'nearest' });
-            const icon = country.querySelector('.semi-cascader-option-icon');
-            if (!icon) return `未找到国家展开按钮：${action.country}`;
-            icon.click();
-            await sleep(150);
-            const account = await findOption(lists()[1], action.displayName);
-            if (!account) return `未找到账号：${action.country} / ${action.displayName}`;
-            const input = account.querySelector('input[type="checkbox"]');
-            const checked = !!(input && (input.checked || input.getAttribute('aria-checked') === 'true'));
-            if (checked === action.select) continue;
-            const target = input?.closest('label, .semi-checkbox') || input || account;
-            target.click();
-            await sleep(80);
+          const popup = document.querySelector('.semi-cascader-popover')
+            || document.getElementById(document.querySelector("[x-field-id='accountIds'] [role='combobox']")?.getAttribute('aria-controls') || '');
+          const props = findProps(popup) || findProps(document.querySelector("[x-field-id='accountIds']"));
+          if (!props) return '未找到发布账号选项列表';
+          const catalog = [];
+          const childrenByCountry = new Map();
+          for (const countryNode of props.treeData) {
+            const country = normalize(labelText(countryNode.label));
+            const children = [];
+            for (const child of countryNode.children || []) {
+              const displayName = normalize(labelText(child.label));
+              if (!country || !displayName || child.value == null) continue;
+              const path = [countryNode.value, child.value];
+              catalog.push({ country, displayName, path });
+              children.push(path);
+            }
+            childrenByCountry.set(String(countryNode.value), children);
           }
+          const pathKey = path => String(path[0]) + '\u001f' + String(path[1]);
+          const selected = new Set();
+          for (const path of props.value || []) {
+            if (!Array.isArray(path) || path.length === 0) continue;
+            if (path.length === 1) {
+              for (const child of childrenByCountry.get(String(path[0])) || [])
+                selected.add(pathKey(child));
+            } else {
+              selected.add(pathKey(path));
+            }
+          }
+          for (const action of actions) {
+            const item = catalog.find(entry => entry.country === action.country && entry.displayName === action.displayName);
+            if (!item) return `未找到账号：${action.country} / ${action.displayName}`;
+            const key = pathKey(item.path);
+            if (action.select) selected.add(key);
+            else selected.delete(key);
+          }
+          const next = [];
+          const seenCountries = new Set();
+          for (const entry of catalog) {
+            const key = pathKey(entry.path);
+            const countryKey = String(entry.path[0]);
+            if (!selected.has(key) || seenCountries.has(countryKey)) continue;
+            seenCountries.add(countryKey);
+            next.push(entry.path);
+          }
+          props.onChange(next);
+          await sleep(200);
           return '';
         }
         """;
