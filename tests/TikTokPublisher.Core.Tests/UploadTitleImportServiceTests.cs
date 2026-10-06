@@ -57,6 +57,27 @@ public sealed class UploadTitleImportServiceTests
     }
 
     [Fact]
+    public void ResolveDownloadPlan_truncates_to_configured_keep_count()
+    {
+        var item = new DramaSearchItem
+        {
+            Title = "超长短剧",
+            EpisodeTotal = 100,
+        };
+        var settings = new ClientSettings
+        {
+            TiktokAllowOverLimitUploadImport = true,
+            TiktokOverLimitDownloadEpisodeCount = 80,
+        };
+
+        var plan = UploadTitleImportService.ResolveDownloadPlan(item, settings);
+
+        plan.Truncated.Should().BeTrue();
+        plan.Episodes.Should().Be("1-80");
+        plan.EffectiveEpisodeCount.Should().Be(80);
+    }
+
+    [Fact]
     public void BuildFailurePreview_prefers_author_excluded_failures()
     {
         var failures = new[]

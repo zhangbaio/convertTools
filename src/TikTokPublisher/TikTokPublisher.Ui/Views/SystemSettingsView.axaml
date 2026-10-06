@@ -650,7 +650,7 @@
                             <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ManagementDedupScopeCombo" Width="220" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="超长剧入队" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokAllowOverLimitUploadImport}" Content="超过 120 集仍加入队列，并只下载前 N 集" />
+                            <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokAllowOverLimitUploadImport}" Content="超过设定集数仍加入队列，下载和本地导入都只使用前 N 集" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="超长剧下载集数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TiktokOverLimitDownloadEpisodeCount}" Minimum="1" Maximum="120" Width="120" HorizontalAlignment="Left" />

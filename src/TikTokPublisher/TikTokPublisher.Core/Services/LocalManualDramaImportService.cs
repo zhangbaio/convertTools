@@ -4,6 +4,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
@@ -158,7 +159,8 @@ public static class LocalManualDramaImportService
     public static LocalManualDramaImportResult Import(
         string workspaceRoot,
         string sourceProjectDir,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        ClientSettings? settings = null)
     {
         var workspace = NormalizeFullPath(workspaceRoot);
         if (string.IsNullOrWhiteSpace(workspace))
@@ -181,6 +183,15 @@ public static class LocalManualDramaImportService
         var workflowDir = ResolveWorkflowProjectDir(workspace, source, displayName, metadata);
         Directory.CreateDirectory(workflowDir);
 
+        var sourceEpisodeCount = videos.Count;
+        var truncate = OverLimitEpisodePolicy.ShouldTruncate(sourceEpisodeCount, settings);
+        var effectiveEpisodeCount = truncate
+            ? OverLimitEpisodePolicy.ResolveKeepCount(settings!)
+            : sourceEpisodeCount;
+        var declaredEpisodeCount = truncate
+            ? sourceEpisodeCount
+            : Math.Max(sourceEpisodeCount, externalInfo.DeclaredEpisodeCount);
+
         var now = DateTimeOffset.Now.ToString("o");
         var projectKey = FirstNonEmpty(ReadString(metadata, "projectKey"), SanitizeFileName(displayName));
         metadata["projectKey"] = projectKey;
@@ -191,11 +202,26 @@ public static class LocalManualDramaImportService
         metadata["originalTitle"] = FirstNonEmpty(ReadString(metadata, "originalTitle"), displayName);
         metadata["intro"] = externalInfo.Intro;
         metadata["category"] = FirstNonEmpty(ReadString(metadata, "category"), externalInfo.Category, "本地导入");
-        var declaredEpisodeCount = Math.Max(videos.Count, externalInfo.DeclaredEpisodeCount);
-        metadata["episodeCount"] = declaredEpisodeCount;
+        metadata["episodeCount"] = truncate ? effectiveEpisodeCount : declaredEpisodeCount;
+        metadata["episode_count"] = truncate ? effectiveEpisodeCount : declaredEpisodeCount;
         metadata["declaredEpisodeCount"] = declaredEpisodeCount;
-        metadata["effectiveEpisodeCount"] = videos.Count;
-        metadata["episodes"] = FirstNonEmpty(ReadString(metadata, "episodes"), "all");
+        metadata["effectiveEpisodeCount"] = effectiveEpisodeCount;
+        metadata["effective_episode_count"] = effectiveEpisodeCount;
+        if (truncate)
+        {
+            metadata["originalEpisodeCount"] = sourceEpisodeCount;
+            metadata["original_episode_count"] = sourceEpisodeCount;
+            metadata["downloadEpisodeLimit"] = effectiveEpisodeCount;
+            metadata["download_episode_limit"] = effectiveEpisodeCount;
+            metadata["episodes"] = $"1-{effectiveEpisodeCount}";
+            metadata["truncatedForTikTokUpload"] = true;
+            metadata["truncated_for_tiktok_upload"] = true;
+            log?.Invoke($"超长剧本地导入：{displayName} 原 {sourceEpisodeCount} 集，仅使用前 {effectiveEpisodeCount} 集");
+        }
+        else
+        {
+            metadata["episodes"] = FirstNonEmpty(ReadString(metadata, "episodes"), "all");
+        }
         metadata["quality"] = FirstNonEmpty(ReadString(metadata, "quality"), "local");
         metadata["concurrent"] = ReadPositiveInt(metadata, "concurrent") ?? 3;
         metadata["episodeNumberMode"] = FirstNonEmpty(ReadString(metadata, "episodeNumberMode"), "source");
@@ -213,9 +239,12 @@ public static class LocalManualDramaImportService
 
         WriteMetadata(metadataPath, metadata);
         EnsureStandardPosterAlias(source);
-        ProjectWorkspaceService.EnsureWorkflowInfo(source, videos.Count, log);
+        var sourceInfoPath = Path.Combine(source, "短剧信息.txt");
+        if (truncate && File.Exists(sourceInfoPath))
+            ProjectWorkspaceService.UpdateProjectInfoField(sourceInfoPath, "集数", effectiveEpisodeCount.ToString());
+        ProjectWorkspaceService.EnsureWorkflowInfo(source, effectiveEpisodeCount, log);
 
-        return new LocalManualDramaImportResult(source, workflowDir, displayName, videos.Count);
+        return new LocalManualDramaImportResult(source, workflowDir, displayName, effectiveEpisodeCount);
     }
 
     private static IReadOnlyList<string> ResolveLocalVideos(string sourceProjectDir)

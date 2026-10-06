@@ -145,7 +145,7 @@ public static class ProjectVideoResolver
             if (!Directory.Exists(root)) continue;
             candidates.AddRange(EnumerateSourceVideos(root));
         }
-        return DedupeAndSort(candidates);
+        return ApplyOverLimitEpisodeSlice(sourceProjectDir, DedupeAndSort(candidates));
     }
 
     private static IEnumerable<string> EnumerateSourceVideos(string root)
@@ -281,6 +281,62 @@ public static class ProjectVideoResolver
     }
 
     private static bool IsCandidateVideoFile(string path) => IsCompleteVideoFile(path);
+
+    private static List<string> ApplyOverLimitEpisodeSlice(string sourceProjectDir, List<string> videos)
+    {
+        if (videos.Count == 0)
+            return videos;
+
+        var limit = ReadOverLimitKeepCount(sourceProjectDir);
+        if (limit is null || videos.Count <= limit.Value)
+            return videos;
+
+        return videos.Take(limit.Value).ToList();
+    }
+
+    private static int? ReadOverLimitKeepCount(string sourceProjectDir)
+    {
+        var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
+        if (!File.Exists(path))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return null;
+            if (!ReadBool(document.RootElement, "truncatedForTikTokUpload") &&
+                !ReadBool(document.RootElement, "truncated_for_tiktok_upload"))
+                return null;
+
+            foreach (var key in new[] { "downloadEpisodeLimit", "download_episode_limit", "effectiveEpisodeCount", "effective_episode_count" })
+            {
+                if (document.RootElement.TryGetProperty(key, out var property) &&
+                    property.TryGetInt32(out var count) &&
+                    count > 0)
+                    return count;
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private static bool ReadBool(JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var property))
+            return false;
+        return property.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String => bool.TryParse(property.GetString(), out var value) && value,
+            _ => false,
+        };
+    }
 
     private static List<string> DedupeAndSort(List<string> paths, Func<string, IComparable[]>? keyFn = null)
     {
