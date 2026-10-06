@@ -28,7 +28,26 @@ public static class TikTokEditFlowService
 
     public sealed record SubmitVerificationResult(bool Accepted, string Message);
 
-    public static async Task<bool> TryEnterExistingDraftFlowAsync(
+    public readonly record struct EditFlowEntry(bool Entered, bool AlreadyUploaded, string Message)
+    {
+        public static EditFlowEntry DidEnter() => new(true, false, "");
+
+        public static EditFlowEntry Missed() => new(false, false, "");
+
+        public static EditFlowEntry Uploaded(string message) => new(false, true, message ?? "");
+    }
+
+    /// <summary>
+    /// 原创管理列表行已经离开草稿、并进入提交后的成功状态（如视频检测中、审核中、已发布）。
+    /// </summary>
+    internal static bool IsNonDraftUploadedStatus(string? rowText)
+    {
+        if (string.IsNullOrWhiteSpace(rowText)) return false;
+        if (rowText.Contains("草稿", StringComparison.Ordinal)) return false;
+        return LooksSubmittedStatus(rowText);
+    }
+
+    public static async Task<EditFlowEntry> TryEnterExistingDraftFlowAsync(
         IPage page,
         string workflowProjectDir,
         TikTokPublishPayload payload,
@@ -42,16 +61,71 @@ public static class TikTokEditFlowService
     {
         if (await MaybeRouteDuplicateToEditFlowAsync(
                 page, workflowProjectDir, payload, options, recommendation, coverPath, log, ct))
-            return true;
+            return EditFlowEntry.DidEnter();
+
+        // 本地草稿缓存不能抢在列表状态之前。平台已是视频检测中等非草稿状态时，直接标成功。
+        if (allowPlatformSearch)
+        {
+            var listed = await TryEnterFromSeriesListAsync(
+                page, workflowProjectDir, payload, options, recommendation, coverPath, log, ct, allowCreateFallback);
+            if (listed.AlreadyUploaded || listed.Entered)
+                return listed;
+        }
 
         if (await MaybeUseCachedEditFlowAsync(
                 page, workflowProjectDir, payload, options, recommendation, coverPath, log, ct))
-            return true;
+            return EditFlowEntry.DidEnter();
 
-        if (!allowPlatformSearch) return false;
+        if (!allowPlatformSearch) return EditFlowEntry.Missed();
 
-        return await MaybeSearchExistingSeriesThenEditAsync(
-            page, workflowProjectDir, payload, options, recommendation, coverPath, log, ct, allowCreateFallback);
+        var titleCandidates = NormalizeTitleCandidates(payload.Title, payload.OriginalTitle);
+        TikTokUploadStateStore.RecordPlatformSeriesNotFound(workflowProjectDir, "pre_upload_search", titleCandidates);
+        log?.Invoke(allowCreateFallback
+            ? "TikTok 平台未找到同名草稿，改走新建剧集上传流程"
+            : "TikTok 平台未找到同名草稿；当前为编辑剧集模式，不会新建上传");
+        return EditFlowEntry.Missed();
+    }
+
+    private static async Task<EditFlowEntry> TryEnterFromSeriesListAsync(
+        IPage page,
+        string workflowProjectDir,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        TikTokPublishRecommendation recommendation,
+        string coverPath,
+        Action<string>? log,
+        CancellationToken ct,
+        bool allowCreateFallback)
+    {
+        var titleCandidates = NormalizeTitleCandidates(payload.Title, payload.OriginalTitle);
+        if (titleCandidates.Count == 0) return EditFlowEntry.Missed();
+
+        log?.Invoke(allowCreateFallback
+            ? $"TikTok 检测到该项目曾执行过上传，先在平台搜索是否已存在：{string.Join(" / ", titleCandidates)}"
+            : $"已选择编辑剧集模式，正在原创管理查找同名剧集：{string.Join(" / ", titleCandidates)}");
+        var hit = await FindSeriesListHitAsync(page, titleCandidates, log, ct);
+        if (hit.IsSubmitted)
+        {
+            return EditFlowEntry.Uploaded(
+                $"TikTok 剧集已上传成功（非草稿），项目状态改为成功：{CompactRowForLog(hit.RowText)}");
+        }
+
+        if (!hit.IsDraft) return EditFlowEntry.Missed();
+
+        await EnterMatchedDraftAsync(
+            page,
+            workflowProjectDir,
+            hit.DetailUrl,
+            titleCandidates[0],
+            payload,
+            options,
+            recommendation,
+            coverPath,
+            log,
+            ct,
+            "pre_upload_search",
+            titleCandidates);
+        return EditFlowEntry.DidEnter();
     }
 
     public static async Task<bool> MaybeRouteDuplicateToEditFlowAsync(
@@ -137,19 +211,129 @@ public static class TikTokEditFlowService
             return false;
         }
 
+        await EnterMatchedDraftAsync(
+            page,
+            workflowProjectDir,
+            detailUrl,
+            titleCandidates[0],
+            payload,
+            options,
+            recommendation,
+            coverPath,
+            log,
+            ct,
+            "pre_upload_search",
+            titleCandidates);
+        return true;
+    }
+
+    private static async Task EnterMatchedDraftAsync(
+        IPage page,
+        string workflowProjectDir,
+        string detailUrl,
+        string matchedTitle,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        TikTokPublishRecommendation recommendation,
+        string coverPath,
+        Action<string>? log,
+        CancellationToken ct,
+        string source,
+        IReadOnlyList<string> titleCandidates)
+    {
         TikTokUploadStateStore.RecordPlatformSeriesFound(
-            workflowProjectDir, detailUrl, titleCandidates[0], "pre_upload_search", titleCandidates);
+            workflowProjectDir, detailUrl, matchedTitle, source, titleCandidates);
         if (!string.IsNullOrWhiteSpace(payload.Title) &&
-            !string.Equals(payload.Title, titleCandidates[0], StringComparison.Ordinal))
+            !string.Equals(payload.Title, matchedTitle, StringComparison.Ordinal))
         {
             log?.Invoke(
-                $"警告：平台草稿标题「{titleCandidates[0]}」与当前本地新剧名「{payload.Title}」不一致，" +
+                $"警告：平台草稿标题「{matchedTitle}」与当前本地新剧名「{payload.Title}」不一致，" +
                 "后续剧集比对将优先按平台真实标题识别。");
         }
         log?.Invoke($"TikTok 已在平台搜索到同名草稿，直接进入编辑流程：{detailUrl}");
         await OpenEditPublishFlowAsync(
             page, detailUrl, payload, options, recommendation, coverPath, log, ct);
-        return true;
+    }
+
+    private readonly record struct SeriesListHit(string Kind, string DetailUrl, string RowText)
+    {
+        public bool IsSubmitted => Kind == "submitted";
+        public bool IsDraft => Kind == "draft";
+        public static SeriesListHit None => new("", "", "");
+        public static SeriesListHit Submitted(string rowText) => new("submitted", "", rowText);
+        public static SeriesListHit Draft(string detailUrl, string rowText) => new("draft", detailUrl, rowText);
+    }
+
+    private static async Task<SeriesListHit> FindSeriesListHitAsync(
+        IPage page,
+        IReadOnlyList<string> titleCandidates,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (titleCandidates.Count == 0) return SeriesListHit.None;
+
+        try
+        {
+            await TikTokSeriesListLookupService.OpenAsync(page, log, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"TikTok 原创管理列表暂时无法读取，将继续按本地草稿缓存判断：{ex.Message}");
+            return SeriesListHit.None;
+        }
+
+        SeriesListHit? draft = null;
+        foreach (var title in titleCandidates)
+        {
+            ct.ThrowIfCancellationRequested();
+            log?.Invoke($"TikTok 在原剧管理搜索：{title}");
+            IReadOnlyList<TikTokSeriesListRow> rows;
+            try
+            {
+                rows = await TikTokSeriesListLookupService.SearchExactAsync(page, title, ct, log);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"TikTok 原剧管理搜索失败：{title}：{ex.Message}");
+                continue;
+            }
+
+            foreach (var row in rows)
+            {
+                var status = string.IsNullOrWhiteSpace(row.PlatformStatus) ? row.RawText : row.PlatformStatus;
+                if (IsNonDraftUploadedStatus(status) || IsNonDraftUploadedStatus(row.RawText))
+                {
+                    var summary = string.IsNullOrWhiteSpace(row.PlatformStatus)
+                        ? row.RawText
+                        : $"{row.Title} {row.PlatformStatus}";
+                    return SeriesListHit.Submitted(summary);
+                }
+
+                if (draft is not null) continue;
+                if (!status.Contains("草稿", StringComparison.Ordinal) &&
+                    !row.RawText.Contains("草稿", StringComparison.Ordinal))
+                    continue;
+
+                var detailUrl = string.IsNullOrWhiteSpace(row.SeriesId)
+                    ? row.DetailUrl
+                    : $"{TikTokUrls.DefaultSeriesDraftUrl}/{row.SeriesId}";
+                if (!string.IsNullOrWhiteSpace(detailUrl))
+                    draft = SeriesListHit.Draft(detailUrl, row.RawText);
+            }
+
+            if (draft is not null)
+                return draft.Value;
+        }
+
+        return draft ?? SeriesListHit.None;
     }
 
     public static async Task OpenEditPublishFlowAsync(
