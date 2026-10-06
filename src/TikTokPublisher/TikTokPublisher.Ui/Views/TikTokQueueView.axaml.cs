@@ -1275,22 +1275,19 @@ public partial class TikTokQueueView : UserControl
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
         };
 
-        var listBox = new ListBox
-        {
-            SelectionMode = SelectionMode.Multiple,
-            MinHeight = 300,
-            MaxHeight = 340,
-        };
-
+        var rows = new StackPanel { Spacing = 2 };
+        var checks = new List<CheckBox>();
         foreach (var preview in candidates)
         {
-            var item = new ListBoxItem
+            var check = new CheckBox
             {
                 Content = FormatLocalDramaImportCandidate(preview),
                 Tag = preview,
-                IsSelected = !preview.MetadataExists,
+                IsChecked = !preview.MetadataExists,
+                Margin = new Thickness(2, 1),
             };
-            listBox.Items.Add(item);
+            checks.Add(check);
+            rows.Children.Add(check);
         }
 
         var autoRunCheck = new CheckBox
@@ -1301,28 +1298,28 @@ public partial class TikTokQueueView : UserControl
 
         var selectNewButton = BuildDialogButton("选择未导入", () =>
         {
-            foreach (var item in listBox.Items.OfType<ListBoxItem>())
-                item.IsSelected = item.Tag is LocalManualDramaImportPreview preview && !preview.MetadataExists;
+            foreach (var check in checks)
+                check.IsChecked = check.Tag is LocalManualDramaImportPreview preview && !preview.MetadataExists;
         });
         var selectAllButton = BuildDialogButton("全选", () =>
         {
-            foreach (var item in listBox.Items.OfType<ListBoxItem>())
-                item.IsSelected = true;
+            foreach (var check in checks)
+                check.IsChecked = true;
         });
         var clearButton = BuildDialogButton("取消全选", () =>
         {
-            foreach (var item in listBox.Items.OfType<ListBoxItem>())
-                item.IsSelected = false;
+            foreach (var check in checks)
+                check.IsChecked = false;
         });
         var cancelButton = BuildDialogButton("取消", () => dialog.Close(null));
         var importButton = BuildDialogButton("确定", () =>
         {
-            var selected = listBox.SelectedItems?
-                .OfType<ListBoxItem>()
-                .Select(item => item.Tag is LocalManualDramaImportPreview preview ? preview.ProjectDir : "")
+            var selected = checks
+                .Where(check => check.IsChecked == true)
+                .Select(check => check.Tag is LocalManualDramaImportPreview preview ? preview.ProjectDir : "")
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray() ?? Array.Empty<string>();
+                .ToArray();
             dialog.Close(new LocalDramaImportDialogResult(selected, autoRunCheck.IsChecked == true));
         }, primary: true);
 
@@ -1339,7 +1336,7 @@ public partial class TikTokQueueView : UserControl
                 },
                 new TextBlock
                 {
-                    Text = $"发现 {candidates.Count} 个可导入目录。默认选中未导入项目。",
+                    Text = $"发现 {candidates.Count} 个可导入目录。默认勾选未导入项目。",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                 },
                 new StackPanel
@@ -1348,7 +1345,12 @@ public partial class TikTokQueueView : UserControl
                     Spacing = 8,
                     Children = { selectNewButton, selectAllButton, clearButton },
                 },
-                listBox,
+                new ScrollViewer
+                {
+                    MinHeight = 300,
+                    MaxHeight = 340,
+                    Content = rows,
+                },
                 autoRunCheck,
                 new StackPanel
                 {
