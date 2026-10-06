@@ -3699,7 +3699,11 @@ public sealed partial class MainViewModel : ViewModelBase
         LocalManualDramaImportResult result;
         try
         {
-            result = await Task.Run(() => LocalManualDramaImportService.Import(root, sourceProjectDir, AppendLog))
+            result = await Task.Run(() => LocalManualDramaImportService.Import(
+                    root,
+                    sourceProjectDir,
+                    AppendLog,
+                    ClientSettingsStore.Load()))
                 .ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -3823,6 +3827,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var existingBefore = WorkspaceQueueService.ScanProjects(root)
             .Select(item => Path.GetFullPath(item.ProjectDir))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var overLimitSettings = ClientSettingsStore.Load();
         var results = new List<LocalManualDramaImportResult>();
         var failures = new List<string>();
 
@@ -3835,7 +3840,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
             try
             {
-                var result = await Task.Run(() => LocalManualDramaImportService.Import(root, sourceProjectDir, AppendLog))
+                var result = await Task.Run(() => LocalManualDramaImportService.Import(
+                        root,
+                        sourceProjectDir,
+                        AppendLog,
+                        overLimitSettings))
                     .ConfigureAwait(true);
                 results.Add(result);
                 AppendLog($"已导入本地剧集：{result.DisplayName}（{result.EpisodeCount} 集）");

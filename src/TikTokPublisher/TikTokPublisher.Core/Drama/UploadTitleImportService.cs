@@ -329,14 +329,11 @@ public static class UploadTitleImportService
         ClientSettings settings,
         int episodeMax = DefaultEpisodeMax)
     {
-        var max = episodeMax > 0 ? episodeMax : DefaultEpisodeMax;
-        if (!settings.TiktokAllowOverLimitUploadImport || item.EpisodeTotal <= max)
+        _ = episodeMax;
+        if (!OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings))
             return new UploadTitleImportDownloadPlan("all", Math.Max(1, item.EpisodeTotal), Truncated: false);
 
-        var limit = settings.TiktokOverLimitDownloadEpisodeCount <= 0
-            ? max
-            : settings.TiktokOverLimitDownloadEpisodeCount;
-        limit = Math.Clamp(limit, 1, max);
+        var limit = OverLimitEpisodePolicy.ResolveKeepCount(settings);
         return new UploadTitleImportDownloadPlan($"1-{limit}", limit, Truncated: true);
     }
 

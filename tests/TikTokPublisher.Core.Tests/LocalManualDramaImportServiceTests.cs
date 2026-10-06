@@ -160,6 +160,43 @@ public sealed class LocalManualDramaImportServiceTests
         }
     }
 
+    [Fact]
+    public void Import_Truncates_Local_Videos_To_Configured_Keep_Count_Without_Deleting_Files()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-truncate-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "超长本地剧");
+
+        try
+        {
+            Directory.CreateDirectory(source);
+            File.WriteAllBytes(Path.Combine(source, "第1集.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(source, "第2集.mp4"), [2]);
+            File.WriteAllBytes(Path.Combine(source, "第3集.mp4"), [3]);
+            File.WriteAllText(Path.Combine(source, "短剧信息.txt"), "剧名: 超长本地剧\n集数: 3\n");
+            var settings = new ClientSettings
+            {
+                TiktokAllowOverLimitUploadImport = true,
+                TiktokOverLimitDownloadEpisodeCount = 2,
+            };
+
+            var result = LocalManualDramaImportService.Import(workspace, source, settings: settings);
+
+            result.EpisodeCount.Should().Be(2);
+            Directory.EnumerateFiles(source, "*.mp4").Should().HaveCount(3);
+            ProjectVideoResolver.ResolveUploadVideos(source).Should().HaveCount(2);
+            using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(source, "shortdrama-project.json")));
+            metadata.RootElement.GetProperty("originalEpisodeCount").GetInt32().Should().Be(3);
+            metadata.RootElement.GetProperty("effectiveEpisodeCount").GetInt32().Should().Be(2);
+            metadata.RootElement.GetProperty("truncatedForTikTokUpload").GetBoolean().Should().BeTrue();
+            File.ReadAllText(Path.Combine(source, "短剧信息.txt")).Should().Contain("集数: 2");
+            File.ReadAllText(Path.Combine(result.WorkflowProjectDir, "短剧信息.txt")).Should().Contain("集数: 2");
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
     private static void DeleteBestEffort(string path)
     {
         try
