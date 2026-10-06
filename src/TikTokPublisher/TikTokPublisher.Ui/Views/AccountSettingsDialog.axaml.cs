@@ -4,17 +4,23 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Ui.Views;
 
 public partial class AccountSettingsDialog : Window
 {
     private readonly TikTokAccountProfile _profile;
+    private readonly Func<TikTokAccountProfile, Task>? _persist;
 
-    public AccountSettingsDialog(TikTokAccountProfile profile)
+    public AccountSettingsDialog(
+        TikTokAccountProfile profile,
+        Func<TikTokAccountProfile, Task>? persist = null)
     {
         InitializeComponent();
         _profile = profile;
+        _persist = persist;
+        PublishAccounts.FetchRequested += (_, _) => _ = FetchPublishAccountsAsync();
         LoadToUi();
     }
 
@@ -92,6 +98,7 @@ public partial class AccountSettingsDialog : Window
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(p.TiktokDayZeroRoi);
         AnchorPromotionBox.IsChecked = p.TiktokAnchorPromotionEnabled;
+        PublishAccounts.Load(p);
         ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes > 0 ? p.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = p.TiktokFreePreviewEpisodes > 0 ? p.TiktokFreePreviewEpisodes : 3;
         GenreCountBox.Value = TikTokPublishOptions.NormalizeGenreCount(p.TiktokGenreCount);
@@ -179,6 +186,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
             (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));
         p.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
+        PublishAccounts.WriteTo(p);
         p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
         p.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
         p.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount((int)(GenreCountBox.Value ?? TikTokPublishOptions.DefaultGenreCount));
@@ -198,6 +206,35 @@ public partial class AccountSettingsDialog : Window
         p.TiktokProxyPort = (int)(ProxyPortBox.Value ?? 0);
         p.TiktokProxyUsername = ProxyUsernameBox.Text?.Trim() ?? "";
         p.TiktokProxyPassword = ProxyPasswordBox.Text ?? "";
+    }
+
+    private async Task FetchPublishAccountsAsync()
+    {
+        PublishAccounts.WriteTo(_profile);
+        PublishAccounts.SetFetchEnabled(false);
+        try
+        {
+            var accounts = await TikTokPublishAccountSyncService.FetchAsync(_profile, null, CancellationToken.None);
+            var retention = TikTokPublishAccountCatalog.Retain(PublishAccounts.ReadSelectedKeys(), accounts);
+            _profile.TiktokPublishAccountCatalogJson = TikTokPublishAccountCatalog.Serialize(accounts);
+            _profile.TiktokSelectedPublishAccountKeys = retention.KeptKeys.ToList();
+            _profile.TiktokCustomPublishAccountsEnabled = true;
+            PublishAccounts.Load(_profile);
+            if (_persist is not null)
+                await _persist(_profile);
+            var dropped = retention.DroppedKeys.Count == 0
+                ? ""
+                : $"{Environment.NewLine}已取消 {retention.DroppedKeys.Count} 个不在最新列表中的勾选。";
+            await InfoDialog.ShowAsync(this, $"已获取 {accounts.Count} 个发布账号。{dropped}", "发布账号");
+        }
+        catch (Exception ex)
+        {
+            await InfoDialog.ShowAsync(this, ex.Message, "获取发布账号失败", width: 460, height: 180);
+        }
+        finally
+        {
+            PublishAccounts.SetFetchEnabled(true);
+        }
     }
 
     private async void OnBrowseWorkspaceClick(object? sender, RoutedEventArgs e)

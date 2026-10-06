@@ -27,6 +27,7 @@ public partial class AccountProfileEditor : UserControl
     {
         InitializeComponent();
         ExpectedPriceModeCombo.SelectionChanged += (_, _) => UpdateExpectedPriceModeVisibility();
+        PublishAccounts.FetchRequested += (_, _) => _ = FetchPublishAccountsAsync();
         DataContextChanged += (_, _) => ReloadFromSelectedAccount();
     }
 
@@ -163,6 +164,7 @@ public partial class AccountProfileEditor : UserControl
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(profile.TiktokDayZeroRoi);
         AnchorPromotionBox.IsChecked = profile.TiktokAnchorPromotionEnabled;
+        PublishAccounts.Load(profile);
         ProfilePreviewBox.Value = profile.TiktokProfilePreviewEpisodes > 0 ? profile.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = profile.TiktokFreePreviewEpisodes > 0 ? profile.TiktokFreePreviewEpisodes : 3;
         GenreCountBox.Value = TikTokPublishOptions.NormalizeGenreCount(profile.TiktokGenreCount);
@@ -283,6 +285,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
                 (double)(DayZeroRoiBox.Value ?? (decimal)TikTokPublishOptions.DefaultDayZeroRoi));
             profile.TiktokAnchorPromotionEnabled = AnchorPromotionBox.IsChecked == true;
+            PublishAccounts.WriteTo(profile);
             profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
             profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
             profile.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount((int)(GenreCountBox.Value ?? TikTokPublishOptions.DefaultGenreCount));
@@ -809,6 +812,26 @@ public partial class AccountProfileEditor : UserControl
 
     private async void OnBrowseProofSealClick(object? sender, RoutedEventArgs e) =>
         await PickFileAsync(ProofSealPathBox, "选择公司印章图片", ["png", "jpg", "jpeg", "bmp"]);
+
+    private async Task FetchPublishAccountsAsync()
+    {
+        if (_vm?.SelectedAccount?.Model is not { } profile) return;
+        PublishAccounts.WriteTo(profile);
+        PublishAccounts.SetFetchEnabled(false);
+        try
+        {
+            await _vm.SyncPublishAccountsAsync(profile, PublishAccounts.ReadSelectedKeys());
+            PublishAccounts.Load(profile);
+        }
+        catch
+        {
+            // 状态已在 ViewModel 中更新
+        }
+        finally
+        {
+            PublishAccounts.SetFetchEnabled(true);
+        }
+    }
 
     private async void OnSyncExpectedPriceClick(object? sender, RoutedEventArgs e)
     {

@@ -544,7 +544,13 @@ public partial class TikTokQueueView : UserControl
         var owner = TopLevel.GetTopLevel(this) as Window;
         if (owner is null) return;
 
-        var ok = await new AccountSettingsDialog(account.Model).ShowDialog<bool>(owner);
+        var ok = await new AccountSettingsDialog(
+            account.Model,
+            profile =>
+            {
+                vm.SaveAccountProfile(profile);
+                return Task.CompletedTask;
+            }).ShowDialog<bool>(owner);
         if (!ok) return;
 
         vm.SaveAccountProfile(account.Model);

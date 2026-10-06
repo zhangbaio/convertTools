@@ -631,7 +631,10 @@ public static partial class TikTokBrowserActions
         await VerifyEpisodeCountAsync(page, payload.EpisodeCount, log, ct);
         await PauseBetweenFieldsAsync(page);
 
-        await EnsureAllPublishAccountsSelectedAsync(page, log, ct);
+        if (options.CustomPublishAccountsEnabled)
+            await SelectConfiguredPublishAccountsAsync(page, options.SelectedPublishAccountKeys, log, ct);
+        else
+            await EnsureAllPublishAccountsSelectedAsync(page, log, ct);
         await PauseBetweenFieldsAsync(page);
 
         await SelectTuxOptionByFieldAsync(

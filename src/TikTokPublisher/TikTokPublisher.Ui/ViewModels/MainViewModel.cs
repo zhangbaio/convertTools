@@ -693,6 +693,41 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
+    public async Task SyncPublishAccountsAsync(
+        TikTokAccountProfile profile,
+        IReadOnlyList<string> selectedKeys,
+        CancellationToken ct = default)
+    {
+        StatusMessage = "正在获取已创建发布账号…";
+        try
+        {
+            var accounts = await TikTokPublishAccountSyncService.FetchAsync(
+                profile,
+                AppendLog,
+                ct);
+            var retention = TikTokPublishAccountCatalog.Retain(selectedKeys, accounts);
+            profile.TiktokPublishAccountCatalogJson = TikTokPublishAccountCatalog.Serialize(accounts);
+            profile.TiktokSelectedPublishAccountKeys = retention.KeptKeys.ToList();
+            profile.TiktokCustomPublishAccountsEnabled = true;
+            if (retention.DroppedKeys.Count > 0)
+            {
+                AppendLog(
+                    "以下已选发布账号已不在最新列表中，已取消勾选：" +
+                    string.Join("、", retention.DroppedKeys.Select(TikTokPublishAccountCatalog.DescribeKey)));
+            }
+
+            SaveAccountProfile(profile);
+            StatusMessage = $"已获取 {accounts.Count} 个发布账号";
+            AppendLog(StatusMessage);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"获取发布账号失败：{ex.Message}";
+            AppendLog($"获取发布账号失败：{ex.Message}");
+            throw;
+        }
+    }
+
     [RelayCommand]
     private void SelectAllQueueSteps()
     {

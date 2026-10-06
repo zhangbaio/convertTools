@@ -39,7 +39,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="8" Margin="4">
                         <Grid ColumnDefinitions="130,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -113,72 +113,75 @@
                             <TextBlock Grid.Row="13" Grid.Column="0" Text="锚点推广" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="13" Grid.Column="1" x:Name="AnchorPromotionBox" Content="启用" />
 
-                            <TextBlock Grid.Row="14" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="14" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                            <TextBlock Grid.Row="14" Grid.Column="0" Text="是否启用账号" VerticalAlignment="Top" Margin="0,5,0,0" />
+                            <views:PublishAccountSelector Grid.Row="14" Grid.Column="1" x:Name="PublishAccounts" />
 
-                            <TextBlock Grid.Row="15" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="15" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                            <TextBlock Grid.Row="15" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="15" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
 
-                            <TextBlock Grid.Row="16" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="16" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
+                            <TextBlock Grid.Row="16" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="16" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
 
-                            <TextBlock Grid.Row="17" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="17" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
+                            <TextBlock Grid.Row="17" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="17" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
 
-                            <TextBlock Grid.Row="18" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="18" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
+                            <TextBlock Grid.Row="18" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="18" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
 
-                            <TextBlock Grid.Row="19" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="19" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
+                            <TextBlock Grid.Row="19" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="19" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
 
-                            <TextBlock Grid.Row="20" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="20" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
+                            <TextBlock Grid.Row="20" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="20" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
 
-                            <TextBlock Grid.Row="21" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="21" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
+                            <TextBlock Grid.Row="21" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="21" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
 
-                            <TextBlock Grid.Row="22" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="22" Grid.Column="1" x:Name="ExpectedPriceModeCombo" HorizontalAlignment="Stretch">
+                            <TextBlock Grid.Row="22" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="22" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
+
+                            <TextBlock Grid.Row="23" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="23" Grid.Column="1" x:Name="ExpectedPriceModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="manual">手动价格</ComboBoxItem>
                                 <ComboBoxItem Tag="option_index">按选项序号</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Grid.Row="23" Grid.Column="0" Text="预期全集价格" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="23" Grid.Column="1" x:Name="ExpectedPriceValueBox" Watermark="例如：22.33 或 $22.33 | $0.29/EP" />
+                            <TextBlock Grid.Row="24" Grid.Column="0" Text="预期全集价格" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="24" Grid.Column="1" x:Name="ExpectedPriceValueBox" Watermark="例如：22.33 或 $22.33 | $0.29/EP" />
 
-                            <TextBlock Grid.Row="24" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="24" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
-
-
-                            <TextBlock Grid.Row="27" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="27" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
+                            <TextBlock Grid.Row="25" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="25" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
 
 
-                            <TextBlock Grid.Row="29" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="29" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
+                            <TextBlock Grid.Row="28" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="28" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
+
+
+                            <TextBlock Grid.Row="30" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="30" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
                                 <ComboBoxItem Tag="playwright">外部浏览器（程序自动打开，可无头）</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Grid.Row="30" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="30" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（仅程序自动打开的外部浏览器生效）" />
+                            <TextBlock Grid.Row="31" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="31" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（仅程序自动打开的外部浏览器生效）" />
 
-                            <TextBlock Grid.Row="31" Grid.Column="0" Text="原始权利人" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="31" Grid.Column="1" x:Name="OriginalRightsHolderBox" Content="是" IsChecked="True" />
+                            <TextBlock Grid.Row="32" Grid.Column="0" Text="原始权利人" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="32" Grid.Column="1" x:Name="OriginalRightsHolderBox" Content="是" IsChecked="True" />
 
-                            <TextBlock Grid.Row="32" Grid.Column="0" Text="内容原创类型" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="32" Grid.Column="1" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
+                            <TextBlock Grid.Row="33" Grid.Column="0" Text="内容原创类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="33" Grid.Column="1" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="original">原创</ComboBoxItem>
                                 <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Grid.Row="33" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
-                            <views:CopyrightMaterialSelector Grid.Row="33"
+                            <TextBlock Grid.Row="34" Grid.Column="0" Text="上传材料类型" VerticalAlignment="Top" Margin="0,5,0,0" />
+                            <views:CopyrightMaterialSelector Grid.Row="34"
                                                              Grid.Column="1"
                                                              x:Name="CopyrightMaterials" />
 
-                            <TextBlock Grid.Row="34" Grid.Column="0" Text="0 元投放" VerticalAlignment="Top" Margin="0,5,0,0" />
-                            <StackPanel Grid.Row="34" Grid.Column="1" Spacing="8">
+                            <TextBlock Grid.Row="35" Grid.Column="0" Text="0 元投放" VerticalAlignment="Top" Margin="0,5,0,0" />
+                            <StackPanel Grid.Row="35" Grid.Column="1" Spacing="8">
                                 <CheckBox x:Name="ZeroCostAdsBox" Content="启用" />
                                 <Grid ColumnDefinitions="110,*"
                                       ColumnSpacing="10"
@@ -196,8 +199,8 @@
                                 </Grid>
                             </StackPanel>
 
-                            <TextBlock Grid.Row="35" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="35" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
+                            <TextBlock Grid.Row="36" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="36" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="original">原创</ComboBoxItem>
                                 <ComboBoxItem Tag="remake">成片重制</ComboBoxItem>
                                 <ComboBoxItem Tag="novel_adaptation">小说改编</ComboBoxItem>

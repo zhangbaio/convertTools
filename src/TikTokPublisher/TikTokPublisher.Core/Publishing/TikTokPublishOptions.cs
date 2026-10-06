@@ -226,6 +226,25 @@ public static class TikTokPublishConstants
                 "TikTok 发布配置不合理：仅源语言为非中文的短剧可选择「成片重制」。" +
                 "请将源语言改为非中文，或将内容创作类型改为「原创/小说改编」。");
         }
+
+        if (!account.TiktokCustomPublishAccountsEnabled)
+            return;
+
+        var catalog = TikTokPublishAccountCatalog.Parse(account.TiktokPublishAccountCatalogJson);
+        if (catalog.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "已启用自定义发布账号，但还没有获取已创建账号。请在「账号管理 → 发布配置」中点击「获取已创建账号」。");
+        }
+
+        var selected = TikTokPublishAccountCatalog.Retain(
+            account.TiktokSelectedPublishAccountKeys,
+            catalog);
+        if (selected.KeptKeys.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "已启用自定义发布账号，但没有勾选任何账号。请至少选择一个发布账号。");
+        }
     }
 
     /// <summary>对齐 Python <c>GENRE_OPTIONS</c>。</summary>
@@ -291,6 +310,8 @@ public sealed class TikTokPublishOptions
     public int UploadBatchSize { get; set; } = 3;
     public int UploadBatchStallSeconds { get; set; } = 75;
     public int UploadBatchMaxRetries { get; set; } = 3;
+    public bool CustomPublishAccountsEnabled { get; set; }
+    public IReadOnlyList<string> SelectedPublishAccountKeys { get; set; } = [];
 
     public bool UseBatchUpload =>
         string.Equals(UploadStrategy?.Trim(), "batch", StringComparison.OrdinalIgnoreCase);
@@ -407,6 +428,12 @@ public sealed class TikTokPublishOptions
         UploadBatchSize = account.TiktokUploadBatchSize > 0 ? Math.Clamp(account.TiktokUploadBatchSize, 1, 20) : 3,
         UploadBatchStallSeconds = account.TiktokUploadBatchStallSeconds > 0 ? Math.Clamp(account.TiktokUploadBatchStallSeconds, 20, 600) : 75,
         UploadBatchMaxRetries = account.TiktokUploadBatchMaxRetries > 0 ? Math.Clamp(account.TiktokUploadBatchMaxRetries, 1, 10) : 3,
+        CustomPublishAccountsEnabled = account.TiktokCustomPublishAccountsEnabled,
+        SelectedPublishAccountKeys = account.TiktokCustomPublishAccountsEnabled
+            ? TikTokPublishAccountCatalog.Retain(
+                account.TiktokSelectedPublishAccountKeys,
+                TikTokPublishAccountCatalog.Parse(account.TiktokPublishAccountCatalogJson)).KeptKeys
+            : [],
     };
 
     public TikTokPublishRecommendation BuildRecommendation(PublishItem item)
