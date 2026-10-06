@@ -1086,6 +1086,13 @@ public partial class TikTokQueueView : UserControl
         IReadOnlyList<string> ProjectDirs,
         bool AutoRun);
 
+    private enum ExistingLocalDramaChoice
+    {
+        Cancel,
+        Readd,
+        Skip,
+    }
+
     private sealed record MoveTargetAccountOption(
         AccountItemViewModel Account,
         string Workspace)
@@ -1350,6 +1357,62 @@ public partial class TikTokQueueView : UserControl
         return await dialog.ShowDialog<LocalDramaImportDialogResult?>(owner);
     }
 
+    private static async Task<ExistingLocalDramaChoice> ShowExistingLocalDramaConfirmAsync(
+        Window owner,
+        IReadOnlyList<LocalManualDramaImportConflictFinder.Conflict> conflicts)
+    {
+        var lines = conflicts
+            .Take(30)
+            .Select(conflict => $"· {conflict.DisplayName}（{string.Join("、", conflict.Reasons)}）");
+        var extra = conflicts.Count > 30 ? $"\n… 等共 {conflicts.Count} 部" : "";
+        var message =
+            $"以下 {conflicts.Count} 部剧集在本地队列、归档或管理系统中已存在：\n\n" +
+            string.Join('\n', lines) +
+            extra +
+            "\n\n重新加入会把这些剧集再次放回上传队列。跳过则只导入尚未存在的剧集。";
+
+        var lineCount = Math.Max(1, message.Split('\n').Length);
+        var dialog = new Window
+        {
+            Title = "剧集已存在",
+            Width = 640,
+            Height = Math.Clamp(220 + lineCount * 22, 320, 640),
+            MinWidth = 520,
+            MinHeight = 280,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var readdButton = BuildDialogButton("重新加入", () => dialog.Close(ExistingLocalDramaChoice.Readd), primary: true);
+        var skipButton = BuildDialogButton("跳过已存在", () => dialog.Close(ExistingLocalDramaChoice.Skip));
+        var cancelButton = BuildDialogButton("取消", () => dialog.Close(ExistingLocalDramaChoice.Cancel));
+        var grid = new Grid { Margin = new Thickness(16) };
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Star));
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        var messageViewer = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            Content = new TextBlock
+            {
+                Text = message,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+            },
+        };
+        Grid.SetRow(messageViewer, 0);
+        grid.Children.Add(messageViewer);
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 14, 0, 0),
+            Children = { cancelButton, skipButton, readdButton },
+        };
+        Grid.SetRow(buttons, 1);
+        grid.Children.Add(buttons);
+        dialog.Content = grid;
+        return await dialog.ShowDialog<ExistingLocalDramaChoice>(owner);
+    }
+
     private static string FormatLocalDramaImportCandidate(LocalManualDramaImportPreview preview)
     {
         var parts = new List<string>
@@ -1591,10 +1654,56 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        var selectedDirs = request.ProjectDirs.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedPreviews = candidates
+            .Where(preview => selectedDirs.Contains(preview.ProjectDir))
+            .ToArray();
+        IReadOnlyList<LocalManualDramaImportConflictFinder.Conflict> conflicts;
+        try
+        {
+            vm.StatusMessage = "正在检查本地、归档和管理系统是否已有这些剧集…";
+            conflicts = await vm.FindLocalManualImportConflictsAsync(selectedPreviews);
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"检查已有剧集失败：{ex.Message}";
+            await ShowMessageAsync(owner, "导入本地剧集", ex.Message, warning: true);
+            return;
+        }
+
+        var importDirs = request.ProjectDirs;
+        if (conflicts.Count > 0)
+        {
+            var choice = await ShowExistingLocalDramaConfirmAsync(owner, conflicts);
+            if (choice == ExistingLocalDramaChoice.Cancel)
+            {
+                vm.StatusMessage = "已取消导入本地剧集";
+                return;
+            }
+
+            if (choice == ExistingLocalDramaChoice.Skip)
+            {
+                var skip = conflicts
+                    .Select(conflict => conflict.ProjectDir)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                importDirs = request.ProjectDirs
+                    .Where(dir => !skip.Contains(dir))
+                    .ToArray();
+                foreach (var conflict in conflicts)
+                    vm.AppendLog($"跳过已存在剧集：{conflict.DisplayName}（{string.Join("、", conflict.Reasons)}）");
+                if (importDirs.Count == 0)
+                {
+                    vm.StatusMessage = "已跳过全部已存在剧集";
+                    await ShowMessageAsync(owner, "导入本地剧集", "所选剧集都已存在，已全部跳过。");
+                    return;
+                }
+            }
+        }
+
         LocalManualDramaBatchImportResult result;
         try
         {
-            result = await vm.ImportLocalManualDramasAsync(request.ProjectDirs);
+            result = await vm.ImportLocalManualDramasAsync(importDirs);
         }
         catch (Exception ex)
         {
