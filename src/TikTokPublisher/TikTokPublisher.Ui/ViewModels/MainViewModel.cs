@@ -3753,6 +3753,47 @@ public sealed partial class MainViewModel : ViewModelBase
             .ConfigureAwait(true);
     }
 
+    public async Task<IReadOnlyList<LocalManualDramaImportConflictFinder.Conflict>> FindLocalManualImportConflictsAsync(
+        IReadOnlyList<LocalManualDramaImportPreview> selected)
+    {
+        var root = ResolveSelectedAccountWorkspacePath();
+        if (string.IsNullOrWhiteSpace(root) || selected.Count == 0)
+            return Array.Empty<LocalManualDramaImportConflictFinder.Conflict>();
+
+        var (queueItems, archived, archiveError) = await Task.Run(() =>
+        {
+            var queue = WorkspaceQueueService.ScanProjects(root);
+            try
+            {
+                return (queue, TikTokArchivedProjectService.List(root), "");
+            }
+            catch (Exception ex)
+            {
+                return (queue, (IReadOnlyList<ArchivedProjectItem>)Array.Empty<ArchivedProjectItem>(), ex.Message);
+            }
+        }).ConfigureAwait(true);
+        if (!string.IsNullOrWhiteSpace(archiveError))
+            AppendLog($"读取归档项目失败，本次不按归档确认：{archiveError}");
+
+        IReadOnlySet<string>? managementDuplicates = null;
+        var settings = ClientSettingsStore.Load();
+        if (settings.ManagementDedupEnabled)
+        {
+            StatusMessage = "正在按管理系统去重检查本地剧集…";
+            var check = await TikTokManagementUploadRecordSyncService.CheckDuplicateOriginalNamesAsync(
+                selected.Select(item => item.DisplayName),
+                settings.ManagementDedupScope,
+                SelectedAccount?.Model,
+                CancellationToken.None).ConfigureAwait(true);
+            if (!check.Ok)
+                AppendLog($"管理系统去重检查失败，本次不按管理系统确认：{check.Message}");
+            else
+                managementDuplicates = check.Duplicates;
+        }
+
+        return LocalManualDramaImportConflictFinder.Find(selected, queueItems, archived, managementDuplicates);
+    }
+
     public async Task<LocalManualDramaBatchImportResult> ImportLocalManualDramasAsync(
         IReadOnlyList<string> sourceProjectDirs)
     {
