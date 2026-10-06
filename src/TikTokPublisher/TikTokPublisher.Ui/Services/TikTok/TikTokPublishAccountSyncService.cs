@@ -44,19 +44,17 @@ public static class TikTokPublishAccountSyncService
                 try
                 {
                     var page = await context.NewPageAsync();
-                    var draftDetailUrl = await TikTokEditFlowService.DiscoverEditableDraftDetailUrlAsync(
-                        page, titleCandidates: null, log, ct);
-                    if (string.IsNullOrWhiteSpace(draftDetailUrl))
-                        throw new InvalidOperationException("未在原创管理中找到可用于读取发布账号的草稿。");
-
-                    log?.Invoke($"进入草稿详情：{draftDetailUrl}");
-                    await page.GotoAsync(draftDetailUrl, new PageGotoOptions
+                    log?.Invoke("正在打开新建剧集表单以读取发布账号…");
+                    await page.GotoAsync(TikTokUrls.DefaultSeriesDraftUrl, new PageGotoOptions
                     {
                         WaitUntil = WaitUntilState.DOMContentLoaded,
                         Timeout = 60000,
                     });
                     try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }); }
                     catch { /* SPA */ }
+
+                    if (page.Url.Contains("/login", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("TikTok 登录态已失效，请先重新登录后再获取发布账号。");
 
                     await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log);
                     var accounts = await TikTokBrowserActions.CollectPublishAccountsAsync(page, log, ct)
