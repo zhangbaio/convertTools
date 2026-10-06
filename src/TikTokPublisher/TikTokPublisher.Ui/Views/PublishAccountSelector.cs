@@ -29,6 +29,7 @@ public sealed class PublishAccountSelector : UserControl
     private readonly TextBlock _summary = new() { TextWrapping = TextWrapping.Wrap, Foreground = MutedBrush };
     private readonly Button _fetchButton = new() { Content = "获取已创建账号", MinWidth = 132 };
     private readonly Border _dropdown;
+    private readonly StackPanel _dropdownRow;
     private readonly TextBlock _dropdownText = new() { VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly StackPanel _countryList = new() { Spacing = 2 };
     private readonly StackPanel _accountList = new() { Spacing = 2 };
@@ -52,8 +53,15 @@ public sealed class PublishAccountSelector : UserControl
         _selectAll = ActionLink("全选", () => SetAll(true));
         _clearAll = ActionLink("取消全选", () => SetAll(false));
         _dropdown = BuildDropdown();
-        _dropdown.Margin = new Thickness(0, 8, 0, 0);
-        _dropdown.IsVisible = false;
+        _dropdownRow = new StackPanel { Spacing = 4, Margin = new Thickness(0, 8, 0, 0), IsVisible = false };
+        _dropdownRow.Children.Add(_dropdown);
+        _dropdownRow.Children.Add(new TextBlock
+        {
+            Text = "同一国家只能选择一个账号。",
+            Foreground = MutedBrush,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+        });
         _dropdownLabel = new TextBlock
         {
             Text = "发布账号",
@@ -93,13 +101,13 @@ public sealed class PublishAccountSelector : UserControl
             RowDefinitions = new RowDefinitions("Auto,Auto"),
         };
         Grid.SetColumn(enableColumn, 1);
-        Grid.SetColumn(_dropdown, 1);
+        Grid.SetColumn(_dropdownRow, 1);
         Grid.SetRow(_dropdownLabel, 1);
-        Grid.SetRow(_dropdown, 1);
+        Grid.SetRow(_dropdownRow, 1);
         root.Children.Add(enableLabel);
         root.Children.Add(enableColumn);
         root.Children.Add(_dropdownLabel);
-        root.Children.Add(_dropdown);
+        root.Children.Add(_dropdownRow);
         Content = root;
 
         _enabled.IsCheckedChanged += (_, _) =>
@@ -161,7 +169,7 @@ public sealed class PublishAccountSelector : UserControl
         var enabled = _enabled.IsChecked == true;
         _fetchRow.IsVisible = enabled;
         _dropdownLabel.IsVisible = enabled;
-        _dropdown.IsVisible = enabled;
+        _dropdownRow.IsVisible = enabled;
     }
 
     private Border BuildDropdown()
@@ -282,18 +290,23 @@ public sealed class PublishAccountSelector : UserControl
                 .Select(account => TikTokPublishAccountCatalog.BuildKey(account.Country, account.DisplayName))
                 .ToArray();
             var countryBox = new CheckBox { Content = country, VerticalAlignment = VerticalAlignment.Center };
+            var countryHasSelection = false;
             foreach (var account in countryGroup)
             {
                 var key = TikTokPublishAccountCatalog.BuildKey(account.Country, account.DisplayName);
                 var accountBox = new CheckBox
                 {
                     Content = account.DisplayName,
-                    IsChecked = selected.Contains(key),
+                    IsChecked = selected.Contains(key) && !countryHasSelection,
                     Margin = new Thickness(0, 2),
                 };
+                if (accountBox.IsChecked == true)
+                    countryHasSelection = true;
                 accountBox.IsCheckedChanged += (_, _) =>
                 {
                     if (_loading) return;
+                    if (accountBox.IsChecked == true)
+                        ClearSiblingAccounts(keys, key);
                     SyncCountryBox(countryBox, keys);
                     UpdateSummary();
                 };
@@ -303,14 +316,14 @@ public sealed class PublishAccountSelector : UserControl
             countryBox.IsCheckedChanged += (_, _) =>
             {
                 if (_loading) return;
-                if (countryBox.IsChecked is not bool selectAll) return;
+                if (countryBox.IsChecked is not bool selectCountry) return;
                 _loading = true;
                 try
                 {
-                    foreach (var key in keys)
+                    for (var index = 0; index < keys.Length; index++)
                     {
-                        if (_accountBoxes.TryGetValue(key, out var accountBox))
-                            accountBox.IsChecked = selectAll;
+                        if (_accountBoxes.TryGetValue(keys[index], out var accountBox))
+                            accountBox.IsChecked = selectCountry && index == 0;
                     }
                 }
                 finally
@@ -369,8 +382,15 @@ public sealed class PublishAccountSelector : UserControl
         _loading = true;
         try
         {
-            foreach (var box in _accountBoxes.Values)
-                box.IsChecked = selected;
+            var chosenCountries = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var account in _catalog)
+            {
+                var key = TikTokPublishAccountCatalog.BuildKey(account.Country, account.DisplayName);
+                if (!_accountBoxes.TryGetValue(key, out var box))
+                    continue;
+                box.IsChecked = selected && chosenCountries.Add(account.Country);
+            }
+
             foreach (var row in _countryRows)
                 SyncCountryBox(FindCountryBox(row), row.Keys);
         }
@@ -380,6 +400,25 @@ public sealed class PublishAccountSelector : UserControl
         }
 
         UpdateSummary();
+    }
+
+    private void ClearSiblingAccounts(IReadOnlyList<string> keys, string keepKey)
+    {
+        _loading = true;
+        try
+        {
+            foreach (var key in keys)
+            {
+                if (key == keepKey)
+                    continue;
+                if (_accountBoxes.TryGetValue(key, out var box))
+                    box.IsChecked = false;
+            }
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private CheckBox FindCountryBox(CountryRow row)
@@ -396,11 +435,7 @@ public sealed class PublishAccountSelector : UserControl
         _loading = true;
         try
         {
-            countryBox.IsChecked = selectedCount == 0
-                ? false
-                : selectedCount == keys.Count
-                    ? true
-                    : null;
+            countryBox.IsChecked = selectedCount > 0;
         }
         finally
         {
