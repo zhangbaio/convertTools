@@ -98,15 +98,6 @@
         <Style Selector="Button.toolAction:pointerover">
             <Setter Property="Background" Value="#DDF1F4" />
         </Style>
-        <Style Selector="Button.archiveAction">
-            <Setter Property="Background" Value="#EEF2F6" />
-            <Setter Property="Foreground" Value="#475569" />
-            <Setter Property="BorderBrush" Value="#CBD5E1" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-        <Style Selector="Button.archiveAction:pointerover">
-            <Setter Property="Background" Value="#E2E8F0" />
-        </Style>
         <Style Selector="Button.dangerSoftAction">
             <Setter Property="Background" Value="#FFF0F3" />
             <Setter Property="Foreground" Value="#CC4055" />
@@ -242,7 +233,7 @@
                     <Button Content="全选" Click="OnSelectAllQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
-                    <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="archiveAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
                     <Button Content="移动到账号" Click="OnMoveSelectedProjectsClick" Classes="toolAction compactAction" Margin="0,0,8,8" />
                     <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
                     <Button Content="全选已完成" Click="OnSelectCompletedQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
