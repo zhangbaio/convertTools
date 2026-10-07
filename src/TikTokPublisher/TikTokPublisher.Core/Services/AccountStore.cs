@@ -248,6 +248,10 @@ public sealed class AccountStore
             account.TiktokDeleteVideosOnArchive = true;
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
         if (account.TiktokFreePreviewEpisodes <= 0) account.TiktokFreePreviewEpisodes = 3;
+        (account.TiktokMinimumEpisodeCount, account.TiktokMaximumEpisodeCount) =
+            TikTokAccountProfile.NormalizeEpisodeCountBounds(
+                account.TiktokMinimumEpisodeCount,
+                account.TiktokMaximumEpisodeCount);
         if (account.TiktokProjectConcurrency <= 0) account.TiktokProjectConcurrency = 4;
         account.TiktokProofCopyrightCompanyName = (account.TiktokProofCopyrightCompanyName ?? "").Trim();
         account.TiktokProofDeclarantCompanyName = (account.TiktokProofDeclarantCompanyName ?? "").Trim();

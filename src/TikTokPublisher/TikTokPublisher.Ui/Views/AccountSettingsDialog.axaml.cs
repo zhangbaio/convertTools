@@ -101,6 +101,11 @@ public partial class AccountSettingsDialog : Window
         PublishAccounts.Load(p);
         ProfilePreviewBox.Value = p.TiktokProfilePreviewEpisodes > 0 ? p.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = p.TiktokFreePreviewEpisodes > 0 ? p.TiktokFreePreviewEpisodes : 3;
+        var episodeBounds = TikTokAccountProfile.NormalizeEpisodeCountBounds(
+            p.TiktokMinimumEpisodeCount,
+            p.TiktokMaximumEpisodeCount);
+        MinimumEpisodeCountBox.Value = episodeBounds.Minimum;
+        MaximumEpisodeCountBox.Value = episodeBounds.Maximum;
         GenreCountBox.Value = TikTokPublishOptions.NormalizeGenreCount(p.TiktokGenreCount);
         UploadStallBox.Value = p.TiktokUploadStallSeconds;
         ProjectConcurrencyBox.Value = p.TiktokProjectConcurrency;
@@ -189,6 +194,10 @@ public partial class AccountSettingsDialog : Window
         PublishAccounts.WriteTo(p);
         p.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
         p.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
+        (p.TiktokMinimumEpisodeCount, p.TiktokMaximumEpisodeCount) =
+            TikTokAccountProfile.NormalizeEpisodeCountBounds(
+                (int)(MinimumEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultMinimumEpisodeCount),
+                (int)(MaximumEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultMaximumEpisodeCount));
         p.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount((int)(GenreCountBox.Value ?? TikTokPublishOptions.DefaultGenreCount));
         p.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
         p.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 4);

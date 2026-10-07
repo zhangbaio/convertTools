@@ -121,6 +121,12 @@
                             <TextBlock Grid.Row="16" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="16" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
 
+                            <TextBlock Grid.Row="26" Grid.Column="0" Text="剧集最小集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="26" Grid.Column="1" x:Name="MinimumEpisodeCountBox" Minimum="1" Maximum="120" Value="30" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="27" Grid.Column="0" Text="剧集最大集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="27" Grid.Column="1" x:Name="MaximumEpisodeCountBox" Minimum="1" Maximum="120" Value="120" Width="160" HorizontalAlignment="Left" />
+
                             <TextBlock Grid.Row="17" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="17" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
 

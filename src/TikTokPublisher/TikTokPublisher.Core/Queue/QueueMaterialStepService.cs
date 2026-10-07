@@ -1243,14 +1243,16 @@ public static class QueueMaterialStepService
             return DownloadCompleteness.Unknown;
 
         var found = new HashSet<int>();
+        var videoPaths = new List<string>();
         try
         {
             foreach (var file in ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir))
             {
                 if (!EpisodeVideoExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
                     continue;
-                var match = EpisodeNumberInFileName.Match(Path.GetFileName(file));
-                if (match.Success && int.TryParse(match.Groups[1].Value, out var episode) && episode > 0)
+                videoPaths.Add(file);
+                // 下载文件是「第N集」。本地导入常见 01.mp4、episode-01.mp4，不能只认前一种。
+                if (TryReadEpisodeNumberFromFileName(file, out var episode) && episode > 0)
                     found.Add(episode);
             }
         }
@@ -1261,6 +1263,16 @@ public static class QueueMaterialStepService
 
         var missing = expectedNumbers.Where(number => !found.Contains(number)).ToList();
         var foundExpectedCount = expectedNumbers.Count(found.Contains);
+        // 本地整包有时没有任何集数文件名。文件数与声明集数一致时按自然顺序视为齐全，
+        // 避免把已导入的完整剧集判成缺集后再走补下载。
+        if (missing.Count > 0 &&
+            found.Count == 0 &&
+            videoPaths.Count == expectedNumbers.Length)
+        {
+            missing = [];
+            foundExpectedCount = expectedNumbers.Length;
+        }
+
         return new DownloadCompleteness(expectedNumbers.Length, foundExpectedCount, missing, "");
     }
 
@@ -1713,6 +1725,14 @@ public static class QueueMaterialStepService
         {
             log($"删除源视频前集数校验通过：{inspection.Expected}/{inspection.Expected} 集齐全。");
             return;
+        }
+
+        if (LocalManualDramaImportService.IsLocalManualImportProject(context.SourceProjectDir))
+        {
+            throw new InvalidOperationException(
+                $"删除源视频前发现本地导入视频不完整：短剧总集数 {inspection.Expected}，" +
+                $"已识别源视频 {inspection.FoundCount} 个，缺第 {FormatEpisodePreview(inspection.Missing)} 集。" +
+                "本地导入不会自动补下载，请补齐源视频后再执行。");
         }
 
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
