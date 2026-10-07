@@ -13,6 +13,10 @@ public sealed class TikTokAccountProfile
     public const int DefaultEpisodeScriptEpisodeCount = 5;
     public const int DefaultRoleVectorCharacterCount = 3;
     public const int DefaultRoleVectorMinimumCharacterCount = 3;
+    public const int DefaultMinimumEpisodeCount = 30;
+    public const int MaxMinimumEpisodeCount = 120;
+    public const int DefaultMaximumEpisodeCount = 120;
+    public const int MaxMaximumEpisodeCount = 120;
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string CreatedAt { get; set; } = "";
@@ -147,6 +151,10 @@ public sealed class TikTokAccountProfile
     public double TiktokDayZeroRoi { get; set; } = 1.05;
     public int TiktokProfilePreviewEpisodes { get; set; } = 3;
     public int TiktokFreePreviewEpisodes { get; set; } = 3;
+    /// <summary>素材校验要求的最少实际视频数。低于该值拒绝上传。旧账号未配置时默认 30。</summary>
+    public int TiktokMinimumEpisodeCount { get; set; } = DefaultMinimumEpisodeCount;
+    /// <summary>素材校验允许的最多实际视频数。高于该值拒绝上传。旧账号未配置时默认 120。</summary>
+    public int TiktokMaximumEpisodeCount { get; set; } = DefaultMaximumEpisodeCount;
     public string TiktokExpectedFullPriceMode { get; set; } = "manual";
     public int TiktokExpectedFullPriceOptionIndex { get; set; } = 1;
     public string TiktokExpectedFullPriceValue { get; set; } = "";
@@ -230,6 +238,29 @@ public sealed class TikTokAccountProfile
         {
             return "";
         }
+    }
+
+    public static int NormalizeMinimumEpisodeCount(int value)
+    {
+        if (value <= 0)
+            return DefaultMinimumEpisodeCount;
+        return Math.Clamp(value, 1, MaxMinimumEpisodeCount);
+    }
+
+    public static int NormalizeMaximumEpisodeCount(int value)
+    {
+        if (value <= 0)
+            return DefaultMaximumEpisodeCount;
+        return Math.Clamp(value, 1, MaxMaximumEpisodeCount);
+    }
+
+    public static (int Minimum, int Maximum) NormalizeEpisodeCountBounds(int minimum, int maximum)
+    {
+        var normalizedMinimum = NormalizeMinimumEpisodeCount(minimum);
+        var normalizedMaximum = NormalizeMaximumEpisodeCount(maximum);
+        if (normalizedMaximum < normalizedMinimum)
+            normalizedMaximum = normalizedMinimum;
+        return (normalizedMinimum, normalizedMaximum);
     }
 
     private static string FirstNonEmpty(params string?[] values)

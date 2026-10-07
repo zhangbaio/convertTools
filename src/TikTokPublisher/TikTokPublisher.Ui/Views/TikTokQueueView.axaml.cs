@@ -1277,6 +1277,7 @@ public partial class TikTokQueueView : UserControl
 
         var rows = new StackPanel { Spacing = 2 };
         var checks = new List<CheckBox>();
+        var selectedBrush = new SolidColorBrush(Color.Parse("#DDEEFF"));
         foreach (var preview in candidates)
         {
             var check = new CheckBox
@@ -1284,10 +1285,20 @@ public partial class TikTokQueueView : UserControl
                 Content = FormatLocalDramaImportCandidate(preview),
                 Tag = preview,
                 IsChecked = !preview.MetadataExists,
-                Margin = new Thickness(2, 1),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Background = Brushes.Transparent,
             };
+            var row = new Border
+            {
+                Background = check.IsChecked == true ? selectedBrush : Brushes.Transparent,
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(6, 2),
+                Child = check,
+            };
+            check.IsCheckedChanged += (_, _) =>
+                row.Background = check.IsChecked == true ? selectedBrush : Brushes.Transparent;
             checks.Add(check);
-            rows.Children.Add(check);
+            rows.Children.Add(row);
         }
 
         var autoRunCheck = new CheckBox

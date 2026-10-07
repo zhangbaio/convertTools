@@ -14,6 +14,8 @@ public static class TikTokMaterialValidationService
     public sealed class Options
     {
         public int Concurrency { get; init; } = 4;
+        public int MinimumEpisodeCount { get; init; } = TikTokAccountProfile.DefaultMinimumEpisodeCount;
+        public int MaximumEpisodeCount { get; init; } = TikTokAccountProfile.DefaultMaximumEpisodeCount;
         public IReadOnlySet<string> EnabledSteps { get; init; } = new HashSet<string>(StringComparer.Ordinal);
         public bool AllowMissingUploadVideos { get; init; }
 
@@ -21,13 +23,56 @@ public static class TikTokMaterialValidationService
             TikTokAccountProfile? account,
             ClientSettings? settings = null,
             QueueRunOptions? runOptions = null,
-            bool allowMissingUploadVideos = false) => new()
+            bool allowMissingUploadVideos = false)
         {
-            Concurrency = Math.Clamp(settings?.TiktokMaterialValidateConcurrency ?? 4, 1, 16),
-            EnabledSteps = (runOptions?.EnabledSteps ?? [])
-                .ToHashSet(StringComparer.Ordinal),
-            AllowMissingUploadVideos = allowMissingUploadVideos,
-        };
+            var (minimum, maximum) = TikTokAccountProfile.NormalizeEpisodeCountBounds(
+                account?.TiktokMinimumEpisodeCount ?? 0,
+                account?.TiktokMaximumEpisodeCount ?? 0);
+            return new Options
+            {
+                Concurrency = Math.Clamp(settings?.TiktokMaterialValidateConcurrency ?? 4, 1, 16),
+                MinimumEpisodeCount = minimum,
+                MaximumEpisodeCount = maximum,
+                EnabledSteps = (runOptions?.EnabledSteps ?? [])
+                    .ToHashSet(StringComparer.Ordinal),
+                AllowMissingUploadVideos = allowMissingUploadVideos,
+            };
+        }
+    }
+
+    /// <summary>
+    /// 实际要上传的视频数。源目录（原剧名）还有成片时只数源视频；
+    /// 源视频已删除时改数工作目录（新剧名）里的上传副本。同一集不重复计数。
+    /// </summary>
+    public static int CountActualUploadVideos(string sourceProjectDir)
+    {
+        var sourceVideos = ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir);
+        if (sourceVideos.Count > 0)
+            return sourceVideos.Count;
+        return ProjectVideoResolver.ResolveStagedUploadVideos(sourceProjectDir).Count;
+    }
+
+    public static string BuildMinimumEpisodeRejection(int actualCount, int minimumEpisodeCount) =>
+        $"实际视频 {actualCount} 集，低于发布配置的最小集数 {minimumEpisodeCount}，已拒绝上传";
+
+    public static string BuildMaximumEpisodeRejection(int actualCount, int maximumEpisodeCount) =>
+        $"实际视频 {actualCount} 集，高于发布配置的最大集数 {maximumEpisodeCount}，已拒绝上传";
+
+    public static void EnsureEpisodeCountBounds(
+        string sourceProjectDir,
+        int minimumEpisodeCount,
+        int maximumEpisodeCount)
+    {
+        var (minimum, maximum) = TikTokAccountProfile.NormalizeEpisodeCountBounds(
+            minimumEpisodeCount,
+            maximumEpisodeCount);
+        var actualCount = CountActualUploadVideos(sourceProjectDir);
+        if (actualCount <= 0)
+            return;
+        if (actualCount < minimum)
+            throw new InvalidOperationException(BuildMinimumEpisodeRejection(actualCount, minimum));
+        if (actualCount > maximum)
+            throw new InvalidOperationException(BuildMaximumEpisodeRejection(actualCount, maximum));
     }
 
     public static async Task ValidateAsync(
@@ -40,6 +85,19 @@ public static class TikTokMaterialValidationService
         TikTokAccountProfile? account = null)
     {
         ct.ThrowIfCancellationRequested();
+        try
+        {
+            EnsureEpisodeCountBounds(
+                sourceProjectDir,
+                options.MinimumEpisodeCount,
+                options.MaximumEpisodeCount);
+        }
+        catch (InvalidOperationException ex)
+        {
+            log?.Invoke(ex.Message);
+            throw;
+        }
+
         var payload = TikTokUploadStagingService.BuildPayload(
             sourceProjectDir, title, originalTitle,
             rebuildStaging: false, repairSmallVideos: false, log, ct);
@@ -280,10 +338,15 @@ public static class TikTokMaterialValidationService
             .Distinct(StringComparer.Ordinal)
             .ToDictionary(key => key, _ => (object?)true, StringComparer.Ordinal);
 
+        var (minimumEpisodeCount, maximumEpisodeCount) = TikTokAccountProfile.NormalizeEpisodeCountBounds(
+            options.MinimumEpisodeCount,
+            options.MaximumEpisodeCount);
         var state = new Dictionary<string, object?>
         {
             ["fingerprint"] = ComputeMaterialFingerprint(payload.UploadPaths),
             ["params"] = ValidationParamsSignature(options),
+            ["minimumEpisodeCount"] = minimumEpisodeCount,
+            ["maximumEpisodeCount"] = maximumEpisodeCount,
             ["episodes"] = episodes,
         };
         ProjectStateDocumentStore.SaveDocument(
@@ -321,7 +384,10 @@ public static class TikTokMaterialValidationService
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     }
 
-    public static bool HasCurrentValidationState(string sourceProjectDir)
+    public static bool HasCurrentValidationState(
+        string sourceProjectDir,
+        int? requiredMinimumEpisodeCount = null,
+        int? requiredMaximumEpisodeCount = null)
     {
         try
         {
@@ -336,6 +402,18 @@ public static class TikTokMaterialValidationService
                 context.WorkspaceRoot,
                 context.SourceProjectDir,
                 "material_validation_state");
+            if (requiredMinimumEpisodeCount is int requiredMinimum &&
+                !SavedEpisodeCountMatches(state, "minimumEpisodeCount", requiredMinimum))
+            {
+                return false;
+            }
+
+            if (requiredMaximumEpisodeCount is int requiredMaximum &&
+                !SavedEpisodeCountMatches(state, "maximumEpisodeCount", requiredMaximum))
+            {
+                return false;
+            }
+
             if (!state.TryGetValue("fingerprint", out var fingerprintElement))
                 return false;
 
@@ -354,5 +432,22 @@ public static class TikTokMaterialValidationService
         {
             return false;
         }
+    }
+
+    private static bool SavedEpisodeCountMatches(
+        IReadOnlyDictionary<string, JsonElement> state,
+        string propertyName,
+        int requiredCount)
+    {
+        if (!state.TryGetValue(propertyName, out var element))
+            return false;
+
+        var saved = element.ValueKind switch
+        {
+            JsonValueKind.Number when element.TryGetInt32(out var number) => number,
+            JsonValueKind.String when int.TryParse(element.GetString(), out var number) => number,
+            _ => 0,
+        };
+        return saved == requiredCount;
     }
 }

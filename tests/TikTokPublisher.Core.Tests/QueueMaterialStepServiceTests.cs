@@ -366,6 +366,61 @@ public sealed class QueueMaterialStepServiceTests
     }
 
     [Fact]
+    public void Download_completeness_accepts_local_import_numeric_file_names()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), $"local-import-numbered-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sourceDir);
+        var item = new QueueProjectItem { ProjectDir = sourceDir, EpisodeCount = 3 };
+        var expectedNumbers = new[] { 1, 2, 3 };
+
+        try
+        {
+            foreach (var number in expectedNumbers)
+                File.WriteAllBytes(Path.Combine(sourceDir, $"{number:00}.mp4"), [1]);
+
+            var complete = QueueMaterialStepService.InspectDownloadedEpisodes(sourceDir, item, expectedNumbers);
+            complete.IsComplete.Should().BeTrue();
+            complete.FoundCount.Should().Be(3);
+            complete.Missing.Should().BeEmpty();
+
+            File.Delete(Path.Combine(sourceDir, "02.mp4"));
+            var missing = QueueMaterialStepService.InspectDownloadedEpisodes(sourceDir, item, expectedNumbers);
+            missing.IsComplete.Should().BeFalse();
+            missing.Missing.Should().Equal(2);
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Download_completeness_accepts_complete_unlabeled_local_series_by_file_count()
+    {
+        var sourceDir = Path.Combine(Path.GetTempPath(), $"local-import-unlabeled-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sourceDir);
+        var item = new QueueProjectItem { ProjectDir = sourceDir, EpisodeCount = 2 };
+
+        try
+        {
+            File.WriteAllBytes(Path.Combine(sourceDir, "clip-a.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(sourceDir, "clip-b.mp4"), [2]);
+
+            var complete = QueueMaterialStepService.InspectDownloadedEpisodes(sourceDir, item, [1, 2]);
+            complete.IsComplete.Should().BeTrue();
+            complete.FoundCount.Should().Be(2);
+
+            File.Delete(Path.Combine(sourceDir, "clip-b.mp4"));
+            var partial = QueueMaterialStepService.InspectDownloadedEpisodes(sourceDir, item, [1, 2]);
+            partial.IsComplete.Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void NeedsAiRewrite_requires_matching_persisted_synopsis_mode_and_content()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"rewrite-state-{Guid.NewGuid():N}");

@@ -952,6 +952,20 @@ public sealed class QueueWorkerRunner
 
         if (!copyrightProofOnly)
         {
+            try
+            {
+                TikTokMaterialValidationService.EnsureEpisodeCountBounds(
+                    item.ProjectDir,
+                    account.TiktokMinimumEpisodeCount,
+                    account.TiktokMaximumEpisodeCount);
+            }
+            catch (InvalidOperationException ex)
+            {
+                mutate(() => MarkFailed(item, QueueStepRegistry.UploadSeries, ex.Message));
+                Report(onProgress, workspace, item, ex.Message, QueueStepRegistry.UploadSeries);
+                return false;
+            }
+
             var consistency = TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(item);
             if (!consistency.Ok)
             {
@@ -1712,7 +1726,13 @@ public sealed class QueueWorkerRunner
                 validationSettings,
                 options,
                 allowMissingUploadVideos: item.IsUploadCompleted);
-            if (!TikTokMaterialValidationService.HasCurrentValidationState(item.ProjectDir) ||
+            var episodeBounds = TikTokAccountProfile.NormalizeEpisodeCountBounds(
+                account?.TiktokMinimumEpisodeCount ?? 0,
+                account?.TiktokMaximumEpisodeCount ?? 0);
+            if (!TikTokMaterialValidationService.HasCurrentValidationState(
+                    item.ProjectDir,
+                    episodeBounds.Minimum,
+                    episodeBounds.Maximum) ||
                 !TikTokMaterialValidationService.HasCurrentGeneratedUploadMaterials(
                     item.ProjectDir,
                     account,
