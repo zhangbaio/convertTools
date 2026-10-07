@@ -1277,7 +1277,7 @@ public partial class TikTokQueueView : UserControl
 
         var rows = new StackPanel { Spacing = 2 };
         var checks = new List<CheckBox>();
-        var selectedBrush = new SolidColorBrush(Color.Parse("#DDEEFF"));
+        var selectedBrush = new SolidColorBrush(Color.Parse("#245D8C"));
         foreach (var preview in candidates)
         {
             var check = new CheckBox
