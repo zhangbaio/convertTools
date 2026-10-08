@@ -1931,6 +1931,55 @@ public partial class TikTokQueueView : UserControl
         await StartQueueRunAsync(options, dirs);
     }
 
+    private async void OnReplaceDraftClick(object? sender, RoutedEventArgs e)
+    {
+        var vm = _vm;
+        if (vm is null) return;
+
+        var rows = GetCheckedQueueRows()
+            .Where(row => !string.IsNullOrWhiteSpace(row.Item.ProjectDir))
+            .ToList();
+        if (rows.Count != 1)
+        {
+            vm.StatusMessage = rows.Count == 0
+                ? "请只勾选 1 个项目再替换草稿"
+                : "一次只能勾选 1 个项目替换草稿";
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null)
+        {
+            vm.StatusMessage = "无法打开新剧替换草稿窗口";
+            return;
+        }
+
+        var row = rows[0];
+        var dramaName = string.IsNullOrWhiteSpace(row.NewTitle) ? row.OriginalTitle : row.NewTitle;
+        var input = await TextPromptDialog.ShowAsync(
+            owner,
+            "新剧替换草稿",
+            "请输入要替换的草稿名称或草稿 ID。名称按原创管理精确匹配；ID 直接打开该草稿。",
+            "");
+        if (string.IsNullOrWhiteSpace(input))
+            return;
+
+        var target = input.Trim();
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "确认替换草稿",
+            $"将清空草稿「{target}」的剧名、简介、封面和已上传视频，再用「{dramaName}」从第 1 集重新上传。合同保持不变。此操作不能撤销。");
+        if (!confirmed)
+            return;
+
+        var options = vm.CreateCurrentQueueRunOptionsSnapshot();
+        options.EnabledSteps = new List<string> { QueueStepRegistry.UploadSeries };
+        options.ForceRerunCompletedSteps = true;
+        options.UploadEntryMode = QueueRunOptions.ReplaceDraftEntryMode;
+        options.ReplaceDraftTarget = target;
+        await StartQueueRunAsync(options, new[] { Path.GetFullPath(row.Item.ProjectDir) });
+    }
+
     private async void OnCompleteCopyrightProofClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
@@ -3885,6 +3934,7 @@ public partial class TikTokQueueView : UserControl
         var workerReturnedSummary = false;
         var displayOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
         var isEditRun = string.Equals(displayOptions.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
+        var isReplaceDraftRun = displayOptions.IsReplaceDraftRun();
         var isCopyrightProofRun = displayOptions.IsCopyrightProofWorkflowRun();
         vm.StatusMessage = displayOptions.IsAiOutlineSupplementRun()
             ? "AI 大纲补全执行中…"
@@ -3892,6 +3942,8 @@ public partial class TikTokQueueView : UserControl
             ? "证明材料生成中…"
             : isCopyrightProofRun
                 ? "补全版权证明执行中…"
+            : isReplaceDraftRun
+                ? "新剧替换草稿执行中…"
             : isEditRun
                 ? "编辑剧集执行中…"
                 : "TikTok 队列执行中…";
@@ -4478,6 +4530,9 @@ public partial class TikTokQueueView : UserControl
         var item = QueuePublishHost.ToPublishItem(project);
         item.EnabledQueueSteps = options.EnabledSteps.ToArray();
         item.ForceEditUpload = string.Equals(options.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
+        item.ReplaceDraftTarget = options.IsReplaceDraftRun() ? options.ReplaceDraftTarget.Trim() : "";
+        if (options.IsReplaceDraftRun() && string.IsNullOrWhiteSpace(item.ReplaceDraftTarget))
+            return PublishResult.Fail("新剧替换草稿没有填写草稿名称或 ID，已停止，不会新建剧集。");
         item.CopyrightProofOnly = options.IsCopyrightProofOnlyRun();
         if (!item.CopyrightProofOnly && string.IsNullOrWhiteSpace(item.VideoPath))
             return PublishResult.Fail("项目没有可用视频");

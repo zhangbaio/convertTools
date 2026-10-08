@@ -51,6 +51,271 @@ public static partial class TikTokBrowserActions
         Log(log, "TikTok 编辑页表单已填写完成。");
     }
 
+    public static async Task ReplaceDraftFormAsync(
+        IPage page,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        TikTokPublishRecommendation recommendation,
+        string coverPath,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        await RunReplaceStageAsync("清理正片", async () =>
+        {
+            Log(log, "新剧替换草稿：开始清理已上传正片。");
+            await DeleteEditVideoRowsFromSlotAsync(page, keepCount: 0, log, ct);
+            var remainingCount = await ReadEditVideoTableRowCountAsync(page);
+            if (remainingCount != 0)
+            {
+                throw new InvalidOperationException(
+                    $"清理后正片表仍有 {remainingCount} 行，已停止，不再上传。");
+            }
+
+            Log(log, "新剧替换草稿：正片表已清空。");
+        });
+
+        await RunReplaceStageAsync("填写表单", async () =>
+        {
+            Log(log, "新剧替换草稿：合同保持草稿原值，开始清空并重填剧名、简介和封面。");
+            await EnsureEditBaseInfoSectionAsync(page, log, ct);
+            Log(log, "新剧替换草稿：合同已锁定，自动跳过，不修改。");
+            await ReplaceDraftTextAsync(page, "#title", payload.Title, "剧名", required: true, log, ct);
+            await ReplaceDraftTextAsync(page, "#description", payload.Description, "简介", required: false, log, ct);
+            await BlurActiveElementAsync(page);
+            await page.WaitForTimeoutAsync(500);
+            await ReplaceExistingCoverAsync(page, coverPath, log, ct);
+            Log(log, "新剧替换草稿：剧名和简介已改成勾选剧集，合同未改。");
+        });
+
+        await RunReplaceStageAsync("上传正片", async () =>
+        {
+            Log(log, "新剧替换草稿：开始从第 1 集重新上传，并按当前账号配置填写其余表单。");
+            await EnsureEditContentUploadTabAsync(page, ct);
+            await FillCreateRemainingFieldsAsync(
+                page,
+                payload,
+                options,
+                recommendation,
+                coverPath,
+                coverAlreadyUploaded: true,
+                log,
+                ct);
+            Log(log, "新剧替换草稿：正片和其余表单已填写完成。");
+        });
+    }
+
+    private static async Task RunReplaceStageAsync(string stage, Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (TikTokDailyLimitException)
+        {
+            throw;
+        }
+        catch (TikTokPlatformTemporaryException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"新剧替换草稿停在{stage}：{ex.Message}", ex);
+        }
+    }
+
+    private static async Task ReplaceDraftTextAsync(
+        IPage page,
+        string selector,
+        string? value,
+        string fieldName,
+        bool required,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var locator = page.Locator(selector).First;
+        await locator.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+        await locator.ClickAsync(new() { Timeout = 5000 });
+        await ClearDraftTextAsync(page, locator);
+        var cleared = await ReadInputValueAsync(locator);
+        if (!string.IsNullOrEmpty(cleared))
+        {
+            throw new InvalidOperationException(
+                $"新剧替换草稿没能清空{fieldName}，当前仍是「{TrimForLog(cleared)}」。");
+        }
+
+        Log(log, $"新剧替换草稿：已清空{fieldName}。");
+        var next = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(next))
+        {
+            if (required)
+                throw new InvalidOperationException($"新剧替换草稿的勾选剧集没有{fieldName}，已停止。");
+
+            Log(log, $"新剧替换草稿：勾选剧集没有{fieldName}，该栏保持空白。");
+            return;
+        }
+
+        await locator.FillAsync(next);
+        var actual = await ReadInputValueAsync(locator);
+        if (!FieldTextEquals(actual, next))
+        {
+            await locator.ClickAsync(new() { Timeout = 5000 });
+            await locator.PressAsync("Control+A");
+            await locator.PressSequentiallyAsync(next, new() { Delay = 15 });
+            actual = await ReadInputValueAsync(locator);
+        }
+
+        if (!FieldTextEquals(actual, next))
+        {
+            throw new InvalidOperationException(
+                $"新剧替换草稿没能把{fieldName}改成「{TrimForLog(next)}」，当前是「{TrimForLog(actual)}」。");
+        }
+
+        await BlurActiveElementAsync(page);
+        Log(log, $"新剧替换草稿：{fieldName}已改为「{TrimForLog(next)}」。");
+    }
+
+    private static async Task ClearDraftTextAsync(IPage page, ILocator locator)
+    {
+        await locator.FillAsync("");
+        if (string.IsNullOrEmpty(await ReadInputValueAsync(locator)))
+            return;
+
+        await locator.PressAsync("Control+A");
+        await locator.PressAsync("Delete");
+        await page.WaitForTimeoutAsync(200);
+    }
+
+    private static async Task<string> ReadInputValueAsync(ILocator locator)
+    {
+        try
+        {
+            return await locator.InputValueAsync() ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static bool FieldTextEquals(string actual, string expected) =>
+        string.Equals(NormalizeFieldText(actual), NormalizeFieldText(expected), StringComparison.Ordinal);
+
+    private static string NormalizeFieldText(string value) =>
+        (value ?? "").Replace("\r\n", "\n").Replace("\r", "\n").Trim();
+
+    private static string TrimForLog(string value)
+    {
+        var text = (value ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+        return text.Length <= 40 ? text : text[..40] + "…";
+    }
+
+    private static async Task ReplaceExistingCoverAsync(
+        IPage page,
+        string coverPath,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await EnsureEditBaseInfoSectionAsync(page, log, ct);
+        if (await IsCoverAlreadyUploadedAsync(page))
+        {
+            Log(log, "新剧替换草稿：开始删除已有封面。");
+            var removed = await ClickExistingCoverRemoveAsync(page, ct);
+            if (!removed)
+                throw new InvalidOperationException("没有点到封面删除按钮。");
+
+            await ConfirmDeleteDialogIfPresentAsync(page, ct);
+            await page.WaitForTimeoutAsync(800);
+            if (await IsCoverAlreadyUploadedAsync(page))
+                throw new InvalidOperationException("封面删除后仍然存在。");
+
+            Log(log, "新剧替换草稿：已删除原封面。");
+        }
+        else
+        {
+            Log(log, "新剧替换草稿：草稿没有封面。");
+        }
+
+        Log(log, "新剧替换草稿：开始上传勾选剧集的封面。");
+        await UploadCoverAsync(page, coverPath, log, ct);
+    }
+
+    private static async Task<bool> ClickExistingCoverRemoveAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        foreach (var cardSelector in new[]
+                 {
+                     "#coverStruct .semi-upload-picture-file-card",
+                     "[x-field-id='coverStruct'] .semi-upload-picture-file-card",
+                     ".uploadField-Xm2Vjl .semi-upload-picture-file-card",
+                 })
+        {
+            try
+            {
+                var card = page.Locator(cardSelector).First;
+                if (await card.CountAsync() == 0)
+                    continue;
+                await card.HoverAsync(new() { Timeout = 3000 });
+            }
+            catch
+            {
+                // 封面卡片不一定需要悬停才出现删除按钮。
+            }
+        }
+
+        foreach (var selector in new[]
+                 {
+                     "#coverStruct .semi-upload-picture-file-card-close",
+                     "#coverStruct .semi-icons-close",
+                     "[x-field-id='coverStruct'] .semi-upload-picture-file-card-close",
+                     "[x-field-id='coverStruct'] .semi-icons-close",
+                     ".uploadField-Xm2Vjl .semi-upload-picture-file-card-close",
+                     ".uploadField-Xm2Vjl .semi-icons-close",
+                 })
+        {
+            try
+            {
+                var button = page.Locator(selector).First;
+                if (await button.CountAsync() == 0)
+                    continue;
+                await button.ClickAsync(new() { Force = true, Timeout = 3000 });
+                return true;
+            }
+            catch
+            {
+                // 换下一个删除按钮。
+            }
+        }
+
+        try
+        {
+            var clicked = await page.EvaluateAsync<string>(
+                """
+                () => {
+                  const root = document.querySelector("#coverStruct, [x-field-id='coverStruct'], .uploadField-Xm2Vjl");
+                  if (!root) return "";
+                  const close = root.querySelector(
+                    ".semi-upload-picture-file-card-close, .semi-icons-close, [aria-label*='删除'], [aria-label*='移除']");
+                  if (!close) return "";
+                  const target = close.closest("button") || close;
+                  target.click();
+                  return "clicked";
+                }
+                """);
+            return clicked == "clicked";
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static async Task EnsureEditDescriptionFilledAsync(
         IPage page,
         string description,

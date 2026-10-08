@@ -359,6 +359,150 @@ public static class TikTokEditFlowService
             page, payload, options, recommendation, coverPath, log, ct);
     }
 
+    public static async Task ReplaceExistingDraftAsync(
+        IPage page,
+        string draftQuery,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        TikTokPublishRecommendation recommendation,
+        string coverPath,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        string detailUrl;
+        try
+        {
+            detailUrl = await ResolveReplacementDraftUrlAsync(page, draftQuery, log, ct).ConfigureAwait(false);
+            log?.Invoke($"新剧替换草稿：打开草稿 {detailUrl}");
+            await page.GotoAsync(detailUrl, new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60000,
+            }).ConfigureAwait(false);
+            try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 20000 }).ConfigureAwait(false); }
+            catch { /* SPA */ }
+            await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log).ConfigureAwait(false);
+            EnsureReplacementPageIsDraft(page, draftQuery);
+            await EnsureOpenedPageIsStillDraftAsync(page, draftQuery, ct).ConfigureAwait(false);
+            log?.Invoke($"新剧替换草稿：已打开剧集编辑页 {page.Url}");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException || !ex.Message.StartsWith("新剧替换草稿停在", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"新剧替换草稿停在定位草稿：{ex.Message}", ex);
+        }
+
+        await TikTokBrowserActions.ReplaceDraftFormAsync(
+            page, payload, options, recommendation, coverPath, log, ct).ConfigureAwait(false);
+    }
+
+    private static async Task<string> ResolveReplacementDraftUrlAsync(
+        IPage page,
+        string draftQuery,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var query = (draftQuery ?? "").Trim();
+        if (query.Length == 0)
+            throw new InvalidOperationException("没有填写草稿名称或 ID。");
+
+        var seriesId = TryReadReplacementDraftId(query);
+        if (seriesId.Length > 0)
+            return $"{TikTokUrls.DefaultSeriesDraftUrl}/{seriesId}";
+
+        log?.Invoke($"新剧替换草稿：按名称精确搜索「{query}」。");
+        await TikTokSeriesListLookupService.OpenAsync(page, log, ct).ConfigureAwait(false);
+        var rows = await TikTokSeriesListLookupService.SearchExactAsync(page, query, ct, log).ConfigureAwait(false);
+        if (rows.Count == 0)
+            throw new InvalidOperationException($"未找到名称为「{query}」的剧集。请改用草稿 ID。");
+        if (rows.Count > 1)
+            throw new InvalidOperationException($"名称「{query}」匹配到 {rows.Count} 条剧集。请改用草稿 ID。");
+
+        var row = rows[0];
+        var status = string.IsNullOrWhiteSpace(row.PlatformStatus) ? row.RawText : row.PlatformStatus;
+        if (IsNonDraftUploadedStatus(status) || IsNonDraftUploadedStatus(row.RawText))
+        {
+            throw new InvalidOperationException(
+                $"目标「{query}」状态为「{status}」，不是草稿。已停止，未删除内容，也不会新建剧集。");
+        }
+
+        if (!status.Contains("草稿", StringComparison.Ordinal) &&
+            !row.RawText.Contains("草稿", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"目标「{query}」状态为「{status}」，不能确认是草稿。已停止，未删除内容。请改用草稿 ID。");
+        }
+
+        var detailUrl = string.IsNullOrWhiteSpace(row.SeriesId)
+            ? row.DetailUrl
+            : $"{TikTokUrls.DefaultSeriesDraftUrl}/{row.SeriesId}";
+        if (string.IsNullOrWhiteSpace(detailUrl) ||
+            (!TikTokBrowserActions.IsTikTokSeriesEditorPageUrl(detailUrl) &&
+             !detailUrl.Contains("/series/draft/", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException($"名称「{query}」没有可用的草稿地址。请改用草稿 ID。");
+        }
+
+        return detailUrl;
+    }
+
+    private static string TryReadReplacementDraftId(string query)
+    {
+        var match = DetailIdPattern.Match(query);
+        if (!match.Success)
+            return "";
+
+        var id = match.Groups[1].Value;
+        var remainder = DetailIdPattern.Replace(query, "").Trim();
+        return remainder.Length == 0 || query.Contains("/series/draft/", StringComparison.OrdinalIgnoreCase)
+            ? id
+            : "";
+    }
+
+    private static async Task EnsureOpenedPageIsStillDraftAsync(
+        IPage page,
+        string draftQuery,
+        CancellationToken ct)
+    {
+        foreach (var marker in new[] { "视频检测中", "审核中", "待审核", "发布中", "已发布", "已上线" })
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var status = page.GetByText(marker, new() { Exact = true }).First;
+                if (await status.CountAsync().ConfigureAwait(false) == 0)
+                    continue;
+                if (!await status.IsVisibleAsync(new() { Timeout = 300 }).ConfigureAwait(false))
+                    continue;
+
+                throw new InvalidOperationException(
+                    $"目标「{draftQuery.Trim()}」页面状态为「{marker}」，不是草稿。已停止，未删除内容，也不会新建剧集。");
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
+            }
+            catch
+            {
+                // 页面上没有这个状态标记时继续检查下一个。
+            }
+        }
+    }
+
+    private static void EnsureReplacementPageIsDraft(IPage page, string draftQuery)
+    {
+        var url = page.Url ?? "";
+        if (!TikTokBrowserActions.IsTikTokSeriesEditorPageUrl(url))
+        {
+            throw new InvalidOperationException(
+                $"目标「{draftQuery.Trim()}」没有打开草稿页（当前地址：{url}）。已停止，未删除内容，也不会新建剧集。");
+        }
+    }
+
     public static async Task<bool> HasDuplicateContractTitleWarningAsync(IPage page, CancellationToken ct, int timeoutMs = 2500)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(Math.Max(500, timeoutMs));

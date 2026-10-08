@@ -133,4 +133,18 @@ public sealed class TikTokFileUploadTransportTests
         ];
     }
 
+    [Fact]
+    public void Redirected_series_id_url_is_still_the_draft_editor()
+    {
+        TikTokBrowserActions.IsTikTokSeriesEditorPageUrl(
+                "https://www.tiktokdramacenter.com/series/7687436460232037392")
+            .Should().BeTrue();
+        TikTokBrowserActions.IsTikTokSeriesEditorPageUrl(
+                "https://www.tiktokdramacenter.com/series/draft/7687436460232037392")
+            .Should().BeTrue();
+        TikTokBrowserActions.IsTikTokSeriesEditorPageUrl(
+                "https://www.tiktokdramacenter.com/drama")
+            .Should().BeFalse();
+    }
+
 }
