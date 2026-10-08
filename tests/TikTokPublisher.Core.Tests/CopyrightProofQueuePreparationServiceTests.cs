@@ -6,7 +6,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class CopyrightProofQueuePreparationServiceTests
 {
     [Fact]
-    public void Prepare_ReopensOnlyTargetsAndReusesCurrentProofMaterial()
+    public void Prepare_ReopensOnlyTargetsAndRegeneratesProofMaterial()
     {
         var root = Path.Combine(Path.GetTempPath(), $"copyright-proof-retry-{Guid.NewGuid():N}");
         var reusable = Project(
@@ -27,17 +27,16 @@ public sealed class CopyrightProofQueuePreparationServiceTests
 
         var summary = CopyrightProofQueuePreparationService.Prepare(
             [reusable, pending, unrelated],
-            [reusable, pending],
-            [reusable.ProjectDir]);
+            [reusable, pending]);
 
         Assert.Equal(2, summary.TargetCount);
-        Assert.Equal(1, summary.ReusedProofMaterialCount);
-        Assert.Equal(1, summary.PendingProofMaterialCount);
+        Assert.Equal(0, summary.ReusedProofMaterialCount);
+        Assert.Equal(2, summary.PendingProofMaterialCount);
         Assert.True(reusable.Enabled);
         Assert.True(pending.Enabled);
         Assert.False(unrelated.Enabled);
         Assert.Equal(
-            QueueStepStatus.Completed,
+            QueueStepStatus.Pending,
             reusable.StepStates[QueueStepRegistry.GenerateProofMaterial]);
         Assert.Equal(
             QueueStepStatus.Pending,
@@ -72,7 +71,6 @@ public sealed class CopyrightProofQueuePreparationServiceTests
         var summary = CopyrightProofQueuePreparationService.Prepare(
             [completedUpload, stoppedUpload],
             [completedUpload, stoppedUpload],
-            [],
             CopyrightProofExecutionMode.GenerateMaterialOnly);
 
         Assert.Equal(2, summary.PendingProofMaterialCount);
@@ -105,7 +103,6 @@ public sealed class CopyrightProofQueuePreparationServiceTests
         CopyrightProofQueuePreparationService.Prepare(
             [project],
             [project],
-            [project.ProjectDir],
             CopyrightProofExecutionMode.GenerateAndEdit,
             [
                 QueueStepRegistry.GenerateAiScriptOutline,
@@ -118,13 +115,13 @@ public sealed class CopyrightProofQueuePreparationServiceTests
             QueueStepStatus.Pending,
             project.StepStates[QueueStepRegistry.GenerateAiScriptOutline]);
         Assert.Equal(
-            QueueStepStatus.Completed,
+            QueueStepStatus.Pending,
             project.StepStates[QueueStepRegistry.GenerateTimestampCertificate]);
         Assert.Equal(
             QueueStepStatus.Completed,
             project.StepStates[QueueStepRegistry.GenerateRoleVector]);
         Assert.Equal(
-            QueueStepStatus.Completed,
+            QueueStepStatus.Pending,
             project.StepStates[QueueStepRegistry.GenerateProofMaterial]);
         Assert.Equal(
             QueueStepStatus.Pending,

@@ -17,10 +17,11 @@ internal static class TikTokVisualEvidencePreparationService
         ClientSettings settings,
         Action<string>? log,
         CancellationToken ct,
-        int minimumRetainedFrameCount = 0)
+        int minimumRetainedFrameCount = 0,
+        bool forceRerun = false)
     {
         var workflow = Path.GetFullPath(workflowProjectDirectory);
-        if (HasCurrentOutput(workflow, minimumRetainedFrameCount))
+        if (!forceRerun && HasCurrentOutput(workflow, minimumRetainedFrameCount))
             return TikTokAiGenerationScreenshotService.ListGeneratedImages(workflow);
 
         var lazy = ActivePreparations.GetOrAdd(

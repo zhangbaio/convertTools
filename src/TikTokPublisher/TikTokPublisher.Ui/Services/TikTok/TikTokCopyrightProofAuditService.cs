@@ -210,6 +210,7 @@ public static class TikTokCopyrightProofAuditService
                             entry.Row,
                             entry.Order,
                             configuredMaterialTypes,
+                            selection.IncludeCopyrightSuspected,
                             log,
                             token)
                         .ConfigureAwait(false);
@@ -249,6 +250,7 @@ public static class TikTokCopyrightProofAuditService
         TikTokSeriesListRow row,
         int order,
         IReadOnlyList<string> configuredMaterialTypes,
+        bool copyrightSuspectedList,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -326,6 +328,21 @@ public static class TikTokCopyrightProofAuditService
 
             var state = Classify(probe.Plan);
             var coverageDetail = BuildCoverageDetail(probe);
+            var verificationDetail = SummarizeCopyrightVerificationFailure(
+                await ReadVisiblePageTextAsync(page).ConfigureAwait(false));
+            if (state == TikTokCopyrightProofAuditState.HasMaterial &&
+                (verificationDetail.Length > 0 || copyrightSuspectedList))
+            {
+                state = TikTokCopyrightProofAuditState.VerificationRejected;
+                coverageDetail = verificationDetail.Length > 0
+                    ? verificationDetail
+                    : "平台标记为疑似版权问题，已上传材料未通过核验，需要重新提交";
+            }
+            else if (verificationDetail.Length > 0)
+            {
+                coverageDetail = $"{verificationDetail}；{coverageDetail}";
+            }
+
             if (hasVideoReviewNotice)
                 coverageDetail = $"正片审核提示不影响版权证明编辑；{coverageDetail}";
             var result = new TikTokCopyrightProofAuditItem(
@@ -488,6 +505,56 @@ public static class TikTokCopyrightProofAuditService
         var value = (text ?? string.Empty).Replace(" ", string.Empty, StringComparison.Ordinal);
         return value.Contains("剧集正片部分集数视频文件审核中", StringComparison.Ordinal) &&
                value.Contains("审核期间暂不支持编辑", StringComparison.Ordinal);
+    }
+
+    internal static bool IsCopyrightVerificationFailedText(string? text)
+    {
+        var value = (text ?? string.Empty).Replace(" ", string.Empty, StringComparison.Ordinal);
+        return value.Contains("版权核验未通过", StringComparison.Ordinal) ||
+               value.Contains("疑似版权问题", StringComparison.Ordinal);
+    }
+
+    internal static string SummarizeCopyrightVerificationFailure(string? text)
+    {
+        if (!IsCopyrightVerificationFailedText(text))
+            return string.Empty;
+
+        var reasons = new List<string>();
+        foreach (var rawLine in (text ?? string.Empty).Split('\n', '\r'))
+        {
+            var line = rawLine.Trim().TrimStart('•', '·', '-', ' ', '\t');
+            if (line.Length == 0)
+                continue;
+            var head = line.Split('：', ':')[0].Trim();
+            if (!head.Contains("不一致", StringComparison.Ordinal) &&
+                !head.Contains("不完整", StringComparison.Ordinal) &&
+                !head.Contains("不匹配", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (head.Length > 24)
+                head = head[..24];
+            if (!reasons.Contains(head, StringComparer.Ordinal))
+                reasons.Add(head);
+        }
+
+        return reasons.Count == 0
+            ? "版权核验未通过"
+            : $"版权核验未通过：{string.Join("、", reasons.Take(4))}";
+    }
+
+    private static async Task<string> ReadVisiblePageTextAsync(IPage page)
+    {
+        try
+        {
+            return await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 })
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     internal static bool IsCopyrightReviewPassedText(string? text)
@@ -676,6 +743,7 @@ public static class TikTokCopyrightProofAuditService
             TikTokCopyrightProofAuditState.ProductionAgreementOnly => "仅上传版权证明 PDF",
             TikTokCopyrightProofAuditState.PartialMaterial => "部分版权证明材料缺失",
             TikTokCopyrightProofAuditState.MissingMaterial => "所有版权证明均未填写",
+            TikTokCopyrightProofAuditState.VerificationRejected => "版权核验未通过",
             TikTokCopyrightProofAuditState.SkippedApproved => "版权审核通过，已跳过",
             TikTokCopyrightProofAuditState.SkippedUneditable => "暂不可编辑，已跳过",
             _ => "检查失败",

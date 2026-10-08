@@ -102,6 +102,7 @@ public sealed class TikTokCopyrightProofAuditTextTests
         Assert.Contains("部分缺失　[缺少：AI 生成过程截图]", text);
         Assert.Contains("【所有版权证明均未填写（1）】", text);
         Assert.Contains("全部未填", text);
+        Assert.DoesNotContain("【版权核验未通过", text);
         Assert.DoesNotContain("暂不可编辑", text);
         Assert.DoesNotContain("审核锁定", text);
         Assert.Contains("【版权审核通过，已跳过（1）】", text);
@@ -197,6 +198,53 @@ public sealed class TikTokCopyrightProofAuditTextTests
         TikTokCopyrightProofAuditService.IsUneditableDuringVideoReviewText(
                 "剧集正片部分集数视频文件审核中")
             .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Verification_rejected_titles_are_listed_for_completion()
+    {
+        var items = new[]
+        {
+            Item(1, "私有车位遭霸占之后", TikTokCopyrightProofAuditState.VerificationRejected,
+                detail: "版权核验未通过：企业名称不一致、短剧名称不一致"),
+            Item(2, "材料齐全剧集", TikTokCopyrightProofAuditState.HasMaterial),
+        };
+
+        var text = TikTokCopyrightProofAuditText.BuildDisplayText(items);
+        var copy = TikTokCopyrightProofAuditText.BuildMissingTitlesCopyText(items);
+
+        Assert.Contains("【版权核验未通过（1）】", text);
+        Assert.Contains("私有车位遭霸占之后　[版权核验未通过：企业名称不一致、短剧名称不一致]", text);
+        Assert.DoesNotContain("材料齐全剧集", text);
+        Assert.Equal("私有车位遭霸占之后", copy);
+        TikTokCopyrightProofAuditState.VerificationRejected.IsIncomplete().Should().BeTrue();
+        TikTokCopyrightProofAuditState.HasMaterial.IsIncomplete().Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("版权核验未通过，请更新材料")]
+    [InlineData("已发布\n疑似版权问题")]
+    public void Copyright_verification_failure_recognizes_platform_rejection(string text)
+    {
+        TikTokCopyrightProofAuditService.IsCopyrightVerificationFailedText(text)
+            .Should().BeTrue();
+        TikTokCopyrightProofAuditService.IsCopyrightReviewPassedText(text)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Copyright_verification_failure_keeps_rejection_reasons()
+    {
+        var text = """
+            版权核验未通过，请根据下方提示更新对应材料。
+            • 企业名称不一致：识别到版权材料载明的短剧权利人与签约主体不完全一致
+            • 短剧名称不一致：识别到版权材料中的片名和实际发布页提交的短剧片名不完全一致
+            """;
+
+        TikTokCopyrightProofAuditService.SummarizeCopyrightVerificationFailure(text)
+            .Should().Be("版权核验未通过：企业名称不一致、短剧名称不一致");
+        TikTokCopyrightProofAuditService.SummarizeCopyrightVerificationFailure("版权审核通过")
+            .Should().BeEmpty();
     }
 
     [Theory]

@@ -498,6 +498,7 @@ public sealed class TikTokCopyrightProofAuditDialog : Window
                $"仅 PDF {values.Count(item => item.State == TikTokCopyrightProofAuditState.ProductionAgreementOnly)}，" +
                $"部分缺失 {values.Count(item => item.State == TikTokCopyrightProofAuditState.PartialMaterial)}，" +
                $"全部未填 {values.Count(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)}，" +
+               $"核验未通过 {values.Count(item => item.State == TikTokCopyrightProofAuditState.VerificationRejected)}，" +
                $"版权通过 {values.Count(item => item.State == TikTokCopyrightProofAuditState.SkippedApproved)}，" +
                $"暂不可编辑 {values.Count(item => item.State == TikTokCopyrightProofAuditState.SkippedUneditable)}，" +
                $"失败 {values.Count(item => item.State == TikTokCopyrightProofAuditState.Failed)}";

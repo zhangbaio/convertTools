@@ -19,7 +19,7 @@ public sealed record CopyrightProofMaterialPlan(
 
     public string DescribeArtifacts() => ArtifactDescriptions.Count == 0
         ? "账号未配置可自动生成的版权材料。"
-        : "将按账号“上传材料”配置生成或复用：" +
+        : "将按账号当前“上传材料”配置重新生成：" +
           string.Join("、", ArtifactDescriptions) + "。";
 }
 

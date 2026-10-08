@@ -10,6 +10,7 @@ public enum TikTokCopyrightProofAuditState
     ProductionAgreementOnly,
     PartialMaterial,
     MissingMaterial,
+    VerificationRejected,
     SkippedApproved,
     SkippedUneditable,
     Failed,
@@ -20,7 +21,8 @@ public static class TikTokCopyrightProofAuditStateExtensions
     public static bool IsIncomplete(this TikTokCopyrightProofAuditState state) =>
         state is TikTokCopyrightProofAuditState.ProductionAgreementOnly
             or TikTokCopyrightProofAuditState.PartialMaterial
-            or TikTokCopyrightProofAuditState.MissingMaterial;
+            or TikTokCopyrightProofAuditState.MissingMaterial
+            or TikTokCopyrightProofAuditState.VerificationRejected;
 }
 
 public sealed record TikTokCopyrightProofAuditItem(
@@ -60,6 +62,9 @@ public static class TikTokCopyrightProofAuditText
         var missingAll = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.MissingMaterial)
             .ToArray();
+        var rejected = ordered
+            .Where(item => item.State == TikTokCopyrightProofAuditState.VerificationRejected)
+            .ToArray();
         var approved = ordered
             .Where(item => item.State == TikTokCopyrightProofAuditState.SkippedApproved)
             .ToArray();
@@ -92,6 +97,18 @@ public static class TikTokCopyrightProofAuditText
             sections.Add(
                 $"【所有版权证明均未填写（{missingAll.Length}）】{Environment.NewLine}" +
                 string.Join(Environment.NewLine, missingAll.Select(item => item.Title)));
+        }
+
+        if (rejected.Length > 0)
+        {
+            sections.Add(
+                $"【版权核验未通过（{rejected.Length}）】{Environment.NewLine}" +
+                string.Join(
+                    Environment.NewLine,
+                    rejected.Select(item =>
+                        string.IsNullOrWhiteSpace(item.Detail)
+                            ? item.Title
+                            : $"{item.Title}　[{item.Detail}]")));
         }
 
         if (approved.Length > 0)
@@ -235,6 +252,7 @@ public static class TikTokCopyrightProofAuditExcelService
             TikTokCopyrightProofAuditState.ProductionAgreementOnly => "仅上传版权证明 PDF",
             TikTokCopyrightProofAuditState.PartialMaterial => "部分版权证明材料缺失",
             TikTokCopyrightProofAuditState.MissingMaterial => "所有版权证明均未填写",
+            TikTokCopyrightProofAuditState.VerificationRejected => "版权核验未通过",
             TikTokCopyrightProofAuditState.SkippedApproved => "版权审核通过，已跳过",
             TikTokCopyrightProofAuditState.SkippedUneditable => "暂不可编辑，已跳过",
             _ => "检查失败",

@@ -9,29 +9,23 @@ public sealed record CopyrightProofQueuePreparationSummary(
 
 /// <summary>
 /// Prepares an exact set of current queue projects for the copyright-proof-only workflow.
-/// Existing generated artifacts are kept; only queue execution states are normalized.
+/// 证明材料步骤一律重新打开，按当前账号配置重新生成后再补全。
 /// </summary>
 public static class CopyrightProofQueuePreparationService
 {
     public static CopyrightProofQueuePreparationSummary Prepare(
         IEnumerable<QueueProjectItem> allProjects,
         IEnumerable<QueueProjectItem> targetProjects,
-        IEnumerable<string> reusableProofMaterialProjectDirs,
         CopyrightProofExecutionMode executionMode = CopyrightProofExecutionMode.GenerateAndEdit,
         IEnumerable<string>? requiredGenerationSteps = null)
     {
         ArgumentNullException.ThrowIfNull(allProjects);
         ArgumentNullException.ThrowIfNull(targetProjects);
-        ArgumentNullException.ThrowIfNull(reusableProofMaterialProjectDirs);
 
         var projects = allProjects.ToArray();
         var targetDirs = targetProjects
             .Where(item => !item.Archived && !string.IsNullOrWhiteSpace(item.ProjectDir))
             .Select(item => Path.GetFullPath(item.ProjectDir))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var reusableDirs = reusableProofMaterialProjectDirs
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(Path.GetFullPath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var plannedGenerationSteps = (requiredGenerationSteps ?? [])
             .Where(step =>
@@ -60,7 +54,6 @@ public static class CopyrightProofQueuePreparationService
                 matchedTargetDirs.Contains(Path.GetFullPath(item.ProjectDir));
         }
 
-        var reusedCount = 0;
         foreach (var item in targets)
         {
             var hadUploadState = item.StepStates.TryGetValue(
@@ -77,12 +70,16 @@ public static class CopyrightProofQueuePreparationService
                 if (item.StepStates.GetValueOrDefault(step) != QueueStepStatus.Completed)
                     item.StepStates[step] = QueueStepStatus.Pending;
             }
-            var proofMaterialCurrent = reusableDirs.Contains(Path.GetFullPath(item.ProjectDir));
-            item.StepStates[QueueStepRegistry.GenerateProofMaterial] = proofMaterialCurrent
-                ? QueueStepStatus.Completed
-                : QueueStepStatus.Pending;
-            if (proofMaterialCurrent)
-                reusedCount++;
+            item.StepStates[QueueStepRegistry.GenerateProofMaterial] = QueueStepStatus.Pending;
+            foreach (var step in new[]
+                     {
+                         QueueStepRegistry.GenerateTimestampCertificate,
+                         QueueStepRegistry.GenerateProjectImages,
+                     })
+            {
+                if (plannedGenerationSteps.Contains(step, StringComparer.Ordinal))
+                    item.StepStates[step] = QueueStepStatus.Pending;
+            }
 
             if (executionMode == CopyrightProofExecutionMode.GenerateAndEdit)
             {
@@ -105,7 +102,7 @@ public static class CopyrightProofQueuePreparationService
 
         return new CopyrightProofQueuePreparationSummary(
             targets.Length,
-            reusedCount,
-            targets.Length - reusedCount);
+            ReusedProofMaterialCount: 0,
+            PendingProofMaterialCount: targets.Length);
     }
 }

@@ -1021,14 +1021,28 @@ public sealed class QueueWorkerRunner
             try
             {
                 var timestampSettings = ClientSettingsStore.Load();
-                var timestampPath = await TikTokTimestampCertificateService.GenerateAsync(
-                        item,
-                        timestampSettings,
-                        account,
-                        options.ForceRerunCompletedSteps,
-                        uploadLog,
-                        ct)
-                    .ConfigureAwait(false);
+                var regenerateTimestamp = options.ForceRerunCompletedSteps ||
+                                          options.RegeneratesCopyrightProofMaterials();
+                string timestampPath;
+                if (regenerateTimestamp &&
+                    item.StepStates.GetValueOrDefault(QueueStepRegistry.GenerateTimestampCertificate) ==
+                    QueueStepStatus.Completed)
+                {
+                    uploadLog("上传将使用刚按当前配置重新生成的可信时间戳。");
+                    timestampPath = TikTokTimestampCertificateService.GetOutputPath(item);
+                }
+                else
+                {
+                    timestampPath = await TikTokTimestampCertificateService.GenerateAsync(
+                            item,
+                            timestampSettings,
+                            account,
+                            regenerateTimestamp,
+                            uploadLog,
+                            ct)
+                        .ConfigureAwait(false);
+                }
+
                 TikTokProofMaterialPdfRenderService.ValidatePdf(timestampPath);
                 mutate(() => MarkCompleted(item, QueueStepRegistry.GenerateTimestampCertificate));
                 Report(
@@ -1103,7 +1117,9 @@ public sealed class QueueWorkerRunner
                         onProgress,
                         workspace,
                         item,
-                        "生成证明材料已完成，上传前仅校验现有文件，不重新生成…",
+                        options.RegeneratesCopyrightProofMaterials()
+                            ? "上传将使用刚按当前账号配置重新生成的证明材料…"
+                            : "生成证明材料已完成，上传前仅校验现有文件，不重新生成…",
                         QueueStepRegistry.GenerateProofMaterial);
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
@@ -1499,14 +1515,18 @@ public sealed class QueueWorkerRunner
                         materialVideoFallback)
                     .ConfigureAwait(false);
                 await TikTokProjectImageService.GenerateAsync(
-                    item, settings, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                    item,
+                    settings,
+                    options.ForceRerunCompletedSteps || options.RegeneratesCopyrightProofMaterials(),
+                    log,
+                    ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateProofMaterial:
                 await TikTokProofMaterialService.GenerateAsync(
                     item,
                     settings,
                     account,
-                    options.ForceRerunCompletedSteps,
+                    options.ForceRerunCompletedSteps || options.RegeneratesCopyrightProofMaterials(),
                     log,
                     ct,
                     materialVideoFallback,
@@ -1514,7 +1534,12 @@ public sealed class QueueWorkerRunner
                 break;
             case QueueStepRegistry.GenerateTimestampCertificate:
                 await TikTokTimestampCertificateService.GenerateAsync(
-                    item, settings, account, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
+                    item,
+                    settings,
+                    account,
+                    options.ForceRerunCompletedSteps || options.RegeneratesCopyrightProofMaterials(),
+                    log,
+                    ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.DeleteSourceVideos:
                 await QueueMaterialStepService.RunDeleteSourceVideosAsync(item, settings, log, ct).ConfigureAwait(false);
@@ -1680,6 +1705,13 @@ public sealed class QueueWorkerRunner
             {
                 return true;
             }
+        }
+        if (options.RegeneratesCopyrightProofMaterials() &&
+            stepKey is QueueStepRegistry.GenerateProofMaterial or
+                QueueStepRegistry.GenerateTimestampCertificate or
+                QueueStepRegistry.GenerateProjectImages)
+        {
+            return true;
         }
         if (stepKey == QueueStepRegistry.GenerateProofMaterial &&
             !options.IsStepEnabled(QueueStepRegistry.UploadSeries) &&
