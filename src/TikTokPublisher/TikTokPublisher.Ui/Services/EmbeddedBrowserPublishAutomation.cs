@@ -207,7 +207,21 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             // （含旧的“已达上限”提示），会误判停队列。上限检测仅在导航到新建/编辑页后进行。
 
             var enteredEditFlow = false;
-            if (item.ForceEditUpload && hasWorkflow)
+            if (!string.IsNullOrWhiteSpace(item.ReplaceDraftTarget))
+            {
+                L($"已选择新剧替换草稿，目标：{item.ReplaceDraftTarget.Trim()}");
+                await TikTokEditFlowService.ReplaceExistingDraftAsync(
+                    page,
+                    item.ReplaceDraftTarget,
+                    payload,
+                    options,
+                    recommendation,
+                    coverPath,
+                    L,
+                    ct).ConfigureAwait(false);
+                enteredEditFlow = true;
+            }
+            else if (item.ForceEditUpload && hasWorkflow)
             {
                 L("已选择编辑剧集模式，查找平台上的同名剧集…");
                 var editEntry = await TikTokEditFlowService.TryEnterExistingDraftFlowAsync(

@@ -76,6 +76,7 @@ public enum CopyrightProofExecutionMode
 public sealed class QueueRunOptions
 {
     public const string EditUploadEntryMode = "edit";
+    public const string ReplaceDraftEntryMode = "replace_draft";
     public const string CopyrightProofOnlyEntryMode = "copyright_proof_only";
     public const string CopyrightProofMaterialOnlyEntryMode = "copyright_proof_material_only";
     public const string AiOutlineSupplementEntryMode = "ai_outline_supplement";
@@ -87,6 +88,7 @@ public sealed class QueueRunOptions
     public bool SyncManagementAfterUpload { get; set; }
     public int ProjectConcurrency { get; set; } = 4;
     public string UploadEntryMode { get; set; } = "";
+    public string ReplaceDraftTarget { get; set; } = "";
 
     public bool IsStepEnabled(string stepKey)
     {
@@ -108,6 +110,7 @@ public sealed class QueueRunOptions
         SyncManagementAfterUpload = SyncManagementAfterUpload,
         ProjectConcurrency = ProjectConcurrency,
         UploadEntryMode = UploadEntryMode,
+        ReplaceDraftTarget = ReplaceDraftTarget,
     };
 
     public QueueRunOptions ClonePersistent()
@@ -121,6 +124,7 @@ public sealed class QueueRunOptions
     {
         ForceRerunCompletedSteps = false;
         UploadEntryMode = "";
+        ReplaceDraftTarget = "";
     }
 
     public Dictionary<string, object?> ToDictionary() => new()
@@ -132,6 +136,7 @@ public sealed class QueueRunOptions
         ["sync_management_after_upload"] = SyncManagementAfterUpload,
         ["project_concurrency"] = Math.Clamp(ProjectConcurrency, 1, 20),
         ["upload_entry_mode"] = NormalizeUploadEntryMode(UploadEntryMode),
+        ["replace_draft_target"] = ReplaceDraftTarget ?? "",
     };
 
     public Dictionary<string, object?> ToPersistentDictionary() =>
@@ -167,6 +172,7 @@ public sealed class QueueRunOptions
                 GetBool(payload, "sync_management_on_upload_success"),
             ProjectConcurrency = Math.Clamp(GetInt(payload, "project_concurrency", 4), 1, 20),
             UploadEntryMode = NormalizeUploadEntryMode(GetString(payload, "upload_entry_mode")),
+            ReplaceDraftTarget = GetString(payload, "replace_draft_target").Trim(),
         };
     }
 
@@ -175,6 +181,8 @@ public sealed class QueueRunOptions
         var normalized = (value ?? "").Trim().ToLowerInvariant();
         if (normalized is "edit" or "edit_existing" or "existing")
             return EditUploadEntryMode;
+        if (normalized is "replace_draft" or "replace")
+            return ReplaceDraftEntryMode;
         if (normalized is "copyright_proof_only" or "proof_only")
             return CopyrightProofOnlyEntryMode;
         if (normalized is "ai_outline_supplement" or "outline_supplement")
@@ -183,6 +191,9 @@ public sealed class QueueRunOptions
             ? CopyrightProofMaterialOnlyEntryMode
             : string.Empty;
     }
+
+    public bool IsReplaceDraftRun() =>
+        string.Equals(UploadEntryMode, ReplaceDraftEntryMode, StringComparison.OrdinalIgnoreCase);
 
     public bool IsCopyrightProofOnlyRun() =>
         string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase) ||

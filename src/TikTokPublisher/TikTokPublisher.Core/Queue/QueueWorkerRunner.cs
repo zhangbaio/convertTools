@@ -308,7 +308,9 @@ public sealed class QueueWorkerRunner
         var uploadTasks = new Dictionary<Task<bool>, (QueueProjectItem Item, string AccountKey, TikTokAccountProfile Account)>();
         var activeUploadAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        var runActionLabel = IsEditUploadRun(options) ? "编辑剧集" : "队列";
+        var runActionLabel = IsReplaceDraftRun(options)
+            ? "新剧替换草稿"
+            : IsEditUploadRun(options) ? "编辑剧集" : "队列";
         var enabledStepLabels = FormatEnabledStepLabels(orderedSteps, options);
         Report(onProgress, workspace, null,
             $"开始执行{runActionLabel}，共 {candidates.Count} 个项目（启用步骤：{enabledStepLabels}，" +
@@ -1219,7 +1221,9 @@ public sealed class QueueWorkerRunner
                     onProgress,
                     workspace,
                     item,
-                    copyrightProofOnly ? "开始补全版权证明…" : "开始上传发布…",
+                    copyrightProofOnly
+                        ? "开始补全版权证明…"
+                        : IsReplaceDraftRun(options) ? "开始新剧替换草稿…" : "开始上传发布…",
                     QueueStepRegistry.UploadSeries);
                 var result = await host.PublishProjectAsync(
                     account,
@@ -1605,12 +1609,17 @@ public sealed class QueueWorkerRunner
     private static bool IsEditUploadRun(QueueRunOptions options) =>
         string.Equals(options.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsReplaceDraftRun(QueueRunOptions options) =>
+        options.IsReplaceDraftRun();
+
     private static string FormatEnabledStepLabels(IEnumerable<string> orderedSteps, QueueRunOptions options)
     {
-        var isEditUpload = IsEditUploadRun(options);
+        var uploadLabel = IsReplaceDraftRun(options)
+            ? "新剧替换草稿"
+            : IsEditUploadRun(options) ? "编辑剧集" : "";
         return string.Join(", ", orderedSteps.Select(step =>
-            isEditUpload && step == QueueStepRegistry.UploadSeries
-                ? "编辑剧集"
+            uploadLabel.Length > 0 && step == QueueStepRegistry.UploadSeries
+                ? uploadLabel
                 : QueueStepRegistry.LabelOf(step)));
     }
 
