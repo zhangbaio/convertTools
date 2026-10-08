@@ -435,7 +435,8 @@ public sealed class TikTokProofMaterialService
                     request.DramaTitle,
                     settings,
                     log,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    forceRerun: forceRerun).ConfigureAwait(false);
                 lock (branchStateLock)
                 {
                     aiCompleted = true;

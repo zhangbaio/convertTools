@@ -65,8 +65,8 @@ public sealed class CopyrightProofExecutionModeSelector : UserControl
     private void UpdateDescription()
     {
         _description.Text = ExecutionMode == CopyrightProofExecutionMode.GenerateMaterialOnly
-            ? "只生成或复用本地证明材料；不会打开、编辑或提交 TikTok 版权证明页面。"
-            : "生成或复用证明材料后，继续编辑并提交 TikTok 版权证明页面。";
+            ? "按当前账号配置重新生成本地证明材料；不会打开、编辑或提交 TikTok 版权证明页面。"
+            : "按当前账号配置重新生成证明材料，再用新材料编辑并提交 TikTok 版权证明页面。";
     }
 }
 

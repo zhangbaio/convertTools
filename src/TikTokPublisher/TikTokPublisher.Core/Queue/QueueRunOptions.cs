@@ -292,6 +292,13 @@ public sealed class QueueRunOptions
     public bool IsCopyrightProofWorkflowRun() =>
         IsCopyrightProofOnlyRun() || IsCopyrightProofMaterialOnlyRun();
 
+    /// <summary>
+    /// 补全版权证明会按当前账号配置重新生成证明材料。AI 大纲补传不在此列。
+    /// </summary>
+    public bool RegeneratesCopyrightProofMaterials() =>
+        string.Equals(UploadEntryMode, CopyrightProofOnlyEntryMode, StringComparison.OrdinalIgnoreCase) ||
+        IsCopyrightProofMaterialOnlyRun();
+
     public void ConfigureForCopyrightProofCompletion()
     {
         ConfigureForCopyrightProof(CopyrightProofExecutionMode.GenerateAndEdit);

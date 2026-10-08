@@ -108,6 +108,42 @@ public sealed class QueueStepArtifactConsistencyTests
             .Should().BeFalse("已上传项目允许本地视频被清理");
     }
 
+    [Fact]
+    public void Copyright_proof_completion_regenerates_completed_proof_material()
+    {
+        using var fixture = new QueueProjectFixture();
+        fixture.Item.StepStates[QueueStepKeys.GenerateProofMaterial] = QueueStepStatus.Completed;
+        var options = new QueueRunOptions
+        {
+            EnabledSteps =
+            [
+                QueueStepKeys.GenerateProofMaterial,
+                QueueStepKeys.UploadSeries,
+            ],
+            UploadEntryMode = QueueRunOptions.CopyrightProofOnlyEntryMode,
+        };
+
+        fixture.Item.StepStates[QueueStepKeys.GenerateTimestampCertificate] = QueueStepStatus.Completed;
+        options.RegeneratesCopyrightProofMaterials().Should().BeTrue();
+        QueueWorkerRunner.ShouldRunStep(
+                fixture.Item,
+                QueueStepKeys.GenerateProofMaterial,
+                options)
+            .Should().BeTrue();
+        QueueWorkerRunner.ShouldRunStep(
+                fixture.Item,
+                QueueStepKeys.GenerateTimestampCertificate,
+                options)
+            .Should().BeTrue();
+
+        options.UploadEntryMode = "";
+        QueueWorkerRunner.ShouldRunStep(
+                fixture.Item,
+                QueueStepKeys.GenerateProofMaterial,
+                options)
+            .Should().BeFalse();
+    }
+
     private sealed class QueueProjectFixture : IDisposable
     {
         public string Workspace { get; }
