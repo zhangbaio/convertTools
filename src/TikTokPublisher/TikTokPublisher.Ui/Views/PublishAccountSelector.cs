@@ -10,10 +10,13 @@ namespace TikTokPublisher.Ui.Views;
 
 public sealed class PublishAccountSelector : UserControl
 {
-    private static readonly IBrush BorderBrushColor = new SolidColorBrush(Color.Parse("#D0D5DD"));
-    private static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#86909C"));
-    private static readonly IBrush ActiveBrush = new SolidColorBrush(Color.Parse("#E8F3FF"));
-    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#1677FF"));
+    private static readonly IBrush BorderBrushColor = ThemeBrush("PythonInputBorderBrush", "#376581");
+    private static readonly IBrush MutedBrush = ThemeBrush("PythonMutedBrush", "#C4D5E4");
+    private static readonly IBrush ActiveBrush = ThemeBrush("PythonSelectedBgBrush", "#245D8C");
+    private static readonly IBrush LinkBrush = ThemeBrush("PythonPrimaryBrush", "#36A9F5");
+    private static readonly IBrush InputBrush = ThemeBrush("PythonInputBgBrush", "#12324D");
+    private static readonly IBrush PopupBrush = ThemeBrush("PythonPanelBgBrush", "#173E5E");
+    private static readonly IBrush TextBrush = ThemeBrush("PythonTextBrush", "#F7FBFF");
 
     public static readonly StyledProperty<double> LabelColumnWidthProperty =
         AvaloniaProperty.Register<PublishAccountSelector, double>(nameof(LabelColumnWidth), 140);
@@ -184,6 +187,7 @@ public sealed class PublishAccountSelector : UserControl
         popupBody.Children.Add(new ScrollViewer
         {
             Content = _countryList,
+            Background = Brushes.Transparent,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         });
         var divider = new Border { Background = BorderBrushColor };
@@ -192,6 +196,7 @@ public sealed class PublishAccountSelector : UserControl
         var accountScroll = new ScrollViewer
         {
             Content = _accountList,
+            Background = Brushes.Transparent,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Margin = new Thickness(8, 0, 0, 0),
         };
@@ -223,7 +228,7 @@ public sealed class PublishAccountSelector : UserControl
             ShowMode = FlyoutShowMode.Standard,
             Content = new Border
             {
-                Background = Brushes.White,
+                Background = PopupBrush,
                 BorderBrush = BorderBrushColor,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
@@ -245,7 +250,7 @@ public sealed class PublishAccountSelector : UserControl
 
         var trigger = new Border
         {
-            Background = Brushes.White,
+            Background = InputBrush,
             BorderBrush = BorderBrushColor,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(4),
@@ -469,7 +474,7 @@ public sealed class PublishAccountSelector : UserControl
         _dropdownText.Text = extra > 0
             ? $"{first.DisplayName} · {first.Country}    +{extra}"
             : $"{first.DisplayName} · {first.Country}";
-        _dropdownText.Foreground = Brushes.Black;
+        _dropdownText.Foreground = TextBrush;
     }
 
     private static TextBlock Chevron() => new()
@@ -496,6 +501,19 @@ public sealed class PublishAccountSelector : UserControl
             e.Handled = true;
         };
         return link;
+    }
+
+    private static IBrush ThemeBrush(string key, string fallbackHex)
+    {
+        if (Application.Current?.TryFindResource(key, out var resource) == true)
+        {
+            if (resource is IBrush brush)
+                return brush;
+            if (resource is Color color)
+                return new SolidColorBrush(color);
+        }
+
+        return new SolidColorBrush(Color.Parse(fallbackHex));
     }
 
     private sealed record CountryRow(string Country, Border Border, string[] Keys);

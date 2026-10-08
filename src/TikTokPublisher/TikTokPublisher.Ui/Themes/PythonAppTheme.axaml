@@ -38,6 +38,9 @@
     <SolidColorBrush x:Key="PythonTextBrush" Color="{StaticResource PythonText}" />
     <SolidColorBrush x:Key="PythonMutedBrush" Color="{StaticResource PythonMuted}" />
     <SolidColorBrush x:Key="PythonPrimaryBrush" Color="{StaticResource PythonPrimary}" />
+    <SolidColorBrush x:Key="PythonInputBgBrush" Color="{StaticResource PythonInputBg}" />
+    <SolidColorBrush x:Key="PythonInputBorderBrush" Color="{StaticResource PythonInputBorder}" />
+    <SolidColorBrush x:Key="PythonSelectedBgBrush" Color="{StaticResource PythonNavSelectedBg}" />
     <SolidColorBrush x:Key="PythonInputFocusBrush" Color="{StaticResource PythonInputFocus}" />
     <SolidColorBrush x:Key="PythonStatusBarBrush" Color="{StaticResource PythonStatusBar}" />
 
@@ -361,6 +364,14 @@
 
     <Style Selector="TextBlock.stepStatusPending">
         <Setter Property="Foreground" Value="{StaticResource PythonPendingText}" />
+    </Style>
+
+    <Style Selector="FlyoutPresenter">
+        <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PythonInputBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="0" />
     </Style>
 
 </Styles>
