@@ -1,3 +1,6 @@
+using System.Collections;
+using System.Text.Json;
+
 namespace TikTokPublisher.Core.Queue;
 
 public static class QueueStepRegistry
@@ -89,6 +92,8 @@ public sealed class QueueRunOptions
     public int ProjectConcurrency { get; set; } = 4;
     public string UploadEntryMode { get; set; } = "";
     public string ReplaceDraftTarget { get; set; } = "";
+    public Dictionary<string, string> ReplaceDraftTargets { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
 
     public bool IsStepEnabled(string stepKey)
     {
@@ -111,6 +116,7 @@ public sealed class QueueRunOptions
         ProjectConcurrency = ProjectConcurrency,
         UploadEntryMode = UploadEntryMode,
         ReplaceDraftTarget = ReplaceDraftTarget,
+        ReplaceDraftTargets = new Dictionary<string, string>(ReplaceDraftTargets, StringComparer.OrdinalIgnoreCase),
     };
 
     public QueueRunOptions ClonePersistent()
@@ -125,6 +131,7 @@ public sealed class QueueRunOptions
         ForceRerunCompletedSteps = false;
         UploadEntryMode = "";
         ReplaceDraftTarget = "";
+        ReplaceDraftTargets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     }
 
     public Dictionary<string, object?> ToDictionary() => new()
@@ -137,6 +144,7 @@ public sealed class QueueRunOptions
         ["project_concurrency"] = Math.Clamp(ProjectConcurrency, 1, 20),
         ["upload_entry_mode"] = NormalizeUploadEntryMode(UploadEntryMode),
         ["replace_draft_target"] = ReplaceDraftTarget ?? "",
+        ["replace_draft_targets"] = new Dictionary<string, string>(ReplaceDraftTargets, StringComparer.OrdinalIgnoreCase),
     };
 
     public Dictionary<string, object?> ToPersistentDictionary() =>
@@ -173,7 +181,80 @@ public sealed class QueueRunOptions
             ProjectConcurrency = Math.Clamp(GetInt(payload, "project_concurrency", 4), 1, 20),
             UploadEntryMode = NormalizeUploadEntryMode(GetString(payload, "upload_entry_mode")),
             ReplaceDraftTarget = GetString(payload, "replace_draft_target").Trim(),
+            ReplaceDraftTargets = ReadReplaceDraftTargets(payload),
         };
+    }
+
+    public string ResolveReplaceDraftTarget(string? projectDir)
+    {
+        if (!IsReplaceDraftRun())
+            return "";
+
+        var key = NormalizeReplaceDraftProjectKey(projectDir);
+        if (key.Length > 0)
+        {
+            foreach (var pair in ReplaceDraftTargets)
+            {
+                if (!string.Equals(NormalizeReplaceDraftProjectKey(pair.Key), key, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                var mapped = (pair.Value ?? "").Trim();
+                if (mapped.Length > 0)
+                    return mapped;
+            }
+        }
+
+        return ReplaceDraftTargets.Count == 0 ? (ReplaceDraftTarget ?? "").Trim() : "";
+    }
+
+    private static Dictionary<string, string> ReadReplaceDraftTargets(Dictionary<string, object?> payload)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!payload.TryGetValue("replace_draft_targets", out var raw) || raw is null)
+            return result;
+
+        if (raw is JsonElement element && element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                var text = property.Value.ValueKind == JsonValueKind.String
+                    ? property.Value.GetString()
+                    : property.Value.ToString();
+                AddReplaceDraftTarget(result, property.Name, text);
+            }
+            return result;
+        }
+
+        if (raw is IDictionary dictionary)
+        {
+            foreach (DictionaryEntry entry in dictionary)
+                AddReplaceDraftTarget(result, entry.Key?.ToString(), entry.Value?.ToString());
+        }
+
+        return result;
+    }
+
+    private static void AddReplaceDraftTarget(Dictionary<string, string> result, string? projectDir, string? target)
+    {
+        var key = NormalizeReplaceDraftProjectKey(projectDir);
+        var value = (target ?? "").Trim();
+        if (key.Length == 0 || value.Length == 0)
+            return;
+        result[key] = value;
+    }
+
+    private static string NormalizeReplaceDraftProjectKey(string? projectDir)
+    {
+        var text = (projectDir ?? "").Trim();
+        if (text.Length == 0)
+            return "";
+        try
+        {
+            return Path.GetFullPath(text);
+        }
+        catch
+        {
+            return text;
+        }
     }
 
     private static string NormalizeUploadEntryMode(string? value)
