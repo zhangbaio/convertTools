@@ -74,6 +74,39 @@ public sealed class QueueRunOptionsTests
     }
 
     [Fact]
+    public void ReplaceDraftTargets_follow_each_project_and_are_not_persisted()
+    {
+        var first = Path.GetFullPath(Path.Combine("workflow", "_甲"));
+        var second = Path.GetFullPath(Path.Combine("workflow", "_乙"));
+        var missing = Path.GetFullPath(Path.Combine("workflow", "_丙"));
+        var options = new QueueRunOptions
+        {
+            UploadEntryMode = QueueRunOptions.ReplaceDraftEntryMode,
+            ReplaceDraftTarget = "不应套用到其他项目",
+            ReplaceDraftTargets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [first] = "草稿甲",
+                [second] = "草稿乙",
+            },
+        };
+
+        var clone = options.Clone();
+        clone.ResolveReplaceDraftTarget(first).Should().Be("草稿甲");
+        clone.ResolveReplaceDraftTarget(second).Should().Be("草稿乙");
+        clone.ResolveReplaceDraftTarget(missing).Should().BeEmpty();
+        clone.ReplaceDraftTargets[first] = "改掉";
+        options.ResolveReplaceDraftTarget(first).Should().Be("草稿甲");
+
+        var persistent = QueueRunOptions.FromDictionary(options.ToPersistentDictionary());
+        persistent.IsReplaceDraftRun().Should().BeFalse();
+        persistent.ReplaceDraftTarget.Should().BeEmpty();
+        persistent.ReplaceDraftTargets.Should().BeEmpty();
+
+        var roundTrip = QueueRunOptions.FromDictionary(options.ToDictionary());
+        roundTrip.ResolveReplaceDraftTarget(second).Should().Be("草稿乙");
+    }
+
+    [Fact]
     public void CopyrightProofOnlyEntryMode_RoundTripsButIsNotPersisted()
     {
         var options = new QueueRunOptions

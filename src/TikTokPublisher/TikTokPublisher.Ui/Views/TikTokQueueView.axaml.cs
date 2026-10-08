@@ -1936,14 +1936,22 @@ public partial class TikTokQueueView : UserControl
         var vm = _vm;
         if (vm is null) return;
 
-        var rows = GetCheckedQueueRows()
-            .Where(row => !string.IsNullOrWhiteSpace(row.Item.ProjectDir))
-            .ToList();
-        if (rows.Count != 1)
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var dramas = new List<ReplaceDraftMapping>();
+        foreach (var row in GetCheckedQueueRows())
         {
-            vm.StatusMessage = rows.Count == 0
-                ? "请只勾选 1 个项目再替换草稿"
-                : "一次只能勾选 1 个项目替换草稿";
+            if (string.IsNullOrWhiteSpace(row.Item.ProjectDir))
+                continue;
+            var projectDir = Path.GetFullPath(row.Item.ProjectDir);
+            if (!seen.Add(projectDir))
+                continue;
+            var dramaName = string.IsNullOrWhiteSpace(row.NewTitle) ? row.OriginalTitle : row.NewTitle;
+            dramas.Add(new ReplaceDraftMapping(projectDir, dramaName, ""));
+        }
+
+        if (dramas.Count == 0)
+        {
+            vm.StatusMessage = "请先勾选要替换草稿的项目";
             return;
         }
 
@@ -1954,30 +1962,23 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
-        var row = rows[0];
-        var dramaName = string.IsNullOrWhiteSpace(row.NewTitle) ? row.OriginalTitle : row.NewTitle;
-        var input = await TextPromptDialog.ShowAsync(
-            owner,
-            "新剧替换草稿",
-            "请输入要替换的草稿名称或草稿 ID。名称按原创管理精确匹配；ID 直接打开该草稿。",
-            "");
-        if (string.IsNullOrWhiteSpace(input))
+        var mappings = await ReplaceDraftMappingDialog.ShowAsync(owner, dramas);
+        if (mappings is null || mappings.Count == 0)
+        {
+            vm.StatusMessage = "已取消新剧替换草稿";
             return;
-
-        var target = input.Trim();
-        var confirmed = await ConfirmDialog.ShowAsync(
-            owner,
-            "确认替换草稿",
-            $"将清空草稿「{target}」的剧名、简介、封面和已上传视频，再用「{dramaName}」从第 1 集重新上传。合同保持不变。此操作不能撤销。");
-        if (!confirmed)
-            return;
+        }
 
         var options = vm.CreateCurrentQueueRunOptionsSnapshot();
         options.EnabledSteps = new List<string> { QueueStepRegistry.UploadSeries };
         options.ForceRerunCompletedSteps = true;
         options.UploadEntryMode = QueueRunOptions.ReplaceDraftEntryMode;
-        options.ReplaceDraftTarget = target;
-        await StartQueueRunAsync(options, new[] { Path.GetFullPath(row.Item.ProjectDir) });
+        options.ReplaceDraftTarget = "";
+        options.ReplaceDraftTargets = mappings.ToDictionary(
+            mapping => Path.GetFullPath(mapping.ProjectDir),
+            mapping => mapping.DraftTarget.Trim(),
+            StringComparer.OrdinalIgnoreCase);
+        await StartQueueRunAsync(options, mappings.Select(mapping => mapping.ProjectDir).ToArray());
     }
 
     private async void OnCompleteCopyrightProofClick(object? sender, RoutedEventArgs e)
@@ -4547,7 +4548,7 @@ public partial class TikTokQueueView : UserControl
         var item = QueuePublishHost.ToPublishItem(project);
         item.EnabledQueueSteps = options.EnabledSteps.ToArray();
         item.ForceEditUpload = string.Equals(options.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
-        item.ReplaceDraftTarget = options.IsReplaceDraftRun() ? options.ReplaceDraftTarget.Trim() : "";
+        item.ReplaceDraftTarget = options.ResolveReplaceDraftTarget(project.ProjectDir);
         if (options.IsReplaceDraftRun() && string.IsNullOrWhiteSpace(item.ReplaceDraftTarget))
             return PublishResult.Fail("新剧替换草稿没有填写草稿名称或 ID，已停止，不会新建剧集。");
         item.CopyrightProofOnly = options.IsCopyrightProofOnlyRun();

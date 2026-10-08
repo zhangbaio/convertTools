@@ -209,10 +209,10 @@ public static partial class TikTokBrowserActions
     private static string NormalizeFieldText(string value) =>
         (value ?? "").Replace("\r\n", "\n").Replace("\r", "\n").Trim();
 
-    private static string TrimForLog(string value)
+    private static string TrimForLog(string value, int maxLength = 40)
     {
         var text = (value ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
-        return text.Length <= 40 ? text : text[..40] + "…";
+        return text.Length <= maxLength ? text : text[..maxLength] + "…";
     }
 
     private static async Task ReplaceExistingCoverAsync(
@@ -915,6 +915,15 @@ public static partial class TikTokBrowserActions
         CancellationToken ct)
     {
         await EnsureEditContentUploadTabAsync(page, ct);
+        var initialCount = await ReadEditVideoTableRowCountAsync(page);
+        var planned = Math.Max(0, initialCount - keepCount);
+        if (planned > 0)
+        {
+            Log(log, keepCount == 0
+                ? $"开始逐行删除正片，当前 {initialCount} 行。"
+                : $"开始删除错位正片，当前 {initialCount} 行，保留前 {keepCount} 集。");
+        }
+
         var deleted = 0;
         for (var guard = 0; guard < 500; guard++)
         {
@@ -923,13 +932,19 @@ public static partial class TikTokBrowserActions
             if (count <= keepCount) break;
 
             var clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
-            if (!clickResult.StartsWith("clicked:", StringComparison.Ordinal))
+            if (!TryReadClickedEditVideoRow(clickResult, out var slot, out _))
                 throw new InvalidOperationException($"未找到错位行的删除按钮（{clickResult}）。");
 
+            planned = Math.Max(planned, deleted + Math.Max(0, count - keepCount));
             await page.WaitForTimeoutAsync(500);
             await ConfirmDeleteDialogIfPresentAsync(page, ct);
-            await WaitForEditVideoRowCountDecreaseAsync(page, count, ct);
+            var remaining = await WaitForEditVideoRowCountDecreaseAsync(page, count, ct);
             deleted++;
+            if (deleted % 10 == 0 && deleted < planned)
+            {
+                var episodeLabel = slot > 0 ? $"，当前删到第 {slot} 集" : "";
+                Log(log, $"正片删除进度 {deleted}/{planned}{episodeLabel}，剩余 {remaining} 行。");
+            }
         }
 
         if (deleted > 0)
@@ -939,6 +954,22 @@ public static partial class TikTokBrowserActions
                 : $"已删除错位的 {deleted} 行（保留前 {keepCount} 集）。");
         }
         return deleted;
+    }
+
+    private static bool TryReadClickedEditVideoRow(string clickResult, out int slot, out string rowText)
+    {
+        slot = 0;
+        rowText = "";
+        const string prefix = "clicked:";
+        if (!clickResult.StartsWith(prefix, StringComparison.Ordinal))
+            return false;
+
+        var payload = clickResult[prefix.Length..];
+        var split = payload.IndexOf('\t');
+        var slotText = split >= 0 ? payload[..split] : payload;
+        if (split >= 0)
+            rowText = payload[(split + 1)..].Trim();
+        return int.TryParse(slotText, out slot);
     }
 
     private static async Task<int> WaitForEditVideoRowCountDecreaseAsync(
@@ -991,22 +1022,24 @@ public static partial class TikTokBrowserActions
 
               const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
               const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
-              const rowSlot = (tr) => {
+              const describeRow = (tr) => {
                 const text = normalize(Array.from(tr.querySelectorAll('td'))
                   .map((td) => td.textContent || '')
                   .join(' '));
                 const textMatch = text.match(/第\s*(\d+)\s*集/);
-                if (textMatch) return Number.parseInt(textMatch[1], 10) || 0;
-
-                const raw = tr.getAttribute('aria-rowindex')
-                  || tr.getAttribute('data-row-key')
-                  || tr.getAttribute('data-row-index')
-                  || '';
-                const parsed = Number.parseInt(raw, 10);
-                return Number.isFinite(parsed) ? parsed : 0;
+                let slot = textMatch ? (Number.parseInt(textMatch[1], 10) || 0) : 0;
+                if (!slot) {
+                  const raw = tr.getAttribute('aria-rowindex')
+                    || tr.getAttribute('data-row-key')
+                    || tr.getAttribute('data-row-index')
+                    || '';
+                  const parsed = Number.parseInt(raw, 10);
+                  slot = Number.isFinite(parsed) ? parsed : 0;
+                }
+                return { tr, slot, text };
               };
               const rows = () => Array.from(body.querySelectorAll('tr.semi-table-row'));
-              const visibleSlots = () => rows().map(rowSlot).filter((slot) => slot > 0);
+              const visibleSlots = () => rows().map((tr) => describeRow(tr).slot).filter((slot) => slot > 0);
               const hoverRow = (tr) => {
                 try { tr.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
                 for (const type of ['mouseover', 'mouseenter']) {
@@ -1029,9 +1062,9 @@ public static partial class TikTokBrowserActions
                 hoverRow(target.tr);
                 await sleep(60);
                 const button = findDeleteButton(target.tr);
-                if (!button) return `no-button:${target.slot}`;
+                if (!button) return `no-button:${target.slot}\t${target.text || ''}`;
                 if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
-                  return `disabled:${target.slot}`;
+                  return `disabled:${target.slot}\t${target.text || ''}`;
                 }
 
                 try { button.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
@@ -1039,11 +1072,11 @@ public static partial class TikTokBrowserActions
                   try { button.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window })); } catch {}
                 }
                 button.click();
-                return `clicked:${target.slot}`;
+                return `clicked:${target.slot}\t${target.text || ''}`;
               };
               const pickTarget = () => {
                 const candidates = rows()
-                  .map((tr) => ({ tr, slot: rowSlot(tr) }))
+                  .map((tr) => describeRow(tr))
                   .filter((item) => item.slot > keepCount)
                   .sort((a, b) => b.slot - a.slot);
                 if (candidates.length === 0) return null;
