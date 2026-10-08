@@ -1284,7 +1284,7 @@ public partial class TikTokQueueView : UserControl
             {
                 Content = FormatLocalDramaImportCandidate(preview),
                 Tag = preview,
-                IsChecked = !preview.MetadataExists,
+                IsChecked = ShouldSelectLocalDramaByDefault(preview),
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Background = Brushes.Transparent,
             };
@@ -1310,7 +1310,8 @@ public partial class TikTokQueueView : UserControl
         var selectNewButton = BuildDialogButton("选择未导入", () =>
         {
             foreach (var check in checks)
-                check.IsChecked = check.Tag is LocalManualDramaImportPreview preview && !preview.MetadataExists;
+                check.IsChecked = check.Tag is LocalManualDramaImportPreview preview &&
+                                  ShouldSelectLocalDramaByDefault(preview);
         });
         var selectAllButton = BuildDialogButton("全选", () =>
         {
@@ -1347,7 +1348,7 @@ public partial class TikTokQueueView : UserControl
                 },
                 new TextBlock
                 {
-                    Text = $"发现 {candidates.Count} 个可导入目录。默认勾选未导入项目。",
+                    Text = $"发现 {candidates.Count} 个可导入目录。默认勾选未导入、且有简介和海报的项目。",
                     TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                 },
                 new StackPanel
@@ -1431,6 +1432,11 @@ public partial class TikTokQueueView : UserControl
         dialog.Content = grid;
         return await dialog.ShowDialog<ExistingLocalDramaChoice>(owner);
     }
+
+    private static bool ShouldSelectLocalDramaByDefault(LocalManualDramaImportPreview preview) =>
+        !preview.MetadataExists &&
+        !string.IsNullOrWhiteSpace(preview.IntroPath) &&
+        !string.IsNullOrWhiteSpace(preview.PosterPath);
 
     private static string FormatLocalDramaImportCandidate(LocalManualDramaImportPreview preview)
     {
