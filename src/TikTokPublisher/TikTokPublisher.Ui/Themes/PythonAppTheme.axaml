@@ -68,6 +68,25 @@
         <Setter Property="Padding" Value="8,6" />
     </Style>
 
+    <Style Selector="Border.stepHintCard">
+        <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="12,10" />
+        <Setter Property="BoxShadow" Value="0 4 12 0 #40000000" />
+    </Style>
+
+    <Style Selector="TextBlock.stepHintLabel">
+        <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+
+    <Style Selector="TextBlock.stepHintBody">
+        <Setter Property="Foreground" Value="{StaticResource PythonTextBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
     <Style Selector="Border.accountSidebarFrame">
         <Setter Property="Background" Value="#FBFCFE" />
         <Setter Property="BorderBrush" Value="#D8E2EC" />
