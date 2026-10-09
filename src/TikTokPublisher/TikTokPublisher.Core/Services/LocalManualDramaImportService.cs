@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -546,19 +547,35 @@ public static class LocalManualDramaImportService
                || fullPath.StartsWith(fullRoot + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static NaturalSortKey BuildNaturalSortKey(string value)
+    private static NaturalSortKey BuildNaturalSortKey(string? value)
     {
-        var parts = new List<IComparable>();
-        foreach (var token in Regex.Split(value, @"(\d+)"))
+        var parts = new List<NaturalSortPart>();
+        foreach (var token in Regex.Split(value ?? "", @"(\d+)"))
         {
             if (string.IsNullOrEmpty(token)) continue;
-            parts.Add(int.TryParse(token, out var n) ? n : token.ToLowerInvariant());
+            var isNumber = ulong.TryParse(token, NumberStyles.None, CultureInfo.InvariantCulture, out var number);
+            parts.Add(new NaturalSortPart(isNumber, number, token));
         }
 
         return new NaturalSortKey(parts.ToArray());
     }
 
-    private sealed record NaturalSortKey(IComparable[] Parts);
+    private readonly record struct NaturalSortPart(bool IsNumber, ulong Number, string Text) : IComparable<NaturalSortPart>
+    {
+        public int CompareTo(NaturalSortPart other)
+        {
+            if (IsNumber && other.IsNumber)
+            {
+                var numberCompare = Number.CompareTo(other.Number);
+                if (numberCompare != 0)
+                    return numberCompare;
+            }
+
+            return string.Compare(Text, other.Text, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private sealed record NaturalSortKey(NaturalSortPart[] Parts);
 
     private sealed class NaturalSortKeyComparer : IComparer<NaturalSortKey>
     {
@@ -566,14 +583,14 @@ public static class LocalManualDramaImportService
 
         public int Compare(NaturalSortKey? x, NaturalSortKey? y)
         {
-            var left = x?.Parts ?? Array.Empty<IComparable>();
-            var right = y?.Parts ?? Array.Empty<IComparable>();
+            var left = x?.Parts ?? Array.Empty<NaturalSortPart>();
+            var right = y?.Parts ?? Array.Empty<NaturalSortPart>();
             var count = Math.Max(left.Length, right.Length);
             for (var i = 0; i < count; i++)
             {
                 if (i >= left.Length) return -1;
                 if (i >= right.Length) return 1;
-                var cmp = Comparer<IComparable>.Default.Compare(left[i], right[i]);
+                var cmp = left[i].CompareTo(right[i]);
                 if (cmp != 0) return cmp;
             }
 
