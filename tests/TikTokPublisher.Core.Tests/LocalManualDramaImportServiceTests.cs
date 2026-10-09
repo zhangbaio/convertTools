@@ -197,6 +197,28 @@ public sealed class LocalManualDramaImportServiceTests
         }
     }
 
+    [Fact]
+    public void ListCandidates_Sorts_Mixed_Numeric_And_Text_Video_Names()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-mixed-names-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "混合命名短剧");
+
+        try
+        {
+            Directory.CreateDirectory(source);
+            foreach (var name in new[] { "1.mp4", "10.mp4", "2.mp4", "第1集.mp4", "3000000000.mp4" })
+                File.WriteAllBytes(Path.Combine(source, name), [1, 2, 3]);
+
+            var candidate = LocalManualDramaImportService.ListCandidates(workspace).Should().ContainSingle().Subject;
+            candidate.EpisodeCount.Should().Be(5);
+            LocalManualDramaImportService.Import(workspace, source).EpisodeCount.Should().Be(5);
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
     private static void DeleteBestEffort(string path)
     {
         try
