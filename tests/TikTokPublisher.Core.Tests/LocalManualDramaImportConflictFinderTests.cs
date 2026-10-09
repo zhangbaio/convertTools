@@ -76,6 +76,110 @@ public sealed class LocalManualDramaImportConflictFinderTests
                 LocalManualDramaImportConflictFinder.ArchiveReason,
             ],
             conflicts[0].Reasons);
+        Assert.Equal(Path.GetFullPath(@"E:\tiktok2\同一部"), conflicts[0].MatchedQueueProjects[0].ProjectDir);
+    }
+
+    [Fact]
+    public void Resolve_DeletesOtherUnimportedQueueCopyAndKeepsImportFolder()
+    {
+        var importDir = @"E:\tiktok2\同一部";
+        var otherDir = @"D:\other\同一部";
+        var conflicts = new[]
+        {
+            new LocalManualDramaImportConflictFinder.Conflict(
+                importDir,
+                "同一部",
+                [LocalManualDramaImportConflictFinder.LocalQueueReason],
+                [new LocalManualDramaImportConflictFinder.MatchedQueueProject(otherDir, MetadataExists: false, ActiveUpload: false)]),
+        };
+
+        var plan = LocalManualDramaImportConflictFinder.ResolveUnimportedLocalDeletion(
+            conflicts,
+            [Preview(importDir, "同一部")],
+            [importDir]);
+
+        Assert.Equal([Path.GetFullPath(otherDir)], plan.Targets.Select(target => target.Directory));
+        Assert.Contains(Path.GetFullPath(importDir), plan.ProtectedImportDirs);
+        Assert.Empty(plan.BlockedImportDirs);
+    }
+
+    [Fact]
+    public void Resolve_KeepsSamePathImportFolderAndImportedQueueCopy()
+    {
+        var importDir = @"E:\tiktok2\同一部";
+        var importedCopy = @"D:\other\已导入副本";
+        var conflicts = new[]
+        {
+            new LocalManualDramaImportConflictFinder.Conflict(
+                importDir,
+                "同一部",
+                [LocalManualDramaImportConflictFinder.LocalQueueReason],
+                [
+                    new LocalManualDramaImportConflictFinder.MatchedQueueProject(importDir, MetadataExists: false, ActiveUpload: false),
+                    new LocalManualDramaImportConflictFinder.MatchedQueueProject(importedCopy, MetadataExists: true, ActiveUpload: false),
+                ]),
+        };
+
+        var plan = LocalManualDramaImportConflictFinder.ResolveUnimportedLocalDeletion(
+            conflicts,
+            [Preview(importDir, "同一部", metadataExists: true)],
+            [importDir]);
+
+        Assert.Empty(plan.Targets);
+        Assert.Contains(Path.GetFullPath(importDir), plan.ProtectedImportDirs);
+    }
+
+    [Fact]
+    public void Resolve_DeletesUnimportedLocalDuplicateAndLeavesArchiveAndManagement()
+    {
+        var importDir = @"E:\tiktok2\已归档剧";
+        var duplicateDir = @"E:\tiktok2\已归档剧-副本";
+        var conflicts = new[]
+        {
+            new LocalManualDramaImportConflictFinder.Conflict(
+                importDir,
+                "已归档剧",
+                [
+                    LocalManualDramaImportConflictFinder.ArchiveReason,
+                    LocalManualDramaImportConflictFinder.ManagementReason,
+                ],
+                []),
+        };
+
+        var plan = LocalManualDramaImportConflictFinder.ResolveUnimportedLocalDeletion(
+            conflicts,
+            [
+                Preview(importDir, "已归档剧"),
+                Preview(duplicateDir, "已归档剧"),
+                Preview(@"E:\tiktok2\已导入副本", "已归档剧", metadataExists: true),
+            ],
+            [importDir]);
+
+        Assert.Equal([Path.GetFullPath(duplicateDir)], plan.Targets.Select(target => target.Directory));
+        Assert.DoesNotContain(plan.Targets, target => target.Directory.Contains("archive", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Resolve_BlocksImportWhenUnimportedQueueCopyIsUploading()
+    {
+        var importDir = @"E:\tiktok2\上传中";
+        var otherDir = @"D:\other\上传中";
+        var conflicts = new[]
+        {
+            new LocalManualDramaImportConflictFinder.Conflict(
+                importDir,
+                "上传中",
+                [LocalManualDramaImportConflictFinder.LocalQueueReason],
+                [new LocalManualDramaImportConflictFinder.MatchedQueueProject(otherDir, MetadataExists: false, ActiveUpload: true)]),
+        };
+
+        var plan = LocalManualDramaImportConflictFinder.ResolveUnimportedLocalDeletion(
+            conflicts,
+            [Preview(importDir, "上传中")],
+            [importDir]);
+
+        Assert.Empty(plan.Targets);
+        Assert.Equal([Path.GetFullPath(importDir)], plan.BlockedImportDirs);
     }
 
     private static LocalManualDramaImportPreview Preview(string dir, string name, bool metadataExists = false) =>

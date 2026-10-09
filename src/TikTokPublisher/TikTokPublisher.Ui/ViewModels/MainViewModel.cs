@@ -37,6 +37,11 @@ public sealed record LocalManualDramaBatchImportResult(
         $"本地剧集批量导入完成：请求 {RequestCount} 个，成功 {SuccessCount} 个，新增 {AddedCount} 个，已存在 {ExistingCount} 个，失败 {FailedCount} 个。";
 }
 
+public sealed record LocalUnimportedDuplicateDeletionResult(
+    int DeletedDirectoryCount,
+    IReadOnlyList<string> FailedImportDirs,
+    IReadOnlyList<string> Failures);
+
 public sealed record UploadTitleImportApplyOutcome(
     IReadOnlyList<string> OrderedProjectDirs,
     bool QueueWasRunning,
@@ -3764,12 +3769,13 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(root) || selected.Count == 0)
             return Array.Empty<LocalManualDramaImportConflictFinder.Conflict>();
 
+        var archiveRoot = SelectedAccount?.Model.ResolveArchiveRootPath(root);
         var (queueItems, archived, archiveError) = await Task.Run(() =>
         {
             var queue = WorkspaceQueueService.ScanProjects(root);
             try
             {
-                return (queue, TikTokArchivedProjectService.List(root), "");
+                return (queue, TikTokArchivedProjectService.List(root, archiveRoot), "");
             }
             catch (Exception ex)
             {
@@ -3893,6 +3899,169 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusMessage = batchResult.SummaryText;
         AppendLog(StatusMessage);
         return batchResult;
+    }
+
+    public async Task<LocalUnimportedDuplicateDeletionResult> DeleteUnimportedLocalDuplicatesAsync(
+        LocalManualDramaImportConflictFinder.UnimportedLocalDeletionPlan plan)
+    {
+        var root = ResolveSelectedAccountWorkspacePath();
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            StatusMessage = "请先为左侧选择账号配置上传工作目录";
+            var blockedImports = plan.Targets
+                .SelectMany(target => target.RelatedImportDirs)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            return new LocalUnimportedDuplicateDeletionResult(0, blockedImports, ["请先为左侧选择账号配置上传工作目录"]);
+        }
+
+        if (plan.Targets.Count == 0)
+            return new LocalUnimportedDuplicateDeletionResult(0, [], []);
+
+        var protectedDirs = plan.ProtectedImportDirs;
+        var archiveRoot = SelectedAccount?.Model.ResolveArchiveRootPath(root) ?? "";
+        var account = SelectedAccount?.Model;
+        var queueItems = await Task.Run(() => WorkspaceQueueService.ScanProjects(root)).ConfigureAwait(true);
+        var queueByDir = queueItems
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var deleted = 0;
+        var failures = new List<string>();
+        var failedImports = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var removedQueueDirs = new List<string>();
+        foreach (var target in plan.Targets)
+        {
+            var directory = Path.GetFullPath(target.Directory);
+            if (LocalManualDramaImportConflictFinder.IsProtectedImportPath(directory, protectedDirs) ||
+                LocalManualDramaImportConflictFinder.IsUnderDirectory(directory, archiveRoot))
+            {
+                AppendLog($"跳过受保护目录，未删除：{directory}");
+                continue;
+            }
+
+            queueByDir.TryGetValue(directory, out var queueItem);
+            if (queueItem is not null)
+            {
+                TikTokExecutionHistoryService.AppendEvent(
+                    "project_deleted",
+                    "deleted",
+                    root,
+                    queueItem,
+                    message: "导入本地剧集前删除未导入的重复项目，已保存版权恢复快照",
+                    account: account);
+            }
+
+            try
+            {
+                var removed = await Task.Run(() => DeleteUnimportedLocalDuplicateDirectory(
+                        root,
+                        directory,
+                        queueItem,
+                        protectedDirs,
+                        archiveRoot))
+                    .ConfigureAwait(true);
+                deleted += removed.DeletedDirectoryCount;
+                if (!string.IsNullOrWhiteSpace(removed.QueueProjectDir))
+                    removedQueueDirs.Add(removed.QueueProjectDir);
+                AppendLog(removed.DeletedDirectoryCount > 0
+                    ? $"已删除本地未导入重复剧集：{directory}"
+                    : $"本地未导入重复剧集不在工作目录内，已跳过目录删除：{directory}");
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{Path.GetFileName(directory)}: {ex.Message}");
+                foreach (var importDir in target.RelatedImportDirs)
+                    failedImports.Add(Path.GetFullPath(importDir));
+                AppendLog($"删除本地未导入重复剧集失败：{directory} -> {ex.Message}");
+            }
+        }
+
+        if (removedQueueDirs.Count > 0)
+            WorkspaceQueueService.RemoveProjectsFromQueue(root, removedQueueDirs);
+        if (deleted > 0 || removedQueueDirs.Count > 0)
+            await RefreshWorkspaceProjectsAsync(root, force: true).ConfigureAwait(true);
+
+        StatusMessage = failures.Count == 0
+            ? $"已删除 {deleted} 个本地未导入重复剧集目录"
+            : $"删除本地未导入重复剧集：成功 {deleted} 个，失败 {failures.Count} 个";
+        AppendLog(StatusMessage);
+        return new LocalUnimportedDuplicateDeletionResult(deleted, failedImports.ToArray(), failures);
+    }
+
+    private readonly record struct UnimportedLocalDuplicateRemoval(int DeletedDirectoryCount, string? QueueProjectDir);
+
+    private static UnimportedLocalDuplicateRemoval DeleteUnimportedLocalDuplicateDirectory(
+        string workspaceRoot,
+        string directory,
+        QueueProjectItem? queueItem,
+        IReadOnlyList<string> protectedDirs,
+        string archiveRoot)
+    {
+        var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (queueItem is not null)
+        {
+            try
+            {
+                var context = ProjectWorkspaceService.LoadContext(queueItem.ProjectDir);
+                AddUnimportedDeleteTarget(context.SourceProjectDir, workspaceRoot, protectedDirs, archiveRoot, targets);
+                AddUnimportedDeleteTarget(context.WorkflowProjectDir, workspaceRoot, protectedDirs, archiveRoot, targets);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(ex.Message, ex);
+            }
+        }
+
+        AddUnimportedDeleteTarget(directory, workspaceRoot, protectedDirs, archiveRoot, targets);
+        var deleted = 0;
+        if (targets.Count == 0)
+        {
+            var untouchedQueueDir = queueItem is null || string.IsNullOrWhiteSpace(queueItem.ProjectDir)
+                ? null
+                : Path.GetFullPath(queueItem.ProjectDir);
+            return new UnimportedLocalDuplicateRemoval(0, untouchedQueueDir);
+        }
+
+        foreach (var target in targets.OrderByDescending(path => path.Length))
+        {
+            if (!Directory.Exists(target))
+                continue;
+            Directory.Delete(target, recursive: true);
+            deleted++;
+        }
+
+        var queueProjectDir = queueItem is null || string.IsNullOrWhiteSpace(queueItem.ProjectDir)
+            ? null
+            : Path.GetFullPath(queueItem.ProjectDir);
+        var removedQueueDir = queueProjectDir is not null &&
+                              (deleted > 0 || !Directory.Exists(queueProjectDir))
+            ? queueProjectDir
+            : null;
+        return new UnimportedLocalDuplicateRemoval(deleted, removedQueueDir);
+    }
+
+    private static void AddUnimportedDeleteTarget(
+        string? path,
+        string workspaceRoot,
+        IReadOnlyList<string> protectedDirs,
+        string archiveRoot,
+        ISet<string> targets)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+        var target = Path.GetFullPath(path);
+        if (LocalManualDramaImportConflictFinder.IsProtectedImportPath(target, protectedDirs) ||
+            LocalManualDramaImportConflictFinder.IsUnderDirectory(target, archiveRoot))
+            return;
+
+        var workspace = Path.GetFullPath(workspaceRoot);
+        if (string.Equals(target, workspace, StringComparison.OrdinalIgnoreCase) ||
+            !IsWithinWorkspace(target, workspace))
+            return;
+
+        targets.Add(target);
     }
 
     private void ApplyImportedProjectsToCurrentAccount(

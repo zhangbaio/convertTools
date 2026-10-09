@@ -1091,6 +1091,7 @@ public partial class TikTokQueueView : UserControl
         Cancel,
         Readd,
         Skip,
+        DeleteUnimportedAndAdd,
     }
 
     private sealed record MoveTargetAccountOption(
@@ -1389,19 +1390,24 @@ public partial class TikTokQueueView : UserControl
             $"以下 {conflicts.Count} 部剧集在本地队列、归档或管理系统中已存在：\n\n" +
             string.Join('\n', lines) +
             extra +
-            "\n\n重新加入会把这些剧集再次放回上传队列。跳过则只导入尚未存在的剧集。";
+            "\n\n重新加入会把这些剧集再次放回上传队列。跳过则只导入尚未存在的剧集。\n" +
+            "加入并删除已存在会先删除本地未导入的重复剧集，再加入上传队列；归档和管理系统不会改动。";
 
         var lineCount = Math.Max(1, message.Split('\n').Length);
         var dialog = new Window
         {
             Title = "剧集已存在",
-            Width = 640,
-            Height = Math.Clamp(220 + lineCount * 22, 320, 640),
-            MinWidth = 520,
-            MinHeight = 280,
+            Width = 820,
+            Height = Math.Clamp(240 + lineCount * 22, 340, 680),
+            MinWidth = 680,
+            MinHeight = 300,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
         };
         var readdButton = BuildDialogButton("重新加入", () => dialog.Close(ExistingLocalDramaChoice.Readd), primary: true);
+        var deleteButton = BuildDialogButton(
+            "加入并删除已存在",
+            () => dialog.Close(ExistingLocalDramaChoice.DeleteUnimportedAndAdd));
+        deleteButton.Classes.Add("dangerAction");
         var skipButton = BuildDialogButton("跳过已存在", () => dialog.Close(ExistingLocalDramaChoice.Skip));
         var cancelButton = BuildDialogButton("取消", () => dialog.Close(ExistingLocalDramaChoice.Cancel));
         var grid = new Grid { Margin = new Thickness(16) };
@@ -1425,7 +1431,7 @@ public partial class TikTokQueueView : UserControl
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
             Margin = new Thickness(0, 14, 0, 0),
-            Children = { cancelButton, skipButton, readdButton },
+            Children = { cancelButton, skipButton, deleteButton, readdButton },
         };
         Grid.SetRow(buttons, 1);
         grid.Children.Add(buttons);
@@ -1697,6 +1703,8 @@ public partial class TikTokQueueView : UserControl
         }
 
         var importDirs = request.ProjectDirs;
+        LocalManualDramaImportConflictFinder.UnimportedLocalDeletionPlan? deletionPlan = null;
+        LocalUnimportedDuplicateDeletionResult? deletion = null;
         if (conflicts.Count > 0)
         {
             var choice = await ShowExistingLocalDramaConfirmAsync(owner, conflicts);
@@ -1723,6 +1731,62 @@ public partial class TikTokQueueView : UserControl
                     return;
                 }
             }
+            else if (choice == ExistingLocalDramaChoice.DeleteUnimportedAndAdd)
+            {
+                deletionPlan = LocalManualDramaImportConflictFinder.ResolveUnimportedLocalDeletion(
+                    conflicts,
+                    candidates,
+                    request.ProjectDirs);
+                var plan = deletionPlan;
+                var confirmMessage = BuildDeleteUnimportedLocalDuplicatesMessage(plan);
+                if (!await ConfirmAsync(owner, "确认删除本地未导入重复剧集", confirmMessage))
+                {
+                    vm.StatusMessage = "已取消导入本地剧集";
+                    return;
+                }
+
+                try
+                {
+                    vm.StatusMessage = "正在删除本地未导入的重复剧集…";
+                    deletion = await vm.DeleteUnimportedLocalDuplicatesAsync(plan);
+                }
+                catch (Exception ex)
+                {
+                    vm.StatusMessage = $"删除本地未导入重复剧集失败：{ex.Message}";
+                    await ShowMessageAsync(owner, "导入本地剧集", ex.Message, warning: true);
+                    return;
+                }
+
+                var excluded = plan.BlockedImportDirs
+                    .Concat(deletion.FailedImportDirs)
+                    .Select(Path.GetFullPath)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                importDirs = request.ProjectDirs
+                    .Where(dir => !excluded.Contains(Path.GetFullPath(dir)))
+                    .ToArray();
+                foreach (var blocked in plan.BlockedImportDirs)
+                    vm.AppendLog($"跳过正在上传的剧集：{Path.GetFileName(blocked)}");
+                if (importDirs.Count == 0)
+                {
+                    var blockedText = deletion.Failures.Count > 0
+                        ? "删除本地未导入重复剧集失败，已跳过对应剧集。\n" +
+                          string.Join("\n", deletion.Failures.Take(5))
+                        : plan.BlockedImportDirs.Count == 0
+                            ? "没有可导入的本地剧集。"
+                            : "正在上传或等待上传名额的剧集未删除，也未导入。";
+                    if (conflicts.Any(conflict =>
+                            conflict.Reasons.Contains(LocalManualDramaImportConflictFinder.ArchiveReason) ||
+                            conflict.Reasons.Contains(LocalManualDramaImportConflictFinder.ManagementReason)))
+                        blockedText += "\n归档和管理系统未改动。";
+                    vm.StatusMessage = blockedText.Replace('\n', ' ');
+                    await ShowMessageAsync(
+                        owner,
+                        "导入本地剧集",
+                        blockedText,
+                        warning: plan.BlockedImportDirs.Count > 0 || deletion.Failures.Count > 0);
+                    return;
+                }
+            }
         }
 
         LocalManualDramaBatchImportResult result;
@@ -1737,14 +1801,24 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
+        var keptCopiesNotice = BuildKeptCopiesNotice(conflicts, deletionPlan, deletion);
+        if (!string.IsNullOrWhiteSpace(keptCopiesNotice))
+        {
+            vm.AppendLog(keptCopiesNotice);
+            vm.StatusMessage = string.IsNullOrWhiteSpace(vm.StatusMessage)
+                ? keptCopiesNotice
+                : $"{vm.StatusMessage} {keptCopiesNotice.Replace('\n', ' ')}";
+        }
+
         if (result.Failures.Count > 0)
         {
             var lines = string.Join('\n', result.Failures.Take(30).Select(item => $"· {item}"));
             var extra = result.Failures.Count > 30 ? $"\n… 等共 {result.Failures.Count} 条" : "";
+            var notice = string.IsNullOrWhiteSpace(keptCopiesNotice) ? "" : $"\n\n{keptCopiesNotice}";
             await ShowMessageAsync(
                 owner,
                 "导入本地剧集 · 部分失败",
-                $"{result.SummaryText}\n\n{lines}{extra}",
+                $"{result.SummaryText}\n\n{lines}{extra}{notice}",
                 warning: true);
         }
         else if (result.SuccessCount == 0)
@@ -1752,11 +1826,50 @@ public partial class TikTokQueueView : UserControl
             await ShowMessageAsync(owner, "导入本地剧集", "没有可导入的本地剧集。");
             return;
         }
+        else if (deletion?.Failures.Count > 0 || deletionPlan?.BlockedImportDirs.Count > 0)
+        {
+            await ShowMessageAsync(owner, "导入本地剧集", $"{result.SummaryText}\n\n{keptCopiesNotice}", warning: true);
+        }
 
         if (request.AutoRun && result.SuccessCount > 0 && !vm.IsCurrentWorkspaceQueueRunning())
         {
             await StartQueueRunAsync(projectDirFilter: BuildLocalManualImportProjectFilter(result));
         }
+    }
+
+    private static string BuildDeleteUnimportedLocalDuplicatesMessage(
+        LocalManualDramaImportConflictFinder.UnimportedLocalDeletionPlan plan)
+    {
+        var deleteCount = plan.Targets.Count;
+        var message = deleteCount == 0
+            ? "没有可删除的本地未导入重复剧集。将只把所选剧集加入上传队列。"
+            : $"将删除 {deleteCount} 个本地未导入的重复剧集，然后把所选剧集加入上传队列。";
+        message += "\n归档和管理系统不会改动。本次要导入的文件夹不会删除。";
+        if (deleteCount > 0)
+            message += "此操作不可恢复。";
+        if (plan.BlockedImportDirs.Count > 0)
+            message += $"\n另有 {plan.BlockedImportDirs.Count} 部正在上传或等待上传名额，这些不会删除，也不会导入。";
+        return message;
+    }
+
+    private static string BuildKeptCopiesNotice(
+        IReadOnlyList<LocalManualDramaImportConflictFinder.Conflict> conflicts,
+        LocalManualDramaImportConflictFinder.UnimportedLocalDeletionPlan? plan,
+        LocalUnimportedDuplicateDeletionResult? deletion)
+    {
+        if (plan is null)
+            return "";
+
+        var lines = new List<string>();
+        if (conflicts.Any(conflict =>
+                conflict.Reasons.Contains(LocalManualDramaImportConflictFinder.ArchiveReason) ||
+                conflict.Reasons.Contains(LocalManualDramaImportConflictFinder.ManagementReason)))
+            lines.Add("归档和管理系统未改动。");
+        if (plan.BlockedImportDirs.Count > 0)
+            lines.Add($"正在上传或等待上传名额，未删除也未导入 {plan.BlockedImportDirs.Count} 部。");
+        if (deletion is not null && deletion.Failures.Count > 0)
+            lines.Add("删除本地未导入重复剧集失败：" + string.Join("；", deletion.Failures.Take(5)));
+        return string.Join("\n", lines);
     }
 
     private async Task<IStorageFolder?> TryResolveFolderAsync(string path)

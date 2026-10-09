@@ -9,8 +9,22 @@ public static class LocalManualDramaImportConflictFinder
     public const string LocalImportedReason = "本地已导入";
     public const string ArchiveReason = "已归档";
     public const string ManagementReason = "管理系统";
+    private const string MetadataFile = "shortdrama-project.json";
 
-    public sealed record Conflict(string ProjectDir, string DisplayName, IReadOnlyList<string> Reasons);
+    public sealed record MatchedQueueProject(string ProjectDir, bool MetadataExists, bool ActiveUpload);
+
+    public sealed record Conflict(
+        string ProjectDir,
+        string DisplayName,
+        IReadOnlyList<string> Reasons,
+        IReadOnlyList<MatchedQueueProject> MatchedQueueProjects);
+
+    public sealed record UnimportedLocalDeletionTarget(string Directory, IReadOnlyList<string> RelatedImportDirs);
+
+    public sealed record UnimportedLocalDeletionPlan(
+        IReadOnlyList<UnimportedLocalDeletionTarget> Targets,
+        IReadOnlyList<string> ProtectedImportDirs,
+        IReadOnlyList<string> BlockedImportDirs);
 
     public static IReadOnlyList<Conflict> Find(
         IReadOnlyList<LocalManualDramaImportPreview> selected,
@@ -18,11 +32,7 @@ public static class LocalManualDramaImportConflictFinder
         IEnumerable<ArchivedProjectItem> archivedItems,
         IReadOnlySet<string>? managementDuplicateNames = null)
     {
-        var queueNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var queuePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in queueItems)
-            AddProjectKeys(queueNames, queuePaths, item.ProjectDir, item.DisplayName, item.OriginalTitle, item.NewTitle);
-
+        var queueList = queueItems.Where(item => item is not null).ToArray();
         var archiveNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var archivePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in archivedItems)
@@ -46,8 +56,14 @@ public static class LocalManualDramaImportConflictFinder
         {
             var names = CandidateNames(preview);
             var path = NormalizePath(preview.ProjectDir);
+            var matchedQueue = queueList
+                .Where(item => QueueItemMatches(path, names, item))
+                .Select(ToMatchedQueueProject)
+                .GroupBy(item => item.ProjectDir, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToArray();
             var reasons = new List<string>();
-            if (Matches(path, names, queuePaths, queueNames))
+            if (matchedQueue.Length > 0)
                 reasons.Add(LocalQueueReason);
             else if (preview.MetadataExists)
                 reasons.Add(LocalImportedReason);
@@ -61,10 +77,161 @@ public static class LocalManualDramaImportConflictFinder
             conflicts.Add(new Conflict(
                 preview.ProjectDir,
                 string.IsNullOrWhiteSpace(preview.DisplayName) ? Path.GetFileName(preview.ProjectDir) : preview.DisplayName,
-                reasons));
+                reasons,
+                matchedQueue));
         }
 
         return conflicts;
+    }
+
+    public static UnimportedLocalDeletionPlan ResolveUnimportedLocalDeletion(
+        IReadOnlyList<Conflict> conflicts,
+        IReadOnlyList<LocalManualDramaImportPreview> localCandidates,
+        IEnumerable<string> importDirs)
+    {
+        var protectedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in importDirs)
+        {
+            var path = NormalizePath(dir);
+            if (!string.IsNullOrWhiteSpace(path))
+                protectedDirs.Add(path);
+        }
+
+        var blocked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var targets = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var conflict in conflicts)
+        {
+            var conflictDir = NormalizePath(conflict.ProjectDir);
+            foreach (var queueProject in conflict.MatchedQueueProjects)
+            {
+                var queueDir = NormalizePath(queueProject.ProjectDir);
+                if (string.IsNullOrWhiteSpace(queueDir) || OverlapsProtected(queueDir, protectedDirs))
+                    continue;
+                if (queueProject.MetadataExists)
+                    continue;
+                if (queueProject.ActiveUpload)
+                {
+                    if (!string.IsNullOrWhiteSpace(conflictDir))
+                        blocked.Add(conflictDir);
+                    continue;
+                }
+
+                AddTarget(targets, queueDir, conflictDir);
+            }
+        }
+
+        foreach (var candidate in localCandidates)
+        {
+            if (candidate.MetadataExists)
+                continue;
+            var candidateDir = NormalizePath(candidate.ProjectDir);
+            if (string.IsNullOrWhiteSpace(candidateDir) || OverlapsProtected(candidateDir, protectedDirs))
+                continue;
+
+            var names = CandidateNames(candidate);
+            foreach (var conflict in conflicts)
+            {
+                if (!names.Any(ConflictNames(conflict).Contains))
+                    continue;
+                AddTarget(targets, candidateDir, NormalizePath(conflict.ProjectDir));
+            }
+        }
+
+        return new UnimportedLocalDeletionPlan(
+            targets
+                .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(pair => new UnimportedLocalDeletionTarget(
+                    pair.Key,
+                    pair.Value.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray()))
+                .ToArray(),
+            protectedDirs.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(),
+            blocked.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray());
+    }
+
+    public static bool IsActiveUpload(string? statusText) =>
+        string.Equals(statusText, QueueStepStatus.Running, StringComparison.Ordinal) ||
+        string.Equals(statusText, QueueStepStatus.WaitingUploadSlot, StringComparison.Ordinal);
+
+    public static bool IsProtectedImportPath(string? path, IEnumerable<string> protectedImportDirs)
+    {
+        var full = NormalizePath(path);
+        if (string.IsNullOrWhiteSpace(full))
+            return false;
+        var protectedDirs = protectedImportDirs
+            .Select(NormalizePath)
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return OverlapsProtected(full, protectedDirs);
+    }
+
+    public static bool IsUnderDirectory(string? path, string? parent)
+    {
+        var full = NormalizePath(path);
+        var root = NormalizePath(parent);
+        if (string.IsNullOrWhiteSpace(full) || string.IsNullOrWhiteSpace(root))
+            return false;
+        return IsNestedPath(full, root);
+    }
+
+    private static void AddTarget(
+        Dictionary<string, HashSet<string>> targets,
+        string directory,
+        string importDir)
+    {
+        if (!targets.TryGetValue(directory, out var relatedDirs))
+        {
+            relatedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            targets[directory] = relatedDirs;
+        }
+
+        if (!string.IsNullOrWhiteSpace(importDir))
+            relatedDirs.Add(importDir);
+    }
+
+    private static MatchedQueueProject ToMatchedQueueProject(QueueProjectItem item)
+    {
+        var dir = NormalizePath(item.ProjectDir);
+        return new MatchedQueueProject(dir, QueueMetadataExists(dir), IsActiveUpload(item.StatusText));
+    }
+
+    private static bool QueueMetadataExists(string projectDir) =>
+        !string.IsNullOrWhiteSpace(projectDir) &&
+        File.Exists(Path.Combine(projectDir, MetadataFile));
+
+    private static bool QueueItemMatches(string path, IReadOnlyList<string> names, QueueProjectItem item)
+    {
+        var namesForItem = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pathsForItem = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddProjectKeys(namesForItem, pathsForItem, item.ProjectDir, item.DisplayName, item.OriginalTitle, item.NewTitle);
+        return Matches(path, names, pathsForItem, namesForItem);
+    }
+
+    private static bool OverlapsProtected(string path, HashSet<string> protectedDirs)
+    {
+        foreach (var importDir in protectedDirs)
+        {
+            if (string.Equals(path, importDir, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (IsNestedPath(path, importDir) || IsNestedPath(importDir, path))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsNestedPath(string path, string parent)
+    {
+        var root = parent.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+               || path.StartsWith(root + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> ConflictNames(Conflict conflict)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddName(names, conflict.DisplayName);
+        AddName(names, Path.GetFileName(NormalizePath(conflict.ProjectDir)));
+        return names;
     }
 
     private static bool Matches(
@@ -106,7 +273,7 @@ public static class LocalManualDramaImportConflictFinder
         return names;
     }
 
-    private static void AddName(List<string> names, string? value)
+    private static void AddName(ICollection<string> names, string? value)
     {
         var text = (value ?? "").Trim();
         if (!string.IsNullOrWhiteSpace(text))
