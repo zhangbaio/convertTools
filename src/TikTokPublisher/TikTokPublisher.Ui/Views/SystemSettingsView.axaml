@@ -360,13 +360,13 @@
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="接口地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding AiTextApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型名称" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="请求超时" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding AiTextTimeoutSeconds}" Minimum="10" Maximum="600" Width="120" HorizontalAlignment="Left" />
@@ -403,13 +403,13 @@
                             <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ImageProviderCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ImageModelId}" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ImageModelId}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="模型 API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ImageModelApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="模型 Endpoint" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ImageModelEndpoint}" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ImageModelEndpoint}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="豆包分辨率" VerticalAlignment="Center" />
                             <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding DoubaoImageResolution}" />
@@ -418,13 +418,13 @@
                             <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding DoubaoImageRatio}" />
 
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="Ofox 模型 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding OfoxImage2ModelId}" />
+                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding OfoxImage2ModelId}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="Ofox API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding OfoxImage2ApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="9" Grid.Column="0" Text="Ofox Endpoint" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding OfoxImage2Endpoint}" />
+                            <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding OfoxImage2Endpoint}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="10" Grid.Column="0" Text="Ofox 质量" VerticalAlignment="Center" />
                             <TextBox Grid.Row="10" Grid.Column="1" Text="{Binding OfoxImage2Quality}" />
