@@ -44,6 +44,7 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.TiktokRoleReferenceSelectionMode)
                 or nameof(SystemSettingsViewModel.TiktokRoleVectorViewMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
+                or nameof(SystemSettingsViewModel.PosterLayoutRequestMode)
                 or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageGenerationMode)
@@ -143,6 +144,11 @@ public partial class SystemSettingsView : UserControl
         PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
 
+        PosterLayoutRequestModeCombo.Items.Clear();
+        PosterLayoutRequestModeCombo.Items.Add(CreateItem("标准（当前整图请求）", ClientSettingsDefaults.PosterLayoutRequestMode));
+        PosterLayoutRequestModeCombo.Items.Add(CreateItem("快速（低精度流式）", ClientSettingsDefaults.PosterLayoutRequestModeFast));
+        PosterLayoutRequestModeCombo.SelectionChanged += OnPosterLayoutRequestModeChanged;
+
         ImageProviderCombo.Items.Clear();
         ImageProviderCombo.Items.Add(CreateItem("豆包", "doubao"));
         ImageProviderCombo.Items.Add(CreateItem("Ofox Image2", "ofox_image2"));
@@ -195,6 +201,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(RoleVectorViewModeCombo, _vm.TiktokRoleVectorViewMode);
         _vm.PosterMode = ClientSettingsDefaults.PosterMode;
         SelectComboItem(PosterModeCombo, ClientSettingsDefaults.PosterMode);
+        SelectComboItem(PosterLayoutRequestModeCombo, _vm.PosterLayoutRequestMode);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
         SelectComboItem(ProjectImageGenerationModeCombo, _vm.TiktokProjectImageGenerationMode);
@@ -203,6 +210,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
         UpdatePosterModeUi();
+        UpdatePosterLayoutRequestModeUi();
     }
 
     private static void SelectComboItem(ComboBox combo, string? value)
@@ -296,6 +304,26 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || RoleVectorViewModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokRoleVectorViewMode = item.Tag as string ?? ClientSettingsDefaults.TiktokRoleVectorViewMode;
+    }
+
+    private void OnPosterLayoutRequestModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || PosterLayoutRequestModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.PosterLayoutRequestMode = item.Tag as string ?? ClientSettingsDefaults.PosterLayoutRequestMode;
+        UpdatePosterLayoutRequestModeUi();
+    }
+
+    private void UpdatePosterLayoutRequestModeUi()
+    {
+        var mode = (PosterLayoutRequestModeCombo.SelectedItem as ComboBoxItem)?.Tag as string
+                   ?? _vm?.PosterLayoutRequestMode
+                   ?? ClientSettingsDefaults.PosterLayoutRequestMode;
+        PosterLayoutRequestModeHintText.Text = string.Equals(
+            mode,
+            ClientSettingsDefaults.PosterLayoutRequestModeFast,
+            StringComparison.OrdinalIgnoreCase)
+            ? "快速模式按方舟图片理解建议请求：detail=low，像素上限 3014080，流式返回。超时、429 或 5xx 会换一次新请求。原图仍用于最终出图。"
+            : "标准模式保持现在的整图、非流式布局检测。失败时会记录图片大小、像素、接口、耗时和异常链。";
     }
 
     private void OnPosterModeChanged(object? sender, SelectionChangedEventArgs e)

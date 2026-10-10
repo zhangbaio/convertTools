@@ -150,6 +150,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aiFullInfoRetryPrompt = "";
 
     [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
+    [ObservableProperty] private string _posterLayoutRequestMode = ClientSettingsDefaults.PosterLayoutRequestMode;
     [ObservableProperty] private string _imageProvider = ClientSettingsDefaults.ImageProvider;
     [ObservableProperty] private string _imageModelId = ClientSettingsDefaults.ImageModelId;
     [ObservableProperty] private string _imageModelApiKey = "";
@@ -295,6 +296,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiFullInfoBatchPrompt = AiFullInfoBatchPrompt,
         AiFullInfoRetryPrompt = AiFullInfoRetryPrompt,
         PosterMode = PosterMode,
+        PosterLayoutRequestMode = PosterLayoutRequestMode,
         ImageProvider = ImageProvider,
         ImageModelId = ImageModelId.Trim(),
         ImageModelApiKey = ImageModelApiKey,
@@ -1070,6 +1072,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiFullInfoBatchPrompt = settings.AiFullInfoBatchPrompt;
         AiFullInfoRetryPrompt = settings.AiFullInfoRetryPrompt;
         PosterMode = settings.PosterMode;
+        PosterLayoutRequestMode = settings.PosterLayoutRequestMode;
         ImageProvider = settings.ImageProvider;
         ImageModelId = settings.ImageModelId;
         ImageModelApiKey = settings.ImageModelApiKey;

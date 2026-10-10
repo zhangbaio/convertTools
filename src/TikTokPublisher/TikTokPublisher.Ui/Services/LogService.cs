@@ -106,11 +106,15 @@ public sealed class LogService
 
     public void Append(string text)
     {
-        var line = (text ?? "").TrimEnd();
+        var line = (text ?? "").Replace("\r\n", "\n").TrimEnd();
         if (string.IsNullOrWhiteSpace(line)) return;
 
         var now = DateTime.Now;
-        var (level, project, normalizedLine) = ParseHeader(line);
+        var split = line.IndexOf('\n');
+        var firstLine = split < 0 ? line : line[..split];
+        var remainder = split < 0 ? "" : line[split..];
+        var (level, project, normalizedFirst) = ParseHeader(firstLine);
+        var normalizedLine = normalizedFirst + remainder;
         var entry = new LogEntry
         {
             Text = normalizedLine,

@@ -66,6 +66,8 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
                     .Should().Be($"{result.Index + 1},{result.Index + 2}");
                 document.RootElement.GetProperty("FrameExtractFallbackPercents").GetString()
                     .Should().Be($"{result.Index + 10},{result.Index + 20}");
+                document.RootElement.GetProperty("PosterLayoutRequestMode").GetString()
+                    .Should().Be(ClientSettingsDefaults.PosterLayoutRequestMode);
             }
         }
         finally
@@ -75,6 +77,25 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
                 try { File.Delete(result.Path); }
                 catch { /* best-effort test cleanup */ }
             }
+        }
+    }
+
+    [Fact]
+    public void WriteTempConfig_keeps_fast_poster_layout_mode()
+    {
+        var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings
+        {
+            PosterLayoutRequestMode = "FAST",
+        });
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            document.RootElement.GetProperty("PosterLayoutRequestMode").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterLayoutRequestModeFast);
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 }

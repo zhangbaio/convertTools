@@ -10,6 +10,8 @@ public static class ClientSettingsDefaults
     public const bool TiktokRoleReferenceAiFallbackEnabled = true;
     public const string TiktokRoleVectorViewMode = "multi_angle";
     public const string PosterMode = "original";
+    public const string PosterLayoutRequestMode = "standard";
+    public const string PosterLayoutRequestModeFast = "fast";
     public const string ImageProvider = "doubao";
     public const string ImageModelEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
     public const string ImageModelId = "doubao-seedream-5-0-lite-260128";

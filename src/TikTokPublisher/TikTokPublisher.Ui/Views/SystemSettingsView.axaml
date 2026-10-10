@@ -454,6 +454,14 @@
                                    Foreground="#666"
                                    TextWrapping="Wrap" />
 
+                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="布局检测" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" x:Name="PosterLayoutRequestModeCombo" HorizontalAlignment="Stretch" />
+                        </Grid>
+                        <TextBlock x:Name="PosterLayoutRequestModeHintText"
+                                   Foreground="#666"
+                                   TextWrapping="Wrap" />
+
                         <Border x:Name="FrameExtractSettingsPanel"
                                 IsVisible="False"
                                 BorderBrush="#D7DFEA"

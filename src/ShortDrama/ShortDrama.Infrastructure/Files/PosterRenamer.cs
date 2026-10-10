@@ -9,7 +9,9 @@ using ShortDrama.Core.Models;
 using ShortDrama.Core.Services;
 using ShortDrama.Infrastructure;
 using ShortDrama.Infrastructure.Config;
+using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -22,6 +24,8 @@ public sealed partial class PosterRenamer : IPosterRenamer
 {
     private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
     private static readonly TimeSpan PosterLayoutRequestTimeout = TimeSpan.FromSeconds(120);
+    private const int FastLayoutMaxPixels = 3_014_080;
+    private const int FastLayoutMinPixels = 3136;
     private const string DefaultPosterLayoutDetectPrompt = """
 你是短剧海报版式分析助手。请识别海报上“所有现有剧名/标题相关文字”的整体最小外接矩形，并返回 JSON。
 要求：
@@ -226,7 +230,8 @@ JSON 结构：
                 throw new InvalidOperationException("AI 海报图片生成必须提供有效的 configFile。");
             }
 
-            var layout = await DetectPosterLayoutAsync(configFile, renderInputPath, posterName, cancellationToken);
+            var layout = await DetectPosterLayoutAsync(configFile, renderInputPath, posterName, request.Log, cancellationToken);
+            request.Log?.Invoke("开始生成海报图片：布局已确定。");
             await TryGeneratePosterWithVerificationAsync(
                 configFile,
                 renderInputPath,
@@ -366,6 +371,7 @@ JSON 结构：
         string? configFile,
         string imagePath,
         string title,
+        Action<string>? log,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(configFile) || !File.Exists(configFile))
@@ -377,37 +383,60 @@ JSON 结构：
         var endpoint = GetRequired(config, "ChatModelEndpoint").TrimEnd('/');
         var modelId = GetRequired(config, "ChatModelId");
         var apiKey = GetRequired(config, "ChatModelApiKey");
-        var imageBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(imagePath, cancellationToken));
+        var imageBytes = await File.ReadAllBytesAsync(imagePath, cancellationToken);
+        var imageBase64 = Convert.ToBase64String(imageBytes);
         var extension = Path.GetExtension(imagePath).TrimStart('.').ToLowerInvariant();
         var mediaType = GuessMediaType(extension);
-
+        var fast = IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode"));
+        var (width, height) = TryReadImageSize(imagePath);
         var configuredPromptTemplate = GetOptional(config, "PosterLayoutDetectPrompt")
             ?? DefaultPosterLayoutDetectPrompt;
         var promptVariables = CreatePosterPromptVariables(title, title, null, null);
+        var useDefaultPrompt = false;
         for (var attempt = 0; attempt < 2; attempt++)
         {
-            var promptTemplate = attempt == 0
-                ? configuredPromptTemplate
-                : DefaultPosterLayoutDetectPrompt;
+            var promptTemplate = useDefaultPrompt
+                ? DefaultPosterLayoutDetectPrompt
+                : configuredPromptTemplate;
             var prompt = $"{RenderPromptTemplate(promptTemplate, promptVariables).Trim()}\n\n{PosterLayoutJsonContract.Trim()}";
+            var call = new PosterLayoutAttempt(
+                fast,
+                attempt + 1,
+                endpoint,
+                modelId,
+                imagePath,
+                imageBytes.LongLength,
+                width,
+                height,
+                mediaType,
+                log);
             try
             {
                 var aiLayout = await RequestPosterLayoutAsync(
-                    endpoint,
-                    modelId,
+                    call,
                     apiKey,
                     imageBase64,
-                    mediaType,
                     prompt,
                     cancellationToken).ConfigureAwait(false);
                 return CreateValidatedPosterLayout(aiLayout);
             }
             catch (PosterLayoutResponseException ex) when (attempt == 0)
             {
+                useDefaultPrompt = true;
                 _logger.LogWarning(
                     ex,
                     "AI海报布局响应缺失或不合理，使用内置完整布局提示重试。 image={Image}",
                     imagePath);
+                log?.Invoke("海报布局检测返回无效，使用内置提示再请求一次。");
+            }
+            catch (Exception ex) when (
+                attempt == 0 &&
+                fast &&
+                IsRetryableLayoutTransport(ex) &&
+                !cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "快速海报布局检测传输失败，准备重试。 image={Image}", imagePath);
+                log?.Invoke($"海报布局检测传输失败，快速模式将重试一次：{ex.GetType().Name}。");
             }
         }
 
@@ -415,109 +444,345 @@ JSON 结构：
     }
 
     private async Task<PosterLayoutResponse> RequestPosterLayoutAsync(
-        string endpoint,
-        string modelId,
+        PosterLayoutAttempt attempt,
         string apiKey,
         string imageBase64,
-        string mediaType,
         string prompt,
         CancellationToken cancellationToken)
     {
-        var payload = new
-        {
-            model = modelId,
-            temperature = 0.2,
-            messages = new object[]
+        var imageDataUrl = $"data:{attempt.MediaType};base64,{imageBase64}";
+        var body = attempt.Fast
+            ? JsonSerializer.Serialize(new
             {
-                new
+                model = attempt.ModelId,
+                temperature = 0.2,
+                stream = true,
+                messages = new object[]
                 {
-                    role = "user",
-                    content = new object[]
+                    new
                     {
-                        new
+                        role = "user",
+                        content = new object[]
                         {
-                            type = "text",
-                            text = prompt
-                        },
-                        new
-                        {
-                            type = "image_url",
-                            image_url = new
+                            new { type = "text", text = prompt },
+                            new
                             {
-                                url = $"data:{mediaType};base64,{imageBase64}"
+                                type = "image_url",
+                                image_url = new
+                                {
+                                    url = imageDataUrl,
+                                    detail = "low",
+                                    image_pixel_limit = new
+                                    {
+                                        max_pixels = FastLayoutMaxPixels,
+                                        min_pixels = FastLayoutMinPixels
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
-        };
+            })
+            : JsonSerializer.Serialize(new
+            {
+                model = attempt.ModelId,
+                temperature = 0.2,
+                messages = new object[]
+                {
+                    new
+                    {
+                        role = "user",
+                        content = new object[]
+                        {
+                            new { type = "text", text = prompt },
+                            new
+                            {
+                                type = "image_url",
+                                image_url = new { url = imageDataUrl }
+                            }
+                        }
+                    }
+                }
+            });
+        attempt.RequestBytes = Encoding.UTF8.GetByteCount(body);
+        attempt.Log?.Invoke("开始海报布局检测：" + attempt.Describe(null, null, null, null));
 
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions");
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{attempt.Endpoint}/chat/completions");
+        if (attempt.Fast)
+        {
+            httpRequest.Version = HttpVersion.Version11;
+            httpRequest.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+        }
+
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        httpRequest.Content = new StringContent(
-            JsonSerializer.Serialize(payload),
-            Encoding.UTF8,
-            "application/json");
+        httpRequest.Content = new StringContent(body, Encoding.UTF8, "application/json");
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(PosterLayoutRequestTimeout);
-
-        HttpResponseMessage response;
+        var watch = Stopwatch.StartNew();
+        HttpStatusCode? status = null;
+        string? responsePreview = null;
         try
         {
-            response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
-        }
-        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            throw new TimeoutException(
-                $"AI 海报布局检测接口请求超过 {PosterLayoutRequestTimeout.TotalSeconds:0} 秒，" +
-                "请检查 AI 文本模型 Endpoint、API Key、模型可用性或网络连接。",
-                ex);
-        }
-
-        using (response)
-        {
-            string responseText;
-            try
+            using var response = attempt.Fast
+                ? await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token)
+                : await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
+            status = response.StatusCode;
+            if (attempt.Fast)
             {
-                responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
-            }
-            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new TimeoutException(
-                    $"AI 海报布局检测接口响应读取超过 {PosterLayoutRequestTimeout.TotalSeconds:0} 秒。",
-                    ex);
+                attempt.Log?.Invoke(
+                    $"海报布局检测已收到响应头：状态={(int)response.StatusCode}，等待={watch.Elapsed.TotalSeconds:0.0} 秒。");
             }
 
+            var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            responsePreview = TruncateForLog(responseText, 400);
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException(
-                    AiApiErrorMessage.Create("AI 海报布局检测接口", response.StatusCode, response.ReasonPhrase, responseText));
+                var message = AiApiErrorMessage.Create(
+                    "AI 海报布局检测接口",
+                    response.StatusCode,
+                    response.ReasonPhrase,
+                    responseText);
+                if (attempt.Fast && ((int)response.StatusCode == 429 || (int)response.StatusCode >= 500))
+                    throw new PosterLayoutHttpException(response.StatusCode, message);
+
+                throw new InvalidOperationException(message);
             }
 
-            var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions);
-            var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
+            var content = ReadLayoutModelContent(responseText, attempt.Fast);
             if (string.IsNullOrWhiteSpace(content))
-            {
                 throw new PosterLayoutResponseException("AI 海报布局检测未返回内容。");
-            }
 
             var json = ExtractJsonObject(content);
             if (string.IsNullOrWhiteSpace(json))
-            {
                 throw new PosterLayoutResponseException($"AI 海报布局检测未返回合法 JSON: {content}");
-            }
 
             try
             {
-                return JsonSerializer.Deserialize<PosterLayoutResponse>(json, JsonOptions)
+                var layout = JsonSerializer.Deserialize<PosterLayoutResponse>(json, JsonOptions)
                     ?? throw new PosterLayoutResponseException("AI 海报布局检测返回的 JSON 无法解析。");
+                attempt.Log?.Invoke(
+                    $"海报布局检测完成：模式={(attempt.Fast ? "快速" : "标准")}，第 {attempt.Attempt} 次，状态={(int)response.StatusCode}，耗时={watch.Elapsed.TotalSeconds:0.0} 秒。");
+                return layout;
             }
             catch (JsonException ex)
             {
                 throw new PosterLayoutResponseException($"AI 海报布局检测返回的 JSON 无法解析：{ex.Message}");
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            var detail = attempt.Describe(watch.Elapsed, status, responsePreview, ex);
+            attempt.Log?.Invoke("海报布局检测失败：" + detail);
+            throw new TimeoutException(
+                $"AI 海报布局检测接口请求超过 {PosterLayoutRequestTimeout.TotalSeconds:0} 秒，" +
+                "请检查 AI 文本模型 Endpoint、API Key、模型可用性或网络连接。\n" + detail,
+                ex);
+        }
+        catch (PosterLayoutResponseException ex)
+        {
+            attempt.Log?.Invoke("海报布局检测失败：" + attempt.Describe(watch.Elapsed, status, responsePreview ?? ex.Message, ex));
+            throw;
+        }
+        catch (Exception ex) when (ex is not TimeoutException)
+        {
+            var detail = attempt.Describe(watch.Elapsed, status, responsePreview, ex);
+            attempt.Log?.Invoke("海报布局检测失败：" + detail);
+            throw new InvalidOperationException($"{ex.Message}\n{detail}", ex);
+        }
+    }
+
+    private static bool IsFastPosterLayoutMode(string? value) =>
+        string.Equals(value?.Trim(), "fast", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsRetryableLayoutTransport(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is TimeoutException or HttpRequestException or PosterLayoutHttpException)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static (int? Width, int? Height) TryReadImageSize(string imagePath)
+    {
+        try
+        {
+            var info = Image.Identify(imagePath);
+            return info is null ? (null, null) : (info.Width, info.Height);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    private static string ReadLayoutModelContent(string responseText, bool streamed)
+    {
+        var trimmed = responseText.Trim();
+        if (streamed && !trimmed.StartsWith('{') && !trimmed.StartsWith('['))
+            return ReadSseLayoutContent(trimmed);
+
+        ThrowIfLayoutErrorPayload(trimmed);
+        var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(trimmed, JsonOptions);
+        return parsed?.Choices?.FirstOrDefault()?.Message?.Content ?? "";
+    }
+
+    private static string ReadSseLayoutContent(string responseText)
+    {
+        var builder = new StringBuilder();
+        foreach (var rawLine in responseText.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var data = line["data:".Length..].Trim();
+            if (data.Length == 0 || string.Equals(data, "[DONE]", StringComparison.Ordinal))
+                continue;
+
+            ThrowIfLayoutErrorPayload(data);
+            using var document = JsonDocument.Parse(data);
+            if (!document.RootElement.TryGetProperty("choices", out var choices) ||
+                choices.ValueKind != JsonValueKind.Array ||
+                choices.GetArrayLength() == 0)
+            {
+                continue;
+            }
+
+            var choice = choices[0];
+            if (choice.TryGetProperty("delta", out var delta) &&
+                delta.TryGetProperty("content", out var deltaContent))
+            {
+                AppendLayoutDelta(builder, deltaContent);
+            }
+            else if (choice.TryGetProperty("message", out var message) &&
+                     message.TryGetProperty("content", out var messageContent))
+            {
+                AppendLayoutDelta(builder, messageContent);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AppendLayoutDelta(StringBuilder builder, JsonElement content)
+    {
+        if (content.ValueKind == JsonValueKind.String)
+        {
+            builder.Append(content.GetString());
+            return;
+        }
+
+        if (content.ValueKind != JsonValueKind.Array)
+            return;
+
+        foreach (var part in content.EnumerateArray())
+        {
+            if (part.ValueKind == JsonValueKind.String)
+                builder.Append(part.GetString());
+            else if (part.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
+                builder.Append(text.GetString());
+        }
+    }
+
+    private static void ThrowIfLayoutErrorPayload(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty("error", out var error))
+                return;
+
+            var message = error.ValueKind == JsonValueKind.Object &&
+                          error.TryGetProperty("message", out var messageElement)
+                ? messageElement.GetString()
+                : error.ToString();
+            throw new PosterLayoutResponseException($"AI 海报布局检测接口返回错误：{message}");
+        }
+        catch (JsonException)
+        {
+        }
+    }
+
+    private static string TruncateForLog(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        var text = value.Replace("\r", " ").Replace("\n", " ").Trim();
+        return text.Length <= maxLength ? text : text[..maxLength] + "…";
+    }
+
+    private static string FormatByteCount(long bytes) =>
+        bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024d:0.#} KB";
+
+    private sealed class PosterLayoutAttempt(
+        bool fast,
+        int attempt,
+        string endpoint,
+        string modelId,
+        string imagePath,
+        long imageBytes,
+        int? width,
+        int? height,
+        string mediaType,
+        Action<string>? log)
+    {
+        public bool Fast { get; } = fast;
+        public int Attempt { get; } = attempt;
+        public string Endpoint { get; } = endpoint;
+        public string ModelId { get; } = modelId;
+        public string ImagePath { get; } = imagePath;
+        public long ImageBytes { get; } = imageBytes;
+        public int? Width { get; } = width;
+        public int? Height { get; } = height;
+        public string MediaType { get; } = mediaType;
+        public Action<string>? Log { get; } = log;
+        public int RequestBytes { get; set; }
+
+        public string Describe(TimeSpan? elapsed, HttpStatusCode? status, string? responsePreview, Exception? ex)
+        {
+            var pixels = Width is int width && Height is int height ? $"{width}x{height}" : "未知";
+            var transport = Fast
+                ? $"detail=low，max_pixels={FastLayoutMaxPixels}，min_pixels={FastLayoutMinPixels}，流式=是，HTTP=1.1"
+                : "detail=未设置，流式=否";
+            var elapsedText = elapsed is null ? "未完成" : $"{elapsed.Value.TotalSeconds:0.0} 秒";
+            var statusText = status is null ? "无响应" : ((int)status).ToString();
+            var chain = ex is null ? "" : $"，异常链={DescribeExceptionChain(ex)}";
+            var preview = string.IsNullOrWhiteSpace(responsePreview)
+                ? ""
+                : $"，响应={TruncateForLog(responsePreview, 400)}";
+            return $"模式={(Fast ? "快速" : "标准")}，第 {Attempt} 次，接口={Endpoint}/chat/completions，模型={ModelId}，" +
+                   $"图片={Path.GetFileName(ImagePath)}，大小={FormatByteCount(ImageBytes)}，像素={pixels}，类型={MediaType}，" +
+                   $"请求体={FormatByteCount(RequestBytes)}，{transport}，耗时={elapsedText}，状态={statusText}{chain}{preview}";
+        }
+
+        private static string DescribeExceptionChain(Exception ex)
+        {
+            var names = new List<string>();
+            for (var current = ex; current is not null && names.Count < 6; current = current.InnerException)
+                names.Add(current.GetType().Name);
+
+            return string.Join(" -> ", names);
+        }
+    }
+
+    private sealed class PosterLayoutHttpException : InvalidOperationException
+    {
+        public PosterLayoutHttpException(HttpStatusCode statusCode, string message)
+            : base(message)
+        {
+            StatusCode = statusCode;
+        }
+
+        public HttpStatusCode StatusCode { get; }
     }
 
     private static PosterLayout CreateValidatedPosterLayout(PosterLayoutResponse aiLayout)

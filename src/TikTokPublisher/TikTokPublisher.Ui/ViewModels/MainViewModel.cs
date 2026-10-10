@@ -3080,6 +3080,13 @@ public sealed partial class MainViewModel : ViewModelBase
         var message = progress.Message ?? "";
         if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey)
             || message.Contains("失败", StringComparison.Ordinal)
+            || message.Contains("异常", StringComparison.Ordinal)
+            || message.Contains("错误", StringComparison.Ordinal)
+            || message.Contains("超时", StringComparison.Ordinal)
+            || message.Contains("未通过", StringComparison.Ordinal)
+            || message.Contains("标题校验", StringComparison.Ordinal)
+            || message.Contains("残留文字", StringComparison.Ordinal)
+            || message.Contains("海报布局", StringComparison.Ordinal)
             || message.Contains("完成", StringComparison.Ordinal)
             || message.StartsWith("开始", StringComparison.Ordinal)
             || message.Contains('⚠')

@@ -91,6 +91,7 @@ public sealed class ClientSettings
     public string AiFullInfoRetryPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoRetryPrompt;
 
     public string PosterMode { get; set; } = ClientSettingsDefaults.PosterMode;
+    public string PosterLayoutRequestMode { get; set; } = ClientSettingsDefaults.PosterLayoutRequestMode;
     public string ImageProvider { get; set; } = ClientSettingsDefaults.ImageProvider;
     public string ImageModelId { get; set; } = ClientSettingsDefaults.ImageModelId;
     public string ImageModelApiKey { get; set; } = "";

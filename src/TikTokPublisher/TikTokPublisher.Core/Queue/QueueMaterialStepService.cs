@@ -1671,9 +1671,11 @@ public static class QueueMaterialStepService
             }
             catch (Exception ex)
             {
+                var firstLine = ex.Message.Split(['\r', '\n'], 2, StringSplitOptions.None)[0];
                 log(
-                    $"海报生成调用异常：类型={ex.GetType().FullName}，HResult=0x{ex.HResult:X8}，" +
-                    $"外部取消={cancellationToken.IsCancellationRequested}，消息={ex.Message}" +
+                    $"海报生成失败：{ex.GetType().Name}，外部取消={cancellationToken.IsCancellationRequested}，{firstLine}");
+                log(
+                    $"海报生成失败详情：类型={ex.GetType().FullName}，HResult=0x{ex.HResult:X8}。" +
                     Environment.NewLine + ex);
                 throw;
             }

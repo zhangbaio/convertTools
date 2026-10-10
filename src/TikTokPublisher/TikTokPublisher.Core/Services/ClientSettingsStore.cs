@@ -349,6 +349,7 @@ public static class ClientSettingsStore
         settings.AiFullInfoBatchPrompt = DefaultIfBlank(settings.AiFullInfoBatchPrompt, ClientSettingsDefaults.AiFullInfoBatchPrompt);
         settings.AiFullInfoRetryPrompt = DefaultIfBlank(settings.AiFullInfoRetryPrompt, ClientSettingsDefaults.AiFullInfoRetryPrompt);
         settings.PosterMode = NormalizePosterMode(settings.PosterMode);
+        settings.PosterLayoutRequestMode = NormalizePosterLayoutRequestMode(settings.PosterLayoutRequestMode);
         settings.ImageProvider = NormalizeImageProvider(settings.ImageProvider);
         settings.ImageModelId = DefaultIfBlank(settings.ImageModelId, ClientSettingsDefaults.ImageModelId);
         settings.ImageModelApiKey ??= "";
@@ -512,6 +513,11 @@ public static class ClientSettingsStore
 
     public static string NormalizeUdid(string? value) =>
         ShortDrama.Infrastructure.Automation.HongguoDeviceId.Normalize(value);
+
+    private static string NormalizePosterLayoutRequestMode(string? value) =>
+        string.Equals(value?.Trim(), ClientSettingsDefaults.PosterLayoutRequestModeFast, StringComparison.OrdinalIgnoreCase)
+            ? ClientSettingsDefaults.PosterLayoutRequestModeFast
+            : ClientSettingsDefaults.PosterLayoutRequestMode;
 
     private static string NormalizePosterMode(string? value) =>
         (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch
