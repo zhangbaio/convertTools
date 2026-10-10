@@ -151,6 +151,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
     [ObservableProperty] private string _posterLayoutRequestMode = ClientSettingsDefaults.PosterLayoutRequestMode;
+    [ObservableProperty] private string _networkAddressPreference = ClientSettingsDefaults.NetworkAddressPreference;
     [ObservableProperty] private string _imageProvider = ClientSettingsDefaults.ImageProvider;
     [ObservableProperty] private string _imageModelId = ClientSettingsDefaults.ImageModelId;
     [ObservableProperty] private string _imageModelApiKey = "";
@@ -297,6 +298,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiFullInfoRetryPrompt = AiFullInfoRetryPrompt,
         PosterMode = PosterMode,
         PosterLayoutRequestMode = PosterLayoutRequestMode,
+        NetworkAddressPreference = NetworkAddressPreference,
         ImageProvider = ImageProvider,
         ImageModelId = ImageModelId.Trim(),
         ImageModelApiKey = ImageModelApiKey,
@@ -836,6 +838,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    partial void OnNetworkAddressPreferenceChanged(string value) =>
+        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Preference =
+            ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(value);
+
     private async Task ProbeAiTextAsync()
     {
         if (string.IsNullOrWhiteSpace(AiTextEndpoint) || string.IsNullOrWhiteSpace(AiTextApiKey))
@@ -1073,6 +1079,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiFullInfoRetryPrompt = settings.AiFullInfoRetryPrompt;
         PosterMode = settings.PosterMode;
         PosterLayoutRequestMode = settings.PosterLayoutRequestMode;
+        NetworkAddressPreference = settings.NetworkAddressPreference;
         ImageProvider = settings.ImageProvider;
         ImageModelId = settings.ImageModelId;
         ImageModelApiKey = settings.ImageModelApiKey;
@@ -1187,11 +1194,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     private static HttpClient CreateProbeHttpClient()
     {
-        var handler = new SocketsHttpHandler
-        {
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
-            ConnectTimeout = TimeSpan.FromSeconds(15),
-        };
+        var handler = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateHandler();
+        handler.ConnectTimeout = TimeSpan.FromSeconds(15);
         return new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(120),

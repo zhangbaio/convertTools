@@ -12,6 +12,7 @@ public static class ClientSettingsDefaults
     public const string PosterMode = "original";
     public const string PosterLayoutRequestMode = "standard";
     public const string PosterLayoutRequestModeFast = "fast";
+    public const string NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.SystemValue;
     public const string ImageProvider = "doubao";
     public const string ImageModelEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
     public const string ImageModelId = "doubao-seedream-5-0-lite-260128";

@@ -14,7 +14,8 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokVideoTranslateService
 {
     private const string AsrEndpoint = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash";
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(8) };
+    private static readonly HttpClient Http =
+        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(8));
     private sealed record Cue(double Start, double End, string Source, string Translation = "");
 
     public static async Task TranslateAsync(string projectDir, string title, string originalTitle,

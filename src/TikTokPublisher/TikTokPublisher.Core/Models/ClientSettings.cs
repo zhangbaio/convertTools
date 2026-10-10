@@ -92,6 +92,7 @@ public sealed class ClientSettings
 
     public string PosterMode { get; set; } = ClientSettingsDefaults.PosterMode;
     public string PosterLayoutRequestMode { get; set; } = ClientSettingsDefaults.PosterLayoutRequestMode;
+    public string NetworkAddressPreference { get; set; } = ClientSettingsDefaults.NetworkAddressPreference;
     public string ImageProvider { get; set; } = ClientSettingsDefaults.ImageProvider;
     public string ImageModelId { get; set; } = ClientSettingsDefaults.ImageModelId;
     public string ImageModelApiKey { get; set; } = "";
@@ -253,6 +254,8 @@ public sealed class ClientSettings
         AiFullInfoBatchPrompt = AiFullInfoBatchPrompt,
         AiFullInfoRetryPrompt = AiFullInfoRetryPrompt,
         PosterMode = PosterMode,
+        PosterLayoutRequestMode = PosterLayoutRequestMode,
+        NetworkAddressPreference = NetworkAddressPreference,
         ImageProvider = ImageProvider,
         ImageModelId = ImageModelId,
         ImageModelApiKey = ImageModelApiKey,

@@ -38,7 +38,8 @@ public sealed partial class PosterRenamer
     标题必须逐字准确，不得漏字、错字、换字、增字或重复。
     """;
 
-    private readonly PosterTitleVerificationService _titleVerifier = new(new HttpClient { Timeout = TimeSpan.FromMinutes(2) });
+    private readonly PosterTitleVerificationService _titleVerifier = new(
+        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(2)));
 
     private static void Log(PosterRenameRequest request, string message) => request.Log?.Invoke(message);
 

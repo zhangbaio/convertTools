@@ -28,6 +28,7 @@ public sealed partial class PosterRenamer : IPosterRenamer
     private static readonly TimeSpan PosterImageRequestTimeout = TimeSpan.FromSeconds(180);
     private static readonly AsyncLocal<PosterCallContext?> CurrentCall = new();
     private const long FastUploadJpegThresholdBytes = 1024 * 1024;
+    private const int FastLayoutUploadLongSide = 1024;
     private const int FastLayoutMaxPixels = 3_014_080;
     private const int FastLayoutMinPixels = 3136;
     private const string DefaultPosterLayoutDetectPrompt = """
@@ -410,11 +411,25 @@ JSON 结构：
         var modelId = GetRequired(config, "ChatModelId");
         var apiKey = GetRequired(config, "ChatModelApiKey");
         var imageBytes = await File.ReadAllBytesAsync(imagePath, cancellationToken);
-        var imageBase64 = Convert.ToBase64String(imageBytes);
         var extension = Path.GetExtension(imagePath).TrimStart('.').ToLowerInvariant();
         var mediaType = GuessMediaType(extension);
         var fast = IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode"));
         var (width, height) = TryReadImageSize(imagePath);
+        if (fast)
+        {
+            var shrunk = await TryShrinkLayoutUploadAsync(imageBytes, cancellationToken).ConfigureAwait(false);
+            if (shrunk is not null)
+            {
+                log?.Invoke(
+                    $"海报布局检测图片已在本地压缩：{FormatByteCount(imageBytes.LongLength)} -> {FormatByteCount(shrunk.Value.Bytes.LongLength)}，" +
+                    $"{width}x{height} -> {shrunk.Value.Width}x{shrunk.Value.Height}。");
+                imageBytes = shrunk.Value.Bytes;
+                mediaType = "image/jpeg";
+                (width, height) = (shrunk.Value.Width, shrunk.Value.Height);
+            }
+        }
+
+        var imageBase64 = Convert.ToBase64String(imageBytes);
         var configuredPromptTemplate = GetOptional(config, "PosterLayoutDetectPrompt")
             ?? DefaultPosterLayoutDetectPrompt;
         var promptVariables = CreatePosterPromptVariables(title, title, null, null);
@@ -1280,6 +1295,34 @@ JSON 结构：
         }
 
         return null;
+    }
+
+    private static async Task<(byte[] Bytes, int Width, int Height)?> TryShrinkLayoutUploadAsync(
+        byte[] imageBytes,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var image = Image.Load<Rgb24>(imageBytes);
+            var longSide = Math.Max(image.Width, image.Height);
+            if (longSide > FastLayoutUploadLongSide)
+            {
+                var scale = FastLayoutUploadLongSide / (double)longSide;
+                image.Mutate(context => context.Resize(
+                    Math.Max(1, (int)Math.Round(image.Width * scale)),
+                    Math.Max(1, (int)Math.Round(image.Height * scale))));
+            }
+
+            await using var output = new MemoryStream();
+            await image.SaveAsJpegAsync(output, new JpegEncoder { Quality = 85 }, cancellationToken).ConfigureAwait(false);
+            return output.Length < imageBytes.LongLength
+                ? (output.ToArray(), image.Width, image.Height)
+                : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     private static async Task<byte[]> EncodeUploadJpegAsync(byte[] imageBytes, CancellationToken cancellationToken)
