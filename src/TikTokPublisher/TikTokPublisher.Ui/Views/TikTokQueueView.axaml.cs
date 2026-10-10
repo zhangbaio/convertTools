@@ -3794,6 +3794,17 @@ public partial class TikTokQueueView : UserControl
         await vm.DeleteSelectedQueueProjectsAsync(rows);
     }
 
+    private async void OnLookupOriginalDramaClick(object? sender, RoutedEventArgs e)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var vm = _vm;
+        if (owner is null || vm is null)
+            return;
+        var settings = ClientSettingsStore.Load();
+        var path = TikTokExcelExportService.ResolveReportPath(vm.SelectedAccount?.Model, settings);
+        await OriginalDramaLookupDialog.ShowAsync(owner, path, settings);
+    }
+
     private async void OnExportExcelClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;

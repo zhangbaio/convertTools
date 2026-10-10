@@ -134,7 +134,9 @@ public sealed class HongguoHighApiService
         IReadOnlyList<DramaSearchItem> legacy = [];
         try
         {
-            legacy = await SearchLegacyNovelFmAsync(keyword, page, cancellationToken);
+            legacy = (await SearchLegacyNovelFmAsync(keyword, page, cancellationToken))
+                .Select(item => item.Item)
+                .ToArray();
             if (legacy.Count > 0 && HasRelevantSearchResult(legacy, keyword))
                 return await EnrichBestSearchItemFromDirectoryAsync(legacy, keyword, cancellationToken);
         }
@@ -149,7 +151,9 @@ public sealed class HongguoHighApiService
 
         try
         {
-            var latest = await SearchLatestClientApiAsync(settings, keyword, page, cancellationToken);
+            var latest = (await SearchLatestClientApiAsync(settings, keyword, page, cancellationToken))
+                .Select(item => item.Item)
+                .ToList();
             if (latest.Count > 0)
                 return await EnrichBestSearchItemFromDirectoryAsync(latest, keyword, cancellationToken);
         }
@@ -163,6 +167,136 @@ public sealed class HongguoHighApiService
         }
 
         return await EnrichBestSearchItemFromDirectoryAsync(legacy, keyword, cancellationToken);
+    }
+
+    public async Task<HongguoDramaLookupHit> LookupExactTitleAsync(
+        DramaSourceSettings settings,
+        string keyword,
+        CancellationToken cancellationToken)
+    {
+        var trimmed = (keyword ?? "").Trim();
+        if (trimmed.Length == 0)
+            return HongguoDramaLookupHit.Empty;
+
+        List<SearchCapture> captures = [];
+        var searched = false;
+        Exception? signedError = null;
+        try
+        {
+            captures = await SearchLatestClientApiAsync(settings, trimmed, 1, cancellationToken);
+            searched = true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            signedError = ex;
+            captures = [];
+        }
+
+        var exact = PickExactCaptures(captures, trimmed);
+        if (exact.Count == 0)
+        {
+            try
+            {
+                var legacy = await SearchLegacyNovelFmAsync(trimmed, 1, cancellationToken);
+                searched = true;
+                if (legacy.Count > 0)
+                    captures = legacy;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (!searched)
+                {
+                    var message = string.IsNullOrWhiteSpace(signedError?.Message) ? ex.Message : signedError.Message;
+                    throw new InvalidOperationException(string.IsNullOrWhiteSpace(message) ? "搜索失败" : message, ex);
+                }
+            }
+
+            exact = PickExactCaptures(captures, trimmed);
+        }
+
+        var candidates = captures
+            .Select(item => item.Item.Title)
+            .Where(title => !string.IsNullOrWhiteSpace(title))
+            .Distinct(StringComparer.Ordinal)
+            .Take(8)
+            .ToArray();
+        if (exact.Count == 0)
+            return new HongguoDramaLookupHit("", "", "", "", [], candidates);
+
+        var chosen = exact[0];
+        var merged = chosen.Raw.DeepClone().AsObject();
+        try
+        {
+            var rawBookId = HongguoHighCrypto.StripBookPrefix(chosen.Item.BookId);
+            if (!string.IsNullOrWhiteSpace(rawBookId))
+            {
+                var directory = await FetchFanqieDirectoryDataAsync(rawBookId, cancellationToken);
+                if (directory["book_info"] is JsonObject bookInfo)
+                    MergeMissingFields(merged, bookInfo);
+                else if (directory["bookInfo"] is JsonObject camelBookInfo)
+                    MergeMissingFields(merged, camelBookInfo);
+                if (directory["item_list"] is JsonArray episodes && episodes.Count > 0 &&
+                    !merged.ContainsKey("episode_total"))
+                    merged["episode_total"] = JsonValue.Create(episodes.Count);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // The search payload still supplies the fields that were already present.
+        }
+
+        var read = HongguoDramaFieldReader.Read(merged);
+        return new HongguoDramaLookupHit(
+            chosen.Item.Title,
+            chosen.Item.BookId,
+            read.Orientation,
+            read.Genre,
+            read.Fields,
+            candidates);
+    }
+
+    private static List<SearchCapture> PickExactCaptures(IReadOnlyList<SearchCapture> captures, string keyword)
+    {
+        var normalized = NormalizeSearchTitle(keyword);
+        return captures
+            .Where(item => string.Equals(NormalizeSearchTitle(item.Item.Title), normalized, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private static bool IsMissingJsonValue(JsonNode? node)
+    {
+        if (node is null)
+            return true;
+        if (node is JsonValue value && value.TryGetValue<string>(out var text))
+            return string.IsNullOrWhiteSpace(text);
+        if (node is JsonArray array)
+            return array.Count == 0;
+        if (node is JsonObject obj)
+            return obj.Count == 0;
+        return false;
+    }
+
+    private static void MergeMissingFields(JsonObject target, JsonObject source)
+    {
+        foreach (var property in source)
+        {
+            if (property.Value is null)
+                continue;
+            if (!target.TryGetPropertyValue(property.Key, out var existing) || IsMissingJsonValue(existing))
+                target[property.Key] = property.Value.DeepClone();
+        }
     }
 
     private static bool HasRelevantSearchResult(IReadOnlyList<DramaSearchItem> items, string keyword)
@@ -180,7 +314,7 @@ public sealed class HongguoHighApiService
     private static string NormalizeSearchTitle(string? value) =>
         new((value ?? "").Where(char.IsLetterOrDigit).ToArray());
 
-    private async Task<IReadOnlyList<DramaSearchItem>> SearchLatestClientApiAsync(
+    private async Task<List<SearchCapture>> SearchLatestClientApiAsync(
         DramaSourceSettings settings,
         string keyword,
         int page,
@@ -254,18 +388,18 @@ public sealed class HongguoHighApiService
             ? await ExecuteSignedFanqieRequestAsync(descriptor, [], 60, cancellationToken)
             : await ExecuteSignedRequestForTests(descriptor, [], 60, cancellationToken);
 
-        var results = new List<DramaSearchItem>();
+        var results = new List<SearchCapture>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var raw in HongguoHighCalendarMapper.ExtractSearchTabItems(payload))
         {
             var item = HongguoHighCalendarMapper.TryMapItem(raw);
             if (item is not null && seen.Add(item.BookId))
-                results.Add(item);
+                results.Add(new SearchCapture(item, raw));
         }
         return results;
     }
 
-    private async Task<IReadOnlyList<DramaSearchItem>> SearchLegacyNovelFmAsync(
+    private async Task<List<SearchCapture>> SearchLegacyNovelFmAsync(
         string keyword,
         int page,
         CancellationToken cancellationToken)
@@ -304,7 +438,7 @@ public sealed class HongguoHighApiService
             return [];
         }
 
-        var results = new List<DramaSearchItem>();
+        var results = new List<SearchCapture>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var entryNode in searchData)
         {
@@ -321,35 +455,39 @@ public sealed class HongguoHighApiService
                 continue;
             }
 
-            results.Add(new DramaSearchItem(
-                BookId: HongguoHighCrypto.EnsureBookPrefix(bookId),
-                Title: GetString(book, "book_name") ?? GetString(book, "title") ?? "",
-                Category: GetString(book, "category") ?? "",
-                EpisodeTotal: HongguoHighCalendarMapper.ReadEpisodeTotal(book),
-                Intro: GetString(book, "abstract") ?? "",
-                PosterUrl: FirstHttpUrl(
-                    GetString(book, "thumb_url"),
-                    GetString(book, "cover"),
-                    GetString(book, "series_cover"),
-                    GetString(book, "cover_url"),
-                    GetString(book, "poster"),
-                    GetString(book, "audio_thumb_uri"),
-                    GetString(book, "thumb_uri")) ?? "",
-                Author: FirstMeaningfulString(
-                    book,
-                    entry,
-                    "author",
-                    "author_name",
-                    "authorName",
-                    "anchor",
-                    "producer",
-                    "copyright"),
-                PublishTime: "",
-                FavoriteCount: GetInt(book, "favorite_count") ?? 0));
+            results.Add(new SearchCapture(
+                new DramaSearchItem(
+                    BookId: HongguoHighCrypto.EnsureBookPrefix(bookId),
+                    Title: GetString(book, "book_name") ?? GetString(book, "title") ?? "",
+                    Category: GetString(book, "category") ?? "",
+                    EpisodeTotal: HongguoHighCalendarMapper.ReadEpisodeTotal(book),
+                    Intro: GetString(book, "abstract") ?? "",
+                    PosterUrl: FirstHttpUrl(
+                        GetString(book, "thumb_url"),
+                        GetString(book, "cover"),
+                        GetString(book, "series_cover"),
+                        GetString(book, "cover_url"),
+                        GetString(book, "poster"),
+                        GetString(book, "audio_thumb_uri"),
+                        GetString(book, "thumb_uri")) ?? "",
+                    Author: FirstMeaningfulString(
+                        book,
+                        entry,
+                        "author",
+                        "author_name",
+                        "authorName",
+                        "anchor",
+                        "producer",
+                        "copyright"),
+                    PublishTime: "",
+                    FavoriteCount: GetInt(book, "favorite_count") ?? 0),
+                book));
         }
 
         return results;
     }
+
+    private sealed record SearchCapture(DramaSearchItem Item, JsonObject Raw);
 
     private async Task<IReadOnlyList<DramaSearchItem>> EnrichSearchItemsFromDirectoryAsync(
         IReadOnlyList<DramaSearchItem> items,
