@@ -551,6 +551,82 @@ public sealed class HongguoHighDramaChainTests
     }
 
     [Fact]
+    public async Task SearchAsync_Comic_Category_Uses_Tab_Type_19()
+    {
+        using var httpClient = new HttpClient(new FailAllHandler());
+        var service = new HongguoHighApiService(httpClient);
+        var settings = new DramaSourceSettings
+        {
+            DramaSourceChain = "hghigh",
+            HghighAccount = "high@example.com",
+            HghighPassword = "secret"
+        };
+        JsonObject? capturedSpec = null;
+        service.AuthedRequestForTests = (_, path, spec, _, _) =>
+        {
+            path.Should().Be("/redguo/sign");
+            capturedSpec = spec.DeepClone().AsObject();
+            return Task.FromResult<JsonNode?>(new JsonObject
+            {
+                ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
+                ["path"] = "/reading/bookapi/search/tab/v",
+                ["method"] = "GET",
+            });
+        };
+        service.ExecuteSignedRequestForTests = (_, _, _, _) =>
+            Task.FromResult<JsonNode?>(JsonNode.Parse("""
+                {
+                  "data": {
+                    "search_data": [{
+                      "book_id": "7677524795017137177",
+                      "video_data": [{
+                        "series_id": "7677524795017137177",
+                        "title": "大壮之重生卤菜大王",
+                        "play_cnt": 312000
+                      }]
+                    }]
+                  }
+                }
+                """));
+
+        var results = await service.SearchAsync(settings, "大壮之重生卤菜大王", 1, CancellationToken.None, DramaSearchCategory.Comic);
+
+        results.Should().ContainSingle();
+        results[0].PlayCount.Should().Be(312000);
+        capturedSpec.Should().NotBeNull();
+        capturedSpec!["params"]!.AsObject()["tab_type"]!.GetValue<int>().Should().Be(19);
+        capturedSpec["params"]!.AsObject()["search_id"]!.GetValue<string>().Should().StartWith("clks####19@");
+    }
+
+    [Fact]
+    public void TryMapItem_Reads_PlayCount_Or_Zero()
+    {
+        var withPlay = HongguoHighCalendarMapper.TryMapItem(JsonNode.Parse("""
+            {"book_id":"1","title":"A","play_cnt":325753,"favorite_count":8}
+            """)!.AsObject());
+        withPlay!.PlayCount.Should().Be(325753);
+        withPlay.FavoriteCount.Should().Be(8);
+
+        var missing = HongguoHighCalendarMapper.TryMapItem(JsonNode.Parse("""
+            {"book_id":"2","title":"B","show_play_cnt":true}
+            """)!.AsObject());
+        missing!.PlayCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void Search_Category_Maps_Signed_Tabs()
+    {
+        DramaSearchCategory.Normalize(null).Should().Be(DramaSearchCategory.Comic);
+        DramaSearchCategory.SignedTabType(DramaSearchCategory.Comic).Should().Be(19);
+        DramaSearchCategory.SignedTabType(DramaSearchCategory.Short).Should().Be(11);
+        DramaSearchCategory.SignedTabType(DramaSearchCategory.Collection).Should().Be(23);
+        DramaSearchCategory.SignedTabType(DramaSearchCategory.Default).Should().Be(11);
+        DramaSearchCategory.UseNovelFm(null).Should().BeTrue();
+        DramaSearchCategory.UseNovelFm(DramaSearchCategory.Short).Should().BeFalse();
+        DramaSearchCategory.UseNovelFm(DramaSearchCategory.Comic).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task SearchAsync_Falls_Back_To_Novelfm_When_V216_Signing_Is_Unavailable()
     {
         var handler = new HighSearchAndDirectoryHandler();

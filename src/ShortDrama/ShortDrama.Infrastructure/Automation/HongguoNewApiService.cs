@@ -966,7 +966,8 @@ public sealed partial class HongguoNewApiService
             FavoriteCount: GetIntValue(item, "favorite_count")
                 ?? GetIntValue(item, "collect_count")
                 ?? GetIntValue(item, "favorite")
-                ?? 0);
+                ?? 0,
+            PlayCount: FirstPlayCount(item));
     }
 
     private static int ResolveEpisodeTotal(Dictionary<string, object?> item, string category)
@@ -1064,6 +1065,20 @@ public sealed partial class HongguoNewApiService
             IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
             _ => value.ToString()?.Trim()
         };
+    }
+
+    private static int FirstPlayCount(IReadOnlyDictionary<string, object?> values)
+    {
+        foreach (var key in new[] { "read_count", "play_count", "play_cnt", "play_num", "read_cnt", "view_count" })
+        {
+            var value = GetIntValue(values, key);
+            if (value is > 0)
+            {
+                return value.Value;
+            }
+        }
+
+        return 0;
     }
 
     private static int? GetIntValue(IReadOnlyDictionary<string, object?> values, string key)

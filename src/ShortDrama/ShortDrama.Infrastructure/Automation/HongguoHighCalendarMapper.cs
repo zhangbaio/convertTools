@@ -234,7 +234,8 @@ public static class HongguoHighCalendarMapper
             PosterUrl: FirstMediaUrl(obj, CoverKeys, nested) ?? ExtractMediaUrl(obj) ?? "",
             Author: FirstMeaningful(obj, AuthorKeys, nested) ?? "",
             PublishTime: NormalizePublishTime(CollectPublishValues(obj, nested)),
-            FavoriteCount: FirstPositiveInt(obj, ["favorite_count", "followed_cnt", "collect_count", "add_bookshelf_count", "addBookshelfCount"], nested));
+            FavoriteCount: FirstPositiveInt(obj, ["favorite_count", "followed_cnt", "collect_count", "add_bookshelf_count", "addBookshelfCount"], nested),
+            PlayCount: FirstPositiveInt(obj, PlayCountKeys, nested));
     }
 
     public static DramaSearchItem ApplyBookInfo(DramaSearchItem item, JsonObject bookInfo)
@@ -263,6 +264,9 @@ public static class HongguoHighCalendarMapper
         var favorite = item.FavoriteCount > 0
             ? item.FavoriteCount
             : FirstPositiveInt(bookInfo, ["add_bookshelf_count", "addBookshelfCount", "collect_count", "favorite_count"], []);
+        var playCount = item.PlayCount > 0
+            ? item.PlayCount
+            : FirstPositiveInt(bookInfo, PlayCountKeys, []);
         return item with
         {
             Author = author,
@@ -271,7 +275,8 @@ public static class HongguoHighCalendarMapper
             PublishTime = publishTime,
             Intro = intro,
             PosterUrl = poster,
-            FavoriteCount = favorite
+            FavoriteCount = favorite,
+            PlayCount = playCount
         };
     }
 
@@ -649,6 +654,16 @@ public static class HongguoHighCalendarMapper
 
         return uri.AbsoluteUri;
     }
+
+    private static readonly string[] PlayCountKeys =
+    [
+        "read_count",
+        "play_count",
+        "play_cnt",
+        "play_num",
+        "read_cnt",
+        "view_count"
+    ];
 
     private static int FirstPositiveInt(JsonObject obj, IEnumerable<string> keys, IReadOnlyList<JsonObject> nested)
     {

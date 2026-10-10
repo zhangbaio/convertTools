@@ -340,7 +340,8 @@ public sealed class MapleleafApiService
             ReadString(item, "CoverUrl", "cover", "coverUrl"),
             ReadString(item, "Author", "author"),
             ReadString(item, "OnlineTimeStr", "online_time", "onlineTime"),
-            ReadInt(item, "PlayCountStr", "favorite_count", "play_cnt", "playCnt") ?? 0);
+            ReadInt(item, "PlayCountStr", "favorite_count", "play_cnt", "playCnt") ?? 0,
+            ReadInt(item, "play_cnt", "playCnt", "read_count", "play_count", "PlayCountStr") ?? 0);
 
     public async Task<MapleleafVideoPlayback> GetVideoPlaybackAsync(
         DramaSourceSettings settings,
@@ -808,7 +809,8 @@ public sealed class MapleleafApiService
             First("cover", "cover_url", "coverUrl", "thumb_url", "poster"),
             First("author", "author_name", "authorName"),
             publishTime,
-            ReadInt(item, "favorite_count", "play_cnt", "playCnt") ?? ReadInt(nested, "favorite_count", "play_cnt") ?? 0);
+            ReadInt(item, "favorite_count", "play_cnt", "playCnt") ?? ReadInt(nested, "favorite_count", "play_cnt") ?? 0,
+            ReadInt(item, "play_cnt", "playCnt", "read_count", "play_count") ?? ReadInt(nested, "play_cnt", "playCnt", "read_count", "play_count") ?? 0);
     }
 
     private static List<JsonObject> ExtractItems(JsonNode? inner, string label)

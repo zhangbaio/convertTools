@@ -129,29 +129,45 @@ public sealed class HongguoHighApiService
         DramaSourceSettings settings,
         string keyword,
         int page,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? searchCategory = null)
     {
+        if (string.Equals(searchCategory?.Trim(), DramaSearchCategory.BookId, StringComparison.Ordinal))
+        {
+            var byId = await TrySearchByBookIdAsync(keyword, cancellationToken);
+            if (byId.Count > 0)
+            {
+                return byId;
+            }
+        }
+
+        var tabType = string.IsNullOrWhiteSpace(searchCategory)
+            ? 11
+            : DramaSearchCategory.SignedTabType(searchCategory);
         IReadOnlyList<DramaSearchItem> legacy = [];
-        try
+        if (DramaSearchCategory.UseNovelFm(searchCategory))
         {
-            legacy = (await SearchLegacyNovelFmAsync(keyword, page, cancellationToken))
-                .Select(item => item.Item)
-                .ToArray();
-            if (legacy.Count > 0 && HasRelevantSearchResult(legacy, keyword))
-                return await EnrichBestSearchItemFromDirectoryAsync(legacy, keyword, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch
-        {
-            // The signed client endpoint below remains available when NovelFM is unavailable.
+            try
+            {
+                legacy = (await SearchLegacyNovelFmAsync(keyword, page, cancellationToken))
+                    .Select(item => item.Item)
+                    .ToArray();
+                if (legacy.Count > 0 && HasRelevantSearchResult(legacy, keyword))
+                    return await EnrichBestSearchItemFromDirectoryAsync(legacy, keyword, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // The signed client endpoint below remains available when NovelFM is unavailable.
+            }
         }
 
         try
         {
-            var latest = (await SearchLatestClientApiAsync(settings, keyword, page, cancellationToken))
+            var latest = (await SearchLatestClientApiAsync(settings, keyword, page, cancellationToken, tabType))
                 .Select(item => item.Item)
                 .ToList();
             if (latest.Count > 0)
@@ -314,11 +330,56 @@ public sealed class HongguoHighApiService
     private static string NormalizeSearchTitle(string? value) =>
         new((value ?? "").Where(char.IsLetterOrDigit).ToArray());
 
+    private async Task<IReadOnlyList<DramaSearchItem>> TrySearchByBookIdAsync(
+        string keyword,
+        CancellationToken cancellationToken)
+    {
+        var rawBookId = HongguoHighCrypto.StripBookPrefix((keyword ?? string.Empty).Trim());
+        if (rawBookId.Length == 0 || !rawBookId.All(char.IsDigit))
+        {
+            return [];
+        }
+
+        try
+        {
+            var directory = await FetchFanqieDirectoryDataAsync(rawBookId, cancellationToken);
+            var info = directory["book_info"] as JsonObject ?? directory["bookInfo"] as JsonObject;
+            if (info is null)
+            {
+                return [];
+            }
+
+            if (!info.ContainsKey("book_id") && !info.ContainsKey("bookId"))
+            {
+                info["book_id"] = rawBookId;
+            }
+
+            var item = HongguoHighCalendarMapper.TryMapItem(info);
+            if (item is null)
+            {
+                return [];
+            }
+
+            var enriched = HongguoHighCalendarMapper.ApplyBookInfo(item, info);
+            var actualCount = directory["item_list"] is JsonArray episodes ? episodes.Count : 0;
+            return [actualCount > 0 ? enriched with { EpisodeTotal = actualCount } : enriched];
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private async Task<List<SearchCapture>> SearchLatestClientApiAsync(
         DramaSourceSettings settings,
         string keyword,
         int page,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int tabType = 11)
     {
         var trimmed = (keyword ?? "").Trim();
         if (trimmed.Length == 0)
@@ -366,12 +427,12 @@ public sealed class HongguoHighApiService
                 ["is_android_pad_screen"] = 0,
                 ["rom_version"] = "ColorOS_12.1_LE2100_12_C.63",
                 ["query"] = trimmed,
-                ["tab_type"] = 11,
+                ["tab_type"] = tabType,
                 ["offset"] = offset,
                 ["count"] = 20,
                 ["search_source"] = 1,
                 ["gender"] = 2,
-                ["search_id"] = $"clks####11@{now.ToUnixTimeSeconds()}",
+                ["search_id"] = $"clks####{tabType}@{now.ToUnixTimeSeconds()}",
                 ["normal_session_cnt_in_day"] = 10,
                 ["cold_start_session_cnt_in_day"] = 4,
                 ["normal_session_id"] = normalSessionId,
@@ -480,7 +541,8 @@ public sealed class HongguoHighApiService
                         "producer",
                         "copyright"),
                     PublishTime: "",
-                    FavoriteCount: GetInt(book, "favorite_count") ?? 0),
+                    FavoriteCount: GetInt(book, "favorite_count") ?? 0,
+                    PlayCount: DramaPlayCount.Read(book, GetInt)),
                 book));
         }
 

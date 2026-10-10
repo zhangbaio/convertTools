@@ -165,7 +165,8 @@ public sealed class DownloaderGatewayApiService(HttpClient httpClient)
                 GetString(item, "cover") ?? string.Empty,
                 GetString(item, "author") ?? string.Empty,
                 GetString(item, "publish_time") ?? string.Empty,
-                GetInt(item, "favorite_count") ?? 0))
+                GetInt(item, "favorite_count") ?? 0,
+                DramaPlayCount.Read(item, GetInt)))
             .Where(item => item.BookId.Length > BookPrefix.Length)
             .ToArray();
     }

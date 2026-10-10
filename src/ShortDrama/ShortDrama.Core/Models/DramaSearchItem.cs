@@ -9,4 +9,5 @@ public sealed record DramaSearchItem(
     string PosterUrl,
     string Author = "",
     string PublishTime = "",
-    int FavoriteCount = 0);
+    int FavoriteCount = 0,
+    int PlayCount = 0);

@@ -38,13 +38,20 @@ public static class ShortDramaDramaServices
         }
     }
 
+    public static Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
+        string keyword,
+        int page,
+        CancellationToken cancellationToken) =>
+        SearchAsync(keyword, page, cancellationToken, searchCategory: null);
+
     public static async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
         string keyword,
         int page,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? searchCategory)
     {
         RefreshSettings();
-        var items = await Search.SearchAsync(keyword, page, cancellationToken);
+        var items = await Router.Value.SearchAsync(keyword, page, cancellationToken, searchCategory);
         return items.Select(FromCore).ToArray();
     }
 
@@ -202,6 +209,7 @@ public static class ShortDramaDramaServices
         Author = core.Author,
         PublishTime = core.PublishTime,
         FavoriteCount = core.FavoriteCount,
+        PlayCount = core.PlayCount,
     };
 
     private static CoreSearchItem ToCore(DramaSearchItem item) => new(
@@ -213,7 +221,8 @@ public static class ShortDramaDramaServices
         PosterUrl: item.PosterUrl,
         Author: item.Author,
         PublishTime: item.PublishTime,
-        FavoriteCount: item.FavoriteCount);
+        FavoriteCount: item.FavoriteCount,
+        PlayCount: item.PlayCount);
 
     private static string NormalizeEpisodeNumberMode(string? value)
     {

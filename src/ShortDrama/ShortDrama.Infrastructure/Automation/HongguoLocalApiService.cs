@@ -336,7 +336,8 @@ public sealed class HongguoLocalApiService
             PosterUrl: GetString(item, "cover") ?? GetString(item, "poster") ?? GetString(item, "poster_url") ?? string.Empty,
             Author: GetString(item, "author") ?? GetString(item, "producer") ?? GetString(item, "copyright") ?? string.Empty,
             PublishTime: GetString(item, "publish_time") ?? GetString(item, "first_seen") ?? GetString(item, "created_at") ?? string.Empty,
-            FavoriteCount: GetInt(item, "favorite_count") ?? GetInt(item, "collect_count") ?? 0);
+            FavoriteCount: GetInt(item, "favorite_count") ?? GetInt(item, "collect_count") ?? 0,
+            PlayCount: DramaPlayCount.Read(item, GetInt));
     }
 
     private static IReadOnlyList<DramaSearchItem> FilterByRecentDays(

@@ -116,7 +116,8 @@ public sealed class HongguoDramaSearchService : IDramaSearchService
             FavoriteCount: GetInt(item, "favorite_count")
                 ?? GetInt(item, "collect_count")
                 ?? GetInt(item, "favorite")
-                ?? 0);
+                ?? 0,
+            PlayCount: DramaPlayCount.Read(item, GetInt));
     }
 
     private static int ResolveEpisodeTotal(System.Text.Json.JsonElement item, string category)

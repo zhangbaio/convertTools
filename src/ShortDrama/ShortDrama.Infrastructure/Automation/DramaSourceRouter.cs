@@ -115,10 +115,17 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         _downloaderApiService = new DownloaderGatewayApiService(httpClient);
     }
 
+    public Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
+        string keyword,
+        int page,
+        CancellationToken cancellationToken) =>
+        SearchAsync(keyword, page, cancellationToken, searchCategory: null);
+
     public async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
         string keyword,
         int page,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? searchCategory)
     {
         var settings = _settingsProvider.Get();
         var source = ResolveSelectedService(settings.DramaSourceChain, SearchServices);
@@ -126,8 +133,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         {
             "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
             "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
-            "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken),
-            "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken),
+            "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken, searchCategory),
+            "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken, searchCategory),
             "mapleleaf" => await _mapleleafApiService.SearchAsync(settings, keyword, page, cancellationToken),
             "downloader" => await _downloaderApiService.SearchAsync(settings, keyword, page, cancellationToken),
             _ => []
@@ -2015,12 +2022,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string keyword,
         int page,
         DramaSourceSettings settings,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? searchCategory = null)
     {
         using var document = await PikachuDramaClient.RequestFanqieSearchAsync(
             _httpClient,
             settings.PikachuFanqieCookie,
-            settings.PikachuDramaType,
+            ResolvePikachuDramaType(settings, searchCategory),
             keyword,
             page,
             cancellationToken);
@@ -2077,11 +2085,27 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     PosterUrl: GetString(info, "thumb_url") ?? string.Empty,
                     Author: GetString(info, "author") ?? string.Empty,
                     PublishTime: GetString(info, "create_time") ?? string.Empty,
-                    FavoriteCount: GetInt(info, "favorite_count") ?? GetInt(info, "collect_count") ?? 0));
+                    FavoriteCount: GetInt(info, "favorite_count") ?? GetInt(info, "collect_count") ?? 0,
+                    PlayCount: DramaPlayCount.Read(info, GetInt)));
             }
         }
 
         return results;
+    }
+
+    private static string ResolvePikachuDramaType(DramaSourceSettings settings, string? searchCategory)
+    {
+        if (string.IsNullOrWhiteSpace(searchCategory))
+        {
+            return settings.PikachuDramaType;
+        }
+
+        return DramaSearchCategory.Normalize(searchCategory) switch
+        {
+            DramaSearchCategory.Comic => "manga",
+            DramaSearchCategory.Short => "short",
+            _ => settings.PikachuDramaType
+        };
     }
 
     private static bool IsPikachuDramaBookInfo(JsonElement info)
@@ -2172,7 +2196,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 PosterUrl: GetString(item, "cover") ?? GetString(item, "poster") ?? GetString(item, "poster_url") ?? string.Empty,
                 Author: GetString(item, "author") ?? GetString(item, "producer") ?? GetString(item, "copyright") ?? string.Empty,
                 PublishTime: GetString(item, "publish_time") ?? GetString(item, "first_seen") ?? GetString(item, "created_at") ?? string.Empty,
-                FavoriteCount: GetInt(item, "favorite_count") ?? GetInt(item, "collect_count") ?? 0))
+                FavoriteCount: GetInt(item, "favorite_count") ?? GetInt(item, "collect_count") ?? 0,
+                PlayCount: DramaPlayCount.Read(item, GetInt)))
             .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
             .ToArray();
     }

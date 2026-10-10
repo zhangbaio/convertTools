@@ -67,6 +67,7 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     public string Author => string.IsNullOrWhiteSpace(Item.Author) ? "-" : Item.Author;
     public int EpisodeTotal => Item.EpisodeTotal;
     public string FavoriteText => Item.FavoriteCount > 0 ? Item.FavoriteCount.ToString() : "-";
+    public string PlayCountText => Item.PlayCount.ToString(CultureInfo.InvariantCulture);
     public string Category => string.IsNullOrWhiteSpace(Item.Category) ? "-" : Item.Category;
     public string PublishTime => string.IsNullOrWhiteSpace(Item.PublishTime) ? "-" : Item.PublishTime;
     public string Intro => Item.Intro;
@@ -82,6 +83,7 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(Author));
         OnPropertyChanged(nameof(EpisodeTotal));
         OnPropertyChanged(nameof(FavoriteText));
+        OnPropertyChanged(nameof(PlayCountText));
         OnPropertyChanged(nameof(Category));
         OnPropertyChanged(nameof(PublishTime));
         OnPropertyChanged(nameof(Intro));
@@ -243,11 +245,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public ObservableCollection<DramaSearchRowViewModel> SearchResults { get; } = new();
     public ObservableCollection<DramaQueueRowViewModel> QueueRows { get; } = new();
 
+    public IReadOnlyList<string> SearchCategoryOptions { get; } = ["漫剧", "短剧", "合集", "默认", "短剧ID"];
     public IReadOnlyList<string> SearchViewModeOptions { get; } = ["列表视图", "封面视图"];
     public IReadOnlyList<string> EpisodeRangeOptions { get; } = ["全部", "前1集", "前3集", "前5集", "自定义"];
 
     [ObservableProperty] private string _downloadWorkspace = "";
     [ObservableProperty] private string _searchKeyword = "";
+    [ObservableProperty] private string _searchCategory = "漫剧";
     [ObservableProperty] private int _searchPage = 1;
     [ObservableProperty] private bool _exactSearch;
     [ObservableProperty] private int _queryDays = 1;
@@ -392,7 +396,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             {
                 if (string.IsNullOrWhiteSpace(keyword))
                     return await LoadMergedNewReleaseAsync(ct);
-                return await ShortDramaDramaServices.SearchAsync(keyword, SearchPage, ct);
+                return await ShortDramaDramaServices.SearchAsync(keyword, SearchPage, ct, SearchCategory);
             },
             sourceMode: "");
     }
@@ -874,6 +878,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 Category = item.Category,
                 EpisodeTotal = item.EpisodeTotal,
                 FavoriteCount = item.FavoriteCount,
+                PlayCount = item.PlayCount,
                 PublishTime = item.PublishTime,
                 PosterUrl = item.PosterUrl,
             };
@@ -1190,6 +1195,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         target.Intro = source.Intro;
         target.PosterUrl = source.PosterUrl;
         target.FavoriteCount = source.FavoriteCount;
+        target.PlayCount = source.PlayCount;
     }
 
     private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
@@ -1415,6 +1421,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         target.Category = source.Category;
         target.EpisodeTotal = source.EpisodeTotal;
         target.FavoriteCount = source.FavoriteCount;
+        target.PlayCount = source.PlayCount;
         target.PublishTime = source.PublishTime;
         target.PosterUrl = source.PosterUrl;
     }
