@@ -226,6 +226,24 @@ public sealed class PosterTitleVerificationServiceTests
         capturedPrompt.Should().Contain("唯一允许出现");
     }
 
+    [Theory]
+    [InlineData("标题校验接口请求超时（90 秒，流式）", true)]
+    [InlineData("标题校验接口暂不可用：Connection reset", true)]
+    [InlineData("标题校验未返回内容", true)]
+    [InlineData("未检测到主标题文字，不能确认标题正确", false)]
+    public void IsTitleVerifyInterfaceFailure_only_matches_interface_problems(string reason, bool expected)
+    {
+        PosterRenamer.IsTitleVerifyInterfaceFailure(PosterTitleVerifyResult.Inconclusive(reason))
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsTitleVerifyInterfaceFailure_ignores_definite_failures()
+    {
+        PosterRenamer.IsTitleVerifyInterfaceFailure(PosterTitleVerifyResult.Fail("标题校验接口识别标题为“错字”"))
+            .Should().BeFalse();
+    }
+
     [Fact]
     public async Task VerifyAsync_marks_http_failure_as_inconclusive()
     {

@@ -75,6 +75,8 @@ internal static class QueueStepResourceScheduler
             QueueWorkloadResource.Visual,
         QueueStepRegistry.GenerateTimestampCertificate =>
             QueueWorkloadResource.Document,
+        QueueStepRegistry.GeneratePoster =>
+            QueueWorkloadResource.ImageGeneration,
         _ => null,
     };
 }

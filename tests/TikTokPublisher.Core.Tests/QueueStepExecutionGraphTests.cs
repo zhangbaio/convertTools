@@ -103,6 +103,35 @@ public sealed class QueueStepExecutionGraphTests
     }
 
     [Fact]
+    public async Task PosterStep_Uses_Global_Image_Generation_Limit()
+    {
+        QueueWorkloadResourceScheduler.Configure(new ClientSettings { TiktokImageGenerationConcurrency = 1 });
+        var running = 0;
+        var maximum = 0;
+        try
+        {
+            var tasks = Enumerable.Range(0, 4).Select(_ =>
+                QueueStepResourceScheduler.RunAsync(
+                    QueueStepRegistry.GeneratePoster,
+                    async () =>
+                    {
+                        var current = Interlocked.Increment(ref running);
+                        maximum = Math.Max(maximum, current);
+                        try { await Task.Delay(25); }
+                        finally { Interlocked.Decrement(ref running); }
+                    },
+                    log: null,
+                    CancellationToken.None));
+            await Task.WhenAll(tasks);
+            maximum.Should().Be(1);
+        }
+        finally
+        {
+            QueueWorkloadResourceScheduler.Configure(new ClientSettings());
+        }
+    }
+
+    [Fact]
     public async Task GenericResourceScheduler_DelegatesToNonGenericGateWithoutRecursion()
     {
         var settings = new ClientSettings { TiktokAiTextConcurrency = 2 };

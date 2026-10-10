@@ -85,7 +85,7 @@ public sealed partial class PosterRenamer
         }
 
         var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
-        var verifyResult = await VerifyTitleWithFullImageConfirmationAsync(
+        var verifyResult = await VerifyGeneratedTitleAsync(
             config,
             outputPath,
             title,
@@ -291,7 +291,7 @@ public sealed partial class PosterRenamer
                 return;
 
             var layout = await DetectPosterLayoutAsync(configFile, outputPath, title, request.Log, cancellationToken);
-            var verifyResult = await VerifyTitleWithFullImageConfirmationAsync(
+            var verifyResult = await VerifyGeneratedTitleAsync(
                 config,
                 outputPath,
                 title,
@@ -628,6 +628,30 @@ public sealed partial class PosterRenamer
             Log(request, $"保存标题校验诊断时出错，继续执行兜底：{ex.Message}");
         }
     }
+
+    private async Task<PosterTitleVerifyResult> VerifyGeneratedTitleAsync(
+        IReadOnlyDictionary<string, string> config,
+        string imagePath,
+        string title,
+        PosterLayout detectedLayout,
+        PosterRenameRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await VerifyTitleWithFullImageConfirmationAsync(
+            config, imagePath, title, detectedLayout, request, cancellationToken).ConfigureAwait(false);
+        if (!IsTitleVerifyInterfaceFailure(result))
+            return result;
+
+        Log(request, $"标题校验接口没有返回结果，重新校验一次：{result.Reason}");
+        return await VerifyTitleWithFullImageConfirmationAsync(
+            config, imagePath, title, detectedLayout, request, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static bool IsTitleVerifyInterfaceFailure(PosterTitleVerifyResult result) =>
+        result.IsInconclusive &&
+        !result.HasResidualText &&
+        (result.Reason ?? "") is var reason &&
+        (reason.Contains("接口", StringComparison.Ordinal) || reason.Contains("未返回", StringComparison.Ordinal));
 
     private async Task<PosterTitleVerifyResult> VerifyTitleWithFullImageConfirmationAsync(
         IReadOnlyDictionary<string, string> config,
