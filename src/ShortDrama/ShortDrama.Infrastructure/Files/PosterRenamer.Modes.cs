@@ -650,8 +650,8 @@ public sealed partial class PosterRenamer
         else
         {
             Log(request, croppedVerify.IsInconclusive
-                ? "标题区域校验暂未得到确定结果，改用全图复核。"
-                : "标题区域校验发现文字差异，开始全图复核。");
+                ? $"标题区域校验暂未得到确定结果，改用全图复核：{croppedVerify.Reason}"
+                : $"标题区域校验发现文字差异，开始全图复核：{croppedVerify.Reason}");
         }
 
         var fullImageLayout = detectedLayout with
@@ -679,8 +679,8 @@ public sealed partial class PosterRenamer
             Log(request, verifyResult.HasResidualText
                 ? $"海报检测到目标剧名外的残留文字：{(string.IsNullOrWhiteSpace(verifyResult.ResidualText) ? verifyResult.Reason : verifyResult.ResidualText)}"
                 : verifyResult.IsInconclusive
-                    ? "标题全图复核暂未得到确定结果。"
-                    : "标题全图复核确认文字需要修复。");
+                    ? $"标题全图复核暂未得到确定结果：{verifyResult.Reason}"
+                    : $"标题全图复核确认文字需要修复：{verifyResult.Reason}");
         }
 
         return verifyResult;

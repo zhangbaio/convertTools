@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -50,6 +51,9 @@ JSON 格式：
         PropertyNameCaseInsensitive = true,
     };
 
+    private static readonly TimeSpan StandardVerifyTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan FastVerifyTimeout = TimeSpan.FromSeconds(90);
+
     private readonly HttpClient _httpClient;
 
     public PosterTitleVerificationService(HttpClient httpClient) => _httpClient = httpClient;
@@ -74,36 +78,42 @@ JSON 格式：
                     title);
                 var mediaType = GuessMediaType(Path.GetExtension(cropPath));
                 var imageBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(cropPath, cancellationToken));
-
-                var payload = new
+                var fast = PosterRenamer.IsFastPosterLayoutMode(config.GetValueOrDefault("PosterLayoutRequestMode"));
+                var messages = new object[]
                 {
-                    model = modelId,
-                    temperature = 0.0,
-                    messages = new object[]
+                    new
                     {
-                        new
+                        role = "user",
+                        content = new object[]
                         {
-                            role = "user",
-                            content = new object[]
+                            new { type = "text", text = prompt },
+                            new
                             {
-                                new { type = "text", text = prompt },
-                                new
-                                {
-                                    type = "image_url",
-                                    image_url = new { url = $"data:{mediaType};base64,{imageBase64}" },
-                                },
+                                type = "image_url",
+                                image_url = new { url = $"data:{mediaType};base64,{imageBase64}" },
                             },
                         },
                     },
                 };
+                var body = fast
+                    ? JsonSerializer.Serialize(new { model = modelId, temperature = 0.0, stream = true, messages })
+                    : JsonSerializer.Serialize(new { model = modelId, temperature = 0.0, messages });
 
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions");
+                if (fast)
+                {
+                    httpRequest.Version = HttpVersion.Version11;
+                    httpRequest.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+                }
+
                 httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-                httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+                httpRequest.Content = new StringContent(body, Encoding.UTF8, "application/json");
 
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
-                using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
+                timeoutCts.CancelAfter(fast ? FastVerifyTimeout : StandardVerifyTimeout);
+                using var response = fast
+                    ? await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token)
+                    : await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
                 var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
                 if (!response.IsSuccessStatusCode)
                 {
@@ -111,8 +121,7 @@ JSON 格式：
                         AiApiErrorMessage.Create("AI 海报标题校验接口", response.StatusCode, response.ReasonPhrase, responseText));
                 }
 
-                var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions);
-                var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
+                var content = PosterRenamer.ReadLayoutModelContent(responseText, fast);
                 if (string.IsNullOrWhiteSpace(content))
                     return PosterTitleVerifyResult.Inconclusive("标题校验未返回内容");
 
@@ -135,7 +144,9 @@ JSON 格式：
         }
         catch (OperationCanceledException)
         {
-            return PosterTitleVerifyResult.Inconclusive("标题校验接口请求超时");
+            var fast = PosterRenamer.IsFastPosterLayoutMode(config.GetValueOrDefault("PosterLayoutRequestMode"));
+            return PosterTitleVerifyResult.Inconclusive(
+                $"标题校验接口请求超时（{(fast ? FastVerifyTimeout : StandardVerifyTimeout).TotalSeconds:0} 秒，{(fast ? "流式" : "非流式")}）");
         }
         catch (Exception ex)
         {

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
+using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using ShortDrama.Core.Interfaces;
@@ -24,6 +25,9 @@ public sealed partial class PosterRenamer : IPosterRenamer
 {
     private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"];
     private static readonly TimeSpan PosterLayoutRequestTimeout = TimeSpan.FromSeconds(120);
+    private static readonly TimeSpan PosterImageRequestTimeout = TimeSpan.FromSeconds(180);
+    private static readonly AsyncLocal<PosterCallContext?> CurrentCall = new();
+    private const long FastUploadJpegThresholdBytes = 1024 * 1024;
     private const int FastLayoutMaxPixels = 3_014_080;
     private const int FastLayoutMinPixels = 3136;
     private const string DefaultPosterLayoutDetectPrompt = """
@@ -183,6 +187,31 @@ JSON 结构：
 
         var config = KeyValueConfigReader.Read(request.ConfigFile);
         var posterMode = NormalizePosterMode(GetOptional(config, "PosterMode"));
+        var previousCall = CurrentCall.Value;
+        CurrentCall.Value = new PosterCallContext(
+            request.Log,
+            IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode")));
+        try
+        {
+            await RenderByModeAsync(request, inputPath, outputPath, posterName, posterMode, cancellationToken);
+        }
+        finally
+        {
+            CurrentCall.Value = previousCall;
+        }
+
+        _logger.LogInformation("Updated poster: {Input} -> {Output}", inputPath, outputPath);
+        return new PosterRenameResult(inputPath, outputPath, posterName);
+    }
+
+    private async Task RenderByModeAsync(
+        PosterRenameRequest request,
+        string inputPath,
+        string outputPath,
+        string posterName,
+        string posterMode,
+        CancellationToken cancellationToken)
+    {
         switch (posterMode)
         {
             case "video_frame":
@@ -209,9 +238,6 @@ JSON 结构：
                 await RenderPosterAsync(inputPath, outputPath, posterName, request.ConfigFile, request, cancellationToken);
                 break;
         }
-
-        _logger.LogInformation("Updated poster: {Input} -> {Output}", inputPath, outputPath);
-        return new PosterRenameResult(inputPath, outputPath, posterName);
     }
 
     private async Task RenderPosterAsync(
@@ -596,7 +622,7 @@ JSON 结构：
         }
     }
 
-    private static bool IsFastPosterLayoutMode(string? value) =>
+    internal static bool IsFastPosterLayoutMode(string? value) =>
         string.Equals(value?.Trim(), "fast", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsRetryableLayoutTransport(Exception ex)
@@ -623,7 +649,7 @@ JSON 结构：
         }
     }
 
-    private static string ReadLayoutModelContent(string responseText, bool streamed)
+    internal static string ReadLayoutModelContent(string responseText, bool streamed)
     {
         var trimmed = responseText.Trim();
         if (streamed && !trimmed.StartsWith('{') && !trimmed.StartsWith('['))
@@ -722,6 +748,45 @@ JSON 结构：
 
     private static string FormatByteCount(long bytes) =>
         bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024d:0.#} KB";
+
+    private sealed record PosterCallContext(Action<string>? Log, bool Fast);
+
+    private sealed class PosterImageAttempt(
+        bool stream,
+        int attempt,
+        string requestUrl,
+        string modelId,
+        string imagePath,
+        long imageBytes,
+        string? imageSize,
+        int requestBytes)
+    {
+        public bool Stream { get; } = stream;
+        public int Attempt { get; } = attempt;
+        public string RequestUrl { get; } = requestUrl;
+
+        public string Describe(TimeSpan? elapsed, HttpStatusCode? status, string? responsePreview, Exception? ex = null)
+        {
+            var (width, height) = TryReadImageSize(imagePath);
+            var pixels = width is int w && height is int h ? $"{w}x{h}" : "未知";
+            var elapsedText = elapsed is null ? "未完成" : $"{elapsed.Value.TotalSeconds:0.0} 秒";
+            var statusText = status is null ? "无响应" : ((int)status).ToString();
+            var chain = "";
+            if (ex is not null)
+            {
+                var names = new List<string>();
+                for (var current = ex; current is not null && names.Count < 6; current = current.InnerException)
+                    names.Add(current.GetType().Name);
+                chain = $"，异常链={string.Join(" -> ", names)}";
+            }
+
+            var preview = string.IsNullOrWhiteSpace(responsePreview) ? "" : $"，响应={responsePreview}";
+            return $"模式={(Stream ? "快速" : "标准")}，第 {Attempt} 次，接口={RequestUrl}，模型={modelId}，" +
+                   $"图片={Path.GetFileName(imagePath)}，大小={FormatByteCount(imageBytes)}，像素={pixels}，" +
+                   $"输出尺寸={(string.IsNullOrWhiteSpace(imageSize) ? "默认" : imageSize)}，请求体={FormatByteCount(requestBytes)}，" +
+                   $"流式={(Stream ? "是，HTTP=1.1" : "否")}，耗时={elapsedText}，状态={statusText}{chain}{preview}";
+        }
+    }
 
     private sealed class PosterLayoutAttempt(
         bool fast,
@@ -1023,7 +1088,17 @@ JSON 结构：
         string imageSize,
         CancellationToken cancellationToken)
     {
-        var imageBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(inputPath, cancellationToken));
+        var imageBytes = await File.ReadAllBytesAsync(inputPath, cancellationToken);
+        var call = CurrentCall.Value;
+        var stream = call?.Fast == true && !IsOpenAiImageProvider(provider);
+        if (stream && imageBytes.LongLength > FastUploadJpegThresholdBytes &&
+            !string.Equals(mediaType, "image/jpeg", StringComparison.OrdinalIgnoreCase))
+        {
+            imageBytes = await EncodeUploadJpegAsync(imageBytes, cancellationToken).ConfigureAwait(false);
+            mediaType = "image/jpeg";
+        }
+
+        var imageBase64 = Convert.ToBase64String(imageBytes);
         var payload = new Dictionary<string, object?>
         {
             ["model"] = modelId,
@@ -1043,25 +1118,187 @@ JSON 结构：
             payload["watermark"] = false;
         }
 
-        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, requestUrl);
-        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        httpRequest.Content = new StringContent(
-            JsonSerializer.Serialize(payload),
-            Encoding.UTF8,
-            "application/json");
+        if (stream)
+            payload["stream"] = true;
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(120));
-        using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
-        var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
-        if (!response.IsSuccessStatusCode)
+        var body = JsonSerializer.Serialize(payload);
+        var maxAttempts = stream ? 2 : 1;
+        for (var attempt = 1; ; attempt++)
         {
-            ThrowPosterApiFailure("AI 海报图片生成", requestUrl, response, responseText);
+            var describe = new PosterImageAttempt(
+                stream,
+                attempt,
+                requestUrl,
+                modelId,
+                inputPath,
+                imageBytes.LongLength,
+                imageSize,
+                Encoding.UTF8.GetByteCount(body));
+            try
+            {
+                return await SendPosterGenerationAsync(describe, apiKey, body, call?.Log, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (
+                attempt < maxAttempts &&
+                IsRetryableImageTransport(ex) &&
+                !cancellationToken.IsCancellationRequested)
+            {
+                call?.Log?.Invoke($"海报图片生成传输失败，快速模式将重试一次：{ex.GetType().Name}。");
+            }
+        }
+    }
+
+    private async Task<byte[]> SendPosterGenerationAsync(
+        PosterImageAttempt attempt,
+        string apiKey,
+        string body,
+        Action<string>? log,
+        CancellationToken cancellationToken)
+    {
+        log?.Invoke("开始海报图片生成：" + attempt.Describe(null, null, null));
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, attempt.RequestUrl);
+        if (attempt.Stream)
+        {
+            httpRequest.Version = HttpVersion.Version11;
+            httpRequest.VersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
         }
 
-        return await ReadImageResponseBytesAsync(responseText, timeoutCts.Token)
-            ?? throw new InvalidOperationException(
-                $"AI 海报图片生成成功返回，但响应中没有可解析的图片数据。url: {requestUrl}");
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        httpRequest.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(PosterImageRequestTimeout);
+        var watch = Stopwatch.StartNew();
+        HttpStatusCode? status = null;
+        try
+        {
+            using var response = attempt.Stream
+                ? await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token)
+                : await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
+            status = response.StatusCode;
+            if (attempt.Stream)
+            {
+                log?.Invoke(
+                    $"海报图片生成已收到响应头：状态={(int)response.StatusCode}，等待={watch.Elapsed.TotalSeconds:0.0} 秒。");
+            }
+
+            var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                log?.Invoke("海报图片生成失败：" + attempt.Describe(watch.Elapsed, status, TruncateForLog(responseText, 400)));
+                if (attempt.Stream && ((int)response.StatusCode == 429 || (int)response.StatusCode >= 500))
+                {
+                    throw new PosterLayoutHttpException(
+                        response.StatusCode,
+                        AiApiErrorMessage.Create("AI 海报图片生成", response.StatusCode, response.ReasonPhrase, responseText));
+                }
+
+                ThrowPosterApiFailure("AI 海报图片生成", attempt.RequestUrl, response, responseText);
+            }
+
+            var bytes = attempt.Stream && !responseText.TrimStart().StartsWith('{')
+                ? await ReadStreamedImageBytesAsync(responseText, attempt.RequestUrl, timeoutCts.Token)
+                : await ReadImageResponseBytesAsync(responseText, timeoutCts.Token);
+            if (bytes is null)
+            {
+                log?.Invoke("海报图片生成失败：" + attempt.Describe(watch.Elapsed, status, TruncateForLog(responseText, 400)));
+                throw new InvalidOperationException(
+                    $"AI 海报图片生成成功返回，但响应中没有可解析的图片数据。url: {attempt.RequestUrl}");
+            }
+
+            log?.Invoke(
+                $"海报图片生成完成：模式={(attempt.Stream ? "快速" : "标准")}，第 {attempt.Attempt} 次，状态={(int)response.StatusCode}，耗时={watch.Elapsed.TotalSeconds:0.0} 秒。");
+            return bytes;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            var detail = attempt.Describe(watch.Elapsed, status, null, ex);
+            log?.Invoke("海报图片生成失败：" + detail);
+            throw new TimeoutException(
+                $"AI 海报图片生成接口超过 {PosterImageRequestTimeout.TotalSeconds:0} 秒未返回结果。\n{detail}",
+                ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            var detail = attempt.Describe(watch.Elapsed, status, null, ex);
+            log?.Invoke("海报图片生成失败：" + detail);
+            throw new HttpRequestException($"{ex.Message}\n{detail}", ex, ex.StatusCode);
+        }
+    }
+
+    private async Task<byte[]?> ReadStreamedImageBytesAsync(
+        string responseText,
+        string requestUrl,
+        CancellationToken cancellationToken)
+    {
+        foreach (var rawLine in responseText.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (!line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var data = line["data:".Length..].Trim();
+            if (data.Length == 0 || string.Equals(data, "[DONE]", StringComparison.Ordinal))
+                continue;
+
+            using var document = JsonDocument.Parse(data);
+            var root = document.RootElement;
+            var type = root.TryGetProperty("type", out var typeElement) ? typeElement.GetString() : null;
+            if (root.TryGetProperty("error", out var error) && error.ValueKind != JsonValueKind.Null)
+            {
+                var errorText = error.ToString();
+                if (IsSensitiveContentBlocked(errorText))
+                {
+                    throw new PosterSensitiveContentException(
+                        $"AI 海报图片生成命中内容审核拦截; url: {requestUrl}; event: {type}; error: {errorText}");
+                }
+
+                throw new InvalidOperationException(
+                    $"AI 海报图片生成返回错误事件：{type ?? "error"}；{TruncateForLog(errorText, 400)}；url: {requestUrl}");
+            }
+
+            if (!string.Equals(type, "image_generation.partial_succeeded", StringComparison.Ordinal))
+                continue;
+
+            if (root.TryGetProperty("b64_json", out var b64) && b64.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(b64.GetString()))
+            {
+                return Convert.FromBase64String(b64.GetString()!);
+            }
+
+            if (root.TryGetProperty("url", out var url) && url.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(url.GetString()))
+            {
+                return await _httpClient.GetByteArrayAsync(url.GetString(), cancellationToken);
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<byte[]> EncodeUploadJpegAsync(byte[] imageBytes, CancellationToken cancellationToken)
+    {
+        using var image = Image.Load<Rgb24>(imageBytes);
+        await using var output = new MemoryStream();
+        await image.SaveAsJpegAsync(output, new JpegEncoder { Quality = 92 }, cancellationToken).ConfigureAwait(false);
+        return output.ToArray();
+    }
+
+    private static bool IsRetryableImageTransport(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is TimeoutException or HttpRequestException or PosterLayoutHttpException)
+                return true;
+        }
+
+        return false;
     }
 
     private async Task<byte[]> GeneratePosterWithEditFormAsync(
