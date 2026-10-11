@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
@@ -89,11 +90,14 @@ public sealed class OriginalDramaLookupDialog : Window
         var copy = new Button { Content = "复制", MinWidth = 88 };
         copy.Click += async (_, _) => await CopyAsync();
         var export = new Button { Content = "导出 Excel", MinWidth = 108 };
-        export.Click += async (_, _) => await ExportAsync();
+        export.Click += async (_, _) => await ExportAsync(openAfterSave: false);
+        var saveAndOpen = new Button { Content = "保存并打开 Excel", MinWidth = 140 };
+        saveAndOpen.Click += async (_, _) => await ExportAsync(openAfterSave: true);
         var close = new Button { Content = "关闭", MinWidth = 88 };
         close.Click += (_, _) => Close();
         buttons.Children.Add(copy);
         buttons.Children.Add(export);
+        buttons.Children.Add(saveAndOpen);
         buttons.Children.Add(close);
         Grid.SetRow(buttons, 4);
         root.Children.Add(buttons);
@@ -167,7 +171,7 @@ public sealed class OriginalDramaLookupDialog : Window
         _status.Text = "已复制。";
     }
 
-    private async Task ExportAsync()
+    private async Task ExportAsync(bool openAfterSave)
     {
         if (_rows.Count == 0)
         {
@@ -177,16 +181,44 @@ public sealed class OriginalDramaLookupDialog : Window
 
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            Title = "导出原剧查询",
+            Title = openAfterSave ? "保存并打开原剧查询" : "导出原剧查询",
             SuggestedFileName = $"原剧查询-{DateTime.Now:yyyyMMdd-HHmmss}.xlsx",
             FileTypeChoices = [new FilePickerFileType("Excel 工作簿") { Patterns = ["*.xlsx"] }],
         });
         if (file is null)
             return;
 
-        await using var stream = await file.OpenWriteAsync();
-        await Task.Run(() => OriginalDramaLookupService.Export(stream, _rows));
-        _status.Text = "已导出 Excel。";
+        var path = file.TryGetLocalPath();
+        await using (var stream = await file.OpenWriteAsync())
+        {
+            await Task.Run(() => OriginalDramaLookupService.Export(stream, _rows));
+        }
+
+        if (!openAfterSave)
+        {
+            _status.Text = "已导出 Excel。";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            _status.Text = "已保存 Excel，但无法打开该位置的文件。";
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true,
+            });
+            _status.Text = "已保存并打开 Excel。";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"已保存 Excel，打开失败：{ex.Message}";
+        }
     }
 
     private static Control BuildResultRow(OriginalDramaLookupRow row)
