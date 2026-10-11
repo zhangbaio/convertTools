@@ -8,4 +8,5 @@ public sealed record ProjectInfoRewriteRequest(
     IReadOnlyList<string>? ForbiddenTitles = null,
     IReadOnlyList<string>? ForbiddenSynopses = null,
     int TargetSynopsisLength = 0,
-    string RewriteVariantKey = "");
+    string RewriteVariantKey = "",
+    IReadOnlyList<string>? OccupiedExactTitles = null);

@@ -155,6 +155,74 @@ public sealed class ProjectInfoRewriterTests
         File.Exists(outputPath).Should().BeFalse();
     }
 
+    [Fact]
+    public async Task RewriteAsync_Should_Accept_Similar_Title_That_Is_Not_Exact_Occupied()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = WriteConfig(projectDir.FullName);
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家");
+
+        var handler = new RecordingHandler(
+        [
+            """
+            {"title":"山野种田养出满仓禾","tagline":"山野耕耘日子慢慢变好","synopsis":"山里人把荒地一点点种成粮仓。"}
+            """
+        ]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var result = await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(
+                projectDir.FullName,
+                configPath,
+                outputPath,
+                Overwrite: true,
+                OccupiedExactTitles: ["山野种田养出满仓粮"]),
+            CancellationToken.None);
+
+        result.Title.Should().Be("山野种田养出满仓禾");
+        handler.RequestBodies.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task RewriteAsync_Should_Retry_When_Title_Exactly_Matches_Occupied_Name()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = WriteConfig(projectDir.FullName);
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家");
+
+        var handler = new RecordingHandler(
+        [
+            """
+            {"title":"《山野种田养出满仓粮》","tagline":"山野耕耘日子慢慢变好","synopsis":"山里人把荒地一点点种成粮仓。"}
+            """,
+            """
+            {"title":"山野耕耘换来满仓粮","tagline":"山野耕耘日子慢慢变好","synopsis":"山里人把荒地一点点种成粮仓。"}
+            """
+        ]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var result = await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(
+                projectDir.FullName,
+                configPath,
+                outputPath,
+                Overwrite: true,
+                OccupiedExactTitles: ["山野种田养出满仓粮"]),
+            CancellationToken.None);
+
+        result.Title.Should().Be("山野耕耘换来满仓粮");
+        handler.RequestBodies.Should().HaveCount(2);
+        ExtractPrompt(handler.RequestBodies[1]).Should().Contain("occupied_exact_titles");
+    }
+
     private static async Task WriteProjectInfoAsync(string projectDir, string originalTitle, string synopsis = "")
     {
         await File.WriteAllTextAsync(Path.Combine(projectDir, "短剧信息.txt"), $$"""

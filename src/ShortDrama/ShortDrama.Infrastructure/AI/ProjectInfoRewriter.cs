@@ -213,6 +213,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var canonicalOriginalTitle = ResolveCanonicalOriginalTitle(project);
         var forbiddenTitles = UniqueTexts(request.ForbiddenTitles);
         var forbiddenSynopses = UniqueTexts(request.ForbiddenSynopses);
+        var occupiedExactTitles = UniqueTexts(request.OccupiedExactTitles);
         var projectName = FirstNonEmpty(Path.GetFileName(project.ProjectDir), project.Title, canonicalOriginalTitle) ?? canonicalOriginalTitle;
         projectName = projectName.TrimStart('_');
         var existingTitle = FirstNonEmpty(project.Title, canonicalOriginalTitle, projectName) ?? canonicalOriginalTitle;
@@ -234,6 +235,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                     rewrite_synopsis = rewriteSynopsis,
                     forbidden_titles = forbiddenTitles,
                     forbidden_synopses = rewriteSynopsis ? forbiddenSynopses : Array.Empty<string>(),
+                    occupied_exact_titles = occupiedExactTitles,
                     target_synopsis_length = rewriteSynopsis ? Math.Max(0, request.TargetSynopsisLength) : 0,
                     rewrite_variant_key = request.RewriteVariantKey ?? string.Empty,
                     episode_count = project.EpisodeCount,
@@ -261,6 +263,14 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 当前流程不再使用 short_title/短标题 和 tags/标签。请不要生成这两个字段。
 最终 JSON 只需要 title/new_title 和 tagline；如果返回 items 数组，每个 item 也只需要这些字段。
 """;
+
+        if (occupiedExactTitles.Count > 0)
+        {
+            template += """
+
+以下剧名已被当前账号占用。去掉空格和书名号后，与 occupied_exact_titles 完全相同的新剧名不能使用，请另起一个不同的名字。只是读起来相近、文字并不相同的名字可以使用。
+""";
+        }
 
         return template.Replace("{items_json}", itemsJson, StringComparison.Ordinal);
     }
@@ -528,6 +538,11 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             issues.Add("新剧名与历史/禁用标题重复或过于相似");
         }
 
+        if (HasExactOccupiedTitle(rewrite.Title, request.OccupiedExactTitles))
+        {
+            issues.Add("新剧名与已占用剧名完全相同");
+        }
+
         if (!IsReasonableTaglineLength(rewrite.Tagline))
         {
             issues.Add("推荐语字数不在 8-20 字范围内");
@@ -590,7 +605,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             IsLazyRetitle(title, canonicalOriginalTitle) ||
             !IsReasonableTitleLength(title) ||
             !string.IsNullOrWhiteSpace(ValidateTitleSafety(title)) ||
-            HasForbiddenTitle(title, request.ForbiddenTitles))
+            HasForbiddenTitle(title, request.ForbiddenTitles) ||
+            HasExactOccupiedTitle(title, request.OccupiedExactTitles))
         {
             return false;
         }
@@ -948,6 +964,19 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         }
 
         return output;
+    }
+
+    private static bool HasExactOccupiedTitle(string title, IEnumerable<string>? occupiedTitles)
+    {
+        foreach (var occupied in UniqueTexts(occupiedTitles))
+        {
+            if (TitlesEqual(title, occupied))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool HasForbiddenTitle(string title, IEnumerable<string>? forbiddenTitles)
