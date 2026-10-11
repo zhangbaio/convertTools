@@ -168,6 +168,17 @@ public static class ShortDramaDramaServices
         return items.Select(FromCore).ToArray();
     }
 
+    public static async Task<DramaRankPage> GetRankPageAsync(
+        string category,
+        string board,
+        int offset,
+        CancellationToken cancellationToken)
+    {
+        RefreshSettings();
+        var page = await Router.Value.GetRankPageAsync(category, board, offset, cancellationToken);
+        return new DramaRankPage(page.Items.Select(FromCore).ToArray(), page.HasMore, page.NextOffset);
+    }
+
     public static string GetHighNewReleaseDateWindowDisplay(int days) =>
         HongguoHighCalendarMapper.ResolveRecentDateWindow(days).DisplayText;
 

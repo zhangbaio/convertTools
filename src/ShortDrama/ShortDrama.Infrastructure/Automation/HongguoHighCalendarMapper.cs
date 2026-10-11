@@ -6,6 +6,11 @@ using ShortDrama.Core.Models;
 
 namespace ShortDrama.Infrastructure.Automation;
 
+public readonly record struct HongguoRankPage(
+    IReadOnlyList<DramaSearchItem> Items,
+    bool HasMore,
+    int NextOffset);
+
 public readonly record struct HongguoHighDateWindow(DateOnly StartDate, DateOnly EndDate)
 {
     public string DisplayText => StartDate == EndDate
@@ -225,7 +230,7 @@ public static class HongguoHighCalendarMapper
             category = "";
         }
 
-        return new DramaSearchItem(
+        var item = new DramaSearchItem(
             BookId: HongguoHighCrypto.EnsureBookPrefix(bookId),
             Title: FirstMeaningful(obj, TitleKeys, nested) ?? bookId,
             Category: category,
@@ -234,8 +239,9 @@ public static class HongguoHighCalendarMapper
             PosterUrl: FirstMediaUrl(obj, CoverKeys, nested) ?? ExtractMediaUrl(obj) ?? "",
             Author: FirstMeaningful(obj, AuthorKeys, nested) ?? "",
             PublishTime: NormalizePublishTime(CollectPublishValues(obj, nested)),
-            FavoriteCount: FirstPositiveInt(obj, ["favorite_count", "followed_cnt", "collect_count", "collect_cnt", "add_bookshelf_count", "addBookshelfCount"], nested),
+            FavoriteCount: FirstPositiveInt(obj, FavoriteCountKeys, nested),
             PlayCount: FirstPositiveInt(obj, PlayCountKeys, nested));
+        return ApplyCardFields(item, obj);
     }
 
     public static DramaSearchItem ApplyBookInfo(DramaSearchItem item, JsonObject bookInfo)
@@ -434,7 +440,10 @@ public static class HongguoHighCalendarMapper
         return TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone);
     }
 
-    public static IReadOnlyList<DramaSearchItem> ReadRankItems(JsonNode? payload)
+    public static IReadOnlyList<DramaSearchItem> ReadRankItems(JsonNode? payload) =>
+        ReadRankPage(payload).Items;
+
+    public static HongguoRankPage ReadRankPage(JsonNode? payload)
     {
         var items = new List<DramaSearchItem>();
         foreach (var raw in ExtractSearchTabItems(payload))
@@ -444,7 +453,68 @@ public static class HongguoHighCalendarMapper
                 items.Add(item);
         }
 
-        return items;
+        var paging = FindRankPaging(payload);
+        var hasMore = paging.Found ? paging.HasMore : items.Count >= 20;
+        var nextOffset = paging.Found && paging.NextOffset > 0 ? paging.NextOffset : items.Count;
+        if (items.Count == 0)
+            hasMore = false;
+        return new HongguoRankPage(items, hasMore, nextOffset);
+    }
+
+    private readonly record struct RankPaging(bool Found, bool HasMore, int NextOffset);
+
+    private static RankPaging FindRankPaging(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj when obj.ContainsKey("has_more") || obj.ContainsKey("next_offset"):
+                return new RankPaging(true, ReadJsonBool(obj["has_more"]), ReadJsonInt(obj["next_offset"]));
+            case JsonObject obj:
+                foreach (var property in obj)
+                {
+                    var nested = FindRankPaging(property.Value);
+                    if (nested.Found)
+                        return nested;
+                }
+                break;
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    var nested = FindRankPaging(item);
+                    if (nested.Found)
+                        return nested;
+                }
+                break;
+        }
+
+        return default;
+    }
+
+    private static bool ReadJsonBool(JsonNode? node)
+    {
+        if (node is not JsonValue value)
+            return false;
+        return value.GetValueKind() switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Number => value.TryGetValue<int>(out var number) && number != 0,
+            JsonValueKind.String => bool.TryParse(value.GetValue<string>(), out var flag) && flag
+                || string.Equals(value.GetValue<string>(), "1", StringComparison.Ordinal),
+            _ => false
+        };
+    }
+
+    private static int ReadJsonInt(JsonNode? node)
+    {
+        if (node is not JsonValue value)
+            return 0;
+        if (value.GetValueKind() == JsonValueKind.Number && value.TryGetValue<int>(out var number))
+            return number;
+        if (value.GetValueKind() == JsonValueKind.String &&
+            int.TryParse(value.GetValue<string>(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            return parsed;
+        return 0;
     }
 
     /// <summary>
@@ -666,6 +736,139 @@ public static class HongguoHighCalendarMapper
         }
 
         return uri.AbsoluteUri;
+    }
+
+    private static readonly string[] FavoriteCountKeys =
+    [
+        "favorite_cnt",
+        "favorite_count",
+        "followed_cnt",
+        "collect_cnt",
+        "collect_count",
+        "add_bookshelf_count",
+        "addBookshelfCount"
+    ];
+
+    private static readonly Regex FavoriteTextPattern = new(
+        @"(?<number>\d+(?:\.\d+)?)\s*(?<unit>万|亿)?\s*收藏",
+        RegexOptions.Compiled);
+
+    private static readonly Regex OnlineTimeTextPattern = new(
+        @"上线\s*(?<time>\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)",
+        RegexOptions.Compiled);
+
+    private static readonly Regex CardCategoryPattern = new(
+        @"(?<orientation>横屏|竖屏)\s*[|｜]\s*(?<genre>[^|｜]{1,16})",
+        RegexOptions.Compiled);
+
+    private static readonly Regex EpisodeLabelPattern = new(@"^第\d+集$", RegexOptions.Compiled);
+
+    private static DramaSearchItem ApplyCardFields(DramaSearchItem item, JsonObject obj)
+    {
+        var favorite = item.FavoriteCount > 0 ? item.FavoriteCount : ReadFavoriteFromText(obj);
+        var publish = string.IsNullOrWhiteSpace(item.PublishTime) ? ReadOnlineTimeFromText(obj) : item.PublishTime;
+        var category = ReadCardCategory(obj);
+        if (string.IsNullOrWhiteSpace(category))
+            category = IsEpisodeLabel(item.Category) ? "" : item.Category;
+        return item with
+        {
+            FavoriteCount = favorite,
+            PublishTime = publish,
+            Category = category
+        };
+    }
+
+    private static string ReadCardCategory(JsonObject obj)
+    {
+        var read = HongguoDramaFieldReader.Read(obj);
+        var orientation = read.Orientation.Trim();
+        var genre = string.Join(
+            "、",
+            read.Genre.Split('、', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(token => !IsEpisodeLabel(token) && !token.All(char.IsDigit)));
+        if (orientation.Length > 0 && genre.Length > 0)
+            return $"{orientation} | {genre}";
+        if (orientation.Length > 0)
+            return orientation;
+        if (genre.Length > 0)
+            return genre;
+
+        foreach (var text in EnumerateStrings(obj))
+        {
+            var match = CardCategoryPattern.Match(text);
+            if (!match.Success || IsEpisodeLabel(match.Groups["genre"].Value))
+                continue;
+            return $"{match.Groups["orientation"].Value} | {match.Groups["genre"].Value.Trim()}";
+        }
+
+        return "";
+    }
+
+    private static int ReadFavoriteFromText(JsonObject obj)
+    {
+        foreach (var text in EnumerateStrings(obj))
+        {
+            var match = FavoriteTextPattern.Match(text);
+            if (!match.Success)
+                continue;
+            if (!double.TryParse(match.Groups["number"].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
+                continue;
+            var unit = match.Groups["unit"].Value;
+            var scaled = unit switch
+            {
+                "亿" => number * 100_000_000d,
+                "万" => number * 10_000d,
+                _ => number
+            };
+            if (scaled >= 1 && scaled <= int.MaxValue)
+                return (int)Math.Round(scaled);
+        }
+
+        return 0;
+    }
+
+    private static string ReadOnlineTimeFromText(JsonObject obj)
+    {
+        foreach (var text in EnumerateStrings(obj))
+        {
+            var match = OnlineTimeTextPattern.Match(text);
+            if (!match.Success)
+                continue;
+            var normalized = NormalizePublishTime(match.Groups["time"].Value);
+            if (!string.IsNullOrWhiteSpace(normalized))
+                return normalized;
+        }
+
+        return "";
+    }
+
+    private static bool IsEpisodeLabel(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && EpisodeLabelPattern.IsMatch(value.Trim());
+
+    private static IEnumerable<string> EnumerateStrings(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var property in obj)
+                {
+                    foreach (var text in EnumerateStrings(property.Value))
+                        yield return text;
+                }
+                break;
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    foreach (var text in EnumerateStrings(item))
+                        yield return text;
+                }
+                break;
+            case JsonValue value when value.GetValueKind() == JsonValueKind.String:
+                var raw = value.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(raw))
+                    yield return raw.Trim();
+                break;
+        }
     }
 
     private static readonly string[] PlayCountKeys =

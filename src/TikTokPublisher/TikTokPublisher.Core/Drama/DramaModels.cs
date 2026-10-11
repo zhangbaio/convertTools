@@ -1,5 +1,10 @@
 namespace TikTokPublisher.Core.Drama;
 
+public sealed record DramaRankPage(
+    IReadOnlyList<DramaSearchItem> Items,
+    bool HasMore,
+    int NextOffset);
+
 public sealed class DramaSearchItem
 {
     public string BookId { get; set; } = "";

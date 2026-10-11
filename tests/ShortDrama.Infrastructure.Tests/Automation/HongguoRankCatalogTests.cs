@@ -82,5 +82,83 @@ public sealed class HongguoRankCatalogTests
         item.Author.Should().Be("作者甲");
         item.Intro.Should().Be("一段简介");
         item.PosterUrl.Should().Be("https://example.com/poster.jpg");
+        var page = HongguoHighCalendarMapper.ReadRankPage(payload);
+        page.HasMore.Should().BeTrue();
+        page.NextOffset.Should().Be(10);
+        page.Items.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void ReadRankPage_StopsWhenThePayloadHasNoNextPage()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "cell_view": {
+                "has_more": false,
+                "next_offset": 20,
+                "cell_data": [
+                  {
+                    "video_data": [
+                      { "series_id": "7000000002", "title": "最后一条" }
+                    ]
+                  }
+                ]
+              }
+            }
+            """);
+
+        var page = HongguoHighCalendarMapper.ReadRankPage(payload);
+
+        page.HasMore.Should().BeFalse();
+        page.Items.Should().ContainSingle();
+    }
+
+    [Fact]
+    public void TryMapItem_ReadsCardFavoriteOnlineTimeAndOrientation()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "series_id": "7123456789",
+              "title": "烬九州：第二十九季",
+              "category": "第47集",
+              "favorite_cnt": 166000,
+              "play_cnt": 1873000,
+              "tag_text": "竖屏 | 快穿",
+              "first_online_time": "2026-10-05 07:05"
+            }
+            """)!.AsObject();
+
+        var item = HongguoHighCalendarMapper.TryMapItem(payload);
+
+        item.Should().NotBeNull();
+        item!.FavoriteCount.Should().Be(166000);
+        item.PlayCount.Should().Be(1873000);
+        item.Category.Should().Be("竖屏 | 快穿");
+        item.PublishTime.Should().StartWith("2026-10-05 07:05");
+    }
+
+    [Fact]
+    public void TryMapItem_ReadsFavoriteAndOnlineTimeFromCardText()
+    {
+        var payload = JsonNode.Parse("""
+            {
+              "series_id": "7000000001",
+              "title": "烬九州",
+              "type": "第47集",
+              "sub_title_list": [
+                "上线 2026-10-05 07:05",
+                "140集 | 187.3万播放 | 16.6万收藏",
+                "竖屏 | 快穿"
+              ]
+            }
+            """)!.AsObject();
+
+        var item = HongguoHighCalendarMapper.TryMapItem(payload);
+
+        item.Should().NotBeNull();
+        item!.FavoriteCount.Should().Be(166000);
+        item.Category.Should().Be("竖屏 | 快穿");
+        item.PublishTime.Should().StartWith("2026-10-05 07:05");
+        item.PlayCount.Should().Be(0);
     }
 }

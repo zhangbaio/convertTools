@@ -192,13 +192,24 @@ public sealed class HongguoHighApiService
         int page,
         CancellationToken cancellationToken)
     {
+        var pageResult = await GetRankPageAsync(settings, category, board, (Math.Max(1, page) - 1) * 20, cancellationToken);
+        return pageResult.Items;
+    }
+
+    public async Task<HongguoRankPage> GetRankPageAsync(
+        DramaSourceSettings settings,
+        string category,
+        string board,
+        int offset,
+        CancellationToken cancellationToken)
+    {
         if (!HongguoRankCatalog.TryResolve(category, board, out var query))
             throw new HongguoHighException(HongguoRankCatalog.UnavailableReason(category, board) ?? "未知榜单");
 
-        var payload = await FetchRankPageAsync(settings, query, page, cancellationToken);
+        var payload = await FetchRankPageAsync(settings, query, Math.Max(0, offset), cancellationToken);
         if (payload is null)
             throw new HongguoHighException("榜单响应无法解析");
-        return HongguoHighCalendarMapper.ReadRankItems(payload);
+        return HongguoHighCalendarMapper.ReadRankPage(payload);
     }
 
     public async Task<HongguoDramaLookupHit> LookupExactTitleAsync(
@@ -479,11 +490,10 @@ public sealed class HongguoHighApiService
     private async Task<JsonNode?> FetchRankPageAsync(
         DramaSourceSettings settings,
         HongguoRankQuery query,
-        int page,
+        int offset,
         CancellationToken cancellationToken)
     {
-        var safePage = Math.Max(1, page);
-        var offset = (safePage - 1) * 20;
+        var safeOffset = Math.Max(0, offset);
         var now = DateTimeOffset.UtcNow;
         var spec = new JsonObject
         {
@@ -491,7 +501,7 @@ public sealed class HongguoHighApiService
             ["path"] = HongguoRankCatalog.Path,
             ["method"] = "GET",
             ["purpose"] = "ranklist",
-            ["requestId"] = $"redguo.ranklist:{query.SelectedItems}:{query.SubSelectedItems}:{safePage}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            ["requestId"] = $"redguo.ranklist:{query.SelectedItems}:{query.SubSelectedItems}:{safeOffset}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
             ["device_profile_version"] = DeviceProfileVersion(settings),
             ["deviceProfileVersion"] = DeviceProfileVersion(settings),
             ["params"] = new JsonObject
@@ -530,7 +540,7 @@ public sealed class HongguoHighApiService
                 ["selected_items"] = query.SelectedItems,
                 ["sub_selected_items"] = query.SubSelectedItems,
                 ["session_uuid"] = Guid.NewGuid().ToString(),
-                ["offset"] = offset.ToString(CultureInfo.InvariantCulture),
+                ["offset"] = safeOffset.ToString(CultureInfo.InvariantCulture),
                 ["gender"] = "2",
                 ["normal_session_cnt_in_day"] = 10,
                 ["cold_start_session_cnt_in_day"] = 4,
@@ -538,8 +548,8 @@ public sealed class HongguoHighApiService
                 ["cold_start_session_id"] = Guid.NewGuid().ToString(),
                 ["session_id"] = $"{now.ToUnixTimeMilliseconds()}{Guid.NewGuid():N}"[..31].ToUpperInvariant(),
             },
-            ["manual"] = safePage == 1,
-            ["charge"] = safePage == 1,
+            ["manual"] = safeOffset == 0,
+            ["charge"] = safeOffset == 0,
         };
         var descriptor = AuthedRequestForTests is null
             ? await AuthedRequestAsync(settings, "/redguo/sign", spec, 60, cancellationToken)

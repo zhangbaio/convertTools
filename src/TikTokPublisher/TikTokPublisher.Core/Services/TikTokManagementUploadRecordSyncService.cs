@@ -78,11 +78,19 @@ public static class TikTokManagementUploadRecordSyncService
         }
     }
 
+    public static Task<TikTokManagementDuplicateCheckResult> CheckDuplicateOriginalNamesAsync(
+        IEnumerable<string> originalNames,
+        string dedupeScope,
+        TikTokAccountProfile? account,
+        CancellationToken ct) =>
+        CheckDuplicateOriginalNamesAsync(originalNames, dedupeScope, account, ct, normalizeTitles: false);
+
     public static async Task<TikTokManagementDuplicateCheckResult> CheckDuplicateOriginalNamesAsync(
         IEnumerable<string> originalNames,
         string dedupeScope,
         TikTokAccountProfile? account,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool normalizeTitles)
     {
         var names = originalNames
             .Select(name => (name ?? "").Trim())
@@ -106,7 +114,7 @@ public static class TikTokManagementUploadRecordSyncService
         if (string.IsNullOrWhiteSpace(machineId) || string.IsNullOrWhiteSpace(token))
             return new(false, "软件未登录或登录态不完整", new HashSet<string>(StringComparer.Ordinal));
 
-        var payload = BuildDuplicateCheckPayload(names, dedupeScope, account);
+        var payload = BuildDuplicateCheckPayload(names, dedupeScope, account, normalizeTitles);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/client-api/upload-records/check-duplicates");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -247,7 +255,8 @@ public static class TikTokManagementUploadRecordSyncService
     internal static Dictionary<string, object?> BuildDuplicateCheckPayload(
         IEnumerable<string> originalNames,
         string dedupeScope,
-        TikTokAccountProfile? account)
+        TikTokAccountProfile? account,
+        bool normalizeTitles = false)
     {
         var names = originalNames
             .Select(name => (name ?? "").Trim())
@@ -261,6 +270,8 @@ public static class TikTokManagementUploadRecordSyncService
             ["platform"] = Platform,
             ["dedupe_scope"] = scope,
         };
+        if (normalizeTitles)
+            payload["normalize_original_names"] = true;
 
         if (scope == "tiktok_username")
         {

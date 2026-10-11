@@ -38,6 +38,7 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     private Bitmap? _posterImage;
 
     [ObservableProperty] private string _posterStatus = "封面加载中";
+    [ObservableProperty] private string _existenceText = "核对中";
 
     public bool HasPosterImage => PosterImage is not null;
     public bool ShowPosterPlaceholder => PosterImage is null;
@@ -66,10 +67,10 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     public string Title => Item.Title;
     public string Author => string.IsNullOrWhiteSpace(Item.Author) ? "-" : Item.Author;
     public int EpisodeTotal => Item.EpisodeTotal;
-    public string FavoriteText => Item.FavoriteCount > 0 ? Item.FavoriteCount.ToString() : "-";
+    public string FavoriteText => FormatCount(Item.FavoriteCount);
     public string PlayCountText => Item.PlayCount.ToString(CultureInfo.InvariantCulture);
     public string Category => string.IsNullOrWhiteSpace(Item.Category) ? "-" : Item.Category;
-    public string PublishTime => string.IsNullOrWhiteSpace(Item.PublishTime) ? "-" : Item.PublishTime;
+    public string PublishTime => FormatPublishTime(Item.PublishTime);
     public string Intro => Item.Intro;
     public string PosterUrl => Item.PosterUrl;
 
@@ -77,6 +78,7 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     {
         var oldPosterUrl = (Item.PosterUrl ?? string.Empty).Trim();
         var newPosterUrl = (item.PosterUrl ?? string.Empty).Trim();
+        var titleChanged = !string.Equals(Item.Title, item.Title, StringComparison.Ordinal);
         Item = item;
         OnPropertyChanged(nameof(Selected));
         OnPropertyChanged(nameof(Title));
@@ -88,6 +90,8 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(PublishTime));
         OnPropertyChanged(nameof(Intro));
         OnPropertyChanged(nameof(PosterUrl));
+        if (titleChanged)
+            ExistenceText = "核对中";
 
         if (!string.Equals(oldPosterUrl, newPosterUrl, StringComparison.Ordinal))
             ResetPosterState();
@@ -112,6 +116,30 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
         _posterCts = request;
         _requestedPosterUrl = url;
         _ = LoadPosterAsync(url, request);
+    }
+
+    private static string FormatCount(int value)
+    {
+        if (value <= 0)
+            return "-";
+        if (value >= 100_000_000)
+            return (value / 100_000_000d).ToString("0.#", CultureInfo.InvariantCulture) + "亿";
+        if (value >= 10_000)
+            return (value / 10_000d).ToString("0.#", CultureInfo.InvariantCulture) + "万";
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatPublishTime(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (text.Length == 0)
+            return "-";
+        if (!DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed) &&
+            !DateTime.TryParse(text, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out parsed))
+            return text;
+        return parsed.TimeOfDay == TimeSpan.Zero
+            ? parsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : parsed.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
     }
 
     public void DisposePoster()
@@ -237,7 +265,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private long _searchGeneration;
     private bool _isLoadingState;
     private bool _rankHasLoaded;
+    private int _existenceGeneration;
+    private string _existenceSignature = "";
     private bool _rankReloadPending;
+    private bool _rankHasMore = true;
+    private bool _rankDrain;
+    private int _rankNextOffset;
+    private int _rankGeneration;
 
     public DramaDownloadViewModel(string? stateDatabasePath = null)
     {
@@ -298,12 +332,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public event Action<string>? LogRequested;
     public event Func<TikTokQueueImportRequest, Task>? ImportToQueueRequested;
     public event Func<TikTokQueueImportTarget?>? TikTokQueueTargetRequested;
+    public event Func<TikTokAccountProfile?>? ExistenceAccountRequested;
 
     public void UpdateTikTokQueueTarget(TikTokQueueImportTarget? target)
     {
         TikTokQueueTargetText = target is null
             ? $"目标账号：未配置{QueuePlatformLabel}上传工作目录"
             : $"目标账号：{target.AccountProfileName} · {target.WorkspaceRoot}";
+        _existenceSignature = "";
+        ScheduleExistenceCheck();
     }
 
     public void LoadState()
@@ -484,7 +521,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (_rankHasLoaded)
             return;
         _rankHasLoaded = true;
-        _ = LoadRankCoreAsync();
+        _ = LoadRankCoreAsync(append: false);
     }
 
     partial void OnRankCategoryChanged(string value) => ReloadRankIfActive();
@@ -495,51 +532,63 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     {
         if (!_rankHasLoaded || _isLoadingState)
             return;
-        RankPage = 1;
-        _ = LoadRankCoreAsync();
+        _ = LoadRankCoreAsync(append: false);
     }
 
     [RelayCommand]
     private Task RefreshRankAsync()
     {
         _rankHasLoaded = true;
-        RankPage = 1;
-        return LoadRankCoreAsync();
+        return LoadRankCoreAsync(append: false);
     }
 
-    [RelayCommand]
-    private Task RankPreviousPageAsync()
+    public void NotifyRankScroll(double offsetY, double viewportY, double extentY)
     {
-        if (RankPage <= 1)
-            return Task.CompletedTask;
-        _rankHasLoaded = true;
-        RankPage -= 1;
-        return LoadRankCoreAsync();
-    }
-
-    [RelayCommand]
-    private Task RankNextPageAsync()
-    {
-        _rankHasLoaded = true;
-        RankPage += 1;
-        return LoadRankCoreAsync();
-    }
-
-    private async Task LoadRankCoreAsync()
-    {
-        if (IsSearching)
+        if (!_rankHasLoaded || !_rankHasMore)
+            return;
+        if (viewportY <= 0 || extentY <= 0)
+            return;
+        var atBottom = offsetY + viewportY >= extentY - 48;
+        var fillsViewport = extentY > viewportY + 1;
+        if (!atBottom && fillsViewport)
         {
-            _rankReloadPending = true;
+            _rankDrain = false;
             return;
         }
 
-        _rankReloadPending = false;
+        _rankDrain = true;
+        if (!IsSearching)
+            _ = LoadRankCoreAsync(append: true);
+    }
+
+    private async Task LoadRankCoreAsync(bool append)
+    {
+        if (IsSearching)
+        {
+            if (!append)
+                _rankReloadPending = true;
+            return;
+        }
+
+        if (append && !_rankHasMore)
+            return;
+
+        var generation = append ? _rankGeneration : ++_rankGeneration;
+        if (!append)
+        {
+            _rankReloadPending = false;
+            _rankDrain = false;
+            _rankHasMore = true;
+            _rankNextOffset = 0;
+            RankPage = 1;
+        }
+
         var category = RankCategory;
         var board = RankBoard;
-        var page = Math.Max(1, RankPage);
         var block = ShortDramaDramaServices.RankBlockReason(category, board);
         if (block is not null)
         {
+            _rankHasMore = false;
             _allSearchResults.Clear();
             ApplyFilteredSearchResults(block, updateSearchPageText: false);
             RankPageText = block;
@@ -547,14 +596,65 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             return;
         }
 
-        var label = $"榜单 · {category} · {board} · 第 {page} 页";
-        await LoadSearchResultsAsync(
-            label,
-            ct => ShortDramaDramaServices.GetRankAsync(category, board, page, ct),
-            sourceMode: "",
-            setPageText: text => RankPageText = text);
+        var offset = append ? _rankNextOffset : 0;
+        var label = $"榜单 · {category} · {board}";
+        IsSearching = true;
+        RankPageText = append ? $"{label} · 正在加载下一页" : $"{label} · 加载中...";
+        var continueDrain = false;
+        try
+        {
+            var page = await ShortDramaDramaServices.GetRankPageAsync(category, board, offset, CancellationToken.None);
+            if (generation != _rankGeneration)
+                return;
+
+            if (!append)
+                _allSearchResults.Clear();
+            var added = 0;
+            foreach (var item in page.Items)
+            {
+                if (_allSearchResults.Any(existing =>
+                        string.Equals(existing.BookId, item.BookId, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                item.Selected = false;
+                _allSearchResults.Add(item);
+                added++;
+            }
+
+            var nextOffset = page.NextOffset > offset ? page.NextOffset : offset + Math.Max(page.Items.Count, 1);
+            _rankHasMore = page.HasMore && added > 0 && nextOffset > offset;
+            _rankNextOffset = nextOffset;
+            ApplyFilteredSearchResults(label, updateSearchPageText: false);
+            RankPageText = _rankHasMore
+                ? $"{label} · 已加载 {SearchResults.Count} 条"
+                : $"{label} · 已到最后 · {SearchResults.Count} 条";
+            LogRequested?.Invoke($"{label}：本页 {page.Items.Count} 条，累计 {SearchResults.Count} 条");
+            continueDrain = _rankDrain && _rankHasMore;
+        }
+        catch (Exception ex)
+        {
+            if (generation != _rankGeneration)
+                return;
+            _rankDrain = false;
+            RankPageText = append ? $"{label} · 下一页加载失败" : $"{label} · 加载失败";
+            LogRequested?.Invoke($"{label}失败：{ex.Message}");
+        }
+        finally
+        {
+            if (generation == _rankGeneration)
+                IsSearching = false;
+        }
+
+        if (generation != _rankGeneration)
+            return;
         if (_rankReloadPending)
-            await LoadRankCoreAsync();
+        {
+            _rankReloadPending = false;
+            await LoadRankCoreAsync(append: false);
+            return;
+        }
+
+        if (continueDrain)
+            await LoadRankCoreAsync(append: true);
     }
 
     [RelayCommand]
@@ -879,6 +979,48 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (IsPosterView)
         {
             RequestPosterLoads();
+        }
+        ScheduleExistenceCheck();
+    }
+
+    private void ScheduleExistenceCheck()
+    {
+        var titles = SearchResults.Select(row => row.Item.Title).ToArray();
+        var signature = string.Join("\n", titles);
+        if (string.Equals(signature, _existenceSignature, StringComparison.Ordinal) &&
+            SearchResults.All(row => row.ExistenceText != "核对中"))
+            return;
+
+        _existenceSignature = signature;
+        var generation = Interlocked.Increment(ref _existenceGeneration);
+        foreach (var row in SearchResults)
+            row.ExistenceText = "核对中";
+        _ = ApplyExistenceAsync(generation, titles);
+    }
+
+    private async Task ApplyExistenceAsync(int generation, IReadOnlyList<string> titles)
+    {
+        try
+        {
+            var account = ExistenceAccountRequested?.Invoke();
+            var result = await DramaDownloadExistenceService.CheckAsync(titles, account, CancellationToken.None)
+                .ConfigureAwait(true);
+            if (generation != _existenceGeneration)
+                return;
+            foreach (var row in SearchResults)
+                row.ExistenceText = result.LabelFor(row.Item.Title);
+            if (!result.ArchiveChecked && result.ArchiveMessage.Length > 0)
+                LogRequested?.Invoke($"归档是否已存在未核对：{result.ArchiveMessage}");
+            if (!result.ManagementChecked && result.ManagementMessage.Length > 0)
+                LogRequested?.Invoke($"管理系统是否已存在未核对：{result.ManagementMessage}");
+        }
+        catch (Exception ex)
+        {
+            if (generation != _existenceGeneration)
+                return;
+            foreach (var row in SearchResults)
+                row.ExistenceText = DramaDownloadExistenceResult.Format(false, false, false, false);
+            LogRequested?.Invoke($"是否已存在未核对：{ex.Message}");
         }
     }
 

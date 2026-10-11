@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
@@ -8,6 +10,8 @@ namespace TikTokPublisher.Ui.Views;
 public partial class DramaDownloadView : UserControl
 {
     private DramaDownloadViewModel? _vm;
+    private ScrollViewer? _rankListScroll;
+    private int _rankScrollAttachAttempts;
 
     public DramaDownloadView()
     {
@@ -31,8 +35,46 @@ public partial class DramaDownloadView : UserControl
             string.Equals(item.Header?.ToString(), "榜单", StringComparison.Ordinal))
         {
             _vm?.EnsureRankLoaded();
+            _rankScrollAttachAttempts = 0;
+            AttachRankListScroll();
         }
     }
+
+    private void AttachRankListScroll()
+    {
+        var scroll = RankResultList?.FindDescendantOfType<ScrollViewer>();
+        if (scroll is null)
+        {
+            if (_rankScrollAttachAttempts++ > 8)
+                return;
+            Dispatcher.UIThread.Post(AttachRankListScroll, DispatcherPriority.Loaded);
+            return;
+        }
+
+        _rankScrollAttachAttempts = 0;
+        if (ReferenceEquals(_rankListScroll, scroll))
+            return;
+        if (_rankListScroll is not null)
+            _rankListScroll.ScrollChanged -= OnRankListScrollChanged;
+        _rankListScroll = scroll;
+        _rankListScroll.ScrollChanged += OnRankListScrollChanged;
+        NotifyRankScroll(scroll);
+    }
+
+    private void OnRankListScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is ScrollViewer scroll)
+            NotifyRankScroll(scroll);
+    }
+
+    private void OnRankPosterScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is ScrollViewer scroll)
+            NotifyRankScroll(scroll);
+    }
+
+    private void NotifyRankScroll(ScrollViewer scroll) =>
+        _vm?.NotifyRankScroll(scroll.Offset.Y, scroll.Viewport.Height, scroll.Extent.Height);
 
     private void SyncComboFromVm()
     {

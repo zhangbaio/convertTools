@@ -62,5 +62,100 @@ public sealed class TikTokManagementUploadRecordSyncServiceTests
         ((IEnumerable<string>)payload["original_names"]!).Should().Equal("盛夏的浪起", "金钱照冷暖");
         payload.Should().NotContainKey("tiktok_username");
         payload.Should().NotContainKey("tiktok_account_username");
+        payload.Should().NotContainKey("normalize_original_names");
+    }
+
+    [Fact]
+    public void BuildDuplicateCheckPayload_current_account_normalizes_original_names()
+    {
+        var account = new TikTokAccountProfile
+        {
+            TiktokLoginEmail = "3996972403@qq.com",
+            TiktokAccountNickname = "赵可",
+        };
+
+        var payload = TikTokManagementUploadRecordSyncService.BuildDuplicateCheckPayload(
+            ["《烬九州：第二十九季》"],
+            "tiktok_username",
+            account,
+            normalizeTitles: true);
+
+        payload["dedupe_scope"].Should().Be("tiktok_username");
+        payload["tiktok_username"].Should().Be("3996972403@qq.com");
+        payload["normalize_original_names"].Should().Be(true);
+        ((IEnumerable<string>)payload["original_names"]!).Should().Equal("《烬九州：第二十九季》");
+    }
+}
+
+public sealed class DramaDownloadExistenceServiceTests
+{
+    [Theory]
+    [InlineData(true, false, true, false, "不存在")]
+    [InlineData(true, true, true, false, "已归档")]
+    [InlineData(true, false, true, true, "管理系统")]
+    [InlineData(true, true, true, true, "已归档、管理系统")]
+    [InlineData(false, false, true, false, "归档未核对")]
+    [InlineData(true, true, false, false, "已归档、管理系统未核对")]
+    [InlineData(false, false, false, false, "归档未核对、管理系统未核对")]
+    public void Format_names_each_source(
+        bool archiveChecked,
+        bool inArchive,
+        bool managementChecked,
+        bool inManagement,
+        string expected)
+    {
+        DramaDownloadExistenceResult.Format(archiveChecked, inArchive, managementChecked, inManagement)
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void LabelFor_matches_original_title_after_punctuation_strip()
+    {
+        var result = new DramaDownloadExistenceResult(
+            true,
+            "",
+            true,
+            "",
+            new HashSet<string>(["烬九州第二十九季"], StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal));
+
+        result.LabelFor("《烬九州：第二十九季》").Should().Be("已归档");
+        result.LabelFor("另一部剧").Should().Be("不存在");
+    }
+
+    [Fact]
+    public void CollectArchive_matches_original_title_and_folder_not_new_title()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "tt-existence-" + Guid.NewGuid().ToString("N"));
+        var workspace = Path.Combine(root, "workspace");
+        var archive = Path.Combine(workspace, "archive");
+        Directory.CreateDirectory(Path.Combine(archive, "meta"));
+        File.WriteAllText(
+            Path.Combine(archive, "meta", "jin.json"),
+            """
+            {"archiveSource":"tiktok","originalTitle":"《烬九州：第二十九季》","newTitle":"完全不同的新剧名","projectKey":"jin"}
+            """);
+        Directory.CreateDirectory(Path.Combine(archive, "烬九州第二十九季"));
+        File.WriteAllText(Path.Combine(archive, "烬九州第二十九季", "archive-meta.json"), """{"archiveSource":"tiktok","newTitle":"只在文件夹里"}""");
+
+        try
+        {
+            var account = new TikTokAccountProfile
+            {
+                TiktokUploadProfilePath = workspace,
+                TiktokArchiveRootDir = archive,
+            };
+
+            var archiveResult = DramaDownloadExistenceService.CollectArchive(account);
+            archiveResult.Checked.Should().BeTrue();
+            archiveResult.Keys.Should().Contain(AiRewriteHistoryService.NormalizeTitleKey("《烬九州：第二十九季》"));
+            archiveResult.Keys.Should().Contain(AiRewriteHistoryService.NormalizeTitleKey("烬九州第二十九季"));
+            archiveResult.Keys.Should().NotContain(AiRewriteHistoryService.NormalizeTitleKey("完全不同的新剧名"));
+            archiveResult.Keys.Should().NotContain(AiRewriteHistoryService.NormalizeTitleKey("只在文件夹里"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 }

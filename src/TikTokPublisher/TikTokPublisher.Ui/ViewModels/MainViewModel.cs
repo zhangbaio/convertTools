@@ -244,6 +244,7 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
+        DramaDownload.ExistenceAccountRequested += () => SelectedAccount?.Model;
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
     }
@@ -286,6 +287,7 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
+        DramaDownload.ExistenceAccountRequested += () => SelectedAccount?.Model;
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
     }
