@@ -126,10 +126,18 @@ public static class ManualDeletedCopyrightProofService
                 .ToArray();
             if (originalTitles.Length > 1)
             {
+                var options = originalTitles
+                    .Select(original => new CopyrightProofConflictOption(
+                        original,
+                        $"原剧名：{original}",
+                        CreateRecoveryMatch(group.Key, original, workspace, account, timestamp)))
+                    .ToArray();
                 results.Add(new CopyrightProofProjectMatch(
                     group.Key,
                     CopyrightProofProjectLocation.Conflict,
-                    ConflictCandidates: originalTitles));
+                    ConflictCandidates: originalTitles,
+                    ConflictOptions: options,
+                    ConflictKind: CopyrightProofConflictKind.OriginalTitle));
                 continue;
             }
 

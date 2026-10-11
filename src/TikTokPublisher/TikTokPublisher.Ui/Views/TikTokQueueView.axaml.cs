@@ -2468,7 +2468,7 @@ public partial class TikTokQueueView : UserControl
         var completedExistingRecovery = false;
         var validationFailures = matches
             .Where(match => !match.CanExecute)
-            .Select(match => $"「{match.NewTitle}」存在同名冲突")
+            .Select(match => $"「{match.NewTitle}」{CopyrightProofProjectMatcher.DescribeConflict(match)}")
             .ToList();
         foreach (var match in matches.Where(match => match.CanExecute))
         {
@@ -3083,12 +3083,13 @@ public partial class TikTokQueueView : UserControl
 
         var conflicts = matches
             .Where(match => match.Location == CopyrightProofProjectLocation.Conflict)
-            .Select(match => $"• {match.NewTitle}")
+            .Select(match =>
+                $"• {match.NewTitle}{Environment.NewLine}{CopyrightProofProjectMatcher.DescribeConflict(match)}")
             .ToArray();
         if (conflicts.Length > 0)
         {
             sections.Add(
-                $"以下 {conflicts.Length} 个项目存在同名冲突，无法唯一匹配：" +
+                $"以下 {conflicts.Length} 个项目存在同名冲突，未选择候选，无法唯一匹配：" +
                 $"{Environment.NewLine}{string.Join(Environment.NewLine, conflicts)}");
         }
 
