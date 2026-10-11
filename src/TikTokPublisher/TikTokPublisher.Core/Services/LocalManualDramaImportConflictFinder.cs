@@ -89,11 +89,27 @@ public static class LocalManualDramaImportConflictFinder
         IReadOnlyList<LocalManualDramaImportPreview> localCandidates,
         IEnumerable<string> importDirs)
     {
+        var conflictDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var conflict in conflicts)
+        {
+            var path = NormalizePath(conflict.ProjectDir);
+            if (!string.IsNullOrWhiteSpace(path))
+                conflictDirs.Add(path);
+        }
+
+        var keptQueueDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var queueProject in conflicts.SelectMany(conflict => conflict.MatchedQueueProjects))
+        {
+            var queueDir = NormalizePath(queueProject.ProjectDir);
+            if (!string.IsNullOrWhiteSpace(queueDir))
+                keptQueueDirs.Add(queueDir);
+        }
+
         var protectedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var dir in importDirs)
         {
             var path = NormalizePath(dir);
-            if (!string.IsNullOrWhiteSpace(path))
+            if (!string.IsNullOrWhiteSpace(path) && !conflictDirs.Contains(path))
                 protectedDirs.Add(path);
         }
 
@@ -105,19 +121,21 @@ public static class LocalManualDramaImportConflictFinder
             foreach (var queueProject in conflict.MatchedQueueProjects)
             {
                 var queueDir = NormalizePath(queueProject.ProjectDir);
-                if (string.IsNullOrWhiteSpace(queueDir) || OverlapsProtected(queueDir, protectedDirs))
+                if (string.IsNullOrWhiteSpace(queueDir) || !string.Equals(queueDir, conflictDir, StringComparison.OrdinalIgnoreCase))
                     continue;
-                if (queueProject.MetadataExists)
-                    continue;
-                if (queueProject.ActiveUpload)
-                {
-                    if (!string.IsNullOrWhiteSpace(conflictDir))
-                        blocked.Add(conflictDir);
-                    continue;
-                }
-
-                AddTarget(targets, queueDir, conflictDir);
+                if (queueProject.ActiveUpload && !string.IsNullOrWhiteSpace(conflictDir))
+                    blocked.Add(conflictDir);
             }
+
+            if (string.IsNullOrWhiteSpace(conflictDir) ||
+                OverlapsProtected(conflictDir, protectedDirs) ||
+                keptQueueDirs.Contains(conflictDir) ||
+                blocked.Contains(conflictDir))
+            {
+                continue;
+            }
+
+            AddTarget(targets, conflictDir, conflictDir);
         }
 
         foreach (var candidate in localCandidates)
@@ -125,8 +143,12 @@ public static class LocalManualDramaImportConflictFinder
             if (candidate.MetadataExists)
                 continue;
             var candidateDir = NormalizePath(candidate.ProjectDir);
-            if (string.IsNullOrWhiteSpace(candidateDir) || OverlapsProtected(candidateDir, protectedDirs))
+            if (string.IsNullOrWhiteSpace(candidateDir) ||
+                OverlapsProtected(candidateDir, protectedDirs) ||
+                keptQueueDirs.Contains(candidateDir))
+            {
                 continue;
+            }
 
             var names = CandidateNames(candidate);
             foreach (var conflict in conflicts)

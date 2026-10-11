@@ -1391,7 +1391,7 @@ public partial class TikTokQueueView : UserControl
             string.Join('\n', lines) +
             extra +
             "\n\n重新加入会把这些剧集再次放回上传队列。跳过则只导入尚未存在的剧集。\n" +
-            "加入并删除已存在会先删除本地未导入的重复剧集，再加入上传队列；归档和管理系统不会改动。";
+            "加入并删除已存在会加入尚未存在的剧集，并删除这些重复剧集的本地文件夹，重复剧集不会再次加入上传队列。归档和管理系统不会改动。";
 
         var lineCount = Math.Max(1, message.Split('\n').Length);
         var dialog = new Window
@@ -1739,7 +1739,7 @@ public partial class TikTokQueueView : UserControl
                     request.ProjectDirs);
                 var plan = deletionPlan;
                 var confirmMessage = BuildDeleteUnimportedLocalDuplicatesMessage(plan);
-                if (!await ConfirmAsync(owner, "确认删除本地未导入重复剧集", confirmMessage))
+                if (!await ConfirmAsync(owner, "确认删除重复剧集", confirmMessage))
                 {
                     vm.StatusMessage = "已取消导入本地剧集";
                     return;
@@ -1747,33 +1747,41 @@ public partial class TikTokQueueView : UserControl
 
                 try
                 {
-                    vm.StatusMessage = "正在删除本地未导入的重复剧集…";
+                    vm.StatusMessage = "正在删除重复剧集…";
                     deletion = await vm.DeleteUnimportedLocalDuplicatesAsync(plan);
                 }
                 catch (Exception ex)
                 {
-                    vm.StatusMessage = $"删除本地未导入重复剧集失败：{ex.Message}";
+                    vm.StatusMessage = $"删除重复剧集失败：{ex.Message}";
                     await ShowMessageAsync(owner, "导入本地剧集", ex.Message, warning: true);
                     return;
                 }
 
+                var conflictDirs = conflicts
+                    .Select(conflict => Path.GetFullPath(conflict.ProjectDir))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var excluded = plan.BlockedImportDirs
                     .Concat(deletion.FailedImportDirs)
                     .Select(Path.GetFullPath)
+                    .Concat(conflictDirs)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 importDirs = request.ProjectDirs
                     .Where(dir => !excluded.Contains(Path.GetFullPath(dir)))
                     .ToArray();
+                foreach (var conflict in conflicts)
+                    vm.AppendLog($"重复剧集不加入上传队列：{conflict.DisplayName}（{string.Join("、", conflict.Reasons)}）");
                 foreach (var blocked in plan.BlockedImportDirs)
                     vm.AppendLog($"跳过正在上传的剧集：{Path.GetFileName(blocked)}");
                 if (importDirs.Count == 0)
                 {
                     var blockedText = deletion.Failures.Count > 0
-                        ? "删除本地未导入重复剧集失败，已跳过对应剧集。\n" +
+                        ? "删除重复剧集失败，这些剧集未加入上传队列。\n" +
                           string.Join("\n", deletion.Failures.Take(5))
-                        : plan.BlockedImportDirs.Count == 0
-                            ? "没有可导入的本地剧集。"
-                            : "正在上传或等待上传名额的剧集未删除，也未导入。";
+                        : deletion.DeletedDirectoryCount > 0
+                            ? $"已删除 {deletion.DeletedDirectoryCount} 个重复剧集文件夹，未加入上传队列。没有其他需要加入的剧集。"
+                            : plan.BlockedImportDirs.Count == 0
+                                ? "重复剧集不会再次加入上传队列。没有其他需要加入的剧集。"
+                                : "正在上传或等待上传名额的剧集未删除，也未导入。";
                     if (conflicts.Any(conflict =>
                             conflict.Reasons.Contains(LocalManualDramaImportConflictFinder.ArchiveReason) ||
                             conflict.Reasons.Contains(LocalManualDramaImportConflictFinder.ManagementReason)))
@@ -1840,11 +1848,15 @@ public partial class TikTokQueueView : UserControl
     private static string BuildDeleteUnimportedLocalDuplicatesMessage(
         LocalManualDramaImportConflictFinder.UnimportedLocalDeletionPlan plan)
     {
+        var addCount = plan.ProtectedImportDirs.Count;
         var deleteCount = plan.Targets.Count;
-        var message = deleteCount == 0
-            ? "没有可删除的本地未导入重复剧集。将只把所选剧集加入上传队列。"
-            : $"将删除 {deleteCount} 个本地未导入的重复剧集，然后把所选剧集加入上传队列。";
-        message += "\n归档和管理系统不会改动。本次要导入的文件夹不会删除。";
+        var message = addCount == 0
+            ? "没有其他需要加入的剧集。"
+            : $"将加入 {addCount} 部尚未存在的剧集。";
+        message += deleteCount == 0
+            ? "\n重复剧集不会再次加入上传队列。"
+            : $"\n将删除 {deleteCount} 个重复剧集文件夹，这些不会加入上传队列。";
+        message += "\n归档和管理系统不会改动。";
         if (deleteCount > 0)
             message += "此操作不可恢复。";
         if (plan.BlockedImportDirs.Count > 0)

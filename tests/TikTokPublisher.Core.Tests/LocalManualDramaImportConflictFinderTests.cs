@@ -80,7 +80,7 @@ public sealed class LocalManualDramaImportConflictFinderTests
     }
 
     [Fact]
-    public void Resolve_DeletesOtherUnimportedQueueCopyAndKeepsImportFolder()
+    public void Resolve_DeletesIncomingDuplicateAndKeepsExistingQueueCopy()
     {
         var importDir = @"E:\tiktok2\同一部";
         var otherDir = @"D:\other\同一部";
@@ -98,8 +98,9 @@ public sealed class LocalManualDramaImportConflictFinderTests
             [Preview(importDir, "同一部")],
             [importDir]);
 
-        Assert.Equal([Path.GetFullPath(otherDir)], plan.Targets.Select(target => target.Directory));
-        Assert.Contains(Path.GetFullPath(importDir), plan.ProtectedImportDirs);
+        Assert.Equal([Path.GetFullPath(importDir)], plan.Targets.Select(target => target.Directory));
+        Assert.DoesNotContain(plan.Targets, target => string.Equals(target.Directory, Path.GetFullPath(otherDir), StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(Path.GetFullPath(importDir), plan.ProtectedImportDirs);
         Assert.Empty(plan.BlockedImportDirs);
     }
 
@@ -126,7 +127,8 @@ public sealed class LocalManualDramaImportConflictFinderTests
             [importDir]);
 
         Assert.Empty(plan.Targets);
-        Assert.Contains(Path.GetFullPath(importDir), plan.ProtectedImportDirs);
+        Assert.DoesNotContain(Path.GetFullPath(importDir), plan.ProtectedImportDirs);
+        Assert.DoesNotContain(Path.GetFullPath(importedCopy), plan.Targets.Select(target => target.Directory));
     }
 
     [Fact]
@@ -155,7 +157,10 @@ public sealed class LocalManualDramaImportConflictFinderTests
             ],
             [importDir]);
 
-        Assert.Equal([Path.GetFullPath(duplicateDir)], plan.Targets.Select(target => target.Directory));
+        Assert.Equal(
+            [Path.GetFullPath(importDir), Path.GetFullPath(duplicateDir)],
+            plan.Targets.Select(target => target.Directory));
+        Assert.DoesNotContain(plan.Targets, target => target.Directory.Contains("已导入副本", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(plan.Targets, target => target.Directory.Contains("archive", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -178,8 +183,36 @@ public sealed class LocalManualDramaImportConflictFinderTests
             [Preview(importDir, "上传中")],
             [importDir]);
 
-        Assert.Empty(plan.Targets);
-        Assert.Equal([Path.GetFullPath(importDir)], plan.BlockedImportDirs);
+        Assert.Equal([Path.GetFullPath(importDir)], plan.Targets.Select(target => target.Directory));
+        Assert.DoesNotContain(plan.Targets, target => string.Equals(target.Directory, Path.GetFullPath(otherDir), StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(plan.BlockedImportDirs);
+    }
+
+    [Fact]
+    public void Resolve_DeletesArchiveDuplicateFolderAndKeepsNewDrama()
+    {
+        var duplicateDir = @"E:\tiktok2\临夏的陆凉第一季";
+        var newDir = @"E:\tiktok2\全新剧";
+        var conflicts = new[]
+        {
+            new LocalManualDramaImportConflictFinder.Conflict(
+                duplicateDir,
+                "临夏的陆凉第一季",
+                [
+                    LocalManualDramaImportConflictFinder.ArchiveReason,
+                    LocalManualDramaImportConflictFinder.ManagementReason,
+                ],
+                []),
+        };
+
+        var plan = LocalManualDramaImportConflictFinder.ResolveUnimportedLocalDeletion(
+            conflicts,
+            [Preview(duplicateDir, "临夏的陆凉第一季"), Preview(newDir, "全新剧")],
+            [duplicateDir, newDir]);
+
+        Assert.Equal([Path.GetFullPath(duplicateDir)], plan.Targets.Select(target => target.Directory));
+        Assert.Equal([Path.GetFullPath(newDir)], plan.ProtectedImportDirs);
+        Assert.Empty(plan.BlockedImportDirs);
     }
 
     private static LocalManualDramaImportPreview Preview(string dir, string name, bool metadataExists = false) =>
