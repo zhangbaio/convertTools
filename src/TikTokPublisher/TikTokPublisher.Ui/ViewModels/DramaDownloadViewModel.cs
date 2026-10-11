@@ -236,6 +236,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private CancellationTokenSource? _newReleaseCts;
     private long _searchGeneration;
     private bool _isLoadingState;
+    private bool _rankHasLoaded;
+    private bool _rankReloadPending;
 
     public DramaDownloadViewModel(string? stateDatabasePath = null)
     {
@@ -246,6 +248,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public ObservableCollection<DramaQueueRowViewModel> QueueRows { get; } = new();
 
     public IReadOnlyList<string> SearchCategoryOptions { get; } = ["漫剧", "短剧", "合集", "默认", "短剧ID"];
+    public IReadOnlyList<string> RankCategoryOptions { get; } = ["全部", "真人剧", "漫剧", "AI剧"];
+    public IReadOnlyList<string> RankBoardOptions { get; } = ["热播榜", "推荐榜", "新剧榜", "必看榜", "热搜榜", "收藏榜"];
     public IReadOnlyList<string> SearchViewModeOptions { get; } = ["列表视图", "封面视图"];
     public IReadOnlyList<string> EpisodeRangeOptions { get; } = ["全部", "前1集", "前3集", "前5集", "自定义"];
 
@@ -271,6 +275,10 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     [ObservableProperty] private bool _isDownloading;
     [ObservableProperty] private string _selectedCountText = "已选 0 项";
     [ObservableProperty] private string _searchPageText = "第 1 页";
+    [ObservableProperty] private string _rankCategory = "漫剧";
+    [ObservableProperty] private string _rankBoard = "热播榜";
+    [ObservableProperty] private int _rankPage = 1;
+    [ObservableProperty] private string _rankPageText = "第 1 页";
     [ObservableProperty] private string _queueStatsText = "待下载：0 | 下载中：0 | 完成：0 | 失败：0";
     [ObservableProperty] private string _tikTokQueueTargetText = "目标账号：未选择";
     [ObservableProperty]
@@ -469,6 +477,84 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     {
         SearchPage += 1;
         await SearchAsync();
+    }
+
+    public void EnsureRankLoaded()
+    {
+        if (_rankHasLoaded)
+            return;
+        _rankHasLoaded = true;
+        _ = LoadRankCoreAsync();
+    }
+
+    partial void OnRankCategoryChanged(string value) => ReloadRankIfActive();
+
+    partial void OnRankBoardChanged(string value) => ReloadRankIfActive();
+
+    private void ReloadRankIfActive()
+    {
+        if (!_rankHasLoaded || _isLoadingState)
+            return;
+        RankPage = 1;
+        _ = LoadRankCoreAsync();
+    }
+
+    [RelayCommand]
+    private Task RefreshRankAsync()
+    {
+        _rankHasLoaded = true;
+        RankPage = 1;
+        return LoadRankCoreAsync();
+    }
+
+    [RelayCommand]
+    private Task RankPreviousPageAsync()
+    {
+        if (RankPage <= 1)
+            return Task.CompletedTask;
+        _rankHasLoaded = true;
+        RankPage -= 1;
+        return LoadRankCoreAsync();
+    }
+
+    [RelayCommand]
+    private Task RankNextPageAsync()
+    {
+        _rankHasLoaded = true;
+        RankPage += 1;
+        return LoadRankCoreAsync();
+    }
+
+    private async Task LoadRankCoreAsync()
+    {
+        if (IsSearching)
+        {
+            _rankReloadPending = true;
+            return;
+        }
+
+        _rankReloadPending = false;
+        var category = RankCategory;
+        var board = RankBoard;
+        var page = Math.Max(1, RankPage);
+        var block = ShortDramaDramaServices.RankBlockReason(category, board);
+        if (block is not null)
+        {
+            _allSearchResults.Clear();
+            ApplyFilteredSearchResults(block, updateSearchPageText: false);
+            RankPageText = block;
+            LogRequested?.Invoke(block);
+            return;
+        }
+
+        var label = $"榜单 · {category} · {board} · 第 {page} 页";
+        await LoadSearchResultsAsync(
+            label,
+            ct => ShortDramaDramaServices.GetRankAsync(category, board, page, ct),
+            sourceMode: "",
+            setPageText: text => RankPageText = text);
+        if (_rankReloadPending)
+            await LoadRankCoreAsync();
     }
 
     [RelayCommand]
@@ -684,12 +770,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private async Task LoadSearchResultsAsync(
         string label,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> loader,
-        string sourceMode)
+        string sourceMode,
+        Action<string>? setPageText = null)
     {
         if (IsSearching) return;
         CancelBackgroundNewRelease();
         IsSearching = true;
-        SearchPageText = $"{label} · 加载中...";
+        SetPageText($"{label} · 加载中...");
         try
         {
             var items = await loader(CancellationToken.None);
@@ -701,17 +788,26 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 _allSearchResults.Add(item);
             }
 
-            ApplyFilteredSearchResults(label);
+            ApplyFilteredSearchResults(label, updateSearchPageText: setPageText is null);
+            SetPageText($"{label} · {SearchResults.Count} 条");
             LogRequested?.Invoke($"{label}：{SearchResults.Count} 条");
         }
         catch (Exception ex)
         {
-            SearchPageText = $"{label} · 加载失败";
+            SetPageText($"{label} · 加载失败");
             LogRequested?.Invoke($"{label}失败：{ex.Message}");
         }
         finally
         {
             IsSearching = false;
+        }
+
+        void SetPageText(string text)
+        {
+            if (setPageText is null)
+                SearchPageText = text;
+            else
+                setPageText(text);
         }
     }
 
@@ -728,7 +824,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             .ToArray();
     }
 
-    private void ApplyFilteredSearchResults(string? label = null)
+    private void ApplyFilteredSearchResults(string? label = null, bool updateSearchPageText = true)
     {
         var items = ApplySearchFilters(_allSearchResults)
             .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
@@ -777,7 +873,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 SearchResults.Move(currentIndex, index);
         }
 
-        SearchPageText = $"{(string.IsNullOrWhiteSpace(label) ? $"第 {SearchPage} 页" : label)} · 共 {SearchResults.Count} 条";
+        if (updateSearchPageText)
+            SearchPageText = $"{(string.IsNullOrWhiteSpace(label) ? $"第 {SearchPage} 页" : label)} · 共 {SearchResults.Count} 条";
         UpdateSelectedCount();
         if (IsPosterView)
         {

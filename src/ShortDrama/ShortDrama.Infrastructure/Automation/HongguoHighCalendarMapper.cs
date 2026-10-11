@@ -35,7 +35,7 @@ public static class HongguoHighCalendarMapper
         ["author", "author_name", "authorName", "anchor", "producer", "copyright"];
 
     private static readonly string[] IntroKeys =
-        ["intro", "series_intro", "abstract", "description"];
+        ["intro", "series_intro", "abstract", "description", "video_desc"];
 
     private static readonly string[] CategoryKeys =
         ["category", "tag_text", "type", "complete_category", "tags"];
@@ -234,7 +234,7 @@ public static class HongguoHighCalendarMapper
             PosterUrl: FirstMediaUrl(obj, CoverKeys, nested) ?? ExtractMediaUrl(obj) ?? "",
             Author: FirstMeaningful(obj, AuthorKeys, nested) ?? "",
             PublishTime: NormalizePublishTime(CollectPublishValues(obj, nested)),
-            FavoriteCount: FirstPositiveInt(obj, ["favorite_count", "followed_cnt", "collect_count", "add_bookshelf_count", "addBookshelfCount"], nested),
+            FavoriteCount: FirstPositiveInt(obj, ["favorite_count", "followed_cnt", "collect_count", "collect_cnt", "add_bookshelf_count", "addBookshelfCount"], nested),
             PlayCount: FirstPositiveInt(obj, PlayCountKeys, nested));
     }
 
@@ -432,6 +432,19 @@ public static class HongguoHighCalendarMapper
             zone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
         }
         return TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone);
+    }
+
+    public static IReadOnlyList<DramaSearchItem> ReadRankItems(JsonNode? payload)
+    {
+        var items = new List<DramaSearchItem>();
+        foreach (var raw in ExtractSearchTabItems(payload))
+        {
+            var item = TryMapItem(raw);
+            if (item is not null)
+                items.Add(item);
+        }
+
+        return items;
     }
 
     /// <summary>
@@ -660,6 +673,7 @@ public static class HongguoHighCalendarMapper
         "read_count",
         "play_count",
         "play_cnt",
+        "series_play_cnt",
         "play_num",
         "read_cnt",
         "view_count"

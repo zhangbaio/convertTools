@@ -214,6 +214,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
 
+    public Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
+        string category,
+        string board,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        var settings = _settingsProvider.Get();
+        if (!string.Equals(settings.DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("榜单只接入红果高码率标准版。请先把下载源切换到红果高码率链路。");
+        return _hghighApiService.GetRankAsync(settings, category, board, page, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<DramaSearchItem>> EnrichHighNewReleaseItemsAsync(
         IReadOnlyList<DramaSearchItem> items,
         IProgress<string>? progress,

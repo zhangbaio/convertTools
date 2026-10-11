@@ -23,6 +23,17 @@ public partial class DramaDownloadView : UserControl
         SyncComboFromVm();
     }
 
+    private void OnDownloadTabChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (e.Source is not TabControl || sender is not TabControl tabs)
+            return;
+        if (tabs.SelectedItem is TabItem item &&
+            string.Equals(item.Header?.ToString(), "榜单", StringComparison.Ordinal))
+        {
+            _vm?.EnsureRankLoaded();
+        }
+    }
+
     private void SyncComboFromVm()
     {
         if (_vm is null) return;

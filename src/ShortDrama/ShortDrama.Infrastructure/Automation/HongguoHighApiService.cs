@@ -185,6 +185,22 @@ public sealed class HongguoHighApiService
         return await EnrichBestSearchItemFromDirectoryAsync(legacy, keyword, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
+        DramaSourceSettings settings,
+        string category,
+        string board,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        if (!HongguoRankCatalog.TryResolve(category, board, out var query))
+            throw new HongguoHighException(HongguoRankCatalog.UnavailableReason(category, board) ?? "未知榜单");
+
+        var payload = await FetchRankPageAsync(settings, query, page, cancellationToken);
+        if (payload is null)
+            throw new HongguoHighException("榜单响应无法解析");
+        return HongguoHighCalendarMapper.ReadRankItems(payload);
+    }
+
     public async Task<HongguoDramaLookupHit> LookupExactTitleAsync(
         DramaSourceSettings settings,
         string keyword,
@@ -458,6 +474,79 @@ public sealed class HongguoHighApiService
                 results.Add(new SearchCapture(item, raw));
         }
         return results;
+    }
+
+    private async Task<JsonNode?> FetchRankPageAsync(
+        DramaSourceSettings settings,
+        HongguoRankQuery query,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        var safePage = Math.Max(1, page);
+        var offset = (safePage - 1) * 20;
+        var now = DateTimeOffset.UtcNow;
+        var spec = new JsonObject
+        {
+            ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
+            ["path"] = HongguoRankCatalog.Path,
+            ["method"] = "GET",
+            ["purpose"] = "ranklist",
+            ["requestId"] = $"redguo.ranklist:{query.SelectedItems}:{query.SubSelectedItems}:{safePage}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            ["device_profile_version"] = DeviceProfileVersion(settings),
+            ["deviceProfileVersion"] = DeviceProfileVersion(settings),
+            ["params"] = new JsonObject
+            {
+                ["aid"] = 8662,
+                ["app_name"] = "novelread",
+                ["version_code"] = 72332,
+                ["version_name"] = "7.2.3.32",
+                ["device_platform"] = "android",
+                ["device_type"] = "LE2100",
+                ["device_brand"] = "OnePlus",
+                ["os"] = "android",
+                ["os_version"] = "12",
+                ["os_api"] = 31,
+                ["manifest_version_code"] = 72332,
+                ["update_version_code"] = 72332,
+                ["channel"] = "oppo_8662_64",
+                ["language"] = "zh",
+                ["resolution"] = "1080*2400",
+                ["dpi"] = 480,
+                ["ac"] = "wifi",
+                ["ssmix"] = "a",
+                ["host_abi"] = "arm64-v8a",
+                ["dragon_device_type"] = "phone",
+                ["pv_player"] = 72332,
+                ["compliance_status"] = 0,
+                ["need_personal_recommend"] = 1,
+                ["player_so_load"] = 1,
+                ["is_android_pad_screen"] = 0,
+                ["rom_version"] = "ColorOS_12.1_LE2100_12_C.63",
+                ["cell_id"] = HongguoRankCatalog.CellId,
+                ["tab_type"] = HongguoRankCatalog.TabType,
+                ["client_req_type"] = "2",
+                ["client_template"] = "2",
+                ["screen_width_px"] = "3240",
+                ["selected_items"] = query.SelectedItems,
+                ["sub_selected_items"] = query.SubSelectedItems,
+                ["session_uuid"] = Guid.NewGuid().ToString(),
+                ["offset"] = offset.ToString(CultureInfo.InvariantCulture),
+                ["gender"] = "2",
+                ["normal_session_cnt_in_day"] = 10,
+                ["cold_start_session_cnt_in_day"] = 4,
+                ["normal_session_id"] = Guid.NewGuid().ToString(),
+                ["cold_start_session_id"] = Guid.NewGuid().ToString(),
+                ["session_id"] = $"{now.ToUnixTimeMilliseconds()}{Guid.NewGuid():N}"[..31].ToUpperInvariant(),
+            },
+            ["manual"] = safePage == 1,
+            ["charge"] = safePage == 1,
+        };
+        var descriptor = AuthedRequestForTests is null
+            ? await AuthedRequestAsync(settings, "/redguo/sign", spec, 60, cancellationToken)
+            : await AuthedRequestForTests(settings, "/redguo/sign", spec, 60, cancellationToken);
+        return ExecuteSignedRequestForTests is null
+            ? await ExecuteSignedFanqieRequestAsync(descriptor, [], 60, cancellationToken)
+            : await ExecuteSignedRequestForTests(descriptor, [], 60, cancellationToken);
     }
 
     private async Task<List<SearchCapture>> SearchLegacyNovelFmAsync(

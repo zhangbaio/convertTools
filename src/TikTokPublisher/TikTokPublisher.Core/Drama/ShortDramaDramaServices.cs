@@ -150,6 +150,24 @@ public static class ShortDramaDramaServices
         return Router.Value.IsHighSourceSelected();
     }
 
+    public static string? RankBlockReason(string category, string board)
+    {
+        if (!IsHighSourceSelected())
+            return "榜单只接入红果高码率标准版。请先把下载源切换到红果高码率链路。";
+        return HongguoRankCatalog.UnavailableReason(category, board);
+    }
+
+    public static async Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
+        string category,
+        string board,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        RefreshSettings();
+        var items = await Router.Value.GetRankAsync(category, board, page, cancellationToken);
+        return items.Select(FromCore).ToArray();
+    }
+
     public static string GetHighNewReleaseDateWindowDisplay(int days) =>
         HongguoHighCalendarMapper.ResolveRecentDateWindow(days).DisplayText;
 

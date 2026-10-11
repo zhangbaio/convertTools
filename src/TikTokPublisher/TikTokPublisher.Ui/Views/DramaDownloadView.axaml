@@ -50,7 +50,7 @@
             <Button Grid.Column="2" Content="选择下载目录" Click="OnPickDownloadDirClick" Margin="10,0,0,0" />
         </Grid>
 
-        <TabControl Classes="downloadTabs">
+        <TabControl Classes="downloadTabs" SelectionChanged="OnDownloadTabChanged">
             <TabItem Header="搜索">
                 <DockPanel Margin="8">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
@@ -253,6 +253,119 @@
                         <Button Content="保存当前页面配置" Click="OnSaveSettingsClick" Classes="primaryAction" HorizontalAlignment="Left" />
                     </StackPanel>
                 </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="榜单">
+                <DockPanel Margin="8">
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <ComboBox Width="110" ItemsSource="{Binding RankCategoryOptions}" SelectedItem="{Binding RankCategory}" Margin="0,0,8,8" />
+                        <ComboBox Width="110" ItemsSource="{Binding RankBoardOptions}" SelectedItem="{Binding RankBoard}" Margin="0,0,8,8" />
+                        <Button Content="刷新" Command="{Binding RefreshRankCommand}" Classes="primaryAction" Margin="0,0,8,8" />
+                        <Button Content="◀ 上页" Command="{Binding RankPreviousPageCommand}" Margin="0,0,8,8" />
+                        <Button Content="下页 ▶" Command="{Binding RankNextPageCommand}" Margin="0,0,8,8" />
+                        <ComboBox Width="120" ItemsSource="{Binding SearchViewModeOptions}" SelectedItem="{Binding SearchViewMode}" Margin="0,0,8,8" />
+                        <TextBlock Text="{Binding RankPageText}" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8" />
+                    </WrapPanel>
+
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Text="最小集数" VerticalAlignment="Center" Margin="0,0,6,8" />
+                        <NumericUpDown Value="{Binding MinEpisodeFilter}" Minimum="0" Maximum="10000" Width="96" Margin="0,0,8,8" />
+                        <TextBlock Text="最大集数" VerticalAlignment="Center" Margin="0,0,6,8" />
+                        <NumericUpDown Value="{Binding MaxEpisodeFilter}" Minimum="0" Maximum="10000" Width="96" Margin="0,0,8,8" />
+                        <Button Content="应用筛选" Command="{Binding ApplyFiltersCommand}" Margin="0,0,8,8" />
+                    </WrapPanel>
+
+                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <TextBlock Text="集数范围" VerticalAlignment="Center" Margin="0,0,6,8" />
+                        <ComboBox Width="92" ItemsSource="{Binding EpisodeRangeOptions}" SelectedItem="{Binding EpisodeRangeMode}" Margin="0,0,8,8" />
+                        <TextBox Width="360" Watermark="例如: 1-5 或 1,3,5" Text="{Binding EpisodeCustomRange, Mode=TwoWay}" Margin="0,0,8,8" />
+                        <Button Content="下载选中" Command="{Binding DownloadSelectedCommand}" Classes="primaryAction" Margin="0,0,8,8" />
+                        <Button Content="{Binding AddToQueueButtonText}" Command="{Binding AddSelectedToTikTokQueueCommand}" Margin="0,0,8,8" />
+                        <Button Content="全选" Command="{Binding SelectAllResultsCommand}" Margin="0,0,8,8" />
+                        <Button Content="取消选择" Command="{Binding ClearSelectionCommand}" ToolTip.Tip="取消当前列表中所有已勾选的短剧" Margin="0,0,8,8" />
+                        <TextBlock Text="{Binding SelectedCountText}" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8" />
+                    </WrapPanel>
+
+                    <DockPanel IsVisible="{Binding IsListView}">
+                        <Grid DockPanel.Dock="Top" ColumnDefinitions="56,64,220,140,72,90,90,140,140,*" Margin="0,0,0,4">
+                            <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
+                            <TextBlock Grid.Column="1" Text="选择" Classes="tableHeader" />
+                            <TextBlock Grid.Column="2" Text="标题" Classes="tableHeader" />
+                            <TextBlock Grid.Column="3" Text="作者" Classes="tableHeader" />
+                            <TextBlock Grid.Column="4" Text="集数" Classes="tableHeader" />
+                            <TextBlock Grid.Column="5" Text="收藏量" Classes="tableHeader" />
+                            <TextBlock Grid.Column="6" Text="播放量" Classes="tableHeader" />
+                            <TextBlock Grid.Column="7" Text="类型" Classes="tableHeader" />
+                            <TextBlock Grid.Column="8" Text="上线时间" Classes="tableHeader" />
+                            <TextBlock Grid.Column="9" Text="简介" Classes="tableHeader" />
+                        </Grid>
+
+                        <ListBox ItemsSource="{Binding SearchResults}" Background="{StaticResource PythonInputBg}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:DramaSearchRowViewModel">
+                                    <Grid ColumnDefinitions="56,64,220,140,72,90,90,140,140,*" MinHeight="34">
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="8,0" Text="{Binding RowIndex}" />
+                                        <CheckBox Grid.Column="1" IsChecked="{Binding Selected}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#0F63C7" />
+                                        <TextBlock Grid.Column="3" Text="{Binding Author}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="4" Text="{Binding EpisodeTotal}" VerticalAlignment="Center" Margin="8,0" />
+                                        <TextBlock Grid.Column="5" Text="{Binding FavoriteText}" VerticalAlignment="Center" Margin="8,0" />
+                                        <TextBlock Grid.Column="6" Text="{Binding PlayCountText}" VerticalAlignment="Center" Margin="8,0" />
+                                        <TextBlock Grid.Column="7" Text="{Binding Category}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="8" Text="{Binding PublishTime}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="9" Text="{Binding Intro}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+
+                    <ScrollViewer IsVisible="{Binding IsPosterView}">
+                        <ItemsControl ItemsSource="{Binding SearchResults}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:DramaSearchRowViewModel">
+                                    <Border Width="220" MinHeight="360" BorderBrush="{StaticResource PythonBorderBrush}" BorderThickness="1" CornerRadius="6" Background="{StaticResource PythonInputBg}" Padding="10" Margin="0,0,10,10">
+                                        <StackPanel Spacing="6">
+                                            <Border Width="178"
+                                                    Height="210"
+                                                    HorizontalAlignment="Center"
+                                                    Background="{StaticResource PythonPanelSubtleBgBrush}"
+                                                    CornerRadius="4"
+                                                    ClipToBounds="True">
+                                                <Panel>
+                                                    <TextBlock Text="{Binding PosterStatus}"
+                                                               IsVisible="{Binding ShowPosterPlaceholder}"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center"
+                                                               TextAlignment="Center"
+                                                               TextWrapping="Wrap"
+                                                               Margin="12"
+                                                               Classes="pageSummary" />
+                                                    <Image Source="{Binding PosterImage}"
+                                                           Width="178"
+                                                           Height="210"
+                                                           Stretch="UniformToFill"
+                                                           IsVisible="{Binding HasPosterImage}" />
+                                                </Panel>
+                                            </Border>
+                                            <CheckBox IsChecked="{Binding Selected}" Content="{Binding Title}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Author}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Category}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding EpisodeTotal, StringFormat='{}{0} 集'}" FontSize="12" />
+                                            <TextBlock Text="{Binding PlayCountText, StringFormat='播放 {0}'}" FontSize="12" />
+                                            <TextBlock Text="{Binding Intro}" FontSize="12" MaxHeight="48" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
             </TabItem>
         </TabControl>
     </DockPanel>
