@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="using:TikTokPublisher.Ui.Controls"
+             x:Class="TikTokPublisher.Ui.Views.TikTokAccountAnalyticsView"
+             Background="#F8FAFC">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+        <Grid ColumnDefinitions="*,Auto,Auto">
+            <StackPanel>
+                <TextBlock Text="数据统计" FontSize="20" FontWeight="SemiBold" />
+                <TextBlock x:Name="StatusText" Text="显示全部账号。剧集每日新增从第一次同步那天开始计算。"
+                           Foreground="#6B7280" Margin="0,4,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+            <Button x:Name="RefreshButton" Grid.Column="1" Content="更新全部账号" MinWidth="120" Margin="0,0,8,0" Click="OnRefreshClick" />
+            <Button x:Name="StopButton" Grid.Column="2" Content="停止" MinWidth="72" IsEnabled="False" Click="OnStopClick" />
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,12,0,8">
+            <StackPanel x:Name="RevenuePanel" Orientation="Horizontal" Spacing="10" />
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,*" RowDefinitions="*,*">
+            <Border Grid.Row="0" Grid.Column="0" Background="White" CornerRadius="8" Padding="12" Margin="0,0,8,8" BoxShadow="0 1 2 0 #14000000">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="每日有效播放量" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <controls:AnalyticsLineChart x:Name="DailyChart" />
+                </DockPanel>
+            </Border>
+            <Border Grid.Row="0" Grid.Column="1" Background="White" CornerRadius="8" Padding="12" Margin="8,0,0,8" BoxShadow="0 1 2 0 #14000000">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="每月有效播放量" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <controls:AnalyticsLineChart x:Name="MonthlyChart" />
+                </DockPanel>
+            </Border>
+            <Border Grid.Row="1" Grid.Column="0" Background="White" CornerRadius="8" Padding="12" Margin="0,8,8,0" BoxShadow="0 1 2 0 #14000000">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="剧集明细" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <ListBox x:Name="SeriesList" />
+                </DockPanel>
+            </Border>
+            <Border Grid.Row="1" Grid.Column="1" Background="White" CornerRadius="8" Padding="12" Margin="8,8,0,0" BoxShadow="0 1 2 0 #14000000">
+                <DockPanel>
+                    <TextBlock x:Name="GrowthTitle" DockPanel.Dock="Top" Text="点一部剧查看每天新增播放" FontWeight="SemiBold" Margin="0,0,0,8" TextTrimming="CharacterEllipsis" />
+                    <controls:AnalyticsLineChart x:Name="GrowthChart" />
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <TextBlock x:Name="ErrorText" Grid.Row="3" Foreground="#B45309" Margin="0,8,0,0" TextWrapping="Wrap" />
+    </Grid>
+</UserControl>

@@ -58,6 +58,7 @@ public partial class MainWindow : Window
         ServicesView.Bind(_viewModel.SystemServices);
         ArchivedView.Bind(_viewModel.ArchivedProjects);
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
+        AnalyticsView.Bind(_viewModel.Accounts, _viewModel.AppendLog);
 
         QueueView.OpenBrowserRequested += (_, _) => NavigateTo("browser");
         QueueView.PublishBrowserFocusRequested += account =>
@@ -452,6 +453,7 @@ public partial class MainWindow : Window
         const int inactiveZ = 0;
 
         DownloadView.IsVisible = tag == "download";
+        AnalyticsView.IsVisible = tag == "analytics";
         QueueView.IsVisible = tag == "queue";
         AccountsView.IsVisible = tag == "accounts";
         LogView.IsVisible = tag == "logs";
@@ -460,6 +462,7 @@ public partial class MainWindow : Window
         ArchivedView.IsVisible = tag == "archived";
 
         DownloadView.ZIndex = tag == "download" ? activeZ : inactiveZ;
+        AnalyticsView.ZIndex = tag == "analytics" ? activeZ : inactiveZ;
         QueueView.ZIndex = tag == "queue" ? activeZ : inactiveZ;
         AccountsView.ZIndex = tag == "accounts" ? activeZ : inactiveZ;
         LogView.ZIndex = tag == "logs" ? activeZ : inactiveZ;
@@ -485,6 +488,8 @@ public partial class MainWindow : Window
             _browserHost.SetPresentationVisible(false);
         }
 
+        if (tag == "analytics")
+            AnalyticsView.Reload();
         if (tag == "logs")
             _viewModel.RefreshLogSnapshot();
         if (tag == "archived")

@@ -36,6 +36,7 @@
                 <StackPanel Grid.Column="1" x:Name="ModuleNav" Orientation="Horizontal"
                             VerticalAlignment="Center" Margin="8,0,0,0">
                     <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
+                    <Button Content="数据统计" Tag="analytics" Classes="topNavItem" Click="OnNavItemClick" />
                     <Button Content="短剧下载" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
                     <Button Content="TikTok 上传" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
                     <Button Content="账号管理" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
@@ -80,6 +81,7 @@
                        VerticalAlignment="Top"
                        ZIndex="5" />
                 <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" ZIndex="10" />
+                <views:TikTokAccountAnalyticsView x:Name="AnalyticsView" IsVisible="False" />
                 <views:DramaDownloadView x:Name="DownloadView" IsVisible="False" />
                 <views:TikTokQueueView x:Name="QueueView" IsVisible="True" />
                 <views:AccountProfilesView x:Name="AccountsView" IsVisible="False" />
