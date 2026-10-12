@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Threading.Channels;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -38,7 +39,20 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     private Bitmap? _posterImage;
 
     [ObservableProperty] private string _posterStatus = "封面加载中";
-    [ObservableProperty] private string _existenceText = "核对中";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ExistenceBrush))]
+    private string _existenceText = "核对中";
+
+    private static readonly IBrush ExistencePresentBrush = new SolidColorBrush(Color.Parse("#DC2626"));
+    private static readonly IBrush ExistenceAbsentBrush = new SolidColorBrush(Color.Parse("#15803D"));
+    private static readonly IBrush ExistenceUnknownBrush = new SolidColorBrush(Color.Parse("#6B7280"));
+
+    public IBrush ExistenceBrush => DramaDownloadExistenceResult.ToneFor(ExistenceText) switch
+    {
+        DramaExistenceTone.Present => ExistencePresentBrush,
+        DramaExistenceTone.Absent => ExistenceAbsentBrush,
+        _ => ExistenceUnknownBrush,
+    };
 
     public bool HasPosterImage => PosterImage is not null;
     public bool ShowPosterPlaceholder => PosterImage is null;
@@ -269,7 +283,6 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private string _existenceSignature = "";
     private bool _rankReloadPending;
     private bool _rankHasMore = true;
-    private bool _rankDrain;
     private int _rankNextOffset;
     private int _rankGeneration;
 
@@ -544,21 +557,6 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     public void NotifyRankScroll(double offsetY, double viewportY, double extentY)
     {
-        if (!_rankHasLoaded || !_rankHasMore)
-            return;
-        if (viewportY <= 0 || extentY <= 0)
-            return;
-        var atBottom = offsetY + viewportY >= extentY - 48;
-        var fillsViewport = extentY > viewportY + 1;
-        if (!atBottom && fillsViewport)
-        {
-            _rankDrain = false;
-            return;
-        }
-
-        _rankDrain = true;
-        if (!IsSearching)
-            _ = LoadRankCoreAsync(append: true);
     }
 
     private async Task LoadRankCoreAsync(bool append)
@@ -577,7 +575,6 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (!append)
         {
             _rankReloadPending = false;
-            _rankDrain = false;
             _rankHasMore = true;
             _rankNextOffset = 0;
             RankPage = 1;
@@ -628,13 +625,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 ? $"{label} · 已加载 {SearchResults.Count} 条"
                 : $"{label} · 已到最后 · {SearchResults.Count} 条";
             LogRequested?.Invoke($"{label}：本页 {page.Items.Count} 条，累计 {SearchResults.Count} 条");
-            continueDrain = _rankDrain && _rankHasMore;
+            continueDrain = _rankHasMore;
         }
         catch (Exception ex)
         {
             if (generation != _rankGeneration)
                 return;
-            _rankDrain = false;
             RankPageText = append ? $"{label} · 下一页加载失败" : $"{label} · 加载失败";
             LogRequested?.Invoke($"{label}失败：{ex.Message}");
         }
@@ -728,20 +724,23 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             return;
         }
 
+        var overLimitSettings = ClientSettingsStore.Load();
         var dirs = new List<string>();
         foreach (var item in selected)
         {
+            var itemEpisodes = ResolveOverLimitEpisodes(item, episodes, overLimitSettings);
             var queueEntryDramaType = ResolveQueueEntryDramaType(item);
             var projectDir = await Task.Run(() => ShortDramaDramaServices.BootstrapAsync(
                     uploadWorkspace,
                     item,
-                    episodes,
+                    itemEpisodes,
                     DefaultQuality,
                     DownloadConcurrent,
                     EpisodeNumberMode,
                     queueEntryDramaType,
                     CancellationToken.None))
                 .ConfigureAwait(true);
+            MarkOverLimitProject(projectDir, item, overLimitSettings);
             dirs.Add(projectDir);
             ClearSearchItemSelection(item);
             LogRequested?.Invoke($"已准备{QueuePlatformLabel}队列项目：{item.Title}");
@@ -1084,26 +1083,29 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             return 0;
         }
 
+        var overLimitSettings = ClientSettingsStore.Load();
         var added = 0;
         foreach (var item in selected)
         {
+            var itemEpisodes = ResolveOverLimitEpisodes(item, episodes, overLimitSettings);
             var queueEntryDramaType = ResolveQueueEntryDramaType(item);
             var projectDir = await ShortDramaDramaServices.BootstrapAsync(
                 DownloadWorkspace,
                 item,
-                episodes,
+                itemEpisodes,
                 DefaultQuality,
                 DownloadConcurrent,
                 EpisodeNumberMode,
                 queueEntryDramaType,
                 CancellationToken.None);
+            MarkOverLimitProject(projectDir, item, overLimitSettings);
 
             var queueItem = new DramaDownloadQueueItem
             {
                 Title = item.Title,
                 BookId = item.BookId,
                 ProjectDir = projectDir,
-                Episodes = episodes,
+                Episodes = itemEpisodes,
                 Quality = DefaultQuality,
                 EpisodeNumberMode = EpisodeNumberMode,
                 GenerateMaterials = generateMaterials,
@@ -1115,7 +1117,9 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 SourceMode = item.SourceMode,
                 Author = item.Author,
                 Category = item.Category,
-                EpisodeTotal = item.EpisodeTotal,
+                EpisodeTotal = OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, overLimitSettings)
+                    ? OverLimitEpisodePolicy.ResolveKeepCount(overLimitSettings)
+                    : item.EpisodeTotal,
                 FavoriteCount = item.FavoriteCount,
                 PlayCount = item.PlayCount,
                 PublishTime = item.PublishTime,
@@ -1133,7 +1137,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             {
                 CopyQueueItem(queueItem, existing.Item);
                 existing.Refresh();
-                LogRequested?.Invoke($"已更新下载队列：{item.Title}（集数 {episodes}）");
+                LogRequested?.Invoke($"已更新下载队列：{item.Title}（集数 {itemEpisodes}）");
             }
 
             ClearSearchItemSelection(item);
@@ -1467,6 +1471,26 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (kept.Count == 0)
             LogRequested?.Invoke($"所选剧集均命中作者排除，未加入{queueLabel}");
         return kept;
+    }
+
+    private string ResolveOverLimitEpisodes(DramaSearchItem item, string selection, ClientSettings settings)
+    {
+        var resolved = OverLimitEpisodePolicy.ResolveDownloadSelection(selection, item.EpisodeTotal, settings);
+        if (!string.Equals(resolved, selection, StringComparison.OrdinalIgnoreCase) &&
+            OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings))
+        {
+            LogRequested?.Invoke(
+                $"超长剧只取前 {OverLimitEpisodePolicy.ResolveKeepCount(settings)} 集：{item.Title} 原 {item.EpisodeTotal} 集");
+        }
+
+        return resolved;
+    }
+
+    private static void MarkOverLimitProject(string projectDir, DramaSearchItem item, ClientSettings settings)
+    {
+        if (!OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings))
+            return;
+        OverLimitEpisodePolicy.MarkTruncated(projectDir, item.EpisodeTotal, settings);
     }
 
     private string ResolveEpisodeSelection()

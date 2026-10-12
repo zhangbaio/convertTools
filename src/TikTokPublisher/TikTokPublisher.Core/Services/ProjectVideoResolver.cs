@@ -51,7 +51,10 @@ public static class ProjectVideoResolver
         return videoPaths;
     }
 
-    public static IReadOnlyList<string> ResolveSourceVideos(string sourceProjectDir, bool allowStagedFallback = false)
+    public static IReadOnlyList<string> ResolveSourceVideos(
+        string sourceProjectDir,
+        bool allowStagedFallback = false,
+        bool applyOverLimitSlice = true)
     {
         var source = Path.GetFullPath(sourceProjectDir);
         if (!Directory.Exists(source))
@@ -61,7 +64,7 @@ public static class ProjectVideoResolver
         if (string.IsNullOrWhiteSpace(workflow))
             workflow = source;
 
-        var sourceVideos = ResolveSourceVideosFromRoots(source, workflow);
+        var sourceVideos = ResolveSourceVideosFromRoots(source, workflow, applyOverLimitSlice);
         if (sourceVideos.Count > 0)
             return sourceVideos;
 
@@ -137,7 +140,10 @@ public static class ProjectVideoResolver
             PublishedMaterialDirectoryName);
     }
 
-    private static List<string> ResolveSourceVideosFromRoots(string sourceProjectDir, string workflowProjectDir)
+    private static List<string> ResolveSourceVideosFromRoots(
+        string sourceProjectDir,
+        string workflowProjectDir,
+        bool applyOverLimitSlice = true)
     {
         var candidates = new List<string>();
         foreach (var root in new[] { sourceProjectDir, Path.Combine(sourceProjectDir, "videos"), Path.Combine(workflowProjectDir, "videos") })
@@ -145,7 +151,9 @@ public static class ProjectVideoResolver
             if (!Directory.Exists(root)) continue;
             candidates.AddRange(EnumerateSourceVideos(root));
         }
-        return ApplyOverLimitEpisodeSlice(sourceProjectDir, DedupeAndSort(candidates));
+
+        var sorted = DedupeAndSort(candidates);
+        return applyOverLimitSlice ? ApplyOverLimitEpisodeSlice(sourceProjectDir, sorted) : sorted;
     }
 
     private static IEnumerable<string> EnumerateSourceVideos(string root)
