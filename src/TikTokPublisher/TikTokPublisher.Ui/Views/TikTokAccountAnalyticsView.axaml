@@ -3,7 +3,8 @@
              xmlns:controls="using:TikTokPublisher.Ui.Controls"
              x:Class="TikTokPublisher.Ui.Views.TikTokAccountAnalyticsView"
              Background="#F8FAFC">
-    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <Grid RowDefinitions="Auto,Auto,250,Auto,Auto,Auto" Margin="16">
         <Grid ColumnDefinitions="*,Auto,Auto">
             <StackPanel>
                 <TextBlock Text="数据统计" FontSize="20" FontWeight="SemiBold" />
@@ -14,37 +15,46 @@
             <Button x:Name="StopButton" Grid.Column="2" Content="停止" MinWidth="72" IsEnabled="False" Click="OnStopClick" />
         </Grid>
 
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,12,0,8">
-            <StackPanel x:Name="RevenuePanel" Orientation="Horizontal" Spacing="10" />
-        </ScrollViewer>
+        <UniformGrid x:Name="RevenuePanel" Grid.Row="1" Columns="1" Margin="0,12,0,0" SizeChanged="OnRevenuePanelSizeChanged" />
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,*" RowDefinitions="*,*">
-            <Border Grid.Row="0" Grid.Column="0" Background="White" CornerRadius="8" Padding="12" Margin="0,0,8,8" BoxShadow="0 1 2 0 #14000000">
+        <Grid Grid.Row="2" ColumnDefinitions="2*,*" Margin="0,0,0,8">
+            <Border Background="White" CornerRadius="8" Padding="12" Margin="0,0,8,0">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="每日有效播放量" FontWeight="SemiBold" Margin="0,0,0,8" />
-                    <controls:AnalyticsLineChart x:Name="DailyChart" />
+                    <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,4">
+                        <TextBlock Text="每日有效播放量" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock x:Name="DailyHoverText" Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="#374151" TextTrimming="CharacterEllipsis" />
+                        <StackPanel x:Name="DailyRangePanel" Grid.Column="2" Orientation="Horizontal" Spacing="6" />
+                    </Grid>
+                    <StackPanel x:Name="DailyLegend" DockPanel.Dock="Top" Orientation="Horizontal" Spacing="12" Margin="0,0,0,4" />
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <controls:AnalyticsLineChart x:Name="DailyChart" PointSpacing="36" HorizontalAlignment="Left" />
+                    </ScrollViewer>
                 </DockPanel>
             </Border>
-            <Border Grid.Row="0" Grid.Column="1" Background="White" CornerRadius="8" Padding="12" Margin="8,0,0,8" BoxShadow="0 1 2 0 #14000000">
+            <Border Grid.Column="1" Background="White" CornerRadius="8" Padding="12" Margin="8,0,0,0">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="每月有效播放量" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <TextBlock DockPanel.Dock="Top" Text="每月有效播放量" FontWeight="SemiBold" Margin="0,0,0,4" />
+                    <StackPanel x:Name="MonthlyLegend" DockPanel.Dock="Top" Orientation="Horizontal" Spacing="12" Margin="0,0,0,4" />
                     <controls:AnalyticsLineChart x:Name="MonthlyChart" />
-                </DockPanel>
-            </Border>
-            <Border Grid.Row="1" Grid.Column="0" Background="White" CornerRadius="8" Padding="12" Margin="0,8,8,0" BoxShadow="0 1 2 0 #14000000">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="剧集明细" FontWeight="SemiBold" Margin="0,0,0,8" />
-                    <ListBox x:Name="SeriesList" />
-                </DockPanel>
-            </Border>
-            <Border Grid.Row="1" Grid.Column="1" Background="White" CornerRadius="8" Padding="12" Margin="8,8,0,0" BoxShadow="0 1 2 0 #14000000">
-                <DockPanel>
-                    <TextBlock x:Name="GrowthTitle" DockPanel.Dock="Top" Text="点一部剧查看每天新增播放" FontWeight="SemiBold" Margin="0,0,0,8" TextTrimming="CharacterEllipsis" />
-                    <controls:AnalyticsLineChart x:Name="GrowthChart" />
                 </DockPanel>
             </Border>
         </Grid>
 
-        <TextBlock x:Name="ErrorText" Grid.Row="3" Foreground="#B45309" Margin="0,8,0,0" TextWrapping="Wrap" />
+        <Border Grid.Row="3" Background="White" CornerRadius="8" Padding="12" Height="480">
+            <TabControl x:Name="SeriesTabs" />
+        </Border>
+
+        <Border Grid.Row="4" Background="White" CornerRadius="8" Padding="12" Margin="0,8,0,0" Height="200">
+            <DockPanel>
+                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                    <TextBlock x:Name="GrowthTitle" Text="点一部剧，查看每日增长" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <StackPanel x:Name="GrowthMetricPanel" Grid.Column="1" Orientation="Horizontal" Spacing="6" />
+                </Grid>
+                <controls:AnalyticsLineChart x:Name="GrowthChart" />
+            </DockPanel>
+        </Border>
+
+        <TextBlock x:Name="ErrorText" Grid.Row="5" Foreground="#B45309" Margin="0,8,0,0" TextWrapping="Wrap" />
     </Grid>
+    </ScrollViewer>
 </UserControl>

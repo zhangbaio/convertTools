@@ -35,6 +35,10 @@ public sealed class TikTokAccountAnalyticsStore
                 fetched_at TEXT NOT NULL,
                 PRIMARY KEY (account_id, series_id, snapshot_date)
             );
+            CREATE TABLE IF NOT EXISTS analytics_meta (
+                key TEXT NOT NULL PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS account_revenue (
                 account_id TEXT NOT NULL PRIMARY KEY,
                 total_amount TEXT NOT NULL,
@@ -46,6 +50,43 @@ public sealed class TikTokAccountAnalyticsStore
                 fetched_at TEXT NOT NULL
             );
             """);
+    }
+
+    public bool HasSeriesSnapshot(string accountId, DateOnly date)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT 1 FROM series_snapshots
+            WHERE account_id = $id AND snapshot_date = $date
+            LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("$id", accountId);
+        cmd.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd"));
+        return cmd.ExecuteScalar() is not null;
+    }
+
+    public DateOnly? GetMarkerDate(string key)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT value FROM analytics_meta WHERE key = $key";
+        cmd.Parameters.AddWithValue("$key", key);
+        var value = cmd.ExecuteScalar() as string;
+        return DateOnly.TryParse(value, out var date) ? date : null;
+    }
+
+    public void SetMarkerDate(string key, DateOnly date)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO analytics_meta (key, value) VALUES ($key, $value)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """;
+        cmd.Parameters.AddWithValue("$key", key);
+        cmd.Parameters.AddWithValue("$value", date.ToString("yyyy-MM-dd"));
+        cmd.ExecuteNonQuery();
     }
 
     public DateOnly? LatestDailyDate(string accountId)
@@ -191,6 +232,77 @@ public sealed class TikTokAccountAnalyticsStore
         }
 
         return rows;
+    }
+
+    public IReadOnlyList<(TikTokSeriesSnapshot Latest, DateOnly? ListedOn)> ListLatestSeriesListing(string accountId)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT s.series_id, s.title, s.snapshot_date, s.published_on, s.valid_views, s.avg_watch_seconds,
+                   s.favorites, s.comments, s.likes,
+                   (SELECT MIN(h.snapshot_date) FROM series_snapshots h
+                     WHERE h.account_id = s.account_id AND h.series_id = s.series_id),
+                   (SELECT MIN(snapshot_date) FROM series_snapshots WHERE account_id = $id)
+            FROM series_snapshots s
+            WHERE s.account_id = $id
+              AND s.snapshot_date = (SELECT MAX(snapshot_date) FROM series_snapshots WHERE account_id = $id)
+            ORDER BY s.valid_views DESC
+            """;
+        cmd.Parameters.AddWithValue("$id", accountId);
+        using var reader = cmd.ExecuteReader();
+        var rows = new List<(TikTokSeriesSnapshot, DateOnly?)>();
+        while (reader.Read())
+        {
+            var publishedText = reader.GetString(3);
+            var latest = new TikTokSeriesSnapshot(
+                reader.GetString(0),
+                reader.GetString(1),
+                DateOnly.Parse(reader.GetString(2)),
+                DateOnly.TryParse(publishedText, out var published) ? published : null,
+                reader.GetInt64(4),
+                reader.GetInt32(5),
+                reader.GetInt64(6),
+                reader.GetInt64(7),
+                reader.GetInt64(8));
+            var firstSeen = DateOnly.Parse(reader.GetString(9));
+            var catalogStart = DateOnly.Parse(reader.GetString(10));
+            rows.Add((latest, firstSeen == catalogStart ? null : firstSeen));
+        }
+
+        return rows;
+    }
+
+    public (int Listed, int AddedToday) GetListingCounts(string accountId, DateOnly today)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            WITH bounds AS (
+                SELECT MIN(snapshot_date) AS first_day, MAX(snapshot_date) AS latest_day
+                FROM series_snapshots WHERE account_id = $id
+            ),
+            seen AS (
+                SELECT series_id, MIN(snapshot_date) AS first_seen
+                FROM series_snapshots WHERE account_id = $id
+                GROUP BY series_id
+            )
+            SELECT
+                (SELECT COUNT(*) FROM series_snapshots s, bounds b
+                  WHERE s.account_id = $id AND b.latest_day IS NOT NULL AND s.snapshot_date = b.latest_day),
+                (SELECT COUNT(*) FROM seen, bounds b
+                  WHERE seen.first_seen = $today
+                    AND b.first_day IS NOT NULL
+                    AND b.first_day <> $today
+                    AND EXISTS (
+                        SELECT 1 FROM series_snapshots s
+                        WHERE s.account_id = $id AND s.series_id = seen.series_id AND s.snapshot_date = b.latest_day))
+            """;
+        cmd.Parameters.AddWithValue("$id", accountId);
+        cmd.Parameters.AddWithValue("$today", today.ToString("yyyy-MM-dd"));
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read()) return (0, 0);
+        return (Convert.ToInt32(reader.GetInt64(0)), Convert.ToInt32(reader.GetInt64(1)));
     }
 
     public IReadOnlyList<TikTokSeriesSnapshot> ListLatestSeries(string accountId)

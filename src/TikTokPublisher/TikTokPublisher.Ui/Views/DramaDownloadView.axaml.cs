@@ -18,6 +18,16 @@ public partial class DramaDownloadView : UserControl
         InitializeComponent();
     }
 
+    public void SearchByKeyword(string keyword)
+    {
+        if (_vm is null || string.IsNullOrWhiteSpace(keyword)) return;
+        DownloadTabs.SelectedIndex = 0;
+        _vm.SearchKeyword = keyword.Trim();
+        _vm.SearchPage = 1;
+        if (_vm.SearchCommand.CanExecute(null))
+            _vm.SearchCommand.Execute(null);
+    }
+
     public void Bind(DramaDownloadViewModel vm, Action<string> log)
     {
         _vm = vm;

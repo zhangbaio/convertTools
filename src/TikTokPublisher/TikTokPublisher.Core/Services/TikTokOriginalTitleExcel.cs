@@ -5,7 +5,12 @@ using DocumentFormat.OpenXml.Spreadsheet;
 
 namespace TikTokPublisher.Core.Services;
 
-public sealed record OriginalTitleRecord(string NewTitle, string OriginalTitle, string CompletedAt);
+public sealed record OriginalTitleRecord(
+    string NewTitle,
+    string OriginalTitle,
+    string CompletedAt,
+    string EpisodeCount = "",
+    string QueuedAt = "");
 
 public sealed class TikTokOriginalTitleIndex
 {
@@ -17,6 +22,8 @@ public sealed class TikTokOriginalTitleIndex
     }
 
     public int Count => _byNewTitle.Count;
+
+    public IEnumerable<OriginalTitleRecord> Records => _byNewTitle.Values;
 
     public OriginalTitleRecord? Find(string newTitle)
     {
@@ -61,6 +68,7 @@ public sealed class TikTokOriginalTitleIndex
                 throw new InvalidOperationException("上传记录缺少「新剧名」或「原剧名」列。");
             var completedColumn = FindHeader(headers, "上传完成时间");
             var queuedColumn = FindHeader(headers, "加入时间");
+            var episodeColumn = FindHeader(headers, "集数");
 
             var matches = new Dictionary<string, (OriginalTitleRecord Record, DateTime CompletedAt, int Order)>(StringComparer.Ordinal);
             var order = 0;
@@ -72,9 +80,11 @@ public sealed class TikTokOriginalTitleIndex
                 var originalTitle = values.GetValueOrDefault(originalColumn, "").Trim();
                 if (newTitle.Length == 0 || originalTitle.Length == 0)
                     continue;
+                var queuedText = queuedColumn >= 0 ? values.GetValueOrDefault(queuedColumn, "").Trim() : "";
+                var episodeText = episodeColumn >= 0 ? values.GetValueOrDefault(episodeColumn, "").Trim() : "";
                 var completedText = completedColumn >= 0 ? values.GetValueOrDefault(completedColumn, "").Trim() : "";
-                if (completedText.Length == 0 && queuedColumn >= 0)
-                    completedText = values.GetValueOrDefault(queuedColumn, "").Trim();
+                if (completedText.Length == 0)
+                    completedText = queuedText;
                 var key = Normalize(newTitle);
                 if (key.Length == 0)
                     continue;
@@ -83,7 +93,7 @@ public sealed class TikTokOriginalTitleIndex
                 {
                     completedAt = DateTime.MinValue;
                 }
-                var record = new OriginalTitleRecord(newTitle, originalTitle, completedText);
+                var record = new OriginalTitleRecord(newTitle, originalTitle, completedText, episodeText, queuedText);
                 if (!matches.TryGetValue(key, out var current) ||
                     completedAt > current.CompletedAt ||
                     completedAt == current.CompletedAt && order > current.Order)

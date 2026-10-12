@@ -59,6 +59,11 @@ public partial class MainWindow : Window
         ArchivedView.Bind(_viewModel.ArchivedProjects);
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
         AnalyticsView.Bind(_viewModel.Accounts, _viewModel.AppendLog);
+        AnalyticsView.SearchOriginalRequested += keyword =>
+        {
+            NavigateTo("download");
+            DownloadView.SearchByKeyword(keyword);
+        };
 
         QueueView.OpenBrowserRequested += (_, _) => NavigateTo("browser");
         QueueView.PublishBrowserFocusRequested += account =>

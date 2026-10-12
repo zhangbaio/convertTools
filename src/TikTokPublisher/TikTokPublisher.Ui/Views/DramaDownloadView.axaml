@@ -50,7 +50,7 @@
             <Button Grid.Column="2" Content="选择下载目录" Click="OnPickDownloadDirClick" Margin="10,0,0,0" />
         </Grid>
 
-        <TabControl Classes="downloadTabs" SelectionChanged="OnDownloadTabChanged">
+        <TabControl x:Name="DownloadTabs" Classes="downloadTabs" SelectionChanged="OnDownloadTabChanged">
             <TabItem Header="搜索">
                 <DockPanel Margin="8">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">

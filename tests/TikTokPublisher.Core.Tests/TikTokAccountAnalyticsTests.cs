@@ -104,6 +104,45 @@ public class TikTokAccountAnalyticsTests
         Assert.Equal(9, store.ListDaily("acct").Single().ValidViews);
     }
 
+    [Fact]
+    public void Listing_date_is_unknown_on_the_first_day_and_set_when_a_series_appears_later()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "tiktok-analytics-tests", Guid.NewGuid().ToString("N") + ".db");
+        var store = new TikTokAccountAnalyticsStore(path);
+        var first = new DateOnly(2026, 10, 11);
+        var second = new DateOnly(2026, 10, 12);
+        store.UpsertSeries("acct", [Snapshot("old", first, 10)]);
+        store.UpsertSeries("acct", [Snapshot("old", second, 12), Snapshot("new", second, 3)]);
+
+        var rows = store.ListLatestSeriesListing("acct").ToDictionary(item => item.Latest.SeriesId);
+        Assert.Null(rows["old"].ListedOn);
+        Assert.Equal(second, rows["new"].ListedOn);
+
+        Assert.Equal((2, 0), store.GetListingCounts("acct", first));
+        Assert.Equal((2, 1), store.GetListingCounts("acct", second));
+    }
+
+    [Fact]
+    public void Series_identity_prefers_excel_over_archive_and_queue()
+    {
+        var index = TikTokSeriesIdentityIndex.Merge(
+            [("新剧A", new TikTokSeriesIdentity("原剧Excel", "80", "2026-07-01 10:00"))],
+            [("新剧A", new TikTokSeriesIdentity("原剧归档", "70", "2026-06-01")), ("新剧B", new TikTokSeriesIdentity("只有归档", "12", ""))],
+            [("新剧B", new TikTokSeriesIdentity("队列名", "9", "2026-05-01")), ("新剧C", new TikTokSeriesIdentity("队列独有", "3", "2026-04-01"))]);
+
+        Assert.Equal("原剧Excel", index.Find("新剧A").OriginalTitle);
+        Assert.Equal("80", index.Find("新剧A").EpisodeCount);
+
+        var repaired = TikTokSeriesIdentityIndex.Merge(
+            [("已归档", new TikTokSeriesIdentity("原剧", "1", "2026-07-01"))],
+            [("已归档", new TikTokSeriesIdentity("原剧", "53", ""))],
+            []);
+        Assert.Equal("53", repaired.Find("已归档").EpisodeCount);
+        Assert.Equal("只有归档", index.Find("新剧B").OriginalTitle);
+        Assert.Equal("队列独有", index.Find("新 剧C").OriginalTitle);
+        Assert.Equal("", index.Find("没有").OriginalTitle);
+    }
+
     private static TikTokSeriesSnapshot Snapshot(string id, DateOnly date, long views) =>
         new(id, "剧", date, null, views, 0, 0, 0, 0);
 }

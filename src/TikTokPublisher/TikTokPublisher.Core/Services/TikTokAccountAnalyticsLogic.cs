@@ -121,11 +121,16 @@ public static class TikTokAccountAnalyticsLogic
             string.Join("、", companies));
     }
 
-    public static IReadOnlyList<TikTokSeriesGrowthPoint> BuildGrowth(IReadOnlyList<TikTokSeriesSnapshot> snapshots)
+    public static IReadOnlyList<TikTokSeriesGrowthPoint> BuildGrowth(IReadOnlyList<TikTokSeriesSnapshot> snapshots) =>
+        BuildGrowth(snapshots, snapshot => snapshot.ValidViews);
+
+    public static IReadOnlyList<TikTokSeriesGrowthPoint> BuildGrowth(
+        IReadOnlyList<TikTokSeriesSnapshot> snapshots,
+        Func<TikTokSeriesSnapshot, long> value)
     {
         var ordered = snapshots
             .GroupBy(item => item.SnapshotDate)
-            .Select(group => group.OrderByDescending(item => item.ValidViews).First())
+            .Select(group => group.OrderByDescending(value).First())
             .OrderBy(item => item.SnapshotDate)
             .ToList();
         var points = new List<TikTokSeriesGrowthPoint>();
@@ -138,7 +143,7 @@ public static class TikTokAccountAnalyticsLogic
             points.Add(new TikTokSeriesGrowthPoint(
                 previous.SnapshotDate,
                 current.SnapshotDate,
-                current.ValidViews - previous.ValidViews,
+                value(current) - value(previous),
                 span));
         }
 

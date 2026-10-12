@@ -101,7 +101,12 @@ public sealed class TikTokAccountAnalyticsClient
         string? jsonBody,
         CancellationToken ct)
     {
-        using var handler = new HttpClientHandler { UseCookies = false, AutomaticDecompression = DecompressionMethods.All };
+        using var handler = new HttpClientHandler
+        {
+            UseCookies = false,
+            AutomaticDecompression = DecompressionMethods.All,
+            UseProxy = false,
+        };
         if (proxy is not null)
         {
             handler.Proxy = new WebProxy(proxy.Server)
@@ -113,22 +118,64 @@ public sealed class TikTokAccountAnalyticsClient
             handler.UseProxy = true;
         }
 
-        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
-        using var request = new HttpRequestMessage(method, url);
-        request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-        request.Headers.TryAddWithoutValidation("Accept", "application/json");
-        request.Headers.TryAddWithoutValidation("Origin", Origin);
-        request.Headers.TryAddWithoutValidation("Referer", referer);
-        request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
-        if (jsonBody is not null)
-            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(90) };
+        Exception? lastError = null;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            using var request = new HttpRequestMessage(method, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+            request.Headers.TryAddWithoutValidation("Accept", "application/json");
+            request.Headers.TryAddWithoutValidation("Origin", Origin);
+            request.Headers.TryAddWithoutValidation("Referer", referer);
+            request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+            if (jsonBody is not null)
+                request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 
-        using var response = await client.SendAsync(request, ct).ConfigureAwait(false);
-        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"TikTok 接口失败（{(int)response.StatusCode}）。请确认该账号已在浏览器页登录。");
-        if (!text.TrimStart().StartsWith('{'))
-            throw new InvalidOperationException("该账号登录态已失效，请先在浏览器页登录后再更新。");
-        return text;
+            using var response = await client.SendAsync(request, ct).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                if (!text.TrimStart().StartsWith('{'))
+                    throw new InvalidOperationException("该账号登录态已失效，请先在浏览器页重新登录后再更新。");
+                return text;
+            }
+
+            var status = (int)response.StatusCode;
+            lastError = new InvalidOperationException(DescribeHttpFailure(status, text));
+            if (status is not (429 or 500 or 502 or 503) || attempt == 3)
+                throw lastError;
+            await Task.Delay(TimeSpan.FromSeconds(attempt), ct).ConfigureAwait(false);
+        }
+
+        throw lastError ?? new InvalidOperationException("TikTok 接口没有返回数据。");
+    }
+
+    private static string DescribeHttpFailure(int status, string body)
+    {
+        if (status is 401 or 403)
+            return "该账号登录态已失效，请先在浏览器页重新登录后再更新。";
+        var message = ReadMessage(body);
+        return string.IsNullOrWhiteSpace(message)
+            ? $"TikTok 接口失败（{status}）。"
+            : $"TikTok 接口失败（{status}）：{message}";
+    }
+
+    private static string ReadMessage(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("message", out var message))
+                return message.GetString() ?? "";
+            if (document.RootElement.TryGetProperty("statusMessage", out var statusMessage))
+                return statusMessage.GetString() ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+
+        return "";
     }
 }
