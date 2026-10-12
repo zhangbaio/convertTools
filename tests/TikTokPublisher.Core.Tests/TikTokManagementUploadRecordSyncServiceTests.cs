@@ -123,6 +123,19 @@ public sealed class DramaDownloadExistenceServiceTests
         result.LabelFor("另一部剧").Should().Be("不存在");
     }
 
+    [Theory]
+    [InlineData("不存在", DramaExistenceTone.Absent)]
+    [InlineData("已归档", DramaExistenceTone.Present)]
+    [InlineData("管理系统", DramaExistenceTone.Present)]
+    [InlineData("已归档、管理系统", DramaExistenceTone.Present)]
+    [InlineData("已归档、管理系统未核对", DramaExistenceTone.Present)]
+    [InlineData("归档未核对", DramaExistenceTone.Unknown)]
+    [InlineData("核对中", DramaExistenceTone.Unknown)]
+    public void Tone_separates_absent_from_present(string label, DramaExistenceTone tone)
+    {
+        DramaDownloadExistenceResult.ToneFor(label).Should().Be(tone);
+    }
+
     [Fact]
     public void CollectArchive_matches_original_title_and_folder_not_new_title()
     {

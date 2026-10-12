@@ -42,6 +42,20 @@ public sealed class DramaDownloadRunner
 
             var projectDir = Path.GetFullPath(item.ProjectDir);
             Directory.CreateDirectory(projectDir);
+            var settingsForLimit = ClientSettingsStore.Load();
+            var originalEpisodeTotal = item.EpisodeTotal;
+            var resolvedEpisodes = OverLimitEpisodePolicy.ResolveDownloadSelection(
+                item.Episodes,
+                originalEpisodeTotal,
+                settingsForLimit);
+            if (!string.Equals(resolvedEpisodes, item.Episodes, StringComparison.OrdinalIgnoreCase))
+            {
+                item.Episodes = resolvedEpisodes;
+                if (OverLimitEpisodePolicy.ShouldTruncate(originalEpisodeTotal, settingsForLimit))
+                    item.EpisodeTotal = OverLimitEpisodePolicy.ResolveKeepCount(settingsForLimit);
+                log(item, $"[{item.Title}] 超长剧只下载前 {item.EpisodeTotal} 集，原 {originalEpisodeTotal} 集");
+                onUpdated(item);
+            }
 
             var request = new DramaDownloadRequest(
                 ProjectDir: projectDir,
@@ -61,6 +75,9 @@ public sealed class DramaDownloadRunner
                     item.Progress = $"{percent.Value}%";
                 onUpdated(item);
             });
+
+            if (OverLimitEpisodePolicy.ShouldTruncate(originalEpisodeTotal, settingsForLimit))
+                OverLimitEpisodePolicy.MarkTruncated(projectDir, originalEpisodeTotal, settingsForLimit, message => log(item, message));
 
             var settings = ClientSettingsStore.Load();
             using var downloadSlot = await QueueDownloadSlotCoordinator.WaitAsync(

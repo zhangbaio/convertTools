@@ -36,6 +36,23 @@ public sealed record DramaDownloadExistenceResult(
 
         return parts.Count == 0 ? "不存在" : string.Join("、", parts);
     }
+
+    public static DramaExistenceTone ToneFor(string? text)
+    {
+        var parts = (text ?? "").Split('、', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Any(part => part is "已归档" or "管理系统"))
+            return DramaExistenceTone.Present;
+        if (parts.Length == 1 && parts[0] == "不存在")
+            return DramaExistenceTone.Absent;
+        return DramaExistenceTone.Unknown;
+    }
+}
+
+public enum DramaExistenceTone
+{
+    Unknown,
+    Absent,
+    Present,
 }
 
 public static class DramaDownloadExistenceService

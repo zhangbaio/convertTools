@@ -123,7 +123,7 @@
                                         <TextBlock Grid.Column="5" Text="{Binding FavoriteText}" VerticalAlignment="Center" Margin="8,0" />
                                         <TextBlock Grid.Column="6" Text="{Binding PlayCountText}" VerticalAlignment="Center" Margin="8,0" />
                                         <TextBlock Grid.Column="7" Text="{Binding Category}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="8" Text="{Binding ExistenceText}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="8" Text="{Binding ExistenceText}" Foreground="{Binding ExistenceBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="9" Text="{Binding PublishTime}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="10" Text="{Binding Intro}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                     </Grid>
@@ -172,7 +172,7 @@
                                             <TextBlock Text="{Binding PlayCountText, StringFormat='播放 {0}'}" FontSize="12" />
                                             <TextBlock Text="{Binding FavoriteText, StringFormat='收藏 {0}'}" FontSize="12" />
                                             <TextBlock Text="{Binding PublishTime, StringFormat='上线 {0}'}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding ExistenceText}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ExistenceText}" Foreground="{Binding ExistenceBrush}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding Intro}" FontSize="12" MaxHeight="48" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
@@ -316,7 +316,7 @@
                                         <TextBlock Grid.Column="5" Text="{Binding FavoriteText}" VerticalAlignment="Center" Margin="8,0" />
                                         <TextBlock Grid.Column="6" Text="{Binding PlayCountText}" VerticalAlignment="Center" Margin="8,0" />
                                         <TextBlock Grid.Column="7" Text="{Binding Category}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="8" Text="{Binding ExistenceText}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="8" Text="{Binding ExistenceText}" Foreground="{Binding ExistenceBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="9" Text="{Binding PublishTime}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="10" Text="{Binding Intro}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                     </Grid>
@@ -365,7 +365,7 @@
                                             <TextBlock Text="{Binding PlayCountText, StringFormat='播放 {0}'}" FontSize="12" />
                                             <TextBlock Text="{Binding FavoriteText, StringFormat='收藏 {0}'}" FontSize="12" />
                                             <TextBlock Text="{Binding PublishTime, StringFormat='上线 {0}'}" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="{Binding ExistenceText}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ExistenceText}" Foreground="{Binding ExistenceBrush}" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                                             <TextBlock Text="{Binding Intro}" FontSize="12" MaxHeight="48" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
