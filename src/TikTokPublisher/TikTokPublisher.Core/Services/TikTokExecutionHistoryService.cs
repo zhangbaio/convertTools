@@ -8,7 +8,7 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokExecutionHistoryService
 {
     public const int DefaultRetentionDays = 3;
-    public const int FailureRetentionDays = 90;
+    public const int FailureRetentionDays = 30;
     private const string SnapshotMigrationKey = "upload-history-snapshots-v1";
     private static readonly HashSet<string> OptimizedDatabases = new(StringComparer.OrdinalIgnoreCase);
 
@@ -73,6 +73,78 @@ public static class TikTokExecutionHistoryService
             metadata: null,
             account: account);
         AppendPayload(payload, databasePath);
+    }
+
+    public readonly record struct TikTokProjectHistoryEvent(
+        DateTime CreatedAt,
+        string ProjectTitle,
+        string Message,
+        bool Failed);
+
+    public static IReadOnlyList<TikTokProjectHistoryEvent> LoadRecentProjectEvents(
+        string projectDir,
+        int limit = 40,
+        string? databasePath = null)
+    {
+        var normalized = NormalizeProjectDir(projectDir);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return [];
+
+        try
+        {
+            var path = ResolveDatabasePath(databasePath);
+            if (!File.Exists(path))
+                return [];
+            EnsureStorageOptimized(path);
+
+            var cutoff = DateTime.Now.AddDays(-FailureRetentionDays).ToString("yyyy-MM-ddTHH:mm:ss");
+            using var conn = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT payload_json, created_at
+                FROM upload_task_events
+                WHERE created_at >= $cutoff
+                  AND lower(COALESCE(json_extract(payload_json, '$.project_dir'), '')) = lower($dir)
+                ORDER BY created_at DESC
+                LIMIT $limit
+                """;
+            cmd.Parameters.AddWithValue("$cutoff", cutoff);
+            cmd.Parameters.AddWithValue("$dir", normalized);
+            cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 200));
+
+            var events = new List<TikTokProjectHistoryEvent>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var payload = Deserialize(reader.GetString(0));
+                var message = FirstNonEmpty(GetString(payload, "message"), GetString(payload, "last_error"), GetString(payload, "error"));
+                if (string.IsNullOrWhiteSpace(message))
+                    continue;
+                var status = FirstNonEmpty(GetString(payload, "status_text"), GetString(payload, "status"));
+                var failed = !string.IsNullOrWhiteSpace(GetString(payload, "error")) ||
+                             !string.IsNullOrWhiteSpace(GetString(payload, "last_error")) ||
+                             string.Equals(status, QueueStepStatus.Failed, StringComparison.Ordinal) ||
+                             message.Contains("失败", StringComparison.Ordinal);
+                if (!failed)
+                    continue;
+                var createdAt = DateTime.TryParse(reader.GetString(1), out var parsed)
+                    ? parsed
+                    : DateTime.Now;
+                events.Add(new TikTokProjectHistoryEvent(
+                    createdAt,
+                    FirstNonEmpty(GetString(payload, "original_title"), GetString(payload, "new_title"), GetString(payload, "display_name")),
+                    message.Replace("\r\n", "\n").Trim(),
+                    true));
+            }
+
+            events.Reverse();
+            return events;
+        }
+        catch
+        {
+            return [];
+        }
     }
 
     public static IReadOnlyList<Dictionary<string, object?>> LoadEvents(
@@ -539,6 +611,21 @@ public static class TikTokExecutionHistoryService
 
     private static string GetString(IReadOnlyDictionary<string, object?> payload, string key) =>
         payload.TryGetValue(key, out var value) ? (value?.ToString() ?? "").Trim() : "";
+
+    private static string NormalizeProjectDir(string? projectDir)
+    {
+        var value = (projectDir ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(value));
+        }
+        catch
+        {
+            return value.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+    }
 
     private static string ResolveDatabasePath(string? databasePath) =>
         Path.GetFullPath(string.IsNullOrWhiteSpace(databasePath)
