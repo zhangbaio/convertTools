@@ -144,6 +144,12 @@ public static class ShortDramaDramaServices
         return enriched.Select(FromCore).ToArray();
     }
 
+    public static bool IsPlayletSourceSelected()
+    {
+        RefreshSettings();
+        return Router.Value.IsPlayletSourceSelected();
+    }
+
     public static bool IsHighSourceSelected()
     {
         RefreshSettings();

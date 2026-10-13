@@ -484,6 +484,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             return;
         }
 
+        if (ShortDramaDramaServices.IsPlayletSourceSelected())
+        {
+            await LoadSearchResultsAsync(
+                "漫剧上新 · 当天",
+                ct => ShortDramaDramaServices.GetMangaTodayAsync(1, ct),
+                sourceMode: "mj_today");
+            return;
+        }
+
         await LoadSearchResultsAsync(
             $"漫剧上新 · {Math.Clamp(QueryDays, 1, 30)} 天",
             ct => ShortDramaDramaServices.GetMangaTodayAsync(Math.Clamp(QueryDays, 1, 30), ct),

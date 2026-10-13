@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ShortDrama.Core.Models;
 
 namespace ShortDrama.Infrastructure.Automation;
 
@@ -23,6 +24,13 @@ public static class PlayletDramaClient
     private const string PassToken = "MkYQyRrrD2iG5WuDEV7DjYcq2jq7";
     private const string DirectoryUserAgent =
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.60(0x18003c2c) NetType/WIFI Language/zh_CN";
+    private const string ComicNewUrl =
+        "https://api5-normal-sinfonlinec.fqnovel.com/reading/user/subscribe/list/v1/";
+    private const string ComicNewUserAgent =
+        "com.dragon.read/73532 (Linux; U; Android 12; zh_CN; V2366GA; Build/V417IR;tt-ok/3.12.13.17)";
+    private const string ComicNewDeviceId = "3893822780890025";
+    private const string ComicNewInstallId = "3893822780894121";
+    private const string ComicNewClientId = "164b57db-6e60-4f3a-90ff-d3472e83f63d";
     private const string RankUrl =
         "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/bookmall/cell/change/v1/";
     private const string RankUserAgent =
@@ -35,6 +43,12 @@ public static class PlayletDramaClient
         4AzoGhyxwpyUXtX6wQIDAQAB
         -----END PUBLIC KEY-----
         """;
+
+    private sealed record ComicNewPage(
+        IReadOnlyList<DramaSearchItem> Items,
+        bool HasMore,
+        int NextOffset,
+        string SessionId);
 
     public sealed record EpisodeItem(int Number, string Title, string VideoId);
     public sealed record VideoItem(string Url, string? Key);
@@ -143,6 +157,34 @@ public static class PlayletDramaClient
         throw new InvalidOperationException(
             "红果短剧下载器视频解析失败：" +
             (string.IsNullOrWhiteSpace(fallback.Message) ? lastMessage ?? "未知错误" : fallback.Message));
+    }
+
+    public static async Task<IReadOnlyList<DramaSearchItem>> GetComicNewTodayAsync(
+        HttpClient httpClient,
+        CancellationToken cancellationToken)
+    {
+        var today = ChinaToday().ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        var items = new List<DramaSearchItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var offset = 0;
+        var sessionId = "";
+        for (var page = 0; page < 8; page++)
+        {
+            var batch = await FetchComicNewPageAsync(httpClient, today, offset, sessionId, cancellationToken);
+            foreach (var item in batch.Items)
+            {
+                if (seen.Add(item.BookId))
+                    items.Add(item);
+            }
+
+            if (!string.IsNullOrWhiteSpace(batch.SessionId))
+                sessionId = batch.SessionId;
+            if (!batch.HasMore || batch.NextOffset <= offset || batch.Items.Count == 0)
+                break;
+            offset = batch.NextOffset;
+        }
+
+        return items;
     }
 
     public static async Task<HongguoRankPage> GetRankPageAsync(
@@ -394,6 +436,166 @@ public static class PlayletDramaClient
             "0" or "1" or "2" or "3" or "4" or "5" => normalized,
             _ => "1"
         };
+    }
+
+    private static async Task<ComicNewPage> FetchComicNewPageAsync(
+        HttpClient httpClient,
+        string today,
+        int offset,
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildComicNewUrl(today, offset, sessionId));
+        request.Headers.TryAddWithoutValidation("User-Agent", ComicNewUserAgent);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"红果短剧下载器漫剧上新请求失败: HTTP {(int)response.StatusCode}");
+
+        var payload = JsonNode.Parse(text);
+        var code = payload?["code"]?.ToString();
+        if (!string.Equals(code, "0", StringComparison.Ordinal))
+        {
+            var message = payload?["message"]?.ToString() ?? payload?["msg"]?.ToString() ?? "未知错误";
+            throw new InvalidOperationException($"红果短剧下载器漫剧上新失败: {message}");
+        }
+
+        var data = payload?["data"] as JsonObject;
+        var items = ReadSubscribeItems(data);
+        var hasMore = ReadBool(data?["has_more"]);
+        var nextOffset = ReadInt(data?["next_offset"]);
+        if (items.Count == 0)
+            hasMore = false;
+        return new ComicNewPage(items, hasMore, nextOffset, ReadString(data?["session_id"]));
+    }
+
+    private static string BuildComicNewUrl(string today, int offset, string sessionId)
+    {
+        var parameters = new Dictionary<string, string>
+        {
+            ["bdhm_bid"] = "novelread_lynx",
+            ["single_tab"] = "0",
+            ["offset"] = offset.ToString(CultureInfo.InvariantCulture),
+            ["need_calendar_schema"] = "true",
+            ["active_panel"] = "6",
+            ["panels"] = "",
+            ["session_id"] = sessionId,
+            ["version"] = "0",
+            ["gender_type"] = "2",
+            ["swipe_type"] = "3",
+            ["bdhm_pid"] = "subscribe-list",
+            ["tab_type"] = "5",
+            ["subscribe_list_opt"] = "0",
+            ["new_series_opt"] = "0",
+            ["tab_style"] = "2",
+            ["device_platform"] = "android",
+            ["iid"] = ComicNewInstallId,
+            ["device_id"] = ComicNewDeviceId,
+            ["ac"] = "wifi",
+            ["channel"] = "vivo_8662_64",
+            ["aid"] = "8662",
+            ["app_name"] = "novelread",
+            ["version_code"] = "73532",
+            ["version_name"] = "7.3.5.32",
+            ["os"] = "android",
+            ["ssmix"] = "a",
+            ["device_type"] = "V2366GA",
+            ["device_brand"] = "vivo",
+            ["language"] = "zh",
+            ["os_api"] = "32",
+            ["os_version"] = "12",
+            ["manifest_version_code"] = "73532",
+            ["resolution"] = "1440*2560",
+            ["dpi"] = "640",
+            ["update_version_code"] = "73532",
+            ["host_abi"] = "arm64-v8a",
+            ["dragon_device_type"] = "phone",
+            ["pv_player"] = "73532",
+            ["compliance_status"] = "0",
+            ["need_personal_recommend"] = "1",
+            ["player_so_load"] = "1",
+            ["is_android_pad_screen"] = "0",
+            ["rom_version"] = "V417IR+release-keys",
+            ["cdid"] = ComicNewClientId,
+            ["target_date"] = today,
+            ["select_items"] = """{"genre":["comic_series"]}""",
+        };
+        return ComicNewUrl + "?" + string.Join("&", parameters.Select(pair =>
+            $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
+    }
+
+    private static IReadOnlyList<DramaSearchItem> ReadSubscribeItems(JsonObject? data)
+    {
+        if (data?["subscribe_items"] is not JsonArray list)
+            return [];
+
+        var items = new List<DramaSearchItem>();
+        foreach (var node in list)
+        {
+            if (node is not JsonObject item)
+                continue;
+            var source = item["subscribe_data"] as JsonObject ?? item["book_info"] as JsonObject ?? item;
+            var mapped = HongguoHighCalendarMapper.TryMapItem(source);
+            if (mapped is null && item["video_data"] is not null)
+            {
+                mapped = HongguoHighCalendarMapper.ExtractSearchTabItems(item)
+                    .Select(HongguoHighCalendarMapper.TryMapItem)
+                    .FirstOrDefault(candidate => candidate is not null);
+            }
+
+            if (mapped is null || string.IsNullOrWhiteSpace(mapped.BookId))
+                continue;
+            items.Add(mapped with { BookId = BookPrefix + HongguoHighCrypto.StripBookPrefix(mapped.BookId) });
+        }
+
+        return items;
+    }
+
+    private static DateOnly ChinaToday()
+    {
+        TimeZoneInfo zone;
+        try
+        {
+            zone = TimeZoneInfo.FindSystemTimeZoneById("China Standard Time");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            zone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
+        }
+
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime);
+    }
+
+    private static string ReadString(JsonNode? node)
+    {
+        if (node is JsonValue value && value.TryGetValue<string>(out var text))
+            return text;
+        return "";
+    }
+
+    private static bool ReadBool(JsonNode? node)
+    {
+        if (node is not JsonValue value)
+            return false;
+        return value.GetValueKind() switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.Number => value.TryGetValue<int>(out var number) && number != 0,
+            JsonValueKind.String => value.GetValue<string>() is "1" or "true",
+            _ => false
+        };
+    }
+
+    private static int ReadInt(JsonNode? node)
+    {
+        if (node is not JsonValue value)
+            return 0;
+        if (value.GetValueKind() == JsonValueKind.Number && value.TryGetValue<int>(out var number))
+            return number;
+        return value.GetValueKind() == JsonValueKind.String &&
+               int.TryParse(value.GetValue<string>(), out var parsed)
+            ? parsed
+            : 0;
     }
 
     private static string BuildRankUrl(HongguoRankQuery query, int offset)

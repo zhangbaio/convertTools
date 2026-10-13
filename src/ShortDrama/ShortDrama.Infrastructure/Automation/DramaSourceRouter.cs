@@ -178,6 +178,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var settings = _settingsProvider.Get();
+        if (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
+            return await PlayletDramaClient.GetComicNewTodayAsync(_httpClient, cancellationToken);
+
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
@@ -214,6 +217,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsPlayletSourceSelected() =>
+        string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase);
 
     public bool IsRankSourceSelected()
     {

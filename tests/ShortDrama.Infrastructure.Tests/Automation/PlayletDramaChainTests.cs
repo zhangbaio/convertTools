@@ -2,6 +2,7 @@ using FluentAssertions;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -101,6 +102,47 @@ public sealed class PlayletDramaChainTests
         handler.RankUrl.Should().Contain("sub_selected_items=ai_playlet_hot_sc");
     }
 
+    [Fact]
+    public async Task Comic_new_today_requests_china_today_and_maps_playlet_books()
+    {
+        var handler = new PlayletHandler();
+        using var httpClient = new HttpClient(handler);
+
+        var items = await PlayletDramaClient.GetComicNewTodayAsync(httpClient, CancellationToken.None);
+
+        items.Should().HaveCount(2);
+        items[0].BookId.Should().Be("playlet:7694908515348925465");
+        items[0].Title.Should().Be("满级小师妹");
+        items[0].EpisodeTotal.Should().Be(108);
+        items[1].BookId.Should().Be("playlet:7692318649381000001");
+        items[1].Title.Should().Be("入府为婢");
+        var today = ChinaToday().ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        handler.ComicNewUrls.Should().HaveCount(2);
+        handler.ComicNewUrls[0].Should().Contain($"target_date={today}");
+        handler.ComicNewUrls[0].Should().Contain("comic_series");
+        handler.ComicNewUrls[0].Should().Contain("tab_style=2");
+        handler.ComicNewUrls[0].Should().Contain("need_calendar_schema=true");
+        handler.ComicNewUrls[0].Should().Contain("session_id=");
+        handler.ComicNewUrls[0].Should().NotContain("session_id=cal-session");
+        handler.ComicNewUrls[1].Should().Contain("session_id=cal-session");
+        handler.ComicNewUrls[0].Should().NotContain("shortplay");
+    }
+
+    private static DateOnly ChinaToday()
+    {
+        TimeZoneInfo zone;
+        try
+        {
+            zone = TimeZoneInfo.FindSystemTimeZoneById("China Standard Time");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            zone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Shanghai");
+        }
+
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime);
+    }
+
     private sealed class PlayletSettings(DramaSourceSettings settings) : IDramaSettingsProvider
     {
         public DramaSourceSettings Get() => settings;
@@ -117,6 +159,7 @@ public sealed class PlayletDramaChainTests
         public List<string> VideoPaths { get; } = [];
         public string? VideoDeviceId { get; private set; }
         public string RankUrl { get; private set; } = "";
+        public List<string> ComicNewUrls { get; } = [];
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -160,6 +203,57 @@ public sealed class PlayletDramaChainTests
                       "code": 0,
                       "data": {
                         "item_list": ["7650358399711841304", "7650358459367427096"]
+                      }
+                    }
+                    """));
+            }
+
+            if (path.Contains("/subscribe/list/", StringComparison.Ordinal))
+            {
+                var url = request.RequestUri?.ToString() ?? "";
+                ComicNewUrls.Add(url);
+                if (ComicNewUrls.Count == 1)
+                {
+                    return Task.FromResult(Json("""
+                        {
+                          "code": 0,
+                          "data": {
+                            "has_more": true,
+                            "next_offset": 15,
+                            "session_id": "cal-session",
+                            "subscribe_items": [
+                              {
+                                "subscribe_data": {
+                                  "series_id": "7694908515348925465",
+                                  "title": "满级小师妹",
+                                  "episode_cnt": 108,
+                                  "video_desc": "简介",
+                                  "cover": "https://cdn.example.com/cover.jpg"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                        """));
+                }
+
+                return Task.FromResult(Json("""
+                    {
+                      "code": 0,
+                      "data": {
+                        "has_more": false,
+                        "next_offset": 30,
+                        "session_id": "cal-session",
+                        "subscribe_items": [
+                          {
+                            "subscribe_data": {
+                              "series_id": "7692318649381000001",
+                              "title": "入府为婢",
+                              "episode_cnt": 80,
+                              "video_desc": "简介"
+                            }
+                          }
+                        ]
                       }
                     }
                     """));
