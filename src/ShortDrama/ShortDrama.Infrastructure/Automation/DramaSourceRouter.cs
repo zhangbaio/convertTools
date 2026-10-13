@@ -15,7 +15,7 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
-    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "hghigh", "mapleleaf", "downloader"];
+    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "playlet", "hghigh", "mapleleaf", "downloader"];
     private static readonly string[] NewReleaseServices = ["hgnew", "hglocal", "hghigh", "mapleleaf", "downloader"];
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
@@ -134,6 +134,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
             "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
             "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken, searchCategory),
+            "playlet" => await SearchPlayletAsync(keyword, page, settings, cancellationToken, searchCategory),
             "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken, searchCategory),
             "mapleleaf" => await _mapleleafApiService.SearchAsync(settings, keyword, page, cancellationToken),
             "downloader" => await _downloaderApiService.SearchAsync(settings, keyword, page, cancellationToken),
@@ -177,6 +178,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var settings = _settingsProvider.Get();
+        if (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
+            return await PlayletDramaClient.GetComicNewTodayAsync(_httpClient, cancellationToken);
+
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
@@ -214,16 +218,28 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
 
-    public Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
+    public bool IsPlayletSourceSelected() =>
+        string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase);
+
+    public bool IsRankSourceSelected()
+    {
+        var chain = _settingsProvider.Get().DramaSourceChain?.Trim();
+        return string.Equals(chain, "hghigh", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(chain, "playlet", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
         string category,
         string board,
         int page,
         CancellationToken cancellationToken)
     {
-        var settings = _settingsProvider.Get();
-        if (!string.Equals(settings.DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("榜单只接入红果高码率标准版。请先把下载源切换到红果高码率链路。");
-        return _hghighApiService.GetRankAsync(settings, category, board, page, cancellationToken);
+        var pageResult = await GetRankPageAsync(
+            category,
+            board,
+            (Math.Max(1, page) - 1) * 20,
+            cancellationToken);
+        return pageResult.Items;
     }
 
     public Task<HongguoRankPage> GetRankPageAsync(
@@ -233,9 +249,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken)
     {
         var settings = _settingsProvider.Get();
-        if (!string.Equals(settings.DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("榜单只接入红果高码率标准版。请先把下载源切换到红果高码率链路。");
-        return _hghighApiService.GetRankPageAsync(settings, category, board, offset, cancellationToken);
+        var chain = settings.DramaSourceChain?.Trim();
+        if (string.Equals(chain, "playlet", StringComparison.OrdinalIgnoreCase))
+            return PlayletDramaClient.GetRankPageAsync(_httpClient, category, board, offset, cancellationToken);
+        if (string.Equals(chain, "hghigh", StringComparison.OrdinalIgnoreCase))
+            return _hghighApiService.GetRankPageAsync(settings, category, board, offset, cancellationToken);
+        throw new InvalidOperationException("榜单接入红果高码率标准版和红果短剧下载器。请先切换到其中一条数据链路。");
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> EnrichHighNewReleaseItemsAsync(
@@ -542,6 +561,24 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 minConcurrency: HghighMinimumDownloadConcurrency,
                 pieceSize: HghighPieceSizeBytes,
                 pieceWorkers: HghighPiecePoolWorkers);
+        }
+
+        if (bookId.StartsWith(PlayletDramaClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            bookId.StartsWith(PlayletDramaClient.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
+        {
+            var playletBookId = EnsurePrefixed(bookId, PlayletDramaClient.BookPrefix);
+            return await DownloadWithProviderAsync(
+                request,
+                progress,
+                cancellationToken,
+                resolveEpisodes: ct => GetPlayletEpisodesAsync(playletBookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetPlayletVideoUrlAsync(videoId, quality, settings, ct),
+                posterPrefix: PlayletDramaClient.BookPrefix,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("playlet"),
+                downloadFileSegments: downloadFileSegments,
+                downloadTimeoutSeconds: downloadTimeoutSeconds,
+                downloadAttempts: downloadAttempts);
         }
 
         if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -2057,6 +2094,29 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             page,
             cancellationToken);
 
+        return ReadFanqieSearchItems(document, PikachuBookPrefix);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> SearchPlayletAsync(
+        string keyword,
+        int page,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken,
+        string? searchCategory = null)
+    {
+        using var document = await PikachuDramaClient.RequestFanqieSearchAsync(
+            _httpClient,
+            fanqieCookie: "",
+            ResolvePikachuDramaType(settings, searchCategory),
+            keyword,
+            page,
+            cancellationToken,
+            allowMissingCookie: true);
+        return ReadFanqieSearchItems(document, PlayletDramaClient.BookPrefix);
+    }
+
+    private static IReadOnlyList<DramaSearchItem> ReadFanqieSearchItems(JsonDocument document, string bookPrefix)
+    {
         if (!document.RootElement.TryGetProperty("data", out var data) ||
             !data.TryGetProperty("search_data", out var searchData) ||
             searchData.ValueKind != JsonValueKind.Array)
@@ -2101,7 +2161,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 }
 
                 results.Add(new DramaSearchItem(
-                    BookId: EnsurePrefixed(bookId, PikachuBookPrefix),
+                    BookId: EnsurePrefixed(bookId, bookPrefix),
                     Title: GetString(info, "book_name") ?? string.Empty,
                     Category: GetString(info, "category") ?? string.Empty,
                     EpisodeTotal: GetInt(info, "serial_count") ?? 0,
@@ -2350,6 +2410,41 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         return episodes;
+    }
+
+    private async Task<IReadOnlyList<SourceEpisode>> GetPlayletEpisodesAsync(
+        string prefixedBookId,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var episodes = await PlayletDramaClient.GetEpisodesAsync(
+            _httpClient,
+            settings.PlayletServerUrl,
+            prefixedBookId,
+            cancellationToken);
+        return episodes
+            .Select(item => new SourceEpisode(
+                item.Number,
+                item.Title,
+                EnsurePrefixed(item.VideoId, PlayletDramaClient.EpisodePrefix),
+                string.Empty))
+            .ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetPlayletVideoUrlAsync(
+        string prefixedVideoId,
+        string quality,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var video = await PlayletDramaClient.GetVideoAsync(
+            _httpClient,
+            settings.PlayletServerUrl,
+            prefixedVideoId,
+            quality,
+            settings.PlayletDeviceId,
+            cancellationToken);
+        return new SourceVideoDetail(video.Url, video.Key);
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetHgnewEpisodesAsync(string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
@@ -2759,26 +2854,112 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            var count = (int)Math.Min(stream.Length, 8L * 1024 * 1024);
-            if (count <= 0)
-                return false;
-            var buffer = new byte[count];
-            var read = 0;
-            while (read < count)
-            {
-                var current = stream.Read(buffer, read, count - read);
-                if (current <= 0)
-                    break;
-                read += current;
-            }
-            var data = buffer.AsSpan(0, read);
-            return data.IndexOf("encv"u8) >= 0 || data.IndexOf("enca"u8) >= 0;
+            return ContainsEncryptedSampleEntry(stream, 0, stream.Length);
         }
         catch
         {
             return false;
         }
     }
+
+    private static bool ContainsEncryptedSampleEntry(Stream stream, long start, long end)
+    {
+        Span<byte> header = stackalloc byte[16];
+        var offset = start;
+        while (offset + 8 <= end)
+        {
+            stream.Position = offset;
+            if (stream.Read(header[..8]) != 8)
+                return false;
+
+            var boxSize = BinaryPrimitives.ReadUInt32BigEndian(header[..4]);
+            var type = header.Slice(4, 4);
+            long headerSize = 8;
+            long resolvedSize;
+            if (boxSize == 1)
+            {
+                if (offset + 16 > end || stream.Read(header[8..16]) != 8)
+                    return false;
+                resolvedSize = checked((long)BinaryPrimitives.ReadUInt64BigEndian(header[8..16]));
+                headerSize = 16;
+            }
+            else
+            {
+                resolvedSize = boxSize == 0 ? end - offset : boxSize;
+            }
+
+            if (resolvedSize < headerSize || offset + resolvedSize > end)
+                return false;
+
+            var boxEnd = offset + resolvedSize;
+            if (type.SequenceEqual("stsd"u8))
+            {
+                if (StsdContainsEncryptedEntry(stream, offset + headerSize, boxEnd))
+                    return true;
+            }
+            else if (IsMp4ContainerBox(type) &&
+                     ContainsEncryptedSampleEntry(stream, offset + headerSize, boxEnd))
+            {
+                return true;
+            }
+
+            offset = boxEnd;
+        }
+
+        return false;
+    }
+
+    private static bool StsdContainsEncryptedEntry(Stream stream, long contentStart, long boxEnd)
+    {
+        if (contentStart + 8 > boxEnd)
+            return false;
+
+        Span<byte> header = stackalloc byte[8];
+        stream.Position = contentStart;
+        if (stream.Read(header) != 8)
+            return false;
+
+        var entryCount = BinaryPrimitives.ReadUInt32BigEndian(header[4..8]);
+        var offset = contentStart + 8;
+        for (var index = 0; index < entryCount && offset + 8 <= boxEnd; index++)
+        {
+            stream.Position = offset;
+            if (stream.Read(header) != 8)
+                return false;
+
+            var entrySize32 = BinaryPrimitives.ReadUInt32BigEndian(header[..4]);
+            var encrypted = header.Slice(4, 4).SequenceEqual("encv"u8) ||
+                            header.Slice(4, 4).SequenceEqual("enca"u8);
+            long headerSize = 8;
+            long entrySize = entrySize32;
+            if (entrySize32 == 1)
+            {
+                if (stream.Read(header) != 8)
+                    return false;
+                entrySize = checked((long)BinaryPrimitives.ReadUInt64BigEndian(header));
+                headerSize = 16;
+            }
+            else if (entrySize32 == 0)
+            {
+                entrySize = boxEnd - offset;
+            }
+
+            if (entrySize < headerSize || offset + entrySize > boxEnd)
+                return false;
+            if (encrypted)
+                return true;
+            offset += entrySize;
+        }
+
+        return false;
+    }
+
+    private static bool IsMp4ContainerBox(ReadOnlySpan<byte> type) =>
+        type.SequenceEqual("moov"u8) ||
+        type.SequenceEqual("trak"u8) ||
+        type.SequenceEqual("mdia"u8) ||
+        type.SequenceEqual("minf"u8) ||
+        type.SequenceEqual("stbl"u8);
 
     private static void CleanupDownloadArtifacts(string path, bool keepVideo)
     {

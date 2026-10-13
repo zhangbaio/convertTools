@@ -108,11 +108,27 @@ public sealed class DramaSourceRouterDownloadTests
         var path = Path.Combine(Path.GetTempPath(), $"encrypted-mp4-{Guid.NewGuid():N}.mp4");
         try
         {
-            var bytes = BuildMp4WithDeclaredMdatSize(28, actualPayloadSize: 20);
-            "encv"u8.CopyTo(bytes.AsSpan(24, 4));
-            File.WriteAllBytes(path, bytes);
+            File.WriteAllBytes(path, BuildMp4WithSampleEntry("encv"u8));
 
             DramaSourceRouter.ContainsEncryptedMp4SampleEntry(path).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Plain_mp4_is_not_treated_as_encrypted_when_media_bytes_contain_encv()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"plain-mp4-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var bytes = BuildMp4WithSampleEntry("hvc1"u8);
+            "encv"u8.CopyTo(bytes.AsSpan(bytes.Length - 4, 4));
+            File.WriteAllBytes(path, bytes);
+
+            DramaSourceRouter.ContainsEncryptedMp4SampleEntry(path).Should().BeFalse();
         }
         finally
         {
@@ -1525,6 +1541,34 @@ public sealed class DramaSourceRouterDownloadTests
         WriteBoxHeader(bytes.AsSpan(8, 8), 8, "moov"u8);
         WriteBoxHeader(bytes.AsSpan(16, 8), declaredMdatSize, "mdat"u8);
         return bytes;
+    }
+
+    private static byte[] BuildMp4WithSampleEntry(ReadOnlySpan<byte> entryType)
+    {
+        var entry = new byte[16];
+        WriteBoxHeader(entry, entry.Length, entryType);
+        var stsd = new byte[8 + 8 + entry.Length];
+        WriteBoxHeader(stsd, stsd.Length, "stsd"u8);
+        BinaryPrimitives.WriteUInt32BigEndian(stsd.AsSpan(12, 4), 1);
+        entry.CopyTo(stsd.AsSpan(16));
+        var stbl = WrapMp4Box("stbl"u8, stsd);
+        var minf = WrapMp4Box("minf"u8, stbl);
+        var mdia = WrapMp4Box("mdia"u8, minf);
+        var trak = WrapMp4Box("trak"u8, mdia);
+        var moov = WrapMp4Box("moov"u8, trak);
+        var mdat = new byte[12];
+        WriteBoxHeader(mdat, mdat.Length, "mdat"u8);
+        var ftyp = new byte[8];
+        WriteBoxHeader(ftyp, ftyp.Length, "ftyp"u8);
+        return [.. ftyp, .. moov, .. mdat];
+    }
+
+    private static byte[] WrapMp4Box(ReadOnlySpan<byte> type, byte[] child)
+    {
+        var box = new byte[8 + child.Length];
+        WriteBoxHeader(box, box.Length, type);
+        child.CopyTo(box.AsSpan(8));
+        return box;
     }
 
     private static void WriteBoxHeader(Span<byte> target, int size, ReadOnlySpan<byte> type)

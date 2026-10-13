@@ -345,6 +345,7 @@ public static class WorkspaceQueueService
                 AccountProfileId = persisted.AccountProfileId,
                 AccountProfileName = persisted.AccountProfileName,
                 QueueEntryDramaType = persisted.QueueEntryDramaType,
+                SourceEpisodeCount = persisted.SourceEpisodeCount,
                 DisplayName = persisted.DisplayName,
                 VideoVertical = persisted.VideoVertical,
             };
@@ -359,6 +360,10 @@ public static class WorkspaceQueueService
         item.Description = scanned.Description;
         item.GenreCategory = scanned.GenreCategory;
         item.EpisodeCount = scanned.EpisodeCount;
+        if (item.SourceEpisodeCount <= scanned.EpisodeCount &&
+            OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(scanned.ProjectDir, out var originalEpisodeCount) &&
+            originalEpisodeCount > scanned.EpisodeCount)
+            item.SourceEpisodeCount = originalEpisodeCount;
         if (scanned.VideoVertical is 0 or 1)
             item.VideoVertical = scanned.VideoVertical;
         item.PrimaryVideoPath = scanned.PrimaryVideoPath;

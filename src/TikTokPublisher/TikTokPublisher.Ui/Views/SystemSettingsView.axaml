@@ -261,6 +261,32 @@
                                 <TextBlock Text="{Binding PikachuProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                             </StackPanel>
                         </Grid>
+
+                        <Separator Margin="0,4" />
+
+                        <TextBlock Text="红果短剧下载器（v2.3.7）" FontWeight="Bold" />
+                        <TextBlock Text="搜索和下载都不使用番茄 Cookie。视频解析使用下载器软件设置里的设备号，1080P 对应清晰度 1，红果线路一。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="服务地址" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding PlayletServerUrl}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="设备号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1"
+                                     Text="{Binding PlayletDeviceId}"
+                                     Watermark="下载器软件设置中的设备信息" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="8">
+                                <Button Content="测试红果短剧下载器"
+                                        Command="{Binding ProbePlayletConnectivityCommand}"
+                                        IsEnabled="{Binding !IsPlayletBusy}"
+                                        MinWidth="160"
+                                        HorizontalAlignment="Left" />
+                                <TextBlock Text="{Binding PlayletProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

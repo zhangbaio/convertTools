@@ -285,6 +285,7 @@ static bool HasDownloadConfiguration(ClientSettings value) =>
         "hghigh" => Present(value.HghighAccount, value.HghighPassword, value.HghighDeviceId),
         "mapleleaf" => Present(value.MapleleafAccount, value.MapleleafPassword, value.MapleleafUdid),
         "pikachu" => !string.IsNullOrWhiteSpace(value.PikachuFanqieCookie) || !string.IsNullOrWhiteSpace(value.PikachuDeviceId),
+        "playlet" => !string.IsNullOrWhiteSpace(value.PlayletServerUrl) && !string.IsNullOrWhiteSpace(value.PlayletDeviceId),
         "hglocal" => !string.IsNullOrWhiteSpace(value.HongguoLocalBaseUrl),
         _ => false,
     };

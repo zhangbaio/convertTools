@@ -53,14 +53,15 @@ public static class UploadTitleImportService
     public static async Task<ExactDramaLookupResult> FindExactDramaAsync(
         string title,
         int expectedEpisodeTotal,
-        CancellationToken ct)
+        CancellationToken ct,
+        int truncatedKeepCount = 0)
     {
         var reason = NoExactMatchReason;
         foreach (var query in TitleSearchQueryVariants(title))
         {
             var results = await ShortDramaDramaServices.SearchAsync(query, 1, ct).ConfigureAwait(false);
             var (matched, currentReason) =
-                PickPreferredSearchMatch(title, results, expectedEpisodeTotal);
+                PickPreferredSearchMatch(title, results, expectedEpisodeTotal, truncatedKeepCount);
             reason = currentReason;
             if (matched is not null)
                 return new ExactDramaLookupResult(matched, string.Empty);
@@ -271,38 +272,49 @@ public static class UploadTitleImportService
     public static (DramaSearchItem? Item, string Reason) PickPreferredSearchMatch(
         string title,
         IReadOnlyList<DramaSearchItem> results,
-        int expectedEpisodeTotal = 0)
+        int expectedEpisodeTotal = 0,
+        int truncatedKeepCount = 0)
     {
         var target = (title ?? "").Trim();
         var exact = Dedupe(results.Where(item => string.Equals((item.Title ?? "").Trim(), target, StringComparison.Ordinal))).ToList();
         if (expectedEpisodeTotal > 0 && exact.Count > 0)
-            return PickEpisodeTotalMatch(exact, expectedEpisodeTotal);
+            return PickEpisodeTotalMatch(exact, expectedEpisodeTotal, truncatedKeepCount);
         if (exact.Count == 1) return (exact[0], "");
         if (exact.Count > 1) return (null, "命中多条同名短剧，无法唯一确认");
 
         var normalizedTarget = NormalizeSearchTitleText(target);
         var normalized = Dedupe(results.Where(item => NormalizeSearchTitleText(item.Title) == normalizedTarget)).ToList();
         if (expectedEpisodeTotal > 0 && normalized.Count > 0)
-            return PickEpisodeTotalMatch(normalized, expectedEpisodeTotal);
+            return PickEpisodeTotalMatch(normalized, expectedEpisodeTotal, truncatedKeepCount);
         if (normalized.Count == 1) return (normalized[0], "");
         if (normalized.Count > 1) return (null, "命中多条同名短剧，无法唯一确认");
 
         var unique = Dedupe(results).ToList();
         if (unique.Count == 0) return (null, EmptySearchResultReason);
         if (expectedEpisodeTotal > 0 && unique.Count == 1)
-            return PickEpisodeTotalMatch(unique, expectedEpisodeTotal);
+            return PickEpisodeTotalMatch(unique, expectedEpisodeTotal, truncatedKeepCount);
         if (unique.Count == 1) return (unique[0], "");
         return (null, NoExactMatchReason);
     }
 
     private static (DramaSearchItem? Item, string Reason) PickEpisodeTotalMatch(
         IReadOnlyList<DramaSearchItem> candidates,
-        int expectedEpisodeTotal)
+        int expectedEpisodeTotal,
+        int truncatedKeepCount = 0)
     {
         var matched = candidates.Where(item => item.EpisodeTotal == expectedEpisodeTotal).ToList();
         if (matched.Count == 1) return (matched[0], "");
         if (matched.Count > 1)
             return (null, $"命中多条同名且均为 {expectedEpisodeTotal} 集的短剧，无法唯一确认");
+
+        if (truncatedKeepCount > 0 && expectedEpisodeTotal == truncatedKeepCount)
+        {
+            var longer = candidates.Where(item => item.EpisodeTotal > expectedEpisodeTotal).ToList();
+            if (longer.Count == 1) return (longer[0], "");
+            if (longer.Count > 1)
+                return (null, $"找到多条同名且超过 {expectedEpisodeTotal} 集的短剧，无法唯一确认");
+        }
+
         var totals = candidates.Select(item => item.EpisodeTotal).Where(v => v > 0).Distinct().Order().ToArray();
         return (null, totals.Length > 0
             ? $"找到同名短剧，但集数不匹配：输入 {expectedEpisodeTotal} 集，候选为 {string.Join("、", totals.Select(v => $"{v} 集"))}"

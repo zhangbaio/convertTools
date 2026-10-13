@@ -74,7 +74,7 @@ public static class QueueMaterialStepService
             metadata,
             settings,
             displayName,
-            FirstNonEmpty(metadata.Episodes, "all"),
+            LimitEpisodesToKeptPrefix(metadata.Episodes, item, settings, context.SourceProjectDir),
             concurrent,
             forceRerun ? ExistingVideoPolicy.ReplaceAll : ExistingVideoPolicy.ReuseValid);
 
@@ -956,10 +956,22 @@ public static class QueueMaterialStepService
         log(
             $"检测到数据链路切换：{DramaSourceLabel(metadataSource)} → {selectedLabel}；" +
             $"正在按原剧名《{lookupTitle}》重新匹配 book_id。");
+        var expectedEpisodes = ResolveRematchEpisodeTotal(sourceProjectDir, item);
+        var keep = settings.TiktokAllowOverLimitUploadImport
+            ? OverLimitEpisodePolicy.ResolveKeepCount(settings)
+            : 0;
+        var truncatedKeep = expectedEpisodes == item.EpisodeCount && keep > 0 && item.EpisodeCount == keep
+            ? keep
+            : 0;
+        if (expectedEpisodes > item.EpisodeCount)
+            log($"队列显示 {item.EpisodeCount} 集，按真实集数 {expectedEpisodes} 匹配。");
+        else if (truncatedKeep > 0)
+            log($"队列集数为截取上限 {truncatedKeep}，接受同名且真实集数更多的唯一结果，下载仍只取前 {truncatedKeep} 集。");
         var lookup = await UploadTitleImportService.FindExactDramaAsync(
                 lookupTitle,
-                Math.Max(0, item.EpisodeCount),
-                ct)
+                expectedEpisodes,
+                ct,
+                truncatedKeep)
             .ConfigureAwait(false);
         if (lookup.Item is null)
         {
@@ -978,16 +990,55 @@ public static class QueueMaterialStepService
 
         PersistBookReference(sourceProjectDir, metadataSource, metadataBookId, lookupTitle);
         PersistBookReference(sourceProjectDir, selectedSource, resolvedBookId, lookup.Item.Title);
+        if (lookup.Item.EpisodeTotal > item.EpisodeCount && item.EpisodeCount > 0)
+        {
+            log($"已匹配原剧 {lookup.Item.EpisodeTotal} 集，下载仍只取前 {item.EpisodeCount} 集。");
+            if (item.SourceEpisodeCount < lookup.Item.EpisodeTotal)
+                item.SourceEpisodeCount = lookup.Item.EpisodeTotal;
+        }
+
         log(
             $"已匹配并缓存 {selectedLabel} 剧集标识：" +
             $"{metadataBookId} → {resolvedBookId}");
         return resolvedBookId;
     }
 
+    internal static int ResolveRematchEpisodeTotal(string projectDir, QueueProjectItem item)
+    {
+        if (item.SourceEpisodeCount > item.EpisodeCount)
+            return item.SourceEpisodeCount;
+        if (OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(projectDir, out var original) &&
+            original > item.EpisodeCount)
+            return original;
+        return Math.Max(0, item.EpisodeCount);
+    }
+
+    internal static string LimitEpisodesToKeptPrefix(
+        string? episodes,
+        QueueProjectItem item,
+        ClientSettings settings,
+        string projectDir)
+    {
+        var selection = string.IsNullOrWhiteSpace(episodes) ? "all" : episodes.Trim();
+        if (!settings.TiktokAllowOverLimitUploadImport || item.EpisodeCount <= 0)
+            return selection;
+
+        var keep = OverLimitEpisodePolicy.ResolveKeepCount(settings);
+        var truncated = item.EpisodeCount == keep &&
+                        (item.SourceEpisodeCount > item.EpisodeCount ||
+                         OverLimitEpisodePolicy.TryReadKeepCount(projectDir, out _) ||
+                         OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(projectDir, out var original) &&
+                         original > item.EpisodeCount);
+        if (!truncated)
+            return selection;
+
+        return OverLimitEpisodePolicy.ResolveDownloadSelection(selection, keep + 1, settings);
+    }
+
     internal static string NormalizeDramaSource(string? source)
     {
         var value = (source ?? string.Empty).Trim().ToLowerInvariant();
-        return value is "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" or "downloader"
+        return value is "hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader"
             ? value
             : "hgnew";
     }
@@ -1004,6 +1055,8 @@ public static class QueueMaterialStepService
         if (id.StartsWith("hghigh:", StringComparison.OrdinalIgnoreCase) ||
             id.StartsWith("hghigh_ep:", StringComparison.OrdinalIgnoreCase)) return "hghigh";
         if (id.StartsWith("pikachu:", StringComparison.OrdinalIgnoreCase)) return "pikachu";
+        if (id.StartsWith("playlet:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("playlet_ep:", StringComparison.OrdinalIgnoreCase)) return "playlet";
         return "hgnew";
     }
 
@@ -1024,6 +1077,7 @@ public static class QueueMaterialStepService
             "mapleleaf" => "Mapleleaf",
             "hglocal" => "本地直连",
             "pikachu" => "皮卡丘",
+            "playlet" => "红果短剧下载器",
             _ => "红果新接口",
         };
 

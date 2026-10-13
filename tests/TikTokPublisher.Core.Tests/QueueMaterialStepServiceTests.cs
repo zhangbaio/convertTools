@@ -24,6 +24,8 @@ public sealed class QueueMaterialStepServiceTests
     [InlineData("hghigh:123456", "hghigh")]
     [InlineData("hglocal:123456", "hglocal")]
     [InlineData("pikachu:123456", "pikachu")]
+    [InlineData("playlet:123456", "playlet")]
+    [InlineData("playlet_ep:video-1", "playlet")]
     [InlineData("mapleleaf:123456", "mapleleaf")]
     [InlineData("downloader:standard|123456", "downloader")]
     [InlineData("downloader_ep:standard|123456|video-1|1", "downloader")]

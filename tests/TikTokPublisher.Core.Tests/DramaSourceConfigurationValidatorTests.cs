@@ -66,4 +66,25 @@ public sealed class DramaSourceConfigurationValidatorTests
         });
         Assert.True(configured.IsConfigured);
     }
+
+    [Fact]
+    public void PlayletSourceRequiresServerAndDevice()
+    {
+        var missing = DramaSourceConfigurationValidator.Check(new ClientSettings
+        {
+            DramaSourceChain = "playlet",
+            PlayletServerUrl = "https://startvlog.cn/start-prod-api",
+        });
+        Assert.False(missing.IsConfigured);
+        Assert.Contains("设备号", missing.Message);
+
+        var configured = DramaSourceConfigurationValidator.Check(new ClientSettings
+        {
+            DramaSourceChain = "playlet",
+            PlayletServerUrl = "https://startvlog.cn/start-prod-api",
+            PlayletDeviceId = "DC8D94CB6E7122F92E",
+        });
+        Assert.True(configured.IsConfigured);
+        Assert.Contains("红果短剧下载器", configured.Message);
+    }
 }

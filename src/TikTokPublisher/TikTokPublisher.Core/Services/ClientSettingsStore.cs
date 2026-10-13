@@ -287,7 +287,7 @@ public static class ClientSettingsStore
         var chain = (settings.DramaSourceChain ?? "hgnew").Trim().ToLowerInvariant();
         settings.DramaSourceChain = chain switch
         {
-            "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" or "downloader" => chain,
+            "hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader" => chain,
             _ => "hgnew"
         };
 
@@ -311,6 +311,10 @@ public static class ClientSettingsStore
         settings.HgnewClientVersion = HongguoClientVersion.Normalize(settings.HgnewClientVersion);
         settings.PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
         settings.PikachuFanqieCookie = NormalizePikachuFanqieCookie(settings.PikachuFanqieCookie);
+        settings.PlayletServerUrl = string.IsNullOrWhiteSpace(settings.PlayletServerUrl)
+            ? PlayletDramaClient.DefaultServerUrl
+            : settings.PlayletServerUrl.Trim().TrimEnd('/');
+        settings.PlayletDeviceId = (settings.PlayletDeviceId ?? string.Empty).Trim().ToUpperInvariant();
         settings.TiktokMaterialValidateConcurrency = Math.Clamp(settings.TiktokMaterialValidateConcurrency, 1, 16);
         settings.TiktokAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokAsrLanguage)
             ? "zh-CN"

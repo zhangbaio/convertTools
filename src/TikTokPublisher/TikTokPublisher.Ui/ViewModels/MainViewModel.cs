@@ -1346,6 +1346,8 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofSealPath = account.TiktokProofSealPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
+        TiktokAiNewTitleRandomness = account.TiktokAiNewTitleRandomness,
+        TiktokAiSynopsisRandomness = account.TiktokAiSynopsisRandomness,
     };
 
     private void ReconcileQueueProjectRows(IReadOnlyList<QueueProjectItem> items, bool replaceCollections = false)
@@ -5314,6 +5316,7 @@ public sealed partial class MainViewModel : ViewModelBase
             target.OriginalTitle = merged.OriginalTitle;
             target.NewTitle = merged.NewTitle;
             target.EpisodeCount = merged.EpisodeCount;
+            target.SourceEpisodeCount = merged.SourceEpisodeCount;
             target.GenreCategory = merged.GenreCategory;
             target.Description = merged.Description;
             target.QueueEntryDramaType = merged.QueueEntryDramaType;
@@ -5338,6 +5341,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(target.OriginalTitle)) target.OriginalTitle = source.OriginalTitle;
         if (string.IsNullOrWhiteSpace(target.NewTitle)) target.NewTitle = source.NewTitle;
         if (target.EpisodeCount <= 0) target.EpisodeCount = source.EpisodeCount;
+        if (target.SourceEpisodeCount <= target.EpisodeCount && source.SourceEpisodeCount > source.EpisodeCount)
+            target.SourceEpisodeCount = source.SourceEpisodeCount;
         if (string.IsNullOrWhiteSpace(target.GenreCategory)) target.GenreCategory = source.GenreCategory;
         if (string.IsNullOrWhiteSpace(target.Description)) target.Description = source.Description;
         if (string.IsNullOrWhiteSpace(target.AccountProfileId)) target.AccountProfileId = source.AccountProfileId;

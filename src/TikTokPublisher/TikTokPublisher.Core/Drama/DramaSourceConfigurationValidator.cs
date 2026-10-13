@@ -17,6 +17,7 @@ public static class DramaSourceConfigurationValidator
             "mapleleaf" => Missing((settings.MapleleafAccount, "账号"), (settings.MapleleafPassword, "密码"), (settings.MapleleafUdid, "DeviceUDID")),
             "hglocal" => Missing((settings.HongguoLocalBaseUrl, "本地服务地址")),
             "pikachu" => Missing((settings.PikachuServerUrl, "服务器地址")),
+            "playlet" => Missing((settings.PlayletServerUrl, "服务器地址"), (settings.PlayletDeviceId, "设备号")),
             "downloader" => Missing((settings.DownloaderApiBaseUrl, "下载器地址")),
             _ => ["有效的数据链路"],
         };
@@ -39,6 +40,7 @@ public static class DramaSourceConfigurationValidator
         "mapleleaf" => "Mapleleaf",
         "hglocal" => "本地直连",
         "pikachu" => "皮卡丘",
+        "playlet" => "红果短剧下载器",
         "downloader" => "统一下载器",
         _ => source,
     };

@@ -287,7 +287,7 @@ public sealed class GlobalSettingsService
         }
 
         var mergedDramaSourceChain = PickString(current.DramaSourceChain, "drama_source_chain", "hgnew");
-        if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" or "downloader"))
+        if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader"))
         {
             mergedDramaSourceChain = "hgnew";
         }

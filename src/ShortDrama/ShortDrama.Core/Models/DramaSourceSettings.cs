@@ -36,6 +36,9 @@ public sealed record DramaSourceSettings
     public string PikachuDeviceId { get; init; } = "";
     public string PikachuClientVersion { get; init; } = "1.4.4";
 
+    public string PlayletServerUrl { get; init; } = "https://startvlog.cn/start-prod-api";
+    public string PlayletDeviceId { get; init; } = "";
+
     public DramaSourceSettings WithPikachuDeviceId(string deviceId) =>
         this with { PikachuDeviceId = deviceId.Trim() };
 }
