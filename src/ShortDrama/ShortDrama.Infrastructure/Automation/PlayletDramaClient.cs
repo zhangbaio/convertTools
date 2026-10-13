@@ -163,14 +163,16 @@ public static class PlayletDramaClient
         HttpClient httpClient,
         CancellationToken cancellationToken)
     {
-        var today = ChinaToday().ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        var todayDate = ChinaToday();
+        var today = todayDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        var publishDate = todayDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var items = new List<DramaSearchItem>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var offset = 0;
         var sessionId = "";
         for (var page = 0; page < 8; page++)
         {
-            var batch = await FetchComicNewPageAsync(httpClient, today, offset, sessionId, cancellationToken);
+            var batch = await FetchComicNewPageAsync(httpClient, today, publishDate, offset, sessionId, cancellationToken);
             foreach (var item in batch.Items)
             {
                 if (seen.Add(item.BookId))
@@ -441,6 +443,7 @@ public static class PlayletDramaClient
     private static async Task<ComicNewPage> FetchComicNewPageAsync(
         HttpClient httpClient,
         string today,
+        string publishDate,
         int offset,
         string sessionId,
         CancellationToken cancellationToken)
@@ -461,7 +464,7 @@ public static class PlayletDramaClient
         }
 
         var data = payload?["data"] as JsonObject;
-        var items = ReadSubscribeItems(data);
+        var items = ReadSubscribeItems(data, publishDate);
         var hasMore = ReadBool(data?["has_more"]);
         var nextOffset = ReadInt(data?["next_offset"]);
         if (items.Count == 0)
@@ -524,7 +527,7 @@ public static class PlayletDramaClient
             $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
     }
 
-    private static IReadOnlyList<DramaSearchItem> ReadSubscribeItems(JsonObject? data)
+    private static IReadOnlyList<DramaSearchItem> ReadSubscribeItems(JsonObject? data, string publishDate)
     {
         if (data?["subscribe_items"] is not JsonArray list)
             return [];
@@ -545,10 +548,41 @@ public static class PlayletDramaClient
 
             if (mapped is null || string.IsNullOrWhiteSpace(mapped.BookId))
                 continue;
-            items.Add(mapped with { BookId = BookPrefix + HongguoHighCrypto.StripBookPrefix(mapped.BookId) });
+            var intro = string.IsNullOrWhiteSpace(mapped.Intro) ? ReadSynopsis(source) : mapped.Intro;
+            items.Add(mapped with
+            {
+                BookId = BookPrefix + HongguoHighCrypto.StripBookPrefix(mapped.BookId),
+                Intro = intro,
+                PublishTime = publishDate,
+            });
         }
 
         return items;
+    }
+
+    private static string ReadSynopsis(JsonObject source)
+    {
+        var direct = ReadJsonString(source, "video_desc")
+            ?? ReadJsonString(source, "series_intro")
+            ?? ReadJsonString(source, "abstract");
+        if (!string.IsNullOrWhiteSpace(direct))
+            return direct;
+        if (source["video_detail"] is JsonObject detail)
+        {
+            return ReadJsonString(detail, "series_intro")
+                ?? ReadJsonString(detail, "video_desc")
+                ?? "";
+        }
+
+        return "";
+    }
+
+    private static string? ReadJsonString(JsonObject obj, string name)
+    {
+        if (obj[name] is not JsonValue value || !value.TryGetValue<string>(out var text))
+            return null;
+        text = text.Trim();
+        return text.Length == 0 ? null : text;
     }
 
     private static DateOnly ChinaToday()
