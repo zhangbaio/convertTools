@@ -37,6 +37,21 @@ public sealed class QueueMaterialStepServiceTests
         QueueMaterialStepService.IsBookIdForSource(bookId, expectedSource).Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData("playlet", "mapleleaf:123", true)]
+    [InlineData("playlet", "downloader:standard|123", true)]
+    [InlineData("playlet", "123456", true)]
+    [InlineData("playlet", "playlet:123", false)]
+    [InlineData("hghigh", "mapleleaf:123", false)]
+    [InlineData("hgnew", "123456", false)]
+    public void Retired_queue_book_ids_stay_on_their_original_chain_after_playlet_becomes_the_visible_default(
+        string selectedSource,
+        string bookId,
+        bool expected)
+    {
+        QueueMaterialStepService.ShouldKeepRetiredBookId(selectedSource, bookId).Should().Be(expected);
+    }
+
     [Fact]
     public void Source_book_id_cache_preserves_each_data_source_mapping()
     {

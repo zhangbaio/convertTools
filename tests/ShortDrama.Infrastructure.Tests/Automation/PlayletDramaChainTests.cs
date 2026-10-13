@@ -114,9 +114,13 @@ public sealed class PlayletDramaChainTests
         items[0].BookId.Should().Be("playlet:7694908515348925465");
         items[0].Title.Should().Be("满级小师妹");
         items[0].EpisodeTotal.Should().Be(108);
+        items[0].Intro.Should().Be("简介");
         items[1].BookId.Should().Be("playlet:7692318649381000001");
         items[1].Title.Should().Be("入府为婢");
-        var today = ChinaToday().ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        items[1].Intro.Should().Be("简介");
+        var todayDate = ChinaToday();
+        var today = todayDate.ToString("yyyyMMdd", CultureInfo.InvariantCulture);
+        items.Should().OnlyContain(item => item.PublishTime == todayDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         handler.ComicNewUrls.Should().HaveCount(2);
         handler.ComicNewUrls[0].Should().Contain($"target_date={today}");
         handler.ComicNewUrls[0].Should().Contain("comic_series");

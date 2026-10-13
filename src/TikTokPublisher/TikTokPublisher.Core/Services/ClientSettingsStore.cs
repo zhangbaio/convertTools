@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using ShortDrama.Infrastructure.Automation;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Remote;
@@ -284,12 +285,7 @@ public static class ClientSettingsStore
 
     private static ClientSettings Normalize(ClientSettings settings)
     {
-        var chain = (settings.DramaSourceChain ?? "hgnew").Trim().ToLowerInvariant();
-        settings.DramaSourceChain = chain switch
-        {
-            "hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader" => chain,
-            _ => "hgnew"
-        };
+        settings.DramaSourceChain = VisibleDramaSource.Normalize(settings.DramaSourceChain);
 
         settings.DramaDownloadDefaultQuality = string.IsNullOrWhiteSpace(settings.DramaDownloadDefaultQuality)
             ? "1080P"

@@ -136,6 +136,15 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
     };
     private const int MaxAiAttempts = 2;
     private const double SynopsisSimilarityThreshold = 0.86;
+    internal const int SynopsisPreferredMinLength = 100;
+    internal const int SynopsisPreferredMaxLength = 300;
+    internal const int SynopsisAbsoluteMaxLength = 1500;
+    private const string SynopsisSystemPrompt = """
+        你是短剧简介改写助手。只改写简介，不要改剧名，不要输出推荐语或标签。
+        简介写成 100 到 300 个字。只输出 JSON，不要解释，不要 Markdown。
+        """;
+    private const string SynopsisLengthFallbackText =
+        "主角被迫跌入低谷，却在误解和危机中抓住转机，凭借智慧与韧劲一步步翻盘，揭开真相后重掌人生主动权。故事节奏紧凑，情绪反转不断，人物关系层层推进，她把每一次冷眼都变成站稳脚跟的理由，适合短剧平台连续追看。";
 
     private readonly IProjectInfoParser _projectInfoParser;
     private readonly HttpClient _httpClient;
@@ -201,7 +210,6 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 endpoint,
                 modelId,
                 apiKey,
-                systemPrompt,
                 timeoutSeconds,
                 synopsisTemperature,
                 project,
@@ -407,7 +415,6 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string endpoint,
         string modelId,
         string apiKey,
-        string systemPrompt,
         int timeoutSeconds,
         double synopsisTemperature,
         ProjectInfo project,
@@ -417,13 +424,14 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         CancellationToken cancellationToken)
     {
         string? lastFailure = null;
+        string? fallbackSynopsis = null;
         for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
         {
             var rewrite = await RequestRewritePayloadAsync(
                 endpoint,
                 modelId,
                 apiKey,
-                systemPrompt,
+                SynopsisSystemPrompt,
                 BuildSynopsisPrompt(project, canonicalOriginalTitle, newTitle, request, lastFailure),
                 timeoutSeconds,
                 synopsisTemperature,
@@ -431,21 +439,49 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             var rawSynopsis = FirstNonEmpty(rewrite.Synopsis, rewrite.Description, rewrite.简介);
             if (string.IsNullOrWhiteSpace(rawSynopsis))
             {
-                lastFailure = "改写结果缺少简介";
+                lastFailure = "改写结果缺少简介。请写成 100 到 300 字。";
                 continue;
             }
 
-            var synopsis = NormalizeGeneratedText(project, canonicalOriginalTitle, newTitle, newTitle, rawSynopsis);
-            var issues = GetSynopsisIssues(synopsis, request).ToList();
+            var synopsis = FitSynopsisToAbsoluteMax(NormalizeGeneratedText(
+                project,
+                canonicalOriginalTitle,
+                newTitle,
+                newTitle,
+                rawSynopsis));
+            var length = synopsis.Length;
             if (HasForbiddenSynopsis(synopsis, request.ForbiddenSynopses))
-                issues.Add("简介与历史/原简介过于相似");
-            if (issues.Count == 0)
+            {
+                lastFailure = $"上一版 {length} 字，但与历史或原简介过于相似。请换一种叙述，并写成 100 到 300 字。";
+                continue;
+            }
+
+            if (length >= SynopsisPreferredMinLength && length <= SynopsisPreferredMaxLength)
                 return synopsis;
-            lastFailure = string.Join("；", issues);
+
+            if (length > SynopsisPreferredMaxLength)
+            {
+                fallbackSynopsis = synopsis;
+                lastFailure = $"上一版 {length} 字，请删到 300 字以内。";
+                continue;
+            }
+
+            lastFailure = $"上一版 {length} 字，请补到 100 字以上，并写成 100 到 300 字。";
         }
 
-        throw new InvalidOperationException(
-            $"简介改写失败，已重试 {MaxAiAttempts} 次仍未通过。最近一次错误：{lastFailure ?? "未知错误"}");
+        if (!string.IsNullOrWhiteSpace(fallbackSynopsis))
+        {
+            _logger.LogWarning(
+                "AI synopsis stayed outside 100-300 characters and was kept as a fallback under 1500. Length: {Length}",
+                fallbackSynopsis.Length);
+            return fallbackSynopsis;
+        }
+
+        var recovered = ResolveShortSynopsisFallback(project);
+        _logger.LogWarning(
+            "AI synopsis stayed under 100 characters. Kept the new title and restored a usable synopsis of {Length} characters.",
+            recovered.Length);
+        return recovered;
     }
 
     private static string BuildSynopsisPrompt(
@@ -457,23 +493,42 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
     {
         var sourceSynopsis = FirstNonEmpty(project.Synopsis, "待补充简介。") ?? "待补充简介。";
         var forbidden = UniqueTexts(request.ForbiddenSynopses);
-        var target = Math.Max(0, request.TargetSynopsisLength);
-        var lengthHint = target > 0 ? $"目标约 {target} 字。" : "控制在 40 到 220 字。";
         var forbiddenHint = forbidden.Count == 0
             ? ""
             : "\n不要与这些简介过于相似：\n" + string.Join("\n", forbidden.Select(item => "- " + item));
         var retryHint = string.IsNullOrWhiteSpace(previousFailure)
             ? ""
-            : $"\n上一次未通过：{previousFailure}。请重写一版。";
+            : $"\n上一次未通过：{previousFailure}";
         return $"""
             请只改写这部短剧的简介，不要改剧名，也不要输出推荐语。
             新剧名：{newTitle}
             原剧名：{canonicalOriginalTitle}
             原简介：{sourceSynopsis}
-            {lengthHint}
+            写成 100 到 300 字。
             简介要贴合新剧名，保留原故事核心，换一种叙述。{forbiddenHint}{retryHint}
             只返回一个 JSON 对象，字段名为 synopsis，内容是改写后的简介。
             """;
+    }
+
+    internal static string FitSynopsisToAbsoluteMax(string text)
+    {
+        var value = (text ?? string.Empty).Trim();
+        if (value.Length <= SynopsisAbsoluteMaxLength)
+            return value;
+
+        var slice = value[..SynopsisAbsoluteMaxLength];
+        var boundary = slice.LastIndexOfAny(['。', '！', '？', '；']);
+        if (boundary + 1 >= SynopsisPreferredMinLength)
+            return slice[..(boundary + 1)].Trim();
+        return slice.Trim();
+    }
+
+    private static string ResolveShortSynopsisFallback(ProjectInfo project)
+    {
+        var original = FitSynopsisToAbsoluteMax(PreserveSourceSynopsis(project));
+        return original.Length >= SynopsisPreferredMinLength
+            ? original
+            : SynopsisLengthFallbackText;
     }
 
     private async Task<RewritePayload> RequestRewritePayloadAsync(
@@ -651,7 +706,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 
         if (rewriteSynopsis)
         {
-            issues.AddRange(GetSynopsisIssues(rewrite.Synopsis, request));
+            issues.AddRange(GetSynopsisIssues(rewrite.Synopsis));
 
             if (HasForbiddenSynopsis(rewrite.Synopsis, request.ForbiddenSynopses))
             {
@@ -726,20 +781,14 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         if (!string.IsNullOrWhiteSpace(synopsis))
         {
             synopsis = NormalizeGeneratedText(project, canonicalOriginalTitle, title, title, synopsis);
-            if (GetSynopsisIssues(synopsis, request).Count == 0 &&
+            if (GetSynopsisIssues(synopsis).Count == 0 &&
                 !HasForbiddenSynopsis(synopsis, request.ForbiddenSynopses))
             {
                 return synopsis;
             }
         }
 
-        var fallback = $"主角被迫跌入低谷，却在误解和危机中抓住转机，凭借智慧与韧劲一步步翻盘，揭开真相后重掌人生主动权。";
-        if (request.TargetSynopsisLength > 0 && fallback.Length < Math.Max(40, (int)Math.Floor(request.TargetSynopsisLength * 0.75d)))
-        {
-            fallback += "故事节奏紧凑，情绪反转不断，适合短剧平台连续追看。";
-        }
-
-        return fallback;
+        return SynopsisLengthFallbackText;
     }
 
     private static string BuildFallbackTagline(
@@ -1221,7 +1270,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return length is >= 8 and <= 20;
     }
 
-    private static IReadOnlyList<string> GetSynopsisIssues(string synopsis, ProjectInfoRewriteRequest request)
+    private static IReadOnlyList<string> GetSynopsisIssues(string synopsis)
     {
         var text = (synopsis ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(text))
@@ -1229,23 +1278,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             return ["缺少简介"];
         }
 
-        var target = Math.Max(0, request.TargetSynopsisLength);
-        var length = text.Length;
-        if (target > 0)
-        {
-            var lower = Math.Max(40, (int)Math.Floor(target * 0.75d));
-            var upper = Math.Min(220, Math.Max(lower, (int)Math.Floor(target * 1.25d) + 5));
-            if (length < lower || length > upper)
-            {
-                return [$"简介字数与原简介差距过大，目标约 {target} 字"];
-            }
-
-            return [];
-        }
-
-        return length is >= 40 and <= 220
-            ? []
-            : ["简介字数不在 40-220 字范围内"];
+        var fitted = FitSynopsisToAbsoluteMax(text);
+        if (fitted.Length < SynopsisPreferredMinLength)
+            return [$"简介不足 {SynopsisPreferredMinLength} 字，当前 {fitted.Length} 字"];
+        return [];
     }
 
     private static string ValidateTitleSafety(string value)

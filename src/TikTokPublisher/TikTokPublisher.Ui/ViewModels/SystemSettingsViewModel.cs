@@ -39,7 +39,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _mainDatabasePath = ClientSettingsStore.MainDatabasePath;
     [ObservableProperty] private string _workspaceDatabasePath = "";
 
-    [ObservableProperty] private string _dramaSourceChain = "hgnew";
+    [ObservableProperty] private string _dramaSourceChain = VisibleDramaSource.DefaultChain;
     [ObservableProperty] private string _dramaDownloadDefaultQuality = "1080P";
     [ObservableProperty] private int _dramaDownloadConcurrent = 5;
     [ObservableProperty] private int _dramaDownloadMaxParallelProjects = 1;
@@ -204,9 +204,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
-        "hgnew",
         "hghigh",
-        "mapleleaf",
         "hglocal",
         "pikachu",
         "playlet"

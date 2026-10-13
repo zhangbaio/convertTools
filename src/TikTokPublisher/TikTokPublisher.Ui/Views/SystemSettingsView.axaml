@@ -47,9 +47,9 @@
 
                         <Separator Margin="0,4" />
 
-                        <TextBlock Text="红果新接口账号" FontWeight="Bold" />
-                        <TextBlock Text="用于红果新接口搜索和下载；设备唯一标识需要与登录设备保持一致。" Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Text="红果新接口账号" FontWeight="Bold" IsVisible="False" />
+                        <TextBlock Text="用于红果新接口搜索和下载；设备唯一标识需要与登录设备保持一致。" Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="红果账号" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HgnewAccount}" />
 
@@ -74,12 +74,12 @@
                             <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding HgnewProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                         </Grid>
 
-                        <Separator Margin="0,4" />
+                        <Separator Margin="0,4" IsVisible="False" />
 
-                        <TextBlock Text="统一下载器链路" FontWeight="Bold" />
+                        <TextBlock Text="统一下载器链路" FontWeight="Bold" IsVisible="False" />
                         <TextBlock Text="新增独立数据链路。账号、设备、密钥以及实际下载来源统一在短剧下载器中配置；API Key 留空时会从当前 Windows 用户的下载器配置中自动读取。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                   Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地 API 地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DownloaderApiBaseUrl}" />
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="API Key" VerticalAlignment="Center" />
@@ -168,12 +168,12 @@
                             <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding HghighProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                         </Grid>
 
-                        <Separator Margin="0,4" />
+                        <Separator Margin="0,4" IsVisible="False" />
 
-                        <TextBlock Text="Mapleleaf 链路（1.6.5 独立接口）" FontWeight="Bold" />
+                        <TextBlock Text="Mapleleaf 链路（1.6.5 独立接口）" FontWeight="Bold" IsVisible="False" />
                         <TextBlock Text="账号、密码和 DeviceUDID 与红果新接口完全独立。搜索、上新和剧集列表走 Mapleleaf；单集播放地址通常需要同时配置下方的本地直连红果 API。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                   Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Mapleleaf 账号" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MapleleafAccount}" Watermark="邮箱或手机号" />
 

@@ -55,7 +55,7 @@
             <Button Grid.Column="2" Content="选择下载目录" Click="OnPickDownloadDirClick" Margin="10,0,0,0" />
         </Grid>
 
-        <TabControl Classes="downloadTabs" SelectionChanged="OnDownloadTabChanged">
+        <TabControl x:Name="DownloadTabs" Classes="downloadTabs" SelectionChanged="OnDownloadTabChanged">
             <TabItem Header="搜索">
                 <DockPanel Margin="8">
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
@@ -102,8 +102,9 @@
                                    Margin="0,0,8,8" />
                     </WrapPanel>
 
-                    <DockPanel IsVisible="{Binding IsListView}">
-                        <Grid DockPanel.Dock="Top" ColumnDefinitions="56,64,220,140,72,90,90,140,168,140,*" Margin="0,0,0,4">
+                    <ScrollViewer IsVisible="{Binding IsListView}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <DockPanel MinWidth="1560">
+                        <Grid DockPanel.Dock="Top" ColumnDefinitions="56,64,220,140,72,90,90,140,168,150,320" Margin="0,0,0,4">
                             <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                             <TextBlock Grid.Column="1" Text="选择" Classes="tableHeader" />
                             <TextBlock Grid.Column="2" Text="标题" Classes="tableHeader" />
@@ -120,7 +121,7 @@
                         <ListBox ItemsSource="{Binding SearchResults}" Background="{StaticResource PythonInputBg}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:DramaSearchRowViewModel">
-                                    <Grid ColumnDefinitions="56,64,220,140,72,90,90,140,168,140,*" MinHeight="34">
+                                    <Grid ColumnDefinitions="56,64,220,140,72,90,90,140,168,150,320" MinHeight="34">
                                         <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="8,0" Text="{Binding RowIndex}" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding Selected}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#0F63C7" />
@@ -130,13 +131,14 @@
                                         <TextBlock Grid.Column="6" Text="{Binding PlayCountText}" VerticalAlignment="Center" Margin="8,0" />
                                         <TextBlock Grid.Column="7" Text="{Binding Category}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="8" Text="{Binding ExistenceText}" Foreground="{Binding ExistenceBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="9" Text="{Binding PublishTime}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="10" Text="{Binding Intro}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="9" Text="{Binding PublishTime}" ToolTip.Tip="{Binding PublishTime}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="10" Text="{Binding Intro}" ToolTip.Tip="{Binding Intro}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </DockPanel>
+                    </ScrollViewer>
 
                     <ScrollViewer IsVisible="{Binding IsPosterView}">
                         <ItemsControl ItemsSource="{Binding SearchResults}">
@@ -296,8 +298,9 @@
                         <TextBlock Text="{Binding SelectedCountText}" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8" />
                     </WrapPanel>
 
-                    <DockPanel IsVisible="{Binding IsListView}">
-                        <Grid DockPanel.Dock="Top" ColumnDefinitions="56,64,220,140,72,90,90,140,168,140,*" Margin="0,0,0,4">
+                    <ScrollViewer IsVisible="{Binding IsListView}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <DockPanel MinWidth="1560">
+                        <Grid DockPanel.Dock="Top" ColumnDefinitions="56,64,220,140,72,90,90,140,168,150,320" Margin="0,0,0,4">
                             <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                             <TextBlock Grid.Column="1" Text="选择" Classes="tableHeader" />
                             <TextBlock Grid.Column="2" Text="标题" Classes="tableHeader" />
@@ -314,7 +317,7 @@
                         <ListBox x:Name="RankResultList" ItemsSource="{Binding SearchResults}" Background="{StaticResource PythonInputBg}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:DramaSearchRowViewModel">
-                                    <Grid ColumnDefinitions="56,64,220,140,72,90,90,140,168,140,*" MinHeight="34">
+                                    <Grid ColumnDefinitions="56,64,220,140,72,90,90,140,168,150,320" MinHeight="34">
                                         <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="8,0" Text="{Binding RowIndex}" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding Selected}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding Title}" VerticalAlignment="Center" Margin="8,0" TextTrimming="CharacterEllipsis" Foreground="#0F63C7" />
@@ -324,13 +327,14 @@
                                         <TextBlock Grid.Column="6" Text="{Binding PlayCountText}" VerticalAlignment="Center" Margin="8,0" />
                                         <TextBlock Grid.Column="7" Text="{Binding Category}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="8" Text="{Binding ExistenceText}" Foreground="{Binding ExistenceBrush}" VerticalAlignment="Center" Margin="8,0" FontSize="12" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="9" Text="{Binding PublishTime}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="10" Text="{Binding Intro}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="9" Text="{Binding PublishTime}" ToolTip.Tip="{Binding PublishTime}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="10" Text="{Binding Intro}" ToolTip.Tip="{Binding Intro}" VerticalAlignment="Center" Margin="8,0" FontSize="12" TextTrimming="CharacterEllipsis" />
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </DockPanel>
+                    </ScrollViewer>
 
                     <ScrollViewer x:Name="RankPosterScroll" ScrollChanged="OnRankPosterScrollChanged" IsVisible="{Binding IsPosterView}">
                         <ItemsControl ItemsSource="{Binding SearchResults}">

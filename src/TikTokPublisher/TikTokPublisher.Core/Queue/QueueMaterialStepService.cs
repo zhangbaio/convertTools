@@ -934,6 +934,12 @@ public static class QueueMaterialStepService
         if (IsBookIdForSource(metadataBookId, selectedSource))
             return metadataBookId;
 
+        if (ShouldKeepRetiredBookId(selectedSource, metadataBookId))
+        {
+            log($"该剧书号属于{DramaSourceLabel(metadataSource)}，按原书号继续下载。");
+            return metadataBookId;
+        }
+
         var cachedBookId = ReadCachedBookId(sourceProjectDir, selectedSource);
         if (IsBookIdForSource(cachedBookId, selectedSource))
         {
@@ -1033,6 +1039,15 @@ public static class QueueMaterialStepService
             return selection;
 
         return OverLimitEpisodePolicy.ResolveDownloadSelection(selection, keep + 1, settings);
+    }
+
+    internal static bool ShouldKeepRetiredBookId(string? selectedSource, string? bookId)
+    {
+        var selected = (selectedSource ?? string.Empty).Trim().ToLowerInvariant();
+        if (!string.Equals(selected, VisibleDramaSource.DefaultChain, StringComparison.Ordinal))
+            return false;
+        var id = (bookId ?? string.Empty).Trim();
+        return id.Length > 0 && VisibleDramaSource.IsRetired(InferBookIdSource(id));
     }
 
     internal static string NormalizeDramaSource(string? source)

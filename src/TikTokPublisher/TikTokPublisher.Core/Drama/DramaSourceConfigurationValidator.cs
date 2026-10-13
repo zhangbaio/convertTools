@@ -2,6 +2,23 @@ using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Drama;
 
+public static class VisibleDramaSource
+{
+    public const string DefaultChain = "playlet";
+
+    public static string Normalize(string? value)
+    {
+        var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
+        return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" ? chain : DefaultChain;
+    }
+
+    public static bool IsRetired(string? value)
+    {
+        var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
+        return chain is "hgnew" or "mapleleaf" or "downloader";
+    }
+}
+
 public sealed record DramaSourceConfigurationStatus(string Source, bool IsConfigured, string Message);
 
 public static class DramaSourceConfigurationValidator
