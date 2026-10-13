@@ -1,4 +1,4 @@
-using PlatformPublisher.Core.Models;
+using PlatformPublisher.Common.Models;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 

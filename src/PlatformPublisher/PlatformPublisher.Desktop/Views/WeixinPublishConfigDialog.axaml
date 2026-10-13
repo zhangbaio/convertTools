@@ -1,0 +1,128 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PlatformPublisher.Desktop.Views.WeixinPublishConfigDialog"
+        Width="860" Height="680"
+        MinWidth="760" MinHeight="600"
+        Title="视频号高级发表配置"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="18">
+        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="0,14,0,0">
+            <TextBlock Text="配置随任务保存，不修改 TikTok 助手设置。"
+                       VerticalAlignment="Center" Classes="pageSummary" />
+            <Button Grid.Column="1" Content="取消" Click="OnCancelClick" MinWidth="96" />
+            <Button Grid.Column="2" Content="保存配置" Click="OnSaveClick" Classes="primaryAction" MinWidth="120" />
+        </Grid>
+
+        <TextBlock DockPanel.Dock="Top" Text="视频号高级发表配置" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" />
+
+        <TabControl Classes="secondaryTabs">
+            <TabItem Header="基础">
+                <ScrollViewer>
+                    <Grid Margin="6,14" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                        <TextBlock Text="集数配置方式" VerticalAlignment="Center" />
+                        <ComboBox x:Name="EpisodeModeCombo" Grid.Column="1">
+                            <ComboBoxItem Content="连续区间" Tag="range" />
+                            <ComboBoxItem Content="全部视频" Tag="all" />
+                            <ComboBoxItem Content="具体集数" Tag="explicit" />
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="1" Text="起始集数" VerticalAlignment="Center" />
+                        <NumericUpDown x:Name="StartEpisodeInput" Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="9999" Width="130" HorizontalAlignment="Left" />
+
+                        <TextBlock Grid.Row="2" Text="具体集数" VerticalAlignment="Center" />
+                        <TextBox x:Name="EpisodeIndexesInput" Grid.Row="2" Grid.Column="1" Watermark="例如：2,3,4,7" />
+
+                        <TextBlock Grid.Row="3" Text="合并发表" VerticalAlignment="Center" />
+                        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                            <CheckBox x:Name="MergeEnabledCheck" Content="启用" />
+                            <TextBlock Text="每组视频数" VerticalAlignment="Center" />
+                            <NumericUpDown x:Name="MergeGroupInput" Minimum="0" Maximum="999" Width="110" />
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="4" Text="最终动作" VerticalAlignment="Center" />
+                        <ComboBox x:Name="FinalActionCombo" Grid.Row="4" Grid.Column="1">
+                            <ComboBoxItem Content="直接发表" Tag="publish" />
+                            <ComboBoxItem Content="保存草稿" Tag="draft" />
+                            <ComboBoxItem Content="单条测试" Tag="test" />
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="5" Text="运行选项" VerticalAlignment="Center" />
+                        <WrapPanel Grid.Row="5" Grid.Column="1">
+                            <CheckBox x:Name="PauseOnErrorCheck" Content="异常时暂停" Margin="0,0,16,0" />
+                            <CheckBox x:Name="FastModeCheck" Content="快速模式" Margin="0,0,16,0" />
+                            <CheckBox x:Name="CaptureScreenshotsCheck" Content="流程截图" Margin="0,0,16,0" />
+                            <CheckBox x:Name="DebugDumpsCheck" Content="调试落盘" />
+                        </WrapPanel>
+
+                        <TextBlock Grid.Row="6" Grid.ColumnSpan="2"
+                                   Text="具体集数按素材排序后的序号计算；无效或重复序号会自动忽略。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="表单">
+                <ScrollViewer>
+                    <Grid Margin="6,14" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                        <TextBlock Text="描述选项" VerticalAlignment="Center" />
+                        <WrapPanel Grid.Column="1">
+                            <CheckBox x:Name="FillDescriptionCheck" Content="填写描述" Margin="0,0,16,0" />
+                            <CheckBox x:Name="AiDescriptionCheck" Content="AI 重写描述" Margin="0,0,16,0" />
+                            <CheckBox x:Name="AiUseAsrCheck" Content="AI 使用台词/ASR" Margin="0,0,16,0" />
+                            <CheckBox x:Name="PrependHashCheck" Content="首字符补 #" />
+                        </WrapPanel>
+
+                        <TextBlock Grid.Row="1" Text="描述模板" VerticalAlignment="Top" Margin="0,7,0,0" />
+                        <TextBox x:Name="DescriptionInput" Grid.Row="1" Grid.Column="1" MinHeight="100" AcceptsReturn="True" TextWrapping="Wrap" />
+
+                        <TextBlock Grid.Row="2" Text="位置选项" VerticalAlignment="Center" />
+                        <TextBox x:Name="LocationInput" Grid.Row="2" Grid.Column="1" />
+
+                        <TextBlock Grid.Row="3" Text="链接类型" VerticalAlignment="Center" />
+                        <TextBox x:Name="LinkOptionInput" Grid.Row="3" Grid.Column="1" Watermark="例如：视频号剧集" />
+
+                        <TextBlock Grid.Row="4" Text="链接选择按钮" VerticalAlignment="Center" />
+                        <TextBox x:Name="LinkPickerInput" Grid.Row="4" Grid.Column="1" />
+
+                        <TextBlock Grid.Row="5" Text="链接弹窗标题" VerticalAlignment="Center" />
+                        <TextBox x:Name="LinkDialogInput" Grid.Row="5" Grid.Column="1" />
+
+                        <TextBlock Grid.Row="6" Text="链接搜索占位词" VerticalAlignment="Center" />
+                        <TextBox x:Name="LinkSearchInput" Grid.Row="6" Grid.Column="1" />
+
+                        <TextBlock Grid.Row="7" Text="活动选项" VerticalAlignment="Center" />
+                        <TextBox x:Name="ActivityInput" Grid.Row="7" Grid.Column="1" />
+
+                        <TextBlock Grid.Row="8" Text="平台定时选项" VerticalAlignment="Center" />
+                        <TextBox x:Name="TimingInput" Grid.Row="8" Grid.Column="1" />
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="封面与标题">
+                <ScrollViewer>
+                    <Grid Margin="6,14" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                        <TextBlock Text="本地封面" VerticalAlignment="Center" />
+                        <CheckBox x:Name="ReplaceCoverCheck" Grid.Column="1" Content="替换为本地封面；路径留空时由上传链路尝试项目海报" />
+
+                        <TextBlock Grid.Row="1" Text="封面图片" VerticalAlignment="Center" />
+                        <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBox x:Name="CoverPathInput" />
+                            <Button Grid.Column="1" Content="浏览" Click="OnBrowseCoverClick" MinWidth="84" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="2" Text="短标题" VerticalAlignment="Center" />
+                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                            <CheckBox x:Name="FillShortTitleCheck" Content="填写短标题" />
+                            <TextBlock Text="最大长度" VerticalAlignment="Center" />
+                            <NumericUpDown x:Name="ShortTitleLengthInput" Minimum="1" Maximum="30" Width="110" />
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="3" Text="原创声明" VerticalAlignment="Center" />
+                        <CheckBox x:Name="DeclareOriginalCheck" Grid.Row="3" Grid.Column="1" Content="勾选声明原创" />
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

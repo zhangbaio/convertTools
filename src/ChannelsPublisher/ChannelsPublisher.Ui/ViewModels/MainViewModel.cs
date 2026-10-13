@@ -18,9 +18,32 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly AccountStore _store;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
+    public ObservableCollection<string> Logs { get; } = new();
 
     [ObservableProperty] private AccountItemViewModel? _selectedAccount;
     [ObservableProperty] private string _statusMessage = "就绪";
+    public string CurrentAccountTitle => SelectedAccount?.Name ?? "请先在左侧选择账号";
+    public string CurrentLoginStatusText => SelectedAccount?.LoginStatusText ?? "尚未选择账号";
+    public string CurrentLastLoginText => SelectedAccount?.LastLoginText ?? "-";
+    public string CurrentRuntimeStatusText => SelectedAccount?.StatusText ?? "未选择";
+
+    partial void OnSelectedAccountChanged(AccountItemViewModel? value)
+    {
+        OnPropertyChanged(nameof(CurrentAccountTitle));
+        OnPropertyChanged(nameof(CurrentLoginStatusText));
+        OnPropertyChanged(nameof(CurrentLastLoginText));
+        OnPropertyChanged(nameof(CurrentRuntimeStatusText));
+    }
+
+    partial void OnStatusMessageChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        var entry = $"[{DateTime.Now:HH:mm:ss}] {value.Trim()}";
+        if (Logs.FirstOrDefault() == entry) return;
+        Logs.Insert(0, entry);
+        while (Logs.Count > 500)
+            Logs.RemoveAt(Logs.Count - 1);
+    }
 
     // ── 发布任务队列（P3）──
     public ObservableCollection<PublishTaskItemViewModel> Tasks { get; } = new();
@@ -40,6 +63,23 @@ public sealed partial class MainViewModel : ViewModelBase
         var key = (nameOrId ?? "").Trim();
         return Accounts.FirstOrDefault(a => a.Id == key)
                ?? Accounts.FirstOrDefault(a => a.Name == key);
+    }
+
+    public void ReloadAccounts(string? selectedAccountId = null)
+    {
+        var selectedId = string.IsNullOrWhiteSpace(selectedAccountId) ? SelectedAccount?.Id : selectedAccountId;
+        _store.Load();
+        Accounts.Clear();
+        foreach (var account in _store.Accounts) Accounts.Add(new AccountItemViewModel(account));
+        SelectedAccount = Accounts.FirstOrDefault(account => account.Id == selectedId) ?? Accounts.FirstOrDefault();
+        StatusMessage = $"账号列表已刷新，共 {Accounts.Count} 个账号。";
+    }
+
+    public void RecordAccountLogin(AccountItemViewModel account)
+    {
+        account.MarkLoggedIn(DateTimeOffset.Now);
+        _store.Update(account.Model);
+        StatusMessage = $"[{account.Name}] 登录会话已就绪";
     }
 
     /// <summary>请求视图把某账号的内嵌浏览器导航到 url（View 侧持有 WebView2Host）。</summary>
@@ -93,5 +133,41 @@ public sealed partial class MainViewModel : ViewModelBase
         SelectedAccount.Status = AccountStatus.LoggingIn;
         StatusMessage = $"[{SelectedAccount.Name}] 打开视频号登录页扫码…";
         NavigateRequested?.Invoke(SelectedAccount, ChannelsLoginUrl);
+    }
+
+    [RelayCommand]
+    private void SaveAccountConfig()
+    {
+        if (SelectedAccount is null)
+        {
+            StatusMessage = "请先在左侧选择账号";
+            return;
+        }
+        SelectedAccount.Name = string.IsNullOrWhiteSpace(SelectedAccount.Name)
+            ? SelectedAccount.Id
+            : SelectedAccount.Name.Trim();
+        SelectedAccount.Nickname = SelectedAccount.Nickname?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportCompanyName = SelectedAccount.CostReportCompanyName?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportTemplatePath = SelectedAccount.CostReportTemplatePath?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportSignPath = SelectedAccount.CostReportSignPath?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportSealPath = SelectedAccount.CostReportSealPath?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportLegalRepresentative = SelectedAccount.CostReportLegalRepresentative?.Trim() ?? string.Empty;
+        SelectedAccount.CostReportActorPayRatio = SelectedAccount.CostReportActorPayRatio?.Trim() ?? string.Empty;
+        SelectedAccount.KuaishouPersonalAccount = SelectedAccount.KuaishouPersonalAccount?.Trim() ?? string.Empty;
+        SelectedAccount.KuaishouPersonalConfigPath = SelectedAccount.KuaishouPersonalConfigPath?.Trim() ?? string.Empty;
+        SelectedAccount.KuaishouEnterpriseAccount = SelectedAccount.KuaishouEnterpriseAccount?.Trim() ?? string.Empty;
+        SelectedAccount.KuaishouEnterpriseConfigPath = SelectedAccount.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty;
+        SelectedAccount.WorkRootDirectory = SelectedAccount.WorkRootDirectory?.Trim() ?? string.Empty;
+        SelectedAccount.DownloadDirectory = SelectedAccount.DownloadDirectory?.Trim() ?? string.Empty;
+        SelectedAccount.ArchiveRootDirectory = SelectedAccount.ArchiveRootDirectory?.Trim() ?? string.Empty;
+        _store.Update(SelectedAccount.Model);
+        StatusMessage = $"[{SelectedAccount.Name}] 账号配置已保存";
+    }
+
+    [RelayCommand]
+    private void ClearLogs()
+    {
+        Logs.Clear();
+        StatusMessage = "运行日志已清空";
     }
 }

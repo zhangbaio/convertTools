@@ -63,6 +63,7 @@ public static class TikTokMaterialValidationService
         int minimumEpisodeCount,
         int maximumEpisodeCount)
     {
+        OverLimitEpisodePolicy.EnsureTruncated(sourceProjectDir);
         var (minimum, maximum) = TikTokAccountProfile.NormalizeEpisodeCountBounds(
             minimumEpisodeCount,
             maximumEpisodeCount);

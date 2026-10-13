@@ -1,42 +1,120 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="PlatformPublisher.Desktop.App"
-             RequestedThemeVariant="Dark">
+             RequestedThemeVariant="Light">
     <Application.Styles>
         <FluentTheme />
-        <Style Selector="Window">
-            <Setter Property="Background" Value="#0B2438" />
-            <Setter Property="Foreground" Value="#F4FAFF" />
-        </Style>
-        <Style Selector="Button">
+        <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/PythonAppTheme.axaml" />
+        <Style Selector="Grid.platformPipeline Button">
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Padding" Value="12,7" />
             <Setter Property="MinHeight" Value="34" />
         </Style>
         <Style Selector="Button.primary">
-            <Setter Property="Background" Value="#1688D4" />
+            <Setter Property="Background" Value="#0B74D1" />
             <Setter Property="Foreground" Value="White" />
-            <Setter Property="BorderBrush" Value="#2FA7F5" />
+            <Setter Property="BorderBrush" Value="#0B74D1" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.nav">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="#A9C6DD" />
+            <Setter Property="Foreground" Value="#111827" />
+            <Setter Property="Padding" Value="20,0" />
+            <Setter Property="MinHeight" Value="56" />
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Button.navActive">
+            <Setter Property="Foreground" Value="#0B74D1" />
+            <Setter Property="BorderBrush" Value="#0B74D1" />
+            <Setter Property="BorderThickness" Value="0,0,0,3" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="Button.nav:disabled">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#94A3B8" />
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Border.panel">
-            <Setter Property="Background" Value="#11334D" />
-            <Setter Property="BorderBrush" Value="#28546F" />
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#D9E2EC" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
-        <Style Selector="TextBox">
-            <Setter Property="Background" Value="#0D2B42" />
-            <Setter Property="BorderBrush" Value="#315E78" />
+        <Style Selector="Grid.platformPipeline TextBox">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Foreground" Value="#111827" />
         </Style>
-        <Style Selector="ComboBox">
-            <Setter Property="Background" Value="#0D2B42" />
-            <Setter Property="BorderBrush" Value="#315E78" />
+        <Style Selector="Grid.platformPipeline ComboBox">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="Grid.platformPipeline ComboBox TextBlock">
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="Grid.platformPipeline TextBlock">
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="Grid.platformPipeline Button.compactAction">
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="MinHeight" Value="30" />
+        </Style>
+        <Style Selector="Border.toolbarGroup">
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="BorderBrush" Value="#E2E8F0" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,8" />
+        </Style>
+        <Style Selector="Grid.platformPipeline TextBlock.sectionHint">
+            <Setter Property="Foreground" Value="#64748B" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
+        <Style Selector="Grid.platformPipeline CheckBox">
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="Border.platformSidebar TextBlock">
+            <Setter Property="Foreground" Value="#111827" />
+        </Style>
+        <Style Selector="Border.platformSidebar Border.panel">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#D8E2EC" />
+        </Style>
+        <Style Selector="Button.materialTool">
+            <Setter Property="Background" Value="#FFFFFF" />
+            <Setter Property="Foreground" Value="#344054" />
+            <Setter Property="BorderBrush" Value="#D0D5DD" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="MinHeight" Value="34" />
+        </Style>
+        <Style Selector="Button.materialLink">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="#303640" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+        <Style Selector="Button.materialAdx">
+            <Setter Property="Foreground" Value="#245BD6" />
+            <Setter Property="Background" Value="#EAF1FF" />
+            <Setter Property="BorderBrush" Value="#9DB9FF" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.materialCustom">
+            <Setter Property="Foreground" Value="#6941C6" />
+            <Setter Property="Background" Value="#F1EBFF" />
+            <Setter Property="BorderBrush" Value="#BDA7F3" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.materialPublish">
+            <Setter Property="Foreground" Value="#137A4B" />
+            <Setter Property="Background" Value="#E7F7EE" />
+            <Setter Property="BorderBrush" Value="#94D4B3" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
     </Application.Styles>
 </Application>

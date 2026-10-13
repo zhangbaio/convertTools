@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using ShortDrama.Infrastructure.Automation;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Remote;
@@ -99,19 +100,19 @@ public static class ClientSettingsStore
         var raw = LoadRawObject(path);
         if (raw is null)
         {
-            return new ClientSettings();
+            return ApplyNetworkPreference(new ClientSettings());
         }
 
         MigrateSharedAsrSettings(raw);
         MigrateProjectImageRenderEpisodeLimitDefault(raw);
         var json = raw.ToJsonString();
         var settings = JsonSerializer.Deserialize<ClientSettings>(json, JsonOptions) ?? new ClientSettings();
-        return Normalize(settings);
+        return ApplyNetworkPreference(Normalize(settings));
     }
 
     public static void Save(ClientSettings settings, string? databasePath = null)
     {
-        var normalized = Normalize(settings);
+        var normalized = ApplyNetworkPreference(Normalize(settings));
         var path = ResolvePath(databasePath);
         AppDatabaseInitializer.EnsureInitialized(path);
 
@@ -284,12 +285,7 @@ public static class ClientSettingsStore
 
     private static ClientSettings Normalize(ClientSettings settings)
     {
-        var chain = (settings.DramaSourceChain ?? "hgnew").Trim().ToLowerInvariant();
-        settings.DramaSourceChain = chain switch
-        {
-            "hgnew" or "hglocal" or "pikachu" or "hghigh" or "mapleleaf" or "downloader" => chain,
-            _ => "hgnew"
-        };
+        settings.DramaSourceChain = VisibleDramaSource.Normalize(settings.DramaSourceChain);
 
         settings.DramaDownloadDefaultQuality = string.IsNullOrWhiteSpace(settings.DramaDownloadDefaultQuality)
             ? "1080P"
@@ -311,6 +307,10 @@ public static class ClientSettingsStore
         settings.HgnewClientVersion = HongguoClientVersion.Normalize(settings.HgnewClientVersion);
         settings.PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
         settings.PikachuFanqieCookie = NormalizePikachuFanqieCookie(settings.PikachuFanqieCookie);
+        settings.PlayletServerUrl = string.IsNullOrWhiteSpace(settings.PlayletServerUrl)
+            ? PlayletDramaClient.DefaultServerUrl
+            : settings.PlayletServerUrl.Trim().TrimEnd('/');
+        settings.PlayletDeviceId = (settings.PlayletDeviceId ?? string.Empty).Trim().ToUpperInvariant();
         settings.TiktokMaterialValidateConcurrency = Math.Clamp(settings.TiktokMaterialValidateConcurrency, 1, 16);
         settings.TiktokAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokAsrLanguage)
             ? "zh-CN"
@@ -349,6 +349,9 @@ public static class ClientSettingsStore
         settings.AiFullInfoBatchPrompt = DefaultIfBlank(settings.AiFullInfoBatchPrompt, ClientSettingsDefaults.AiFullInfoBatchPrompt);
         settings.AiFullInfoRetryPrompt = DefaultIfBlank(settings.AiFullInfoRetryPrompt, ClientSettingsDefaults.AiFullInfoRetryPrompt);
         settings.PosterMode = NormalizePosterMode(settings.PosterMode);
+        settings.PosterLayoutRequestMode = NormalizePosterLayoutRequestMode(settings.PosterLayoutRequestMode);
+        var networkPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
+        settings.NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.ToValue(networkPreference);
         settings.ImageProvider = NormalizeImageProvider(settings.ImageProvider);
         settings.ImageModelId = DefaultIfBlank(settings.ImageModelId, ClientSettingsDefaults.ImageModelId);
         settings.ImageModelApiKey ??= "";
@@ -512,6 +515,18 @@ public static class ClientSettingsStore
 
     public static string NormalizeUdid(string? value) =>
         ShortDrama.Infrastructure.Automation.HongguoDeviceId.Normalize(value);
+
+    private static ClientSettings ApplyNetworkPreference(ClientSettings settings)
+    {
+        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Preference =
+            ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
+        return settings;
+    }
+
+    private static string NormalizePosterLayoutRequestMode(string? value) =>
+        string.Equals(value?.Trim(), ClientSettingsDefaults.PosterLayoutRequestModeFast, StringComparison.OrdinalIgnoreCase)
+            ? ClientSettingsDefaults.PosterLayoutRequestModeFast
+            : ClientSettingsDefaults.PosterLayoutRequestMode;
 
     private static string NormalizePosterMode(string? value) =>
         (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch

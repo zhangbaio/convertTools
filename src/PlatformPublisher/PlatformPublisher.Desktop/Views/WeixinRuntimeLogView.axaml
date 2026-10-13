@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlatformPublisher.Desktop.ViewModels"
+             x:Class="PlatformPublisher.Desktop.Views.WeixinRuntimeLogView"
+             x:DataType="vm:MainWindowViewModel"
+             Background="#F3F6FA">
+    <Grid RowDefinitions="Auto,Auto,*,30" RowSpacing="8">
+        <Border Classes="panel" Padding="10">
+            <Grid ColumnDefinitions="Auto,180,Auto,260,Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="日志来源" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <ComboBox Grid.Column="1" ItemsSource="{Binding RuntimeLogScopes}" SelectedItem="{Binding RuntimeLogScope}" />
+                <TextBlock Grid.Column="2" Text="搜索" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox Grid.Column="3" Text="{Binding RuntimeLogFilterText}" Watermark="账号 / 项目 / 状态 / 日志内容" />
+                <CheckBox Grid.Column="4" Content="仅看问题" IsChecked="{Binding RuntimeLogProblemsOnly}" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="5" Text="{Binding QueueSummary}" Foreground="#64748B" VerticalAlignment="Center" />
+                <Button Grid.Column="6" Content="停止当前任务" Command="{Binding StopCommand}" Classes="dangerAction compactAction" />
+                <Button Grid.Column="7" Content="复制日志" Click="OnCopyLogsClick" Classes="secondaryAction compactAction" />
+                <Button Grid.Column="8" Content="清空日志" Command="{Binding ClearActivityLogsCommand}" Classes="secondaryAction compactAction" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="panel" Padding="9">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TextBlock Text="集中查看任务队列日志，不会打断项目流水线中的项目和剧集浏览。" Foreground="#475569" />
+                    <TextBlock Text="当前工作账号：" Foreground="#64748B" />
+                    <TextBlock Text="{Binding ActiveWeixinAccountName}" Foreground="#0B74D1" FontWeight="SemiBold" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="刷新日志" Click="OnRefreshLogsClick" Classes="secondaryAction compactAction" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnDefinitions="245,*" ColumnSpacing="8">
+            <Border Classes="panel" ClipToBounds="True">
+                <Grid RowDefinitions="38,*">
+                    <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,0">
+                        <TextBlock Text="当前任务" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Border>
+                    <ListBox Grid.Row="1" ItemsSource="{Binding VisibleJobs}" SelectedItem="{Binding SelectedJob}" BorderThickness="0" Background="#FFFFFF">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:PublishJobRowViewModel">
+                                <StackPanel Margin="9,7" Spacing="3">
+                                    <TextBlock Text="{Binding ProjectName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding StatusText}" Foreground="#64748B" FontSize="11" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+            <Border Grid.Column="1" Classes="panel" ClipToBounds="True">
+                <Grid RowDefinitions="38,*">
+                    <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,0">
+                        <TextBlock Text="运行日志" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </Border>
+                    <ListBox Grid.Row="1" ItemsSource="{Binding FilteredActivityLogs}" Background="#FFFFFF" BorderThickness="0"
+                             FontFamily="Cascadia Mono, Consolas, Microsoft YaHei UI" FontSize="12">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="9,4" Foreground="#334155" /></DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Grid>
+        <Border Grid.Row="3" Background="#EEF3F8" BorderBrush="#D9E2EC" BorderThickness="1,0,1,1">
+            <TextBlock Text="{Binding StatusMessage}" Margin="10,0" VerticalAlignment="Center" FontSize="12" Foreground="#64748B" />
+        </Border>
+    </Grid>
+</UserControl>

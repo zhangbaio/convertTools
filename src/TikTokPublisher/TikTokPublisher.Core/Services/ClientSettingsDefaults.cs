@@ -6,10 +6,34 @@ public static class ClientSettingsDefaults
     public const string AiTextModel = "doubao-seed-2-0-lite-260215";
     public const int AiTextTimeoutSeconds = 120;
     public const int AiTextMaxBatchSize = 10;
+    public const string AiNewTitleRandomness = "medium";
+    public const string AiNewTitleRandomnessLow = "low";
+    public const string AiNewTitleRandomnessHigh = "high";
+
+    public static string NormalizeAiNewTitleRandomness(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (text.Equals(AiNewTitleRandomnessLow, StringComparison.OrdinalIgnoreCase) || text == "低")
+            return AiNewTitleRandomnessLow;
+        if (text.Equals(AiNewTitleRandomnessHigh, StringComparison.OrdinalIgnoreCase) || text == "高")
+            return AiNewTitleRandomnessHigh;
+        return AiNewTitleRandomness;
+    }
+
+    public static double AiNewTitleTemperature(string? value) =>
+        NormalizeAiNewTitleRandomness(value) switch
+        {
+            AiNewTitleRandomnessLow => 0.3,
+            AiNewTitleRandomnessHigh => 1.1,
+            _ => 0.75,
+        };
     public const string TiktokRoleReferenceSelectionMode = "local";
     public const bool TiktokRoleReferenceAiFallbackEnabled = true;
     public const string TiktokRoleVectorViewMode = "multi_angle";
     public const string PosterMode = "original";
+    public const string PosterLayoutRequestMode = "standard";
+    public const string PosterLayoutRequestModeFast = "fast";
+    public const string NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.SystemValue;
     public const string ImageProvider = "doubao";
     public const string ImageModelEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
     public const string ImageModelId = "doubao-seedream-5-0-lite-260128";

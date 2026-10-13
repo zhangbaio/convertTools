@@ -1925,13 +1925,6 @@ public static class TikTokAiGenerationScreenshotService
 
     private static HttpClient CreateHttpClient()
     {
-        var handler = new HttpClientHandler
-        {
-            AutomaticDecompression = System.Net.DecompressionMethods.All,
-        };
-        return new HttpClient(handler)
-        {
-            Timeout = Timeout.InfiniteTimeSpan,
-        };
+        return ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateClient(Timeout.InfiniteTimeSpan);
     }
 }

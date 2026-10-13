@@ -1,0 +1,96 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PlatformPublisher.Desktop.Views.UnifiedPublishView">
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10" Margin="0,4,0,0">
+    <Border Grid.Row="0" Classes="panel" Padding="12">
+      <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="Auto,180,*,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
+        <TextBlock Text="素材来源" VerticalAlignment="Center" />
+        <ComboBox Grid.Column="1" ItemsSource="{Binding SourceChoices}" SelectedItem="{Binding SelectedSourceChoice}">
+          <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBox Grid.Column="2" Text="{Binding WorkflowDirectory}" Watermark="项目或素材目录" />
+        <Button Grid.Column="3" Content="选择目录" Click="OnSelectDirectoryClick" Classes="secondaryAction" />
+        <Button Grid.Column="4" Content="选择视频" Click="OnSelectFilesClick" Classes="secondaryAction" />
+        <TextBlock Grid.Row="1" Text="片名" VerticalAlignment="Center" />
+        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding OriginalTitle}" Watermark="原剧名" />
+        <TextBox Grid.Row="1" Grid.Column="2" Text="{Binding NewTitle}" Watermark="发布剧名/新剧名" />
+        <Button Grid.Row="1" Grid.Column="3" Content="解析并保存草稿" Command="{Binding ResolveCommand}" Classes="primaryAction" />
+        <Button Grid.Row="1" Grid.Column="4" Content="刷新" Command="{Binding RefreshCommand}" Classes="secondaryAction" />
+        <TextBlock Grid.Row="2" Text="已选文件" VerticalAlignment="Top" />
+        <TextBox Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="4" Text="{Binding SelectedFilesText}" Height="48" AcceptsReturn="True" TextWrapping="Wrap" Watermark="自选文件、ADX或已下载作品可在此列出文件；一行一个" />
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="1" Classes="panel" Padding="12">
+      <Grid ColumnDefinitions="2*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+        <TextBox Text="{Binding DescriptionTemplate}" Watermark="发布描述模板" />
+        <CheckBox Grid.Column="1" Content="填写描述" IsChecked="{Binding FillDescription}" VerticalAlignment="Center" />
+        <CheckBox Grid.Column="2" Content="原创声明" IsChecked="{Binding DeclareOriginal}" VerticalAlignment="Center" />
+        <CheckBox Grid.Column="3" Content="短标题" IsChecked="{Binding FillShortTitle}" VerticalAlignment="Center" />
+        <CheckBox Grid.Column="4" Content="关联剧集" IsChecked="{Binding LinkSeries}" VerticalAlignment="Center" />
+        <ComboBox Grid.Column="5" Width="120" ItemsSource="{Binding FinalActionChoices}" SelectedItem="{Binding SelectedFinalActionChoice}">
+          <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="2" Classes="panel" Padding="12">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,120,Auto,120" ColumnSpacing="10">
+        <CheckBox Content="发布前差异化处理" IsChecked="{Binding MediaProcessingEnabled}" />
+        <CheckBox Grid.Column="1" Content="清元数据" IsChecked="{Binding ClearMetadata}" />
+        <CheckBox Grid.Column="2" Content="画面裁切" IsChecked="{Binding ZoomCrop}" />
+        <CheckBox Grid.Column="3" Content="调色" IsChecked="{Binding ColorAdjust}" />
+        <CheckBox Grid.Column="4" Content="轻微变速" IsChecked="{Binding SpeedAdjust}" />
+        <TextBlock Grid.Column="6" Text="分配" VerticalAlignment="Center" />
+        <ComboBox Grid.Column="7" ItemsSource="{Binding DistributionChoices}" SelectedItem="{Binding SelectedDistributionChoice}">
+          <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+        <TextBlock Grid.Column="8" Text="并发账号" VerticalAlignment="Center" />
+        <NumericUpDown Grid.Column="9" Value="{Binding MaxParallelAccounts}" Minimum="1" Maximum="8" />
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="3" ColumnDefinitions="230,*,330" ColumnSpacing="10">
+      <Border Classes="panel" Padding="10">
+        <Grid RowDefinitions="Auto,*">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Text="发布账号" FontWeight="SemiBold" />
+            <Button Grid.Column="1" Content="全选" Command="{Binding SelectAllAccountsCommand}" Padding="7,2" />
+            <Button Grid.Column="2" Content="清空" Command="{Binding ClearAccountsCommand}" Padding="7,2" Margin="5,0,0,0" />
+          </Grid>
+          <ListBox Grid.Row="1" ItemsSource="{Binding Accounts}" Margin="0,8,0,0">
+            <ListBox.ItemTemplate><DataTemplate><CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected}" Margin="2,4" /></DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Border>
+      <Border Grid.Column="1" Classes="panel" Padding="10">
+        <Grid RowDefinitions="Auto,*">
+          <TextBlock Text="素材清单" FontWeight="SemiBold" />
+          <ListBox Grid.Row="1" ItemsSource="{Binding Materials}" Margin="0,8,0,0">
+            <ListBox.ItemTemplate><DataTemplate><Grid ColumnDefinitions="42,170,*,150" Margin="3,5"><TextBlock Text="{Binding Sequence}" /><TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" /><TextBlock Grid.Column="2" Text="{Binding Path}" TextTrimming="CharacterEllipsis" Foreground="#64748B" /><TextBlock Grid.Column="3" Text="{Binding Description}" TextTrimming="CharacterEllipsis" /></Grid></DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Border>
+      <Border Grid.Column="2" Classes="panel" Padding="10">
+        <Grid RowDefinitions="Auto,*,Auto">
+          <TextBlock Text="发布历史（选择失败批次可原分配重试）" FontWeight="SemiBold" />
+          <ListBox Grid.Row="1" ItemsSource="{Binding History}" SelectedItem="{Binding SelectedHistory}" Margin="0,8,0,8">
+            <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="3,5"><TextBlock Text="{Binding StartedAt}" FontWeight="SemiBold" /><TextBlock Text="{Binding Status}" /><TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="#64748B" /></StackPanel></DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+          <Button Grid.Row="2" Content="重试失败/未完成项" Command="{Binding RetryCommand}" Classes="secondaryAction" />
+        </Grid>
+      </Border>
+    </Grid>
+
+    <Border Grid.Row="4" Classes="panel" Padding="10">
+      <Grid ColumnDefinitions="*,Auto,120,Auto,Auto" ColumnSpacing="8">
+        <StackPanel><TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" /><TextBlock Text="{Binding ProgressText}" Foreground="#64748B" FontSize="12" /></StackPanel>
+        <ComboBox Grid.Column="1" Width="150" ItemsSource="{Binding FailureChoices}" SelectedItem="{Binding SelectedFailureChoice}">
+          <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+        <Button Grid.Column="3" Content="开始发布" Command="{Binding StartCommand}" Classes="primaryAction" />
+        <Button Grid.Column="4" Content="停止" Command="{Binding StopCommand}" />
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

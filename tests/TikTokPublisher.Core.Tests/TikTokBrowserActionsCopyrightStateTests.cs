@@ -1,10 +1,45 @@
 using FluentAssertions;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class TikTokBrowserActionsCopyrightStateTests
 {
+    [Fact]
+    public void Unselected_source_file_material_does_not_validate_unused_package()
+    {
+        var insufficientSelection = new TikTokSourceFileInfoPackageSelection(
+            IncludeOutline: false,
+            IncludeScript: false,
+            IncludeRoleVector: false,
+            IncludeRoleSceneScreenshot: false);
+
+        TikTokBrowserActions.ResolveExpectedSourceInfoFileCount(
+                includeSourceFileInformation: false,
+                uploadSourceFileInformation: false,
+                insufficientSelection)
+            .Should().Be(0);
+    }
+
+    [Fact]
+    public void Selected_source_file_material_still_enforces_platform_minimum()
+    {
+        var insufficientSelection = new TikTokSourceFileInfoPackageSelection(
+            IncludeOutline: false,
+            IncludeScript: false,
+            IncludeRoleVector: false,
+            IncludeRoleSceneScreenshot: false);
+
+        var action = () => TikTokBrowserActions.ResolveExpectedSourceInfoFileCount(
+            includeSourceFileInformation: true,
+            uploadSourceFileInformation: true,
+            insufficientSelection);
+
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("*至少需要 4 个文件*");
+    }
+
     [Fact]
     public void SelectedState_AcceptsNativeInputState()
     {

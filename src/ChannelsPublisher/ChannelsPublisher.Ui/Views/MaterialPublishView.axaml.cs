@@ -39,6 +39,97 @@ public partial class MaterialPublishView : UserControl
         Loaded += OnLoaded;
     }
 
+    public PublishAccount? SelectedAccountProfile => _vm?.SelectedAccount?.Model;
+    public IReadOnlyList<PublishAccount> AccountProfiles => _vm?.Accounts.Select(item => item.Model).ToArray() ?? [];
+    public bool HasActivePublish => _publishCts is not null;
+
+    public void SetSidebarVisible(bool visible)
+    {
+        AccountSidebar.IsVisible = visible;
+        RootLayout.ColumnDefinitions[0].Width = new GridLength(visible ? 198 : 0);
+        RootLayout.ColumnSpacing = visible ? 12 : 0;
+    }
+
+    public Task RunPublishTestAsync() => PublishTestAsync();
+
+    public async Task<string> EnsureAccountCdpEndpointAsync(string accountId, CancellationToken cancellationToken)
+    {
+        if (_vm?.Accounts.FirstOrDefault(item => item.Id == accountId) is not { } account)
+            throw new InvalidOperationException("未找到视频号账号。");
+        var host = GetOrCreateHost(account);
+        if (host.CdpEndpoint is { } ready) return ready;
+        var completion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnReady()
+        {
+            if (host.CdpEndpoint is { } endpoint) completion.TrySetResult(endpoint);
+        }
+        host.Ready += OnReady;
+        try
+        {
+            using var registration = cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
+            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+        }
+        finally { host.Ready -= OnReady; }
+    }
+
+    public event Action<PublishAccount?>? SelectedAccountChanged;
+    public event EventHandler? LegacySessionImportRequested;
+
+    public void UseAccountStore(AccountStore store) => DataContext = new MainViewModel(store);
+
+    public void SetSeriesPublishContent(Control content)
+    {
+        SeriesPublishContentHost.Content = content;
+    }
+
+    public void SetUnifiedPublishContent(Control content)
+    {
+        UnifiedPublishContentHost.Content = content;
+    }
+
+    public void ShowUnifiedPublish()
+    {
+        WorkspaceTabs.SelectedIndex = 0;
+    }
+
+    public void ShowAccountSettings()
+    {
+        WorkspaceTabs.SelectedIndex = 1;
+    }
+
+    public void SelectAccount(string accountId)
+    {
+        var account = _vm?.Accounts.FirstOrDefault(item =>
+            string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase));
+        if (account is not null && _vm is not null)
+            _vm.SelectedAccount = account;
+    }
+
+    public void SetWorkflowContent(Control content)
+    {
+        WorkflowContentHost.Content = content;
+    }
+
+    public void SetMaterialWorkflowContent(Control content)
+    {
+        MaterialWorkflowContentHost.Content = content;
+    }
+
+    public void SetRuntimeLogContent(Control content)
+    {
+        RuntimeLogContentHost.Content = content;
+    }
+
+    public void SetArchivedProjectsContent(Control content)
+    {
+        ArchivedProjectsContentHost.Content = content;
+    }
+
+    public void SetDramaDownloadContent(Control content)
+    {
+        DramaDownloadContentHost.Content = content;
+    }
+
     private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
@@ -101,7 +192,10 @@ public partial class MaterialPublishView : UserControl
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (_ready && e.PropertyName == nameof(MainViewModel.SelectedAccount))
+        {
             ShowAccount(_vm?.SelectedAccount);
+            SelectedAccountChanged?.Invoke(_vm?.SelectedAccount?.Model);
+        }
     }
 
     private void OnNavigateRequested(AccountItemViewModel account, string url)
@@ -138,10 +232,11 @@ public partial class MaterialPublishView : UserControl
         var host = new WebView2Host
         {
             UserDataFolder = account.Model.ProfileDir,
+            StorageStatePath = account.Model.WeixinAuthStatePath,
             RemoteDebuggingPort = 9222 + _hosts.Count, // 每账号唯一 CDP 端口
             IsVisible = false,
         };
-        host.Ready += () => account.Status = AccountStatus.Online;
+        host.Ready += () => _vm?.RecordAccountLogin(account);
         _hosts[account.Id] = host;
         BrowserArea.Children.Add(host);
 
@@ -149,8 +244,39 @@ public partial class MaterialPublishView : UserControl
         return host;
     }
 
+    public void ReloadAccountSession(string accountId)
+    {
+        if (_hosts.Remove(accountId, out var host)) BrowserArea.Children.Remove(host);
+        if (_vm?.Accounts.FirstOrDefault(item => item.Id == accountId) is { } account)
+            ShowAccount(account);
+    }
+
+    public void RefreshImportedAccount(PublishAccount account)
+    {
+        var item = _vm?.Accounts.FirstOrDefault(value => value.Id == account.Id);
+        if (item is null) return;
+        item.RefreshLegacySessionState();
+        ReloadAccountSession(account.Id);
+        SelectedAccountChanged?.Invoke(account);
+    }
+
+    public void RefreshImportedAccounts(IEnumerable<PublishAccount> importedAccounts)
+    {
+        var ids = importedAccounts.Select(account => account.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var preferred = importedAccounts.LastOrDefault()?.Id ?? _vm?.SelectedAccount?.Id;
+        _vm?.ReloadAccounts(preferred);
+        foreach (var id in ids)
+            if (_hosts.Remove(id, out var host)) BrowserArea.Children.Remove(host);
+        ShowAccount(_vm?.SelectedAccount);
+        SelectedAccountChanged?.Invoke(_vm?.SelectedAccount?.Model);
+    }
+
     // 发布测试：选视频 → 经当前账号 WebView2 的 CDP 端点跑发布流程（只填不发，安全）
-    private async void OnPublishClick(object? sender, RoutedEventArgs e)
+    private void OnAccountSettingsRequested(object? sender, EventArgs e) => ShowAccountSettings();
+    private void OnLegacySessionImportClick(object? sender, RoutedEventArgs e) =>
+        LegacySessionImportRequested?.Invoke(this, EventArgs.Empty);
+
+    private async Task PublishTestAsync()
     {
         var vm = _vm;
         var account = vm?.SelectedAccount;

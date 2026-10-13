@@ -41,13 +41,13 @@ public static class DramaSourceSettingsMapping
             : "short",
         PikachuDeviceId = settings.PikachuDeviceId ?? "",
         PikachuClientVersion = settings.PikachuClientVersion ?? "1.4.4",
+        PlayletServerUrl = string.IsNullOrWhiteSpace(settings.PlayletServerUrl)
+            ? PlayletDramaClient.DefaultServerUrl
+            : settings.PlayletServerUrl.Trim(),
+        PlayletDeviceId = settings.PlayletDeviceId ?? "",
     };
 
-    private static string NormalizeChain(string? chain)
-    {
-        var normalized = (chain ?? "hgnew").Trim().ToLowerInvariant();
-        return normalized is "hgnew" or "pikachu" or "hglocal" or "hghigh" or "mapleleaf" or "downloader" ? normalized : "hgnew";
-    }
+    private static string NormalizeChain(string? chain) => VisibleDramaSource.Normalize(chain);
 
     private static string NormalizeHongguoLocalDownloadMode(string? mode)
     {

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><LangVersion>latest</LangVersion></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PlatformPublisher.Publishing\PlatformPublisher.Publishing.csproj" />
+    <ProjectReference Include="..\PlatformPublisher.Adx\PlatformPublisher.Adx.csproj" />
+  </ItemGroup>
+</Project>

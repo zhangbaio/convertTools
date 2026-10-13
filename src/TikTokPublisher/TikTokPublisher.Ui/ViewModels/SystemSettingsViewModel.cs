@@ -16,6 +16,15 @@ namespace TikTokPublisher.Ui.ViewModels;
 public sealed partial class SystemSettingsViewModel : ViewModelBase
 {
     private static readonly HttpClient ProbeHttp = CreateProbeHttpClient();
+    private readonly string? _settingsDatabasePath;
+
+    public SystemSettingsViewModel(string? settingsDatabasePath = null)
+    {
+        _settingsDatabasePath = string.IsNullOrWhiteSpace(settingsDatabasePath)
+            ? null
+            : Path.GetFullPath(settingsDatabasePath);
+        MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
+    }
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
@@ -23,12 +32,14 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public event Func<string, Task>? CopyToClipboardAsync;
 
     [ObservableProperty] private string _saveMessage = "";
+    [ObservableProperty] private string _loginSettingsHint =
+        "短剧搜索、下载和数据链路参数为全局共享配置；TikTok 登录信息请到账号管理的登录设置中维护。";
     [ObservableProperty] private string _hgnewProbeStatus = "";
     [ObservableProperty] private string _databaseStatsText = "";
     [ObservableProperty] private string _mainDatabasePath = ClientSettingsStore.MainDatabasePath;
     [ObservableProperty] private string _workspaceDatabasePath = "";
 
-    [ObservableProperty] private string _dramaSourceChain = "hgnew";
+    [ObservableProperty] private string _dramaSourceChain = VisibleDramaSource.DefaultChain;
     [ObservableProperty] private string _dramaDownloadDefaultQuality = "1080P";
     [ObservableProperty] private int _dramaDownloadConcurrent = 5;
     [ObservableProperty] private int _dramaDownloadMaxParallelProjects = 1;
@@ -103,6 +114,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _pikachuClientVersion = "1.4.4";
     [ObservableProperty] private string _pikachuProbeStatus = "";
     [ObservableProperty] private bool _isPikachuBusy;
+    [ObservableProperty] private string _playletServerUrl = PlayletDramaClient.DefaultServerUrl;
+    [ObservableProperty] private string _playletDeviceId = "";
+    [ObservableProperty] private string _playletProbeStatus = "";
+    [ObservableProperty] private bool _isPlayletBusy;
     [ObservableProperty] private string _hongguoLocalProbeStatus = "";
     [ObservableProperty] private string _aiTextProbeStatus = "";
 
@@ -139,6 +154,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aiFullInfoRetryPrompt = "";
 
     [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
+    [ObservableProperty] private string _posterLayoutRequestMode = ClientSettingsDefaults.PosterLayoutRequestMode;
+    [ObservableProperty] private string _networkAddressPreference = ClientSettingsDefaults.NetworkAddressPreference;
     [ObservableProperty] private string _imageProvider = ClientSettingsDefaults.ImageProvider;
     [ObservableProperty] private string _imageModelId = ClientSettingsDefaults.ImageModelId;
     [ObservableProperty] private string _imageModelApiKey = "";
@@ -187,11 +204,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
-        "hgnew",
         "hghigh",
-        "mapleleaf",
         "hglocal",
-        "pikachu"
+        "pikachu",
+        "playlet"
     ];
 
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
@@ -216,8 +232,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public void Load(string? workspacePath = null)
     {
-        ApplyFromSettings(ClientSettingsStore.Load());
-        MainDatabasePath = ClientSettingsStore.MainDatabasePath;
+        ApplyFromSettings(ClientSettingsStore.Load(_settingsDatabasePath));
+        MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
         WorkspaceDatabasePath = ClientSettingsStore.WorkspaceDatabasePath(workspacePath);
         RefreshDatabaseStats();
     }
@@ -256,6 +272,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PikachuDramaType = NormalizePikachuDramaType(PikachuDramaType),
         PikachuDeviceId = PikachuDeviceId.Trim(),
         PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim(),
+        PlayletServerUrl = string.IsNullOrWhiteSpace(PlayletServerUrl) ? PlayletDramaClient.DefaultServerUrl : PlayletServerUrl.Trim(),
+        PlayletDeviceId = PlayletDeviceId.Trim().ToUpperInvariant(),
         TiktokAsrLocalModelDir = TiktokAsrLocalModelDir.Trim(),
         TiktokAsrLocalVadPath = TiktokAsrLocalVadPath.Trim(),
         TiktokAsrAppId = TiktokAsrAppId.Trim(),
@@ -284,6 +302,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiFullInfoBatchPrompt = AiFullInfoBatchPrompt,
         AiFullInfoRetryPrompt = AiFullInfoRetryPrompt,
         PosterMode = PosterMode,
+        PosterLayoutRequestMode = PosterLayoutRequestMode,
+        NetworkAddressPreference = NetworkAddressPreference,
         ImageProvider = ImageProvider,
         ImageModelId = ImageModelId.Trim(),
         ImageModelApiKey = ImageModelApiKey,
@@ -354,7 +374,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
                     PikachuDeviceId = result.DeviceId;
                 }
 
-                ClientSettingsStore.PatchPikachuRuntimeFields(result.FanqieCookie, result.DeviceId);
+                ClientSettingsStore.PatchPikachuRuntimeFields(
+                    result.FanqieCookie,
+                    result.DeviceId,
+                    _settingsDatabasePath);
                 PikachuProbeStatus = "已从红果客户端读取番茄 Cookie，保存设置后即可生效。";
                 StatusRequested?.Invoke("已从红果读取番茄 Cookie");
                 return;
@@ -415,6 +438,40 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         }
     }
 
+    [RelayCommand]
+    private async Task ProbePlayletConnectivityAsync()
+    {
+        if (IsPlayletBusy)
+        {
+            return;
+        }
+
+        IsPlayletBusy = true;
+        PlayletProbeStatus = "测试中...";
+        try
+        {
+            var result = await PlayletDramaClient.TestConnectivityAsync(
+                ProbeHttp,
+                PlayletServerUrl,
+                PikachuDramaType,
+                PlayletDeviceId,
+                CancellationToken.None);
+            PlayletProbeStatus = $"搜索：{result.SearchMessage}{Environment.NewLine}下载：{result.VideoMessage}";
+            StatusRequested?.Invoke(result.SearchOk && result.VideoOk
+                ? "红果短剧下载器测试成功"
+                : "红果短剧下载器测试完成（部分失败）");
+        }
+        catch (Exception ex)
+        {
+            PlayletProbeStatus = $"测试失败：{ex.Message}";
+            StatusRequested?.Invoke(PlayletProbeStatus);
+        }
+        finally
+        {
+            IsPlayletBusy = false;
+        }
+    }
+
     private static string MapHongguoReadFailure(string? reason) =>
         reason switch
         {
@@ -432,7 +489,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         {
             var settings = ToSettings();
             PersistHghighMastersFromForm();
-            ClientSettingsStore.Save(settings);
+            ClientSettingsStore.Save(settings, _settingsDatabasePath);
             ApplyFromSettings(settings);
             SaveMessage = "系统设置已保存。";
             SettingsSaved?.Invoke(settings);
@@ -820,6 +877,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    partial void OnNetworkAddressPreferenceChanged(string value) =>
+        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Preference =
+            ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(value);
+
     private async Task ProbeAiTextAsync()
     {
         if (string.IsNullOrWhiteSpace(AiTextEndpoint) || string.IsNullOrWhiteSpace(AiTextApiKey))
@@ -1028,6 +1089,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
         PikachuDeviceId = settings.PikachuDeviceId;
         PikachuClientVersion = settings.PikachuClientVersion;
+        PlayletServerUrl = string.IsNullOrWhiteSpace(settings.PlayletServerUrl)
+            ? PlayletDramaClient.DefaultServerUrl
+            : settings.PlayletServerUrl;
+        PlayletDeviceId = settings.PlayletDeviceId;
         TiktokAsrLocalModelDir = settings.TiktokAsrLocalModelDir;
         TiktokAsrLocalVadPath = settings.TiktokAsrLocalVadPath;
         TiktokAsrAppId = settings.TiktokAsrAppId;
@@ -1056,6 +1121,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiFullInfoBatchPrompt = settings.AiFullInfoBatchPrompt;
         AiFullInfoRetryPrompt = settings.AiFullInfoRetryPrompt;
         PosterMode = settings.PosterMode;
+        PosterLayoutRequestMode = settings.PosterLayoutRequestMode;
+        NetworkAddressPreference = settings.NetworkAddressPreference;
         ImageProvider = settings.ImageProvider;
         ImageModelId = settings.ImageModelId;
         ImageModelApiKey = settings.ImageModelApiKey;
@@ -1170,11 +1237,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     private static HttpClient CreateProbeHttpClient()
     {
-        var handler = new SocketsHttpHandler
-        {
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
-            ConnectTimeout = TimeSpan.FromSeconds(15),
-        };
+        var handler = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateHandler();
+        handler.ConnectTimeout = TimeSpan.FromSeconds(15);
         return new HttpClient(handler)
         {
             Timeout = TimeSpan.FromSeconds(120),

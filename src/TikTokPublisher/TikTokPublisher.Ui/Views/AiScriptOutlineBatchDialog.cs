@@ -190,7 +190,7 @@ public sealed class AiScriptOutlineBatchDialog : Window
             }
             else if (match.Location == CopyrightProofProjectLocation.Conflict)
             {
-                AddPreview(match.NewTitle, "同名冲突，跳过", Brushes.IndianRed);
+                AddPreview(match.NewTitle, CopyrightProofProjectMatcher.DescribeConflict(match), Brushes.IndianRed);
             }
             else
             {

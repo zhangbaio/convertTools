@@ -1,5 +1,10 @@
 namespace TikTokPublisher.Core.Drama;
 
+public sealed record DramaRankPage(
+    IReadOnlyList<DramaSearchItem> Items,
+    bool HasMore,
+    int NextOffset);
+
 public sealed class DramaSearchItem
 {
     public string BookId { get; set; } = "";
@@ -11,6 +16,7 @@ public sealed class DramaSearchItem
     public string PublishTime { get; set; } = "";
     public string Author { get; set; } = "";
     public int FavoriteCount { get; set; }
+    public int PlayCount { get; set; }
     public bool Selected { get; set; }
     public string SourceMode { get; set; } = "";
 }
@@ -38,6 +44,7 @@ public sealed class DramaDownloadQueueItem
     public string Category { get; set; } = "";
     public int EpisodeTotal { get; set; }
     public int FavoriteCount { get; set; }
+    public int PlayCount { get; set; }
     public string PublishTime { get; set; } = "";
     public string PosterUrl { get; set; } = "";
 }

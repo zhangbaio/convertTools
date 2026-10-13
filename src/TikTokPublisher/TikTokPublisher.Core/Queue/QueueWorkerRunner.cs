@@ -2171,6 +2171,7 @@ public sealed class QueueWorkerRunner
         target.OriginalTitle = source.OriginalTitle;
         target.NewTitle = source.NewTitle;
         target.EpisodeCount = source.EpisodeCount;
+        target.SourceEpisodeCount = source.SourceEpisodeCount;
         target.VideoVertical = source.VideoVertical;
         target.GenreCategory = source.GenreCategory;
         target.Description = source.Description;

@@ -13,6 +13,63 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public sealed class DramaSourceRouterDownloadTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cenc_download_checks_cipher_size_before_remux(bool truncated)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"mapleleaf-cenc-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        using var http = new HttpClient(new LocalStreamRecordingHandler());
+        var previousResolver = DramaSourceRouter.ResolveFfmpegBinaryForTests.Value;
+        var previousRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+        var decrypted = false;
+        try
+        {
+            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = () => "fake-ffmpeg";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = async (start, token) =>
+            {
+                start.ArgumentList.Should().Contain("-decryption_key");
+                start.ArgumentList.Should().Contain("0123456789abcdef0123456789abcdef");
+                decrypted = true;
+                await File.WriteAllTextAsync(start.ArgumentList[^1], "plain-video-longer", token);
+                return new DramaSourceRouter.ProcessRunResult(0, "", "");
+            };
+            var router = new DramaSourceRouter(http,
+                new TestDramaSettingsProvider(new DramaSourceSettings()),
+                new HongguoLocalApiService(http), new HongguoNewApiService(http),
+                new HongguoDramaSearchService(http), new HongguoDramaDownloader(http),
+                new HongguoMemoryReaderService());
+            var method = typeof(DramaSourceRouter).GetMethods(
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .Single(item => item.Name == "DownloadVideoFileOnceAsync" && item.GetParameters().Length == 13);
+            var finalPath = Path.Combine(directory, "final.mp4");
+            var task = (Task)method.Invoke(router, new object?[] {
+                "https://cdn.example.com/video.mp4", Path.Combine(directory, "temp.mp4"), finalPath,
+                (long)LocalStreamRecordingHandler.StreamBytes.Length + (truncated ? 1 : 0),
+                30, CancellationToken.None, "0123456789abcdef0123456789abcdef",
+                null, false, 1, false, "auto", null
+            })!;
+            if (truncated)
+            {
+                await Assert.ThrowsAsync<InvalidDataException>(async () => await task);
+                decrypted.Should().BeFalse();
+            }
+            else
+            {
+                await task;
+                File.ReadAllText(finalPath).Should().Be("plain-video-longer");
+                decrypted.Should().BeTrue();
+            }
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = previousResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousRunner;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [Fact]
     public void Mp4_structure_validation_rejects_truncated_mdat()
     {
@@ -51,11 +108,27 @@ public sealed class DramaSourceRouterDownloadTests
         var path = Path.Combine(Path.GetTempPath(), $"encrypted-mp4-{Guid.NewGuid():N}.mp4");
         try
         {
-            var bytes = BuildMp4WithDeclaredMdatSize(28, actualPayloadSize: 20);
-            "encv"u8.CopyTo(bytes.AsSpan(24, 4));
-            File.WriteAllBytes(path, bytes);
+            File.WriteAllBytes(path, BuildMp4WithSampleEntry("encv"u8));
 
             DramaSourceRouter.ContainsEncryptedMp4SampleEntry(path).Should().BeTrue();
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Plain_mp4_is_not_treated_as_encrypted_when_media_bytes_contain_encv()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"plain-mp4-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            var bytes = BuildMp4WithSampleEntry("hvc1"u8);
+            "encv"u8.CopyTo(bytes.AsSpan(bytes.Length - 4, 4));
+            File.WriteAllBytes(path, bytes);
+
+            DramaSourceRouter.ContainsEncryptedMp4SampleEntry(path).Should().BeFalse();
         }
         finally
         {
@@ -1468,6 +1541,34 @@ public sealed class DramaSourceRouterDownloadTests
         WriteBoxHeader(bytes.AsSpan(8, 8), 8, "moov"u8);
         WriteBoxHeader(bytes.AsSpan(16, 8), declaredMdatSize, "mdat"u8);
         return bytes;
+    }
+
+    private static byte[] BuildMp4WithSampleEntry(ReadOnlySpan<byte> entryType)
+    {
+        var entry = new byte[16];
+        WriteBoxHeader(entry, entry.Length, entryType);
+        var stsd = new byte[8 + 8 + entry.Length];
+        WriteBoxHeader(stsd, stsd.Length, "stsd"u8);
+        BinaryPrimitives.WriteUInt32BigEndian(stsd.AsSpan(12, 4), 1);
+        entry.CopyTo(stsd.AsSpan(16));
+        var stbl = WrapMp4Box("stbl"u8, stsd);
+        var minf = WrapMp4Box("minf"u8, stbl);
+        var mdia = WrapMp4Box("mdia"u8, minf);
+        var trak = WrapMp4Box("trak"u8, mdia);
+        var moov = WrapMp4Box("moov"u8, trak);
+        var mdat = new byte[12];
+        WriteBoxHeader(mdat, mdat.Length, "mdat"u8);
+        var ftyp = new byte[8];
+        WriteBoxHeader(ftyp, ftyp.Length, "ftyp"u8);
+        return [.. ftyp, .. moov, .. mdat];
+    }
+
+    private static byte[] WrapMp4Box(ReadOnlySpan<byte> type, byte[] child)
+    {
+        var box = new byte[8 + child.Length];
+        WriteBoxHeader(box, box.Length, type);
+        child.CopyTo(box.AsSpan(8));
+        return box;
     }
 
     private static void WriteBoxHeader(Span<byte> target, int size, ReadOnlySpan<byte> type)

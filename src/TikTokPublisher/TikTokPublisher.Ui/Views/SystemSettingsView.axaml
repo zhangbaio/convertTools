@@ -11,13 +11,13 @@
             <Button Grid.Column="1" Content="保存设置" Command="{Binding SaveSettingsCommand}" Classes="primaryAction" MinWidth="140" />
         </Grid>
 
-        <TextBlock DockPanel.Dock="Top" Text="应用配置" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" />
+        <TextBlock DockPanel.Dock="Top" Text="系统设置" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" />
 
         <TabControl Classes="secondaryTabs">
             <TabItem Header="登录设置">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
-                        <TextBlock Text="短剧搜索、下载和数据链路参数为全局共享配置；TikTok 登录信息请到账号管理的登录设置中维护。"
+                        <TextBlock Text="{Binding LoginSettingsHint}"
                                    TextWrapping="Wrap" Classes="pageSummary" />
 
                         <TextBlock Text="数据链路与下载参数" FontWeight="Bold" />
@@ -47,9 +47,9 @@
 
                         <Separator Margin="0,4" />
 
-                        <TextBlock Text="红果新接口账号" FontWeight="Bold" />
-                        <TextBlock Text="用于红果新接口搜索和下载；设备唯一标识需要与登录设备保持一致。" Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <TextBlock Text="红果新接口账号" FontWeight="Bold" IsVisible="False" />
+                        <TextBlock Text="用于红果新接口搜索和下载；设备唯一标识需要与登录设备保持一致。" Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="红果账号" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HgnewAccount}" />
 
@@ -74,12 +74,12 @@
                             <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding HgnewProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                         </Grid>
 
-                        <Separator Margin="0,4" />
+                        <Separator Margin="0,4" IsVisible="False" />
 
-                        <TextBlock Text="统一下载器链路" FontWeight="Bold" />
+                        <TextBlock Text="统一下载器链路" FontWeight="Bold" IsVisible="False" />
                         <TextBlock Text="新增独立数据链路。账号、设备、密钥以及实际下载来源统一在短剧下载器中配置；API Key 留空时会从当前 Windows 用户的下载器配置中自动读取。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                   Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地 API 地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DownloaderApiBaseUrl}" />
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="API Key" VerticalAlignment="Center" />
@@ -168,12 +168,12 @@
                             <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding HghighProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                         </Grid>
 
-                        <Separator Margin="0,4" />
+                        <Separator Margin="0,4" IsVisible="False" />
 
-                        <TextBlock Text="Mapleleaf 链路（1.6.5 独立接口）" FontWeight="Bold" />
+                        <TextBlock Text="Mapleleaf 链路（1.6.5 独立接口）" FontWeight="Bold" IsVisible="False" />
                         <TextBlock Text="账号、密码和 DeviceUDID 与红果新接口完全独立。搜索、上新和剧集列表走 Mapleleaf；单集播放地址通常需要同时配置下方的本地直连红果 API。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                   Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Mapleleaf 账号" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MapleleafAccount}" Watermark="邮箱或手机号" />
 
@@ -261,6 +261,32 @@
                                 <TextBlock Text="{Binding PikachuProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                             </StackPanel>
                         </Grid>
+
+                        <Separator Margin="0,4" />
+
+                        <TextBlock Text="红果短剧下载器（v2.3.7）" FontWeight="Bold" />
+                        <TextBlock Text="搜索和下载都不使用番茄 Cookie。视频解析使用下载器软件设置里的设备号，1080P 对应清晰度 1，红果线路一。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="服务地址" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding PlayletServerUrl}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="设备号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1"
+                                     Text="{Binding PlayletDeviceId}"
+                                     Watermark="下载器软件设置中的设备信息" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="2" Grid.Column="1" Spacing="8">
+                                <Button Content="测试红果短剧下载器"
+                                        Command="{Binding ProbePlayletConnectivityCommand}"
+                                        IsEnabled="{Binding !IsPlayletBusy}"
+                                        MinWidth="160"
+                                        HorizontalAlignment="Left" />
+                                <TextBlock Text="{Binding PlayletProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -332,6 +358,15 @@
             <TabItem Header="AI文本">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
+                        <TextBlock Text="网络线路" FontWeight="Bold" />
+                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="AI 接口网络" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" x:Name="NetworkAddressPreferenceCombo" Width="240" HorizontalAlignment="Left" />
+                        </Grid>
+                        <TextBlock x:Name="NetworkAddressPreferenceHintText"
+                                   Foreground="#666"
+                                   TextWrapping="Wrap" />
+
                         <TextBlock Text="文本接口" FontWeight="Bold" />
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
                             <Button Content="测试 AI 文本" Command="{Binding ProbeAiTextCommand}" MinWidth="110" />
@@ -351,13 +386,13 @@
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="接口地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding AiTextApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型名称" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="请求超时" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding AiTextTimeoutSeconds}" Minimum="10" Maximum="600" Width="120" HorizontalAlignment="Left" />
@@ -394,13 +429,13 @@
                             <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ImageProviderCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ImageModelId}" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ImageModelId}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="模型 API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ImageModelApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="模型 Endpoint" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ImageModelEndpoint}" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ImageModelEndpoint}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="豆包分辨率" VerticalAlignment="Center" />
                             <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding DoubaoImageResolution}" />
@@ -409,13 +444,13 @@
                             <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding DoubaoImageRatio}" />
 
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="Ofox 模型 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding OfoxImage2ModelId}" />
+                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding OfoxImage2ModelId}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="Ofox API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding OfoxImage2ApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="9" Grid.Column="0" Text="Ofox Endpoint" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding OfoxImage2Endpoint}" />
+                            <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding OfoxImage2Endpoint}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="10" Grid.Column="0" Text="Ofox 质量" VerticalAlignment="Center" />
                             <TextBox Grid.Row="10" Grid.Column="1" Text="{Binding OfoxImage2Quality}" />
@@ -438,7 +473,7 @@
                                                Width="90" />
                                 <TextBlock Text="次（标题写错时先让 AI 局部修正，耗尽后才按校验模式处理）"
                                            VerticalAlignment="Center"
-                                           Foreground="#B8C8D8" />
+                                           Foreground="#666" />
                             </StackPanel>
                         </Grid>
 
@@ -451,7 +486,15 @@
                                    Foreground="#666" TextWrapping="Wrap" />
 
                         <TextBlock x:Name="PosterModeHintText"
-                                   Foreground="#B8C8D8"
+                                   Foreground="#666"
+                                   TextWrapping="Wrap" />
+
+                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="布局检测" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" x:Name="PosterLayoutRequestModeCombo" HorizontalAlignment="Stretch" />
+                        </Grid>
+                        <TextBlock x:Name="PosterLayoutRequestModeHintText"
+                                   Foreground="#666"
                                    TextWrapping="Wrap" />
 
                         <Border x:Name="FrameExtractSettingsPanel"
@@ -499,7 +542,7 @@
                                              Watermark="例如：10,25,50,75" />
                                 </Grid>
                                 <TextBlock Text="抽帧顺序：先尝试指定集数和时间点，再尝试邻近秒数，最后按全片时长百分比兜底。"
-                                           Foreground="#B8C8D8"
+                                           Foreground="#666"
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>

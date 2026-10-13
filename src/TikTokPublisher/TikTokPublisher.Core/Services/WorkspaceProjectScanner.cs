@@ -202,7 +202,11 @@ public static class WorkspaceProjectScanner
             metadata?["category"]?.GetValue<string>()) ?? "";
 
         var episodeCount = videos.Count;
-        if (ProjectWorkspaceService.TryResolveDownloadedEpisodeCount(projectDir, out var downloadedCount))
+        if (OverLimitEpisodePolicy.TryReadKeepCount(projectDir, out var keptCount))
+        {
+            episodeCount = keptCount;
+        }
+        else if (ProjectWorkspaceService.TryResolveDownloadedEpisodeCount(projectDir, out var downloadedCount))
         {
             episodeCount = downloadedCount;
         }

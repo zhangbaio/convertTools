@@ -8,13 +8,13 @@ using System.Text.Json.Nodes;
 
 namespace ShortDrama.Infrastructure.Automation;
 
-/// <summary>Mapleleaf 1.6.5 REST data source.</summary>
+/// <summary>Mapleleaf 1.6.6 REST data source.</summary>
 public sealed class MapleleafApiService
 {
     public const string BookPrefix = "mapleleaf:";
     public const string EpisodePrefix = "mapleleaf_ep:";
     public const string ClientName = "Mapleleaf";
-    public const string ClientVersion = "1.6.5";
+    public const string ClientVersion = "1.6.6";
 
     private static readonly string[] DefaultApiBases =
     [
@@ -26,9 +26,9 @@ public sealed class MapleleafApiService
         "http://8.133.218.237/api"
     ];
 
-    private const string PreferredSearchBase = "http://118.89.198.57/api";
+    private const string PreferredSearchBase = "http://8.133.218.237/ffm";
     private const string DefaultPhpParseUrl = "http://47.116.45.15/index.php";
-    private const string DefaultOfficialVideoParseUrl = "http://118.89.198.57/api/jxurl.php";
+    private const string DefaultOfficialVideoParseUrl = "http://8.133.218.237/ffm/jxdecrypt.php";
     private const int SearchPageSize = 10;
     private const int LatestMaxPages = 20;
 
@@ -95,13 +95,15 @@ public sealed class MapleleafApiService
         if (keyword.Length == 0)
             return [];
 
+        // Mapleleaf 1.6.6 的“漫剧”和“AI真人剧”共用 tab_type=13。
+        // 默认只请求一次聚合 tab，并与皮卡丘的数据类型设置解耦。
         var body = new JsonObject
         {
             ["query"] = keyword,
-            ["tabType"] = ResolveTabType(settings),
             ["offset"] = Math.Max(0, page - 1) * SearchPageSize,
+            ["tab_type"] = 13,
             ["count"] = SearchPageSize,
-            ["pointsRequired"] = 1
+            ["wrap"] = "1"
         };
 
         Exception? lastError = null;
@@ -127,7 +129,14 @@ public sealed class MapleleafApiService
         {
             try
             {
-                var inner = await SendAuthenticatedAsync(settings, path, body, cancellationToken);
+                var legacyBody = new JsonObject
+                {
+                    ["query"] = keyword,
+                    ["tabType"] = 13,
+                    ["offset"] = Math.Max(0, page - 1) * SearchPageSize,
+                    ["pointsRequired"] = 1
+                };
+                var inner = await SendAuthenticatedAsync(settings, path, legacyBody, cancellationToken);
                 var mapped = MapSearchItems(inner);
                 if (mapped.Count > 0)
                     return mapped;
@@ -331,7 +340,8 @@ public sealed class MapleleafApiService
             ReadString(item, "CoverUrl", "cover", "coverUrl"),
             ReadString(item, "Author", "author"),
             ReadString(item, "OnlineTimeStr", "online_time", "onlineTime"),
-            ReadInt(item, "PlayCountStr", "favorite_count", "play_cnt", "playCnt") ?? 0);
+            ReadInt(item, "PlayCountStr", "favorite_count", "play_cnt", "playCnt") ?? 0,
+            ReadInt(item, "play_cnt", "playCnt", "read_count", "play_count", "PlayCountStr") ?? 0);
 
     public async Task<MapleleafVideoPlayback> GetVideoPlaybackAsync(
         DramaSourceSettings settings,
@@ -365,9 +375,9 @@ public sealed class MapleleafApiService
                 requestTimeoutSeconds,
                 cancellationToken).ConfigureAwait(false);
 
-        // Mapleleaf 1.6.5 uses a dedicated PHP endpoint for episode parsing. It is not
+        // Mapleleaf 1.6.6 uses a dedicated PHP endpoint for episode parsing. It is not
         // /ThirdParty/videoparse: the official client posts both videoId aliases and wrap=1
-        // to 118.89.198.57/api/jxurl.php, authenticated with the Mapleleaf bearer token.
+        // to 8.133.218.237/ffm/jxdecrypt.php, authenticated with the Mapleleaf bearer token.
         Exception? lastError = null;
         try
         {
@@ -463,16 +473,25 @@ public sealed class MapleleafApiService
             },
             cancellationToken,
             requestTimeoutSeconds).ConfigureAwait(false);
-        var url = ExtractPlayUrlForQuality(inner, NormalizeQuality(quality));
+        var payload = inner is JsonObject wrapper && wrapper["data"] is { } data ? data : inner;
+        var url = ExtractPlayUrlForQuality(payload, NormalizeQuality(quality));
         if (url.Length == 0)
         {
             throw new MapleleafException(
                 ReadString(inner, "message", "msg") is { Length: > 0 } message
                     ? message
-                    : "Mapleleaf 官方 jxurl.php 未返回播放直链");
+                    : "Mapleleaf 官方 jxdecrypt.php 未返回播放直链");
         }
 
-        return new MapleleafVideoPlayback(url, ReadSize(inner));
+        var selected = payload is JsonArray options
+            ? options.FirstOrDefault(item => ExtractPlayUrl(item) == url)
+            : payload;
+        var key = ReadString(selected, "decryption_key", "decryptionKey");
+        var mode = ReadString(selected, "download_mode", "downloadMode");
+        if ((key.Length > 0 || string.Equals(mode, "cenc", StringComparison.OrdinalIgnoreCase)) &&
+            !System.Text.RegularExpressions.Regex.IsMatch(key, "\\A[0-9a-fA-F]{32}\\z"))
+            throw new MapleleafException("Mapleleaf 未返回有效的 CENC 解密密钥");
+        return new MapleleafVideoPlayback(url, ReadSize(selected), CencDecryptKey: key);
     }
 
     private static string ExtractPlayUrlForQuality(JsonNode? node, string requestedQuality)
@@ -790,7 +809,8 @@ public sealed class MapleleafApiService
             First("cover", "cover_url", "coverUrl", "thumb_url", "poster"),
             First("author", "author_name", "authorName"),
             publishTime,
-            ReadInt(item, "favorite_count", "play_cnt", "playCnt") ?? ReadInt(nested, "favorite_count", "play_cnt") ?? 0);
+            ReadInt(item, "favorite_count", "play_cnt", "playCnt") ?? ReadInt(nested, "favorite_count", "play_cnt") ?? 0,
+            ReadInt(item, "play_cnt", "playCnt", "read_count", "play_count") ?? ReadInt(nested, "play_cnt", "playCnt", "read_count", "play_count") ?? 0);
     }
 
     private static List<JsonObject> ExtractItems(JsonNode? inner, string label)
@@ -938,9 +958,6 @@ public sealed class MapleleafApiService
         return (long)(number * multiplier);
     }
 
-    private static int ResolveTabType(DramaSourceSettings settings) =>
-        (settings.PikachuDramaType ?? string.Empty).Trim().ToLowerInvariant() is "manga" or "comic" ? 1 : 0;
-
     private static string NormalizeQuality(string quality) =>
         (quality ?? string.Empty).Trim().ToLowerInvariant() switch
         {
@@ -987,7 +1004,8 @@ public sealed class MapleleafApiService
         long Size,
         IReadOnlyList<string>? EncryptedUrls = null,
         string SpadeA = "",
-        bool Encrypted = false)
+        bool Encrypted = false,
+        string CencDecryptKey = "")
     {
         public IReadOnlyList<string> CdnUrls => EncryptedUrls ?? [];
     }

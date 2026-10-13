@@ -47,6 +47,41 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
     }
 
     [Fact]
+    public void PruneOldEvents_keeps_failures_for_thirty_days()
+    {
+        InsertEvent("expired-failure", "2026-06-04T12:00:00", ProjectPayload("queue_progress", "失败", "too old"));
+        InsertEvent("kept-failure", "2026-06-06T12:00:00", ProjectPayload("queue_progress", "失败", "still relevant"));
+
+        var deleted = TikTokExecutionHistoryService.PruneOldEvents(
+            databasePath: _databasePath,
+            now: new DateTime(2026, 7, 5, 12, 0, 0));
+
+        deleted.Should().Be(1);
+        ReadEventIds().Should().Equal("kept-failure");
+    }
+
+    [Fact]
+    public void LoadRecentProjectEvents_returns_failures_for_the_project_directory()
+    {
+        InsertEvent(
+            "matched",
+            "2026-10-13T22:59:52",
+            ProjectPayload("queue_progress", "失败", "简介与历史/原简介过于相似", message: "改写信息 失败：简介与历史/原简介过于相似"));
+        InsertEvent(
+            "other",
+            "2026-10-13T22:00:00",
+            ProjectPayload("queue_progress", "失败", "别的项目", projectDir: @"E:\tiktok\other"));
+
+        var events = TikTokExecutionHistoryService.LoadRecentProjectEvents(
+            @"E:\tiktok\demo",
+            databasePath: _databasePath);
+
+        events.Should().ContainSingle();
+        events[0].Message.Should().Contain("简介与历史/原简介过于相似");
+        events[0].ProjectTitle.Should().Be("demo");
+    }
+
+    [Fact]
     public void EnsureStorageOptimized_migrates_latest_snapshot_and_removes_redundant_progress()
     {
         InsertEvent("progress-1", "2026-07-05T10:00:00", ProjectPayload("queue_progress", "执行中", ""));
@@ -162,21 +197,29 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
         string eventType,
         string status,
         string error,
-        string uploadEntryMode = "") => $$"""
+        string uploadEntryMode = "",
+        string? message = null,
+        string? projectDir = null)
+    {
+        var dir = (projectDir ?? @"E:\tiktok\demo").Replace("\\", "\\\\");
+        var text = message ?? error;
+        return $$"""
         {
           "event_type": "{{eventType}}",
           "status": "{{status}}",
           "timestamp": "2026-07-05T10:00:00",
           "workspace": "E:\\tiktok",
-          "project_dir": "E:\\tiktok\\demo",
+          "project_dir": "{{dir}}",
           "original_title": "demo",
           "account_profile_id": "account-1",
           "status_text": "{{status}}",
           "last_error": "{{error}}",
           "error": "{{error}}",
+          "message": "{{text}}",
           "step_key": "upload_series",
           "metadata": { "upload_entry_mode": "{{uploadEntryMode}}" },
           "step_states": { "upload_series": "{{status}}" }
         }
         """;
+    }
 }

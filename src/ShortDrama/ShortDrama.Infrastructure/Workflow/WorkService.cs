@@ -424,6 +424,13 @@ public sealed class WorkService : IWorkService
                 BuildWeixinUploadConfigJson(context, info),
                 cancellationToken);
         }
+        else if (string.Equals(Path.GetFileName(configPath), "weixin-channel-autogen.json", StringComparison.OrdinalIgnoreCase))
+        {
+            await File.WriteAllTextAsync(
+                configPath,
+                BuildWeixinUploadConfigJson(context, info),
+                cancellationToken);
+        }
         else
         {
             NormalizeWeixinProjectConfigs(context.WorkflowProjectDir, info.Title);
@@ -460,7 +467,11 @@ public sealed class WorkService : IWorkService
         var lines = File.Exists(infoPath) ? File.ReadAllLines(infoPath).ToList() : [];
         var values = ParseProjectInfoValues(lines);
 
-        var videoFiles = Directory.EnumerateFiles(context.SourceProjectDir, "*.*", SearchOption.TopDirectoryOnly)
+        var videoDirectory = Directory.Exists(context.VideosOutputDir) &&
+                             Directory.EnumerateFiles(context.VideosOutputDir, "*.*", SearchOption.TopDirectoryOnly).Any(IsVideoFile)
+            ? context.VideosOutputDir
+            : context.SourceProjectDir;
+        var videoFiles = Directory.EnumerateFiles(videoDirectory, "*.*", SearchOption.TopDirectoryOnly)
             .Where(IsVideoFile)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -470,11 +481,12 @@ public sealed class WorkService : IWorkService
             totalSeconds += await TryProbeDurationAsync(file, cancellationToken);
         }
 
-        var totalMinutes = Math.Max(1, (int)Math.Ceiling(totalSeconds / 60d));
+        var totalMinutes = Math.Max(0.1d, totalSeconds / 60d);
         var episodeCount = Math.Max(1, videoFiles.Length);
         var updatedFields = new List<string>();
 
-        UpsertIfMissing(lines, values, "集数", episodeCount.ToString(CultureInfo.InvariantCulture), updatedFields);
+        UpsertValue(lines, values, "集数", episodeCount.ToString(CultureInfo.InvariantCulture), updatedFields);
+        UpsertValue(lines, values, "时长", $"{totalMinutes:0.0}分钟", updatedFields);
         UpsertIfMissing(lines, values, "制作公司", context.CompanyName, updatedFields);
 
         if (updatedFields.Count > 0)
@@ -1159,6 +1171,31 @@ public sealed class WorkService : IWorkService
         updatedFields.Add(key);
     }
 
+    private static void UpsertValue(
+        IList<string> lines,
+        IDictionary<string, string> values,
+        string key,
+        string value,
+        ICollection<string> updatedFields)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            values.TryGetValue(key, out var existing) && string.Equals(existing.Trim(), value.Trim(), StringComparison.Ordinal))
+            return;
+        var replacement = $"{key}: {value}";
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (!lines[index].StartsWith(key + "：", StringComparison.Ordinal) &&
+                !lines[index].StartsWith(key + ":", StringComparison.Ordinal)) continue;
+            lines[index] = replacement;
+            values[key] = value;
+            updatedFields.Add(key);
+            return;
+        }
+        lines.Add(replacement);
+        values[key] = value;
+        updatedFields.Add(key);
+    }
+
     private static bool IsUploadRemuxFile(string path)
     {
         return SupportedUploadRemuxExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
@@ -1645,10 +1682,53 @@ public sealed class WorkService : IWorkService
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .Take(MaxProofMaterialImageCount)
             .ToArray();
+        var aiProofImages = Directory.EnumerateFiles(context.WorkflowProjectDir, "AI制作证明_*.png", SearchOption.TopDirectoryOnly)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToArray();
+        var timestampCertificate = Path.Combine(context.WorkflowProjectDir, "可信时间戳认证证书.pdf");
+        var productionProofPaths = projectImages
+            .Concat(aiProofImages)
+            .Concat(File.Exists(timestampCertificate) ? [timestampCertificate] : [])
+            .ToArray();
         var videos = EnumerateWorkflowVideos(context.WorkflowProjectDir).ToArray();
         var trialEpisodes = configMap.TryGetValue("WeixinTrialEpisodes", out var trialRaw) && int.TryParse(trialRaw, out var trialParsed) && trialParsed > 0
             ? Math.Min(trialParsed, Math.Max(1, info.EpisodeCount))
             : 3;
+
+        var firstPageActions = new JsonArray
+        {
+            BuildFillAction("剧目名称", info.Title),
+            BuildFillAction("剧目简介", info.Synopsis ?? string.Empty, control: "textarea"),
+            BuildFillAction("推荐语", info.Tagline ?? string.Empty),
+            BuildFillAction("总集数", info.EpisodeCount.ToString()),
+            BuildChooseAction("变现类型", ResolveConfigString(configMap, "WeixinMonetizationType") ?? "IAA广告变现"),
+            BuildFillAction("试看集数", trialEpisodes.ToString()),
+            BuildChooseAction("剧目类型", ResolveConfigString(configMap, "WeixinDramaType") ?? "漫剧"),
+            BuildSetCheckedAction("AI内容声明", true),
+        };
+        if (aiProofImages.Length > 0)
+            firstPageActions.Add(BuildUploadAction("AI制作证明", [aiProofImages[0]], "选择文件"));
+        firstPageActions.Add(BuildUploadAction("剧目海报", [Path.Combine(context.WorkflowProjectDir, "海报图片.jpg")], "选择图片"));
+        firstPageActions.Add(BuildUploadAction("推广海报", [Path.Combine(context.WorkflowProjectDir, "海报图片.jpg")], "选择图片"));
+        firstPageActions.Add(BuildChooseAction("提审身份", ResolveConfigString(configMap, "WeixinSubmitterIdentity") ?? "剧目制作方"));
+        firstPageActions.Add(BuildFillAction("制作方名称", info.CompanyName));
+        firstPageActions.Add(BuildUploadAction("剧目制作证明材料", productionProofPaths, "选择文件"));
+        firstPageActions.Add(BuildChooseAction("剧目资质", ResolveConfigString(configMap, "WeixinDramaQualification") ?? "其他微短剧"));
+        firstPageActions.Add(new JsonObject
+        {
+            ["type"] = "fill",
+            ["selector"] = "input[placeholder*='制作成本'], input[placeholder*='成本']",
+            ["value"] = $"{info.CostAmountWan:0.####}"
+        });
+        firstPageActions.Add(BuildUploadAction("剧目资质", [Path.Combine(context.WorkflowProjectDir, "成本报表.png")], null));
+        firstPageActions.Add(BuildSetCheckedAction("我已知悉并同意", true));
+        firstPageActions.Add(new JsonObject
+        {
+            ["type"] = "screenshot",
+            ["name"] = "first-page-filled",
+            ["message"] = $"{info.Title}第一页已填完。"
+        });
 
         var root = new JsonObject
         {
@@ -1680,37 +1760,7 @@ public sealed class WorkService : IWorkService
             ["first_page"] = new JsonObject
             {
                 ["next_button_text"] = "下一步",
-                ["actions"] = new JsonArray
-                {
-                    BuildFillAction("剧目名称", info.Title),
-                    BuildFillAction("剧目简介", info.Synopsis ?? string.Empty, control: "textarea"),
-                    BuildFillAction("推荐语", info.Tagline ?? string.Empty),
-                    BuildFillAction("总集数", info.EpisodeCount.ToString()),
-                    BuildChooseAction("变现类型", ResolveConfigString(configMap, "WeixinMonetizationType") ?? "IAA广告变现"),
-                    BuildFillAction("试看集数", trialEpisodes.ToString()),
-                    BuildChooseAction("剧目类型", ResolveConfigString(configMap, "WeixinDramaType") ?? "漫剧"),
-                    BuildSetCheckedAction("AI内容声明", true),
-                    BuildUploadAction("剧目海报", [Path.Combine(context.WorkflowProjectDir, "海报图片.jpg")], "选择图片"),
-                    BuildUploadAction("推广海报", [Path.Combine(context.WorkflowProjectDir, "海报图片.jpg")], "选择图片"),
-                    BuildChooseAction("提审身份", ResolveConfigString(configMap, "WeixinSubmitterIdentity") ?? "剧目制作方"),
-                    BuildFillAction("制作方名称", info.CompanyName),
-                    BuildUploadAction("剧目制作证明材料", projectImages, "选择文件"),
-                    BuildChooseAction("剧目资质", ResolveConfigString(configMap, "WeixinDramaQualification") ?? "其他微短剧"),
-                    new JsonObject
-                    {
-                        ["type"] = "fill",
-                        ["selector"] = "input[placeholder*='制作成本'], input[placeholder*='成本']",
-                        ["value"] = $"{info.CostAmountWan:0.####}"
-                    },
-                    BuildUploadAction("剧目资质", [Path.Combine(context.WorkflowProjectDir, "成本报表.png")], null),
-                    BuildSetCheckedAction("我已知悉并同意", true),
-                    new JsonObject
-                    {
-                        ["type"] = "screenshot",
-                        ["name"] = "first-page-filled",
-                        ["message"] = $"{info.Title}第一页已填完。"
-                    }
-                }
+                ["actions"] = firstPageActions
             },
             ["second_page"] = new JsonObject
             {
@@ -2002,12 +2052,13 @@ public sealed class WorkService : IWorkService
 
     private static WorkflowDefinition BuildDefinition(ProjectWorkspaceContext context, string stepType, bool force, string? configOverridePath = null)
     {
+        var runtimeConfigPath = configOverridePath ?? context.ConfigFile;
         WorkflowStep step = stepType switch
         {
             "download" => new(
                 Type: "download",
                 Template: null,
-                ConfigFile: context.ConfigFile,
+                ConfigFile: runtimeConfigPath,
                 OutputFile: null,
                 InputDir: null,
                 OutputDir: context.SourceProjectDir,
@@ -2016,7 +2067,7 @@ public sealed class WorkService : IWorkService
             "transcode" => new(
                 Type: "transcode",
                 Template: null,
-                ConfigFile: context.ConfigFile,
+                ConfigFile: runtimeConfigPath,
                 OutputFile: null,
                 InputDir: context.SourceProjectDir,
                 OutputDir: context.VideosOutputDir,
@@ -2025,7 +2076,7 @@ public sealed class WorkService : IWorkService
             "rewrite" => new(
                 Type: "rewrite",
                 Template: null,
-                ConfigFile: context.ConfigFile,
+                ConfigFile: runtimeConfigPath,
                 OutputFile: Path.Combine(context.WorkflowProjectDir, "短剧信息.txt"),
                 InputDir: null,
                 OutputDir: null,
@@ -2034,7 +2085,7 @@ public sealed class WorkService : IWorkService
             "poster-rename" => new(
                 Type: "poster-rename",
                 Template: null,
-                ConfigFile: context.ConfigFile,
+                ConfigFile: runtimeConfigPath,
                 OutputFile: Path.Combine(context.WorkflowProjectDir, "海报图片.jpg"),
                 InputDir: ResolvePosterSourcePath(context),
                 OutputDir: null,
@@ -2043,7 +2094,7 @@ public sealed class WorkService : IWorkService
             "project-image" => new(
                 Type: "project-image",
                 Template: context.ProjectImageTemplateDir,
-                ConfigFile: context.ConfigFile,
+                ConfigFile: runtimeConfigPath,
                 OutputFile: null,
                 InputDir: context.VideosOutputDir,
                 OutputDir: context.WorkflowProjectDir,
@@ -2052,7 +2103,7 @@ public sealed class WorkService : IWorkService
             "cost-report" => new(
                 Type: "cost-report",
                 Template: context.CostReportTemplatePath,
-                ConfigFile: context.ConfigFile,
+                ConfigFile: runtimeConfigPath,
                 OutputFile: null,
                 InputDir: null,
                 OutputDir: context.WorkflowProjectDir,
@@ -2061,7 +2112,7 @@ public sealed class WorkService : IWorkService
             "batch-file-rename" => new(
                 Type: "batch-file-rename",
                 Template: null,
-                ConfigFile: context.ConfigFile,
+                ConfigFile: runtimeConfigPath,
                 OutputFile: null,
                 InputDir: context.VideosOutputDir,
                 OutputDir: null,
@@ -2070,7 +2121,7 @@ public sealed class WorkService : IWorkService
             "material-convert" => new(
                 Type: "material-convert",
                 Template: null,
-                ConfigFile: context.ConfigFile,
+                ConfigFile: runtimeConfigPath,
                 OutputFile: null,
                 InputDir: context.VideosOutputDir,
                 OutputDir: context.MaterialVideosOutputDir,
@@ -2101,7 +2152,9 @@ public sealed class WorkService : IWorkService
             ProjectKey: context.ProjectKey,
             DisplayName: context.DisplayName,
             ProjectDir: context.WorkflowProjectDir,
-            ConfigDir: context.ConfigDir,
+            ConfigDir: stepType is "weixin-upload" or "weixin-material-upload"
+                ? context.ConfigDir
+                : Path.GetDirectoryName(runtimeConfigPath) ?? context.ConfigDir,
             Steps: [step]);
     }
 

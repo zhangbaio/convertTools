@@ -72,7 +72,51 @@ public sealed class CopyrightProofProjectMatcherTests
             ["重复新剧名"], queue, []));
 
         Assert.Equal(CopyrightProofProjectLocation.Conflict, match.Location);
+        Assert.Equal(CopyrightProofConflictKind.QueueDirectory, match.ConflictKind);
         Assert.Equal(2, match.ConflictCandidates?.Count);
+        Assert.Equal(2, match.ConflictOptions?.Count);
+        Assert.All(match.ConflictOptions!, option => Assert.True(option.Resolution.CanExecute));
+        Assert.Contains("当前队列有多个目录", CopyrightProofProjectMatcher.DescribeConflict(match));
+    }
+
+    [Fact]
+    public void MatchByNewTitleExact_CollapsesQueueRecordsThatShareADirectory()
+    {
+        var queue = new[]
+        {
+            new QueueProjectItem { NewTitle = "重复新剧名", OriginalTitle = "", ProjectDir = @"D:\queue\a" },
+            new QueueProjectItem { NewTitle = "重复新剧名", OriginalTitle = "原剧甲", ProjectDir = @"D:\queue\a\" },
+        };
+
+        var match = Assert.Single(CopyrightProofProjectMatcher.MatchByNewTitleExact(
+            ["重复新剧名"], queue, []));
+
+        Assert.Equal(CopyrightProofProjectLocation.CurrentQueue, match.Location);
+        Assert.Equal("原剧甲", match.QueueProject!.OriginalTitle);
+    }
+
+    [Fact]
+    public void MatchByNewTitleExact_HistoryConflictKeepsEachOriginalTitleExecutable()
+    {
+        var older = Snapshot("相同新剧名", "原剧甲", "2026-07-01T08:00:00+08:00");
+        var newer = Snapshot("相同新剧名", "原剧乙", "2026-07-03T08:00:00+08:00");
+        var newerSameOriginal = Snapshot("相同新剧名", "原剧甲", "2026-07-02T08:00:00+08:00");
+
+        var match = Assert.Single(CopyrightProofProjectMatcher.MatchByNewTitleExact(
+            ["相同新剧名"],
+            [],
+            [],
+            [older, newer, newerSameOriginal]));
+
+        Assert.Equal(CopyrightProofProjectLocation.Conflict, match.Location);
+        Assert.Equal(CopyrightProofConflictKind.OriginalTitle, match.ConflictKind);
+        Assert.Equal(2, match.ConflictCandidates?.Count);
+        Assert.Contains("原剧甲", match.ConflictCandidates!);
+        Assert.Contains("原剧乙", match.ConflictCandidates!);
+        var chosen = match.ConflictOptions!.Single(option => option.Key == "原剧甲");
+        Assert.True(chosen.Resolution.CanExecute);
+        Assert.Same(newerSameOriginal, chosen.Resolution.HistorySnapshot);
+        Assert.Contains("原剧乙", CopyrightProofProjectMatcher.DescribeConflict(match));
     }
 
     [Fact]

@@ -2,6 +2,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using ShortDrama.Infrastructure.Automation;
+using ShortDrama.Infrastructure.Networking;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.ViewModels;
@@ -44,6 +46,8 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.TiktokRoleReferenceSelectionMode)
                 or nameof(SystemSettingsViewModel.TiktokRoleVectorViewMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
+                or nameof(SystemSettingsViewModel.PosterLayoutRequestMode)
+                or nameof(SystemSettingsViewModel.NetworkAddressPreference)
                 or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageGenerationMode)
@@ -100,12 +104,11 @@ public partial class SystemSettingsView : UserControl
     private void InitializeComboBoxes()
     {
         DramaSourceCombo.Items.Clear();
-        DramaSourceCombo.Items.Add(CreateItem("红果新接口", "hgnew"));
         DramaSourceCombo.Items.Add(CreateItem("红果高码率", "hghigh"));
-        DramaSourceCombo.Items.Add(CreateItem("Mapleleaf", "mapleleaf"));
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
         DramaSourceCombo.Items.Add(CreateItem("统一下载器", "downloader"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
+        DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
 
         HghighEditionCombo.Items.Clear();
@@ -142,6 +145,17 @@ public partial class SystemSettingsView : UserControl
         PosterModeCombo.Items.Clear();
         PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
+
+        PosterLayoutRequestModeCombo.Items.Clear();
+        PosterLayoutRequestModeCombo.Items.Add(CreateItem("标准（当前整图请求）", ClientSettingsDefaults.PosterLayoutRequestMode));
+        PosterLayoutRequestModeCombo.Items.Add(CreateItem("快速（低精度流式）", ClientSettingsDefaults.PosterLayoutRequestModeFast));
+        PosterLayoutRequestModeCombo.SelectionChanged += OnPosterLayoutRequestModeChanged;
+
+        NetworkAddressPreferenceCombo.Items.Clear();
+        NetworkAddressPreferenceCombo.Items.Add(CreateItem("系统默认网络", PreferredNetworkHttp.SystemValue));
+        NetworkAddressPreferenceCombo.Items.Add(CreateItem("优先 IPv4", PreferredNetworkHttp.Ipv4Value));
+        NetworkAddressPreferenceCombo.Items.Add(CreateItem("优先 IPv6", PreferredNetworkHttp.Ipv6Value));
+        NetworkAddressPreferenceCombo.SelectionChanged += OnNetworkAddressPreferenceChanged;
 
         ImageProviderCombo.Items.Clear();
         ImageProviderCombo.Items.Add(CreateItem("豆包", "doubao"));
@@ -195,6 +209,8 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(RoleVectorViewModeCombo, _vm.TiktokRoleVectorViewMode);
         _vm.PosterMode = ClientSettingsDefaults.PosterMode;
         SelectComboItem(PosterModeCombo, ClientSettingsDefaults.PosterMode);
+        SelectComboItem(PosterLayoutRequestModeCombo, _vm.PosterLayoutRequestMode);
+        SelectComboItem(NetworkAddressPreferenceCombo, _vm.NetworkAddressPreference);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
         SelectComboItem(ProjectImageGenerationModeCombo, _vm.TiktokProjectImageGenerationMode);
@@ -203,6 +219,8 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
         UpdatePosterModeUi();
+        UpdatePosterLayoutRequestModeUi();
+        UpdateNetworkAddressPreferenceUi();
     }
 
     private static void SelectComboItem(ComboBox combo, string? value)
@@ -258,7 +276,7 @@ public partial class SystemSettingsView : UserControl
     private void OnDramaSourceChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_vm is null || DramaSourceCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.DramaSourceChain = item.Tag as string ?? "hgnew";
+        _vm.DramaSourceChain = item.Tag as string ?? VisibleDramaSource.DefaultChain;
     }
 
     private void OnPikachuTypeChanged(object? sender, SelectionChangedEventArgs e)
@@ -296,6 +314,48 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || RoleVectorViewModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokRoleVectorViewMode = item.Tag as string ?? ClientSettingsDefaults.TiktokRoleVectorViewMode;
+    }
+
+    private void OnPosterLayoutRequestModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || PosterLayoutRequestModeCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.PosterLayoutRequestMode = item.Tag as string ?? ClientSettingsDefaults.PosterLayoutRequestMode;
+        UpdatePosterLayoutRequestModeUi();
+    }
+
+    private void OnNetworkAddressPreferenceChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || NetworkAddressPreferenceCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.NetworkAddressPreference = item.Tag as string ?? ClientSettingsDefaults.NetworkAddressPreference;
+        UpdateNetworkAddressPreferenceUi();
+    }
+
+    private void UpdateNetworkAddressPreferenceUi()
+    {
+        var preference = PreferredNetworkHttp.Parse(
+            (NetworkAddressPreferenceCombo.SelectedItem as ComboBoxItem)?.Tag as string
+            ?? _vm?.NetworkAddressPreference);
+        NetworkAddressPreferenceHintText.Text = preference switch
+        {
+            NetworkAddressPreference.Ipv4 =>
+                "火山等 AI 接口先连 IPv4，连不上再用 IPv6。适合 IPv6 线路上传慢或经常断开的网络。",
+            NetworkAddressPreference.Ipv6 =>
+                "火山等 AI 接口先连 IPv6，连不上再用 IPv4。",
+            _ => "按 Windows 的网络设置选择 IPv4 或 IPv6。切换后新建的连接生效，已有连接最多几分钟后更新，重启软件立即生效。",
+        };
+    }
+
+    private void UpdatePosterLayoutRequestModeUi()
+    {
+        var mode = (PosterLayoutRequestModeCombo.SelectedItem as ComboBoxItem)?.Tag as string
+                   ?? _vm?.PosterLayoutRequestMode
+                   ?? ClientSettingsDefaults.PosterLayoutRequestMode;
+        PosterLayoutRequestModeHintText.Text = string.Equals(
+            mode,
+            ClientSettingsDefaults.PosterLayoutRequestModeFast,
+            StringComparison.OrdinalIgnoreCase)
+            ? "快速模式按方舟图片理解建议请求：detail=low，像素上限 3014080，流式返回。超时、429 或 5xx 会换一次新请求。原图仍用于最终出图。"
+            : "标准模式保持现在的整图、非流式布局检测。失败时会记录图片大小、像素、接口、耗时和异常链。";
     }
 
     private void OnPosterModeChanged(object? sender, SelectionChangedEventArgs e)

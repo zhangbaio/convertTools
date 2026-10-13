@@ -244,6 +244,9 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
+        DramaDownload.TikTokQueueTargetsRequested += ListTikTokQueueImportTargets;
+        DramaDownload.AccountProfileRequested += accountId => FindAccountById(accountId)?.Model;
+        DramaDownload.ExistenceAccountRequested += () => SelectedAccount?.Model;
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
     }
@@ -286,6 +289,9 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
+        DramaDownload.TikTokQueueTargetsRequested += ListTikTokQueueImportTargets;
+        DramaDownload.AccountProfileRequested += accountId => FindAccountById(accountId)?.Model;
+        DramaDownload.ExistenceAccountRequested += () => SelectedAccount?.Model;
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
     }
@@ -1343,6 +1349,8 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofSealPath = account.TiktokProofSealPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
+        TiktokAiNewTitleRandomness = account.TiktokAiNewTitleRandomness,
+        TiktokAiSynopsisRandomness = account.TiktokAiSynopsisRandomness,
     };
 
     private void ReconcileQueueProjectRows(IReadOnlyList<QueueProjectItem> items, bool replaceCollections = false)
@@ -3083,6 +3091,13 @@ public sealed partial class MainViewModel : ViewModelBase
         var message = progress.Message ?? "";
         if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey)
             || message.Contains("失败", StringComparison.Ordinal)
+            || message.Contains("异常", StringComparison.Ordinal)
+            || message.Contains("错误", StringComparison.Ordinal)
+            || message.Contains("超时", StringComparison.Ordinal)
+            || message.Contains("未通过", StringComparison.Ordinal)
+            || message.Contains("标题校验", StringComparison.Ordinal)
+            || message.Contains("残留文字", StringComparison.Ordinal)
+            || message.Contains("海报布局", StringComparison.Ordinal)
             || message.Contains("完成", StringComparison.Ordinal)
             || message.StartsWith("开始", StringComparison.Ordinal)
             || message.Contains('⚠')
@@ -3571,6 +3586,20 @@ public sealed partial class MainViewModel : ViewModelBase
             return null;
         }
         return target;
+    }
+
+    private IReadOnlyList<TikTokQueueImportTarget> ListTikTokQueueImportTargets()
+    {
+        var targets = new List<TikTokQueueImportTarget>();
+        foreach (var account in Accounts)
+        {
+            var workspace = NormalizeWorkspacePath(account.Model.ResolveWorkspacePath());
+            if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+                continue;
+            targets.Add(new TikTokQueueImportTarget(account.Id, account.DisplayName, workspace));
+        }
+
+        return targets;
     }
 
     private TikTokQueueImportTarget? ResolveSelectedAccountQueueImportTarget()
@@ -5290,6 +5319,7 @@ public sealed partial class MainViewModel : ViewModelBase
             target.OriginalTitle = merged.OriginalTitle;
             target.NewTitle = merged.NewTitle;
             target.EpisodeCount = merged.EpisodeCount;
+            target.SourceEpisodeCount = merged.SourceEpisodeCount;
             target.GenreCategory = merged.GenreCategory;
             target.Description = merged.Description;
             target.QueueEntryDramaType = merged.QueueEntryDramaType;
@@ -5314,6 +5344,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(target.OriginalTitle)) target.OriginalTitle = source.OriginalTitle;
         if (string.IsNullOrWhiteSpace(target.NewTitle)) target.NewTitle = source.NewTitle;
         if (target.EpisodeCount <= 0) target.EpisodeCount = source.EpisodeCount;
+        if (target.SourceEpisodeCount <= target.EpisodeCount && source.SourceEpisodeCount > source.EpisodeCount)
+            target.SourceEpisodeCount = source.SourceEpisodeCount;
         if (string.IsNullOrWhiteSpace(target.GenreCategory)) target.GenreCategory = source.GenreCategory;
         if (string.IsNullOrWhiteSpace(target.Description)) target.Description = source.Description;
         if (string.IsNullOrWhiteSpace(target.AccountProfileId)) target.AccountProfileId = source.AccountProfileId;

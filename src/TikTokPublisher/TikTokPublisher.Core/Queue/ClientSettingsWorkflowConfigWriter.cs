@@ -26,6 +26,8 @@ public static class ClientSettingsWorkflowConfigWriter
             ["AiTextRetryPrompt"] = settings.AiFullInfoRetryPrompt,
             ["AiRewriteSynopsis"] = account?.TiktokAiRewriteSynopsis == true,
             ["AiTextTimeoutSeconds"] = settings.AiTextTimeoutSeconds,
+            ["AiNewTitleTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiNewTitleRandomness),
+            ["AiSynopsisTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiSynopsisRandomness),
             ["TiktokRoleReferenceSelectionMode"] = settings.TiktokRoleReferenceSelectionMode,
             ["TiktokRoleReferenceAiFallbackEnabled"] = settings.TiktokRoleReferenceAiFallbackEnabled,
             ["TiktokRoleVectorViewMode"] = settings.TiktokRoleVectorViewMode,
@@ -34,6 +36,12 @@ public static class ClientSettingsWorkflowConfigWriter
             ["ImageModelEndpoint"] = settings.ImageModelEndpoint,
             ["ImageProvider"] = settings.ImageProvider,
             ["PosterMode"] = settings.PosterMode,
+            ["PosterLayoutRequestMode"] = string.Equals(
+                settings.PosterLayoutRequestMode?.Trim(),
+                ClientSettingsDefaults.PosterLayoutRequestModeFast,
+                StringComparison.OrdinalIgnoreCase)
+                ? ClientSettingsDefaults.PosterLayoutRequestModeFast
+                : ClientSettingsDefaults.PosterLayoutRequestMode,
             ["DoubaoImageResolution"] = settings.DoubaoImageResolution,
             ["DoubaoImageRatio"] = settings.DoubaoImageRatio,
             ["OfoxImage2ModelId"] = settings.OfoxImage2ModelId,

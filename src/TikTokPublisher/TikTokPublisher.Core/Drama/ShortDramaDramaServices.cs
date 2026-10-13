@@ -38,13 +38,20 @@ public static class ShortDramaDramaServices
         }
     }
 
+    public static Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
+        string keyword,
+        int page,
+        CancellationToken cancellationToken) =>
+        SearchAsync(keyword, page, cancellationToken, searchCategory: null);
+
     public static async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
         string keyword,
         int page,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? searchCategory)
     {
         RefreshSettings();
-        var items = await Search.SearchAsync(keyword, page, cancellationToken);
+        var items = await Router.Value.SearchAsync(keyword, page, cancellationToken, searchCategory);
         return items.Select(FromCore).ToArray();
     }
 
@@ -137,10 +144,46 @@ public static class ShortDramaDramaServices
         return enriched.Select(FromCore).ToArray();
     }
 
+    public static bool IsPlayletSourceSelected()
+    {
+        RefreshSettings();
+        return Router.Value.IsPlayletSourceSelected();
+    }
+
     public static bool IsHighSourceSelected()
     {
         RefreshSettings();
         return Router.Value.IsHighSourceSelected();
+    }
+
+    public static string? RankBlockReason(string category, string board)
+    {
+        RefreshSettings();
+        if (!Router.Value.IsRankSourceSelected())
+            return "榜单接入红果高码率标准版和红果短剧下载器。请先切换到其中一条数据链路。";
+        return HongguoRankCatalog.UnavailableReason(category, board);
+    }
+
+    public static async Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
+        string category,
+        string board,
+        int page,
+        CancellationToken cancellationToken)
+    {
+        RefreshSettings();
+        var items = await Router.Value.GetRankAsync(category, board, page, cancellationToken);
+        return items.Select(FromCore).ToArray();
+    }
+
+    public static async Task<DramaRankPage> GetRankPageAsync(
+        string category,
+        string board,
+        int offset,
+        CancellationToken cancellationToken)
+    {
+        RefreshSettings();
+        var page = await Router.Value.GetRankPageAsync(category, board, offset, cancellationToken);
+        return new DramaRankPage(page.Items.Select(FromCore).ToArray(), page.HasMore, page.NextOffset);
     }
 
     public static string GetHighNewReleaseDateWindowDisplay(int days) =>
@@ -202,6 +245,7 @@ public static class ShortDramaDramaServices
         Author = core.Author,
         PublishTime = core.PublishTime,
         FavoriteCount = core.FavoriteCount,
+        PlayCount = core.PlayCount,
     };
 
     private static CoreSearchItem ToCore(DramaSearchItem item) => new(
@@ -213,7 +257,8 @@ public static class ShortDramaDramaServices
         PosterUrl: item.PosterUrl,
         Author: item.Author,
         PublishTime: item.PublishTime,
-        FavoriteCount: item.FavoriteCount);
+        FavoriteCount: item.FavoriteCount,
+        PlayCount: item.PlayCount);
 
     private static string NormalizeEpisodeNumberMode(string? value)
     {

@@ -24,12 +24,9 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton(_ =>
         {
-            var handler = new SocketsHttpHandler
-            {
-                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
-                PooledConnectionLifetime = TimeSpan.FromMinutes(10),
-                ConnectTimeout = TimeSpan.FromSeconds(15)
-            };
+            var handler = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateHandler();
+            handler.PooledConnectionLifetime = TimeSpan.FromMinutes(10);
+            handler.ConnectTimeout = TimeSpan.FromSeconds(15);
 
             return new HttpClient(handler)
             {

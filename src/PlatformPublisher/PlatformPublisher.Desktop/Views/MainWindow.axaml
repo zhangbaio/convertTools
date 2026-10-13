@@ -1,112 +1,98 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:PlatformPublisher.Desktop.ViewModels"
+        xmlns:tiktokViews="using:TikTokPublisher.Ui.Views"
+        xmlns:channelsViews="using:ChannelsPublisher.Desktop.Views"
+        xmlns:views="using:PlatformPublisher.Desktop.Views"
         x:Class="PlatformPublisher.Desktop.Views.MainWindow"
         Width="1496"
         Height="860"
         MinWidth="1180"
         MinHeight="720"
         Title="云帆多平台发布助手">
-    <Grid RowDefinitions="58,*,30">
-        <Border Grid.Row="0" Background="#0E2D45" BorderBrush="#28546F" BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="230,*">
-                <Border BorderBrush="#28546F" BorderThickness="0,0,1,0" Padding="18,0">
+    <Grid x:Name="ShellLayout" RowDefinitions="58,*,30">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="198" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 全局账号栏：跨越顶部品牌区和所有一级页面。 -->
+        <Grid x:Name="ExpandedGlobalSidebar"
+              Grid.Row="0"
+              Grid.RowSpan="2"
+              Grid.Column="0"
+              RowDefinitions="58,*"
+              Background="#FBFCFE">
+            <Border Grid.Row="0"
+                    Background="#FFFFFF"
+                    BorderBrush="#D8E2EC"
+                    BorderThickness="0,0,1,1"
+                    Padding="12,0,8,0">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
                     <TextBlock Text="云帆多平台发布助手"
                                VerticalAlignment="Center"
-                               FontSize="17"
-                               FontWeight="Bold" />
-                </Border>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0">
-                    <Button Classes="nav" Content="生产流水线" FontWeight="SemiBold" />
-                    <Button Classes="nav" Content="发布账号" IsEnabled="False" />
-                    <Button Classes="nav" Content="网页工具" IsEnabled="False" />
-                    <Button Classes="nav" Content="查看报告" IsEnabled="False" />
-                    <Button Classes="nav" Content="应用配置" IsEnabled="False" />
+                               FontSize="15"
+                               FontWeight="Bold"
+                               Foreground="#0B74D1"
+                               TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="1"
+                            Content="‹"
+                            Width="28"
+                            Height="30"
+                            MinHeight="30"
+                            Padding="0"
+                            FontSize="17"
+                            FontWeight="Bold"
+                            VerticalAlignment="Center"
+                            ToolTip.Tip="收起账号栏"
+                            Click="OnGlobalSidebarToggleClick" />
+                </Grid>
+            </Border>
+            <channelsViews:AccountSidebarView x:Name="GlobalAccountSidebar"
+                                              Grid.Row="1"
+                                              AccountSettingsRequested="OnGlobalAccountSettingsRequested" />
+        </Grid>
+
+        <Border x:Name="CollapsedGlobalSidebar"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Grid.Column="0"
+                IsVisible="False"
+                Background="#FBFCFE"
+                BorderBrush="#D8E2EC"
+                BorderThickness="0,0,1,0">
+            <Button Content="›"
+                    Width="30"
+                    Height="30"
+                    MinHeight="30"
+                    Margin="6,14,6,0"
+                    Padding="0"
+                    FontSize="17"
+                    FontWeight="Bold"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    ToolTip.Tip="展开账号栏"
+                    Click="OnGlobalSidebarToggleClick" />
+        </Border>
+
+        <Border Grid.Row="0" Grid.Column="1" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="0,0,0,1">
+            <Grid>
+                <StackPanel Orientation="Horizontal" Margin="10,0">
+                    <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
+                    <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
+                    <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
+                    <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
+                    <Button Classes="nav" Content="数据库" Click="OnDatabaseClick" />
+                    <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
                 </StackPanel>
             </Grid>
         </Border>
 
-        <Grid Grid.Row="1" ColumnDefinitions="230,*">
-            <Border Grid.Column="0" Background="#0E2D45" BorderBrush="#28546F" BorderThickness="0,0,1,0" Padding="12">
-                <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
-                    <StackPanel Spacing="4" Margin="4,4,4,8">
-                        <TextBlock Text="发布平台" FontWeight="SemiBold" FontSize="15" />
-                        <TextBlock Text="各平台账号和任务相互隔离"
-                                   FontSize="11"
-                                   Foreground="#8FB0C8" />
-                    </StackPanel>
-
-                    <ListBox Grid.Row="1"
-                             ItemsSource="{Binding Platforms}"
-                             SelectedItem="{Binding SelectedPlatform}"
-                             MaxHeight="210">
-                        <ListBox.Styles>
-                            <Style Selector="ListBoxItem">
-                                <Setter Property="Padding" Value="10" />
-                                <Setter Property="Margin" Value="0,0,0,6" />
-                                <Setter Property="CornerRadius" Value="7" />
-                            </Style>
-                            <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                <Setter Property="Background" Value="#17689A" />
-                            </Style>
-                        </ListBox.Styles>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:PlatformOptionViewModel">
-                                <StackPanel Spacing="3">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding Description}"
-                                               FontSize="11"
-                                               Foreground="#A9C6DD"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-
-                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="5">
-                        <TextBlock Text="账号档案" VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <Button Grid.Column="1" Padding="7,4" MinHeight="28"
-                                Command="{Binding NewAccountCommand}" Content="新增" />
-                        <Button Grid.Column="2" Padding="7,4" MinHeight="28"
-                                Command="{Binding SaveAccountCommand}" Content="保存" />
-                        <Button Grid.Column="3" Padding="7,4" MinHeight="28"
-                                Command="{Binding DeleteAccountCommand}" Content="删除" />
-                    </Grid>
-
-                    <ListBox Grid.Row="3"
-                             ItemsSource="{Binding VisibleAccounts}"
-                             SelectedItem="{Binding SelectedAccount}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="vm:PublishAccountItemViewModel">
-                                <StackPanel Spacing="3" Margin="4">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{Binding ConfigSummary}"
-                                               FontSize="11"
-                                               Foreground="#91AEC3"
-                                               TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-
-                    <Border Grid.Row="4" Classes="panel" Padding="10">
-                        <StackPanel Spacing="5">
-                            <TextBlock Text="隔离状态" FontWeight="SemiBold" />
-                            <TextBlock Text="独立程序 / 独立队列 / 独立配置"
-                                       Foreground="#61D7B0"
-                                       FontSize="11"
-                                       TextWrapping="Wrap" />
-                            <TextBlock Text="不会写入 TikTok 助手数据"
-                                       Foreground="#A9C6DD"
-                                       FontSize="11" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
-            </Border>
-
-            <Grid Grid.Column="1" Margin="16,14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
+        <Grid Grid.Row="1" Grid.Column="1">
+        <Grid x:Name="PipelinePage" Classes="platformPipeline" IsVisible="False">
+            <Grid x:Name="PipelineContent" Margin="16,14" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
                 <Border Classes="panel" Padding="14">
-                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto" RowSpacing="8" ColumnSpacing="10">
                         <TextBlock Text="任务类型" VerticalAlignment="Center" />
                         <ComboBox Grid.Column="1"
                                   ItemsSource="{Binding JobKinds}"
@@ -114,12 +100,20 @@
                             <ComboBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobKindOptionViewModel">
                                     <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding Description}" Foreground="#91AEC3" />
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="#111827" />
+                                        <TextBlock Text="{Binding Description}" Foreground="#64748B" />
                                     </StackPanel>
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+                        <Button Grid.Column="2"
+                                Content="高级发表配置"
+                                Click="OpenWeixinPublishConfig_Click"
+                                IsVisible="{Binding IsWeixinPlatform}" />
+                        <Button Grid.Column="2"
+                                Content="快手分账配置"
+                                Click="OpenKuaishouPersonalConfig_Click"
+                                IsVisible="{Binding IsKuaishouPlatform}" />
 
                         <TextBlock Grid.Row="1" Text="项目目录" VerticalAlignment="Center" />
                         <TextBox Grid.Row="1" Grid.Column="1"
@@ -127,20 +121,22 @@
                                  Watermark="剧集上传选择项目；目录发表选择包含多个素材子目录的根目录" />
                         <Button Grid.Row="1" Grid.Column="2" Click="PickProjectDirectory_Click" Content="选择目录" />
 
-                        <TextBlock Grid.Row="2" Text="视频号配置" VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="2" Text="账号配置" VerticalAlignment="Center" />
                         <TextBox Grid.Row="2" Grid.Column="1"
                                  Text="{Binding DraftConfigPath}"
-                                 Watermark="可选；目录发表会继承其中的授权文件和浏览器目录" />
+                                 IsReadOnly="True"
+                                 Watermark="可选；当前账号使用的平台配置 JSON" />
                         <Button Grid.Row="2" Grid.Column="2" Click="PickConfigFile_Click" Content="选择配置" />
 
-                        <TextBlock Grid.Row="3" Text="账号备注" VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="3" Text="当前账号" VerticalAlignment="Center" />
                         <TextBox Grid.Row="3" Grid.Column="1"
-                                 Text="{Binding DraftAccountName}"
-                                 Watermark="例如：视频号主账号" />
+                                  Text="{Binding DraftAccountName}"
+                                  IsReadOnly="True"
+                                  Watermark="请先在左侧选择全局账号" />
                         <Button Grid.Row="3" Grid.Column="2"
                                 Classes="primary"
                                 Command="{Binding AddJobCommand}"
-                                Content="加入当前平台" />
+                                Content="加入任务队列" />
 
                         <TextBlock Grid.Row="4" Text="发表选项" VerticalAlignment="Center" />
                         <WrapPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal">
@@ -165,13 +161,15 @@
                                      IsEnabled="{Binding DraftScheduleEnabled}" />
                             <TextBlock Grid.Column="2"
                                        VerticalAlignment="Center"
-                                       Foreground="#91AEC3"
+                                       Foreground="#64748B"
                                        Text="应用保持运行时，到期任务会自动顺序执行" />
                         </Grid>
 
-                        <TextBlock Grid.Row="6" Text="系统高光" VerticalAlignment="Center" />
+                        <TextBlock Grid.Row="6" Text="系统高光" VerticalAlignment="Center"
+                                   IsVisible="{Binding IsSystemHighlightKind}" />
                         <Grid Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2"
-                              ColumnDefinitions="1.2*,Auto,90,Auto,1.1*,Auto" ColumnSpacing="8">
+                              ColumnDefinitions="1.2*,Auto,90,Auto,1.1*,Auto" ColumnSpacing="8"
+                              IsVisible="{Binding IsSystemHighlightKind}">
                             <TextBox Text="{Binding DraftDramaTitle}" Watermark="剧名（系统高光任务必填）" />
                             <TextBlock Grid.Column="1" Text="数量" VerticalAlignment="Center" />
                             <TextBox Grid.Column="2" Text="{Binding DraftPublishCount}" />
@@ -184,6 +182,32 @@
                                       VerticalAlignment="Center"
                                       Content="发表后重新生成" />
                         </Grid>
+
+                        <TextBlock Grid.Row="7" Text="发表描述" VerticalAlignment="Top" Margin="0,7,0,0"
+                                   IsVisible="{Binding IsStandardMaterialKind}" />
+                        <TextBox Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2"
+                                 Text="{Binding DraftPublishDescription}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="54"
+                                 Watermark="视频号发表描述"
+                                 IsVisible="{Binding IsStandardMaterialKind}" />
+
+                        <TextBlock Grid.Row="8" Text="自选视频" VerticalAlignment="Top" Margin="0,7,0,0"
+                                   IsVisible="{Binding IsCustomVideoKind}" />
+                        <Grid Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="2"
+                              ColumnDefinitions="*,Auto" ColumnSpacing="8"
+                              IsVisible="{Binding IsCustomVideoKind}">
+                            <TextBox Text="{Binding DraftCustomVideoFilesText}"
+                                     AcceptsReturn="True"
+                                     TextWrapping="Wrap"
+                                     MinHeight="64"
+                                     Watermark="每行一个视频文件路径" />
+                            <Button Grid.Column="1"
+                                    VerticalAlignment="Top"
+                                    Click="PickCustomVideoFiles_Click"
+                                    Content="选择视频文件" />
+                        </Grid>
                     </Grid>
                 </Border>
 
@@ -191,9 +215,9 @@
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                         <StackPanel Spacing="3">
                             <TextBlock Text="{Binding SelectedPlatformCapability}"
-                                       Foreground="#8FD5FF"
+                                       Foreground="#0B74D1"
                                        FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding QueueSummary}" Foreground="#9CB8CC" FontSize="12" />
+                            <TextBlock Text="{Binding QueueSummary}" Foreground="#64748B" FontSize="12" />
                         </StackPanel>
                         <WrapPanel Grid.Column="1" Orientation="Horizontal">
                             <Button Margin="0,0,8,0"
@@ -208,6 +232,9 @@
                                     Command="{Binding RunRunnableCommand}"
                                     Content="执行当前平台待办" />
                             <Button Margin="0,0,8,0"
+                                    Command="{Binding RetryFailedCommand}"
+                                    Content="重试失败" />
+                            <Button Margin="0,0,8,0"
                                     Command="{Binding StopCommand}"
                                     Content="停止" />
                             <Button Command="{Binding RemoveSelectedCommand}"
@@ -216,24 +243,47 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Row="2" Classes="panel" ClipToBounds="True">
+                <Border Grid.Row="2"
+                        Background="#F5F3FF"
+                        BorderBrush="#C4B5FD"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="12"
+                        IsVisible="{Binding HasInteractionRequest}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{Binding InteractionTitle}" FontWeight="Bold" Foreground="#6D28D9" />
+                            <TextBlock Text="{Binding InteractionMessage}" TextWrapping="Wrap" Foreground="#4C1D95" />
+                        </StackPanel>
+                        <WrapPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Margin="0,0,8,0" Command="{Binding TakeoverInteractionCommand}" Content="人工接管" />
+                            <Button Margin="0,0,8,0" Classes="primary" Command="{Binding ResumeInteractionCommand}" Content="继续执行" />
+                            <Button Margin="0,0,8,0" Command="{Binding SkipCurrentVideoCommand}" Content="跳过当前视频" />
+                            <Button Margin="0,0,8,0" Command="{Binding SkipCurrentProjectCommand}" Content="跳过项目" />
+                            <Button Command="{Binding StopInteractionCommand}" Content="停止任务" />
+                        </WrapPanel>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="3" Classes="panel" ClipToBounds="True">
                     <Grid RowDefinitions="42,*">
-                        <Border Background="#173E5E" BorderBrush="#28546F" BorderThickness="0,0,0,1" Padding="12,0">
-                            <Grid ColumnDefinitions="130,120,1.1*,1.5*,130,100,1.8*" ColumnSpacing="12">
+                        <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="12,0">
+                            <Grid ColumnDefinitions="120,110,1.1*,1.4*,120,70,90,1.7*" ColumnSpacing="12">
                                 <TextBlock Text="平台" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="1" Text="任务类型" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="2" Text="项目" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="3" Text="目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="4" Text="计划时间" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="5" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="6" Text="当前信息" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="5" Text="尝试" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="6" Text="状态" VerticalAlignment="Center" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="7" Text="当前信息" VerticalAlignment="Center" FontWeight="SemiBold" />
                             </Grid>
                         </Border>
 
                         <ListBox Grid.Row="1"
                                  ItemsSource="{Binding VisibleJobs}"
                                  SelectedItem="{Binding SelectedJob}"
-                                 Background="#11334D"
+                                 Background="#FFFFFF"
                                  BorderThickness="0">
                             <ListBox.Styles>
                                 <Style Selector="ListBoxItem">
@@ -241,18 +291,18 @@
                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                 </Style>
                                 <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-                                    <Setter Property="Background" Value="#204F72" />
+                                    <Setter Property="Background" Value="#DCEBFF" />
                                 </Style>
                             </ListBox.Styles>
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
-                                    <Border BorderBrush="#28546F" BorderThickness="0,0,0,1" Padding="12,9">
-                                        <Grid ColumnDefinitions="130,120,1.1*,1.5*,130,100,1.8*" ColumnSpacing="12">
+                                    <Border BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="12,9">
+                                        <Grid ColumnDefinitions="120,110,1.1*,1.4*,120,70,90,1.7*" ColumnSpacing="12">
                                             <TextBlock Text="{Binding PlatformName}" VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="1" Text="{Binding KindName}" VerticalAlignment="Center" />
                                             <StackPanel Grid.Column="2" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding ProjectName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Text="{Binding AccountName}" FontSize="11" Foreground="#91AEC3" />
+                                                <TextBlock Text="{Binding AccountName}" FontSize="11" Foreground="#64748B" />
                                             </StackPanel>
                                             <TextBlock Grid.Column="3"
                                                        Text="{Binding ProjectDirectory}"
@@ -262,11 +312,14 @@
                                                        Text="{Binding ScheduleText}"
                                                        VerticalAlignment="Center" />
                                             <TextBlock Grid.Column="5"
+                                                       Text="{Binding AttemptSummary}"
+                                                       VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="6"
                                                        Text="{Binding StatusText}"
                                                        VerticalAlignment="Center"
-                                                       Foreground="#61D7B0"
+                                                       Foreground="#047857"
                                                        FontWeight="SemiBold" />
-                                            <TextBlock Grid.Column="6"
+                                            <TextBlock Grid.Column="7"
                                                        Text="{Binding StatusMessage}"
                                                        VerticalAlignment="Center"
                                                        TextWrapping="Wrap"
@@ -279,12 +332,28 @@
                     </Grid>
                 </Border>
             </Grid>
+            <views:WeixinWorkflowView x:Name="KuaishouWorkflowPage"
+                                      IsVisible="False"
+                                      IsKuaishouMode="True"
+                                      DataContext="{Binding}" />
+        </Grid>
+        <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" />
+        <views:AnalyticsView x:Name="AnalyticsPage" IsVisible="False" />
+        <TabControl x:Name="SettingsPage" Classes="secondaryTabs" IsVisible="False">
+            <TabItem Header="通用配置">
+                <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" />
+            </TabItem>
+            <TabItem Header="ADX素材服务">
+                <views:AdxSettingsView x:Name="AdxSettingsView" />
+            </TabItem>
+        </TabControl>
         </Grid>
 
-        <Border Grid.Row="2" Background="#0E2D45" BorderBrush="#28546F" BorderThickness="0,1,0,0" Padding="12,0">
+        <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">
             <TextBlock Text="{Binding StatusMessage}"
                        VerticalAlignment="Center"
                        FontSize="12"
+                       Foreground="#475569"
                        TextTrimming="CharacterEllipsis" />
         </Border>
     </Grid>

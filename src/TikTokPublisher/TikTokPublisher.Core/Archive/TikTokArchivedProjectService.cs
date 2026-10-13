@@ -99,6 +99,40 @@ public static partial class TikTokArchivedProjectService
         return SortItems(BackfillQueuedAtFromQueueState(workspaceRoot, databaseItems));
     }
 
+    /// <summary>
+    /// 只读取归档剧名，不回写归档索引。目录里的条目优先，读不到数据库时仍返回文件结果。
+    /// </summary>
+    public static IReadOnlyList<ArchivedProjectItem> ListForNewTitleCheck(string workspaceRoot, string? archiveRootDir = null)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return Array.Empty<ArchivedProjectItem>();
+
+        var archiveRoot = ResolveArchiveRoot(workspaceRoot, archiveRootDir);
+        var fileItems = new List<ArchivedProjectItem>();
+        if (Directory.Exists(archiveRoot))
+        {
+            fileItems.AddRange(ListMetaLayout(archiveRoot));
+            fileItems.AddRange(ListLegacyProjectLayout(archiveRoot, fileItems));
+        }
+
+        IReadOnlyList<ArchivedProjectItem> databaseItems;
+        try
+        {
+            databaseItems = LoadArchiveProjectsFromDatabase(workspaceRoot)
+                .Where(item => ItemBelongsToArchiveRoot(item, archiveRoot))
+                .ToArray();
+        }
+        catch
+        {
+            databaseItems = Array.Empty<ArchivedProjectItem>();
+        }
+
+        if (fileItems.Count == 0)
+            return databaseItems;
+
+        return MergeArchiveItems(fileItems, databaseItems);
+    }
+
     public static async Task ArchiveQueueProjectAsync(
         string workspaceRoot,
         string projectDir,

@@ -42,6 +42,8 @@ public sealed class QueueProjectItem
     public string OriginalTitle { get; set; } = "";
     public string NewTitle { get; set; } = "";
     public int EpisodeCount { get; set; }
+    /// <summary>入队时源站真实集数。超过上传截取上限时大于 <see cref="EpisodeCount"/>。</summary>
+    public int SourceEpisodeCount { get; set; }
     /// <summary>视频方向：1=竖屏，0=横屏，-1=未知。</summary>
     public int VideoVertical { get; set; } = -1;
     public string GenreCategory { get; set; } = "";
@@ -226,6 +228,7 @@ public sealed class QueueProjectItem
             ["original_title"] = OriginalTitle,
             ["new_title"] = NewTitle,
             ["episode_count"] = EpisodeCount,
+            ["source_episode_count"] = SourceEpisodeCount,
             ["video_vertical"] = VideoVertical,
             ["genre_category"] = GenreCategory,
             ["description"] = Description,
@@ -257,6 +260,7 @@ public sealed class QueueProjectItem
             OriginalTitle = GetString(payload, "original_title"),
             NewTitle = GetString(payload, "new_title"),
             EpisodeCount = GetInt(payload, "episode_count"),
+            SourceEpisodeCount = GetInt(payload, "source_episode_count"),
             VideoVertical = NormalizeVideoVertical(GetInt(payload, "video_vertical", -1)),
             GenreCategory = GetString(payload, "genre_category"),
             Description = GetString(payload, "description"),

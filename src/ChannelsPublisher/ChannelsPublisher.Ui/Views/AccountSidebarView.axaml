@@ -1,0 +1,71 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ChannelsPublisher.Desktop.ViewModels"
+             x:Class="ChannelsPublisher.Desktop.Views.AccountSidebarView"
+             x:DataType="vm:MainViewModel">
+
+    <Border x:Name="SidebarFrame"
+            Background="#FBFCFE"
+            BorderBrush="#D9E2EC"
+            BorderThickness="1"
+            CornerRadius="8"
+            ClipToBounds="True">
+        <DockPanel>
+            <Border DockPanel.Dock="Top"
+                    Padding="10,9"
+                    Background="#FFFFFF"
+                    BorderBrush="#D9E2EC"
+                    BorderThickness="0,0,0,1">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="发布账号" FontWeight="SemiBold" />
+                    <WrapPanel Orientation="Horizontal">
+                        <Button Content="添加账号"
+                                Command="{Binding AddAccountCommand}"
+                                Classes="sidebarPrimaryAction"
+                                Margin="0,0,6,6" />
+                        <Button Content="账号设置"
+                                Click="OnAccountSettingsClick"
+                                Classes="secondaryAction"
+                                Margin="0,0,6,6" />
+                        <Button Content="删除"
+                                Command="{Binding RemoveAccountCommand}"
+                                Classes="dangerAction"
+                                Margin="0,0,6,6" />
+                    </WrapPanel>
+                </StackPanel>
+            </Border>
+
+            <ListBox ItemsSource="{Binding Accounts}"
+                     SelectedItem="{Binding SelectedAccount, Mode=TwoWay}"
+                     VerticalAlignment="Stretch"
+                     Background="Transparent"
+                     BorderThickness="0">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="6" />
+                        <Setter Property="Margin" Value="4,2" />
+                        <Setter Property="CornerRadius" Value="6" />
+                    </Style>
+                    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                        <Setter Property="Background" Value="#DCEBFF" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:AccountItemViewModel">
+                        <StackPanel Margin="4,6" Spacing="2">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="#0B74D1" />
+                                <TextBlock Text="{Binding Id}" FontSize="11" Foreground="#64748B" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding PlatformSummary}"
+                                       FontSize="10"
+                                       Foreground="#64748B"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+    </Border>
+</UserControl>

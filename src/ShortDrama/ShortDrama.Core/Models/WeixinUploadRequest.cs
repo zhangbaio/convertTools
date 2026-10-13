@@ -5,7 +5,16 @@ public sealed record WeixinUploadRequest(
     string ProjectDir,
     string DisplayName,
     string? ConfigPath,
-    string? ConfigName);
+    string? ConfigName)
+{
+    public Action<WeixinMaterialPublishItemResult>? MaterialItemCompleted { get; init; }
+}
+
+public sealed record WeixinMaterialPublishItemResult(
+    string VideoPath,
+    string Status,
+    string Message,
+    DateTimeOffset CompletedAt);
 
 public sealed record WeixinUploadResult(
     bool Ok,

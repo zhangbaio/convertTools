@@ -136,6 +136,15 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
     };
     private const int MaxAiAttempts = 2;
     private const double SynopsisSimilarityThreshold = 0.86;
+    internal const int SynopsisPreferredMinLength = 100;
+    internal const int SynopsisPreferredMaxLength = 300;
+    internal const int SynopsisAbsoluteMaxLength = 1500;
+    private const string SynopsisSystemPrompt = """
+        你是短剧简介改写助手。只改写简介，不要改剧名，不要输出推荐语或标签。
+        简介写成 100 到 300 个字。只输出 JSON，不要解释，不要 Markdown。
+        """;
+    private const string SynopsisLengthFallbackText =
+        "主角被迫跌入低谷，却在误解和危机中抓住转机，凭借智慧与韧劲一步步翻盘，揭开真相后重掌人生主动权。故事节奏紧凑，情绪反转不断，人物关系层层推进，她把每一次冷眼都变成站稳脚跟的理由，适合短剧平台连续追看。";
 
     private readonly IProjectInfoParser _projectInfoParser;
     private readonly HttpClient _httpClient;
@@ -166,6 +175,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var batchPrompt = GetOptional(config, "AiTextBatchPrompt") ?? DefaultAiTextBatchPrompt;
         var retryPrompt = GetOptional(config, "AiTextRetryPrompt") ?? DefaultAiTextRetryPrompt;
         var timeoutSeconds = GetOptionalInt(config, "AiTextTimeoutSeconds") ?? 120;
+        var titleTemperature = GetOptionalDouble(config, "AiNewTitleTemperature") ?? 0.75;
+        var synopsisTemperature = GetOptionalDouble(config, "AiSynopsisTemperature") ?? 0.75;
         var rewriteSynopsis = GetOptionalBool(config, "AiRewriteSynopsis") ?? false;
 
         if (File.Exists(request.OutputFilePath) && !request.Overwrite)
@@ -187,15 +198,32 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             batchPrompt,
             retryPrompt,
             timeoutSeconds,
+            titleTemperature,
             project,
             canonicalOriginalTitle,
             request,
-            rewriteSynopsis,
+            rewriteSynopsis: false,
             cancellationToken);
+        if (rewriteSynopsis)
+        {
+            var synopsis = await RewriteSynopsisWithRetryAsync(
+                endpoint,
+                modelId,
+                apiKey,
+                timeoutSeconds,
+                synopsisTemperature,
+                project,
+                canonicalOriginalTitle,
+                normalized.Title,
+                request,
+                cancellationToken);
+            normalized = normalized with { Synopsis = synopsis };
+        }
+        var preservedFields = ReadPreservedFields(request.OutputFilePath);
 
         await File.WriteAllTextAsync(
             request.OutputFilePath,
-            BuildOutputText(project with { OriginalTitle = canonicalOriginalTitle }, normalized.Title, normalized.Tagline, normalized.Synopsis),
+            BuildOutputText(project with { OriginalTitle = canonicalOriginalTitle }, normalized.Title, normalized.Tagline, normalized.Synopsis, preservedFields),
             Encoding.UTF8,
             cancellationToken);
 
@@ -212,6 +240,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var canonicalOriginalTitle = ResolveCanonicalOriginalTitle(project);
         var forbiddenTitles = UniqueTexts(request.ForbiddenTitles);
         var forbiddenSynopses = UniqueTexts(request.ForbiddenSynopses);
+        var occupiedExactTitles = UniqueTexts(request.OccupiedExactTitles);
         var projectName = FirstNonEmpty(Path.GetFileName(project.ProjectDir), project.Title, canonicalOriginalTitle) ?? canonicalOriginalTitle;
         projectName = projectName.TrimStart('_');
         var existingTitle = FirstNonEmpty(project.Title, canonicalOriginalTitle, projectName) ?? canonicalOriginalTitle;
@@ -233,6 +262,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                     rewrite_synopsis = rewriteSynopsis,
                     forbidden_titles = forbiddenTitles,
                     forbidden_synopses = rewriteSynopsis ? forbiddenSynopses : Array.Empty<string>(),
+                    occupied_exact_titles = occupiedExactTitles,
                     target_synopsis_length = rewriteSynopsis ? Math.Max(0, request.TargetSynopsisLength) : 0,
                     rewrite_variant_key = request.RewriteVariantKey ?? string.Empty,
                     episode_count = project.EpisodeCount,
@@ -261,22 +291,51 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 最终 JSON 只需要 title/new_title 和 tagline；如果返回 items 数组，每个 item 也只需要这些字段。
 """;
 
+        if (occupiedExactTitles.Count > 0)
+        {
+            template += """
+
+以下剧名已被当前账号占用。去掉空格和书名号后，与 occupied_exact_titles 完全相同的新剧名不能使用，请另起一个不同的名字。只是读起来相近、文字并不相同的名字可以使用。
+""";
+        }
+
         return template.Replace("{items_json}", itemsJson, StringComparison.Ordinal);
     }
 
-    private static string BuildOutputText(ProjectInfo project, string title, string tagline, string synopsis)
+    private static string BuildOutputText(
+        ProjectInfo project,
+        string title,
+        string tagline,
+        string synopsis,
+        IReadOnlyDictionary<string, string> preservedFields)
     {
         var originalTitleLine = string.IsNullOrWhiteSpace(project.OriginalTitle)
             ? string.Empty
             : $"原剧名: {project.OriginalTitle}\n";
 
-        return
+        var text =
             $"{originalTitleLine}" +
             $"新剧名: {title}\n" +
             $"推荐语: {tagline}\n" +
             $"简介: {synopsis}\n" +
             $"集数: {project.EpisodeCount}\n" +
             $"制作公司: {project.CompanyName}\n";
+        foreach (var key in new[] { "短标题", "标签", "时长", "成本" })
+            if (preservedFields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+                text += $"{key}: {value.Trim()}\n";
+        return text;
+    }
+
+    private static IReadOnlyDictionary<string, string> ReadPreservedFields(string path)
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!File.Exists(path)) return result;
+        foreach (var line in File.ReadLines(path))
+        {
+            var index = line.IndexOfAny([':', '：']);
+            if (index > 0) result[line[..index].Trim()] = line[(index + 1)..].Trim();
+        }
+        return result;
     }
 
     private async Task<NormalizedRewrite> RewriteWithRetryAsync(
@@ -287,6 +346,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string batchPrompt,
         string retryPromptTemplate,
         int timeoutSeconds,
+        double titleTemperature,
         ProjectInfo project,
         string canonicalOriginalTitle,
         ProjectInfoRewriteRequest request,
@@ -310,6 +370,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 systemPrompt,
                 prompt,
                 timeoutSeconds,
+                titleTemperature,
                 cancellationToken);
 
             NormalizedRewrite normalized;
@@ -350,6 +411,126 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             $"改写结果生成失败，已重试 {MaxAiAttempts} 次仍未通过。最近一次错误：{lastFailureMessage ?? "未知错误"}；最近一次新剧名：{previousBadTitle ?? "无"}");
     }
 
+    private async Task<string> RewriteSynopsisWithRetryAsync(
+        string endpoint,
+        string modelId,
+        string apiKey,
+        int timeoutSeconds,
+        double synopsisTemperature,
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        string newTitle,
+        ProjectInfoRewriteRequest request,
+        CancellationToken cancellationToken)
+    {
+        string? lastFailure = null;
+        string? fallbackSynopsis = null;
+        for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
+        {
+            var rewrite = await RequestRewritePayloadAsync(
+                endpoint,
+                modelId,
+                apiKey,
+                SynopsisSystemPrompt,
+                BuildSynopsisPrompt(project, canonicalOriginalTitle, newTitle, request, lastFailure),
+                timeoutSeconds,
+                synopsisTemperature,
+                cancellationToken);
+            var rawSynopsis = FirstNonEmpty(rewrite.Synopsis, rewrite.Description, rewrite.简介);
+            if (string.IsNullOrWhiteSpace(rawSynopsis))
+            {
+                lastFailure = "改写结果缺少简介。请写成 100 到 300 字。";
+                continue;
+            }
+
+            var synopsis = FitSynopsisToAbsoluteMax(NormalizeGeneratedText(
+                project,
+                canonicalOriginalTitle,
+                newTitle,
+                newTitle,
+                rawSynopsis));
+            var length = synopsis.Length;
+            if (HasForbiddenSynopsis(synopsis, request.ForbiddenSynopses))
+            {
+                lastFailure = $"上一版 {length} 字，但与历史或原简介过于相似。请换一种叙述，并写成 100 到 300 字。";
+                continue;
+            }
+
+            if (length >= SynopsisPreferredMinLength && length <= SynopsisPreferredMaxLength)
+                return synopsis;
+
+            if (length > SynopsisPreferredMaxLength)
+            {
+                fallbackSynopsis = synopsis;
+                lastFailure = $"上一版 {length} 字，请删到 300 字以内。";
+                continue;
+            }
+
+            lastFailure = $"上一版 {length} 字，请补到 100 字以上，并写成 100 到 300 字。";
+        }
+
+        if (!string.IsNullOrWhiteSpace(fallbackSynopsis))
+        {
+            _logger.LogWarning(
+                "AI synopsis stayed outside 100-300 characters and was kept as a fallback under 1500. Length: {Length}",
+                fallbackSynopsis.Length);
+            return fallbackSynopsis;
+        }
+
+        var recovered = ResolveShortSynopsisFallback(project);
+        _logger.LogWarning(
+            "AI synopsis stayed under 100 characters. Kept the new title and restored a usable synopsis of {Length} characters.",
+            recovered.Length);
+        return recovered;
+    }
+
+    private static string BuildSynopsisPrompt(
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        string newTitle,
+        ProjectInfoRewriteRequest request,
+        string? previousFailure)
+    {
+        var sourceSynopsis = FirstNonEmpty(project.Synopsis, "待补充简介。") ?? "待补充简介。";
+        var forbidden = UniqueTexts(request.ForbiddenSynopses);
+        var forbiddenHint = forbidden.Count == 0
+            ? ""
+            : "\n不要与这些简介过于相似：\n" + string.Join("\n", forbidden.Select(item => "- " + item));
+        var retryHint = string.IsNullOrWhiteSpace(previousFailure)
+            ? ""
+            : $"\n上一次未通过：{previousFailure}";
+        return $"""
+            请只改写这部短剧的简介，不要改剧名，也不要输出推荐语。
+            新剧名：{newTitle}
+            原剧名：{canonicalOriginalTitle}
+            原简介：{sourceSynopsis}
+            写成 100 到 300 字。
+            简介要贴合新剧名，保留原故事核心，换一种叙述。{forbiddenHint}{retryHint}
+            只返回一个 JSON 对象，字段名为 synopsis，内容是改写后的简介。
+            """;
+    }
+
+    internal static string FitSynopsisToAbsoluteMax(string text)
+    {
+        var value = (text ?? string.Empty).Trim();
+        if (value.Length <= SynopsisAbsoluteMaxLength)
+            return value;
+
+        var slice = value[..SynopsisAbsoluteMaxLength];
+        var boundary = slice.LastIndexOfAny(['。', '！', '？', '；']);
+        if (boundary + 1 >= SynopsisPreferredMinLength)
+            return slice[..(boundary + 1)].Trim();
+        return slice.Trim();
+    }
+
+    private static string ResolveShortSynopsisFallback(ProjectInfo project)
+    {
+        var original = FitSynopsisToAbsoluteMax(PreserveSourceSynopsis(project));
+        return original.Length >= SynopsisPreferredMinLength
+            ? original
+            : SynopsisLengthFallbackText;
+    }
+
     private async Task<RewritePayload> RequestRewritePayloadAsync(
         string endpoint,
         string modelId,
@@ -357,6 +538,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string systemPrompt,
         string prompt,
         int timeoutSeconds,
+        double titleTemperature,
         CancellationToken cancellationToken)
     {
         var messages = new List<object>();
@@ -378,7 +560,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var payload = new
         {
             model = modelId,
-            temperature = 0.75,
+            temperature = Math.Clamp(titleTemperature, 0, 2),
             messages
         };
 
@@ -506,6 +688,11 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             issues.Add("新剧名与历史/禁用标题重复或过于相似");
         }
 
+        if (HasExactOccupiedTitle(rewrite.Title, request.OccupiedExactTitles))
+        {
+            issues.Add("新剧名与已占用剧名完全相同");
+        }
+
         if (!IsReasonableTaglineLength(rewrite.Tagline))
         {
             issues.Add("推荐语字数不在 8-20 字范围内");
@@ -519,7 +706,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 
         if (rewriteSynopsis)
         {
-            issues.AddRange(GetSynopsisIssues(rewrite.Synopsis, request));
+            issues.AddRange(GetSynopsisIssues(rewrite.Synopsis));
 
             if (HasForbiddenSynopsis(rewrite.Synopsis, request.ForbiddenSynopses))
             {
@@ -568,7 +755,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             IsLazyRetitle(title, canonicalOriginalTitle) ||
             !IsReasonableTitleLength(title) ||
             !string.IsNullOrWhiteSpace(ValidateTitleSafety(title)) ||
-            HasForbiddenTitle(title, request.ForbiddenTitles))
+            HasForbiddenTitle(title, request.ForbiddenTitles) ||
+            HasExactOccupiedTitle(title, request.OccupiedExactTitles))
         {
             return false;
         }
@@ -593,20 +781,14 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         if (!string.IsNullOrWhiteSpace(synopsis))
         {
             synopsis = NormalizeGeneratedText(project, canonicalOriginalTitle, title, title, synopsis);
-            if (GetSynopsisIssues(synopsis, request).Count == 0 &&
+            if (GetSynopsisIssues(synopsis).Count == 0 &&
                 !HasForbiddenSynopsis(synopsis, request.ForbiddenSynopses))
             {
                 return synopsis;
             }
         }
 
-        var fallback = $"主角被迫跌入低谷，却在误解和危机中抓住转机，凭借智慧与韧劲一步步翻盘，揭开真相后重掌人生主动权。";
-        if (request.TargetSynopsisLength > 0 && fallback.Length < Math.Max(40, (int)Math.Floor(request.TargetSynopsisLength * 0.75d)))
-        {
-            fallback += "故事节奏紧凑，情绪反转不断，适合短剧平台连续追看。";
-        }
-
-        return fallback;
+        return SynopsisLengthFallbackText;
     }
 
     private static string BuildFallbackTagline(
@@ -667,6 +849,14 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
     private static int? GetOptionalInt(IReadOnlyDictionary<string, string> config, string key)
     {
         return config.TryGetValue(key, out var value) && int.TryParse(value, out var parsed) && parsed > 0
+            ? parsed
+            : null;
+    }
+
+    private static double? GetOptionalDouble(IReadOnlyDictionary<string, string> config, string key)
+    {
+        return config.TryGetValue(key, out var value) &&
+               double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
     }
@@ -928,6 +1118,19 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return output;
     }
 
+    private static bool HasExactOccupiedTitle(string title, IEnumerable<string>? occupiedTitles)
+    {
+        foreach (var occupied in UniqueTexts(occupiedTitles))
+        {
+            if (TitlesEqual(title, occupied))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private static bool HasForbiddenTitle(string title, IEnumerable<string>? forbiddenTitles)
     {
         foreach (var forbidden in UniqueTexts(forbiddenTitles))
@@ -1067,7 +1270,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return length is >= 8 and <= 20;
     }
 
-    private static IReadOnlyList<string> GetSynopsisIssues(string synopsis, ProjectInfoRewriteRequest request)
+    private static IReadOnlyList<string> GetSynopsisIssues(string synopsis)
     {
         var text = (synopsis ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(text))
@@ -1075,23 +1278,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             return ["缺少简介"];
         }
 
-        var target = Math.Max(0, request.TargetSynopsisLength);
-        var length = text.Length;
-        if (target > 0)
-        {
-            var lower = Math.Max(40, (int)Math.Floor(target * 0.75d));
-            var upper = Math.Min(220, Math.Max(lower, (int)Math.Floor(target * 1.25d) + 5));
-            if (length < lower || length > upper)
-            {
-                return [$"简介字数与原简介差距过大，目标约 {target} 字"];
-            }
-
-            return [];
-        }
-
-        return length is >= 40 and <= 220
-            ? []
-            : ["简介字数不在 40-220 字范围内"];
+        var fitted = FitSynopsisToAbsoluteMax(text);
+        if (fitted.Length < SynopsisPreferredMinLength)
+            return [$"简介不足 {SynopsisPreferredMinLength} 字，当前 {fitted.Length} 字"];
+        return [];
     }
 
     private static string ValidateTitleSafety(string value)

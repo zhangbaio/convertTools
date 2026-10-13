@@ -24,6 +24,7 @@ public static class TikTokSourceVideoCleanupService
         ct.ThrowIfCancellationRequested();
         var source = Path.GetFullPath(sourceProjectDir);
         var workflow = Path.GetFullPath(workflowProjectDir);
+        OverLimitEpisodePolicy.EnsureTruncated(source, log: log);
         var sourceVideoPaths = CollectSourceVideoPaths(source);
         if (sourceVideoPaths.Count == 0)
         {
@@ -41,11 +42,14 @@ public static class TikTokSourceVideoCleanupService
             ct);
 
         var uploadVideoPaths = payload.UploadPaths.ToList();
-        var expectedCount = Math.Max(sourceVideoPaths.Count, payload.SourcePaths.Count);
-        if (uploadVideoPaths.Count < sourceVideoPaths.Count)
+        var keptSourcePaths = OverLimitEpisodePolicy.TryReadKeepCount(source, out _)
+            ? ProjectVideoResolver.ResolveSourceVideos(source, allowStagedFallback: false).ToList()
+            : sourceVideoPaths;
+        var expectedCount = Math.Max(keptSourcePaths.Count, payload.SourcePaths.Count);
+        if (uploadVideoPaths.Count < keptSourcePaths.Count)
         {
             ct.ThrowIfCancellationRequested();
-            log?.Invoke($"上传副本不足（{uploadVideoPaths.Count}/{sourceVideoPaths.Count}），用现有源视频重建上传副本…");
+            log?.Invoke($"上传副本不足（{uploadVideoPaths.Count}/{keptSourcePaths.Count}），用现有源视频重建上传副本…");
             payload = TikTokUploadStagingService.BuildPayload(
                 source,
                 title,
@@ -57,11 +61,18 @@ public static class TikTokSourceVideoCleanupService
             uploadVideoPaths = payload.UploadPaths.ToList();
         }
 
-        // 以「短剧信息」声明的总集数为准（下载缺集时源文件数会小于声明集数）。
-        var declaredCount = 0;
-        try { declaredCount = TikTokPublisher.Core.Queue.ProjectWorkspaceService.ResolveSourceEpisodeCount(source); }
-        catch { /* 信息文件缺失时按文件数校验 */ }
-        expectedCount = Math.Max(expectedCount, declaredCount);
+        // 超长剧只要求前 N 集的上传副本。多出来的源视频会在下面一并删除。
+        if (keptSourcePaths.Count > 0 && keptSourcePaths.Count < sourceVideoPaths.Count)
+        {
+            expectedCount = keptSourcePaths.Count;
+        }
+        else
+        {
+            var declaredCount = 0;
+            try { declaredCount = TikTokPublisher.Core.Queue.ProjectWorkspaceService.ResolveSourceEpisodeCount(source); }
+            catch { /* 信息文件缺失时按文件数校验 */ }
+            expectedCount = Math.Max(expectedCount, declaredCount);
+        }
 
         if (uploadVideoPaths.Count < expectedCount)
         {

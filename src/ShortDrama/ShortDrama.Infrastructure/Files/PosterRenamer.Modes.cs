@@ -38,7 +38,8 @@ public sealed partial class PosterRenamer
     标题必须逐字准确，不得漏字、错字、换字、增字或重复。
     """;
 
-    private readonly PosterTitleVerificationService _titleVerifier = new(new HttpClient { Timeout = TimeSpan.FromMinutes(2) });
+    private readonly PosterTitleVerificationService _titleVerifier = new(
+        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(2)));
 
     private static void Log(PosterRenameRequest request, string message) => request.Log?.Invoke(message);
 
@@ -74,6 +75,7 @@ public sealed partial class PosterRenamer
                 configFile,
                 outputPath,
                 title,
+                request.Log,
                 cancellationToken).ConfigureAwait(false);
             Log(request, "已基于AI首图重新识别实际标题位置。");
         }
@@ -84,7 +86,7 @@ public sealed partial class PosterRenamer
         }
 
         var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
-        var verifyResult = await VerifyTitleWithFullImageConfirmationAsync(
+        var verifyResult = await VerifyGeneratedTitleAsync(
             config,
             outputPath,
             title,
@@ -111,7 +113,7 @@ public sealed partial class PosterRenamer
         {
             if (PosterTitleVerifyModeHelper.ShouldRepaintInconclusive(verifyMode))
             {
-                Log(request, $"AI标题校验无法确认，按兜底模式进入AI去字+PIL确定性重绘：{verifyResult.Reason}");
+                Log(request, $"标题校验没有确定结果，改为去字后重绘：{verifyResult.Reason}");
                 await FallbackRepaintVerifiedTitleAsync(
                     config,
                     outputPath,
@@ -132,7 +134,7 @@ public sealed partial class PosterRenamer
 
         if (verifyMode == "fallback_repaint")
         {
-            Log(request, $"AI标题校验未通过，改用AI去字+PIL固定模板绘制：{verifyResult.Reason}");
+            Log(request, $"标题校验发现差异，改为去字后重绘：{verifyResult.Reason}");
             await FallbackRepaintVerifiedTitleAsync(
                 config,
                 outputPath,
@@ -204,7 +206,7 @@ public sealed partial class PosterRenamer
                 }
 
                 verifyResult = secondVerify;
-                Log(request, $"Image2 重生成后二次校验未通过，改用AI去字+PIL重绘兜底：{secondVerify.Reason}");
+                Log(request, $"标题校验在 Image2 重生成后仍有差异，改为去字后重绘：{secondVerify.Reason}");
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -228,7 +230,7 @@ public sealed partial class PosterRenamer
         var renderInputPath = await PrepareRenderableInputAsync(inputPath, cancellationToken);
         try
         {
-            var layout = await DetectPosterLayoutAsync(configFile, renderInputPath, title, cancellationToken);
+            var layout = await DetectPosterLayoutAsync(configFile, renderInputPath, title, request.Log, cancellationToken);
             await WriteGeneratedPosterCandidateAsync(renderInputPath, await File.ReadAllBytesAsync(renderInputPath, cancellationToken), outputPath, cancellationToken);
             var config = KeyValueConfigReader.Read(configFile);
             var verifyEnabled = IsPosterTitleVerifyEnabled(config);
@@ -289,8 +291,8 @@ public sealed partial class PosterRenamer
             if (!IsPosterTitleVerifyEnabled(config))
                 return;
 
-            var layout = await DetectPosterLayoutAsync(configFile, outputPath, title, cancellationToken);
-            var verifyResult = await VerifyTitleWithFullImageConfirmationAsync(
+            var layout = await DetectPosterLayoutAsync(configFile, outputPath, title, request.Log, cancellationToken);
+            var verifyResult = await VerifyGeneratedTitleAsync(
                 config,
                 outputPath,
                 title,
@@ -308,7 +310,7 @@ public sealed partial class PosterRenamer
             {
                 if (PosterTitleVerifyModeHelper.ShouldRepaintInconclusive(verifyMode))
                 {
-                    Log(request, $"AI封面标题校验无法确认，按兜底模式进入AI去字+PIL确定性重绘：{verifyResult.Reason}");
+                    Log(request, $"标题校验没有确定结果，改为去字后重绘：{verifyResult.Reason}");
                     await FallbackRepaintVerifiedTitleAsync(
                         config,
                         outputPath,
@@ -424,17 +426,19 @@ public sealed partial class PosterRenamer
         bool verifyEnabled = true,
         bool throwOnResidual = true)
     {
-        Log(request, "标题全图复核确认需要修复，开始AI去字+PIL确定性重绘。");
+        Log(request, "开始去字后重绘标题。");
         var outputDirectory = Path.GetDirectoryName(outputPath)!;
         var candidateSnapshotKind = forceFullTextCleanup ? "source_before_cleanup" : "failed_ai_candidate";
-        var candidateSnapshotPath = Path.Combine(
-            outputDirectory,
-            forceFullTextCleanup ? "海报处理_去字前原图.png" : "海报处理_AI失败.png");
-        var obsoleteDiagnosticPath = Path.Combine(
-            outputDirectory,
-            forceFullTextCleanup ? "海报处理_AI失败.png" : "海报处理_去字前原图.png");
-        if (File.Exists(obsoleteDiagnosticPath))
-            File.Delete(obsoleteDiagnosticPath);
+        var candidateSnapshotName = forceFullTextCleanup ? "海报处理_去字前原图.png" : "海报处理_修图前.png";
+        var candidateSnapshotPath = Path.Combine(outputDirectory, candidateSnapshotName);
+        foreach (var obsoleteName in new[] { "海报处理_AI失败.png", "海报处理_去字前原图.png", "海报处理_修图前.png" })
+        {
+            if (string.Equals(obsoleteName, candidateSnapshotName, StringComparison.Ordinal))
+                continue;
+            var obsoleteDiagnosticPath = Path.Combine(outputDirectory, obsoleteName);
+            if (File.Exists(obsoleteDiagnosticPath))
+                File.Delete(obsoleteDiagnosticPath);
+        }
         var titleMaskPath = Path.Combine(
             outputDirectory,
             "海报处理_标题遮罩.png");
@@ -450,8 +454,8 @@ public sealed partial class PosterRenamer
             using (var candidateSnapshot = await Image.LoadAsync<Rgba32>(outputPath, cancellationToken).ConfigureAwait(false))
                 await candidateSnapshot.SaveAsPngAsync(candidateSnapshotPath, cancellationToken).ConfigureAwait(false);
             Log(request, forceFullTextCleanup
-                ? $"已保留去字前原图用于诊断：{Path.GetFileName(candidateSnapshotPath)}"
-                : $"已保留AI失败候选用于诊断：{Path.GetFileName(candidateSnapshotPath)}");
+                ? $"标题校验已保留去字前原图供对照：{Path.GetFileName(candidateSnapshotPath)}"
+                : $"标题校验已保留修图前的AI海报供对照：{Path.GetFileName(candidateSnapshotPath)}");
 
             var maskBytes = await CreateTitleMaskAsync(outputPath, layout, cancellationToken).ConfigureAwait(false);
             if (maskBytes is not null)
@@ -462,7 +466,7 @@ public sealed partial class PosterRenamer
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Log(request, $"保留标题校验失败候选时出错，继续执行兜底：{ex.Message}");
+            Log(request, $"保留修图前海报失败，继续去字后重绘：{ex.Message}");
         }
 
         await SavePosterTitleVerifyDebugAsync(
@@ -626,6 +630,30 @@ public sealed partial class PosterRenamer
         }
     }
 
+    private async Task<PosterTitleVerifyResult> VerifyGeneratedTitleAsync(
+        IReadOnlyDictionary<string, string> config,
+        string imagePath,
+        string title,
+        PosterLayout detectedLayout,
+        PosterRenameRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await VerifyTitleWithFullImageConfirmationAsync(
+            config, imagePath, title, detectedLayout, request, cancellationToken).ConfigureAwait(false);
+        if (!IsTitleVerifyInterfaceFailure(result))
+            return result;
+
+        Log(request, $"标题校验接口没有返回结果，重新校验一次：{result.Reason}");
+        return await VerifyTitleWithFullImageConfirmationAsync(
+            config, imagePath, title, detectedLayout, request, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static bool IsTitleVerifyInterfaceFailure(PosterTitleVerifyResult result) =>
+        result.IsInconclusive &&
+        !result.HasResidualText &&
+        (result.Reason ?? "") is var reason &&
+        (reason.Contains("接口", StringComparison.Ordinal) || reason.Contains("未返回", StringComparison.Ordinal));
+
     private async Task<PosterTitleVerifyResult> VerifyTitleWithFullImageConfirmationAsync(
         IReadOnlyDictionary<string, string> config,
         string imagePath,
@@ -647,8 +675,8 @@ public sealed partial class PosterRenamer
         else
         {
             Log(request, croppedVerify.IsInconclusive
-                ? "标题区域校验暂未得到确定结果，改用全图复核。"
-                : "标题区域校验发现文字差异，开始全图复核。");
+                ? $"标题区域校验暂未得到确定结果，改用全图复核：{croppedVerify.Reason}"
+                : $"标题区域校验发现文字差异，开始全图复核：{croppedVerify.Reason}");
         }
 
         var fullImageLayout = detectedLayout with
@@ -676,8 +704,8 @@ public sealed partial class PosterRenamer
             Log(request, verifyResult.HasResidualText
                 ? $"海报检测到目标剧名外的残留文字：{(string.IsNullOrWhiteSpace(verifyResult.ResidualText) ? verifyResult.Reason : verifyResult.ResidualText)}"
                 : verifyResult.IsInconclusive
-                    ? "标题全图复核暂未得到确定结果。"
-                    : "标题全图复核确认文字需要修复。");
+                    ? $"标题全图复核暂未得到确定结果：{verifyResult.Reason}"
+                    : $"标题全图复核确认文字需要修复：{verifyResult.Reason}");
         }
 
         return verifyResult;

@@ -308,6 +308,9 @@ public static class ProjectWorkspaceService
         var context = LoadContext(projectDir);
         var candidates = new List<int>();
 
+        if (OverLimitEpisodePolicy.TryReadKeepCount(context.SourceProjectDir, out var keptCount))
+            return keptCount;
+
         // A successful download is the authoritative description of the usable
         // episode set. Search/detail metadata can be stale (for example, a title
         // may advertise 68 episodes while its current directory exposes 37).
@@ -423,6 +426,7 @@ public static class ProjectWorkspaceService
     public static void RefreshQueueItemMetadata(QueueProjectItem item)
     {
         if (string.IsNullOrWhiteSpace(item.ProjectDir)) return;
+        OverLimitEpisodePolicy.EnsureTruncated(item.ProjectDir);
         var project = WorkspaceProjectScanner.BuildProject(item.ProjectDir);
         item.DisplayName = FirstNonEmpty(project.DisplayName, item.DisplayName, Path.GetFileName(item.ProjectDir));
         item.OriginalTitle = FirstNonEmpty(project.OriginalTitle, item.OriginalTitle);

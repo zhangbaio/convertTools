@@ -3,6 +3,7 @@ using ShortDrama.Core.Interfaces;
 using ShortDrama.Infrastructure.AI;
 using ShortDrama.Infrastructure.Files;
 using ShortDrama.Infrastructure.Imaging;
+using ShortDrama.Infrastructure.Networking;
 using ShortDrama.Infrastructure.Parsing;
 using ShortDrama.Infrastructure.Process;
 
@@ -20,7 +21,7 @@ internal static class QueueInfrastructureServices
 
     private static IProjectInfoRewriter CreateProjectInfoRewriter()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var http = PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
         return new ProjectInfoRewriter(
             new TxtProjectInfoParser(),
             http,
@@ -29,7 +30,7 @@ internal static class QueueInfrastructureServices
 
     private static IPosterRenamer CreatePosterRenamer()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var http = PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
         return new PosterRenamer(
             new TxtProjectInfoParser(),
             new ExternalProcessRunner(),
@@ -39,7 +40,7 @@ internal static class QueueInfrastructureServices
 
     private static IProjectImageGenerator CreateProjectImageGenerator()
     {
-        var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+        var http = PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
         return new ProjectImageGenerator(
             new ExternalProcessRunner(),
             new TxtProjectInfoParser(),

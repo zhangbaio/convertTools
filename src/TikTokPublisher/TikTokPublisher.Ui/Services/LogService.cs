@@ -69,9 +69,15 @@ public sealed class LogService
 
     private readonly List<LogEntry> _entries = new();
     private Dictionary<string, string> _nameIndex = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _failureNotes = new(StringComparer.OrdinalIgnoreCase);
     private bool _changedScheduled;
     private string _selectedProjectPath = "";
     private bool _problemsOnly;
+    private string _fallbackKey = "";
+    private List<LogEntry> _fallbackEntries = [];
+    private bool _showingFallback;
+
+    internal Func<string, IReadOnlyList<TikTokExecutionHistoryService.TikTokProjectHistoryEvent>>? LoadProjectHistory { get; set; }
 
     public ObservableCollection<LogProjectItem> Projects { get; } = new();
     public ObservableCollection<LogEntry> RenderedEntries { get; } = new();
@@ -91,6 +97,7 @@ public sealed class LogService
                 return;
 
             _selectedProjectPath = normalized;
+            _fallbackKey = "";
             RefreshRendered();
             ScheduleChanged();
         }
@@ -115,11 +122,15 @@ public sealed class LogService
 
     public void Append(string text)
     {
-        var line = (text ?? "").TrimEnd();
+        var line = (text ?? "").Replace("\r\n", "\n").TrimEnd();
         if (string.IsNullOrWhiteSpace(line)) return;
 
         var now = DateTime.Now;
-        var (level, project, normalizedLine) = ParseHeader(line);
+        var split = line.IndexOf('\n');
+        var firstLine = split < 0 ? line : line[..split];
+        var remainder = split < 0 ? "" : line[split..];
+        var (level, project, normalizedFirst) = ParseHeader(firstLine);
+        var normalizedLine = normalizedFirst + remainder;
         var entry = new LogEntry
         {
             Text = normalizedLine,
@@ -130,13 +141,10 @@ public sealed class LogService
         };
         _entries.Add(entry);
         var shouldRefreshRendered = PruneExpiredEntries(now);
-        if (_entries.Count > MaxEntries)
-        {
-            _entries.RemoveRange(0, _entries.Count - MaxEntries);
+        if (TrimOverflow())
             shouldRefreshRendered = true;
-        }
 
-        if (shouldRefreshRendered)
+        if (shouldRefreshRendered || (_showingFallback && EntryMatchesFilter(entry)))
             RefreshRendered();
         else if (EntryMatchesFilter(entry))
             AppendRendered(entry);
@@ -202,15 +210,28 @@ public sealed class LogService
         return removed;
     }
 
-    /// <summary>开始“全部账号队列”新一轮执行前，清空日志面板。</summary>
+    /// <summary>开始“全部账号队列”新一轮执行前，清空日志面板，但保留每个项目最新的一条失败日志。</summary>
     public int ClearAllEntries()
     {
-        var removed = _entries.Count;
-        if (removed == 0)
+        if (_entries.Count == 0)
             return 0;
 
+        var kept = new List<LogEntry>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = _entries.Count - 1; index >= 0; index--)
+        {
+            var identity = ProblemIdentity(_entries[index]);
+            if (identity is null || !seen.Add(identity))
+                continue;
+            kept.Add(_entries[index]);
+        }
+
+        kept.Reverse();
+        var removed = _entries.Count - kept.Count;
         _entries.Clear();
-        RenderedEntries.Clear();
+        _entries.AddRange(kept);
+        _fallbackKey = "";
+        RefreshRendered();
         ScheduleChanged();
         return removed;
     }
@@ -235,6 +256,17 @@ public sealed class LogService
             .Where(r => !string.IsNullOrWhiteSpace(r.Title))
             .GroupBy(r => r.Title.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().Item.ProjectDir, StringComparer.OrdinalIgnoreCase);
+        _failureNotes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in list)
+        {
+            if (!row.HasFailure || string.IsNullOrWhiteSpace(row.LastError))
+                continue;
+            var path = NormalizeProjectPath(row.Item.ProjectDir);
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            _failureNotes[path] = row.DetailText;
+        }
+        _fallbackKey = "";
 
         var targetProjects = new List<LogProjectItem>
         {
@@ -289,11 +321,8 @@ public sealed class LogService
         return true;
     }
 
-    public string BuildCopyText()
-    {
-        var filtered = FilterEntries().TakeLast(MaxRendered);
-        return string.Join(Environment.NewLine, filtered.Select(e => e.Text));
-    }
+    public string BuildCopyText() =>
+        string.Join(Environment.NewLine, VisibleEntries().Select(entry => entry.Text));
 
     private bool PruneExpiredEntries(DateTime now)
     {
@@ -308,11 +337,119 @@ public sealed class LogService
         RenderedEntries.Add(entry);
     }
 
+    private bool TrimOverflow()
+    {
+        if (_entries.Count <= MaxEntries)
+            return false;
+
+        var problems = _entries.Where(IsProblemEntry).ToList();
+        var problemsToKeep = problems.Count > MaxEntries
+            ? problems.TakeLast(MaxEntries).ToList()
+            : problems;
+        var progressRoom = Math.Max(0, MaxEntries - problemsToKeep.Count);
+        var progressToKeep = _entries.Where(entry => !IsProblemEntry(entry)).TakeLast(progressRoom);
+        var keep = new HashSet<LogEntry>(problemsToKeep);
+        foreach (var entry in progressToKeep)
+            keep.Add(entry);
+        return _entries.RemoveAll(entry => !keep.Contains(entry)) > 0;
+    }
+
+    private IReadOnlyList<LogEntry> VisibleEntries()
+    {
+        var memory = FilterEntries().TakeLast(MaxRendered).ToArray();
+        if (memory.Length > 0 || string.IsNullOrWhiteSpace(_selectedProjectPath))
+            return memory;
+        return CachedFallback();
+    }
+
+    private IReadOnlyList<LogEntry> CachedFallback()
+    {
+        var path = NormalizeProjectPath(_selectedProjectPath);
+        var failure = _failureNotes.TryGetValue(path, out var note) ? note : "";
+        var key = path + "\n" + failure;
+        if (string.Equals(_fallbackKey, key, StringComparison.Ordinal))
+            return _fallbackEntries;
+
+        _fallbackEntries = BuildFallback(path, failure);
+        _fallbackKey = key;
+        return _fallbackEntries;
+    }
+
+    private List<LogEntry> BuildFallback(string projectPath, string failureNote)
+    {
+        var entries = new List<LogEntry>();
+        IReadOnlyList<TikTokExecutionHistoryService.TikTokProjectHistoryEvent> history = [];
+        try
+        {
+            history = LoadProjectHistory?.Invoke(projectPath)
+                ?? TikTokExecutionHistoryService.LoadRecentProjectEvents(projectPath);
+        }
+        catch
+        {
+            history = [];
+        }
+
+        if (history.Count > 0)
+        {
+            entries.Add(new LogEntry
+            {
+                Text = "以下为该项目最近 30 天内的失败记录。",
+                Level = "info",
+                ProjectPath = projectPath,
+            });
+        }
+
+        foreach (var line in history)
+        {
+            var stamp = line.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss");
+            var title = string.IsNullOrWhiteSpace(line.ProjectTitle) ? "" : $" [{line.ProjectTitle}]";
+            entries.Add(new LogEntry
+            {
+                Text = $"[{stamp}] ERROR{title} {line.Message}",
+                Level = "error",
+                ProjectName = line.ProjectTitle,
+                ProjectPath = projectPath,
+                CreatedAt = line.CreatedAt,
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(failureNote) &&
+            entries.All(entry => !entry.Text.Contains(failureNote, StringComparison.Ordinal)))
+        {
+            entries.Add(new LogEntry
+            {
+                Text = $"失败原因：{failureNote}",
+                Level = "error",
+                ProjectPath = projectPath,
+            });
+        }
+
+        return entries;
+    }
+
     private void RefreshRendered()
     {
+        var entries = VisibleEntries();
+        _showingFallback = entries.Count > 0 &&
+                           string.IsNullOrWhiteSpace(_selectedProjectPath) == false &&
+                           !FilterEntries().Any();
         RenderedEntries.Clear();
-        foreach (var entry in FilterEntries().TakeLast(MaxRendered))
+        foreach (var entry in entries)
             RenderedEntries.Add(entry);
+    }
+
+    private static bool IsProblemEntry(LogEntry entry) =>
+        IsProblemLevel(entry.Level);
+
+    private static string? ProblemIdentity(LogEntry entry)
+    {
+        if (!IsProblemEntry(entry))
+            return null;
+        if (!string.IsNullOrWhiteSpace(entry.ProjectPath))
+            return "path:" + NormalizeProjectPath(entry.ProjectPath);
+        if (!string.IsNullOrWhiteSpace(entry.ProjectName))
+            return "name:" + entry.ProjectName.Trim();
+        return null;
     }
 
     private bool EntryMatchesFilter(LogEntry entry)

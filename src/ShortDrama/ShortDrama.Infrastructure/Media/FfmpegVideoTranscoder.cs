@@ -14,6 +14,7 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
 {
     private const int MinShortEdge = 720;
     private const long MinVideoBitrateBps = 4_194_304;
+    private const long MinAccepted1080pSourceBitrateBps = 800_000;
     private const long DefaultFallbackVideoBitrateBps = 4_800_000;
     private const int DefaultAudioBitrateBps = 128_000;
     private const double MinDurationSeconds = 31d;
@@ -176,6 +177,7 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
 
                 var fileStopwatch = Stopwatch.StartNew();
                 var inputProbe = await ProbeMediaAsync(workItem.InputPath, cancellationToken);
+                ValidateSourceQuality(workItem.InputPath, inputProbe);
                 var plan = BuildEncodingPlan(settings, inputProbe);
                 progress?.Report(new VideoTranscodeProgress(
                     workItem.Index,
@@ -384,6 +386,17 @@ public sealed class FfmpegVideoTranscoder : IVideoTranscoder
         }
 
         return originalMessage;
+    }
+
+    private static void ValidateSourceQuality(string inputPath, MediaProbeInfo probe)
+    {
+        var shortEdge = Math.Min(probe.Width, probe.Height);
+        var bitrate = probe.VideoBitrateBps ?? probe.FormatBitrateBps;
+        if (shortEdge < 960 || bitrate is null || bitrate.Value >= MinAccepted1080pSourceBitrateBps) return;
+        throw new InvalidOperationException(
+            $"低质量源视频：{Path.GetFileName(inputPath)} 虽为 {probe.Width}x{probe.Height}，" +
+            $"但源码率仅 {FormatMbps(bitrate.Value)}，低于最低 {FormatMbps(MinAccepted1080pSourceBitrateBps)}。" +
+            "提高输出码率无法恢复画质，请切换高质量下载源后重试。");
     }
 
     private async Task TranscodeWithRetryAsync(

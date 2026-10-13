@@ -4,6 +4,7 @@ using ShortDrama.Infrastructure.Automation;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Xunit;
 
 namespace ShortDrama.Infrastructure.Tests.Automation;
@@ -41,7 +42,7 @@ public sealed class MapleleafApiServiceTests
         result.Token.Should().Be("maple-token");
         var login = handler.Requests.Single(item => item.Path.EndsWith("/User/login", StringComparison.Ordinal));
         login.Headers["X-Client-Name"].Should().Be("Mapleleaf");
-        login.Headers["X-Client-Version"].Should().Be("1.6.5");
+        login.Headers["X-Client-Version"].Should().Be("1.6.6");
         login.Headers["X-Device-Id"].Should().Be("device-guid");
     }
 
@@ -58,7 +59,18 @@ public sealed class MapleleafApiServiceTests
         items[0].Title.Should().Be("测试剧");
         items[0].EpisodeTotal.Should().Be(24);
         items[0].FavoriteCount.Should().Be(8765);
-        handler.Requests.Should().Contain(item => item.Path.EndsWith("/search.php", StringComparison.Ordinal) && item.Body.Contains("\"offset\":10", StringComparison.Ordinal));
+        var request = handler.Requests.First(item =>
+            item.Path.EndsWith("/search.php", StringComparison.Ordinal));
+        request.Host.Should().Be("8.133.218.237");
+        request.Path.Should().Be("/ffm/search.php");
+        using var body = JsonDocument.Parse(request.Body);
+        body.RootElement.GetProperty("query").GetString().Should().Be("测试剧");
+        body.RootElement.GetProperty("offset").GetInt32().Should().Be(10);
+        body.RootElement.GetProperty("tab_type").GetInt32().Should().Be(13);
+        body.RootElement.GetProperty("count").GetInt32().Should().Be(10);
+        body.RootElement.GetProperty("wrap").GetString().Should().Be("1");
+        body.RootElement.TryGetProperty("tabType", out _).Should().BeFalse();
+        body.RootElement.TryGetProperty("pointsRequired", out _).Should().BeFalse();
     }
 
     [Theory]
@@ -294,6 +306,25 @@ public sealed class MapleleafApiServiceTests
         Guid.TryParse(MapleleafDeviceStore.GenerateDeviceId(), out _).Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Official_166_parser_preserves_cenc_key_and_cipher_size()
+    {
+        var service = CreateService(new MapleleafHandler(cencKey: "0123456789abcdef0123456789abcdef"));
+        var playback = await service.GetVideoPlaybackAsync(Settings(), "mapleleaf_ep:video-3", "1080P", CancellationToken.None);
+        playback.CencDecryptKey.Should().Be("0123456789abcdef0123456789abcdef");
+        playback.Size.Should().Be(10758357);
+        playback.Url.Should().Be("https://cdn.example/cenc.mp4");
+    }
+
+    [Fact]
+    public async Task Official_166_parser_rejects_missing_cenc_key_and_uses_fallback()
+    {
+        var service = CreateService(new MapleleafHandler(cencKey: ""));
+        var playback = await service.GetVideoPlaybackAsync(Settings(), "mapleleaf_ep:video-3", "1080P", CancellationToken.None);
+        playback.CencDecryptKey.Should().BeEmpty();
+        playback.Url.Should().Be("https://cdn.example/video-3.mp4");
+    }
+
     private static MapleleafApiService CreateService(
         HttpMessageHandler handler,
         IReadOnlyList<string>? apiBases = null,
@@ -332,7 +363,8 @@ public sealed class MapleleafApiServiceTests
         bool latestHasMore = false,
         bool videoParseFails = false,
         string? html404Host = null,
-        string? timeoutHost = null) : HttpMessageHandler
+        string? timeoutHost = null,
+        string? cencKey = null) : HttpMessageHandler
     {
         public ConcurrentBag<CapturedRequest> Requests { get; } = [];
         public int LoginCount;
@@ -405,6 +437,13 @@ public sealed class MapleleafApiServiceTests
 
             if (request.RequestUri.AbsolutePath.EndsWith("/jxurl.php", StringComparison.Ordinal))
             {
+                if (cencKey is not null)
+                    return Json(JsonSerializer.Serialize(new { success = true, data = new {
+                        rawData = JsonSerializer.Serialize(new { code = 200, data = new {
+                            url = "https://cdn.example/cenc.mp4", decryption_key = cencKey,
+                            download_mode = "cenc", size = 10758357
+                        } })
+                    } }));
                 if (videoParseFails)
                 {
                     return Json("""{"code":500,"msg":"official php parser unavailable"}""");
