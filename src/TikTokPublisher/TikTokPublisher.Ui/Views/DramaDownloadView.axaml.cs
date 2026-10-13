@@ -22,9 +22,29 @@ public partial class DramaDownloadView : UserControl
     {
         _vm = vm;
         vm.LogRequested += log;
+        vm.PickTikTokQueueTargetsAsync = PickTikTokQueueTargetsAsync;
+        vm.ConfirmDuplicateQueueAsync = ConfirmDuplicateQueueAsync;
         vm.LoadState();
         DataContext = vm;
         SyncComboFromVm();
+    }
+
+    private async Task<IReadOnlyList<TikTokQueueImportTarget>?> PickTikTokQueueTargetsAsync(
+        IReadOnlyList<TikTokQueueImportTarget> targets,
+        string? currentAccountId)
+    {
+        var dialog = new TikTokMultiAccountQueueDialog(targets, currentAccountId);
+        if (TopLevel.GetTopLevel(this) is Window owner)
+            return await dialog.ShowDialog<IReadOnlyList<TikTokQueueImportTarget>?>(owner);
+        return null;
+    }
+
+    private async Task<bool?> ConfirmDuplicateQueueAsync(string summary)
+    {
+        var dialog = new TikTokDuplicateQueueDialog(summary);
+        if (TopLevel.GetTopLevel(this) is Window owner)
+            return await dialog.ShowDialog<bool?>(owner);
+        return null;
     }
 
     private void OnDownloadTabChanged(object? sender, SelectionChangedEventArgs e)
@@ -34,7 +54,6 @@ public partial class DramaDownloadView : UserControl
         if (tabs.SelectedItem is TabItem item &&
             string.Equals(item.Header?.ToString(), "榜单", StringComparison.Ordinal))
         {
-            _vm?.EnsureRankLoaded();
             _rankScrollAttachAttempts = 0;
             AttachRankListScroll();
         }
@@ -102,6 +121,28 @@ public partial class DramaDownloadView : UserControl
         if (_vm is null || EpisodeModeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.EpisodeNumberMode = item.Tag as string ?? "source";
     }
+
+    private void OnApplyEpisodeFilterClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is null)
+            return;
+
+        TopLevel.GetTopLevel(this)?.FocusManager?.ClearFocus();
+        if (sender is Control control && control.Parent is Panel panel)
+        {
+            var boxes = panel.Children.OfType<NumericUpDown>().ToList();
+            if (boxes.Count >= 2)
+            {
+                _vm.MinEpisodeFilter = ToEpisodeCount(boxes[0].Value);
+                _vm.MaxEpisodeFilter = ToEpisodeCount(boxes[1].Value);
+            }
+        }
+
+        _vm.ApplyEpisodeFilter();
+    }
+
+    private static int ToEpisodeCount(decimal? value) =>
+        value is null ? 0 : (int)Math.Clamp(decimal.Round(value.Value, 0, MidpointRounding.AwayFromZero), 0, 10000);
 
     private async void OnPickDownloadDirClick(object? sender, RoutedEventArgs e)
     {
