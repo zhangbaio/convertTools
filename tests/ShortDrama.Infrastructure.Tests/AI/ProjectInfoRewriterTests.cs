@@ -65,6 +65,9 @@ public sealed class ProjectInfoRewriterTests
         [
             """
             {"items":[{"id":"1","title":"断亲之后我掀桌改命","tagline":"亲戚登门这次我不忍了","synopsis":"结婚三年我处处忍让，直到极品亲戚登门霸占我家，我才当众掀桌断亲，逼得所有人低头求和。","short_title":"断亲掀桌","tags":["家庭","断亲","打脸"]}]}
+            """,
+            """
+            {"synopsis":"结婚三年她处处忍让，直到亲戚登门霸占屋子，才当众掀桌断亲。此后她收起退让，用证据和分寸把被侵占的日子一点点要回来，也让曾经轻视她的人不得不正视她的选择。风波过后，她守住了自己的家，也终于能安心睡一觉。"}
             """
         ]);
 
@@ -100,6 +103,9 @@ public sealed class ProjectInfoRewriterTests
             """,
             """
             {"title":"恶亲登门我反手断供","tagline":"亲戚欺上门我绝地反击","synopsis":"多年忍让换来亲戚步步紧逼，女主终于撕开虚伪亲情，当众断供反击，把失控家庭重新握回手中。","short_title":"断供反击","tags":["家庭","断亲","打脸"]}
+            """,
+            """
+            {"synopsis":"结婚三年她处处忍让，直到亲戚登门霸占屋子，才当众掀桌断亲。此后她收起退让，用证据和分寸把被侵占的日子一点点要回来，也让曾经轻视她的人不得不正视她的选择。风波过后，她守住了自己的家，也终于能安心睡一觉。"}
             """
         ]);
 
@@ -121,7 +127,9 @@ public sealed class ProjectInfoRewriterTests
             CancellationToken.None);
 
         result.Title.Should().Be("恶亲登门我反手断供");
-        handler.RequestBodies.Should().HaveCount(2);
+        result.Synopsis.Length.Should().BeInRange(100, 300);
+        handler.RequestBodies.Should().HaveCount(3);
+        ExtractPrompt(handler.RequestBodies[2]).Should().Contain("100 到 300");
         ExtractPrompt(handler.RequestBodies[0]).Should().Contain("forbidden_titles");
         ExtractPrompt(handler.RequestBodies[0]).Should().Contain("forbidden_synopses");
     }
@@ -223,6 +231,81 @@ public sealed class ProjectInfoRewriterTests
         ExtractPrompt(handler.RequestBodies[1]).Should().Contain("occupied_exact_titles");
     }
 
+    [Fact]
+    public void Synopsis_over_1500_characters_is_cut_on_a_sentence_boundary()
+    {
+        var sentence = new string('人', 20) + "。";
+        var text = string.Concat(Enumerable.Repeat(sentence, 80));
+
+        var fitted = ProjectInfoRewriter.FitSynopsisToAbsoluteMax(text);
+
+        fitted.Length.Should().BeLessOrEqualTo(ProjectInfoRewriter.SynopsisAbsoluteMaxLength);
+        fitted.Length.Should().BeGreaterOrEqualTo(ProjectInfoRewriter.SynopsisPreferredMinLength);
+        fitted.Should().EndWith("。");
+    }
+
+    [Fact]
+    public async Task RewriteAsync_keeps_new_title_and_original_synopsis_when_ai_synopsis_stays_under_100()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = WriteConfig(projectDir.FullName, aiRewriteSynopsis: true);
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        var original = new string('原', 120);
+        await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家", original);
+
+        var handler = new RecordingHandler(
+        [
+            """
+            {"title":"恶亲登门我反手断供","tagline":"亲戚欺上门我绝地反击","synopsis":"短"}
+            """,
+            """{"synopsis":"太短"}""",
+            """{"synopsis":"还是太短"}"""
+        ]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var result = await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir.FullName, configPath, outputPath, Overwrite: true),
+            CancellationToken.None);
+
+        result.Title.Should().Be("恶亲登门我反手断供");
+        result.Synopsis.Should().Be(original);
+        ExtractUserPrompt(handler.RequestBodies[2]).Should().Contain("请补到 100 字以上");
+    }
+
+    [Fact]
+    public async Task RewriteAsync_keeps_synopsis_between_301_and_1500_as_fallback()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = WriteConfig(projectDir.FullName, aiRewriteSynopsis: true);
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(projectDir.FullName, "亲戚别来我家", new string('原', 180));
+        var longSynopsis = new string('改', 420);
+
+        var handler = new RecordingHandler(
+        [
+            """
+            {"title":"恶亲登门我反手断供","tagline":"亲戚欺上门我绝地反击","synopsis":"占位"}
+            """,
+            $$"""{"synopsis":"{{longSynopsis}}"}""",
+            $$"""{"synopsis":"{{longSynopsis}}"}"""
+        ]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var result = await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir.FullName, configPath, outputPath, Overwrite: true),
+            CancellationToken.None);
+
+        result.Title.Should().Be("恶亲登门我反手断供");
+        result.Synopsis.Should().Be(longSynopsis);
+        ExtractUserPrompt(handler.RequestBodies[2]).Should().Contain("请删到 300 字以内");
+    }
+
     private static async Task WriteProjectInfoAsync(string projectDir, string originalTitle, string synopsis = "")
     {
         await File.WriteAllTextAsync(Path.Combine(projectDir, "短剧信息.txt"), $$"""
@@ -249,11 +332,20 @@ public sealed class ProjectInfoRewriterTests
         return configPath;
     }
 
-    private static string ExtractPrompt(string requestBody)
+    private static string ExtractPrompt(string requestBody) => ExtractMessage(requestBody, 0);
+
+    private static string ExtractUserPrompt(string requestBody)
+    {
+        using var document = JsonDocument.Parse(requestBody);
+        var messages = document.RootElement.GetProperty("messages");
+        return ExtractMessage(requestBody, messages.GetArrayLength() - 1);
+    }
+
+    private static string ExtractMessage(string requestBody, int index)
     {
         using var document = JsonDocument.Parse(requestBody);
         return document.RootElement
-            .GetProperty("messages")[0]
+            .GetProperty("messages")[index]
             .GetProperty("content")
             .GetString() ?? "";
     }
