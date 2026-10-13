@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace ShortDrama.Infrastructure.Automation;
 
@@ -22,6 +23,10 @@ public static class PlayletDramaClient
     private const string PassToken = "MkYQyRrrD2iG5WuDEV7DjYcq2jq7";
     private const string DirectoryUserAgent =
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.60(0x18003c2c) NetType/WIFI Language/zh_CN";
+    private const string RankUrl =
+        "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/bookmall/cell/change/v1/";
+    private const string RankUserAgent =
+        "com.dragon.read/72732 (Linux; U; Android 12; zh_CN; 22041216C; Build/V417IR;tt-ok/3.12.13.17)";
     private const string PublicKey = """
         -----BEGIN PUBLIC KEY-----
         MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC/EwSZCZTwnYhixLefB9Gvfa+X
@@ -138,6 +143,42 @@ public static class PlayletDramaClient
         throw new InvalidOperationException(
             "红果短剧下载器视频解析失败：" +
             (string.IsNullOrWhiteSpace(fallback.Message) ? lastMessage ?? "未知错误" : fallback.Message));
+    }
+
+    public static async Task<HongguoRankPage> GetRankPageAsync(
+        HttpClient httpClient,
+        string? category,
+        string? board,
+        int offset,
+        CancellationToken cancellationToken)
+    {
+        if (!HongguoRankCatalog.TryResolve(category, board, out var query))
+        {
+            throw new InvalidOperationException(HongguoRankCatalog.UnavailableReason(category, board) ?? "未知榜单");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildRankUrl(query, Math.Max(0, offset)));
+        request.Headers.TryAddWithoutValidation("User-Agent", RankUserAgent);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"红果短剧下载器榜单请求失败: HTTP {(int)response.StatusCode}");
+        }
+
+        var payload = JsonNode.Parse(text);
+        var code = payload?["code"]?.ToString();
+        if (!string.Equals(code, "0", StringComparison.Ordinal))
+        {
+            var message = payload?["message"]?.ToString() ?? payload?["msg"]?.ToString() ?? "未知错误";
+            throw new InvalidOperationException($"红果短剧下载器榜单失败: {message}");
+        }
+
+        var page = HongguoHighCalendarMapper.ReadRankPage(payload);
+        var items = page.Items
+            .Select(item => item with { BookId = BookPrefix + HongguoHighCrypto.StripBookPrefix(item.BookId) })
+            .ToArray();
+        return new HongguoRankPage(items, page.HasMore, page.NextOffset);
     }
 
     public static async Task<ConnectivityResult> TestConnectivityAsync(
@@ -353,6 +394,45 @@ public static class PlayletDramaClient
             "0" or "1" or "2" or "3" or "4" or "5" => normalized,
             _ => "1"
         };
+    }
+
+    private static string BuildRankUrl(HongguoRankQuery query, int offset)
+    {
+        var parameters = new Dictionary<string, string>
+        {
+            ["aid"] = "8662",
+            ["app_name"] = "novelread",
+            ["version_code"] = "72732",
+            ["version_name"] = "7.2.7.32",
+            ["device_platform"] = "android",
+            ["os"] = "android",
+            ["os_version"] = "12",
+            ["os_api"] = "32",
+            ["manifest_version_code"] = "72732",
+            ["update_version_code"] = "72732",
+            ["channel"] = "huawei_8662_64",
+            ["language"] = "zh",
+            ["resolution"] = "720*1280",
+            ["dpi"] = "320",
+            ["ac"] = "wifi",
+            ["ssmix"] = "a",
+            ["device_type"] = "22041216C",
+            ["device_brand"] = "Redmi",
+            ["cell_id"] = HongguoRankCatalog.CellId,
+            ["tab_type"] = HongguoRankCatalog.TabType,
+            ["client_req_type"] = "2",
+            ["client_template"] = "2",
+            ["screen_width_px"] = "1440",
+            ["selected_items"] = query.SelectedItems,
+            ["sub_selected_items"] = query.SubSelectedItems,
+            ["offset"] = offset.ToString(CultureInfo.InvariantCulture),
+            ["gender"] = "2",
+        };
+        var queryText = string.Join(
+            "&",
+            parameters.Select(pair =>
+                $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
+        return RankUrl + "?" + queryText;
     }
 
     private static string NormalizeServerUrl(string? value)

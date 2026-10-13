@@ -215,16 +215,25 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
 
-    public Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
+    public bool IsRankSourceSelected()
+    {
+        var chain = _settingsProvider.Get().DramaSourceChain?.Trim();
+        return string.Equals(chain, "hghigh", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(chain, "playlet", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public async Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
         string category,
         string board,
         int page,
         CancellationToken cancellationToken)
     {
-        var settings = _settingsProvider.Get();
-        if (!string.Equals(settings.DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("榜单只接入红果高码率标准版。请先把下载源切换到红果高码率链路。");
-        return _hghighApiService.GetRankAsync(settings, category, board, page, cancellationToken);
+        var pageResult = await GetRankPageAsync(
+            category,
+            board,
+            (Math.Max(1, page) - 1) * 20,
+            cancellationToken);
+        return pageResult.Items;
     }
 
     public Task<HongguoRankPage> GetRankPageAsync(
@@ -234,9 +243,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken)
     {
         var settings = _settingsProvider.Get();
-        if (!string.Equals(settings.DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("榜单只接入红果高码率标准版。请先把下载源切换到红果高码率链路。");
-        return _hghighApiService.GetRankPageAsync(settings, category, board, offset, cancellationToken);
+        var chain = settings.DramaSourceChain?.Trim();
+        if (string.Equals(chain, "playlet", StringComparison.OrdinalIgnoreCase))
+            return PlayletDramaClient.GetRankPageAsync(_httpClient, category, board, offset, cancellationToken);
+        if (string.Equals(chain, "hghigh", StringComparison.OrdinalIgnoreCase))
+            return _hghighApiService.GetRankPageAsync(settings, category, board, offset, cancellationToken);
+        throw new InvalidOperationException("榜单接入红果高码率标准版和红果短剧下载器。请先切换到其中一条数据链路。");
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> EnrichHighNewReleaseItemsAsync(

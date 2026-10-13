@@ -152,8 +152,9 @@ public static class ShortDramaDramaServices
 
     public static string? RankBlockReason(string category, string board)
     {
-        if (!IsHighSourceSelected())
-            return "榜单只接入红果高码率标准版。请先把下载源切换到红果高码率链路。";
+        RefreshSettings();
+        if (!Router.Value.IsRankSourceSelected())
+            return "榜单接入红果高码率标准版和红果短剧下载器。请先切换到其中一条数据链路。";
         return HongguoRankCatalog.UnavailableReason(category, board);
     }
 

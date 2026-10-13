@@ -78,6 +78,29 @@ public sealed class PlayletDramaChainTests
         handler.VideoPaths.Should().NotContain(path => path.EndsWith("/decryptVideo", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public async Task Rank_page_uses_fanqie_board_and_playlet_book_prefix()
+    {
+        var handler = new PlayletHandler();
+        using var httpClient = new HttpClient(handler);
+
+        var page = await PlayletDramaClient.GetRankPageAsync(
+            httpClient,
+            "AI剧",
+            "推荐榜",
+            0,
+            CancellationToken.None);
+
+        page.HasMore.Should().BeTrue();
+        page.NextOffset.Should().Be(15);
+        page.Items.Should().ContainSingle();
+        page.Items[0].BookId.Should().Be("playlet:7686713195246930968");
+        page.Items[0].Title.Should().Be("榜单剧");
+        page.Items[0].EpisodeTotal.Should().Be(69);
+        handler.RankUrl.Should().Contain("selected_items=ai_playlet");
+        handler.RankUrl.Should().Contain("sub_selected_items=ai_playlet_hot_sc");
+    }
+
     private sealed class PlayletSettings(DramaSourceSettings settings) : IDramaSettingsProvider
     {
         public DramaSourceSettings Get() => settings;
@@ -93,6 +116,7 @@ public sealed class PlayletDramaChainTests
         public int SearchNoCookieCount { get; private set; }
         public List<string> VideoPaths { get; } = [];
         public string? VideoDeviceId { get; private set; }
+        public string RankUrl { get; private set; } = "";
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -136,6 +160,34 @@ public sealed class PlayletDramaChainTests
                       "code": 0,
                       "data": {
                         "item_list": ["7650358399711841304", "7650358459367427096"]
+                      }
+                    }
+                    """));
+            }
+
+            if (path.Contains("/bookmall/cell/change/", StringComparison.Ordinal))
+            {
+                RankUrl = request.RequestUri?.ToString() ?? "";
+                return Task.FromResult(Json("""
+                    {
+                      "code": 0,
+                      "data": {
+                        "has_more": true,
+                        "next_offset": 15,
+                        "cell_view": {
+                          "cell_data": [
+                            {
+                              "video_data": [
+                                {
+                                  "series_id": "7686713195246930968",
+                                  "title": "榜单剧",
+                                  "episode_cnt": 69,
+                                  "video_desc": "简介"
+                                }
+                              ]
+                            }
+                          ]
+                        }
                       }
                     }
                     """));
