@@ -1,4 +1,5 @@
 using System.Globalization;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
@@ -51,6 +52,10 @@ public partial class TikTokAccountAnalyticsView : UserControl
     private SeriesGrowthMetric _growthMetric = SeriesGrowthMetric.Views;
     private DispatcherTimer? _morningTimer;
     private readonly Dictionary<string, TikTokSeriesIdentityIndex> _identityByAccount = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _identityGeneration = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _identityLoading = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _materializedSeries = new(StringComparer.Ordinal);
+    private bool _viewReady;
     private static readonly double[] SeriesDefaultWidths = [240, 96, 160, 64, 156, 108, 112, 80, 72, 80, 176];
     private static readonly double[] SeriesMinWidths = [120, 72, 80, 48, 110, 80, 88, 56, 48, 56, 150];
     private readonly double[] _seriesColumnWidths = SeriesDefaultWidths.ToArray();
@@ -71,6 +76,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
         DailyChart.HoverTextChanged += text => DailyHoverText.Text = text ?? "";
         BuildDailyRangeButtons();
         BuildGrowthMetricButtons();
+        SeriesTabs.SelectionChanged += OnSeriesTabsSelectionChanged;
     }
 
     public void Bind(IReadOnlyList<AccountItemViewModel> accounts, Action<string>? log)
@@ -78,17 +84,42 @@ public partial class TikTokAccountAnalyticsView : UserControl
         _accounts = accounts;
         _log = log;
         _store = new TikTokAccountAnalyticsStore();
-        Reload();
-        EnsureMorningTimer();
+        Dispatcher.UIThread.Post(EnsureMorningTimer, DispatcherPriority.Background);
     }
 
-    public void Reload()
+    public void Activate()
     {
-        if (_store is null) return;
+        if (_store is null || _viewReady) return;
+        StatusText.Text = "正在加载统计";
+        Dispatcher.UIThread.Post(LoadVisiblePage, DispatcherPriority.Background);
+    }
+
+    private void LoadVisiblePage()
+    {
+        if (_viewReady || _store is null) return;
         BuildRevenueCards();
         BuildCharts();
-        BuildSeriesTabs();
-        ShowGrowth();
+        BuildSeriesShells();
+        _viewReady = true;
+        StatusText.Text = "显示全部账号。剧集每日新增从第一次同步那天开始计算。";
+        if (!string.IsNullOrWhiteSpace(_selectedAccountId))
+            MaterializeSeries(_selectedAccountId);
+    }
+
+    private void RefreshAccount(AccountItemViewModel account)
+    {
+        if (!_viewReady || _store is null) return;
+        InvalidateIdentity(account.Id);
+        BuildRevenueCards();
+        BuildCharts();
+        MaterializeSeries(account.Id, force: true);
+    }
+
+    private void InvalidateIdentity(string accountId)
+    {
+        _identityByAccount.Remove(accountId);
+        _identityLoading.Remove(accountId);
+        _identityGeneration[accountId] = _identityGeneration.GetValueOrDefault(accountId) + 1;
     }
 
     private void EnsureMorningTimer()
@@ -190,7 +221,9 @@ public partial class TikTokAccountAnalyticsView : UserControl
             foreach (var account in pending)
             {
                 cts.Token.ThrowIfCancellationRequested();
-                StatusText.Text = $"正在更新 {account.DisplayName}";
+                var displayName = account.DisplayName;
+                await Dispatcher.UIThread.InvokeAsync(() => StatusText.Text = $"正在更新 {displayName}");
+                var synced = false;
                 try
                 {
                     await TikTokAccountAnalyticsSyncService.SyncAsync(
@@ -202,6 +235,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
                             _log?.Invoke(message);
                         }),
                         cts.Token);
+                    synced = true;
                 }
                 catch (OperationCanceledException)
                 {
@@ -210,31 +244,40 @@ public partial class TikTokAccountAnalyticsView : UserControl
                 catch (Exception ex)
                 {
                     failures.Add(ex.Message);
-                    _log?.Invoke(ex.Message);
+                    var message = ex.Message;
+                    await Dispatcher.UIThread.InvokeAsync(() => _log?.Invoke(message));
                 }
 
-                Reload();
+                if (synced)
+                    await Dispatcher.UIThread.InvokeAsync(() => RefreshAccount(account));
             }
 
             var finishedAt = DateTime.Now.ToString("HH:mm");
-            StatusText.Text = failures.Count == 0
+            var status = failures.Count == 0
                 ? single ? $"{pending[0].DisplayName} 已更新 {finishedAt}" : $"全部账号已更新 {finishedAt}"
                 : single ? $"{pending[0].DisplayName} 更新失败" : $"已更新，{failures.Count} 个账号被跳过";
-            ErrorText.Text = string.Join("\n", failures);
+            var error = string.Join("\n", failures);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                StatusText.Text = status;
+                ErrorText.Text = error;
+            });
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text = "已停止更新";
+            await Dispatcher.UIThread.InvokeAsync(() => StatusText.Text = "已停止更新");
         }
         finally
         {
-            foreach (var account in pending)
-                _runningSyncs.Remove(account.Id);
-            if (!single)
-                _fullSyncCount = Math.Max(0, _fullSyncCount - 1);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                foreach (var account in pending)
+                    _runningSyncs.Remove(account.Id);
+                if (!single)
+                    _fullSyncCount = Math.Max(0, _fullSyncCount - 1);
+                ApplySyncButtons();
+            });
             cts.Dispose();
-            ApplySyncButtons();
-            Reload();
         }
     }
 
@@ -396,6 +439,25 @@ public partial class TikTokAccountAnalyticsView : UserControl
         MonthlyChart.Series = monthly;
         FillLegend(DailyLegend, daily);
         FillLegend(MonthlyLegend, monthly);
+        ScrollDailyChartToLatest();
+    }
+
+    private void ScrollDailyChartToLatest()
+    {
+        void Apply()
+        {
+            var max = Math.Max(0, DailyChartScroll.Extent.Width - DailyChartScroll.Viewport.Width);
+            DailyChartScroll.Offset = new Vector(max, DailyChartScroll.Offset.Y);
+        }
+
+        EventHandler? afterLayout = null;
+        afterLayout = (_, _) =>
+        {
+            DailyChartScroll.LayoutUpdated -= afterLayout;
+            Apply();
+        };
+        DailyChartScroll.LayoutUpdated += afterLayout;
+        Dispatcher.UIThread.Post(Apply, DispatcherPriority.Background);
     }
 
     private static void FillLegend(StackPanel panel, IReadOnlyList<AnalyticsChartSeries> series)
@@ -423,84 +485,109 @@ public partial class TikTokAccountAnalyticsView : UserControl
         }
     }
 
-    private void BuildSeriesTabs()
+    private void OnSeriesTabsSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_buildingTabs || !ReferenceEquals(e.Source, SeriesTabs)) return;
+        if (SeriesTabs.SelectedItem is not TabItem tab || tab.Tag is not string accountId) return;
+        _selectedAccountId = accountId;
+        MaterializeSeries(accountId);
+    }
+
+    private void BuildSeriesShells()
     {
         if (_store is null) return;
-        var selectedAccount = _selectedAccountId;
         _buildingTabs = true;
-        _identityByAccount.Clear();
+        _materializedSeries.Clear();
         _seriesHeaderGrids.Clear();
         _seriesRowGrids.Clear();
         SeriesTabs.Items.Clear();
         foreach (var account in _accounts)
         {
-            var identity = IdentityFor(account);
-            var items = _store.ListLatestSeriesListing(account.Id)
-                .Select(item =>
-                {
-                    var matched = identity.Find(item.Latest.Title);
-                    return new SeriesListItem(account.Id, account.DisplayName, item.Latest, item.ListedOn, matched);
-                })
-                .ToList();
-            var list = new ListBox
+            SeriesTabs.Items.Add(new TabItem
             {
-                Background = Brushes.Transparent,
-                Padding = new Avalonia.Thickness(0),
-                ItemsSource = items,
-                ItemTemplate = new FuncDataTemplate<SeriesListItem>((item, _) =>
-                    item is null ? new Border() : BuildSeriesRow(item)),
-            };
-            list.Styles.Add(new Style(selector => selector.OfType<ListBoxItem>())
-            {
-                Setters =
-                {
-                    new Setter(TemplatedControl.PaddingProperty, new Avalonia.Thickness(0)),
-                    new Setter(Layoutable.MarginProperty, new Avalonia.Thickness(0)),
-                    new Setter(Layoutable.MinHeightProperty, 0d),
-                },
+                Header = account.DisplayName,
+                Tag = account.Id,
+                Content = SeriesPlaceholder("正在加载剧集"),
             });
-            var selected = items.FirstOrDefault(item => account.Id == _selectedAccountId && item.Series.SeriesId == _selectedSeriesId);
-            if (selected is not null)
-                list.SelectedItem = selected;
-            list.SelectionChanged += (_, _) =>
-            {
-                if (list.SelectedItem is not SeriesListItem current) return;
-                _selectedAccountId = current.AccountId;
-                _selectedSeriesId = current.Series.SeriesId;
-                ShowGrowth();
-            };
-
-            var panel = new DockPanel();
-            var headerInset = new Border { Width = 0 };
-            var headerHost = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-            headerHost.Children.Add(BuildSeriesHeader());
-            Grid.SetColumn(headerInset, 1);
-            headerHost.Children.Add(headerInset);
-            DockPanel.SetDock(headerHost, Dock.Top);
-            panel.Children.Add(headerHost);
-            list.LayoutUpdated += (_, _) => SyncHeaderInset(list, headerInset);
-            if (items.Count == 0)
-            {
-                panel.Children.Add(new TextBlock
-                {
-                    Text = "这个账号还没有剧集明细，点「更新」后再看。",
-                    Margin = new Avalonia.Thickness(8, 12, 8, 0),
-                    Foreground = new SolidColorBrush(Color.Parse("#6B7280")),
-                });
-            }
-            else
-            {
-                panel.Children.Add(list);
-            }
-
-            SeriesTabs.Items.Add(new TabItem { Header = account.DisplayName, Content = panel, Tag = account.Id });
         }
 
-        var match = SeriesTabs.Items.OfType<TabItem>().FirstOrDefault(item => Equals(item.Tag, selectedAccount));
+        if (string.IsNullOrWhiteSpace(_selectedAccountId) || _accounts.All(account => account.Id != _selectedAccountId))
+            _selectedAccountId = _accounts.FirstOrDefault()?.Id;
+        var match = SeriesTabs.Items.OfType<TabItem>().FirstOrDefault(item => Equals(item.Tag, _selectedAccountId));
         if (match is not null)
             SeriesTabs.SelectedItem = match;
         _buildingTabs = false;
     }
+
+    private void MaterializeSeries(string accountId, bool force = false)
+    {
+        if (_store is null) return;
+        if (!force && _materializedSeries.Contains(accountId)) return;
+        var account = _accounts.FirstOrDefault(item => item.Id == accountId);
+        var tab = SeriesTabs.Items.OfType<TabItem>().FirstOrDefault(item => Equals(item.Tag, accountId));
+        if (account is null || tab is null) return;
+
+        var identity = _identityByAccount.GetValueOrDefault(accountId) ?? TikTokSeriesIdentityIndex.Empty;
+        if (!_identityByAccount.ContainsKey(accountId))
+            StartIdentityLoad([account]);
+        var items = _store.ListLatestSeriesListing(account.Id)
+            .Select(item =>
+            {
+                var matched = identity.Find(item.Latest.Title);
+                return new SeriesListItem(account.Id, account.DisplayName, item.Latest, item.ListedOn, matched);
+            })
+            .ToList();
+        var list = new ListBox
+        {
+            Background = Brushes.Transparent,
+            Padding = new Avalonia.Thickness(0),
+            ItemsSource = items,
+            ItemTemplate = new FuncDataTemplate<SeriesListItem>((item, _) =>
+                item is null ? new Border() : BuildSeriesRow(item)),
+        };
+        list.Styles.Add(new Style(selector => selector.OfType<ListBoxItem>())
+        {
+            Setters =
+            {
+                new Setter(TemplatedControl.PaddingProperty, new Avalonia.Thickness(0)),
+                new Setter(Layoutable.MarginProperty, new Avalonia.Thickness(0)),
+                new Setter(Layoutable.MinHeightProperty, 0d),
+            },
+        });
+        var selected = items.FirstOrDefault(item => item.Series.SeriesId == _selectedSeriesId);
+        if (selected is not null)
+            list.SelectedItem = selected;
+        list.SelectionChanged += (_, args) =>
+        {
+            if (!ReferenceEquals(args.Source, list)) return;
+            if (list.SelectedItem is not SeriesListItem current) return;
+            _selectedAccountId = current.AccountId;
+            _selectedSeriesId = current.Series.SeriesId;
+            ShowGrowth();
+        };
+
+        var panel = new DockPanel();
+        var headerInset = new Border { Width = 0 };
+        var headerHost = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+        headerHost.Children.Add(BuildSeriesHeader());
+        Grid.SetColumn(headerInset, 1);
+        headerHost.Children.Add(headerInset);
+        DockPanel.SetDock(headerHost, Dock.Top);
+        panel.Children.Add(headerHost);
+        list.LayoutUpdated += (_, _) => SyncHeaderInset(list, headerInset);
+        panel.Children.Add(items.Count == 0
+            ? SeriesPlaceholder("这个账号还没有剧集明细，点「更新」后再看。")
+            : list);
+        tab.Content = panel;
+        _materializedSeries.Add(accountId);
+    }
+
+    private static TextBlock SeriesPlaceholder(string text) => new()
+    {
+        Text = text,
+        Margin = new Avalonia.Thickness(8, 12, 8, 0),
+        Foreground = new SolidColorBrush(Color.Parse("#6B7280")),
+    };
 
     private Border BuildSeriesHeader()
     {
@@ -729,13 +816,51 @@ public partial class TikTokAccountAnalyticsView : UserControl
             window.Show();
     }
 
-    private TikTokSeriesIdentityIndex IdentityFor(AccountItemViewModel account)
+    private void StartIdentityLoad(IReadOnlyList<AccountItemViewModel> missing)
     {
-        if (_identityByAccount.TryGetValue(account.Id, out var cached))
-            return cached;
-        var loaded = TikTokSeriesIdentityIndex.Load(account.Model);
-        _identityByAccount[account.Id] = loaded;
-        return loaded;
+        var pending = new List<(string Id, TikTokAccountProfile Model, int Generation)>();
+        foreach (var account in missing)
+        {
+            if (_identityByAccount.ContainsKey(account.Id) || !_identityLoading.Add(account.Id))
+                continue;
+            var generation = _identityGeneration.GetValueOrDefault(account.Id);
+            pending.Add((account.Id, account.Model, generation));
+        }
+
+        if (pending.Count == 0) return;
+        _ = Task.Run(() =>
+        {
+            var loaded = new List<(string Id, TikTokSeriesIdentityIndex Index, int Generation)>(pending.Count);
+            foreach (var item in pending)
+            {
+                TikTokSeriesIdentityIndex index;
+                try
+                {
+                    index = TikTokSeriesIdentityIndex.Load(item.Model);
+                }
+                catch (Exception ex)
+                {
+                    index = TikTokSeriesIdentityIndex.Empty;
+                    var message = $"读取原剧名失败：{ex.Message}";
+                    Dispatcher.UIThread.Post(() => _log?.Invoke(message));
+                }
+
+                loaded.Add((item.Id, index, item.Generation));
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                foreach (var (id, index, generation) in loaded)
+                {
+                    _identityLoading.Remove(id);
+                    if (_identityGeneration.GetValueOrDefault(id) != generation)
+                        continue;
+                    _identityByAccount[id] = index;
+                    if (_materializedSeries.Contains(id))
+                        MaterializeSeries(id, force: true);
+                }
+            });
+        });
     }
 
     private static string FormatJoined(string value)
@@ -787,28 +912,39 @@ public partial class TikTokAccountAnalyticsView : UserControl
 
         var account = _accounts.FirstOrDefault(item => item.Id == _selectedAccountId);
         var history = _store.ListSeriesHistory(_selectedAccountId, _selectedSeriesId);
-        var title = history.LastOrDefault()?.Title ?? "剧集";
+        var days = history
+            .GroupBy(item => item.SnapshotDate)
+            .Select(group => group.OrderByDescending(GrowthValue(_growthMetric)).First())
+            .OrderBy(item => item.SnapshotDate)
+            .ToList();
+        var title = days.LastOrDefault()?.Title ?? history.LastOrDefault()?.Title ?? "剧集";
         var metricName = GrowthMetricName(_growthMetric);
         var prefix = $"{account?.DisplayName} · {title} · {metricName}";
-        if (history.Select(item => item.SnapshotDate).Distinct().Count() < 2)
+        if (days.Count == 0)
         {
-            GrowthTitle.Text = $"{prefix}：再更新一天后才能看每日增长";
+            GrowthTitle.Text = $"{prefix}：还没有每日数据";
             GrowthChart.Series = [];
             return;
         }
 
-        var growth = TikTokAccountAnalyticsLogic.BuildGrowth(history, GrowthValue(_growthMetric));
         var color = AccountColor(_selectedAccountId);
-        GrowthTitle.Text = $"{prefix}每日新增";
+        GrowthTitle.Text = prefix;
         GrowthChart.Series =
         [
             new AnalyticsChartSeries(
                 title,
                 color,
-                growth.Select(point => new AnalyticsChartPoint(
-                    point.SpanDays == 1 ? point.ToDate.ToString("MM-dd") : $"{point.FromDate:MM-dd}~{point.ToDate:MM-dd}",
-                    point.Growth,
-                    FormatGrowthTip(point))).ToList())
+                days.Select(snapshot =>
+                {
+                    var value = GrowthValue(_growthMetric)(snapshot);
+                    var shown = _growthMetric == SeriesGrowthMetric.Views
+                        ? FormatPlayCount(value)
+                        : FormatCount(value);
+                    return new AnalyticsChartPoint(
+                        snapshot.SnapshotDate.ToString("MM-dd"),
+                        value,
+                        $"{snapshot.SnapshotDate:yyyy-MM-dd}  {shown}");
+                }).ToList())
         ];
     }
 
@@ -838,22 +974,6 @@ public partial class TikTokAccountAnalyticsView : UserControl
         _ => "有效播放量",
     };
 
-    private string FormatGrowthTip(TikTokSeriesGrowthPoint point)
-    {
-        var value = _growthMetric == SeriesGrowthMetric.Views
-            ? FormatSignedPlay(point.Growth)
-            : FormatSignedCount(point.Growth);
-        return point.SpanDays == 1
-            ? $"{point.ToDate:yyyy-MM-dd} 新增 {value}"
-            : $"{point.FromDate:yyyy-MM-dd} 至 {point.ToDate:yyyy-MM-dd} 跨 {point.SpanDays} 天新增 {value}";
-    }
-
-    private static string FormatSignedCount(long value)
-    {
-        var text = FormatCount(Math.Abs(value));
-        return value >= 0 ? "+" + text : "-" + text;
-    }
-
     private Color AccountColor(string accountId)
     {
         var index = 0;
@@ -873,12 +993,6 @@ public partial class TikTokAccountAnalyticsView : UserControl
         if (abs > 10_000)
             return (value / 10_000d).ToString("0.##", CultureInfo.InvariantCulture) + "万";
         return Math.Truncate(value).ToString("0", CultureInfo.InvariantCulture);
-    }
-
-    private static string FormatSignedPlay(long value)
-    {
-        var text = FormatPlayCount(Math.Abs(value));
-        return value >= 0 ? "+" + text : "-" + text;
     }
 
     private static string FormatCount(long value) => value.ToString("N0", CultureInfo.InvariantCulture);

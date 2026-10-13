@@ -3,7 +3,6 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Controls;
 
 namespace TikTokPublisher.Ui.Views;
@@ -78,34 +77,44 @@ public sealed class TikTokSeriesTrendWindow : Window
             SeriesGrowthMetric.Likes => "点赞",
             _ => "有效播放量",
         };
-        if (_history.Select(item => item.SnapshotDate).Distinct().Count() < 2)
+        var days = _history
+            .GroupBy(item => item.SnapshotDate)
+            .Select(group => group.OrderByDescending(ValueOf(_metric)).First())
+            .OrderBy(item => item.SnapshotDate)
+            .ToList();
+        var seriesTitle = days.LastOrDefault()?.Title ?? _history.LastOrDefault()?.Title ?? "剧集";
+        if (days.Count == 0)
         {
-            _title.Text = $"{_history.LastOrDefault()?.Title ?? Title} · {name}：再更新一天后才能看每日增长";
+            _title.Text = $"{seriesTitle} · {name}：还没有每日数据";
             _chart.Series = [];
             return;
         }
 
-        var growth = TikTokAccountAnalyticsLogic.BuildGrowth(_history, ValueOf(_metric));
-        var seriesTitle = _history.LastOrDefault()?.Title ?? "剧集";
-        _title.Text = $"{seriesTitle} · {name}每日新增";
+        _title.Text = $"{seriesTitle} · {name}";
         _chart.Series =
         [
             new AnalyticsChartSeries(
                 seriesTitle,
                 Color.Parse("#2563EB"),
-                growth.Select(point => new AnalyticsChartPoint(
-                    point.SpanDays == 1 ? point.ToDate.ToString("MM-dd") : $"{point.FromDate:MM-dd}~{point.ToDate:MM-dd}",
-                    point.Growth,
-                    Tip(point))).ToList())
+                days.Select(snapshot =>
+                {
+                    var value = ValueOf(_metric)(snapshot);
+                    var shown = _metric == SeriesGrowthMetric.Views ? FormatPlay(value) : value.ToString("N0", CultureInfo.InvariantCulture);
+                    return new AnalyticsChartPoint(
+                        snapshot.SnapshotDate.ToString("MM-dd"),
+                        value,
+                        $"{snapshot.SnapshotDate:yyyy-MM-dd}  {shown}");
+                }).ToList())
         ];
     }
 
-    private string Tip(TikTokSeriesGrowthPoint point)
+    private static string FormatPlay(long value)
     {
-        var value = _metric == SeriesGrowthMetric.Views ? FormatSignedPlay(point.Growth) : FormatSignedCount(point.Growth);
-        return point.SpanDays == 1
-            ? $"{point.ToDate:yyyy-MM-dd} 新增 {value}"
-            : $"{point.FromDate:yyyy-MM-dd} 至 {point.ToDate:yyyy-MM-dd} 跨 {point.SpanDays} 天新增 {value}";
+        var abs = Math.Abs(value);
+        var text = abs > 10_000
+            ? (value / 10_000d).ToString("0.##", CultureInfo.InvariantCulture) + "万"
+            : value.ToString(CultureInfo.InvariantCulture);
+        return text;
     }
 
     private static Func<TikTokSeriesSnapshot, long> ValueOf(SeriesGrowthMetric metric) => metric switch
@@ -115,21 +124,6 @@ public sealed class TikTokSeriesTrendWindow : Window
         SeriesGrowthMetric.Likes => snapshot => snapshot.Likes,
         _ => snapshot => snapshot.ValidViews,
     };
-
-    private static string FormatSignedPlay(long value)
-    {
-        var abs = Math.Abs(value);
-        var text = abs > 10_000
-            ? (abs / 10_000d).ToString("0.##", CultureInfo.InvariantCulture) + "万"
-            : abs.ToString(CultureInfo.InvariantCulture);
-        return value >= 0 ? "+" + text : "-" + text;
-    }
-
-    private static string FormatSignedCount(long value)
-    {
-        var text = Math.Abs(value).ToString("N0", CultureInfo.InvariantCulture);
-        return value >= 0 ? "+" + text : "-" + text;
-    }
 
     private enum SeriesGrowthMetric
     {

@@ -18,6 +18,8 @@ public sealed record TikTokSeriesIdentity(string OriginalTitle, string EpisodeCo
 /// </summary>
 public sealed class TikTokSeriesIdentityIndex
 {
+    public static TikTokSeriesIdentityIndex Empty { get; } = new(new Dictionary<string, TikTokSeriesIdentity>(StringComparer.Ordinal));
+
     private readonly Dictionary<string, TikTokSeriesIdentity> _byNewTitle;
 
     private TikTokSeriesIdentityIndex(Dictionary<string, TikTokSeriesIdentity> byNewTitle)

@@ -26,7 +26,7 @@
                         <StackPanel x:Name="DailyRangePanel" Grid.Column="2" Orientation="Horizontal" Spacing="6" />
                     </Grid>
                     <StackPanel x:Name="DailyLegend" DockPanel.Dock="Top" Orientation="Horizontal" Spacing="12" Margin="0,0,0,4" />
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <ScrollViewer x:Name="DailyChartScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                         <controls:AnalyticsLineChart x:Name="DailyChart" PointSpacing="36" HorizontalAlignment="Left" />
                     </ScrollViewer>
                 </DockPanel>

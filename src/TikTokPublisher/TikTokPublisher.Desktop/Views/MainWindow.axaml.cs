@@ -494,7 +494,7 @@ public partial class MainWindow : Window
         }
 
         if (tag == "analytics")
-            AnalyticsView.Reload();
+            AnalyticsView.Activate();
         if (tag == "logs")
             _viewModel.RefreshLogSnapshot();
         if (tag == "archived")
