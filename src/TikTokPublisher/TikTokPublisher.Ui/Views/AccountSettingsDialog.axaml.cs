@@ -94,6 +94,8 @@ public partial class AccountSettingsDialog : Window
             2,
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
+        SelectNewTitleRandomness(AiNewTitleRandomnessCombo, p.TiktokAiNewTitleRandomness);
+        SelectNewTitleRandomness(AiSynopsisRandomnessCombo, p.TiktokAiSynopsisRandomness);
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(p.TiktokDayZeroRoi);
@@ -186,6 +188,8 @@ public partial class AccountSettingsDialog : Window
             p.TiktokRoleVectorCharacterCount);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
+        p.TiktokAiNewTitleRandomness = ReadNewTitleRandomness(AiNewTitleRandomnessCombo);
+        p.TiktokAiSynopsisRandomness = ReadNewTitleRandomness(AiSynopsisRandomnessCombo);
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
         p.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(
@@ -341,4 +345,23 @@ public partial class AccountSettingsDialog : Window
             : (raw.StartsWith('$') ? raw : $"${value}");
         return (value, label);
     }
+
+    private static void SelectNewTitleRandomness(ComboBox combo, string? value)
+    {
+        var key = ClientSettingsDefaults.NormalizeAiNewTitleRandomness(value);
+        foreach (var item in combo.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(item.Tag as string, key, StringComparison.OrdinalIgnoreCase))
+            {
+                combo.SelectedItem = item;
+                return;
+            }
+        }
+
+        if (combo.ItemCount > 0)
+            combo.SelectedIndex = 1;
+    }
+
+    private static string ReadNewTitleRandomness(ComboBox combo) =>
+        ClientSettingsDefaults.NormalizeAiNewTitleRandomness((combo.SelectedItem as ComboBoxItem)?.Tag as string);
 }

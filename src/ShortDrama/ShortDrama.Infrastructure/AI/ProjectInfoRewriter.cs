@@ -166,6 +166,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var batchPrompt = GetOptional(config, "AiTextBatchPrompt") ?? DefaultAiTextBatchPrompt;
         var retryPrompt = GetOptional(config, "AiTextRetryPrompt") ?? DefaultAiTextRetryPrompt;
         var timeoutSeconds = GetOptionalInt(config, "AiTextTimeoutSeconds") ?? 120;
+        var titleTemperature = GetOptionalDouble(config, "AiNewTitleTemperature") ?? 0.75;
+        var synopsisTemperature = GetOptionalDouble(config, "AiSynopsisTemperature") ?? 0.75;
         var rewriteSynopsis = GetOptionalBool(config, "AiRewriteSynopsis") ?? false;
 
         if (File.Exists(request.OutputFilePath) && !request.Overwrite)
@@ -187,11 +189,28 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             batchPrompt,
             retryPrompt,
             timeoutSeconds,
+            titleTemperature,
             project,
             canonicalOriginalTitle,
             request,
-            rewriteSynopsis,
+            rewriteSynopsis: false,
             cancellationToken);
+        if (rewriteSynopsis)
+        {
+            var synopsis = await RewriteSynopsisWithRetryAsync(
+                endpoint,
+                modelId,
+                apiKey,
+                systemPrompt,
+                timeoutSeconds,
+                synopsisTemperature,
+                project,
+                canonicalOriginalTitle,
+                normalized.Title,
+                request,
+                cancellationToken);
+            normalized = normalized with { Synopsis = synopsis };
+        }
         var preservedFields = ReadPreservedFields(request.OutputFilePath);
 
         await File.WriteAllTextAsync(
@@ -319,6 +338,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string batchPrompt,
         string retryPromptTemplate,
         int timeoutSeconds,
+        double titleTemperature,
         ProjectInfo project,
         string canonicalOriginalTitle,
         ProjectInfoRewriteRequest request,
@@ -342,6 +362,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 systemPrompt,
                 prompt,
                 timeoutSeconds,
+                titleTemperature,
                 cancellationToken);
 
             NormalizedRewrite normalized;
@@ -382,6 +403,79 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             $"改写结果生成失败，已重试 {MaxAiAttempts} 次仍未通过。最近一次错误：{lastFailureMessage ?? "未知错误"}；最近一次新剧名：{previousBadTitle ?? "无"}");
     }
 
+    private async Task<string> RewriteSynopsisWithRetryAsync(
+        string endpoint,
+        string modelId,
+        string apiKey,
+        string systemPrompt,
+        int timeoutSeconds,
+        double synopsisTemperature,
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        string newTitle,
+        ProjectInfoRewriteRequest request,
+        CancellationToken cancellationToken)
+    {
+        string? lastFailure = null;
+        for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
+        {
+            var rewrite = await RequestRewritePayloadAsync(
+                endpoint,
+                modelId,
+                apiKey,
+                systemPrompt,
+                BuildSynopsisPrompt(project, canonicalOriginalTitle, newTitle, request, lastFailure),
+                timeoutSeconds,
+                synopsisTemperature,
+                cancellationToken);
+            var rawSynopsis = FirstNonEmpty(rewrite.Synopsis, rewrite.Description, rewrite.简介);
+            if (string.IsNullOrWhiteSpace(rawSynopsis))
+            {
+                lastFailure = "改写结果缺少简介";
+                continue;
+            }
+
+            var synopsis = NormalizeGeneratedText(project, canonicalOriginalTitle, newTitle, newTitle, rawSynopsis);
+            var issues = GetSynopsisIssues(synopsis, request).ToList();
+            if (HasForbiddenSynopsis(synopsis, request.ForbiddenSynopses))
+                issues.Add("简介与历史/原简介过于相似");
+            if (issues.Count == 0)
+                return synopsis;
+            lastFailure = string.Join("；", issues);
+        }
+
+        throw new InvalidOperationException(
+            $"简介改写失败，已重试 {MaxAiAttempts} 次仍未通过。最近一次错误：{lastFailure ?? "未知错误"}");
+    }
+
+    private static string BuildSynopsisPrompt(
+        ProjectInfo project,
+        string canonicalOriginalTitle,
+        string newTitle,
+        ProjectInfoRewriteRequest request,
+        string? previousFailure)
+    {
+        var sourceSynopsis = FirstNonEmpty(project.Synopsis, "待补充简介。") ?? "待补充简介。";
+        var forbidden = UniqueTexts(request.ForbiddenSynopses);
+        var target = Math.Max(0, request.TargetSynopsisLength);
+        var lengthHint = target > 0 ? $"目标约 {target} 字。" : "控制在 40 到 220 字。";
+        var forbiddenHint = forbidden.Count == 0
+            ? ""
+            : "\n不要与这些简介过于相似：\n" + string.Join("\n", forbidden.Select(item => "- " + item));
+        var retryHint = string.IsNullOrWhiteSpace(previousFailure)
+            ? ""
+            : $"\n上一次未通过：{previousFailure}。请重写一版。";
+        return $"""
+            请只改写这部短剧的简介，不要改剧名，也不要输出推荐语。
+            新剧名：{newTitle}
+            原剧名：{canonicalOriginalTitle}
+            原简介：{sourceSynopsis}
+            {lengthHint}
+            简介要贴合新剧名，保留原故事核心，换一种叙述。{forbiddenHint}{retryHint}
+            只返回一个 JSON 对象，字段名为 synopsis，内容是改写后的简介。
+            """;
+    }
+
     private async Task<RewritePayload> RequestRewritePayloadAsync(
         string endpoint,
         string modelId,
@@ -389,6 +483,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string systemPrompt,
         string prompt,
         int timeoutSeconds,
+        double titleTemperature,
         CancellationToken cancellationToken)
     {
         var messages = new List<object>();
@@ -410,7 +505,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var payload = new
         {
             model = modelId,
-            temperature = 0.75,
+            temperature = Math.Clamp(titleTemperature, 0, 2),
             messages
         };
 
@@ -705,6 +800,14 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
     private static int? GetOptionalInt(IReadOnlyDictionary<string, string> config, string key)
     {
         return config.TryGetValue(key, out var value) && int.TryParse(value, out var parsed) && parsed > 0
+            ? parsed
+            : null;
+    }
+
+    private static double? GetOptionalDouble(IReadOnlyDictionary<string, string> config, string key)
+    {
+        return config.TryGetValue(key, out var value) &&
+               double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : null;
     }

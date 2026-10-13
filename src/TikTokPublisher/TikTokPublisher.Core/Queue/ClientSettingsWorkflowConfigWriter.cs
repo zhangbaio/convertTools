@@ -26,6 +26,8 @@ public static class ClientSettingsWorkflowConfigWriter
             ["AiTextRetryPrompt"] = settings.AiFullInfoRetryPrompt,
             ["AiRewriteSynopsis"] = account?.TiktokAiRewriteSynopsis == true,
             ["AiTextTimeoutSeconds"] = settings.AiTextTimeoutSeconds,
+            ["AiNewTitleTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiNewTitleRandomness),
+            ["AiSynopsisTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiSynopsisRandomness),
             ["TiktokRoleReferenceSelectionMode"] = settings.TiktokRoleReferenceSelectionMode,
             ["TiktokRoleReferenceAiFallbackEnabled"] = settings.TiktokRoleReferenceAiFallbackEnabled,
             ["TiktokRoleVectorViewMode"] = settings.TiktokRoleVectorViewMode,

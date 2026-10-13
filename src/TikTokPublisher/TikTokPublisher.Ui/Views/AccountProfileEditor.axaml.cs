@@ -160,6 +160,8 @@ public partial class AccountProfileEditor : UserControl
             2,
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
+        SelectByTag(AiNewTitleRandomnessCombo, profile.TiktokAiNewTitleRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
+        SelectByTag(AiSynopsisRandomnessCombo, profile.TiktokAiSynopsisRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(profile.TiktokDayZeroRoi);
@@ -285,6 +287,8 @@ public partial class AccountProfileEditor : UserControl
                 profile.TiktokRoleVectorCharacterCount);
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
+            profile.TiktokAiNewTitleRandomness = TagOf(AiNewTitleRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
+            profile.TiktokAiSynopsisRandomness = TagOf(AiSynopsisRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
             profile.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(

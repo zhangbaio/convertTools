@@ -181,7 +181,7 @@
                             </StackPanel>
                         </Grid>
                         <Grid Classes="profileForm" ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
                             <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
@@ -249,37 +249,51 @@
                             <TextBlock Classes="formLabel" Grid.Row="11" Grid.Column="0" Text="AI 改写简介" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="11" Grid.Column="1" x:Name="AiRewriteSynopsisBox" Content="启用" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="12" Grid.Column="0" Text="寄售模式" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="12" Grid.Column="1" x:Name="ConsignmentBox" Content="启用" />
+                            <TextBlock Classes="formLabel" Grid.Row="12" Grid.Column="0" Text="新剧名随机度" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="12" Grid.Column="1" x:Name="AiNewTitleRandomnessCombo" Width="160" HorizontalAlignment="Left">
+                                <ComboBoxItem Tag="low">低</ComboBoxItem>
+                                <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
+                                <ComboBoxItem Tag="high">高</ComboBoxItem>
+                            </ComboBox>
 
-                            <TextBlock Classes="formLabel" Grid.Row="13" Grid.Column="0" Text="锚点推广" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="13" Grid.Column="1" x:Name="AnchorPromotionBox" Content="启用" />
+                            <TextBlock Classes="formLabel" Grid.Row="13" Grid.Column="0" Text="简介随机度" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="13" Grid.Column="1" x:Name="AiSynopsisRandomnessCombo" Width="160" HorizontalAlignment="Left">
+                                <ComboBoxItem Tag="low">低</ComboBoxItem>
+                                <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
+                                <ComboBoxItem Tag="high">高</ComboBoxItem>
+                            </ComboBox>
 
-                            <views:PublishAccountSelector Grid.Row="14" Grid.Column="0" Grid.ColumnSpan="2" x:Name="PublishAccounts" />
+                            <TextBlock Classes="formLabel" Grid.Row="14" Grid.Column="0" Text="寄售模式" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="14" Grid.Column="1" x:Name="ConsignmentBox" Content="启用" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="15" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="15" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
+                            <TextBlock Classes="formLabel" Grid.Row="15" Grid.Column="0" Text="锚点推广" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="15" Grid.Column="1" x:Name="AnchorPromotionBox" Content="启用" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="16" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="16" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
+                            <views:PublishAccountSelector Grid.Row="16" Grid.Column="0" Grid.ColumnSpan="2" x:Name="PublishAccounts" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="17" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="17" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
+
+                            <TextBlock Classes="formLabel" Grid.Row="18" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="18" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
                                 <ComboBoxItem Tag="playwright">外部浏览器（程序自动打开，可无头）</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Classes="formLabel" Grid.Row="17" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="17" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（不显示窗口，仅程序自动打开的外部浏览器生效）" />
+                            <TextBlock Classes="formLabel" Grid.Row="19" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="19" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（不显示窗口，仅程序自动打开的外部浏览器生效）" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="18" Grid.Column="0" Text="原始权利人" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="18" Grid.Column="1" x:Name="OriginalRightsHolderBox" Content="是" IsChecked="True" />
+                            <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="原始权利人" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="20" Grid.Column="1" x:Name="OriginalRightsHolderBox" Content="是" IsChecked="True" />
 
-                            <TextBlock Classes="formLabel" Grid.Row="19" Grid.Column="0" Text="内容原创类型" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="19" Grid.Column="1" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
+                            <TextBlock Classes="formLabel" Grid.Row="21" Grid.Column="0" Text="内容原创类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="21" Grid.Column="1" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="original">原创</ComboBoxItem>
                                 <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
                             </ComboBox>
 
-                            <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="20" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
+                            <TextBlock Classes="formLabel" Grid.Row="22" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="22" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="original">原创</ComboBoxItem>
                                 <ComboBoxItem Tag="remake">成片重制</ComboBoxItem>
                                 <ComboBoxItem Tag="novel_adaptation">小说改编</ComboBoxItem>

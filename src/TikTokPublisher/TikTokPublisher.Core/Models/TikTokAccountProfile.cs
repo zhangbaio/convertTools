@@ -145,6 +145,8 @@ public sealed class TikTokAccountProfile
         }
     }
     public bool TiktokAiRewriteSynopsis { get; set; } = true;
+    public string TiktokAiNewTitleRandomness { get; set; } = ClientSettingsDefaults.AiNewTitleRandomness;
+    public string TiktokAiSynopsisRandomness { get; set; } = ClientSettingsDefaults.AiNewTitleRandomness;
     public string TiktokPublishMode { get; set; } = "auto_after_review";
     public bool TiktokConsignmentEnabled { get; set; } = true;
     public bool TiktokZeroCostAdsEnabled { get; set; }

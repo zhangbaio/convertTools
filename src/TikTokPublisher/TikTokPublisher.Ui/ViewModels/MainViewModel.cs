@@ -1346,6 +1346,8 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofSealPath = account.TiktokProofSealPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
+        TiktokAiNewTitleRandomness = account.TiktokAiNewTitleRandomness,
+        TiktokAiSynopsisRandomness = account.TiktokAiSynopsisRandomness,
     };
 
     private void ReconcileQueueProjectRows(IReadOnlyList<QueueProjectItem> items, bool replaceCollections = false)

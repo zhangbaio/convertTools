@@ -262,6 +262,10 @@ public sealed class AccountStore
             .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
             .ToList();
         account.ManagementDedupScope = NormalizeManagementDedupScope(account.ManagementDedupScope);
+        account.TiktokAiNewTitleRandomness = ClientSettingsDefaults.NormalizeAiNewTitleRandomness(
+            account.TiktokAiNewTitleRandomness);
+        account.TiktokAiSynopsisRandomness = ClientSettingsDefaults.NormalizeAiNewTitleRandomness(
+            account.TiktokAiSynopsisRandomness);
     }
 
     private static bool MigrateLegacyProofMaterialConfig(IEnumerable<TikTokAccountProfile> accounts)
