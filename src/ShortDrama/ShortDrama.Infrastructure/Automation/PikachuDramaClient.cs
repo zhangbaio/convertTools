@@ -254,11 +254,12 @@ public static class PikachuDramaClient
         string dramaType,
         string keyword,
         int page,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowMissingCookie = false)
     {
         var mangaSearch = string.Equals(dramaType?.Trim(), "manga", StringComparison.OrdinalIgnoreCase);
         var normalizedCookie = HongguoMemoryReaderService.NormalizeFanqieCookie(fanqieCookie);
-        if (!mangaSearch && string.IsNullOrWhiteSpace(normalizedCookie))
+        if (!mangaSearch && string.IsNullOrWhiteSpace(normalizedCookie) && !allowMissingCookie)
         {
             throw new InvalidOperationException(
                 "皮卡丘短剧搜索需要有效的番茄 Cookie，请在系统设置中点击「从红果读取」后保存设置。");
@@ -308,7 +309,7 @@ public static class PikachuDramaClient
         request.Headers.TryAddWithoutValidation("Accept", "*/*");
         request.Headers.Host = "api5-sinfonlinea.novelfm.com";
         request.Headers.TryAddWithoutValidation("user-agent", FanqieUserAgent);
-        if (!mangaSearch)
+        if (!mangaSearch && !string.IsNullOrWhiteSpace(normalizedCookie))
         {
             request.Headers.TryAddWithoutValidation("cookie", normalizedCookie);
         }
@@ -333,6 +334,19 @@ public static class PikachuDramaClient
         }
 
         var responseCode = GetInt(document.RootElement, "code");
+        if (responseCode == 6000 && allowMissingCookie && !string.IsNullOrWhiteSpace(normalizedCookie))
+        {
+            document.Dispose();
+            return await RequestFanqieSearchAsync(
+                httpClient,
+                "",
+                dramaType,
+                keyword,
+                page,
+                cancellationToken,
+                allowMissingCookie: true);
+        }
+
         if (responseCode != 0)
         {
             var code = GetString(document.RootElement, "code") ?? "unknown";

@@ -36,6 +36,35 @@ public static class OverLimitEpisodePolicy
         return text;
     }
 
+    public static bool TryReadOriginalEpisodeCount(string projectDir, out int originalEpisodeCount)
+    {
+        originalEpisodeCount = 0;
+        var path = MetadataPath(projectDir);
+        if (!File.Exists(path))
+            return false;
+
+        try
+        {
+            var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+            if (root is null)
+                return false;
+            foreach (var key in new[] { "originalEpisodeCount", "original_episode_count" })
+            {
+                if (root[key] is JsonValue value && value.TryGetValue<int>(out var count) && count > 0)
+                {
+                    originalEpisodeCount = count;
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            return false;
+        }
+
+        return false;
+    }
+
     public static bool TryReadKeepCount(string projectDir, out int keepCount)
     {
         keepCount = 0;

@@ -389,6 +389,8 @@ public static class WorkspaceMergeService
         clonedItem.GenreCategory = FirstNonEmpty(sourceItem.GenreCategory, clonedItem.GenreCategory);
         if (sourceItem.EpisodeCount > 0)
             clonedItem.EpisodeCount = sourceItem.EpisodeCount;
+        if (sourceItem.SourceEpisodeCount > clonedItem.SourceEpisodeCount)
+            clonedItem.SourceEpisodeCount = sourceItem.SourceEpisodeCount;
         if (sourceItem.VideoVertical is 0 or 1)
             clonedItem.VideoVertical = sourceItem.VideoVertical;
         RewriteAndSaveProjectDocuments(
@@ -683,6 +685,8 @@ public static class WorkspaceMergeService
                 payload["category"] = sourceItem.GenreCategory;
             if (sourceItem.EpisodeCount > 0)
                 payload["episodeCount"] = sourceItem.EpisodeCount;
+                if (sourceItem.SourceEpisodeCount > sourceItem.EpisodeCount)
+                    payload["sourceEpisodeCount"] = sourceItem.SourceEpisodeCount;
             File.WriteAllText(metadataPath, JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8);
         }
     }

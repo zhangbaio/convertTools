@@ -15,6 +15,54 @@ public sealed class UploadTitleImportServiceTests
     }
 
     [Fact]
+    public void Truncated_keep_count_accepts_the_single_longer_same_title()
+    {
+        var shorter = new DramaSearchItem { Title = "穗金是锦鲤第四季", EpisodeTotal = 80, BookId = "a" };
+        var longer = new DramaSearchItem { Title = "穗金是锦鲤第四季", EpisodeTotal = 139, BookId = "b" };
+
+        var (item, reason) = UploadTitleImportService.PickPreferredSearchMatch(
+            "穗金是锦鲤第四季",
+            [shorter, longer],
+            expectedEpisodeTotal: 120,
+            truncatedKeepCount: 120);
+
+        reason.Should().BeEmpty();
+        item!.BookId.Should().Be("b");
+    }
+
+    [Fact]
+    public void Truncated_keep_count_rejects_multiple_longer_same_titles()
+    {
+        var first = new DramaSearchItem { Title = "穗金是锦鲤第四季", EpisodeTotal = 139, BookId = "a" };
+        var second = new DramaSearchItem { Title = "穗金是锦鲤第四季", EpisodeTotal = 150, BookId = "b" };
+
+        var (item, reason) = UploadTitleImportService.PickPreferredSearchMatch(
+            "穗金是锦鲤第四季",
+            [first, second],
+            expectedEpisodeTotal: 120,
+            truncatedKeepCount: 120);
+
+        item.Should().BeNull();
+        reason.Should().Contain("无法唯一确认");
+    }
+
+    [Fact]
+    public void Exact_episode_total_still_wins_over_a_longer_candidate()
+    {
+        var exact = new DramaSearchItem { Title = "穗金是锦鲤第四季", EpisodeTotal = 120, BookId = "exact" };
+        var longer = new DramaSearchItem { Title = "穗金是锦鲤第四季", EpisodeTotal = 139, BookId = "long" };
+
+        var (item, reason) = UploadTitleImportService.PickPreferredSearchMatch(
+            "穗金是锦鲤第四季",
+            [exact, longer],
+            expectedEpisodeTotal: 120,
+            truncatedKeepCount: 120);
+
+        reason.Should().BeEmpty();
+        item!.BookId.Should().Be("exact");
+    }
+
+    [Fact]
     public void ResolveEpisodeLimitError_blocks_over_limit_when_global_switch_is_off()
     {
         var item = new DramaSearchItem

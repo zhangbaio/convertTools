@@ -1,0 +1,455 @@
+using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
+namespace ShortDrama.Infrastructure.Automation;
+
+/// <summary>红果短剧下载器 2.3.7 的搜索、剧集目录和视频解析。</summary>
+public static class PlayletDramaClient
+{
+    public const string BookPrefix = "playlet:";
+    public const string EpisodePrefix = "playlet_ep:";
+    public const string DefaultServerUrl = "https://startvlog.cn/start-prod-api";
+    public const string ClientVersion = "2.3.7";
+    public const string DefaultLine = "1";
+    private const string DirectoryUrl =
+        "https://api-sinfonlinec.fanqiesdk.com/api/novel/book/audio/directory/list/v1";
+    private const string VideoPath = "/api/drama/hongguo/video";
+    private const string DecryptVideoPath = "/api/drama/hongguo/decryptVideo";
+    private const string DetailPath = "/api/drama/hongguo/detail";
+    private const string PassId = "start-prod-api";
+    private const string PassToken = "MkYQyRrrD2iG5WuDEV7DjYcq2jq7";
+    private const string DirectoryUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.60(0x18003c2c) NetType/WIFI Language/zh_CN";
+    private const string PublicKey = """
+        -----BEGIN PUBLIC KEY-----
+        MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC/EwSZCZTwnYhixLefB9Gvfa+X
+        o4uMnG35UiNdPd20/CpgMjw0a9Zy79WjvMH4oCRCOL81HMy5/o6Iuks5Nj4t0reN
+        KMHkDcrZdIgMW+DFaioJWEi4zfORC0amtHuDEMYaxfVQ1PxOfgnApbD+/3qzd4hr
+        4AzoGhyxwpyUXtX6wQIDAQAB
+        -----END PUBLIC KEY-----
+        """;
+
+    public sealed record EpisodeItem(int Number, string Title, string VideoId);
+    public sealed record VideoItem(string Url, string? Key);
+    public sealed record ConnectivityResult(bool SearchOk, bool VideoOk, string SearchMessage, string VideoMessage);
+
+    public static IReadOnlyList<string> BuildQualityFallbackCodes(string? quality)
+    {
+        var requested = MapQuality(quality);
+        return requested switch
+        {
+            "0" => ["0", "1080", "1"],
+            "1" => ["1", "1080", "2", "720"],
+            "2" => ["2", "720", "1"],
+            "3" => ["3", "2", "720"],
+            "4" => ["4", "2", "720"],
+            "5" => ["5", "4", "2"],
+            _ => [requested, "1", "1080"]
+        };
+    }
+
+    public static async Task<IReadOnlyList<EpisodeItem>> GetEpisodesAsync(
+        HttpClient httpClient,
+        string? serverUrl,
+        string bookId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedBookId = StripBookPrefix(bookId);
+        if (string.IsNullOrWhiteSpace(normalizedBookId))
+        {
+            return [];
+        }
+
+        try
+        {
+            var directory = await GetDirectoryEpisodesAsync(httpClient, normalizedBookId, cancellationToken);
+            if (directory.Count > 0)
+            {
+                return directory;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (HttpRequestException)
+        {
+            // 目录接口失败时改走皮卡丘 detail。
+        }
+
+        return await GetDetailEpisodesAsync(httpClient, serverUrl, normalizedBookId, cancellationToken);
+    }
+
+    public static async Task<VideoItem> GetVideoAsync(
+        HttpClient httpClient,
+        string? serverUrl,
+        string videoId,
+        string? quality,
+        string? deviceId,
+        CancellationToken cancellationToken)
+    {
+        var normalizedVideoId = StripEpisodePrefix(videoId);
+        var normalizedDeviceId = (deviceId ?? string.Empty).Trim().ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(normalizedVideoId))
+        {
+            throw new InvalidOperationException("红果短剧下载器缺少视频编号。");
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedDeviceId))
+        {
+            throw new InvalidOperationException("未配置红果短剧下载器设备号。请在下载器「软件设置」中复制设备信息后保存。");
+        }
+
+        var server = NormalizeServerUrl(serverUrl);
+        string? lastMessage = null;
+        foreach (var qualityCode in BuildQualityFallbackCodes(quality))
+        {
+            var video = await RequestVideoAsync(
+                httpClient,
+                server,
+                VideoPath,
+                normalizedVideoId,
+                qualityCode,
+                normalizedDeviceId,
+                cancellationToken);
+            if (video.Success)
+            {
+                return new VideoItem(video.Url!, video.Key);
+            }
+
+            lastMessage = video.Message;
+        }
+
+        var fallback = await RequestVideoAsync(
+            httpClient,
+            server,
+            DecryptVideoPath,
+            normalizedVideoId,
+            BuildQualityFallbackCodes(quality)[0],
+            normalizedDeviceId,
+            cancellationToken);
+        if (fallback.Success)
+        {
+            return new VideoItem(fallback.Url!, fallback.Key);
+        }
+
+        throw new InvalidOperationException(
+            "红果短剧下载器视频解析失败：" +
+            (string.IsNullOrWhiteSpace(fallback.Message) ? lastMessage ?? "未知错误" : fallback.Message));
+    }
+
+    public static async Task<ConnectivityResult> TestConnectivityAsync(
+        HttpClient httpClient,
+        string? serverUrl,
+        string? dramaType,
+        string? deviceId,
+        CancellationToken cancellationToken)
+    {
+        string searchMessage;
+        var searchOk = false;
+        try
+        {
+            using var document = await PikachuDramaClient.RequestFanqieSearchAsync(
+                httpClient,
+                fanqieCookie: "",
+                string.Equals(dramaType, "manga", StringComparison.OrdinalIgnoreCase) ? "manga" : "short",
+                "财神",
+                1,
+                cancellationToken,
+                allowMissingCookie: true);
+            searchOk = true;
+            searchMessage = "搜索正常";
+        }
+        catch (Exception ex)
+        {
+            searchMessage = $"搜索失败：{ex.Message}";
+        }
+
+        string videoMessage;
+        var videoOk = false;
+        try
+        {
+            var episodes = await GetEpisodesAsync(httpClient, serverUrl, "7599558182226119705", cancellationToken);
+            videoMessage = $"剧集目录正常，测试剧返回 {episodes.Count} 集";
+            if (episodes.Count > 0 && !string.IsNullOrWhiteSpace(deviceId))
+            {
+                var video = await GetVideoAsync(
+                    httpClient,
+                    serverUrl,
+                    episodes[0].VideoId,
+                    "1080P",
+                    deviceId,
+                    cancellationToken);
+                videoOk = !string.IsNullOrWhiteSpace(video.Url);
+                videoMessage += videoOk ? "；视频直链正常" : "；视频未返回地址";
+            }
+            else if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                videoMessage += "；未配置设备号，未测试视频";
+            }
+        }
+        catch (Exception ex)
+        {
+            videoMessage = $"视频解析失败：{ex.Message}";
+        }
+
+        return new ConnectivityResult(searchOk, videoOk, searchMessage, videoMessage);
+    }
+
+    private static async Task<IReadOnlyList<EpisodeItem>> GetDirectoryEpisodesAsync(
+        HttpClient httpClient,
+        string bookId,
+        CancellationToken cancellationToken)
+    {
+        var url = $"{DirectoryUrl}?book_id={Uri.EscapeDataString(bookId)}&aid=1967";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.TryAddWithoutValidation("User-Agent", DirectoryUserAgent);
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new HttpRequestException($"剧集目录 HTTP {(int)response.StatusCode}");
+        }
+
+        using var document = JsonDocument.Parse(text);
+        if (GetInt(document.RootElement, "code") != 0 ||
+            !document.RootElement.TryGetProperty("data", out var data) ||
+            !data.TryGetProperty("item_list", out var items) ||
+            items.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var episodes = new List<EpisodeItem>();
+        foreach (var item in items.EnumerateArray())
+        {
+            var videoId = ReadVideoId(item);
+            if (string.IsNullOrWhiteSpace(videoId))
+            {
+                continue;
+            }
+
+            var number = episodes.Count + 1;
+            episodes.Add(new EpisodeItem(number, $"第{number}集", videoId));
+        }
+
+        return episodes;
+    }
+
+    private static async Task<IReadOnlyList<EpisodeItem>> GetDetailEpisodesAsync(
+        HttpClient httpClient,
+        string? serverUrl,
+        string bookId,
+        CancellationToken cancellationToken)
+    {
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["bookId"] = Encrypt(bookId)
+        });
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{NormalizeServerUrl(serverUrl)}{DetailPath}")
+        {
+            Content = content
+        };
+        ApplyGatewayHeaders(request, deviceId: null);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        if (!string.Equals(ReadCode(document.RootElement), "200", StringComparison.Ordinal) ||
+            !document.RootElement.TryGetProperty("data", out var data) ||
+            !data.TryGetProperty("data", out var episodeList) ||
+            episodeList.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var episodes = new List<EpisodeItem>();
+        foreach (var item in episodeList.EnumerateArray())
+        {
+            var videoId = GetString(item, "videoId") ?? GetString(item, "video_id");
+            if (string.IsNullOrWhiteSpace(videoId))
+            {
+                continue;
+            }
+
+            var number = episodes.Count + 1;
+            episodes.Add(new EpisodeItem(number, GetString(item, "title") ?? $"第{number}集", videoId));
+        }
+
+        return episodes;
+    }
+
+    private static async Task<VideoAttempt> RequestVideoAsync(
+        HttpClient httpClient,
+        string serverUrl,
+        string path,
+        string videoId,
+        string qualityCode,
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["videoId"] = Encrypt(videoId),
+            ["quality"] = Encrypt(qualityCode),
+            ["deviceId"] = Encrypt(deviceId),
+            ["version"] = Encrypt(ClientVersion),
+            ["line"] = Encrypt(DefaultLine)
+        });
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}{path}")
+        {
+            Content = content
+        };
+        ApplyGatewayHeaders(request, deviceId);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return new VideoAttempt(false, null, null, $"HTTP {(int)response.StatusCode}");
+        }
+
+        using var document = JsonDocument.Parse(text);
+        var code = ReadCode(document.RootElement);
+        if (!string.Equals(code, "200", StringComparison.Ordinal))
+        {
+            return new VideoAttempt(false, null, null, ReadMessage(document.RootElement) ?? $"code={code}");
+        }
+
+        var url = document.RootElement.TryGetProperty("data", out var data) ? GetString(data, "url") : null;
+        var key = document.RootElement.TryGetProperty("data", out data) ? GetString(data, "key") : null;
+        return string.IsNullOrWhiteSpace(url)
+            ? new VideoAttempt(false, null, null, "未返回播放地址")
+            : new VideoAttempt(true, url, key, null);
+    }
+
+    private static void ApplyGatewayHeaders(HttpRequestMessage request, string? deviceId)
+    {
+        var today = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var signature = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{today}_{PassId}_{PassToken}")));
+        request.Headers.TryAddWithoutValidation("auth-pass-id", PassId);
+        request.Headers.TryAddWithoutValidation("auth-signature", signature);
+        request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+        request.Headers.TryAddWithoutValidation("memberType", "drama_cn");
+        request.Headers.TryAddWithoutValidation("version", ClientVersion);
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            request.Headers.TryAddWithoutValidation("deviceId", deviceId.Trim());
+        }
+    }
+
+    private static string MapQuality(string? quality)
+    {
+        var normalized = (quality ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "1080p+" or "1080+" => "0",
+            "720p" or "720" or "高清" or "hd" => "2",
+            "540p" or "540" => "3",
+            "480p" or "480" or "标清" or "sd" => "4",
+            "360p" or "360" => "5",
+            "0" or "1" or "2" or "3" or "4" or "5" => normalized,
+            _ => "1"
+        };
+    }
+
+    private static string NormalizeServerUrl(string? value)
+    {
+        var normalized = (value ?? string.Empty).Trim().TrimEnd('/');
+        return string.IsNullOrWhiteSpace(normalized) ? DefaultServerUrl : normalized;
+    }
+
+    private static string StripBookPrefix(string? value)
+    {
+        var text = (value ?? string.Empty).Trim();
+        return text.StartsWith(BookPrefix, StringComparison.OrdinalIgnoreCase)
+            ? text[BookPrefix.Length..]
+            : text;
+    }
+
+    private static string StripEpisodePrefix(string? value)
+    {
+        var text = (value ?? string.Empty).Trim();
+        return text.StartsWith(EpisodePrefix, StringComparison.OrdinalIgnoreCase)
+            ? text[EpisodePrefix.Length..]
+            : text;
+    }
+
+    private static string? ReadVideoId(JsonElement item) => item.ValueKind switch
+    {
+        JsonValueKind.String => item.GetString()?.Trim(),
+        JsonValueKind.Number => item.GetRawText(),
+        JsonValueKind.Object => GetString(item, "item_id") ?? GetString(item, "video_id") ?? GetString(item, "videoId"),
+        _ => null
+    };
+
+    private static string Encrypt(string plaintext)
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportFromPem(PublicKey);
+        return Convert.ToBase64String(rsa.Encrypt(Encoding.UTF8.GetBytes(plaintext), RSAEncryptionPadding.Pkcs1));
+    }
+
+    private static string? ReadCode(JsonElement element)
+    {
+        if (!element.TryGetProperty("code", out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.GetRawText(),
+            _ => null
+        };
+    }
+
+    private static string? ReadMessage(JsonElement element)
+    {
+        foreach (var name in new[] { "msg", "message", "error" })
+        {
+            var value = GetString(element, name);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? GetString(JsonElement element, string propertyName)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.String => property.GetString()?.Trim(),
+            JsonValueKind.Number => property.GetRawText(),
+            _ => null
+        };
+    }
+
+    private static int? GetInt(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var property))
+        {
+            return null;
+        }
+
+        return property.ValueKind switch
+        {
+            JsonValueKind.Number when property.TryGetInt32(out var value) => value,
+            JsonValueKind.String when int.TryParse(property.GetString(), out var parsed) => parsed,
+            _ => null
+        };
+    }
+
+    private sealed record VideoAttempt(bool Success, string? Url, string? Key, string? Message);
+}

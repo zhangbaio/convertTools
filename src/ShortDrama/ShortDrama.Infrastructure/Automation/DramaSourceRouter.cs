@@ -15,7 +15,7 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
-    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "hghigh", "mapleleaf", "downloader"];
+    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "playlet", "hghigh", "mapleleaf", "downloader"];
     private static readonly string[] NewReleaseServices = ["hgnew", "hglocal", "hghigh", "mapleleaf", "downloader"];
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
@@ -134,6 +134,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
             "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
             "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken, searchCategory),
+            "playlet" => await SearchPlayletAsync(keyword, page, settings, cancellationToken, searchCategory),
             "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken, searchCategory),
             "mapleleaf" => await _mapleleafApiService.SearchAsync(settings, keyword, page, cancellationToken),
             "downloader" => await _downloaderApiService.SearchAsync(settings, keyword, page, cancellationToken),
@@ -542,6 +543,24 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 minConcurrency: HghighMinimumDownloadConcurrency,
                 pieceSize: HghighPieceSizeBytes,
                 pieceWorkers: HghighPiecePoolWorkers);
+        }
+
+        if (bookId.StartsWith(PlayletDramaClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            bookId.StartsWith(PlayletDramaClient.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
+        {
+            var playletBookId = EnsurePrefixed(bookId, PlayletDramaClient.BookPrefix);
+            return await DownloadWithProviderAsync(
+                request,
+                progress,
+                cancellationToken,
+                resolveEpisodes: ct => GetPlayletEpisodesAsync(playletBookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetPlayletVideoUrlAsync(videoId, quality, settings, ct),
+                posterPrefix: PlayletDramaClient.BookPrefix,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("playlet"),
+                downloadFileSegments: downloadFileSegments,
+                downloadTimeoutSeconds: downloadTimeoutSeconds,
+                downloadAttempts: downloadAttempts);
         }
 
         if (bookId.StartsWith(PikachuBookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -2057,6 +2076,29 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             page,
             cancellationToken);
 
+        return ReadFanqieSearchItems(document, PikachuBookPrefix);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> SearchPlayletAsync(
+        string keyword,
+        int page,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken,
+        string? searchCategory = null)
+    {
+        using var document = await PikachuDramaClient.RequestFanqieSearchAsync(
+            _httpClient,
+            fanqieCookie: "",
+            ResolvePikachuDramaType(settings, searchCategory),
+            keyword,
+            page,
+            cancellationToken,
+            allowMissingCookie: true);
+        return ReadFanqieSearchItems(document, PlayletDramaClient.BookPrefix);
+    }
+
+    private static IReadOnlyList<DramaSearchItem> ReadFanqieSearchItems(JsonDocument document, string bookPrefix)
+    {
         if (!document.RootElement.TryGetProperty("data", out var data) ||
             !data.TryGetProperty("search_data", out var searchData) ||
             searchData.ValueKind != JsonValueKind.Array)
@@ -2101,7 +2143,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 }
 
                 results.Add(new DramaSearchItem(
-                    BookId: EnsurePrefixed(bookId, PikachuBookPrefix),
+                    BookId: EnsurePrefixed(bookId, bookPrefix),
                     Title: GetString(info, "book_name") ?? string.Empty,
                     Category: GetString(info, "category") ?? string.Empty,
                     EpisodeTotal: GetInt(info, "serial_count") ?? 0,
@@ -2350,6 +2392,41 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         return episodes;
+    }
+
+    private async Task<IReadOnlyList<SourceEpisode>> GetPlayletEpisodesAsync(
+        string prefixedBookId,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var episodes = await PlayletDramaClient.GetEpisodesAsync(
+            _httpClient,
+            settings.PlayletServerUrl,
+            prefixedBookId,
+            cancellationToken);
+        return episodes
+            .Select(item => new SourceEpisode(
+                item.Number,
+                item.Title,
+                EnsurePrefixed(item.VideoId, PlayletDramaClient.EpisodePrefix),
+                string.Empty))
+            .ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetPlayletVideoUrlAsync(
+        string prefixedVideoId,
+        string quality,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var video = await PlayletDramaClient.GetVideoAsync(
+            _httpClient,
+            settings.PlayletServerUrl,
+            prefixedVideoId,
+            quality,
+            settings.PlayletDeviceId,
+            cancellationToken);
+        return new SourceVideoDetail(video.Url, video.Key);
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetHgnewEpisodesAsync(string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
