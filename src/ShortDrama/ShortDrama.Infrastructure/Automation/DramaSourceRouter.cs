@@ -2854,26 +2854,112 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         try
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            var count = (int)Math.Min(stream.Length, 8L * 1024 * 1024);
-            if (count <= 0)
-                return false;
-            var buffer = new byte[count];
-            var read = 0;
-            while (read < count)
-            {
-                var current = stream.Read(buffer, read, count - read);
-                if (current <= 0)
-                    break;
-                read += current;
-            }
-            var data = buffer.AsSpan(0, read);
-            return data.IndexOf("encv"u8) >= 0 || data.IndexOf("enca"u8) >= 0;
+            return ContainsEncryptedSampleEntry(stream, 0, stream.Length);
         }
         catch
         {
             return false;
         }
     }
+
+    private static bool ContainsEncryptedSampleEntry(Stream stream, long start, long end)
+    {
+        Span<byte> header = stackalloc byte[16];
+        var offset = start;
+        while (offset + 8 <= end)
+        {
+            stream.Position = offset;
+            if (stream.Read(header[..8]) != 8)
+                return false;
+
+            var boxSize = BinaryPrimitives.ReadUInt32BigEndian(header[..4]);
+            var type = header.Slice(4, 4);
+            long headerSize = 8;
+            long resolvedSize;
+            if (boxSize == 1)
+            {
+                if (offset + 16 > end || stream.Read(header[8..16]) != 8)
+                    return false;
+                resolvedSize = checked((long)BinaryPrimitives.ReadUInt64BigEndian(header[8..16]));
+                headerSize = 16;
+            }
+            else
+            {
+                resolvedSize = boxSize == 0 ? end - offset : boxSize;
+            }
+
+            if (resolvedSize < headerSize || offset + resolvedSize > end)
+                return false;
+
+            var boxEnd = offset + resolvedSize;
+            if (type.SequenceEqual("stsd"u8))
+            {
+                if (StsdContainsEncryptedEntry(stream, offset + headerSize, boxEnd))
+                    return true;
+            }
+            else if (IsMp4ContainerBox(type) &&
+                     ContainsEncryptedSampleEntry(stream, offset + headerSize, boxEnd))
+            {
+                return true;
+            }
+
+            offset = boxEnd;
+        }
+
+        return false;
+    }
+
+    private static bool StsdContainsEncryptedEntry(Stream stream, long contentStart, long boxEnd)
+    {
+        if (contentStart + 8 > boxEnd)
+            return false;
+
+        Span<byte> header = stackalloc byte[8];
+        stream.Position = contentStart;
+        if (stream.Read(header) != 8)
+            return false;
+
+        var entryCount = BinaryPrimitives.ReadUInt32BigEndian(header[4..8]);
+        var offset = contentStart + 8;
+        for (var index = 0; index < entryCount && offset + 8 <= boxEnd; index++)
+        {
+            stream.Position = offset;
+            if (stream.Read(header) != 8)
+                return false;
+
+            var entrySize32 = BinaryPrimitives.ReadUInt32BigEndian(header[..4]);
+            var encrypted = header.Slice(4, 4).SequenceEqual("encv"u8) ||
+                            header.Slice(4, 4).SequenceEqual("enca"u8);
+            long headerSize = 8;
+            long entrySize = entrySize32;
+            if (entrySize32 == 1)
+            {
+                if (stream.Read(header) != 8)
+                    return false;
+                entrySize = checked((long)BinaryPrimitives.ReadUInt64BigEndian(header));
+                headerSize = 16;
+            }
+            else if (entrySize32 == 0)
+            {
+                entrySize = boxEnd - offset;
+            }
+
+            if (entrySize < headerSize || offset + entrySize > boxEnd)
+                return false;
+            if (encrypted)
+                return true;
+            offset += entrySize;
+        }
+
+        return false;
+    }
+
+    private static bool IsMp4ContainerBox(ReadOnlySpan<byte> type) =>
+        type.SequenceEqual("moov"u8) ||
+        type.SequenceEqual("trak"u8) ||
+        type.SequenceEqual("mdia"u8) ||
+        type.SequenceEqual("minf"u8) ||
+        type.SequenceEqual("stbl"u8);
 
     private static void CleanupDownloadArtifacts(string path, bool keepVideo)
     {
