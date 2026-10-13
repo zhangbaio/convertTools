@@ -244,6 +244,8 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
+        DramaDownload.TikTokQueueTargetsRequested += ListTikTokQueueImportTargets;
+        DramaDownload.AccountProfileRequested += accountId => FindAccountById(accountId)?.Model;
         DramaDownload.ExistenceAccountRequested += () => SelectedAccount?.Model;
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
@@ -287,6 +289,8 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
+        DramaDownload.TikTokQueueTargetsRequested += ListTikTokQueueImportTargets;
+        DramaDownload.AccountProfileRequested += accountId => FindAccountById(accountId)?.Model;
         DramaDownload.ExistenceAccountRequested += () => SelectedAccount?.Model;
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
@@ -3577,6 +3581,20 @@ public sealed partial class MainViewModel : ViewModelBase
             return null;
         }
         return target;
+    }
+
+    private IReadOnlyList<TikTokQueueImportTarget> ListTikTokQueueImportTargets()
+    {
+        var targets = new List<TikTokQueueImportTarget>();
+        foreach (var account in Accounts)
+        {
+            var workspace = NormalizeWorkspacePath(account.Model.ResolveWorkspacePath());
+            if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+                continue;
+            targets.Add(new TikTokQueueImportTarget(account.Id, account.DisplayName, workspace));
+        }
+
+        return targets;
     }
 
     private TikTokQueueImportTarget? ResolveSelectedAccountQueueImportTarget()
