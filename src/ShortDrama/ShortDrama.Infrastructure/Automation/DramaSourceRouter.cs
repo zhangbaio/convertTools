@@ -565,7 +565,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         if (bookId.StartsWith(PlayletDramaClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
             bookId.StartsWith(PlayletDramaClient.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
+            (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase) &&
+             string.IsNullOrWhiteSpace(bookId)))
         {
             var playletBookId = EnsurePrefixed(bookId, PlayletDramaClient.BookPrefix);
             return await DownloadWithProviderAsync(

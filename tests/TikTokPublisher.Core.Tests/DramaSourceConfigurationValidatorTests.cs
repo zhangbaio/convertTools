@@ -67,6 +67,27 @@ public sealed class DramaSourceConfigurationValidatorTests
         Assert.True(configured.IsConfigured);
     }
 
+    [Theory]
+    [InlineData("hgnew")]
+    [InlineData("mapleleaf")]
+    [InlineData("downloader")]
+    [InlineData("unknown")]
+    [InlineData(null)]
+    public void RetiredAndUnknownChainsBecomePlaylet(string? chain)
+    {
+        Assert.Equal("playlet", VisibleDramaSource.Normalize(chain));
+        Assert.Equal(chain is "hgnew" or "mapleleaf" or "downloader", VisibleDramaSource.IsRetired(chain));
+    }
+
+    [Fact]
+    public void VisibleChainsStaySelectable()
+    {
+        Assert.Equal("hghigh", VisibleDramaSource.Normalize("hghigh"));
+        Assert.Equal("hglocal", VisibleDramaSource.Normalize("hglocal"));
+        Assert.Equal("pikachu", VisibleDramaSource.Normalize("pikachu"));
+        Assert.Equal("playlet", VisibleDramaSource.Normalize("playlet"));
+    }
+
     [Fact]
     public void PlayletSourceRequiresServerAndDevice()
     {

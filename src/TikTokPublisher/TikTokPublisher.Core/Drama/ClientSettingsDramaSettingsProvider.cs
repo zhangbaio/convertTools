@@ -47,11 +47,7 @@ public static class DramaSourceSettingsMapping
         PlayletDeviceId = settings.PlayletDeviceId ?? "",
     };
 
-    private static string NormalizeChain(string? chain)
-    {
-        var normalized = (chain ?? "hgnew").Trim().ToLowerInvariant();
-        return normalized is "hgnew" or "pikachu" or "playlet" or "hglocal" or "hghigh" or "mapleleaf" or "downloader" ? normalized : "hgnew";
-    }
+    private static string NormalizeChain(string? chain) => VisibleDramaSource.Normalize(chain);
 
     private static string NormalizeHongguoLocalDownloadMode(string? mode)
     {

@@ -3,6 +3,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.Networking;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.ViewModels;
@@ -103,11 +104,8 @@ public partial class SystemSettingsView : UserControl
     private void InitializeComboBoxes()
     {
         DramaSourceCombo.Items.Clear();
-        DramaSourceCombo.Items.Add(CreateItem("红果新接口", "hgnew"));
         DramaSourceCombo.Items.Add(CreateItem("红果高码率", "hghigh"));
-        DramaSourceCombo.Items.Add(CreateItem("Mapleleaf", "mapleleaf"));
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
-        DramaSourceCombo.Items.Add(CreateItem("统一下载器", "downloader"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
@@ -277,7 +275,7 @@ public partial class SystemSettingsView : UserControl
     private void OnDramaSourceChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_vm is null || DramaSourceCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.DramaSourceChain = item.Tag as string ?? "hgnew";
+        _vm.DramaSourceChain = item.Tag as string ?? VisibleDramaSource.DefaultChain;
     }
 
     private void OnPikachuTypeChanged(object? sender, SelectionChangedEventArgs e)
