@@ -69,10 +69,24 @@ public partial class SystemServicesView : UserControl
         var owner = TopLevel.GetTopLevel(this) as Window;
         if (storage is null)
             return;
+        var includeData = await ConfigScopeDialog.ShowAsync(
+            owner,
+            "导出配置",
+            "仅配置：账号、系统设置、登录态和印章。工作目录、Excel、归档只记录路径。"
+            + Environment.NewLine
+            + "配置和数据：在配置之外，再带上 Excel 上传记录、队列库、归档记录和主库里的运行记录。"
+            + Environment.NewLine
+            + "视频、素材和软件授权不会导出。",
+            "仅配置",
+            "配置和数据");
+        if (includeData is null)
+            return;
         var file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "导出配置",
-            SuggestedFileName = $"tiktok-publisher-config-{DateTime.Now:yyyyMMdd}.zip",
+            SuggestedFileName = includeData.Value
+                ? $"tiktok-publisher-full-{DateTime.Now:yyyyMMdd}.zip"
+                : $"tiktok-publisher-config-{DateTime.Now:yyyyMMdd}.zip",
             FileTypeChoices = [new FilePickerFileType("配置包") { Patterns = ["*.zip"] }],
         });
         if (file is null)
@@ -80,8 +94,9 @@ public partial class SystemServicesView : UserControl
         try
         {
             var path = file.Path.LocalPath;
-            await Task.Run(() => PublisherConfigTransfer.ExportTo(path));
-            await InfoDialog.ShowAsync(owner, $"配置已导出到：{path}", "导出配置", 520, 180);
+            await Task.Run(() => PublisherConfigTransfer.ExportTo(path, includeData.Value));
+            var title = includeData.Value ? "配置和数据已导出到" : "配置已导出到";
+            await InfoDialog.ShowAsync(owner, $"{title}：{path}", "导出配置", 520, 180);
         }
         catch (Exception ex)
         {
@@ -109,13 +124,31 @@ public partial class SystemServicesView : UserControl
         try
         {
             var path = file.Path.LocalPath;
-            var summary = await Task.Run(() => PublisherConfigTransfer.Describe(path));
-            var confirmed = await ConfirmDialog.ShowAsync(owner, "导入配置", summary, 560, 280);
-            if (!confirmed)
-                return;
-            var result = await Task.Run(() => PublisherConfigTransfer.ImportFrom(path));
+            var info = await Task.Run(() => PublisherConfigTransfer.Inspect(path));
+            bool includeData;
+            if (!info.IncludesRunData)
+            {
+                var confirmed = await ConfirmDialog.ShowAsync(owner, "导入配置", info.Summary, 560, 320);
+                if (!confirmed)
+                    return;
+                includeData = false;
+            }
+            else
+            {
+                var choice = await ConfigScopeDialog.ShowAsync(
+                    owner,
+                    "导入配置",
+                    info.Summary,
+                    "只导入配置",
+                    "配置和数据都导入");
+                if (choice is null)
+                    return;
+                includeData = choice.Value;
+            }
+
+            var result = await Task.Run(() => PublisherConfigTransfer.ImportFrom(path, includeData));
             vm.NotifyConfigImported();
-            await InfoDialog.ShowAsync(owner, result, "导入配置", 560, 320);
+            await InfoDialog.ShowAsync(owner, result, "导入配置", 560, 360);
         }
         catch (Exception ex)
         {

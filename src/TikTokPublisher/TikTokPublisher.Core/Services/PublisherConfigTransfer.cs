@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
@@ -15,7 +16,7 @@ public static class PublisherConfigTransfer
         WriteIndented = true,
     };
 
-    public static void ExportTo(string zipPath)
+    public static void ExportTo(string zipPath, bool includeRunData)
     {
         var accounts = ReadAccounts(AppPaths.AccountsFile);
         var activeId = ReadActiveAccountId(AppPaths.ActiveAccountFile);
@@ -24,6 +25,7 @@ public static class PublisherConfigTransfer
             Version = Version,
             ExportedAt = DateTimeOffset.Now.ToString("O"),
             ActiveAccountId = activeId,
+            Scope = includeRunData ? "data" : "config",
         };
 
         var tempRoot = Path.Combine(Path.GetTempPath(), "tiktok-config-" + Guid.NewGuid().ToString("N"));
@@ -34,10 +36,24 @@ public static class PublisherConfigTransfer
                 File.Copy(AppPaths.AccountsFile, Path.Combine(tempRoot, "accounts.json"), overwrite: true);
             if (File.Exists(AppPaths.ActiveAccountFile))
                 File.Copy(AppPaths.ActiveAccountFile, Path.Combine(tempRoot, "active-account.json"), overwrite: true);
-            if (File.Exists(AppPaths.AppDatabaseFile))
+            if (includeRunData)
             {
-                BackupSqlite(AppPaths.AppDatabaseFile, Path.Combine(tempRoot, "app.db"));
-                manifest.HasAppDatabase = true;
+                if (File.Exists(AppPaths.AppDatabaseFile))
+                {
+                    BackupSqlite(AppPaths.AppDatabaseFile, Path.Combine(tempRoot, "app.db"));
+                    manifest.HasAppDatabase = true;
+                }
+            }
+            else
+            {
+                var settings = ReadAppSettings(AppPaths.AppDatabaseFile);
+                if (settings.Count > 0)
+                {
+                    File.WriteAllText(
+                        Path.Combine(tempRoot, "app-settings.json"),
+                        JsonSerializer.Serialize(settings, JsonOptions));
+                    manifest.HasAppSettings = true;
+                }
             }
 
             foreach (var account in accounts)
@@ -51,30 +67,34 @@ public static class PublisherConfigTransfer
                     Seal = SafeFullPath(account.TiktokProofSealPath),
                     Archive = SafeFullPath(account.TiktokArchiveRootDir),
                 };
-                CopyProfile(account, tempRoot, entry);
+                if (includeRunData)
+                    CopyProfile(account, tempRoot, entry);
+                else
+                    CopyLoginState(account, tempRoot, entry);
                 CopyFile(entry.Seal, Path.Combine(tempRoot, "seals", account.Id, Path.GetFileName(entry.Seal)), out var hasSeal);
                 entry.HasSeal = hasSeal;
-                CopyFile(entry.Excel, Path.Combine(tempRoot, "excel", account.Id, Path.GetFileName(entry.Excel)), out var hasExcel);
-                entry.HasExcel = hasExcel;
-                var queueDb = string.IsNullOrWhiteSpace(entry.Workspace)
-                    ? ""
-                    : WorkspaceQueuePaths.QueueDatabasePath(entry.Workspace);
-                if (!string.IsNullOrWhiteSpace(queueDb) && File.Exists(queueDb))
+                if (includeRunData)
                 {
-                    var exported = Path.Combine(tempRoot, "queues", account.Id, "queue.db");
-                    BackupSqlite(queueDb, exported);
-                    entry.HasQueueDatabase = true;
-                    manifest.QueueProjectCount += CountRows(exported, "SELECT COUNT(*) FROM upload_projects");
-                    manifest.ArchiveRecordCount += CountRows(exported, "SELECT COUNT(*) FROM archive_projects");
+                    CopyFile(entry.Excel, Path.Combine(tempRoot, "excel", account.Id, Path.GetFileName(entry.Excel)), out var hasExcel);
+                    entry.HasExcel = hasExcel;
+                    var queueDb = string.IsNullOrWhiteSpace(entry.Workspace)
+                        ? ""
+                        : WorkspaceQueuePaths.QueueDatabasePath(entry.Workspace);
+                    if (!string.IsNullOrWhiteSpace(queueDb) && File.Exists(queueDb))
+                    {
+                        var exported = Path.Combine(tempRoot, "queues", account.Id, "queue.db");
+                        BackupSqlite(queueDb, exported);
+                        entry.HasQueueDatabase = true;
+                        manifest.QueueProjectCount += CountRows(exported, "SELECT COUNT(*) FROM upload_projects");
+                        manifest.ArchiveRecordCount += CountRows(exported, "SELECT COUNT(*) FROM archive_projects");
+                    }
                 }
 
                 manifest.Accounts.Add(entry);
             }
 
             File.WriteAllText(Path.Combine(tempRoot, "manifest.json"), JsonSerializer.Serialize(manifest, JsonOptions));
-            if (File.Exists(zipPath))
-                File.Delete(zipPath);
-            ZipFile.CreateFromDirectory(tempRoot, zipPath, CompressionLevel.Optimal, includeBaseDirectory: false);
+            CreateZip(tempRoot, zipPath);
         }
         finally
         {
@@ -82,13 +102,16 @@ public static class PublisherConfigTransfer
         }
     }
 
-    public static string Describe(string zipPath)
+    public static ConfigPackageInfo Inspect(string zipPath)
     {
         var manifest = ReadManifest(zipPath);
-        return BuildSummary(manifest, "导入后将覆盖本机主数据库（先备份为 app.db.bak），并按账号 ID 或名称覆盖已有账号。软件授权不会改变。");
+        var ending = manifest.IncludesRunData
+            ? "可以选择只导入配置，或连运行数据一起导入。连数据导入会先把本机主库和队列库备份为 .bak。软件授权不会改变。"
+            : "这份包只有配置。导入后按账号 ID 或名称覆盖已有账号，并合并系统设置。本机队列、Excel 和上传记录不会改变。软件授权不会改变。";
+        return new ConfigPackageInfo(BuildSummary(manifest, ending, packageContents: true), manifest.IncludesRunData);
     }
 
-    public static string ImportFrom(string zipPath)
+    public static string ImportFrom(string zipPath, bool includeRunData)
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), "tiktok-config-import-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRoot);
@@ -96,9 +119,17 @@ public static class PublisherConfigTransfer
         {
             ExtractZip(zipPath, tempRoot);
             var manifest = ReadManifestFile(Path.Combine(tempRoot, "manifest.json"));
+            var applyData = includeRunData && manifest.IncludesRunData;
             var notes = new List<string>();
-            if (manifest.HasAppDatabase)
-                RestoreAppDatabase(Path.Combine(tempRoot, "app.db"));
+            if (applyData)
+            {
+                if (manifest.HasAppDatabase)
+                    RestoreAppDatabase(Path.Combine(tempRoot, "app.db"));
+            }
+            else
+            {
+                RestoreSettingsOnly(tempRoot);
+            }
 
             var importedAccounts = ReadAccounts(Path.Combine(tempRoot, "accounts.json"));
             var current = ReadAccounts(AppPaths.AccountsFile);
@@ -107,8 +138,11 @@ public static class PublisherConfigTransfer
                 var entry = manifest.Accounts.FirstOrDefault(item => item.Id == account.Id);
                 RestoreProfile(tempRoot, account);
                 RestoreSeal(tempRoot, account, entry, notes);
-                RestoreExcel(tempRoot, account, entry, notes);
-                RestoreQueue(tempRoot, account, entry, notes);
+                if (applyData)
+                {
+                    RestoreExcel(tempRoot, account, entry, notes);
+                    RestoreQueue(tempRoot, account, entry, notes);
+                }
                 var index = current.FindIndex(item =>
                     item.Id == account.Id ||
                     string.Equals(item.Name, account.Name, StringComparison.OrdinalIgnoreCase));
@@ -127,7 +161,10 @@ public static class PublisherConfigTransfer
                 AppPaths.ActiveAccountFile,
                 JsonSerializer.Serialize(new ActiveAccountPointer { ActiveAccountId = activeId }, JsonOptions));
 
-            var summary = BuildSummary(manifest, "导入完成。软件授权未改变。");
+            var ending = applyData
+                ? "导入完成。运行数据已覆盖，原主库和队列库已备份为 .bak。软件授权未改变。"
+                : "导入完成。只更新了配置、登录态和系统设置。本机队列、Excel 和上传记录未改变。软件授权未改变。";
+            var summary = BuildSummary(manifest, ending, packageContents: applyData);
             if (notes.Count > 0)
                 summary += Environment.NewLine + string.Join(Environment.NewLine, notes);
             return summary;
@@ -136,6 +173,21 @@ public static class PublisherConfigTransfer
         {
             TryDeleteDirectory(tempRoot);
         }
+    }
+
+    private static void RestoreSettingsOnly(string tempRoot)
+    {
+        var settingsFile = Path.Combine(tempRoot, "app-settings.json");
+        if (File.Exists(settingsFile))
+        {
+            var rows = JsonSerializer.Deserialize<List<AppSettingRow>>(File.ReadAllText(settingsFile), JsonOptions) ?? [];
+            UpsertAppSettings(rows);
+            return;
+        }
+
+        var database = Path.Combine(tempRoot, "app.db");
+        if (File.Exists(database))
+            UpsertAppSettings(ReadAppSettings(database));
     }
 
     private static void RestoreAppDatabase(string extractedDb)
@@ -232,6 +284,23 @@ public static class PublisherConfigTransfer
         notes.Add($"「{account.DisplayName}」工作目录不存在：{workspace}。队列库已暂存到 {holding}");
     }
 
+    private static void CopyLoginState(TikTokAccountProfile account, string tempRoot, ConfigAccountEntry entry)
+    {
+        var profileDir = string.IsNullOrWhiteSpace(account.ProfileDir)
+            ? AppPaths.ProfileDirFor(account.Id)
+            : account.ProfileDir;
+        var dest = Path.Combine(tempRoot, "profiles", account.Id, "tiktok_auth_state.json");
+        foreach (var source in new[] { Path.Combine(profileDir, "tiktok_auth_state.json"), account.TiktokStorageStatePath })
+        {
+            if (string.IsNullOrWhiteSpace(source) || !File.Exists(source))
+                continue;
+            if (!TryCopyShared(source, dest))
+                continue;
+            entry.HasLoginState = true;
+            return;
+        }
+    }
+
     private static void CopyProfile(TikTokAccountProfile account, string tempRoot, ConfigAccountEntry entry)
     {
         var profileDir = string.IsNullOrWhiteSpace(account.ProfileDir)
@@ -246,30 +315,37 @@ public static class PublisherConfigTransfer
 
         if (!string.IsNullOrWhiteSpace(account.TiktokStorageStatePath) &&
             File.Exists(account.TiktokStorageStatePath) &&
-            !IsUnder(account.TiktokStorageStatePath, profileDir))
-        {
-            File.Copy(
+            !IsUnder(account.TiktokStorageStatePath, profileDir) &&
+            TryCopyShared(
                 account.TiktokStorageStatePath,
-                Path.Combine(tempRoot, "profiles", account.Id, "tiktok_auth_state.json"),
-                overwrite: true);
+                Path.Combine(tempRoot, "profiles", account.Id, "tiktok_auth_state.json")))
+        {
             entry.HasLoginState = true;
         }
     }
 
-    private static string BuildSummary(ConfigManifest manifest, string ending)
+    private static string BuildSummary(ConfigManifest manifest, string ending, bool packageContents)
     {
         var loginCount = manifest.Accounts.Count(item => item.HasLoginState);
-        var excelCount = manifest.Accounts.Count(item => item.HasExcel);
-        return string.Join(Environment.NewLine,
-        [
+        var sealCount = manifest.Accounts.Count(item => item.HasSeal);
+        var lines = new List<string>
+        {
+            $"范围：{(manifest.IncludesRunData ? "配置和运行数据" : "仅配置")}",
             $"账号 {manifest.Accounts.Count} 个",
-            $"队列项目 {manifest.QueueProjectCount} 条",
-            $"归档记录 {manifest.ArchiveRecordCount} 条",
-            $"主数据库：{(manifest.HasAppDatabase ? "有" : "无")}",
-            $"Excel 文件 {excelCount} 个",
+            $"系统设置：{(manifest.HasAppSettings || manifest.HasAppDatabase ? "有" : "无")}",
             $"TikTok 登录态 {loginCount} 个",
-            ending,
-        ]);
+            $"印章 {sealCount} 个",
+        };
+        if (packageContents && manifest.IncludesRunData)
+        {
+            lines.Add($"队列项目 {manifest.QueueProjectCount} 条");
+            lines.Add($"归档记录 {manifest.ArchiveRecordCount} 条");
+            lines.Add($"Excel 文件 {manifest.Accounts.Count(item => item.HasExcel)} 个");
+            lines.Add($"主数据库：{(manifest.HasAppDatabase ? "有" : "无")}");
+        }
+
+        lines.Add(ending);
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static ConfigManifest ReadManifest(string zipPath)
@@ -326,21 +402,133 @@ public static class PublisherConfigTransfer
         return "";
     }
 
+    private static List<AppSettingRow> ReadAppSettings(string databasePath)
+    {
+        if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
+            return [];
+        var rows = new List<AppSettingRow>();
+        using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly;Pooling=False;Default Timeout=30");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT key, value_json, updated_at FROM app_settings";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add(new AppSettingRow
+            {
+                Key = reader.GetString(0),
+                ValueJson = reader.GetString(1),
+                UpdatedAt = reader.GetString(2),
+            });
+        }
+
+        return rows;
+    }
+
+    private static void UpsertAppSettings(IReadOnlyList<AppSettingRow> rows)
+    {
+        if (rows.Count == 0)
+            return;
+        AppDatabaseInitializer.EnsureInitialized(AppPaths.AppDatabaseFile);
+        using var connection = AppDatabaseInitializer.OpenConnection(AppPaths.AppDatabaseFile);
+        using var tx = connection.BeginTransaction();
+        foreach (var row in rows)
+        {
+            using var command = connection.CreateCommand();
+            command.Transaction = tx;
+            command.CommandText =
+                """
+                INSERT INTO app_settings (key, value_json, updated_at)
+                VALUES ($key, $value, $updated)
+                ON CONFLICT(key) DO UPDATE SET
+                    value_json = excluded.value_json,
+                    updated_at = excluded.updated_at
+                """;
+            command.Parameters.AddWithValue("$key", row.Key);
+            command.Parameters.AddWithValue("$value", row.ValueJson);
+            command.Parameters.AddWithValue("$updated", row.UpdatedAt);
+            command.ExecuteNonQuery();
+        }
+
+        tx.Commit();
+    }
+
     private static void BackupSqlite(string sourcePath, string destinationPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-        using var source = new SqliteConnection($"Data Source={sourcePath};Mode=ReadOnly");
+        using var source = new SqliteConnection($"Data Source={sourcePath};Mode=ReadOnly;Pooling=False");
         source.Open();
-        using var destination = new SqliteConnection($"Data Source={destinationPath}");
+        using var destination = new SqliteConnection($"Data Source={destinationPath};Pooling=False");
         destination.Open();
         source.BackupDatabase(destination);
+        try
+        {
+            using var checkpoint = destination.CreateCommand();
+            checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            checkpoint.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+        }
+
+        destination.Close();
+        source.Close();
+        SqliteConnection.ClearPool(destination);
+        SqliteConnection.ClearPool(source);
+        foreach (var suffix in new[] { "-wal", "-shm" })
+        {
+            var sidecar = destinationPath + suffix;
+            if (!File.Exists(sidecar))
+                continue;
+            try
+            {
+                File.Delete(sidecar);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    private static void CreateZip(string sourceDir, string zipPath)
+    {
+        if (File.Exists(zipPath))
+            File.Delete(zipPath);
+        using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+        foreach (var file in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+        {
+            var entryName = Path.GetRelativePath(sourceDir, file).Replace('\\', '/');
+            var entry = zip.CreateEntry(entryName, CompressionLevel.Optimal);
+            using var input = OpenForZip(file);
+            using var output = entry.Open();
+            input.CopyTo(output);
+        }
+    }
+
+    private static FileStream OpenForZip(string path)
+    {
+        IOException? last = null;
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            }
+            catch (IOException ex)
+            {
+                last = ex;
+                Thread.Sleep(200);
+            }
+        }
+
+        throw last!;
     }
 
     private static int CountRows(string databasePath, string sql)
     {
         try
         {
-            using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+            using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly;Pooling=False");
             connection.Open();
             using var command = connection.CreateCommand();
             command.CommandText = sql;
@@ -357,9 +545,7 @@ public static class PublisherConfigTransfer
         copied = false;
         if (string.IsNullOrWhiteSpace(source) || !File.Exists(source))
             return;
-        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        File.Copy(source, destination, overwrite: true);
-        copied = true;
+        copied = TryCopyShared(source, destination);
     }
 
     private static void CopyDirectory(string source, string destination)
@@ -369,15 +555,37 @@ public static class PublisherConfigTransfer
             var relative = Path.GetRelativePath(source, file);
             if (IsCachePath(relative))
                 continue;
-            var dest = Path.Combine(destination, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-            File.Copy(file, dest, overwrite: true);
+            TryCopyShared(file, Path.Combine(destination, relative));
+        }
+    }
+
+    private static bool TryCopyShared(string source, string destination)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.Read);
+            input.CopyTo(output);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
     private static bool IsCachePath(string relative)
     {
-        var names = new[] { "Cache", "Code Cache", "GPUCache", "ShaderCache", "GrShaderCache", "Service Worker" };
+        var names = new[]
+        {
+            "Cache", "Code Cache", "GPUCache", "ShaderCache", "GrShaderCache", "Service Worker",
+            "BrowserMetrics", "Crashpad", "DawnGraphiteCache", "DawnWebGPUCache",
+        };
         return relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             .Any(part => names.Contains(part, StringComparer.OrdinalIgnoreCase));
     }
@@ -432,7 +640,15 @@ public static class PublisherConfigTransfer
         public int Version { get; set; }
         public string ExportedAt { get; set; } = "";
         public string ActiveAccountId { get; set; } = "";
+        public string Scope { get; set; } = "";
         public bool HasAppDatabase { get; set; }
+        public bool HasAppSettings { get; set; }
+
+        [JsonIgnore]
+        public bool IncludesRunData =>
+            string.Equals(Scope, "data", StringComparison.OrdinalIgnoreCase)
+            || (string.IsNullOrWhiteSpace(Scope) &&
+                (HasAppDatabase || Accounts.Any(item => item.HasExcel || item.HasQueueDatabase)));
         public int QueueProjectCount { get; set; }
         public int ArchiveRecordCount { get; set; }
         public List<ConfigAccountEntry> Accounts { get; set; } = [];
@@ -456,4 +672,13 @@ public static class PublisherConfigTransfer
     {
         public string ActiveAccountId { get; set; } = "";
     }
+
+    private sealed class AppSettingRow
+    {
+        public string Key { get; set; } = "";
+        public string ValueJson { get; set; } = "";
+        public string UpdatedAt { get; set; } = "";
+    }
 }
+
+public sealed record ConfigPackageInfo(string Summary, bool IncludesRunData);
