@@ -14,6 +14,7 @@ namespace TikTokPublisher.Ui.ViewModels;
 public sealed partial class SystemServicesViewModel : ViewModelBase
 {
     public event Action<string>? StatusRequested;
+    public event Action? ConfigImported;
     public event Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>>? RemoteCommandRequested;
     public event Action? SettingsSaved;
 
@@ -72,6 +73,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private int _videoTranslateFontSize = 50;
     [ObservableProperty] private int _videoTranslateMarginV = 160;
     [ObservableProperty] private bool _videoTranslateBilingual;
+
+    public void NotifyConfigImported() => ConfigImported?.Invoke();
 
     public void Load()
     {

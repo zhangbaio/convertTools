@@ -3634,6 +3634,12 @@ public sealed partial class MainViewModel : ViewModelBase
         return true;
     }
 
+    public void ReloadAccountsFromDisk()
+    {
+        _store.Load();
+        ReloadAccounts();
+    }
+
     public void ReloadAccounts()
     {
         var selectedId = SelectedAccount?.Id ?? _store.ActiveAccountId;

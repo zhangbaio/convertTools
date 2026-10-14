@@ -9,11 +9,11 @@ public sealed class ConfirmDialog : Window
 {
     private bool _accepted;
 
-    private ConfirmDialog(string title, string message)
+    private ConfirmDialog(string title, string message, double width, double height)
     {
         Title = title;
-        Width = 420;
-        Height = 170;
+        Width = width;
+        Height = height;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
@@ -44,9 +44,9 @@ public sealed class ConfirmDialog : Window
         Content = root;
     }
 
-    public static async Task<bool> ShowAsync(Window? owner, string title, string message)
+    public static async Task<bool> ShowAsync(Window? owner, string title, string message, double width = 420, double height = 170)
     {
-        var dialog = new ConfirmDialog(title, message);
+        var dialog = new ConfirmDialog(title, message, width, height);
         if (owner is not null)
             await dialog.ShowDialog(owner);
         else

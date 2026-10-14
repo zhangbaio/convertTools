@@ -56,6 +56,12 @@ public partial class MainWindow : Window
         LogView.Bind(_viewModel, _viewModel.Logs);
         SettingsView.Bind(_viewModel.SystemSettings);
         ServicesView.Bind(_viewModel.SystemServices);
+        _viewModel.SystemServices.ConfigImported += () =>
+        {
+            _viewModel.ReloadAccountsFromDisk();
+            _viewModel.SystemSettings.Load();
+            _viewModel.SystemServices.Load();
+        };
         ArchivedView.Bind(_viewModel.ArchivedProjects);
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
 
