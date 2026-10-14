@@ -115,6 +115,11 @@ public partial class SystemSettingsView : UserControl
         HghighEditionCombo.Items.Add(CreateItem("标准版", HongguoClientProfile.StandardEdition));
         HghighEditionCombo.SelectionChanged += OnHghighEditionChanged;
 
+        HghighStandardPlaybackCombo.Items.Clear();
+        HghighStandardPlaybackCombo.Items.Add(CreateItem("单集请求", HongguoClientProfile.StandardPlaybackSingle));
+        HghighStandardPlaybackCombo.Items.Add(CreateItem("批量请求", HongguoClientProfile.StandardPlaybackBatch));
+        HghighStandardPlaybackCombo.SelectionChanged += OnHghighStandardPlaybackChanged;
+
         PikachuTypeCombo.Items.Clear();
         PikachuTypeCombo.Items.Add(CreateItem("红果短剧（需要番茄 Cookie）", "short"));
         PikachuTypeCombo.Items.Add(CreateItem("红果漫剧（类型编号 13，免 Cookie）", "manga"));
@@ -201,6 +206,7 @@ public partial class SystemSettingsView : UserControl
         if (_vm is null) return;
         SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
         SelectComboItem(HghighEditionCombo, _vm.HghighEdition);
+        SelectComboItem(HghighStandardPlaybackCombo, _vm.HghighStandardPlaybackMode);
         SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
         SelectComboItem(HongguoLocalDownloadModeCombo, _vm.HongguoLocalDownloadMode);
         SelectComboItem(HongguoLocalTranscodeEngineCombo, _vm.HongguoLocalTranscodeEngine);
@@ -307,6 +313,12 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || HghighEditionCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.HghighEdition = item.Tag as string ?? HongguoClientProfile.HighEdition;
+    }
+
+    private void OnHghighStandardPlaybackChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || HghighStandardPlaybackCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.HghighStandardPlaybackMode = item.Tag as string ?? HongguoClientProfile.StandardPlaybackSingle;
     }
 
     private void OnRoleVectorViewModeChanged(object? sender, SelectionChangedEventArgs e)

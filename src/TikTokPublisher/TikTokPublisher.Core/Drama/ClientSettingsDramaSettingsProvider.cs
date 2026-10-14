@@ -22,6 +22,7 @@ public static class DramaSourceSettingsMapping
         HghighClientExe = settings.HghighClientExe ?? "",
         HghighStandardDeviceId = settings.HghighStandardDeviceId ?? "",
         HghighStandardClientExe = settings.HghighStandardClientExe ?? "",
+        HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode),
         MapleleafAccount = settings.MapleleafAccount ?? "",
         MapleleafPassword = settings.MapleleafPassword ?? "",
         MapleleafUdid = settings.MapleleafUdid ?? "",

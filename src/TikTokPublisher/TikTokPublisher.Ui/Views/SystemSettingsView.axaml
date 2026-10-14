@@ -96,7 +96,7 @@
                         <TextBlock Text="红果高码率链路（高码率版 / 标准版）" FontWeight="Bold" />
                         <TextBlock Text="两个版本共用账号、密码和 Enc/Sign Master；设备 ID、客户端与登录会话按版本隔离。切换版本后请读取对应设备 ID。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="客户端版本" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="HghighEditionCombo" HorizontalAlignment="Left" MinWidth="220" />
 
@@ -166,6 +166,12 @@
 
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
                             <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding HghighProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="标准版播放" VerticalAlignment="Center"
+                                       IsVisible="{Binding IsHghighStandardEdition}" />
+                            <ComboBox Grid.Row="9" Grid.Column="1" x:Name="HghighStandardPlaybackCombo"
+                                      HorizontalAlignment="Left" MinWidth="220"
+                                      IsVisible="{Binding IsHghighStandardEdition}" />
                         </Grid>
 
                         <Separator Margin="0,4" IsVisible="False" />

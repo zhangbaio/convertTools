@@ -14,6 +14,16 @@ public sealed record HongguoClientProfile(
 {
     public const string HighEdition = "high";
     public const string StandardEdition = "standard";
+    public const string StandardPlaybackSingle = "single";
+    public const string StandardPlaybackBatch = "batch";
+
+    public static string NormalizeStandardPlaybackMode(string? value) =>
+        string.Equals(value?.Trim(), StandardPlaybackBatch, StringComparison.OrdinalIgnoreCase)
+            ? StandardPlaybackBatch
+            : StandardPlaybackSingle;
+
+    public static bool IsStandardBatchPlayback(string? value) =>
+        NormalizeStandardPlaybackMode(value) == StandardPlaybackBatch;
 
     public static HongguoClientProfile High { get; } = new(
         HighEdition,
@@ -32,7 +42,7 @@ public sealed record HongguoClientProfile(
         "标准版",
         "https://m.iusc.cc/api/hongguo/client/v1",
         "hongguo_desktop",
-        "2.1.7",
+        "2.1.10",
         @"Software\HongguoDownloader",
         "HongguoDownloader",
         "HongguoHighClient",

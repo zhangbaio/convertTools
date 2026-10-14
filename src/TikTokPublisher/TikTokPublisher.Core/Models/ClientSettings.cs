@@ -27,6 +27,7 @@ public sealed class ClientSettings
     public string HghighClientExe { get; set; } = "";
     public string HghighStandardDeviceId { get; set; } = "";
     public string HghighStandardClientExe { get; set; } = "";
+    public string HghighStandardPlaybackMode { get; set; } = "single";
     public string MapleleafAccount { get; set; } = "";
     public string MapleleafPassword { get; set; } = "";
     public string MapleleafUdid { get; set; } = "";
@@ -200,6 +201,7 @@ public sealed class ClientSettings
         HghighClientExe = HghighClientExe,
         HghighStandardDeviceId = HghighStandardDeviceId,
         HghighStandardClientExe = HghighStandardClientExe,
+        HghighStandardPlaybackMode = HghighStandardPlaybackMode,
         MapleleafAccount = MapleleafAccount,
         MapleleafPassword = MapleleafPassword,
         MapleleafUdid = MapleleafUdid,

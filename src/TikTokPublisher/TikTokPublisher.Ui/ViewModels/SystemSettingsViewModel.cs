@@ -62,6 +62,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _hghighClientExe = "";
     [ObservableProperty] private string _hghighStandardDeviceId = "";
     [ObservableProperty] private string _hghighStandardClientExe = "";
+    [ObservableProperty] private string _hghighStandardPlaybackMode = HongguoClientProfile.StandardPlaybackSingle;
     [ObservableProperty] private string _hghighEncMaster = "";
     [ObservableProperty] private string _hghighSignMaster = "";
     [ObservableProperty] private string _hghighProbeStatus = "";
@@ -80,6 +81,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public string HghighEditionLabel => SelectedHghighProfile.DisplayName;
     public string HghighDeviceLabel => HghighEdition == HongguoClientProfile.StandardEdition ? "标准版设备 ID" : "高码率设备 ID";
     public string HghighClientExeLabel => HghighEdition == HongguoClientProfile.StandardEdition ? "标准版客户端 exe" : "高码率客户端 exe";
+    public bool IsHghighStandardEdition => HghighEdition == HongguoClientProfile.StandardEdition;
     public string HghighActiveDeviceId
     {
         get => HghighEdition == HongguoClientProfile.StandardEdition ? HghighStandardDeviceId : HghighDeviceId;
@@ -260,6 +262,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HghighClientExe = HghighClientExe.Trim(),
         HghighStandardDeviceId = HghighStandardDeviceId.Trim(),
         HghighStandardClientExe = HghighStandardClientExe.Trim(),
+        HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(HghighStandardPlaybackMode),
         MapleleafAccount = MapleleafAccount.Trim(),
         MapleleafPassword = MapleleafPassword,
         MapleleafUdid = MapleleafUdid.Trim(),
@@ -705,6 +708,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(HghighEditionLabel));
         OnPropertyChanged(nameof(HghighDeviceLabel));
         OnPropertyChanged(nameof(HghighClientExeLabel));
+        OnPropertyChanged(nameof(IsHghighStandardEdition));
         OnPropertyChanged(nameof(HghighActiveDeviceId));
         OnPropertyChanged(nameof(HghighActiveClientExe));
         var masters = HongguoHighDeviceStore.LoadStartupMastersRaw(SelectedHghighProfile);
@@ -1071,6 +1075,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.Standard)
             : settings.HghighStandardDeviceId;
         HghighStandardClientExe = settings.HghighStandardClientExe;
+        HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode);
         MapleleafAccount = settings.MapleleafAccount;
         MapleleafPassword = settings.MapleleafPassword;
         MapleleafUdid = string.IsNullOrWhiteSpace(settings.MapleleafUdid)

@@ -933,6 +933,107 @@ public sealed class HongguoHighApiService
         if (verifiedEpisodes.Length == 0)
             throw new HongguoHighException("标准版选中集数未通过详情校验");
 
+        var resolved = new Dictionary<string, HongguoHighVideoPlayback>(StringComparer.Ordinal);
+        JsonNode? lastPayload = null;
+        if (HongguoClientProfile.IsStandardBatchPlayback(settings.HghighStandardPlaybackMode))
+        {
+            lastPayload = await RequestStandardMultiVideoModelAsync(
+                settings,
+                bookId,
+                verifiedEpisodes,
+                normalizedQuality,
+                timeout,
+                cancellationToken);
+            foreach (var episode in verifiedEpisodes)
+            {
+                if (TryReadStandardPlayback(lastPayload, episode.VideoId, normalizedQuality, out var playback))
+                    resolved[episode.VideoId] = playback;
+            }
+        }
+        else
+        {
+            foreach (var episode in verifiedEpisodes)
+            {
+                lastPayload = await RequestStandardVideoModelAsync(
+                    settings,
+                    bookId,
+                    episode,
+                    normalizedQuality,
+                    timeout,
+                    cancellationToken);
+                if (TryReadStandardPlayback(lastPayload, episode.VideoId, normalizedQuality, out var playback))
+                    resolved[episode.VideoId] = playback;
+            }
+        }
+        if (resolved.Count == 0)
+            throw new HongguoHighException(DescribeStandardPlaybackFailure(lastPayload));
+        return resolved;
+    }
+
+    private static bool TryReadStandardPlayback(
+        JsonNode? payload,
+        string videoId,
+        string normalizedQuality,
+        out HongguoHighVideoPlayback playback)
+    {
+        var scoped = SelectStandardModelNode(payload, videoId) ?? payload;
+        var item = FindStandardPlaybackItem(scoped, videoId, normalizedQuality);
+        var url = ReadPlaybackUrl(item);
+        if (item is null || !IsHttpUrl(url))
+        {
+            playback = null!;
+            return false;
+        }
+
+        playback = CreatePlayback(item, url!, ReadPlaybackSize(item));
+        return true;
+    }
+
+    private async Task<JsonNode?> RequestStandardVideoModelAsync(
+        DramaSourceSettings settings,
+        string bookId,
+        BatchEpisode episode,
+        string normalizedQuality,
+        int timeout,
+        CancellationToken cancellationToken)
+    {
+        var modelBody = new JsonObject
+        {
+            ["biz_param"] = new JsonObject
+            {
+                ["detail_page_version"] = 0,
+                ["device_level"] = 2,
+                ["need_all_video_definition"] = true,
+                ["need_mp4_align"] = false,
+                ["use_os_player"] = false,
+                ["video_platform"] = 1024,
+                ["video_id"] = episode.VideoId,
+            },
+            ["series_id"] = bookId,
+            ["video_id"] = episode.VideoId,
+        };
+        return await RequestStandardSignedModelAsync(
+            settings,
+            bookId,
+            episode.VideoId,
+            episode.EpisodeNumber,
+            normalizedQuality,
+            "/novel/player/video_model/v1/",
+            "video_model",
+            $"redguo.video_model:{episode.VideoId}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            modelBody,
+            timeout,
+            cancellationToken);
+    }
+
+    private async Task<JsonNode?> RequestStandardMultiVideoModelAsync(
+        DramaSourceSettings settings,
+        string bookId,
+        IReadOnlyList<BatchEpisode> episodes,
+        string normalizedQuality,
+        int timeout,
+        CancellationToken cancellationToken)
+    {
         var modelBody = new JsonObject
         {
             ["biz_param"] = new JsonObject
@@ -946,23 +1047,51 @@ public sealed class HongguoHighApiService
             },
             ["mixed_video_id_map"] = new JsonObject
             {
-                ["1"] = new JsonArray(verifiedEpisodes.Select(item => JsonValue.Create(item.VideoId)).ToArray())
+                ["1"] = new JsonArray(episodes.Select(item => JsonValue.Create(item.VideoId)).ToArray())
             },
         };
+        var first = episodes[0];
+        return await RequestStandardSignedModelAsync(
+            settings,
+            bookId,
+            first.VideoId,
+            first.EpisodeNumber,
+            normalizedQuality,
+            "/novel/player/multi_video_model/v1/",
+            "multi_video_model",
+            $"redguo.multi_video_model:{first.VideoId}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            modelBody,
+            timeout,
+            cancellationToken);
+    }
+
+    private async Task<JsonNode?> RequestStandardSignedModelAsync(
+        DramaSourceSettings settings,
+        string bookId,
+        string videoId,
+        int episodeNumber,
+        string normalizedQuality,
+        string path,
+        string purpose,
+        string requestId,
+        JsonObject modelBody,
+        int timeout,
+        CancellationToken cancellationToken)
+    {
         var modelPacked = HongguoHighCrypto.GzipStoreJson(modelBody);
         var modelDigest = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(modelPacked));
         var modelSpec = new JsonObject
         {
             ["host"] = "api5-normal-sinfonlinea.fqnovel.com",
-            ["path"] = "/novel/player/multi_video_model/v1/",
+            ["path"] = path,
             ["method"] = "POST",
-            ["purpose"] = "multi_video_model",
-            ["requestId"] = $"redguo.multi_video_model:{verifiedEpisodes[0].VideoId}:{Guid.NewGuid().ToString().ToUpperInvariant()}",
+            ["purpose"] = purpose,
+            ["requestId"] = requestId,
             ["device_profile_version"] = DeviceProfileVersion(settings),
             ["deviceProfileVersion"] = DeviceProfileVersion(settings),
-            ["videoId"] = verifiedEpisodes[0].VideoId,
+            ["videoId"] = videoId,
             ["bookId"] = bookId,
-            ["episode"] = verifiedEpisodes[0].EpisodeNumber,
+            ["episode"] = episodeNumber,
             ["quality"] = normalizedQuality,
             ["resolution"] = normalizedQuality,
             ["content_encoding"] = "gzip",
@@ -977,24 +1106,31 @@ public sealed class HongguoHighApiService
         var modelDescriptor = AuthedRequestForTests is null
             ? await AuthedRequestAsync(settings, standardVideoPath, modelSpec, timeout, cancellationToken)
             : await AuthedRequestForTests(settings, standardVideoPath, modelSpec, timeout, cancellationToken);
-        var payload = ExecuteSignedRequestForTests is null
+        return ExecuteSignedRequestForTests is null
             ? await ExecuteSignedFanqieRequestAsync(modelDescriptor, modelPacked, timeout, cancellationToken)
             : await ExecuteSignedRequestForTests(modelDescriptor, modelPacked, timeout, cancellationToken);
+    }
 
-        var resolved = new Dictionary<string, HongguoHighVideoPlayback>(StringComparer.Ordinal);
-        foreach (var episode in verifiedEpisodes)
+    private static string DescribeStandardPlaybackFailure(JsonNode? payload)
+    {
+        var status = payload is JsonObject obj
+            ? GetInt(obj, "StatusCode") ?? GetInt(obj, "status_code") ?? GetInt(obj, "Code") ?? GetInt(obj, "code")
+            : null;
+        var message = payload is JsonObject source
+            ? GetString(source, "StatusMessage")
+              ?? GetString(source, "status_message")
+              ?? GetString(source, "Message")
+              ?? GetString(source, "message")
+              ?? GetString(source, "msg")
+            : null;
+        var shape = DescribeJsonShape(payload);
+        if (!string.IsNullOrWhiteSpace(message) || status is > 0)
         {
-            var scoped = SelectStandardModelNode(payload, episode.VideoId) ?? payload;
-            var item = FindStandardPlaybackItem(scoped, episode.VideoId, normalizedQuality);
-            var url = ReadPlaybackUrl(item);
-            if (item is null || !IsHttpUrl(url))
-                continue;
-            resolved[episode.VideoId] = CreatePlayback(item, url!, ReadPlaybackSize(item));
+            var detail = string.IsNullOrWhiteSpace(message) ? "未返回说明" : message;
+            return $"标准版播放接口未返回可用视频信息：{detail}（StatusCode={status?.ToString() ?? "-"}，结构：{shape}）";
         }
-        if (resolved.Count == 0)
-            throw new HongguoHighException(
-                $"标准版播放接口未返回可用视频信息（结构：{DescribeJsonShape(payload)}）");
-        return resolved;
+
+        return $"标准版播放接口未返回可用视频信息（结构：{shape}）";
     }
 
     private async Task<JsonNode?> FetchStandardSeriesDetailAsync(
