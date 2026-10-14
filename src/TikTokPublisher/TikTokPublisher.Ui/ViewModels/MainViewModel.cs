@@ -3058,8 +3058,9 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool IsActiveWorkspace(string? workspaceRoot)
     {
         var root = WorkspacePath.Trim();
+        // 当前账号没有工作目录时，不能把其他账号正在运行的队列当成当前表格。
         if (string.IsNullOrEmpty(root) || string.IsNullOrWhiteSpace(workspaceRoot))
-            return true;
+            return false;
         return string.Equals(
             NormalizePathCached(workspaceRoot),
             NormalizePathCached(root),
