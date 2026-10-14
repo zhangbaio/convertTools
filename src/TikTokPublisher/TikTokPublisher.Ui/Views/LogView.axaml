@@ -4,11 +4,14 @@
              x:Class="TikTokPublisher.Ui.Views.LogView"
              Background="{StaticResource PythonPageBgBrush}">
 
-    <DockPanel Margin="16,14,16,16">
-        <TextBlock DockPanel.Dock="Top" Text="TikTok队列" FontWeight="Bold" Margin="0,0,0,8" />
-
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,*" Margin="0,0,0,8">
-            <WrapPanel Grid.Column="0">
+    <DockPanel Classes="pageRoot">
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
+            <TextBlock Grid.Column="0"
+                       Text="TikTok队列"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"
+                       Margin="0,0,12,8" />
+            <WrapPanel Grid.Column="1">
                 <CheckBox x:Name="AutoFollowBox" Content="跟随最近活跃项目" IsChecked="True" Margin="0,0,8,8" />
                 <CheckBox x:Name="ProblemsOnlyBox" Content="仅看问题" Margin="0,0,8,8" />
                 <Button x:Name="StopButton" Content="停止" Classes="dangerAction" Click="OnStopClick" IsEnabled="False" Margin="0,0,8,8" />
@@ -17,18 +20,19 @@
                 <Button Content="全选日志" Click="OnSelectAllLogClick" Margin="0,0,8,8" />
             </WrapPanel>
 
-            <Button Grid.Column="1"
+            <Button Grid.Column="2"
                     Content="返回TikTok 上传"
                     ToolTip.Tip="返回 TikTok 上传页面"
                     Click="OnReturnClick"
-                    HorizontalAlignment="Center"
-                    Margin="8,0,8,8" />
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="8,0,0,8" />
         </Grid>
 
         <TextBlock x:Name="WorkspaceLabel" DockPanel.Dock="Top" Classes="pageSummary" Margin="0,0,0,4" />
         <TextBlock x:Name="SummaryLabel" DockPanel.Dock="Top" Classes="pageSummary" Margin="0,0,0,8" />
 
-        <Grid ColumnDefinitions="280,*">
+        <Grid x:Name="ProjectSplit" ColumnDefinitions="280,*">
             <ListBox x:Name="ProjectList" Grid.Column="0" Margin="0,0,8,0" MinHeight="300">
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="services:LogProjectItem">

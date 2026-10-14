@@ -5,7 +5,7 @@
              x:DataType="vm:SystemServicesViewModel"
              Background="{StaticResource PythonPageBgBrush}">
 
-    <ScrollViewer Margin="16,14,16,16">
+    <ScrollViewer Classes="pageRoot">
         <StackPanel Spacing="12">
             <TextBlock Text="系统服务" Classes="pageTitle" />
             <TextBlock Text="{Binding ServiceSummaryText}"

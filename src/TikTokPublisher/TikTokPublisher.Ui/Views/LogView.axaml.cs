@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Interactivity;
@@ -44,6 +45,14 @@ public partial class LogView : UserControl
             _logs.SelectedProjectPath = item.ProjectPath;
             RefreshView();
         };
+    }
+
+    public void SetCompactLayout(bool compact)
+    {
+        if (ProjectSplit.ColumnDefinitions.Count == 0)
+            return;
+
+        ProjectSplit.ColumnDefinitions[0].Width = new GridLength(compact ? 220 : 280);
     }
 
     public void Bind(MainViewModel vm, LogService logs)

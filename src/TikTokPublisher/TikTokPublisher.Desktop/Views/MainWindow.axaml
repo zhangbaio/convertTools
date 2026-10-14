@@ -3,6 +3,7 @@
         xmlns:views="using:TikTokPublisher.Ui.Views"
         x:Class="TikTokPublisher.Desktop.Views.MainWindow"
         Width="1496" Height="860"
+        MinWidth="800" MinHeight="560"
         Title="TikTok 短剧上传助手"
         Icon="/Assets/tiktok-shortdrama-logo.ico"
         Background="{StaticResource PythonPageBgBrush}">
@@ -18,7 +19,7 @@
 
                 <Border x:Name="BrandPane" Grid.Column="0" BorderBrush="#E5E7EB" BorderThickness="0,0,1,0" Padding="12,0,10,0">
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="TikTok 短剧助手" Classes="topBrandLabel" VerticalAlignment="Center" />
+                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="TikTok 短剧助手" Classes="topBrandLabel" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                         <Button x:Name="SidebarToggleButton"
                                 Grid.Column="1"
                                 Content="‹"
@@ -33,17 +34,22 @@
                                 Click="OnSidebarToggleClick" />
                     </Grid>
                 </Border>
-                <StackPanel Grid.Column="1" x:Name="ModuleNav" Orientation="Horizontal"
-                            VerticalAlignment="Center" Margin="8,0,0,0">
-                    <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="短剧下载" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="TikTok 上传" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="账号管理" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="系统设置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="系统服务" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
-                </StackPanel>
+                <ScrollViewer Grid.Column="1"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              AllowAutoHide="True">
+                    <StackPanel x:Name="ModuleNav" Orientation="Horizontal"
+                                VerticalAlignment="Center" Margin="8,0,8,0">
+                        <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="短剧下载" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="TikTok 上传" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="账号管理" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="系统设置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="系统服务" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
+                    </StackPanel>
+                </ScrollViewer>
             </Grid>
         </Border>
 
@@ -91,7 +97,7 @@
         </Grid>
 
         <Border Grid.Row="2" Classes="statusBarFrame" Height="28">
-            <Grid ColumnDefinitions="560,*,Auto" Margin="12,0">
+            <Grid ColumnDefinitions="*,*,Auto" Margin="12,0">
                 <TextBlock Grid.Column="0"
                            VerticalAlignment="Center"
                            FontSize="12"

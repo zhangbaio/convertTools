@@ -51,6 +51,8 @@ public partial class TikTokQueueView : UserControl
         42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 56, 56, 56, 62, 56, 62, 0, 62, 56, 56, 120,
     };
     private readonly double[] _queueTableColumnWidths = QueueTableDefaultColumnWidths.ToArray();
+    private bool _queueColumnsUserAdjusted;
+    private bool _compactTable;
     private readonly List<WeakReference<Grid>> _queueTableRowGrids = new();
     private int _queueResizeColumnIndex = -1;
     private double _queueResizeStartX;
@@ -318,7 +320,7 @@ public partial class TikTokQueueView : UserControl
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         _ready = true;
-        ApplyQueueTableColumnWidths();
+        ApplyFittedQueueColumns(QueueTableScrollViewer.Bounds.Width);
         ApplyConfigToVm();
         if (!string.IsNullOrWhiteSpace(_vm?.WorkspacePath))
             _vm.RefreshWorkspaceProjects();
@@ -781,9 +783,78 @@ public partial class TikTokQueueView : UserControl
         if (_queueResizeColumnIndex < 0)
             return;
 
+        var resizedIndex = _queueResizeColumnIndex;
         e.Pointer.Capture(null);
         _queueResizeColumnIndex = -1;
+        if (resizedIndex >= 0 &&
+            Math.Abs(_queueTableColumnWidths[resizedIndex] - _queueResizeStartWidth) > 0.5)
+        {
+            _queueColumnsUserAdjusted = true;
+        }
+
         e.Handled = true;
+    }
+
+    public void SetCompactLayout(bool compact)
+    {
+        _compactTable = compact;
+        if (_queueColumnsUserAdjusted)
+            return;
+
+        ApplyFittedQueueColumns(QueueTableScrollViewer.Bounds.Width);
+    }
+
+    private void OnQueueTableViewportSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (!_compactTable || _queueColumnsUserAdjusted || _queueResizeColumnIndex >= 0)
+            return;
+
+        ApplyFittedQueueColumns(e.NewSize.Width);
+    }
+
+    private void ApplyFittedQueueColumns(double viewportWidth)
+    {
+        if (!_compactTable)
+        {
+            RestoreDefaultQueueColumns();
+            return;
+        }
+
+        if (viewportWidth < 80)
+            return;
+
+        var fitted = LaptopLayout.FitColumns(
+            QueueTableDefaultColumnWidths,
+            QueueTableMinColumnWidths,
+            Math.Max(0, viewportWidth - 2));
+        var changed = false;
+        for (var i = 0; i < fitted.Length && i < _queueTableColumnWidths.Length; i++)
+        {
+            if (Math.Abs(_queueTableColumnWidths[i] - fitted[i]) <= 0.5)
+                continue;
+
+            _queueTableColumnWidths[i] = fitted[i];
+            changed = true;
+        }
+
+        if (changed)
+            ApplyQueueTableColumnWidths();
+    }
+
+    private void RestoreDefaultQueueColumns()
+    {
+        var changed = false;
+        for (var i = 0; i < QueueTableDefaultColumnWidths.Length; i++)
+        {
+            if (Math.Abs(_queueTableColumnWidths[i] - QueueTableDefaultColumnWidths[i]) <= 0.5)
+                continue;
+
+            _queueTableColumnWidths[i] = QueueTableDefaultColumnWidths[i];
+            changed = true;
+        }
+
+        if (changed)
+            ApplyQueueTableColumnWidths();
     }
 
     private void ApplyQueueTableColumnWidths()

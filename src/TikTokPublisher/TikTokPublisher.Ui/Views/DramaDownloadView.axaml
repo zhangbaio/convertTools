@@ -46,9 +46,13 @@
             <Setter Property="MinWidth" Value="72" />
             <Setter Property="Padding" Value="10,0,8,0" />
         </Style>
+        <Style Selector="Window.compact TabControl.downloadTabs TabItem">
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Margin" Value="0,0,6,8" />
+        </Style>
     </UserControl.Styles>
 
-    <DockPanel Margin="16,14,16,16">
+    <DockPanel Classes="pageRoot">
         <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,10">
             <TextBlock Grid.Column="0" Text="下载目录" VerticalAlignment="Center" Margin="0,0,10,0" />
             <TextBox Grid.Column="1" Text="{Binding DownloadWorkspace}" IsReadOnly="True" Watermark="选择下载目录" />

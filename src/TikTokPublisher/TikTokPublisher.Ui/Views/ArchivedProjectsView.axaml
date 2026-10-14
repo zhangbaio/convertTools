@@ -19,7 +19,7 @@
         </Style>
     </UserControl.Styles>
 
-    <DockPanel Margin="16,14,16,16">
+    <DockPanel Classes="pageRoot">
         <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,10">
             <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="Auto,*,Auto">

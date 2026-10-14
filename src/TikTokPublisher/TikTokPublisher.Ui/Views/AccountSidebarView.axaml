@@ -23,6 +23,11 @@
             <Setter Property="Foreground" Value="#0F63C7" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
+
+        <Style Selector="Window.compact ListBox#AccountList ListBoxItem">
+            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Margin" Value="0,1" />
+        </Style>
     </UserControl.Styles>
 
     <Border Classes="accountSidebarFrame" Padding="8,10">

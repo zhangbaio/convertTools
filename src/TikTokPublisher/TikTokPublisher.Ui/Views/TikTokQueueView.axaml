@@ -187,9 +187,9 @@
         </Style>
     </UserControl.Styles>
 
-    <DockPanel Margin="16,14,16,16">
+    <DockPanel Classes="pageRoot">
         <!-- 顶部控制区：紧凑保留高频操作，低频操作收进菜单 -->
-        <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,8" Padding="16,10">
+        <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,8">
             <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="工作目录" VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -455,10 +455,11 @@
 
         <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
         <Border Classes="queueTableFrame">
-            <ScrollViewer x:Name="QueueTableScrollViewer"
-                          HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Disabled"
-                          AllowAutoHide="False">
+                <ScrollViewer x:Name="QueueTableScrollViewer"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              AllowAutoHide="False"
+                              SizeChanged="OnQueueTableViewportSizeChanged">
                 <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1888">
                     <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
