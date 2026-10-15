@@ -314,7 +314,7 @@ public sealed class QueueWorkerRunner
         var enabledStepLabels = FormatEnabledStepLabels(orderedSteps, options);
         Report(onProgress, workspace, null,
             $"开始执行{runActionLabel}，共 {candidates.Count} 个项目（启用步骤：{enabledStepLabels}，" +
-            $"强制重跑已完成步骤：{(options.ForceRerunCompletedSteps ? "开" : "关")}，项目并发 {projectConcurrency}）");
+            $"强制重跑：{(options.ForceRerunCompletedSteps ? "开" : "关")}，项目并发 {projectConcurrency}）");
 
         void Mutate(Action action)
         {

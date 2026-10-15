@@ -25,21 +25,21 @@ public static class QueueStepRegistry
     /// <summary>与 Python <c>STEP_ORDER</c> 一致。</summary>
     public static IReadOnlyList<QueueStepDefinition> All { get; } = new[]
     {
-        new QueueStepDefinition(QueueStepKeys.Download, "下载剧集", true),
-        new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写信息", true),
-        new QueueStepDefinition(QueueStepKeys.GeneratePoster, "生成海报", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateEpisodeScript, "生成剧本", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateAiDramaMaterials, "生成AI漫剧素材", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateAiScriptOutline, "生成AI大纲", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateRoleVector, "生成角色矢量图", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "生成工程图", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateProofMaterial, "生成证明材料", true),
-        new QueueStepDefinition(QueueStepKeys.GenerateTimestampCertificate, "生成时间戳", true),
-        new QueueStepDefinition(SmallVideoRepair, "小文件修复", true),
-        new QueueStepDefinition(VideoTranslate, "视频翻译", true),
-        new QueueStepDefinition(MaterialValidate, "素材校验", true),
-        new QueueStepDefinition(QueueStepKeys.DeleteSourceVideos, "删除源视频", true),
-        new QueueStepDefinition(UploadSeries, "上传剧集", true),
+        new QueueStepDefinition(QueueStepKeys.Download, "下载", true),
+        new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写", true),
+        new QueueStepDefinition(QueueStepKeys.GeneratePoster, "海报", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateEpisodeScript, "剧本", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateAiDramaMaterials, "AI素材", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateAiScriptOutline, "AI大纲", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateRoleVector, "角色图", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateProjectImages, "工程图", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateProofMaterial, "证明材料", true),
+        new QueueStepDefinition(QueueStepKeys.GenerateTimestampCertificate, "时间戳", true),
+        new QueueStepDefinition(SmallVideoRepair, "修复", true),
+        new QueueStepDefinition(VideoTranslate, "翻译", true),
+        new QueueStepDefinition(MaterialValidate, "校验", true),
+        new QueueStepDefinition(QueueStepKeys.DeleteSourceVideos, "删源", true),
+        new QueueStepDefinition(UploadSeries, "上传", true),
     };
 
     public static IReadOnlyList<QueueStepDefinition> UserSelectable { get; } =

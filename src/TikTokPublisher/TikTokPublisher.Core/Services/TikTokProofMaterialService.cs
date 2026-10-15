@@ -601,7 +601,7 @@ public sealed class TikTokProofMaterialService
         {
             throw new InvalidOperationException(
                 $"生成证明材料步骤已完成，但现有证明材料 PDF 缺失或无效：{expectedPath}。" +
-                "请先点击“补全勾选证明材料”修复该项目，或勾选“强制重跑已完成步骤”。",
+                "请先点击“补全勾选证明材料”修复该项目，或勾选“强制重跑”。",
                 ex);
         }
     }

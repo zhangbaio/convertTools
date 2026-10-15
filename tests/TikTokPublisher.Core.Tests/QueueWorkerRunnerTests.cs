@@ -617,7 +617,7 @@ public sealed class QueueWorkerRunnerTests
         item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
         host.BrowserReadyCalls.Should().Be(1);
         progress.Should().Contain(message =>
-            message.Contains("生成证明材料 已完成，跳过", StringComparison.Ordinal));
+            message.Contains("证明材料 已完成，跳过", StringComparison.Ordinal));
         progress.Should().Contain(message =>
             message.Contains("仅校验现有文件", StringComparison.Ordinal));
     }

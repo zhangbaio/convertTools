@@ -684,7 +684,7 @@ public partial class TikTokQueueView : UserControl
             };
             vm.StatusMessage = $"{row.NewTitle}：{modeLabel}";
             vm.AppendLog(vm.StatusMessage);
-            await InfoDialog.ShowAsync(owner, modeLabel + "。下次执行“生成角色矢量图”时生效。", "角色素材已保存");
+            await InfoDialog.ShowAsync(owner, modeLabel + "。下次执行“角色图”时生效。", "角色素材已保存");
         }
         catch (Exception ex)
         {
@@ -2433,7 +2433,7 @@ public partial class TikTokQueueView : UserControl
         if (result.ExecutionMode == CopyrightProofExecutionMode.GenerateAndEdit)
         {
             vm.AppendLog(
-                "AI 大纲补全专用模式已启用：仅执行“生成AI大纲、上传剧集”，" +
+                "AI 大纲补全专用模式已启用：仅执行“AI大纲、上传”，" +
                 "禁止生成其他证明材料及下载视频补源；编辑阶段只追加 AI剧本大纲.pdf。");
         }
         vm.AppendLog(
@@ -4108,7 +4108,7 @@ public partial class TikTokQueueView : UserControl
                 var confirmed = await ConfirmAsync(
                     owner,
                     "确认强制重跑",
-                    "已勾选“强制重跑已完成步骤”。继续执行会重新运行已完成的步骤，可能重新下载、改写、生成、删除源视频或上传。确认继续执行勾选队列？");
+                    "已勾选“强制重跑”。继续执行会重新运行已完成的步骤，可能重新下载、改写、生成、删除源视频或上传。确认继续执行勾选队列？");
                 if (!confirmed)
                 {
                     vm.StatusMessage = "已取消执行勾选队列";
