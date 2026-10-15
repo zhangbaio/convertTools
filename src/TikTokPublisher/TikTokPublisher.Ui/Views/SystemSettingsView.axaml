@@ -705,6 +705,9 @@
                             <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TiktokOverLimitDownloadEpisodeCount}" Minimum="1" Maximum="120" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
+                        <TextBlock Text="账号数据统计" FontWeight="Bold" />
+                        <CheckBox IsChecked="{Binding TiktokAccountAnalyticsEnabled}" Content="在顶栏显示数据统计，并允许拉取账号播放数据" />
+
                         <TextBlock Text="数据统计" FontWeight="Bold" />
                         <TextBox Text="{Binding DatabaseStatsText}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
                     </StackPanel>

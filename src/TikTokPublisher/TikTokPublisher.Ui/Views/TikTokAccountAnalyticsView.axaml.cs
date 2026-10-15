@@ -41,6 +41,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
 
     private IReadOnlyList<AccountItemViewModel> _accounts = [];
     private Action<string>? _log;
+    private bool _enabled;
     private TikTokAccountAnalyticsStore? _store;
     private readonly Dictionary<string, CancellationTokenSource> _runningSyncs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Button> _accountUpdateButtons = new(StringComparer.Ordinal);
@@ -83,13 +84,28 @@ public partial class TikTokAccountAnalyticsView : UserControl
     {
         _accounts = accounts;
         _log = log;
-        _store = new TikTokAccountAnalyticsStore();
-        Dispatcher.UIThread.Post(EnsureMorningTimer, DispatcherPriority.Background);
+    }
+
+    public void SetEnabled(bool enabled)
+    {
+        if (_enabled == enabled)
+            return;
+
+        _enabled = enabled;
+        if (!enabled)
+        {
+            StopMorningTimer();
+            CancelRunningSyncs();
+            return;
+        }
+
+        _store ??= new TikTokAccountAnalyticsStore();
+        EnsureMorningTimer();
     }
 
     public void Activate()
     {
-        if (_store is null || _viewReady) return;
+        if (!_enabled || _store is null || _viewReady) return;
         StatusText.Text = "正在加载统计";
         Dispatcher.UIThread.Post(LoadVisiblePage, DispatcherPriority.Background);
     }
@@ -124,16 +140,31 @@ public partial class TikTokAccountAnalyticsView : UserControl
 
     private void EnsureMorningTimer()
     {
-        if (_morningTimer is not null) return;
+        if (!_enabled || _morningTimer is not null) return;
         _morningTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
         _morningTimer.Tick += (_, _) => _ = CheckMorningSyncAsync();
         _morningTimer.Start();
         _ = CheckMorningSyncAsync();
     }
 
+    private void StopMorningTimer()
+    {
+        if (_morningTimer is null)
+            return;
+
+        _morningTimer.Stop();
+        _morningTimer = null;
+    }
+
+    private void CancelRunningSyncs()
+    {
+        foreach (var cts in _runningSyncs.Values.Distinct())
+            cts.Cancel();
+    }
+
     private async Task CheckMorningSyncAsync()
     {
-        if (_store is null || _accounts.Count == 0 || _runningSyncs.Count > 0) return;
+        if (!_enabled || _store is null || _accounts.Count == 0 || _runningSyncs.Count > 0) return;
         var now = DateTime.Now;
         if (now.Hour < MorningSyncHour) return;
         var today = DateOnly.FromDateTime(now);
@@ -203,7 +234,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
 
     private async Task SyncAccountsAsync(IReadOnlyList<AccountItemViewModel> accounts)
     {
-        if (_store is null || accounts.Count == 0) return;
+        if (!_enabled || _store is null || accounts.Count == 0) return;
         var pending = accounts.Where(account => !_runningSyncs.ContainsKey(account.Id)).ToList();
         if (pending.Count == 0) return;
 
@@ -289,11 +320,8 @@ public partial class TikTokAccountAnalyticsView : UserControl
             button.IsEnabled = !_runningSyncs.ContainsKey(accountId);
     }
 
-    private void OnStopClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        foreach (var cts in _runningSyncs.Values.Distinct())
-            cts.Cancel();
-    }
+    private void OnStopClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
+        CancelRunningSyncs();
 
     private void BuildRevenueCards()
     {

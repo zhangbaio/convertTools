@@ -78,6 +78,7 @@ public partial class MainWindow : Window
             _viewModel.ReloadAccountsFromDisk();
             _viewModel.SystemSettings.Load();
             _viewModel.SystemServices.Load();
+            ApplyAccountAnalytics(_viewModel.SystemSettings.TiktokAccountAnalyticsEnabled);
         };
         ArchivedView.Bind(_viewModel.ArchivedProjects);
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
@@ -87,6 +88,9 @@ public partial class MainWindow : Window
             NavigateTo("download");
             DownloadView.SearchByKeyword(keyword);
         };
+        _viewModel.SystemSettings.SettingsSaved += settings =>
+            ApplyAccountAnalytics(settings.TiktokAccountAnalyticsEnabled);
+        ApplyAccountAnalytics(_viewModel.SystemSettings.TiktokAccountAnalyticsEnabled);
 
         QueueView.OpenBrowserRequested += (_, _) => NavigateTo("browser");
         QueueView.PublishBrowserFocusRequested += account =>
@@ -137,6 +141,16 @@ public partial class MainWindow : Window
 
     private double ExpandedSidebarWidth =>
         _compactLayout ? LaptopLayout.CompactSidebarWidth : LaptopLayout.ExpandedSidebarWidth;
+
+    private void ApplyAccountAnalytics(bool enabled)
+    {
+        AnalyticsNavButton.IsVisible = enabled;
+        AnalyticsView.SetEnabled(enabled);
+        if (!enabled && string.Equals(_activeNavTag, "analytics", StringComparison.OrdinalIgnoreCase))
+            NavigateTo("queue");
+        else if (!enabled)
+            AnalyticsView.IsVisible = false;
+    }
 
     private void OnNavItemClick(object? sender, RoutedEventArgs e)
     {
@@ -476,6 +490,9 @@ public partial class MainWindow : Window
 
     private void NavigateTo(string tag)
     {
+        if (string.Equals(tag, "analytics", StringComparison.OrdinalIgnoreCase) && !AnalyticsNavButton.IsVisible)
+            tag = "queue";
+
         _activeNavTag = tag;
         UpdateNavHighlight();
         ShowPage(tag);
@@ -536,7 +553,7 @@ public partial class MainWindow : Window
             _browserHost.SetPresentationVisible(false);
         }
 
-        if (tag == "analytics")
+        if (tag == "analytics" && AnalyticsNavButton.IsVisible)
             AnalyticsView.Activate();
         if (tag == "logs")
             _viewModel.RefreshLogSnapshot();

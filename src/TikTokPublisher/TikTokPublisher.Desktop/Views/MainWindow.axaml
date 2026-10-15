@@ -47,7 +47,7 @@
                         <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnNavItemClick" />
                         <Button Content="系统设置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
                         <Button Content="系统服务" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
-                        <Button Content="数据统计" Tag="analytics" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button x:Name="AnalyticsNavButton" Content="数据统计" Tag="analytics" Classes="topNavItem" Click="OnNavItemClick" IsVisible="False" />
                         <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
                     </StackPanel>
                 </ScrollViewer>

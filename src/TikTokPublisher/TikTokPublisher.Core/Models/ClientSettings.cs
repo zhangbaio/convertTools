@@ -148,6 +148,7 @@ public sealed class ClientSettings
     public string AuthLastUsername { get; set; } = "";
     public string AuthLastLoginAt { get; set; } = "";
     public bool TiktokExcelAutoExportEnabled { get; set; } = true;
+    public bool TiktokAccountAnalyticsEnabled { get; set; } = ClientSettingsDefaults.TiktokAccountAnalyticsEnabled;
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
     public bool TiktokAllowOverLimitUploadImport { get; set; } = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
@@ -311,6 +312,7 @@ public sealed class ClientSettings
         AuthLastUsername = AuthLastUsername,
         AuthLastLoginAt = AuthLastLoginAt,
         TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
+        TiktokAccountAnalyticsEnabled = TiktokAccountAnalyticsEnabled,
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
         TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport,

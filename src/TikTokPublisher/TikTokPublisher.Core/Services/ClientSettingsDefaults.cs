@@ -50,6 +50,7 @@ public static class ClientSettingsDefaults
     public const double FrameExtractTime = 5.0;
     public const string FrameExtractNeighborOffsetsSeconds = "2,4";
     public const string FrameExtractFallbackPercents = "10,25,50,75";
+    public const bool TiktokAccountAnalyticsEnabled = false;
     public const bool TiktokAllowOverLimitUploadImport = true;
     public const int TiktokOverLimitDownloadEpisodeCount = 120;
     public const string TiktokProjectImageGenerationMode = "image_template";
