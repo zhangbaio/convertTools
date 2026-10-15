@@ -248,10 +248,9 @@
                 </Grid>
 
                 <Border Classes="taskStepFrame" Padding="8,6">
-                    <StackPanel Spacing="5">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                            <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <WrapPanel Grid.Column="1" Orientation="Horizontal">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <StackPanel Grid.Column="0" Spacing="5">
+                            <WrapPanel Orientation="Horizontal">
                                 <CheckBox Content="下载" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
                                 <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
@@ -381,31 +380,30 @@
                                           ToolTip.Tip="上传副本就绪后删除源视频。" />
                                 <CheckBox Content="上传" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
                             </WrapPanel>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                                <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
-                                <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="selectionAction compactAction" />
-                            </StackPanel>
-                        </Grid>
-
-                        <WrapPanel Orientation="Horizontal" Margin="64,0,0,0">
-                            <CheckBox Content="同步管理"
-                                      IsChecked="{Binding SyncManagementAfterUpload}"
-                                      Margin="0,0,16,0"
-                                      ToolTip.Tip="上传完成后把项目同步到管理系统。" />
-                            <CheckBox Content="传后归档"
-                                      IsChecked="{Binding AutoArchiveAfterUpload}"
-                                      Margin="0,0,16,0"
-                                      ToolTip.Tip="上传成功后自动把项目移入归档。" />
-                            <CheckBox Content="强制重跑"
-                                      IsChecked="{Binding ForceRerunCompletedSteps}"
-                                      Margin="0,0,16,0"
-                                      ToolTip.Tip="已完成步骤会重新执行。" />
-                            <CheckBox Content="优先上传"
-                                      IsChecked="{Binding PreferUploadWhenReady}"
-                                      Margin="0,0,16,0"
-                                      ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
-                        </WrapPanel>
-                    </StackPanel>
+                            <WrapPanel Orientation="Horizontal">
+                                <CheckBox Content="同步管理"
+                                          IsChecked="{Binding SyncManagementAfterUpload}"
+                                          Margin="0,0,16,0"
+                                          ToolTip.Tip="上传完成后把项目同步到管理系统。" />
+                                <CheckBox Content="传后归档"
+                                          IsChecked="{Binding AutoArchiveAfterUpload}"
+                                          Margin="0,0,16,0"
+                                          ToolTip.Tip="上传成功后自动把项目移入归档。" />
+                                <CheckBox Content="强制重跑"
+                                          IsChecked="{Binding ForceRerunCompletedSteps}"
+                                          Margin="0,0,16,0"
+                                          ToolTip.Tip="已完成步骤会重新执行。" />
+                                <CheckBox Content="优先上传"
+                                          IsChecked="{Binding PreferUploadWhenReady}"
+                                          Margin="0,0,16,0"
+                                          ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
+                            </WrapPanel>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Vertical" Spacing="4" VerticalAlignment="Center">
+                            <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
+                            <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="selectionAction compactAction" />
+                        </StackPanel>
+                    </Grid>
                 </Border>
 
                 <TextBlock Text="{Binding RunningWorkspacesSummary}"
