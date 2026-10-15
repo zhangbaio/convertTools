@@ -2,12 +2,14 @@ using System.ComponentModel;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Archive;
@@ -57,6 +59,7 @@ public partial class TikTokQueueView : UserControl
     private int _queueResizeColumnIndex = -1;
     private double _queueResizeStartX;
     private double _queueResizeStartWidth;
+    private bool _lockingQueueListHorizontalOffset;
     private readonly HashSet<string> _queueStopRequestedWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeQueueRunWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CancellationTokenSource> _copyrightProofPreparationRuns =
@@ -72,6 +75,12 @@ public partial class TikTokQueueView : UserControl
     public TikTokQueueView()
     {
         InitializeComponent();
+        QueueTableGrid.SetColumnWidths(QueueTableRootGrid, _queueTableColumnWidths);
+        QueueProjectList.AddHandler(
+            ScrollViewer.ScrollChangedEvent,
+            OnQueueProjectListScrollChanged,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
         DetachedFromVisualTree += async (_, _) => await CloseManualExternalBrowserSessionsAsync().ConfigureAwait(false);
@@ -320,6 +329,7 @@ public partial class TikTokQueueView : UserControl
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         _ready = true;
+        AttachQueueListHorizontalLock();
         ApplyFittedQueueColumns(QueueTableScrollViewer.Bounds.Width);
         ApplyConfigToVm();
         if (!string.IsNullOrWhiteSpace(_vm?.WorkspacePath))
@@ -743,6 +753,35 @@ public partial class TikTokQueueView : UserControl
 
         _queueTableRowGrids.Add(new WeakReference<Grid>(grid));
         ApplyColumnWidths(grid);
+    }
+
+    private void AttachQueueListHorizontalLock()
+    {
+        QueueProjectList.ApplyTemplate();
+        if (QueueProjectList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is not { } scroll)
+            return;
+
+        scroll.ScrollChanged -= OnQueueProjectListScrollChanged;
+        scroll.ScrollChanged += OnQueueProjectListScrollChanged;
+    }
+
+    private void OnQueueProjectListScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (_lockingQueueListHorizontalOffset || e.Source is not ScrollViewer scroll)
+            return;
+        if (scroll.Offset.X <= 0.5)
+            return;
+
+        // 行网格比视口宽时，滚动锚定会把纵向滑动变成横向偏移，表头却留在外层滚动里。
+        _lockingQueueListHorizontalOffset = true;
+        try
+        {
+            scroll.Offset = new Vector(0, scroll.Offset.Y);
+        }
+        finally
+        {
+            _lockingQueueListHorizontalOffset = false;
+        }
     }
 
     private void OnQueueColumnResizerPointerPressed(object? sender, PointerPressedEventArgs e)

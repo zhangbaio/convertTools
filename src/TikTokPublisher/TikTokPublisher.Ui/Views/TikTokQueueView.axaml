@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             xmlns:views="using:TikTokPublisher.Ui.Views"
              x:Class="TikTokPublisher.Ui.Views.TikTokQueueView"
              x:Name="QueueViewRoot"
              x:DataType="vm:MainViewModel"
@@ -461,7 +462,7 @@
                               AllowAutoHide="False"
                               SizeChanged="OnQueueTableViewportSizeChanged">
                 <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1888">
-                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180">
+                    <views:QueueTableGrid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -505,7 +506,7 @@
                         <Border Grid.Column="18" Classes="queueColumnResizer" Tag="18" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="19" Classes="queueColumnResizer" Tag="19" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="20" Classes="queueColumnResizer" Tag="20" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                    </Grid>
+                    </views:QueueTableGrid>
 
                     <ListBox x:Name="QueueProjectList"
                              Grid.Row="1"
@@ -516,8 +517,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1888" Height="42" Loaded="OnQueueTableRowLoaded">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Height="42" HorizontalAlignment="Left" Loaded="OnQueueTableRowLoaded">
+                                    <views:QueueTableGrid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -606,7 +607,7 @@
                                                  Text="{Binding Remark, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                  Watermark="备注"
                                                  Margin="6,5" />
-                                    </Grid>
+                                    </views:QueueTableGrid>
                                 </Border>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
