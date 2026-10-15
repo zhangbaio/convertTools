@@ -28,6 +28,7 @@ public partial class MainWindow : Window
         ["logs"] = ("运行日志", "日志"),
         ["settings"] = ("系统设置", "设置"),
         ["services"] = ("系统服务", "服务"),
+        ["analytics"] = ("数据统计", "统计"),
         ["archived"] = ("已归档项目", "归档"),
     };
 
@@ -80,6 +81,12 @@ public partial class MainWindow : Window
         };
         ArchivedView.Bind(_viewModel.ArchivedProjects);
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
+        AnalyticsView.Bind(_viewModel.Accounts, _viewModel.AppendLog);
+        AnalyticsView.SearchOriginalRequested += keyword =>
+        {
+            NavigateTo("download");
+            DownloadView.SearchByKeyword(keyword);
+        };
 
         QueueView.OpenBrowserRequested += (_, _) => NavigateTo("browser");
         QueueView.PublishBrowserFocusRequested += account =>
@@ -494,6 +501,7 @@ public partial class MainWindow : Window
         const int inactiveZ = 0;
 
         DownloadView.IsVisible = tag == "download";
+        AnalyticsView.IsVisible = tag == "analytics";
         QueueView.IsVisible = tag == "queue";
         AccountsView.IsVisible = tag == "accounts";
         LogView.IsVisible = tag == "logs";
@@ -502,6 +510,7 @@ public partial class MainWindow : Window
         ArchivedView.IsVisible = tag == "archived";
 
         DownloadView.ZIndex = tag == "download" ? activeZ : inactiveZ;
+        AnalyticsView.ZIndex = tag == "analytics" ? activeZ : inactiveZ;
         QueueView.ZIndex = tag == "queue" ? activeZ : inactiveZ;
         AccountsView.ZIndex = tag == "accounts" ? activeZ : inactiveZ;
         LogView.ZIndex = tag == "logs" ? activeZ : inactiveZ;
@@ -527,6 +536,8 @@ public partial class MainWindow : Window
             _browserHost.SetPresentationVisible(false);
         }
 
+        if (tag == "analytics")
+            AnalyticsView.Activate();
         if (tag == "logs")
             _viewModel.RefreshLogSnapshot();
         if (tag == "archived")
