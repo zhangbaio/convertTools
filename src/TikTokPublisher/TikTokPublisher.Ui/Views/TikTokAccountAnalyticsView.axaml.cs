@@ -58,10 +58,14 @@ public partial class TikTokAccountAnalyticsView : UserControl
     private readonly HashSet<string> _materializedSeries = new(StringComparer.Ordinal);
     private bool _viewReady;
     private static readonly double[] SeriesDefaultWidths = [240, 96, 160, 64, 156, 108, 112, 80, 72, 80, 176];
-    private static readonly double[] SeriesMinWidths = [120, 72, 80, 48, 110, 80, 88, 56, 48, 56, 150];
+    private static readonly double[] SeriesMinWidths = [120, 72, 80, 48, 110, 80, 88, 56, 48, 56, 176];
     private readonly double[] _seriesColumnWidths = SeriesDefaultWidths.ToArray();
     private readonly List<Grid> _seriesHeaderGrids = [];
+    private readonly List<Grid> _seriesTableHosts = [];
     private readonly List<WeakReference<Grid>> _seriesRowGrids = [];
+    private bool _seriesColumnsUserAdjusted;
+    private bool _lockingSeriesListHorizontalOffset;
+    private double _seriesHeaderInset;
     private int _seriesResizeColumn = -1;
     private Grid? _seriesResizeGrid;
     private double _seriesResizeStartX;
@@ -527,6 +531,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
         _buildingTabs = true;
         _materializedSeries.Clear();
         _seriesHeaderGrids.Clear();
+        _seriesTableHosts.Clear();
         _seriesRowGrids.Clear();
         SeriesTabs.Items.Clear();
         foreach (var account in _accounts)
@@ -570,9 +575,11 @@ public partial class TikTokAccountAnalyticsView : UserControl
             Background = Brushes.Transparent,
             Padding = new Avalonia.Thickness(0),
             ItemsSource = items,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             ItemTemplate = new FuncDataTemplate<SeriesListItem>((item, _) =>
                 item is null ? new Border() : BuildSeriesRow(item)),
         };
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
         list.Styles.Add(new Style(selector => selector.OfType<ListBoxItem>())
         {
             Setters =
@@ -580,6 +587,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
                 new Setter(TemplatedControl.PaddingProperty, new Avalonia.Thickness(0)),
                 new Setter(Layoutable.MarginProperty, new Avalonia.Thickness(0)),
                 new Setter(Layoutable.MinHeightProperty, 0d),
+                new Setter(ContentControl.HorizontalContentAlignmentProperty, HorizontalAlignment.Left),
             },
         });
         var selected = items.FirstOrDefault(item => item.Series.SeriesId == _selectedSeriesId);
@@ -594,19 +602,47 @@ public partial class TikTokAccountAnalyticsView : UserControl
             ShowGrowth();
         };
 
-        var panel = new DockPanel();
-        var headerInset = new Border { Width = 0 };
+        if (items.Count == 0)
+        {
+            tab.Content = SeriesPlaceholder("这个账号还没有剧集明细，点「更新」后再看。");
+            _materializedSeries.Add(accountId);
+            return;
+        }
+
+        if (tab.Content is ScrollViewer previous && previous.Content is Grid previousHost)
+            _seriesTableHosts.Remove(previousHost);
+
+        var headerInset = new Border { Width = _seriesHeaderInset };
         var headerHost = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         headerHost.Children.Add(BuildSeriesHeader());
         Grid.SetColumn(headerInset, 1);
         headerHost.Children.Add(headerInset);
-        DockPanel.SetDock(headerHost, Dock.Top);
-        panel.Children.Add(headerHost);
-        list.LayoutUpdated += (_, _) => SyncHeaderInset(list, headerInset);
-        panel.Children.Add(items.Count == 0
-            ? SeriesPlaceholder("这个账号还没有剧集明细，点「更新」后再看。")
-            : list);
-        tab.Content = panel;
+
+        var host = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Width = _seriesColumnWidths.Sum() + _seriesHeaderInset,
+        };
+        Grid.SetRow(headerHost, 0);
+        host.Children.Add(headerHost);
+        Grid.SetRow(list, 1);
+        host.Children.Add(list);
+        _seriesTableHosts.Add(host);
+
+        var scroller = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Content = host,
+        };
+        scroller.SizeChanged += OnSeriesTableViewportSizeChanged;
+        list.AttachedToVisualTree += (_, _) => AttachSeriesListHorizontalLock(list);
+        list.LayoutUpdated += (_, _) => SyncHeaderInset(list, headerInset, host);
+        tab.Content = scroller;
         _materializedSeries.Add(accountId);
     }
 
@@ -685,10 +721,73 @@ public partial class TikTokAccountAnalyticsView : UserControl
     private void OnSeriesColumnResizeReleased(object? sender, PointerReleasedEventArgs e)
     {
         if (_seriesResizeColumn < 0) return;
+        var resized = _seriesResizeColumn;
         e.Pointer.Capture(null);
         _seriesResizeColumn = -1;
         _seriesResizeGrid = null;
+        if (Math.Abs(_seriesColumnWidths[resized] - _seriesResizeStartWidth) > 0.5)
+            _seriesColumnsUserAdjusted = true;
         e.Handled = true;
+    }
+
+    private void OnSeriesTableViewportSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (_seriesColumnsUserAdjusted || _seriesResizeColumn >= 0)
+            return;
+
+        FitSeriesColumns(e.NewSize.Width);
+    }
+
+    private void FitSeriesColumns(double viewportWidth)
+    {
+        if (_seriesColumnsUserAdjusted || _seriesResizeColumn >= 0 || viewportWidth < 80)
+            return;
+
+        var fitted = LaptopLayout.FitColumns(
+            SeriesDefaultWidths,
+            SeriesMinWidths,
+            Math.Max(0, viewportWidth - _seriesHeaderInset - 2));
+        var changed = false;
+        for (var index = 0; index < fitted.Length && index < _seriesColumnWidths.Length; index++)
+        {
+            if (Math.Abs(_seriesColumnWidths[index] - fitted[index]) <= 0.5)
+                continue;
+
+            _seriesColumnWidths[index] = fitted[index];
+            changed = true;
+        }
+
+        if (changed)
+            ApplyAllSeriesColumnWidths();
+    }
+
+    private void AttachSeriesListHorizontalLock(ListBox list)
+    {
+        list.ApplyTemplate();
+        if (list.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is not { } scroll)
+            return;
+
+        scroll.ScrollChanged -= OnSeriesListScrollChanged;
+        scroll.ScrollChanged += OnSeriesListScrollChanged;
+    }
+
+    private void OnSeriesListScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (_lockingSeriesListHorizontalOffset || sender is not ScrollViewer scroll)
+            return;
+        if (scroll.Offset.X <= 0.5)
+            return;
+
+        // 行比视口宽时，滚动锚定会把纵向滑动变成横向偏移，表头留在外层滚动里。
+        _lockingSeriesListHorizontalOffset = true;
+        try
+        {
+            scroll.Offset = new Vector(0, scroll.Offset.Y);
+        }
+        finally
+        {
+            _lockingSeriesListHorizontalOffset = false;
+        }
     }
 
     private static Grid? HeaderGridOf(Control control)
@@ -715,6 +814,8 @@ public partial class TikTokAccountAnalyticsView : UserControl
             else
                 _seriesRowGrids.RemoveAt(index);
         }
+
+        UpdateSeriesHostWidths();
     }
 
     private void ApplySeriesColumnWidths(Grid grid)
@@ -728,11 +829,33 @@ public partial class TikTokAccountAnalyticsView : UserControl
             grid.ColumnDefinitions[index].Width = new GridLength(_seriesColumnWidths[index]);
     }
 
-    private static void SyncHeaderInset(ListBox list, Border spacer)
+    private void UpdateSeriesHostWidths()
+    {
+        var total = _seriesColumnWidths.Sum() + _seriesHeaderInset;
+        foreach (var host in _seriesTableHosts)
+        {
+            if (double.IsNaN(host.Width) || Math.Abs(host.Width - total) > 0.5)
+                host.Width = total;
+        }
+    }
+
+    private void SyncHeaderInset(ListBox list, Border spacer, Grid host)
     {
         var viewer = list.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
         var inset = viewer is null ? 0 : list.Bounds.Width - viewer.Viewport.Width;
-        spacer.Width = inset > 1 ? inset : 0;
+        var width = inset > 1 ? inset : 0;
+        if (Math.Abs(spacer.Width - width) > 0.5)
+            spacer.Width = width;
+        if (Math.Abs(_seriesHeaderInset - width) > 0.5)
+        {
+            _seriesHeaderInset = width;
+            if (!_seriesColumnsUserAdjusted && _seriesResizeColumn < 0 && host.Parent is ScrollViewer scroller)
+                FitSeriesColumns(scroller.Bounds.Width);
+        }
+
+        var total = _seriesColumnWidths.Sum() + width;
+        if (double.IsNaN(host.Width) || Math.Abs(host.Width - total) > 0.5)
+            host.Width = total;
     }
 
     private Control BuildSeriesRow(SeriesListItem item)
@@ -797,6 +920,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
     {
         BorderBrush = TableLine,
         BorderThickness = includeTop ? new Avalonia.Thickness(1, 1, 0, 0) : new Avalonia.Thickness(1, 0, 0, 0),
+        HorizontalAlignment = HorizontalAlignment.Left,
         Child = child,
     };
 
