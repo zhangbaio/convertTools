@@ -3841,7 +3841,8 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     public async Task<LocalManualDramaBatchImportResult> ImportLocalManualDramasAsync(
-        IReadOnlyList<string> sourceProjectDirs)
+        IReadOnlyList<string> sourceProjectDirs,
+        bool downloadMissingPoster = false)
     {
         var requestedDirs = sourceProjectDirs
             .Where(dir => !string.IsNullOrWhiteSpace(dir))
@@ -3886,10 +3887,12 @@ public sealed partial class MainViewModel : ViewModelBase
                         root,
                         sourceProjectDir,
                         AppendLog,
-                        overLimitSettings))
+                        overLimitSettings,
+                        downloadMissingPoster: downloadMissingPoster))
                     .ConfigureAwait(true);
                 results.Add(result);
-                AppendLog($"已导入本地剧集：{result.DisplayName}（{result.EpisodeCount} 集）");
+                AppendLog($"已导入本地剧集：{result.DisplayName}（{result.EpisodeCount} 集）" +
+                          (downloadMissingPoster ? "，并尝试补下载缺失海报" : ""));
             }
             catch (Exception ex)
             {

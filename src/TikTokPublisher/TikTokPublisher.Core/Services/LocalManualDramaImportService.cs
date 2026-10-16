@@ -5,6 +5,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 
@@ -158,11 +159,27 @@ public static class LocalManualDramaImportService
         return true;
     }
 
+    public static IReadOnlyList<string> ListProjectsMissingPoster(IEnumerable<string> projectDirs)
+    {
+        var missing = new List<string>();
+        foreach (var raw in projectDirs)
+        {
+            var projectDir = NormalizeFullPath(raw);
+            if (string.IsNullOrWhiteSpace(projectDir) || !Directory.Exists(projectDir))
+                continue;
+            if (FindLocalPoster(projectDir) is null)
+                missing.Add(projectDir);
+        }
+
+        return missing;
+    }
+
     public static LocalManualDramaImportResult Import(
         string workspaceRoot,
         string sourceProjectDir,
         Action<string>? log = null,
-        ClientSettings? settings = null)
+        ClientSettings? settings = null,
+        bool downloadMissingPoster = false)
     {
         var workspace = NormalizeFullPath(workspaceRoot);
         if (string.IsNullOrWhiteSpace(workspace))
@@ -223,7 +240,12 @@ public static class LocalManualDramaImportService
         if (!string.IsNullOrWhiteSpace(externalInfo.PosterUrl) &&
             string.IsNullOrWhiteSpace(ReadString(metadata, "posterUrl")))
         {
-            metadata["posterUrl"] = externalInfo.PosterUrl;
+            var normalizedPoster = HongguoLocalMediaUrl.Normalize(
+                externalInfo.PosterUrl,
+                settings?.HongguoLocalBaseUrl);
+            metadata["posterUrl"] = string.IsNullOrWhiteSpace(normalizedPoster)
+                ? externalInfo.PosterUrl
+                : normalizedPoster;
         }
         metadata["episodeCount"] = truncate ? effectiveEpisodeCount : declaredEpisodeCount;
         metadata["episode_count"] = truncate ? effectiveEpisodeCount : declaredEpisodeCount;
@@ -259,6 +281,42 @@ public static class LocalManualDramaImportService
         metadata["updatedAt"] = now;
         if (string.IsNullOrWhiteSpace(ReadString(metadata, "createdAt")))
             metadata["createdAt"] = now;
+
+        if (downloadMissingPoster && FindLocalPoster(source) is null)
+        {
+            try
+            {
+                var (posterUrl, _) = LocalImportPosterService.ResolvePosterUrlAsync(
+                        source,
+                        displayName,
+                        metadata,
+                        settings,
+                        log)
+                    .GetAwaiter()
+                    .GetResult();
+                if (!string.IsNullOrWhiteSpace(posterUrl))
+                {
+                    metadata["posterUrl"] = posterUrl;
+                    var posterError = LocalImportPosterService.EnsurePosterAsync(
+                            source,
+                            displayName,
+                            posterUrl,
+                            log)
+                        .GetAwaiter()
+                        .GetResult();
+                    if (!string.IsNullOrWhiteSpace(posterError))
+                        log?.Invoke($"⚠️ {displayName}：{posterError}");
+                }
+                else
+                {
+                    log?.Invoke($"⚠️ {displayName}：缺少海报，简介无封面链接且下载链路也未匹配到海报");
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"⚠️ {displayName}：补下载海报失败：{ex.Message}");
+            }
+        }
 
         WriteMetadata(metadataPath, metadata);
         EnsureStandardPosterAlias(source);
