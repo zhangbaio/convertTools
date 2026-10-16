@@ -82,6 +82,173 @@ public sealed class ExternalDramaInfoReaderTests
     }
 
     [Fact]
+    public void Read_parses_hongguo_bracket_intro_title_and_poster()
+    {
+        var root = Path.Combine(CreateTempDirectory(), "红果_灾年逆袭：我靠穿越养全家");
+        Directory.CreateDirectory(root);
+        const string intro =
+            "灾年大旱，吃光全家口粮膘肥体胖的林瑶抛下丈夫和两个孩子跟别人跑了，" +
+            "最后被渣男骗，下场凄惨。现代农业大学生林瑶熬夜猝死，一觉醒来，" +
+            "自己穿进了这本年代小说里，成了即将抛夫弃子跟人跑路的胖女人。";
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, "简介.txt"),
+                string.Join(
+                    "\n",
+                    "══════════════════════════════════",
+                    "          短 剧 简 介",
+                    "══════════════════════════════════",
+                    "",
+                    "【剧　　名】灾年逆袭：我靠穿越养全家",
+                    "【评　　分】9.8 分",
+                    "【状　　态】第1季 / 已完结 / 共100集",
+                    "【总 集 数】共 100 集",
+                    "【分　　类】逆袭",
+                    "",
+                    "──────────────────────────────────",
+                    "【剧情简介】",
+                    intro,
+                    "──────────────────────────────────",
+                    "",
+                    "【封面链接】http://example.com/cover.jpg",
+                    "【版权信息】",
+                    "版权信息：测试版权"),
+                new UTF8Encoding(false));
+
+            // 元数据里的文件夹占位剧名不应压过简介【剧名】。
+            var metadata = new JsonObject
+            {
+                ["displayName"] = "红果_灾年逆袭：我靠穿越养全家",
+                ["title"] = "红果_灾年逆袭：我靠穿越养全家",
+                ["intro"] = "══════════════════════════════════",
+            };
+
+            var result = ExternalDramaInfoReader.Read(root, metadata);
+
+            result.Title.Should().Be("灾年逆袭：我靠穿越养全家");
+            result.Category.Should().Be("逆袭");
+            result.DeclaredEpisodeCount.Should().Be(100);
+            result.Intro.Should().Be(intro);
+            result.Intro.Should().NotContain("版权信息");
+            result.PosterUrl.Should().Be("http://example.com/cover.jpg");
+        }
+        finally
+        {
+            DeleteBestEffort(Path.GetDirectoryName(root)!);
+        }
+    }
+
+    [Fact]
+    public void Local_import_repairs_hongguo_folder_seed_titles_from_bracket_intro()
+    {
+        var workspace = CreateTempDirectory();
+        var source = Path.Combine(workspace, "红果_订婚宴上我收回了一切");
+        Directory.CreateDirectory(source);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(source, "第1集.mp4"), [1]);
+            File.WriteAllText(
+                Path.Combine(source, "简介.txt"),
+                string.Join(
+                    "\n",
+                    "【剧　　名】订婚宴上我收回了一切",
+                    "【总 集 数】共 60 集",
+                    "【剧情简介】",
+                    "订婚宴当天，女主发现未婚夫出轨，当场收回所有嫁妆并离开这段关系。"),
+                new UTF8Encoding(false));
+            File.WriteAllText(
+                Path.Combine(source, "shortdrama-project.json"),
+                """
+                {
+                  "displayName": "红果_订婚宴上我收回了一切",
+                  "title": "红果_订婚宴上我收回了一切",
+                  "originalTitle": "红果_订婚宴上我收回了一切",
+                  "intro": "红果_订婚宴上我收回了一切，待补充简介。",
+                  "workflowDirName": "_红果_订婚宴上我收回了一切",
+                  "localManualImport": true
+                }
+                """,
+                new UTF8Encoding(false));
+            File.WriteAllText(
+                Path.Combine(source, "短剧信息.txt"),
+                "原剧名：红果_订婚宴上我收回了一切\n新剧名：红果_订婚宴上我收回了一切\n简介：红果_订婚宴上我收回了一切，待补充简介。\n",
+                new UTF8Encoding(false));
+
+            var result = LocalManualDramaImportService.Import(workspace, source);
+
+            result.DisplayName.Should().Be("订婚宴上我收回了一切");
+            using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(source, "shortdrama-project.json")));
+            metadata.RootElement.GetProperty("displayName").GetString().Should().Be("订婚宴上我收回了一切");
+            metadata.RootElement.GetProperty("title").GetString().Should().Be("订婚宴上我收回了一切");
+            metadata.RootElement.GetProperty("originalTitle").GetString().Should().Be("订婚宴上我收回了一切");
+
+            var sourceInfo = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(source, "短剧信息.txt"));
+            sourceInfo["原剧名"].Should().Be("订婚宴上我收回了一切");
+            sourceInfo["新剧名"].Should().Be("订婚宴上我收回了一切");
+            sourceInfo["简介"].Should().Contain("订婚宴当天");
+
+            var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(
+                Path.Combine(result.WorkflowProjectDir, "短剧信息.txt"));
+            workflowInfo["原剧名"].Should().Be("订婚宴上我收回了一切");
+            workflowInfo["新剧名"].Should().Be("订婚宴上我收回了一切");
+            workflowInfo["简介"].Should().Contain("订婚宴当天");
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
+    [Fact]
+    public void Local_import_does_not_overwrite_manual_new_title()
+    {
+        var workspace = CreateTempDirectory();
+        var source = Path.Combine(workspace, "红果_订婚宴上我收回了一切");
+        Directory.CreateDirectory(source);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(source, "第1集.mp4"), [1]);
+            File.WriteAllText(
+                Path.Combine(source, "简介.txt"),
+                "【剧　　名】订婚宴上我收回了一切\n【剧情简介】\n真实简介。\n",
+                new UTF8Encoding(false));
+            var workflowDir = Path.Combine(workspace, "workflow", "_红果_订婚宴上我收回了一切");
+            Directory.CreateDirectory(workflowDir);
+            File.WriteAllText(
+                Path.Combine(source, "shortdrama-project.json"),
+                $$"""
+                {
+                  "displayName": "红果_订婚宴上我收回了一切",
+                  "title": "红果_订婚宴上我收回了一切",
+                  "originalTitle": "红果_订婚宴上我收回了一切",
+                  "workflowDirName": "_红果_订婚宴上我收回了一切",
+                  "workflowProjectDir": {{JsonSerializer.Serialize(workflowDir)}},
+                  "sourceProjectDir": {{JsonSerializer.Serialize(source)}},
+                  "localManualImport": true
+                }
+                """,
+                new UTF8Encoding(false));
+            File.WriteAllText(
+                Path.Combine(workflowDir, "短剧信息.txt"),
+                "原剧名: 订婚宴上我收回了一切\n新剧名: 人工改过的新剧名\n简介: 真实简介。\n",
+                new UTF8Encoding(false));
+
+            var result = LocalManualDramaImportService.Import(workspace, source);
+
+            result.DisplayName.Should().Be("订婚宴上我收回了一切");
+            var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(
+                Path.Combine(result.WorkflowProjectDir, "短剧信息.txt"));
+            workflowInfo["原剧名"].Should().Be("订婚宴上我收回了一切");
+            workflowInfo["新剧名"].Should().Be("人工改过的新剧名");
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
+    [Fact]
     public void Local_import_separates_declared_episode_count_from_available_videos()
     {
         var workspace = CreateTempDirectory();
