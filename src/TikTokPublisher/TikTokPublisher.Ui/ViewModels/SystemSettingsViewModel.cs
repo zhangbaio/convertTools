@@ -60,8 +60,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _hghighEdition = HongguoClientProfile.HighEdition;
     [ObservableProperty] private string _hghighDeviceId = "";
     [ObservableProperty] private string _hghighClientExe = "";
+    [ObservableProperty] private string _hghighClientVersion = HongguoClientProfile.High.ClientVersion;
     [ObservableProperty] private string _hghighStandardDeviceId = "";
     [ObservableProperty] private string _hghighStandardClientExe = "";
+    [ObservableProperty] private string _hghighStandardClientVersion = HongguoClientProfile.Standard.ClientVersion;
     [ObservableProperty] private string _hghighStandardPlaybackMode = HongguoClientProfile.StandardPlaybackSingle;
     [ObservableProperty] private string _hghighEncMaster = "";
     [ObservableProperty] private string _hghighSignMaster = "";
@@ -81,6 +83,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public string HghighEditionLabel => SelectedHghighProfile.DisplayName;
     public string HghighDeviceLabel => HghighEdition == HongguoClientProfile.StandardEdition ? "标准版设备 ID" : "高码率设备 ID";
     public string HghighClientExeLabel => HghighEdition == HongguoClientProfile.StandardEdition ? "标准版客户端 exe" : "高码率客户端 exe";
+    public string HghighClientVersionLabel => HghighEdition == HongguoClientProfile.StandardEdition ? "标准版协议版本" : "高码率协议版本";
     public bool IsHghighStandardEdition => HghighEdition == HongguoClientProfile.StandardEdition;
     public string HghighActiveDeviceId
     {
@@ -99,6 +102,16 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         {
             if (HghighEdition == HongguoClientProfile.StandardEdition) HghighStandardClientExe = value;
             else HghighClientExe = value;
+            OnPropertyChanged();
+        }
+    }
+    public string HghighActiveClientVersion
+    {
+        get => HghighEdition == HongguoClientProfile.StandardEdition ? HghighStandardClientVersion : HghighClientVersion;
+        set
+        {
+            if (HghighEdition == HongguoClientProfile.StandardEdition) HghighStandardClientVersion = value;
+            else HghighClientVersion = value;
             OnPropertyChanged();
         }
     }
@@ -261,8 +274,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HghighEdition = HongguoClientProfile.NormalizeEdition(HghighEdition),
         HghighDeviceId = HghighDeviceId.Trim(),
         HghighClientExe = HghighClientExe.Trim(),
+        HghighClientVersion = NormalizeHghighClientVersion(HghighClientVersion, HongguoClientProfile.High.ClientVersion),
         HghighStandardDeviceId = HghighStandardDeviceId.Trim(),
         HghighStandardClientExe = HghighStandardClientExe.Trim(),
+        HghighStandardClientVersion = NormalizeHghighClientVersion(HghighStandardClientVersion, HongguoClientProfile.Standard.ClientVersion),
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(HghighStandardPlaybackMode),
         MapleleafAccount = MapleleafAccount.Trim(),
         MapleleafPassword = MapleleafPassword,
@@ -713,6 +728,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsHghighStandardEdition));
         OnPropertyChanged(nameof(HghighActiveDeviceId));
         OnPropertyChanged(nameof(HghighActiveClientExe));
+        OnPropertyChanged(nameof(HghighClientVersionLabel));
+        OnPropertyChanged(nameof(HghighActiveClientVersion));
         var masters = HongguoHighDeviceStore.LoadStartupMastersRaw(SelectedHghighProfile);
         ApplyMastersToForm(masters.Enc, masters.Sign);
         RefreshHghighMastersStatus();
@@ -722,6 +739,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     partial void OnHghighStandardDeviceIdChanged(string value) => OnPropertyChanged(nameof(HghighActiveDeviceId));
     partial void OnHghighClientExeChanged(string value) => OnPropertyChanged(nameof(HghighActiveClientExe));
     partial void OnHghighStandardClientExeChanged(string value) => OnPropertyChanged(nameof(HghighActiveClientExe));
+    partial void OnHghighClientVersionChanged(string value) => OnPropertyChanged(nameof(HghighActiveClientVersion));
+    partial void OnHghighStandardClientVersionChanged(string value) => OnPropertyChanged(nameof(HghighActiveClientVersion));
 
     private void ShowExtractedMasters(string enc, string sign)
     {
@@ -1073,10 +1092,14 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.High)
             : settings.HghighDeviceId;
         HghighClientExe = settings.HghighClientExe;
+        HghighClientVersion = NormalizeHghighClientVersion(settings.HghighClientVersion, HongguoClientProfile.High.ClientVersion);
         HghighStandardDeviceId = string.IsNullOrWhiteSpace(settings.HghighStandardDeviceId)
             ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.Standard)
             : settings.HghighStandardDeviceId;
         HghighStandardClientExe = settings.HghighStandardClientExe;
+        HghighStandardClientVersion = NormalizeHghighClientVersion(
+            settings.HghighStandardClientVersion,
+            HongguoClientProfile.Standard.ClientVersion);
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode);
         MapleleafAccount = settings.MapleleafAccount;
         MapleleafPassword = settings.MapleleafPassword;
@@ -1197,6 +1220,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         if (bytes < 1024) return $"{bytes} B";
         if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
         return $"{bytes / (1024.0 * 1024.0):0.##} MB";
+    }
+
+    private static string NormalizeHghighClientVersion(string? value, string fallback)
+    {
+        var text = (value ?? "").Trim();
+        return string.IsNullOrWhiteSpace(text) ? fallback : text;
     }
 
     private static string NormalizeHongguoLocalDownloadMode(string? value)

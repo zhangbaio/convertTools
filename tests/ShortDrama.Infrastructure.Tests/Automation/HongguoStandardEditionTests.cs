@@ -17,7 +17,7 @@ public sealed class HongguoStandardEditionTests
 
         profile.AppId.Should().Be("hongguo_desktop");
         profile.ApiBase.Should().Be("https://m.iusc.cc/api/hongguo/client/v1");
-        profile.ClientVersion.Should().Be("2.1.10");
+        profile.ClientVersion.Should().Be("2.2.1");
         profile.RegistryKey.Should().Be(@"Software\HongguoDownloader");
         profile.UsesServerBatchPlayback.Should().BeFalse();
         HongguoClientProfile.NormalizeStandardPlaybackMode(null).Should().Be("single");
@@ -47,9 +47,33 @@ public sealed class HongguoStandardEditionTests
             HongguoClientProfile.Standard);
 
         inner["app_id"]!.GetValue<string>().Should().Be("hongguo_desktop");
-        inner["version"]!.GetValue<string>().Should().Be("2.1.10");
+        inner["version"]!.GetValue<string>().Should().Be("2.2.1");
         envelope["app_id"]!.GetValue<string>().Should().Be("hongguo_desktop");
-        envelope["version"]!.GetValue<string>().Should().Be("2.1.10");
+        envelope["version"]!.GetValue<string>().Should().Be("2.2.1");
+    }
+
+    [Fact]
+    public void Configured_Client_Version_Overrides_The_Built_In_Default()
+    {
+        var unchanged = HongguoClientProfile.Standard.WithClientVersion("  2.2.1  ");
+        unchanged.Should().BeSameAs(HongguoClientProfile.Standard);
+        HongguoClientProfile.Standard.WithClientVersion(" ").ClientVersion.Should().Be("2.2.1");
+
+        var overridden = HongguoClientProfile.Standard.WithClientVersion("2.3.0");
+        overridden.ClientVersion.Should().Be("2.3.0");
+        overridden.AppId.Should().Be("hongguo_desktop");
+        HongguoClientProfile.Standard.ClientVersion.Should().Be("2.2.1");
+
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var device = new HongguoHighDevice("device-standard", key);
+        var inner = HongguoHighCrypto.BuildStartupInner(
+            device,
+            "/auth/login",
+            new JsonObject { ["email"] = "a@example.test" },
+            "proof",
+            overridden);
+
+        inner["version"]!.GetValue<string>().Should().Be("2.3.0");
     }
 
     [Fact]

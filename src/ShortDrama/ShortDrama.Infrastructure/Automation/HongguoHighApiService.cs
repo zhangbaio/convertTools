@@ -2326,7 +2326,7 @@ public sealed class HongguoHighApiService
         }
 
         var timeout = ParseTimeout(settings.HongguoDownloadTimeoutSeconds);
-        var profile = HongguoClientProfile.Resolve(settings.HghighEdition);
+        var profile = ResolveProfile(settings);
         var device = LoadDevice(settings);
         var node = await RequestAsync(
             profile,
@@ -2389,7 +2389,7 @@ public sealed class HongguoHighApiService
             var staleToken = ReadCurrentAccessToken();
             try
             {
-                var profile = HongguoClientProfile.Resolve(settings.HghighEdition);
+                var profile = ResolveProfile(settings);
                 return await RequestAsync(
                     profile,
                     LoadDevice(settings),
@@ -2557,6 +2557,15 @@ public sealed class HongguoHighApiService
         }
 
         return Unwrap(payload);
+    }
+
+    private static HongguoClientProfile ResolveProfile(DramaSourceSettings settings)
+    {
+        var profile = HongguoClientProfile.Resolve(settings.HghighEdition);
+        var configured = HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition
+            ? settings.HghighStandardClientVersion
+            : settings.HghighClientVersion;
+        return profile.WithClientVersion(configured);
     }
 
     private HongguoHighDevice LoadDevice(DramaSourceSettings settings)

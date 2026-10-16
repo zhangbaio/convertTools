@@ -50,19 +50,29 @@ public sealed class SystemSettingsViewModelIsolationTests
             HghighPassword = "shared-password",
             HghighDeviceId = "high-device",
             HghighClientExe = "high.exe",
+            HghighClientVersion = "2.1.6",
             HghighStandardDeviceId = "standard-device",
             HghighStandardClientExe = "standard.exe",
+            HghighStandardClientVersion = "2.2.1",
             HghighEdition = "standard"
         };
 
         Assert.Equal("standard-device", viewModel.HghighActiveDeviceId);
         Assert.Equal("standard.exe", viewModel.HghighActiveClientExe);
+        Assert.Equal("2.2.1", viewModel.HghighActiveClientVersion);
+
+        viewModel.HghighEdition = "high";
+        Assert.Equal("2.1.6", viewModel.HghighActiveClientVersion);
+        viewModel.HghighActiveClientVersion = "";
+        viewModel.HghighEdition = "standard";
 
         var settings = viewModel.ToSettings();
         Assert.Equal("shared@example.test", settings.HghighAccount);
         Assert.Equal("shared-password", settings.HghighPassword);
         Assert.Equal("high-device", settings.HghighDeviceId);
         Assert.Equal("standard-device", settings.HghighStandardDeviceId);
+        Assert.Equal("2.1.6", settings.HghighClientVersion);
+        Assert.Equal("2.2.1", settings.HghighStandardClientVersion);
         Assert.Equal("standard", settings.HghighEdition);
     }
 }

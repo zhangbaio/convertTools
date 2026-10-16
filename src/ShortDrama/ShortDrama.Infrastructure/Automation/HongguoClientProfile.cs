@@ -42,7 +42,7 @@ public sealed record HongguoClientProfile(
         "标准版",
         "https://m.iusc.cc/api/hongguo/client/v1",
         "hongguo_desktop",
-        "2.1.10",
+        "2.2.1",
         @"Software\HongguoDownloader",
         "HongguoDownloader",
         "HongguoHighClient",
@@ -58,4 +58,12 @@ public sealed record HongguoClientProfile(
 
     public static HongguoClientProfile Resolve(string? edition) =>
         NormalizeEdition(edition) == StandardEdition ? Standard : High;
+
+    public HongguoClientProfile WithClientVersion(string? version)
+    {
+        var text = (version ?? "").Trim();
+        return string.IsNullOrWhiteSpace(text) || string.Equals(text, ClientVersion, StringComparison.Ordinal)
+            ? this
+            : this with { ClientVersion = text };
+    }
 }
