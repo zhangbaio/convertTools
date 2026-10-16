@@ -27,6 +27,9 @@ public sealed record LocalManualDramaImportPreview(
 public static class LocalManualDramaImportService
 {
     private const string MetadataFile = "shortdrama-project.json";
+    private const string LocalBookIdPrefix = "local:";
+
+    private static readonly string[] DownloaderFolderPrefixes = ["红果_"];
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -90,7 +93,7 @@ public static class LocalManualDramaImportService
             var externalInfo = ExternalDramaInfoReader.Read(child, metadata);
             results.Add(new LocalManualDramaImportPreview(
                 ProjectDir: Path.GetFullPath(child),
-                DisplayName: ResolveDisplayName(child, metadata, externalInfo.Title),
+                DisplayName: ResolveDisplayName(child, metadata),
                 EpisodeCount: videos.Count,
                 PosterPath: FindLocalPoster(child),
                 IntroPath: externalInfo.IntroPath,
@@ -180,7 +183,8 @@ public static class LocalManualDramaImportService
         var metadataPath = Path.Combine(source, MetadataFile);
         var metadata = ReadMetadata(metadataPath);
         var externalInfo = ExternalDramaInfoReader.Read(source, metadata);
-        var displayName = ResolveDisplayName(source, metadata, externalInfo.Title);
+        var placeholderTitles = FolderPlaceholderTitles(source);
+        var displayName = ResolveDisplayName(source, metadata);
         var workflowDir = ResolveWorkflowProjectDir(workspace, source, displayName, metadata);
         Directory.CreateDirectory(workflowDir);
 
@@ -196,13 +200,16 @@ public static class LocalManualDramaImportService
         var now = DateTimeOffset.Now.ToString("o");
         var projectKey = FirstNonEmpty(ReadString(metadata, "projectKey"), SanitizeFileName(displayName));
         metadata["projectKey"] = projectKey;
-        metadata["sourceName"] = FirstNonEmpty(ReadString(metadata, "sourceName"), displayName);
-        metadata["displayName"] = FirstNonEmpty(ReadString(metadata, "displayName"), displayName);
-        metadata["bookId"] = FirstNonEmpty(ReadString(metadata, "bookId"), BuildLocalBookId(source));
-        metadata["title"] = FirstNonEmpty(ReadString(metadata, "title"), displayName);
-        metadata["originalTitle"] = FirstNonEmpty(ReadString(metadata, "originalTitle"), displayName);
+        foreach (var key in new[] { "sourceName", "displayName", "title", "originalTitle" })
+            metadata[key] = FirstNonEmpty(ReadTitle(metadata, key, placeholderTitles), displayName);
+        metadata["bookId"] = ResolveBookId(ReadString(metadata, "bookId"), externalInfo.BookId, source);
         metadata["intro"] = externalInfo.Intro;
         metadata["category"] = FirstNonEmpty(ReadString(metadata, "category"), externalInfo.Category, "本地导入");
+        if (!string.IsNullOrWhiteSpace(externalInfo.PosterUrl) &&
+            string.IsNullOrWhiteSpace(ReadString(metadata, "posterUrl")))
+        {
+            metadata["posterUrl"] = externalInfo.PosterUrl;
+        }
         metadata["episodeCount"] = truncate ? effectiveEpisodeCount : declaredEpisodeCount;
         metadata["episode_count"] = truncate ? effectiveEpisodeCount : declaredEpisodeCount;
         metadata["declaredEpisodeCount"] = declaredEpisodeCount;
@@ -244,9 +251,77 @@ public static class LocalManualDramaImportService
         if (truncate && File.Exists(sourceInfoPath))
             ProjectWorkspaceService.UpdateProjectInfoField(sourceInfoPath, "集数", effectiveEpisodeCount.ToString());
         ProjectWorkspaceService.EnsureWorkflowInfo(source, effectiveEpisodeCount, log);
+        foreach (var infoPath in new[] { sourceInfoPath, Path.Combine(workflowDir, "短剧信息.txt") })
+            ReplacePlaceholderInfoTitles(infoPath, displayName, placeholderTitles);
 
         return new LocalManualDramaImportResult(source, workflowDir, displayName, effectiveEpisodeCount);
     }
+
+    internal static string TitleFromFolderName(string? folderName)
+    {
+        var text = (folderName ?? "").Trim();
+        foreach (var prefix in DownloaderFolderPrefixes)
+        {
+            if (text.StartsWith(prefix, StringComparison.Ordinal) && text.Length > prefix.Length)
+            {
+                var stripped = text[prefix.Length..].Trim();
+                if (!string.IsNullOrWhiteSpace(stripped))
+                    return stripped;
+            }
+        }
+
+        return text;
+    }
+
+    // 只认源目录名：workflow 目录名会随改写后的新剧名同步，拿它当占位会把新剧名改回去。
+    private static IReadOnlySet<string> FolderPlaceholderTitles(string sourceProjectDir)
+    {
+        var folderName = SourceFolderName(sourceProjectDir);
+        return string.Equals(TitleFromFolderName(folderName), folderName, StringComparison.Ordinal)
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal) { folderName };
+    }
+
+    private static string ReadTitle(JsonObject metadata, string key, IReadOnlySet<string> placeholderTitles)
+    {
+        var value = ReadString(metadata, key);
+        return placeholderTitles.Contains(value) ? "" : value;
+    }
+
+    private static string ResolveBookId(string existingBookId, string externalBookId, string sourceProjectDir)
+    {
+        var existing = (existingBookId ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(existing) &&
+            !existing.StartsWith(LocalBookIdPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return existing;
+        }
+
+        return FirstNonEmpty(externalBookId, existing, BuildLocalBookId(sourceProjectDir));
+    }
+
+    private static void ReplacePlaceholderInfoTitles(
+        string infoPath,
+        string title,
+        IReadOnlySet<string> placeholderTitles)
+    {
+        if (placeholderTitles.Count == 0 || !File.Exists(infoPath))
+            return;
+
+        var existing = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var updates = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var key in new[] { "原剧名", "新剧名" })
+        {
+            if (placeholderTitles.Contains((existing.GetValueOrDefault(key) ?? "").Trim()))
+                updates[key] = title;
+        }
+
+        if (updates.Count > 0)
+            ProjectInfoTextHelper.UpdateFields(infoPath, updates);
+    }
+
+    private static string SourceFolderName(string sourceProjectDir) =>
+        Path.GetFileName(sourceProjectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
     private static IReadOnlyList<string> ResolveLocalVideos(string sourceProjectDir)
     {
@@ -432,19 +507,17 @@ public static class LocalManualDramaImportService
         }
     }
 
-    private static string ResolveDisplayName(
-        string sourceProjectDir,
-        JsonObject metadata,
-        string? externalTitle = null)
+    private static string ResolveDisplayName(string sourceProjectDir, JsonObject metadata)
     {
-        var fallback = Path.GetFileName(sourceProjectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var placeholderTitles = FolderPlaceholderTitles(sourceProjectDir);
+        var fileTitle = ExternalDramaInfoReader.Read(sourceProjectDir, new JsonObject()).Title;
         return FirstNonEmpty(
-            ReadString(metadata, "displayName"),
-            ReadString(metadata, "sourceName"),
-            ReadString(metadata, "title"),
-            ReadString(metadata, "originalTitle"),
-            externalTitle,
-            fallback,
+            ReadTitle(metadata, "displayName", placeholderTitles),
+            ReadTitle(metadata, "sourceName", placeholderTitles),
+            ReadTitle(metadata, "title", placeholderTitles),
+            ReadTitle(metadata, "originalTitle", placeholderTitles),
+            placeholderTitles.Contains(fileTitle) ? "" : fileTitle,
+            TitleFromFolderName(SourceFolderName(sourceProjectDir)),
             "本地导入剧集");
     }
 

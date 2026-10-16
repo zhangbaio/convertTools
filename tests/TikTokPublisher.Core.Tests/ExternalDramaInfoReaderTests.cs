@@ -115,6 +115,81 @@ public sealed class ExternalDramaInfoReaderTests
         }
     }
 
+    [Fact]
+    public void Read_parses_hongguo_bracket_intro_and_stops_intro_at_separator()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, "简介.txt"),
+                string.Join('\n',
+                    "══════════════════════════════════",
+                    "          短 剧 简 介",
+                    "══════════════════════════════════",
+                    "【剧\u3000\u3000名】珩珩漫漫寻恩路",
+                    "【评\u3000\u3000分】9.8 分",
+                    "【总 集 数】共 56 集",
+                    "【分\u3000\u3000类】都市日常",
+                    "【短 剧 ID】7693110299905231896",
+                    "──────────────────────────────────",
+                    "【剧情简介】",
+                    "她循着旧约回到故乡。",
+                    "终于找到当年的少年。",
+                    "──────────────────────────────────",
+                    "【封面链接】http://p6-novelfm-sign.byteimg.com/cover.heic?x-expires=1",
+                    "【版权信息】",
+                    "版权信息：本书的数字版权由测试公司提供。"),
+                new UTF8Encoding(false));
+
+            var result = ExternalDramaInfoReader.Read(root);
+
+            result.Title.Should().Be("珩珩漫漫寻恩路");
+            result.Category.Should().Be("都市日常");
+            result.DeclaredEpisodeCount.Should().Be(56);
+            result.BookId.Should().Be("7693110299905231896");
+            result.PosterUrl.Should().StartWith("http://p6-novelfm-sign.byteimg.com/cover.heic");
+            result.Intro.Should().Be("她循着旧约回到故乡。\n终于找到当年的少年。");
+            Path.GetFileName(result.IntroPath).Should().Be("简介.txt");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Read_uses_downloader_metadata_json_and_prefers_non_heic_cover()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(root, "metadata.json"),
+                """
+                {"categories": ["都市", "日常"], "cover_url": "https://p3-novel.byteimg.com/cover.jpeg",
+                 "drama_id": "7693110299905231896", "episode_count": 56,
+                 "intro": "她循着旧约回到故乡。", "title": "珩珩漫漫寻恩路"}
+                """,
+                new UTF8Encoding(false));
+
+            var result = ExternalDramaInfoReader.Read(root);
+
+            result.Title.Should().Be("珩珩漫漫寻恩路");
+            result.Intro.Should().Be("她循着旧约回到故乡。");
+            result.IntroSource.Should().Be("metadata.json");
+            result.IntroPath.Should().BeNull();
+            result.Category.Should().Be("都市·日常");
+            result.DeclaredEpisodeCount.Should().Be(56);
+            result.BookId.Should().Be("7693110299905231896");
+            result.PosterUrl.Should().Be("https://p3-novel.byteimg.com/cover.jpeg");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), $"external-drama-info-{Guid.NewGuid():N}");

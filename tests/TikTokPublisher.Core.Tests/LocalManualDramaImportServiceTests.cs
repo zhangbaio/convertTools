@@ -219,6 +219,198 @@ public sealed class LocalManualDramaImportServiceTests
         }
     }
 
+    private const string HongguoTitle = "珩珩漫漫寻恩路";
+    private const string HongguoBookId = "7693110299905231896";
+    private const string HongguoJpegUrl = "https://p3-novel.byteimg.com/novel-pic/cover.jpeg";
+    private const string HongguoIntro =
+        "十二岁那年，许清禾在陌生乡村遇见少年陈舟。两人相依走过风雨，多年后她带着恩情回到故乡，终于找到当年那盏为她亮着的灯。";
+
+    [Fact]
+    public void Import_Hongguo_Download_Folder_Uses_Real_Title_Intro_And_Book_Id()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-hongguo-{Guid.NewGuid():N}");
+        try
+        {
+            var source = WriteHongguoDownloadFolder(workspace);
+
+            var candidate = LocalManualDramaImportService.ListCandidates(workspace).Should().ContainSingle().Subject;
+            candidate.DisplayName.Should().Be(HongguoTitle);
+
+            var result = LocalManualDramaImportService.Import(workspace, source);
+
+            result.DisplayName.Should().Be(HongguoTitle);
+            Path.GetFileName(result.WorkflowProjectDir).Should().Be("_" + HongguoTitle);
+            using (var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(source, "shortdrama-project.json"))))
+            {
+                var root = metadata.RootElement;
+                foreach (var key in new[] { "displayName", "sourceName", "title", "originalTitle" })
+                    root.GetProperty(key).GetString().Should().Be(HongguoTitle, key);
+                root.GetProperty("bookId").GetString().Should().Be(HongguoBookId);
+                root.GetProperty("posterUrl").GetString().Should().Be(HongguoJpegUrl);
+                root.GetProperty("intro").GetString().Should().Be(HongguoIntro);
+                root.GetProperty("category").GetString().Should().Be("都市日常");
+                root.GetProperty("declaredEpisodeCount").GetInt32().Should().Be(56);
+            }
+
+            var info = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(result.WorkflowProjectDir, "短剧信息.txt"));
+            info["原剧名"].Should().Be(HongguoTitle);
+            info["新剧名"].Should().Be(HongguoTitle);
+            info["简介"].Should().Be(HongguoIntro);
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
+    [Fact]
+    public void Reimport_Hongguo_Download_Folder_Keeps_Rewritten_New_Title()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-hongguo-rewrite-{Guid.NewGuid():N}");
+        try
+        {
+            var source = WriteHongguoDownloadFolder(workspace);
+            LocalManualDramaImportService.Import(workspace, source);
+            var renamedWorkflowDir = ProjectWorkspaceService.SyncWorkflowProjectDirName(source, "寻恩之路");
+            var infoPath = Path.Combine(renamedWorkflowDir, "短剧信息.txt");
+            ProjectInfoTextHelper.UpdateFields(infoPath, new Dictionary<string, string> { ["新剧名"] = "寻恩之路" });
+
+            var result = LocalManualDramaImportService.Import(workspace, source);
+
+            result.WorkflowProjectDir.Should().Be(renamedWorkflowDir);
+            var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+            info["原剧名"].Should().Be(HongguoTitle);
+            info["新剧名"].Should().Be("寻恩之路");
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
+    [Fact]
+    public void Reimport_Hongguo_Download_Folder_Repairs_Folder_Name_Placeholders_And_Local_Book_Id()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-hongguo-legacy-{Guid.NewGuid():N}");
+        try
+        {
+            var source = WriteHongguoDownloadFolder(workspace);
+            var folderName = Path.GetFileName(source);
+            var legacyWorkflowDir = Path.Combine(workspace, "workflow", "_" + folderName);
+            Directory.CreateDirectory(legacyWorkflowDir);
+            File.WriteAllText(
+                Path.Combine(source, "shortdrama-project.json"),
+                JsonSerializer.Serialize(new Dictionary<string, object>
+                {
+                    ["displayName"] = folderName,
+                    ["sourceName"] = folderName,
+                    ["title"] = folderName,
+                    ["originalTitle"] = folderName,
+                    ["bookId"] = "local:0123456789abcdef",
+                    ["workflowDirName"] = "_" + folderName,
+                    ["workflowProjectDir"] = legacyWorkflowDir,
+                    ["sourceProjectDir"] = source,
+                    ["localManualImport"] = true,
+                }));
+            var legacyInfoPath = Path.Combine(legacyWorkflowDir, "短剧信息.txt");
+            File.WriteAllText(legacyInfoPath, $"新剧名: {folderName}\n原剧名: {folderName}\n集数: 3\n");
+
+            var result = LocalManualDramaImportService.Import(workspace, source);
+
+            result.DisplayName.Should().Be(HongguoTitle);
+            result.WorkflowProjectDir.Should().Be(legacyWorkflowDir);
+            using (var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(source, "shortdrama-project.json"))))
+            {
+                var root = metadata.RootElement;
+                foreach (var key in new[] { "displayName", "sourceName", "title", "originalTitle" })
+                    root.GetProperty(key).GetString().Should().Be(HongguoTitle, key);
+                root.GetProperty("bookId").GetString().Should().Be(HongguoBookId);
+            }
+
+            var info = ProjectInfoTextHelper.ParseInfoFile(legacyInfoPath);
+            info["原剧名"].Should().Be(HongguoTitle);
+            info["新剧名"].Should().Be(HongguoTitle);
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
+    [Fact]
+    public void Import_Hongguo_Folder_Without_Info_Files_Strips_Prefix()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-hongguo-bare-{Guid.NewGuid():N}");
+        try
+        {
+            var source = WriteHongguoDownloadFolder(workspace, introText: false, downloaderMetadata: false);
+
+            var result = LocalManualDramaImportService.Import(workspace, source);
+
+            result.DisplayName.Should().Be(HongguoTitle);
+            Path.GetFileName(result.WorkflowProjectDir).Should().Be("_" + HongguoTitle);
+            using var metadata = JsonDocument.Parse(File.ReadAllText(Path.Combine(source, "shortdrama-project.json")));
+            metadata.RootElement.GetProperty("bookId").GetString().Should().StartWith("local:");
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
+    private static string WriteHongguoDownloadFolder(
+        string workspace,
+        bool introText = true,
+        bool downloaderMetadata = true)
+    {
+        var source = Path.Combine(workspace, "红果_" + HongguoTitle);
+        Directory.CreateDirectory(source);
+        foreach (var index in new[] { 1, 2, 3 })
+            File.WriteAllBytes(Path.Combine(source, $"{index}.mp4"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(source, "封面.jpg"), [7, 8, 9]);
+        if (introText)
+        {
+            File.WriteAllText(
+                Path.Combine(source, "简介.txt"),
+                string.Join('\n',
+                    "══════════════════════════════════",
+                    "          短 剧 简 介",
+                    "══════════════════════════════════",
+                    "",
+                    $"【剧\u3000\u3000名】{HongguoTitle}",
+                    "【评\u3000\u3000分】9.8 分",
+                    "【总 集 数】共 56 集",
+                    "【分\u3000\u3000类】都市日常",
+                    $"【短 剧 ID】{HongguoBookId}",
+                    "──────────────────────────────────",
+                    "【剧情简介】",
+                    HongguoIntro,
+                    "──────────────────────────────────",
+                    "",
+                    "【封面链接】http://p6-novelfm-sign.byteimg.com/cover.heic?x-expires=1",
+                    "【版权信息】",
+                    "版权信息：本书的数字版权由测试公司提供并授权发行。"));
+        }
+
+        if (downloaderMetadata)
+        {
+            File.WriteAllText(
+                Path.Combine(source, "metadata.json"),
+                JsonSerializer.Serialize(new Dictionary<string, object>
+                {
+                    ["categories"] = Array.Empty<string>(),
+                    ["cover_url"] = HongguoJpegUrl,
+                    ["description"] = HongguoIntro,
+                    ["drama_id"] = HongguoBookId,
+                    ["episode_count"] = 56,
+                    ["intro"] = HongguoIntro,
+                    ["title"] = HongguoTitle,
+                }));
+        }
+
+        return source;
+    }
+
     private static void DeleteBestEffort(string path)
     {
         try
