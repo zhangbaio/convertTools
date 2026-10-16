@@ -5,7 +5,6 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
-using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 
@@ -89,10 +88,9 @@ public static class LocalManualDramaImportService
             var metadataPath = Path.Combine(child, MetadataFile);
             var metadata = ReadMetadata(metadataPath);
             var externalInfo = ExternalDramaInfoReader.Read(child, metadata);
-            var sourceInfo = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(child, "短剧信息.txt"));
             results.Add(new LocalManualDramaImportPreview(
                 ProjectDir: Path.GetFullPath(child),
-                DisplayName: ResolveDisplayName(child, metadata, externalInfo.Title, sourceInfo),
+                DisplayName: ResolveDisplayName(child, metadata, externalInfo.Title),
                 EpisodeCount: videos.Count,
                 PosterPath: FindLocalPoster(child),
                 IntroPath: externalInfo.IntroPath,
@@ -159,27 +157,11 @@ public static class LocalManualDramaImportService
         return true;
     }
 
-    public static IReadOnlyList<string> ListProjectsMissingPoster(IEnumerable<string> projectDirs)
-    {
-        var missing = new List<string>();
-        foreach (var raw in projectDirs)
-        {
-            var projectDir = NormalizeFullPath(raw);
-            if (string.IsNullOrWhiteSpace(projectDir) || !Directory.Exists(projectDir))
-                continue;
-            if (FindLocalPoster(projectDir) is null)
-                missing.Add(projectDir);
-        }
-
-        return missing;
-    }
-
     public static LocalManualDramaImportResult Import(
         string workspaceRoot,
         string sourceProjectDir,
         Action<string>? log = null,
-        ClientSettings? settings = null,
-        bool downloadMissingPoster = false)
+        ClientSettings? settings = null)
     {
         var workspace = NormalizeFullPath(workspaceRoot);
         if (string.IsNullOrWhiteSpace(workspace))
@@ -198,10 +180,7 @@ public static class LocalManualDramaImportService
         var metadataPath = Path.Combine(source, MetadataFile);
         var metadata = ReadMetadata(metadataPath);
         var externalInfo = ExternalDramaInfoReader.Read(source, metadata);
-        var folderName = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var sourceInfoPath = Path.Combine(source, "短剧信息.txt");
-        var existingSourceInfo = ProjectInfoTextHelper.ParseInfoFile(sourceInfoPath);
-        var displayName = ResolveDisplayName(source, metadata, externalInfo.Title, existingSourceInfo);
+        var displayName = ResolveDisplayName(source, metadata, externalInfo.Title);
         var workflowDir = ResolveWorkflowProjectDir(workspace, source, displayName, metadata);
         Directory.CreateDirectory(workflowDir);
 
@@ -214,39 +193,16 @@ public static class LocalManualDramaImportService
             ? sourceEpisodeCount
             : Math.Max(sourceEpisodeCount, externalInfo.DeclaredEpisodeCount);
 
-        var existingIntro = existingSourceInfo.GetValueOrDefault("简介") ?? "";
-        var intro = existingIntro;
-        if (ExternalDramaInfoReader.ShouldReplaceExternalIntro(existingIntro))
-            intro = FirstNonEmpty(externalInfo.Intro, existingIntro);
-
         var now = DateTimeOffset.Now.ToString("o");
         var projectKey = FirstNonEmpty(ReadString(metadata, "projectKey"), SanitizeFileName(displayName));
         metadata["projectKey"] = projectKey;
-        metadata["sourceName"] = FirstNonEmpty(
-            ExternalDramaInfoReader.AuthoritativeProjectTitle(
-                ReadString(metadata, "sourceName"), folderName, displayName),
-            folderName,
-            displayName);
-        // 种子剧名（文件夹名 / 红果_前缀）必须覆盖成简介解析出的真实剧名。
-        metadata["displayName"] = displayName;
+        metadata["sourceName"] = FirstNonEmpty(ReadString(metadata, "sourceName"), displayName);
+        metadata["displayName"] = FirstNonEmpty(ReadString(metadata, "displayName"), displayName);
         metadata["bookId"] = FirstNonEmpty(ReadString(metadata, "bookId"), BuildLocalBookId(source));
-        metadata["title"] = displayName;
-        metadata["originalTitle"] = FirstNonEmpty(
-            ExternalDramaInfoReader.AuthoritativeProjectTitle(
-                ReadString(metadata, "originalTitle"), folderName, displayName),
-            displayName);
-        metadata["intro"] = intro;
+        metadata["title"] = FirstNonEmpty(ReadString(metadata, "title"), displayName);
+        metadata["originalTitle"] = FirstNonEmpty(ReadString(metadata, "originalTitle"), displayName);
+        metadata["intro"] = externalInfo.Intro;
         metadata["category"] = FirstNonEmpty(ReadString(metadata, "category"), externalInfo.Category, "本地导入");
-        if (!string.IsNullOrWhiteSpace(externalInfo.PosterUrl) &&
-            string.IsNullOrWhiteSpace(ReadString(metadata, "posterUrl")))
-        {
-            var normalizedPoster = HongguoLocalMediaUrl.Normalize(
-                externalInfo.PosterUrl,
-                settings?.HongguoLocalBaseUrl);
-            metadata["posterUrl"] = string.IsNullOrWhiteSpace(normalizedPoster)
-                ? externalInfo.PosterUrl
-                : normalizedPoster;
-        }
         metadata["episodeCount"] = truncate ? effectiveEpisodeCount : declaredEpisodeCount;
         metadata["episode_count"] = truncate ? effectiveEpisodeCount : declaredEpisodeCount;
         metadata["declaredEpisodeCount"] = declaredEpisodeCount;
@@ -282,102 +238,14 @@ public static class LocalManualDramaImportService
         if (string.IsNullOrWhiteSpace(ReadString(metadata, "createdAt")))
             metadata["createdAt"] = now;
 
-        if (downloadMissingPoster && FindLocalPoster(source) is null)
-        {
-            try
-            {
-                var (posterUrl, _) = LocalImportPosterService.ResolvePosterUrlAsync(
-                        source,
-                        displayName,
-                        metadata,
-                        settings,
-                        log)
-                    .GetAwaiter()
-                    .GetResult();
-                if (!string.IsNullOrWhiteSpace(posterUrl))
-                {
-                    metadata["posterUrl"] = posterUrl;
-                    var posterError = LocalImportPosterService.EnsurePosterAsync(
-                            source,
-                            displayName,
-                            posterUrl,
-                            log)
-                        .GetAwaiter()
-                        .GetResult();
-                    if (!string.IsNullOrWhiteSpace(posterError))
-                        log?.Invoke($"⚠️ {displayName}：{posterError}");
-                }
-                else
-                {
-                    log?.Invoke($"⚠️ {displayName}：缺少海报，简介无封面链接且下载链路也未匹配到海报");
-                }
-            }
-            catch (Exception ex)
-            {
-                log?.Invoke($"⚠️ {displayName}：补下载海报失败：{ex.Message}");
-            }
-        }
-
         WriteMetadata(metadataPath, metadata);
         EnsureStandardPosterAlias(source);
+        var sourceInfoPath = Path.Combine(source, "短剧信息.txt");
         if (truncate && File.Exists(sourceInfoPath))
             ProjectWorkspaceService.UpdateProjectInfoField(sourceInfoPath, "集数", effectiveEpisodeCount.ToString());
         ProjectWorkspaceService.EnsureWorkflowInfo(source, effectiveEpisodeCount, log);
-        SyncLocalImportProjectInfo(
-            sourceInfoPath,
-            title: displayName,
-            episodeCount: effectiveEpisodeCount,
-            intro: intro,
-            sourceDirName: folderName);
-        SyncLocalImportProjectInfo(
-            Path.Combine(workflowDir, "短剧信息.txt"),
-            title: displayName,
-            episodeCount: effectiveEpisodeCount,
-            intro: intro,
-            sourceDirName: folderName);
 
         return new LocalManualDramaImportResult(source, workflowDir, displayName, effectiveEpisodeCount);
-    }
-
-    private static void SyncLocalImportProjectInfo(
-        string infoPath,
-        string title,
-        int episodeCount,
-        string intro,
-        string sourceDirName)
-    {
-        var projectDirName = Path.GetFileName(Path.GetDirectoryName(infoPath) ?? "") ?? "";
-        var existing = ProjectInfoTextHelper.ParseInfoFile(infoPath);
-        var updates = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (ExternalDramaInfoReader.ShouldReplaceSeedTitle(
-                existing.GetValueOrDefault("原剧名"),
-                projectDirName,
-                sourceDirName,
-                title))
-        {
-            updates["原剧名"] = title;
-        }
-
-        if (ExternalDramaInfoReader.ShouldReplaceSeedTitle(
-                existing.GetValueOrDefault("新剧名"),
-                projectDirName,
-                sourceDirName,
-                title))
-        {
-            updates["新剧名"] = title;
-        }
-
-        if (string.IsNullOrWhiteSpace(existing.GetValueOrDefault("集数")))
-            updates["集数"] = Math.Max(0, episodeCount).ToString();
-
-        if (!string.IsNullOrWhiteSpace(intro) &&
-            ExternalDramaInfoReader.ShouldReplaceExternalIntro(existing.GetValueOrDefault("简介")))
-        {
-            updates["简介"] = intro;
-        }
-
-        if (updates.Count > 0)
-            ProjectInfoTextHelper.UpdateFields(infoPath, updates);
     }
 
     private static IReadOnlyList<string> ResolveLocalVideos(string sourceProjectDir)
@@ -567,29 +435,16 @@ public static class LocalManualDramaImportService
     private static string ResolveDisplayName(
         string sourceProjectDir,
         JsonObject metadata,
-        string? externalTitle = null,
-        IReadOnlyDictionary<string, string>? existingSourceInfo = null)
+        string? externalTitle = null)
     {
-        var folderName = Path.GetFileName(
-            sourceProjectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var preferredExternal = (externalTitle ?? "").Trim();
-        var metadataTitle = ExternalDramaInfoReader.AuthoritativeProjectTitle(
-            FirstNonEmpty(
-                ReadString(metadata, "displayName"),
-                ReadString(metadata, "title"),
-                ReadString(metadata, "originalTitle")),
-            folderName,
-            preferredExternal);
-        var infoTitle = ExternalDramaInfoReader.AuthoritativeProjectTitle(
-            existingSourceInfo?.GetValueOrDefault("原剧名"),
-            folderName,
-            preferredExternal);
+        var fallback = Path.GetFileName(sourceProjectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         return FirstNonEmpty(
-            metadataTitle,
-            infoTitle,
-            preferredExternal,
-            ExternalDramaInfoReader.TitleFromFolderName(folderName),
-            folderName,
+            ReadString(metadata, "displayName"),
+            ReadString(metadata, "sourceName"),
+            ReadString(metadata, "title"),
+            ReadString(metadata, "originalTitle"),
+            externalTitle,
+            fallback,
             "本地导入剧集");
     }
 

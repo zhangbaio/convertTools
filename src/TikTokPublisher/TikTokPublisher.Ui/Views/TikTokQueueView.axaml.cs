@@ -1907,26 +1907,10 @@ public partial class TikTokQueueView : UserControl
             }
         }
 
-        var downloadMissingPoster = false;
-        var missingPosterDirs = LocalManualDramaImportService.ListProjectsMissingPoster(importDirs);
-        if (missingPosterDirs.Count > 0)
-        {
-            var previewNames = string.Join("、", missingPosterDirs.Take(6).Select(Path.GetFileName));
-            if (missingPosterDirs.Count > 6)
-                previewNames += $" 等 {missingPosterDirs.Count} 部";
-            downloadMissingPoster = await ConfirmAsync(
-                owner,
-                "缺少海报",
-                $"选中的剧集中有 {missingPosterDirs.Count} 部缺少海报：{previewNames}\n\n" +
-                "选“继续”会尝试从简介封面链接或平台搜索结果下载；选“取消”仍继续导入，只是先不下载海报。");
-            if (downloadMissingPoster)
-                vm.AppendLog($"将尝试为 {missingPosterDirs.Count} 部缺海报剧集补下载封面。");
-        }
-
         LocalManualDramaBatchImportResult result;
         try
         {
-            result = await vm.ImportLocalManualDramasAsync(importDirs, downloadMissingPoster);
+            result = await vm.ImportLocalManualDramasAsync(importDirs);
         }
         catch (Exception ex)
         {
