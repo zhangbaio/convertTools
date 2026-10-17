@@ -21,10 +21,10 @@ public sealed class KuaishouPersonalConfig
     public string AppId { get; set; } = string.Empty;
     [JsonIgnore] public string AppSecret { get; set; } = string.Empty;
     public string AuthorizeBaseUrl { get; set; } = "https://developers.e.kuaishou.com/tools/authorize";
-    public string AuthorizeRedirectUri { get; set; } = string.Empty;
-    public string AuthorizeScope { get; set; } = string.Empty;
-    public string AuthorizeState { get; set; } = string.Empty;
-    public string AuthorizeOauthType { get; set; } = string.Empty;
+    public string AuthorizeRedirectUri { get; set; } = "https://e.kuaishou.com";
+    public string AuthorizeScope { get; set; } = "[\"ad_series\"]";
+    public string AuthorizeState { get; set; } = "abc";
+    public string AuthorizeOauthType { get; set; } = "series";
     [JsonIgnore] public string AuthCode { get; set; } = string.Empty;
     [JsonIgnore] public string AccessToken { get; set; } = string.Empty;
     public string AccessTokenExpiresAt { get; set; } = string.Empty;
@@ -36,11 +36,11 @@ public sealed class KuaishouPersonalConfig
     public string AuthStatePath { get; set; } = string.Empty;
     public string BrowserProfileDirectory { get; set; } = string.Empty;
     public bool Headless { get; set; }
-    public bool KeepBrowserOpenOnFailure { get; set; } = true;
+    public bool KeepBrowserOpenOnFailure { get; set; }
     public string CommitmentPdfPath { get; set; } = string.Empty;
     public string CommitmentTemplateDocxPath { get; set; } = string.Empty;
     public string CommitmentSealPath { get; set; } = string.Empty;
-    public string CommitmentRecipientCompanyName { get; set; } = string.Empty;
+    public string CommitmentRecipientCompanyName { get; set; } = "北京晨创科技有限公司";
     public string RealName { get; set; } = string.Empty;
     public string Gender { get; set; } = "男";
     public string KuaishouNickname { get; set; } = string.Empty;
@@ -49,143 +49,144 @@ public sealed class KuaishouPersonalConfig
     public string LastWorkspace { get; set; } = string.Empty;
     public string ArchiveRootDirectory { get; set; } = string.Empty;
     public string Category { get; set; } = string.Empty;
-    public string CategoryLevel1 { get; set; } = string.Empty;
+    public string CategoryLevel1 { get; set; } = "不限制";
     public string CategoryLevel2 { get; set; } = string.Empty;
     public string CategoryLevel3 { get; set; } = string.Empty;
     public string ContentType { get; set; } = "漫剧";
     public string ProductionMethod { get; set; } = "AIGC剧";
-    public string ProductMethod { get; set; } = string.Empty;
-    public string SeriesContentType { get; set; } = string.Empty;
-    public string ProductionForm { get; set; } = "竖屏";
+    public string ProductMethod { get; set; } = "1";
+    public string SeriesContentType { get; set; } = "1";
+    public string ProductionForm { get; set; } = "auto";
     public string ProductionYear { get; set; } = DateTime.Now.Year.ToString();
-    public string ProductionCost { get; set; } = "10";
-    public string AverageEpisodeMinutes { get; set; } = "2";
+    public string ProductionCost { get; set; } = "1";
+    public string AverageEpisodeMinutes { get; set; } = "1";
     public bool Finished { get; set; } = true;
     public bool HasRecordNumber { get; set; }
     public string BroadcastPlatform { get; set; } = "快手";
-    public string BroadcastChannel { get; set; } = "小屏小程序";
+    public string BroadcastChannel { get; set; } = "小屏APP";
     public string BroadcastDate { get; set; } = DateTime.Today.ToString("yyyy-MM-dd");
     public string SaleType { get; set; } = "观看广告解锁";
-    public int FreeEpisodeCount { get; set; } = 3;
+    public int FreeEpisodeCount { get; set; } = 2;
     public int UnlockEpisodeCount { get; set; } = 1;
-    public string EpisodePrice { get; set; } = "1";
-    public string SeriesPrice { get; set; } = string.Empty;
+    public string EpisodePrice { get; set; } = "0.11";
+    public string SeriesPrice { get; set; } = "1";
     public string Actors { get; set; } = "演员A:男:男主;演员B:女:女主";
-    public string ActorInfoJson { get; set; } = string.Empty;
-    public string ActorLibraryText { get; set; } = string.Empty;
+    public string ActorInfoJson { get; set; } = "[{\"name\":\"\",\"gender\":\"男\",\"role\":\"\"},{\"name\":\"\",\"gender\":\"女\",\"role\":\"\"}]";
+    public string ActorLibraryText { get; set; } =
+        "顾承宇|男|陆沉,顾言,沈砚\n陆景深|男|周临川,霍景川,程砚\n沈墨川|男|林修远,裴知珩,韩屿\n周叙白|男|陆执,顾廷川,谢临舟\n林砚舟|男|傅景川,商砚,纪承安\n苏晚晴|女|苏念,温晚,顾安宁\n沈清禾|女|许初夏,林清禾,宋雨桐\n温知意|女|江念初,沈知微,陆星晚\n宋雨桐|女|苏清妍,顾星辞,许念安\n江念初|女|林晚乔,温予柔,沈听雪";
     public string Directors { get; set; } = string.Empty;
-    public string DirectorInfoJson { get; set; } = string.Empty;
+    public string DirectorInfoJson { get; set; } = "[{\"name\":\"\",\"gender\":\"男\"}]";
     public string Screenwriters { get; set; } = string.Empty;
-    public string ScreenwriterInfoJson { get; set; } = string.Empty;
+    public string ScreenwriterInfoJson { get; set; } = "[{\"name\":\"\",\"gender\":\"男\"}]";
     public string ProductionOrganization { get; set; } = string.Empty;
     public string AudienceGender { get; set; } = "男频";
     public string PlotLabels { get; set; } = string.Empty;
     public string TagLabels { get; set; } = string.Empty;
-    public string AuthorDeclaration { get; set; } = string.Empty;
+    public string AuthorDeclaration { get; set; } = "1";
     public string MaterialTitleTemplate { get; set; } = "{新剧名}{排名}-{素材ID}";
     public string MaterialType { get; set; } = "高光";
     public string MaterialAuthorDeclaration { get; set; } = "含AI生成内容";
     public string MaterialCoverMode { get; set; } = "adx";
     public string MaterialCoverPath { get; set; } = string.Empty;
-    public bool HasCopyrightProof { get; set; }
-    public string CopyrightProofType { get; set; } = string.Empty;
+    public bool HasCopyrightProof { get; set; } = true;
+    public string CopyrightProofType { get; set; } = "自有版权";
     public string CopyrightValidStartTime { get; set; } = string.Empty;
     public string CopyrightValidEndTime { get; set; } = string.Empty;
-    public bool HasSubAuthorizationRight { get; set; }
+    public bool HasSubAuthorizationRight { get; set; } = true;
     public bool FullSceneDisplay { get; set; }
-    public bool RevenueShareFullSceneDisplay { get; set; }
+    public bool RevenueShareFullSceneDisplay { get; set; } = true;
     public bool RevenueShareHeadless { get; set; }
-    public string BroadcastTimeMode { get; set; } = string.Empty;
+    public string BroadcastTimeMode { get; set; } = "today";
     public string SpecialTheme { get; set; } = string.Empty;
     public bool SmallAmountUnlock { get; set; }
     public bool NewTitleAliasEnabled { get; set; }
-    public string NewTitleAliasPosition { get; set; } = string.Empty;
+    public string NewTitleAliasPosition { get; set; } = "suffix";
     public string NewTitleAliasValue { get; set; } = string.Empty;
-    public int AuthorBackfillConcurrent { get; set; } = 1;
+    public int AuthorBackfillConcurrent { get; set; } = 8;
     public string FormOptionsJson { get; set; } = string.Empty;
     public string DefaultFieldsJson { get; set; } = string.Empty;
     public bool AuditRecordIncludeDate { get; set; }
-    public bool AuditRecordOnlyReviewing { get; set; }
-    public bool AuditRecordHeadless { get; set; }
+    public bool AuditRecordOnlyReviewing { get; set; } = true;
+    public bool AuditRecordHeadless { get; set; } = true;
     public int AuditRecordPages { get; set; } = 1;
     public string SettlementFullInfoSystemPrompt { get; set; } = string.Empty;
     public string SettlementFullInfoBatchPrompt { get; set; } = string.Empty;
     public string SettlementFullInfoRetryPrompt { get; set; } = string.Empty;
-    public string FirstPageAction { get; set; } = "draft";
-    public string FinalAction { get; set; } = "keep";
+    public string FirstPageAction { get; set; } = "next";
+    public string FinalAction { get; set; } = "submit_review";
     public int UploadTimeoutMinutes { get; set; } = 60;
     public bool ForceRerun { get; set; }
     public string RunMode { get; set; } = "auto";
-    public int LoginTimeoutSeconds { get; set; } = 180;
-    public int QueueMaxParallelProjects { get; set; } = 1;
-    public int SubmitPreCheckWaitSeconds { get; set; } = 3;
-    public int SubmitReadyCheckIntervalSeconds { get; set; } = 5;
-    public int SubmitReadyCheckMax { get; set; } = 60;
-    public int SubmitRetryIntervalSeconds { get; set; } = 5;
+    public int LoginTimeoutSeconds { get; set; } = 300;
+    public int QueueMaxParallelProjects { get; set; } = 4;
+    public int SubmitPreCheckWaitSeconds { get; set; }
+    public int SubmitReadyCheckIntervalSeconds { get; set; } = 30;
+    public int SubmitReadyCheckMax { get; set; } = 3;
+    public int SubmitRetryIntervalSeconds { get; set; } = 30;
     public int SubmitRetryMax { get; set; } = 3;
-    public string VideoStorageProvider { get; set; } = "browser";
-    public int PublicStorageUploadConcurrency { get; set; } = 3;
-    public int PublicStorageUploadRetryCount { get; set; } = 3;
+    public string VideoStorageProvider { get; set; } = "aliyun_oss";
+    public int PublicStorageUploadConcurrency { get; set; } = 2;
+    public int PublicStorageUploadRetryCount { get; set; } = 5;
     public string ProjectImageTemplateRoot { get; set; } = string.Empty;
-    public string ProjectImageTemplateId { get; set; } = string.Empty;
+    public string ProjectImageTemplateId { get; set; } = "image-template-project-image-3";
     public bool PrepareDownload { get; set; }
-    public bool PrepareRewriteInfo { get; set; } = true;
+    public bool PrepareRewriteInfo { get; set; }
     public bool PrepareGeneratePoster { get; set; } = true;
     public bool PrepareGenerateGuaranteeLetter { get; set; } = true;
     public bool PrepareGenerateProjectImages { get; set; } = true;
     public bool PrepareAutoFillInfo { get; set; } = true;
     public bool PrepareForceRerunCompletedSteps { get; set; }
-    public string SeriesCreatePath { get; set; } = string.Empty;
-    public string SeriesBaseInfoPath { get; set; } = string.Empty;
-    public string EpisodeUploadPath { get; set; } = string.Empty;
-    public string EpisodeCoverUpdatePath { get; set; } = string.Empty;
-    public string SeriesSubmitPath { get; set; } = string.Empty;
-    public string MaterialUploadPath { get; set; } = string.Empty;
-    public string EpisodeFileFieldName { get; set; } = string.Empty;
+    public string SeriesCreatePath { get; set; } = "/rest/openapi/gw/dsp/series/material/createBaseInfo";
+    public string SeriesBaseInfoPath { get; set; } = "/rest/openapi/gw/dsp/series/material/seriesBaseInfo";
+    public string EpisodeUploadPath { get; set; } = "/rest/openapi/gw/dsp/series/material/uploadEpisodeVideoByUrl";
+    public string EpisodeCoverUpdatePath { get; set; } = "/rest/openapi/gw/dsp/series/material/updateBaseInfo";
+    public string SeriesSubmitPath { get; set; } = "/rest/openapi/gw/dsp/series/material/submit";
+    public string MaterialUploadPath { get; set; } = "/rest/openapi/gw/dsp/series/material/uploadImg";
+    public string EpisodeFileFieldName { get; set; } = "file";
     public bool StepCreateSeries { get; set; } = true;
-    public bool StepUploadImages { get; set; } = true;
+    public bool StepUploadImages { get; set; }
     public bool StepUploadVideos { get; set; } = true;
-    public bool StepUploadVideosOss { get; set; }
-    public bool StepSubmitSeries { get; set; } = true;
+    public bool StepUploadVideosOss { get; set; } = true;
+    public bool StepSubmitSeries { get; set; }
     public bool StepOnlineSeries { get; set; }
     public bool StepDistributionSeries { get; set; }
     public bool StepDeleteOssVideos { get; set; }
     public bool DistributionEnabled { get; set; }
     public string DistributionApiPath { get; set; } = "/rest/openapi/gw/dsp/series/distribution/supplier/create/config";
-    public string DistributionMode { get; set; } = "api";
-    public int DistributionDefaultRatePercent { get; set; }
+    public string DistributionMode { get; set; } = "browser";
+    public int DistributionDefaultRatePercent { get; set; } = 92;
     public string DistributionDistributorAccountsJson { get; set; } = string.Empty;
-    public bool DistributionSubmitEnabled { get; set; }
-    public bool DistributionAllowJuxing { get; set; }
+    public bool DistributionSubmitEnabled { get; set; } = true;
+    public bool DistributionAllowJuxing { get; set; } = true;
     public bool DistributionAllowOnlineTime { get; set; }
     public bool DistributionHeadlessEnabled { get; set; }
-    public int DistributionLoginTimeoutSeconds { get; set; } = 180;
-    public bool DistributionManualInterventionEnabled { get; set; } = true;
-    public bool DistributionLoginNotifyEnabled { get; set; }
+    public int DistributionLoginTimeoutSeconds { get; set; } = 300;
+    public bool DistributionManualInterventionEnabled { get; set; }
+    public bool DistributionLoginNotifyEnabled { get; set; } = true;
     public bool DistributionFeishuNotifyEnabled { get; set; }
-    public bool AutoOnlineEnabled { get; set; }
+    public bool AutoOnlineEnabled { get; set; } = true;
     public int AutoOnlineIntervalMinutes { get; set; } = 30;
-    public int AutoOnlineMaxItemsPerRound { get; set; } = 20;
-    public int AutoOnlineMaxWaitDays { get; set; } = 7;
-    public bool AutoOnlineOnlyWhenIdle { get; set; } = true;
-    public bool OnlineAutoDistributionEnabled { get; set; }
-    public bool OnlineCleanupEnabled { get; set; }
-    public int OnlineKeepOnlineDays { get; set; } = 30;
+    public int AutoOnlineMaxItemsPerRound { get; set; } = 30;
+    public int AutoOnlineMaxWaitDays { get; set; } = 14;
+    public bool AutoOnlineOnlyWhenIdle { get; set; }
+    public bool OnlineAutoDistributionEnabled { get; set; } = true;
+    public bool OnlineCleanupEnabled { get; set; } = true;
+    public int OnlineKeepOnlineDays { get; set; } = 7;
     public int OnlineKeepRejectedDays { get; set; } = 30;
-    public int OnlineKeepInvalidDays { get; set; } = 30;
-    public int OnlineKeepManualOnlineDays { get; set; } = 30;
-    public bool OnlineNotifyEnabled { get; set; }
-    public bool OnlineNotifyRejectedEnabled { get; set; }
+    public int OnlineKeepInvalidDays { get; set; } = 7;
+    public int OnlineKeepManualOnlineDays { get; set; } = 3;
+    public bool OnlineNotifyEnabled { get; set; } = true;
+    public bool OnlineNotifyRejectedEnabled { get; set; } = true;
     public bool OnlineNotifyRejectedOnce { get; set; } = true;
-    public bool OnlineShowResultDialog { get; set; } = true;
-    public string OnlineNoticeConditions { get; set; } = string.Empty;
-    public string OnlineOfflinePath { get; set; } = string.Empty;
-    public bool OssCleanupEnabled { get; set; }
-    public bool OssCleanupDeleteOnProjectDelete { get; set; }
-    public int OssCleanupIntervalMinutes { get; set; } = 30;
-    public int OssCleanupMaxAttempts { get; set; } = 3;
+    public bool OnlineShowResultDialog { get; set; }
+    public string OnlineNoticeConditions { get; set; } = "[\"online_success\",\"audit_rejected\"]";
+    public string OnlineOfflinePath { get; set; } = "/rest/openapi/gw/dsp/series/material/onlineOfflineManage";
+    public bool OssCleanupEnabled { get; set; } = true;
+    public bool OssCleanupDeleteOnProjectDelete { get; set; } = true;
+    public int OssCleanupIntervalMinutes { get; set; } = 60;
+    public int OssCleanupMaxAttempts { get; set; } = 5;
     public int OssCleanupRetentionHours { get; set; } = 24;
-    public bool AiComplianceReviewEnabled { get; set; }
+    public bool AiComplianceReviewEnabled { get; set; } = true;
     public bool SynopsisAiRewriteEnabled { get; set; }
     public string SynopsisPolicyJson { get; set; } = string.Empty;
     public bool LegacyImportCompleted { get; set; }
@@ -231,6 +232,7 @@ public sealed class KuaishouPersonalConfig
             }
         }
         else config = new KuaishouPersonalConfig();
+        ApplyLegacySettings(config, platform);
         config.StorageAccountId = job.AccountId;
         config.StoragePlatform = platform;
         if (CredentialStore is not null && !string.IsNullOrWhiteSpace(job.AccountId))
@@ -288,6 +290,20 @@ public sealed class KuaishouPersonalConfig
             DatabaseStore?.Save(accountId, databaseKey, this);
             CredentialStore?.Save(accountId, StoragePlatform,
                 new KuaishouCredentials(AppSecret, AuthCode, AccessToken, RefreshToken));
+        }
+    }
+
+    private static void ApplyLegacySettings(KuaishouPersonalConfig config, PublishPlatform platform)
+    {
+        if (config.LegacyImportCompleted) return;
+        var path = KuaishouLegacyConfigImporter.DefaultSettingsPath;
+        if (!File.Exists(path)) return;
+        try
+        {
+            KuaishouLegacyConfigImporter.Import(path, config, platform);
+        }
+        catch (Exception)
+        {
         }
     }
 

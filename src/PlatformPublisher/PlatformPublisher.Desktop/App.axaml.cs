@@ -47,8 +47,13 @@ public partial class App : Application
             KuaishouPersonalConfig.ConfigureDatabase(
                 _services.GetRequiredService<AccountJsonSettingStore>(),
                 _services.GetRequiredService<KuaishouCredentialStore>());
+            var importedLegacyAccounts = Task.Run(() =>
+                    _services.GetRequiredService<LegacyAccountSessionImportService>().ImportAllLegacyProfilesAsync())
+                .GetAwaiter().GetResult();
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
             viewModel.Initialization.GetAwaiter().GetResult();
+            if (importedLegacyAccounts > 0)
+                viewModel.StatusMessage = $"已迁移 {importedLegacyAccounts} 个短剧助手账号及其配置和登录状态。";
             var kuaishouOnlineWorker = _services.GetRequiredService<KuaishouOnlineQueueWorker>();
             kuaishouOnlineWorker.Start();
             var migratedDrafts=_services.GetRequiredService<LegacyPublishDraftMigrator>().MigrateAsync().GetAwaiter().GetResult();

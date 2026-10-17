@@ -156,11 +156,19 @@ public static class KuaishouLegacyConfigImporter
     {
         var fullPath = Path.GetFullPath(path);
         using var document = JsonDocument.Parse(File.ReadAllText(fullPath));
-        var root = document.RootElement;
-        if (root.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException("旧版 settings.json 根节点必须是对象。");
+        return ImportElement(document.RootElement, target, platform, fullPath);
+    }
 
-        var values = root.EnumerateObject().ToDictionary(item => item.Name, item => item.Value, StringComparer.OrdinalIgnoreCase);
+    public static KuaishouLegacyImportResult ImportElement(
+        JsonElement root,
+        KuaishouPersonalConfig target,
+        PublishPlatform platform,
+        string sourcePath = "")
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("旧版快手配置根节点必须是对象。");
+
+        var values = root.EnumerateObject().ToDictionary(item => item.Name, item => item.Value.Clone(), StringComparer.OrdinalIgnoreCase);
         var imported = 0;
         var sensitive = 0;
         foreach (var mapping in CommonFields)
@@ -177,7 +185,7 @@ public static class KuaishouLegacyConfigImporter
             : "kuaishou_personal_";
         imported += AssignEdition(values, target, prefix, platform);
         target.LegacyImportCompleted = true;
-        return new(imported, sensitive, fullPath);
+        return new(imported, sensitive, sourcePath);
     }
 
     private static int AssignEdition(
@@ -294,7 +302,9 @@ public static class KuaishouLegacyConfigImporter
     private static int ReadInt32(JsonElement value) => value.ValueKind switch
     {
         JsonValueKind.Number when value.TryGetInt32(out var number) => number,
+        JsonValueKind.Number when value.TryGetDouble(out var real) => (int)Math.Round(real),
         JsonValueKind.String when int.TryParse(value.GetString(), out var number) => number,
+        JsonValueKind.String when double.TryParse(value.GetString(), out var real) => (int)Math.Round(real),
         _ => 0,
     };
 }

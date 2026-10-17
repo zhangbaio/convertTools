@@ -9,6 +9,7 @@ using PlatformPublisher.Common.Services;
 using PlatformPublisher.Weixin.Publishing;
 using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Ui.ViewModels;
+using TikTokPublisher.Ui.Views;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Storage;
 using PlatformPublisher.Analytics.Models;
@@ -251,6 +252,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = true;
+        KuaishouWorkflowPage.IsKuaishouMode = true;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
@@ -384,27 +386,37 @@ public partial class MainWindow : Window
 
     private async void OpenKuaishouPersonalConfig_Click(object? sender, RoutedEventArgs e)
     {
-        if (ViewModel?.SelectedAccount is null)
+        try
         {
-            if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧选择全局账号。";
-            return;
-        }
+            if (ViewModel?.SelectedAccount is null)
+            {
+                if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧添加并选择账号。";
+                await InfoDialog.ShowAsync(this, "请先在左侧点击「添加账号」，选中账号后再打开快手分账配置。", "快手分账配置");
+                return;
+            }
 
-        var account = ViewModel.SelectedAccount.Model;
-        var platform = ViewModel.SelectedPlatform.Value;
-        var configuredPath = account.BaseConfigPath?.Trim() ?? string.Empty;
-        var path = string.IsNullOrWhiteSpace(configuredPath)
-            ? KuaishouPersonalConfig.DefaultConfigPath(account.Id, platform)
-            : Path.GetFullPath(configuredPath);
-        var config = KuaishouPersonalConfig.Load(new PublishJob
+            var account = ViewModel.SelectedAccount.Model;
+            var platform = ViewModel.SelectedPlatform.Value;
+            var configuredPath = account.BaseConfigPath?.Trim() ?? string.Empty;
+            var path = string.IsNullOrWhiteSpace(configuredPath)
+                ? KuaishouPersonalConfig.DefaultConfigPath(account.Id, platform)
+                : Path.GetFullPath(configuredPath);
+            var config = KuaishouPersonalConfig.Load(new PublishJob
+            {
+                Platform = platform,
+                AccountId = account.Id,
+                ConfigPath = File.Exists(path) ? path : string.Empty,
+            });
+            var result = await KuaishouPersonalConfigDialog.ShowAsync(this, config, platform);
+            if (result is null) return;
+            await result.SaveAsync(path);
+            await ViewModel.UpdateSelectedAccountConfigPathAsync(path);
+        }
+        catch (Exception ex)
         {
-            Platform = platform,
-            AccountId = account.Id,
-            ConfigPath = File.Exists(path) ? path : string.Empty,
-        });
-        var result = await KuaishouPersonalConfigDialog.ShowAsync(this, config, platform);
-        if (result is null) return;
-        await result.SaveAsync(path);
-        await ViewModel.UpdateSelectedAccountConfigPathAsync(path);
+            if (ViewModel is not null)
+                ViewModel.StatusMessage = "打开快手分账配置失败：" + ex.Message;
+            await InfoDialog.ShowAsync(this, ex.Message, "打开快手分账配置失败");
+        }
     }
 }
