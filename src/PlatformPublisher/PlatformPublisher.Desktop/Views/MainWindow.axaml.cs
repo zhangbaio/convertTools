@@ -395,6 +395,7 @@ public partial class MainWindow : Window
     private void ShowKuaishouPage(PublishPlatform platform)
     {
         ViewModel?.SelectPlatform(platform);
+        ViewModel?.LoadKuaishouWorkspace();
         WeixinPublisherView.IsVisible = false;
         DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = true;

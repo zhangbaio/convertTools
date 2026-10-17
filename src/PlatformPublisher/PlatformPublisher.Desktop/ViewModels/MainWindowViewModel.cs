@@ -399,6 +399,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
         DraftAccountName = account?.Name ?? string.Empty;
         DraftConfigPath = ResolveGlobalConfigPath(account, SelectedPlatform.Value);
+        if (IsKuaishouPlatform)
+            ApplyKuaishouWorkspace(account);
         RefreshVisibleJobs();
         RefreshVisibleAccounts(account?.Id);
         OnPropertyChanged(nameof(QueueSummary));
@@ -432,7 +434,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
         StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的{SelectedPlatform.Name}工作目录：{normalized}";
         AppendActivityLog(StatusMessage);
         ActiveAccountWorkRootDirectoryChanged?.Invoke();
+        if (IsKuaishouPlatform)
+            _ = EnsureWorkspaceProjectsLoadedAsync();
         return true;
+    }
+
+    public void LoadKuaishouWorkspace()
+    {
+        ApplyKuaishouWorkspace(_activeGlobalAccount);
+        _ = EnsureWorkspaceProjectsLoadedAsync();
+    }
+
+    private void ApplyKuaishouWorkspace(GlobalAccount? account)
+    {
+        if (string.IsNullOrWhiteSpace(account?.WorkRootDirectory) || !Directory.Exists(account.WorkRootDirectory))
+            return;
+        DraftProjectDirectory = Path.GetFullPath(account.WorkRootDirectory);
+    }
+
+    private async Task EnsureWorkspaceProjectsLoadedAsync()
+    {
+        if (!IsKuaishouPlatform || !CanScanWorkspace() || _activeGlobalAccount is null)
+            return;
+        var root = Path.GetFullPath(DraftProjectDirectory);
+        var prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                     + Path.DirectorySeparatorChar;
+        var hasProjects = _jobs.Any(job =>
+            job.Platform == SelectedPlatform.Value &&
+            job.Kind == PublishJobKind.Series &&
+            string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
+            Path.GetFullPath(job.ProjectDirectory).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        if (hasProjects)
+        {
+            RefreshVisibleJobs();
+            return;
+        }
+        await ScanWorkspaceAsync();
     }
 
     public DramaSourceConfigurationStatus GetDramaSourceConfigurationStatus()
@@ -2197,12 +2235,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 VisibleJobs.Add(new PublishJobRowViewModel(job));
             }
 
-            if (SelectedPlatform.Value == PublishPlatform.WeixinChannel)
-                RefreshPagedJobs(selectId);
-            else
-                SelectedJob = selectId is null
-                    ? VisibleJobs.FirstOrDefault()
-                    : VisibleJobs.FirstOrDefault(row => row.Id == selectId);
+            RefreshPagedJobs(selectId);
             OnPropertyChanged(nameof(QueueSummary));
         }
 
