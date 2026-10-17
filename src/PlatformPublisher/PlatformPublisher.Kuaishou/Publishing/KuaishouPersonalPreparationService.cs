@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -29,6 +30,8 @@ public sealed class KuaishouPersonalPreparationService
     {
         Directory.CreateDirectory(data.WorkflowDirectory);
         RestoreOriginalTitle(data.SourceDirectory, data.WorkflowDirectory);
+        if (TryRebuildWithAssistant(data.WorkflowDirectory, out var assistant))
+            return assistant;
         var poster = FindPoster(data.WorkflowDirectory);
         var horizontal = Path.Combine(data.WorkflowDirectory, "快手横屏封面.jpg");
         var vertical = Path.Combine(data.WorkflowDirectory, "快手竖屏海报.jpg");
@@ -243,6 +246,101 @@ public sealed class KuaishouPersonalPreparationService
             ["producer"] = screenwriters?.FirstOrDefault()?["name"]?.DeepClone(),
             ["author_declaration"] = AuthorDeclarationValue(config.AuthorDeclaration),
         };
+    }
+
+    private static bool TryRebuildWithAssistant(string workflowDirectory, out KuaishouPersonalPreparationResult result)
+    {
+        result = null!;
+        var script = ResolveBridgeScript();
+        var toolRoot = ResolveAssistantRoot();
+        var python = ResolveAssistantPython();
+        if (script is null || toolRoot is null || python is null) return false;
+        var start = new ProcessStartInfo
+        {
+            FileName = python,
+            WorkingDirectory = toolRoot,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        start.ArgumentList.Add("-X");
+        start.ArgumentList.Add("utf8");
+        start.ArgumentList.Add(script);
+        start.ArgumentList.Add("--workflow");
+        start.ArgumentList.Add(workflowDirectory);
+        start.ArgumentList.Add("--tool-root");
+        start.ArgumentList.Add(toolRoot);
+        var workspace = ResolveWorkspace(workflowDirectory);
+        if (workspace is not null)
+        {
+            start.ArgumentList.Add("--workspace");
+            start.ArgumentList.Add(workspace);
+        }
+        using var process = Process.Start(start);
+        if (process is null) return false;
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(120000))
+        {
+            try { process.Kill(true); } catch { }
+            throw new TimeoutException("短剧助手快手填报生成超时。");
+        }
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "短剧助手快手填报生成失败。" : stderr.Trim());
+        var preview = Path.Combine(workflowDirectory, "kuaishou-payload-preview.json");
+        var autoFill = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
+        var episodeCount = 0;
+        var line = stdout.Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+        if (!string.IsNullOrWhiteSpace(line))
+        {
+            try { episodeCount = JsonNode.Parse(line)?["episode_count"]?.GetValue<int>() ?? 0; }
+            catch (JsonException) { }
+        }
+        result = new(
+            workflowDirectory,
+            Path.Combine(workflowDirectory, "快手横屏封面.jpg"),
+            Path.Combine(workflowDirectory, "快手竖屏海报.jpg"),
+            autoFill,
+            preview,
+            episodeCount);
+        return File.Exists(preview);
+    }
+
+    private static string? ResolveBridgeScript()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            var candidate = Path.Combine(current.FullName, "tools", "kuaishou", "kuaishou_prepare_bridge.py");
+            if (File.Exists(candidate)) return candidate;
+            current = current.Parent;
+        }
+        return null;
+    }
+
+    private static string? ResolveAssistantRoot()
+    {
+        var configured = Environment.GetEnvironmentVariable("WEIXIN_CHANNEL_TOOL");
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(Path.Combine(configured, "modules", "kuaishou", "upload_service.py")))
+            return configured;
+        const string local = @"D:\code\weixin-channel-tool";
+        return File.Exists(Path.Combine(local, "modules", "kuaishou", "upload_service.py")) ? local : null;
+    }
+
+    private static string? ResolveWorkspace(string workflowDirectory)
+    {
+        var workflow = new DirectoryInfo(workflowDirectory);
+        if (workflow.Parent?.Name.Equals("workflow", StringComparison.OrdinalIgnoreCase) == true)
+            return workflow.Parent.Parent?.FullName;
+        return workflow.Parent?.FullName;
+    }
+
+    private static string? ResolveAssistantPython()
+    {
+        var venv = @"D:\code\weixin-channel-tool\.venv\Scripts\python.exe";
+        if (File.Exists(venv)) return venv;
+        return "python";
     }
 
     private static void RestoreOriginalTitle(string sourceDirectory, string workflowDirectory)
