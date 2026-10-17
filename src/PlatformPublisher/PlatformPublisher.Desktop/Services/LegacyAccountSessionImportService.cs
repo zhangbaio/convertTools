@@ -72,7 +72,9 @@ public sealed class LegacyAccountSessionImportService
                         string.IsNullOrWhiteSpace(account.LegacyProfileId));
                 if (target?.LegacySessionImportedAt is not null)
                 {
-                    await FillMissingWeixinSessionAsync(target, Path.Combine(root, "profiles", id), cancellationToken);
+                    var profileDirectory = Path.Combine(root, "profiles", id);
+                    await FillMissingWeixinSessionAsync(target, profileDirectory, cancellationToken);
+                    await FillContentPolicyAsync(target, profile, cancellationToken);
                     continue;
                 }
                 target ??= _accounts.Add(name);
@@ -265,6 +267,32 @@ public sealed class LegacyAccountSessionImportService
             return destination;
         }
         catch { return null; }
+    }
+
+    private static async Task FillContentPolicyAsync(ChannelsAccount account, JsonElement profile, CancellationToken cancellationToken)
+    {
+        await FillContentPolicyAsync(account, profile, PublishPlatform.KuaishouPersonalRevenue, account.KuaishouPersonalConfigPath, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(account.KuaishouEnterpriseConfigPath))
+            await FillContentPolicyAsync(account, profile, PublishPlatform.KuaishouEnterpriseRevenue, account.KuaishouEnterpriseConfigPath, cancellationToken);
+    }
+
+    private static async Task FillContentPolicyAsync(ChannelsAccount account, JsonElement profile, PublishPlatform platform,
+        string? configPath, CancellationToken cancellationToken)
+    {
+        var path = string.IsNullOrWhiteSpace(configPath) ? KuaishouPersonalConfig.DefaultConfigPath(account.Id, platform) : configPath;
+        if (!File.Exists(path)) return;
+        var config = KuaishouPersonalConfig.Load(new PublishJob
+        {
+            Platform = platform,
+            AccountId = account.Id,
+            ConfigPath = path,
+        });
+        if (config.ContentPolicyMigrated) return;
+        var authStatePath = config.AuthStatePath;
+        KuaishouLegacyConfigImporter.ImportElement(profile, config, platform, account.LegacySessionSourceRoot);
+        config.AuthStatePath = authStatePath;
+        config.ContentPolicyMigrated = true;
+        await config.SaveAsync(path, cancellationToken);
     }
 
     private async Task FillMissingWeixinSessionAsync(ChannelsAccount account, string directory, CancellationToken cancellationToken)

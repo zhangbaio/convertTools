@@ -138,6 +138,7 @@ public static class KuaishouLegacyConfigImporter
         [nameof(KuaishouPersonalConfig.OssCleanupRetentionHours)] = "kuaishou_oss_cleanup_retention_hours",
         [nameof(KuaishouPersonalConfig.AiComplianceReviewEnabled)] = "kuaishou_ai_compliance_review_enabled",
         [nameof(KuaishouPersonalConfig.SynopsisAiRewriteEnabled)] = "kuaishou_synopsis_ai_rewrite_enabled",
+        [nameof(KuaishouPersonalConfig.DramaTitlePolicyJson)] = "drama_title_policy_json",
         [nameof(KuaishouPersonalConfig.SynopsisPolicyJson)] = "kuaishou_synopsis_policy_json",
     };
 

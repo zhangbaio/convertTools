@@ -50,14 +50,12 @@ public sealed class KuaishouContentComplianceService
 {
     public void Validate(KuaishouPersonalProjectData data, KuaishouPersonalConfig config)
     {
-        if (string.IsNullOrWhiteSpace(config.SynopsisPolicyJson)) return;
-        var policy = JsonNode.Parse(config.SynopsisPolicyJson)?.AsObject();
-        var blocked = policy?["blockedTerms"]?.AsArray() ?? policy?["blocked_terms"]?.AsArray();
-        if (blocked is null) return;
-        var content = data.Title + "\n" + data.Intro;
-        var matches = blocked
-            .Select(item => item?.ToString()?.Trim())
-            .Where(term => !string.IsNullOrWhiteSpace(term) && content.Contains(term, StringComparison.OrdinalIgnoreCase))
+        var matches = KuaishouContentPolicyText.EffectiveTerms(
+                config.DramaTitlePolicyJson, KuaishouContentPolicyDefaults.TitlePolicyJson, "categories", "disabled")
+            .Where(term => data.Title.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Concat(KuaishouContentPolicyText.EffectiveTerms(
+                    config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson, "categories", "disabled")
+                .Where(term => data.Intro.Contains(term, StringComparison.OrdinalIgnoreCase)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (matches.Length > 0)

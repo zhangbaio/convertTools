@@ -188,8 +188,10 @@ public sealed class KuaishouPersonalConfig
     public int OssCleanupRetentionHours { get; set; } = 24;
     public bool AiComplianceReviewEnabled { get; set; } = true;
     public bool SynopsisAiRewriteEnabled { get; set; }
-    public string SynopsisPolicyJson { get; set; } = string.Empty;
+    public string DramaTitlePolicyJson { get; set; } = KuaishouContentPolicyDefaults.TitlePolicyJson;
+    public string SynopsisPolicyJson { get; set; } = KuaishouContentPolicyDefaults.SynopsisPolicyJson;
     public bool LegacyImportCompleted { get; set; }
+    public bool ContentPolicyMigrated { get; set; }
     [JsonIgnore] public string StorageAccountId { get; private set; } = string.Empty;
     [JsonIgnore] public PublishPlatform StoragePlatform { get; private set; } = PublishPlatform.KuaishouPersonalRevenue;
 

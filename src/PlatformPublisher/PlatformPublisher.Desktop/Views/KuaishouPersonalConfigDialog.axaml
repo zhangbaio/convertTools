@@ -266,20 +266,33 @@
 
             <TabItem Header="内容合规配置">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="190,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <CheckBox x:Name="AiComplianceBox" Content="启用 AI 内容合规审查" />
-                        <CheckBox x:Name="SynopsisRewriteBox" Grid.Row="1" Content="启用简介 AI 改写" />
-                        <TextBlock Grid.Row="2" Text="版权证明类型" VerticalAlignment="Center" />
-                        <TextBox x:Name="CopyrightProofTypeBox" Grid.Row="2" Grid.Column="1" />
-                        <TextBlock Grid.Row="3" Text="版权有效期" VerticalAlignment="Center" />
-                        <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto,*" ColumnSpacing="8">
+                    <StackPanel Margin="16" Spacing="12">
+                        <TextBlock Text="下方展示当前完整有效词库，可直接增加、修改或删除词语。每行格式：分类：词1、词2。保存后参与合规校验；软件升级新增的系统词会自动合并。"
+                                   TextWrapping="Wrap" Foreground="#64748B" />
+                        <TextBlock Text="快手新剧名敏感词（普通上传、分账个人版、分账企业版）" FontWeight="SemiBold" />
+                        <TextBlock x:Name="TitlePolicySummary" Foreground="#64748B" />
+                        <TextBox x:Name="TitlePolicyBox" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap" />
+                        <TextBlock Text="快手简介敏感词（普通上传、分账个人版、分账企业版）" FontWeight="SemiBold" />
+                        <TextBlock x:Name="SynopsisTermsSummary" Foreground="#64748B" />
+                        <TextBox x:Name="SynopsisTermsBox" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap" />
+                        <TextBlock Text="快手简介语义概念组（用于识别同义词和跨句组合）" FontWeight="SemiBold" />
+                        <TextBlock x:Name="ConceptGroupsSummary" Foreground="#64748B" />
+                        <TextBox x:Name="ConceptGroupsBox" AcceptsReturn="True" MinHeight="120" TextWrapping="Wrap" />
+                        <TextBlock Text="快手简介组合语义规则" FontWeight="SemiBold" />
+                        <TextBlock Text="每行格式：风险分类：概念组1+概念组2；删除整行即可停用该组合。" Foreground="#64748B" TextWrapping="Wrap" />
+                        <TextBox x:Name="CombinationRulesBox" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
+                        <CheckBox x:Name="AiComplianceBox" Content="启用独立 AI 语义审核（推荐；会增加一次或多次 AI 请求）" />
+                        <CheckBox x:Name="SynopsisRewriteBox" Content="默认使用 AI 改写简介（关闭时保留合规原简介；命中风险仍强制改写）" />
+                        <Button Content="恢复系统默认词库" Click="RestoreContentPolicy_Click" HorizontalAlignment="Left" />
+                        <TextBlock Text="版权证明类型" />
+                        <TextBox x:Name="CopyrightProofTypeBox" />
+                        <TextBlock Text="版权有效期" />
+                        <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="8">
                             <TextBox x:Name="CopyrightStartBox" Watermark="开始日期" />
                             <TextBlock Grid.Column="1" Text="至" VerticalAlignment="Center" />
                             <TextBox x:Name="CopyrightEndBox" Grid.Column="2" Watermark="结束日期" />
                         </Grid>
-                        <TextBlock Grid.Row="4" Text="简介策略 JSON" VerticalAlignment="Top" />
-                        <TextBox x:Name="SynopsisPolicyBox" Grid.Row="4" Grid.Column="1" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap" />
-                    </Grid>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

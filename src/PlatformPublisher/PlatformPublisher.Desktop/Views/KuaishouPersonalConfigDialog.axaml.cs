@@ -148,10 +148,35 @@ public partial class KuaishouPersonalConfigDialog : Window
         DistributionOnlineTimeBox.IsChecked = _config.DistributionAllowOnlineTime;
         AiComplianceBox.IsChecked = _config.AiComplianceReviewEnabled;
         SynopsisRewriteBox.IsChecked = _config.SynopsisAiRewriteEnabled;
+        LoadContentPolicy();
         CopyrightProofTypeBox.Text = _config.CopyrightProofType;
         CopyrightStartBox.Text = _config.CopyrightValidStartTime;
         CopyrightEndBox.Text = _config.CopyrightValidEndTime;
-        SynopsisPolicyBox.Text = _config.SynopsisPolicyJson;
+    }
+
+    private void LoadContentPolicy()
+    {
+        TitlePolicySummary.Text = KuaishouContentPolicyText.BaselineSummary(
+            KuaishouContentPolicyDefaults.TitlePolicyJson, "categories");
+        SynopsisTermsSummary.Text = KuaishouContentPolicyText.BaselineSummary(
+            KuaishouContentPolicyDefaults.SynopsisPolicyJson, "categories");
+        ConceptGroupsSummary.Text = KuaishouContentPolicyText.BaselineSummary(
+            KuaishouContentPolicyDefaults.SynopsisPolicyJson, "concept_groups");
+        TitlePolicyBox.Text = KuaishouContentPolicyText.FormatCategories(
+            _config.DramaTitlePolicyJson, KuaishouContentPolicyDefaults.TitlePolicyJson, "categories", "disabled");
+        SynopsisTermsBox.Text = KuaishouContentPolicyText.FormatCategories(
+            _config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson, "categories", "disabled");
+        ConceptGroupsBox.Text = KuaishouContentPolicyText.FormatCategories(
+            _config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson, "concept_groups", "disabled_concepts");
+        CombinationRulesBox.Text = KuaishouContentPolicyText.FormatRules(
+            _config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson);
+    }
+
+    private void RestoreContentPolicy_Click(object? sender, RoutedEventArgs e)
+    {
+        _config.DramaTitlePolicyJson = KuaishouContentPolicyDefaults.TitlePolicyJson;
+        _config.SynopsisPolicyJson = KuaishouContentPolicyDefaults.SynopsisPolicyJson;
+        LoadContentPolicy();
     }
 
     private async void PickCommitmentPdf_Click(object? sender, RoutedEventArgs e)
@@ -346,7 +371,12 @@ public partial class KuaishouPersonalConfigDialog : Window
         _config.CopyrightProofType = CopyrightProofTypeBox.Text?.Trim() ?? string.Empty;
         _config.CopyrightValidStartTime = CopyrightStartBox.Text?.Trim() ?? string.Empty;
         _config.CopyrightValidEndTime = CopyrightEndBox.Text?.Trim() ?? string.Empty;
-        _config.SynopsisPolicyJson = SynopsisPolicyBox.Text?.Trim() ?? string.Empty;
+        _config.DramaTitlePolicyJson = KuaishouContentPolicyText.BuildTitlePolicy(
+            TitlePolicyBox.Text ?? string.Empty, KuaishouContentPolicyDefaults.TitlePolicyJson);
+        _config.SynopsisPolicyJson = KuaishouContentPolicyText.BuildSynopsisPolicy(
+            SynopsisTermsBox.Text ?? string.Empty, ConceptGroupsBox.Text ?? string.Empty,
+            CombinationRulesBox.Text ?? string.Empty, KuaishouContentPolicyDefaults.SynopsisPolicyJson);
+        _config.ContentPolicyMigrated = true;
         var issues = KuaishouConfigurationValidator.Validate(_config);
         if (issues.Count > 0)
         {
