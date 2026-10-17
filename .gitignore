@@ -19,6 +19,8 @@ outputs/
 models/
 !src/PlatformPublisher/PlatformPublisher.Adx/Models/
 !src/PlatformPublisher/PlatformPublisher.Adx/Models/AdxModels.cs
+!src/PlatformPublisher/PlatformPublisher.Analytics/Models/
+!src/PlatformPublisher/PlatformPublisher.Analytics/Models/AnalyticsModels.cs
 
 # Packaging outputs and local redistributables
 artifacts/
