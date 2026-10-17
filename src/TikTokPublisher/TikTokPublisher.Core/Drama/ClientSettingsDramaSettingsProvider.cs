@@ -69,12 +69,29 @@ public sealed class ClientSettingsDramaSettingsProvider : IDramaSettingsProvider
 {
     private readonly object _gate = new();
     private ClientSettings _settings;
-    private readonly string? _databasePath;
+    private string? _databasePath;
 
     public ClientSettingsDramaSettingsProvider(ClientSettings? initial = null, string? databasePath = null)
     {
-        _settings = initial ?? ClientSettingsStore.Load(databasePath);
-        _databasePath = databasePath;
+        _databasePath = NormalizeDatabasePath(databasePath);
+        _settings = initial ?? ClientSettingsStore.Load(_databasePath);
+    }
+
+    public void UseDatabase(string? databasePath)
+    {
+        lock (_gate)
+        {
+            _databasePath = NormalizeDatabasePath(databasePath);
+            _settings = ClientSettingsStore.Load(_databasePath);
+        }
+    }
+
+    public void Reload()
+    {
+        lock (_gate)
+        {
+            _settings = ClientSettingsStore.Load(_databasePath);
+        }
     }
 
     public void Replace(ClientSettings settings)
@@ -101,4 +118,7 @@ public sealed class ClientSettingsDramaSettingsProvider : IDramaSettingsProvider
             ClientSettingsStore.PatchPikachuRuntimeFields(_settings.PikachuFanqieCookie, _settings.PikachuDeviceId, _databasePath);
         }
     }
+
+    private static string? NormalizeDatabasePath(string? databasePath) =>
+        string.IsNullOrWhiteSpace(databasePath) ? null : Path.GetFullPath(databasePath);
 }

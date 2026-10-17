@@ -14,6 +14,7 @@ using PlatformPublisher.Desktop.Views;
 using ShortDrama.Infrastructure.DependencyInjection;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Infrastructure.Rendering;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Ui.ViewModels;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Security;
@@ -39,6 +40,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            ShortDramaDramaServices.UseSettingsDatabase(PlatformPublisherPaths.SettingsDatabasePath);
             _services = BuildServices();
             _ = _services.GetRequiredService<AnalyticsRepository>();
             _services.GetRequiredService<LegacyDatabaseImporter>().Import(
