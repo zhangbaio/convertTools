@@ -745,14 +745,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return added;
     }
 
-    public async Task<int> ImportVideoChannelProjectDirectoriesAsync(TikTokQueueImportRequest request)
+    public Task<int> ImportVideoChannelProjectDirectoriesAsync(TikTokQueueImportRequest request) =>
+        ImportDownloadedProjectsAsync(request);
+
+    public async Task<int> ImportDownloadedProjectsAsync(TikTokQueueImportRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var platform = request.Target.PlatformKey switch
+        {
+            DramaQueuePlatforms.KuaishouPersonal => PublishPlatform.KuaishouPersonalRevenue,
+            DramaQueuePlatforms.KuaishouEnterprise => PublishPlatform.KuaishouEnterpriseRevenue,
+            _ => PublishPlatform.WeixinChannel,
+        };
+        var platformLabel = string.IsNullOrWhiteSpace(request.Target.PlatformLabel)
+            ? platform.DisplayName()
+            : request.Target.PlatformLabel;
         var account = _globalAccounts.FirstOrDefault(item =>
             string.Equals(item.Id, request.Target.AccountProfileId, StringComparison.OrdinalIgnoreCase));
         if (account is null)
         {
-            StatusMessage = $"视频号队列导入失败：账号「{request.Target.AccountProfileName}」已不存在。";
+            StatusMessage = $"{platformLabel}队列导入失败：账号「{request.Target.AccountProfileName}」已不存在。";
             AppendActivityLog(StatusMessage);
             return 0;
         }
@@ -761,8 +773,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             request.ProjectDirs,
             account.Id,
             account.Name,
-            account.ProfileDir);
-        StatusMessage = $"已加入「{account.Name}」的视频号队列：新增 {added} 个任务，工作目录 {request.Target.WorkspaceRoot}";
+            account.ProfileDir,
+            platform,
+            ResolveGlobalConfigPath(account, platform));
+        StatusMessage = $"已加入「{account.Name}」的{platformLabel}队列：新增 {added} 个任务，工作目录 {request.Target.WorkspaceRoot}";
         AppendActivityLog(StatusMessage);
         return added;
     }
@@ -802,7 +816,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         string? targetAccountId = null,
         string? targetAccountName = null,
         string? targetSessionDirectory = null,
-        PublishPlatform? platform = null)
+        PublishPlatform? platform = null,
+        string? configPath = null)
     {
         var effectivePlatform = platform ?? PublishPlatform.WeixinChannel;
         var effectiveAccountId = string.IsNullOrWhiteSpace(targetAccountId) ? _activeWeixinAccountId : targetAccountId;
@@ -826,7 +841,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ProjectDirectory = directory,
                 ConfigPath = effectivePlatform == PublishPlatform.WeixinChannel
                     ? ResolveScannedWeixinConfig(directory)
-                    : ResolveGlobalConfigPath(_activeGlobalAccount, effectivePlatform),
+                    : string.IsNullOrWhiteSpace(configPath)
+                        ? ResolveGlobalConfigPath(_activeGlobalAccount, effectivePlatform)
+                        : configPath,
                 AccountId = effectiveAccountId,
                 AccountName = string.IsNullOrWhiteSpace(targetAccountName) ? ActiveWeixinAccountName : targetAccountName,
                 AccountSessionDirectory = effectivePlatform == PublishPlatform.WeixinChannel

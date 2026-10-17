@@ -8,8 +8,10 @@ public sealed class TikTokMultiAccountQueueDialog : Window
 {
     public TikTokMultiAccountQueueDialog(IReadOnlyList<TikTokQueueImportTarget> targets, string? currentAccountId)
     {
-        Title = "添加到多个 TikTok 账号队列";
-        Width = 420;
+        Title = targets.Any(item => !string.IsNullOrWhiteSpace(item.PlatformLabel))
+            ? "添加到多个账号队列"
+            : "添加到多个 TikTok 账号队列";
+        Width = 520;
         Height = 480;
         MinWidth = 360;
         MinHeight = 280;
@@ -20,7 +22,9 @@ public sealed class TikTokMultiAccountQueueDialog : Window
         {
             var box = new CheckBox
             {
-                Content = target.AccountProfileName,
+                Content = string.IsNullOrWhiteSpace(target.PlatformLabel)
+                    ? target.AccountProfileName
+                    : $"{target.PlatformLabel} · {target.AccountProfileName}",
                 IsChecked = string.Equals(target.AccountProfileId, currentAccountId, StringComparison.Ordinal),
             };
             checks.Add((box, target));

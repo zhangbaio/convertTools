@@ -92,7 +92,19 @@
                         <ComboBox Width="92" ItemsSource="{Binding EpisodeRangeOptions}" SelectedItem="{Binding EpisodeRangeMode}" Margin="0,0,8,8" />
                         <TextBox Width="360" Watermark="例如: 1-5 或 1,3,5" Text="{Binding EpisodeCustomRange, Mode=TwoWay}" Margin="0,0,8,8" />
                         <Button Content="下载选中" Command="{Binding DownloadSelectedCommand}" Classes="primaryAction" Margin="0,0,8,8" />
-                        <Button Content="{Binding AddToQueueButtonText}" Command="{Binding AddSelectedToTikTokQueueCommand}" Margin="0,0,8,8" />
+                        <Button Content="{Binding AddToQueueButtonText}" Command="{Binding AddSelectedToTikTokQueueCommand}" IsVisible="{Binding ShowSingleQueueAction}" Margin="0,0,8,8" />
+                        <ItemsControl ItemsSource="{Binding PlatformQueueActions}" IsVisible="{Binding UsePlatformQueueActions}" Margin="0,0,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:DramaPlatformQueueAction">
+                                    <Button Content="{Binding Label}" Command="{Binding AddCommand}" Margin="0,0,8,8" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <Button Content="添加到多个账号队列" Command="{Binding AddSelectedToMultipleTikTokQueuesCommand}" Margin="0,0,8,8" />
                         <Button Content="全选" Command="{Binding SelectAllResultsCommand}" Margin="0,0,8,8" />
                         <Button Content="取消选择" Command="{Binding ClearSelectionCommand}" ToolTip.Tip="取消当前列表中所有已勾选的短剧" Margin="0,0,8,8" />
@@ -295,7 +307,19 @@
                         <ComboBox Width="92" ItemsSource="{Binding EpisodeRangeOptions}" SelectedItem="{Binding EpisodeRangeMode}" Margin="0,0,8,8" />
                         <TextBox Width="360" Watermark="例如: 1-5 或 1,3,5" Text="{Binding EpisodeCustomRange, Mode=TwoWay}" Margin="0,0,8,8" />
                         <Button Content="下载选中" Command="{Binding DownloadSelectedCommand}" Classes="primaryAction" Margin="0,0,8,8" />
-                        <Button Content="{Binding AddToQueueButtonText}" Command="{Binding AddSelectedToTikTokQueueCommand}" Margin="0,0,8,8" />
+                        <Button Content="{Binding AddToQueueButtonText}" Command="{Binding AddSelectedToTikTokQueueCommand}" IsVisible="{Binding ShowSingleQueueAction}" Margin="0,0,8,8" />
+                        <ItemsControl ItemsSource="{Binding PlatformQueueActions}" IsVisible="{Binding UsePlatformQueueActions}" Margin="0,0,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:DramaPlatformQueueAction">
+                                    <Button Content="{Binding Label}" Command="{Binding AddCommand}" Margin="0,0,8,8" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <Button Content="添加到多个账号队列" Command="{Binding AddSelectedToMultipleTikTokQueuesCommand}" Margin="0,0,8,8" />
                         <Button Content="全选" Command="{Binding SelectAllResultsCommand}" Margin="0,0,8,8" />
                         <Button Content="取消选择" Command="{Binding ClearSelectionCommand}" ToolTip.Tip="取消当前列表中所有已勾选的短剧" Margin="0,0,8,8" />

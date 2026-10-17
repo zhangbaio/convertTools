@@ -79,6 +79,7 @@
             <Grid>
                 <StackPanel Orientation="Horizontal" Margin="10,0">
                     <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
+                    <Button x:Name="DramaDownloadNavButton" Classes="nav" Content="短剧下载" Click="OnDramaDownloadNavClick" />
                     <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
                     <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
                     <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
@@ -338,6 +339,9 @@
                                       DataContext="{Binding}" />
         </Grid>
         <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" />
+        <Border x:Name="DramaDownloadPage" IsVisible="False" Padding="16,14" Background="#F3F6FA">
+            <ContentControl x:Name="DramaDownloadHost" />
+        </Border>
         <views:AnalyticsView x:Name="AnalyticsPage" IsVisible="False" />
         <TabControl x:Name="SettingsPage" Classes="secondaryTabs" IsVisible="False">
             <TabItem Header="通用配置">

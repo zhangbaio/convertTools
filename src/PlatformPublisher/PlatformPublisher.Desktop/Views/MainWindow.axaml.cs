@@ -1,5 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Desktop.Services;
@@ -150,40 +152,153 @@ public partial class MainWindow : Window
 
     public void BindWeixinDownload(MainWindowViewModel mainViewModel)
     {
-        var viewModel = new TikTokPublisher.Ui.ViewModels.DramaDownloadViewModel(PlatformPublisherPaths.SettingsDatabasePath);
-        viewModel.ConfigureQueuePlatform("视频号");
+        var viewModel = new DramaDownloadViewModel(PlatformPublisherPaths.SettingsDatabasePath);
+        viewModel.ConfigurePlatformQueues(
+        [
+            (DramaQueuePlatforms.KuaishouPersonal, "快手分账个人"),
+            (DramaQueuePlatforms.KuaishouEnterprise, "快手分账企业"),
+            (DramaQueuePlatforms.Weixin, "视频号"),
+        ]);
+        viewModel.PlatformQueueTargetRequested += ResolveDramaQueueTarget;
         viewModel.TikTokQueueTargetRequested += () =>
         {
             var account = WeixinPublisherView.SelectedAccountProfile;
-            var workspace = account?.WorkRootDirectory;
-            if (account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace)) return null;
-            return new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, workspace);
+            return account is null
+                ? null
+                : new TikTokQueueImportTarget(account.Id, account.Name, account.WorkRootDirectory ?? string.Empty);
         };
+        viewModel.TikTokQueueTargetsRequested += ListDramaQueueTargets;
         viewModel.ImportToQueueRequested += async request =>
         {
-            await mainViewModel.ImportVideoChannelProjectDirectoriesAsync(request);
+            await mainViewModel.ImportDownloadedProjectsAsync(request);
         };
-        var view = new TikTokPublisher.Ui.Views.DramaDownloadView();
+        var view = new DramaDownloadView();
         view.Bind(viewModel, message => mainViewModel.StatusMessage = message);
         viewModel.SearchViewMode = "封面视图";
         void RefreshTarget()
         {
             var account = WeixinPublisherView.SelectedAccountProfile;
-            var workspace = account?.WorkRootDirectory;
-            viewModel.UpdateTikTokQueueTarget(account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace)
+            viewModel.UpdateTikTokQueueTarget(account is null
                 ? null
-                : new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, workspace));
+                : new TikTokQueueImportTarget(account.Id, account.Name, account.WorkRootDirectory ?? string.Empty));
         }
         WeixinPublisherView.SelectedAccountChanged += _ => RefreshTarget();
         mainViewModel.ActiveAccountWorkRootDirectoryChanged += RefreshTarget;
         viewModel.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(TikTokPublisher.Ui.ViewModels.DramaDownloadViewModel.DownloadWorkspace))
+            if (args.PropertyName == nameof(DramaDownloadViewModel.DownloadWorkspace))
                 RefreshTarget();
         };
         RefreshTarget();
-        WeixinPublisherView.SetDramaDownloadContent(view);
+        DramaDownloadHost.Content = view;
+        WeixinPublisherView.SetDramaDownloadContent(CreateDramaDownloadShortcut());
     }
+
+    private Control CreateDramaDownloadShortcut()
+    {
+        var panel = new StackPanel
+        {
+            Spacing = 12,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "短剧搜索和下载在顶部「短剧下载」。可以把选中的剧加入快手分账个人、快手分账企业或视频号队列。",
+            Foreground = new SolidColorBrush(Color.Parse("#64748B")),
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 520,
+            TextAlignment = TextAlignment.Center,
+        });
+        var button = new Button
+        {
+            Content = "打开短剧下载",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        button.Click += (_, _) => ShowDramaDownloadPage();
+        panel.Children.Add(button);
+        return panel;
+    }
+
+    private TikTokQueueImportTarget? ResolveDramaQueueTarget(string platformKey)
+    {
+        var account = WeixinPublisherView.SelectedAccountProfile;
+        if (account is null) return null;
+        var workspace = ResolveDramaQueueWorkspace(account, platformKey);
+        if (workspace is null) return null;
+        return new TikTokQueueImportTarget(
+            account.Id,
+            account.Name,
+            workspace,
+            platformKey,
+            DramaQueuePlatformLabel(platformKey));
+    }
+
+    private IReadOnlyList<TikTokQueueImportTarget> ListDramaQueueTargets()
+    {
+        var targets = new List<TikTokQueueImportTarget>();
+        foreach (var account in WeixinPublisherView.AccountProfiles)
+        {
+            foreach (var platformKey in new[]
+                     {
+                         DramaQueuePlatforms.KuaishouPersonal,
+                         DramaQueuePlatforms.KuaishouEnterprise,
+                         DramaQueuePlatforms.Weixin,
+                     })
+            {
+                var workspace = ResolveDramaQueueWorkspace(account, platformKey);
+                if (workspace is null) continue;
+                targets.Add(new TikTokQueueImportTarget(
+                    account.Id,
+                    account.Name,
+                    workspace,
+                    platformKey,
+                    DramaQueuePlatformLabel(platformKey)));
+            }
+        }
+        return targets;
+    }
+
+    private static string? ResolveDramaQueueWorkspace(ChannelsPublisher.Core.Models.PublishAccount account, string platformKey)
+    {
+        var configPath = platformKey switch
+        {
+            DramaQueuePlatforms.KuaishouPersonal => account.KuaishouPersonalConfigPath,
+            DramaQueuePlatforms.KuaishouEnterprise => account.KuaishouEnterpriseConfigPath,
+            _ => string.Empty,
+        };
+        if (platformKey is DramaQueuePlatforms.KuaishouPersonal or DramaQueuePlatforms.KuaishouEnterprise &&
+            (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)))
+            return null;
+        var configured = ReadConfigWorkspace(configPath);
+        if (Directory.Exists(configured)) return Path.GetFullPath(configured);
+        return Directory.Exists(account.WorkRootDirectory) ? Path.GetFullPath(account.WorkRootDirectory) : null;
+    }
+
+    private static string ReadConfigWorkspace(string? configPath)
+    {
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)) return string.Empty;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(configPath));
+            if (document.RootElement.TryGetProperty("LastWorkspace", out var workspace))
+                return workspace.GetString()?.Trim() ?? string.Empty;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+        return string.Empty;
+    }
+
+    private static string DramaQueuePlatformLabel(string platformKey) => platformKey switch
+    {
+        DramaQueuePlatforms.KuaishouPersonal => "快手分账个人",
+        DramaQueuePlatforms.KuaishouEnterprise => "快手分账企业",
+        _ => "视频号",
+    };
 
     public void BindAnalytics(AnalyticsViewModel analyticsViewModel, MainWindowViewModel mainViewModel)
     {
@@ -220,6 +335,8 @@ public partial class MainWindow : Window
 
     private void OnWeixinNavClick(object? sender, RoutedEventArgs e) => ShowWeixinPage();
 
+    private void OnDramaDownloadNavClick(object? sender, RoutedEventArgs e) => ShowDramaDownloadPage();
+
     private void OnKuaishouPersonalNavClick(object? sender, RoutedEventArgs e) =>
         ShowKuaishouPage(PublishPlatform.KuaishouPersonalRevenue);
 
@@ -238,6 +355,7 @@ public partial class MainWindow : Window
     {
         ViewModel?.SelectPlatform(PublishPlatform.WeixinChannel);
         WeixinPublisherView.IsVisible = true;
+        DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         SettingsPage.IsVisible = false;
@@ -245,10 +363,22 @@ public partial class MainWindow : Window
         SetActiveNavigation(WeixinNavButton);
     }
 
+    private void ShowDramaDownloadPage()
+    {
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = true;
+        PipelinePage.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(DramaDownloadNavButton);
+    }
+
     private void ShowKuaishouPage(PublishPlatform platform)
     {
         ViewModel?.SelectPlatform(platform);
         WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = true;
@@ -263,6 +393,7 @@ public partial class MainWindow : Window
     private void ShowSettingsPage()
     {
         WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
@@ -274,6 +405,7 @@ public partial class MainWindow : Window
     private void ShowAnalyticsPage()
     {
         WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         SettingsPage.IsVisible = false;
@@ -286,6 +418,7 @@ public partial class MainWindow : Window
         foreach (var button in new[]
                  {
                      WeixinNavButton,
+                     DramaDownloadNavButton,
                      KuaishouPersonalNavButton,
                      KuaishouEnterpriseNavButton,
                      AnalyticsNavButton,

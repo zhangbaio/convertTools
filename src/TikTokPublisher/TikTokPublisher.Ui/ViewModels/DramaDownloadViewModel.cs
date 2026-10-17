@@ -16,10 +16,35 @@ using TikTokPublisher.Ui.Services;
 
 namespace TikTokPublisher.Ui.ViewModels;
 
+public static class DramaQueuePlatforms
+{
+    public const string KuaishouPersonal = "kuaishou-personal";
+    public const string KuaishouEnterprise = "kuaishou-enterprise";
+    public const string Weixin = "weixin";
+}
+
 public sealed record TikTokQueueImportTarget(
     string AccountProfileId,
     string AccountProfileName,
-    string WorkspaceRoot);
+    string WorkspaceRoot,
+    string PlatformKey = "",
+    string PlatformLabel = "");
+
+public sealed partial class DramaPlatformQueueAction : ObservableObject
+{
+    public DramaPlatformQueueAction(string key, string platformLabel, string label, Func<string, Task> add)
+    {
+        Key = key;
+        PlatformLabel = platformLabel;
+        Label = label;
+        AddCommand = new AsyncRelayCommand(() => add(key));
+    }
+
+    public string Key { get; }
+    public string PlatformLabel { get; }
+    public string Label { get; }
+    public IAsyncRelayCommand AddCommand { get; }
+}
 
 public sealed record TikTokQueueImportRequest(
     TikTokQueueImportTarget Target,
@@ -334,10 +359,26 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private string _queuePlatformLabel = "TIKTOK";
 
     public string AddToQueueButtonText => $"加入{QueuePlatformLabel}队列";
+    public ObservableCollection<DramaPlatformQueueAction> PlatformQueueActions { get; } = [];
+    public bool UsePlatformQueueActions => PlatformQueueActions.Count > 0;
+    public bool ShowSingleQueueAction => !UsePlatformQueueActions;
 
     public void ConfigureQueuePlatform(string label)
     {
         QueuePlatformLabel = string.IsNullOrWhiteSpace(label) ? "TIKTOK" : label.Trim();
+    }
+
+    public void ConfigurePlatformQueues(IEnumerable<(string Key, string Label)> platforms)
+    {
+        PlatformQueueActions.Clear();
+        foreach (var (key, label) in platforms)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(label)) continue;
+            PlatformQueueActions.Add(new DramaPlatformQueueAction(
+                key.Trim(), label.Trim(), $"加入{label.Trim()}队列", AddSelectedToPlatformQueueAsync));
+        }
+        OnPropertyChanged(nameof(UsePlatformQueueActions));
+        OnPropertyChanged(nameof(ShowSingleQueueAction));
     }
 
     public bool IsListView => !string.Equals(SearchViewMode, "封面视图", StringComparison.Ordinal);
@@ -346,6 +387,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public event Action<string>? LogRequested;
     public event Func<TikTokQueueImportRequest, Task>? ImportToQueueRequested;
     public event Func<TikTokQueueImportTarget?>? TikTokQueueTargetRequested;
+    public event Func<string, TikTokQueueImportTarget?>? PlatformQueueTargetRequested;
     public event Func<IReadOnlyList<TikTokQueueImportTarget>>? TikTokQueueTargetsRequested;
     public Func<IReadOnlyList<TikTokQueueImportTarget>, string?, Task<IReadOnlyList<TikTokQueueImportTarget>?>>? PickTikTokQueueTargetsAsync { get; set; }
     public Func<string, Task<bool?>>? ConfirmDuplicateQueueAsync { get; set; }
@@ -354,9 +396,18 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     public void UpdateTikTokQueueTarget(TikTokQueueImportTarget? target)
     {
-        TikTokQueueTargetText = target is null
-            ? $"目标账号：未配置{QueuePlatformLabel}上传工作目录"
-            : $"目标账号：{target.AccountProfileName} · {target.WorkspaceRoot}";
+        if (UsePlatformQueueActions)
+        {
+            TikTokQueueTargetText = target is null
+                ? "目标账号：未选择"
+                : $"目标账号：{target.AccountProfileName} · 可加入{string.Join("、", PlatformQueueActions.Select(item => item.PlatformLabel))}";
+        }
+        else
+        {
+            TikTokQueueTargetText = target is null
+                ? $"目标账号：未配置{QueuePlatformLabel}上传工作目录"
+                : $"目标账号：{target.AccountProfileName} · {target.WorkspaceRoot}";
+        }
         _existenceSignature = "";
         ScheduleExistenceCheck();
     }
@@ -703,6 +754,26 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         await StartDownloadQueueAsync();
     }
 
+    private string? _activePlatformKey;
+
+    private async Task AddSelectedToPlatformQueueAsync(string key)
+    {
+        var action = PlatformQueueActions.FirstOrDefault(item => item.Key == key);
+        if (action is null) return;
+        var previous = QueuePlatformLabel;
+        _activePlatformKey = key;
+        QueuePlatformLabel = action.PlatformLabel;
+        try
+        {
+            await AddSelectedToTikTokQueueAsync();
+        }
+        finally
+        {
+            _activePlatformKey = null;
+            QueuePlatformLabel = previous;
+        }
+    }
+
     [RelayCommand]
     private async Task AddSelectedToTikTokQueueAsync()
     {
@@ -771,11 +842,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var selected = SelectedSearchItems();
         if (selected.Count == 0)
         {
-            LogRequested?.Invoke($"请先勾选要加入 {QueuePlatformLabel} 队列的短剧");
+            LogRequested?.Invoke(UsePlatformQueueActions
+                ? "请先勾选要加入队列的短剧"
+                : $"请先勾选要加入 {QueuePlatformLabel} 队列的短剧");
             return;
         }
 
-        selected = FilterAuthorExcludedItems(selected, $"{QueuePlatformLabel} 队列");
+        selected = FilterAuthorExcludedItems(selected, UsePlatformQueueActions ? "队列" : $"{QueuePlatformLabel} 队列");
         if (selected.Count == 0) return;
 
         var episodes = ResolveEpisodeSelection();
@@ -788,7 +861,9 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var targets = TikTokQueueTargetsRequested?.Invoke() ?? [];
         if (targets.Count == 0)
         {
-            LogRequested?.Invoke($"没有配置了上传工作目录的{QueuePlatformLabel}账号");
+            LogRequested?.Invoke(UsePlatformQueueActions
+                ? "没有配置了上传工作目录的账号"
+                : $"没有配置了上传工作目录的{QueuePlatformLabel}账号");
             return;
         }
 
@@ -827,7 +902,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             try
             {
                 var accountItems = selected;
-                if (skipExisting && conflicts.BlockedTitles.TryGetValue(target.AccountProfileId, out var blocked))
+                if (skipExisting && conflicts.BlockedTitles.TryGetValue(QueueTargetKey(target), out var blocked))
                 {
                     accountItems = selected.Where(item => !blocked.Contains(item.Title)).ToList();
                     var skipped = selected.Count - accountItems.Count;
@@ -857,7 +932,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 }
 
                 await importHandler(new TikTokQueueImportRequest(target, dirs));
-                LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」{QueuePlatformLabel}队列");
+                var queueLabel = string.IsNullOrWhiteSpace(target.PlatformLabel) ? QueuePlatformLabel : target.PlatformLabel;
+                LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」{queueLabel}队列");
             }
             catch (Exception ex)
             {
@@ -943,12 +1019,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             }
 
             if (blocked.Count == 0) continue;
-            report.BlockedTitles[account.AccountProfileId] = blocked;
+            report.BlockedTitles[QueueTargetKey(account)] = blocked;
             var parts = new List<string>();
             if (archiveCount > 0) parts.Add($"{archiveCount} 部已归档");
             if (managementCount > 0) parts.Add($"{managementCount} 部在管理系统");
             if (workspaceCount > 0) parts.Add($"{workspaceCount} 部已在工作目录");
-            report.Lines.Add($"「{account.AccountProfileName}」：{string.Join("，", parts)}");
+            var accountLabel = string.IsNullOrWhiteSpace(account.PlatformLabel)
+                ? account.AccountProfileName
+                : $"{account.PlatformLabel} · {account.AccountProfileName}";
+            report.Lines.Add($"「{accountLabel}」：{string.Join("，", parts)}");
         }
 
         return report;
@@ -1376,10 +1455,18 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private List<DramaSearchItem> SelectedSearchItems() =>
         SearchResults.Where(r => r.Selected).Select(r => r.Item).ToList();
 
+    private static string QueueTargetKey(TikTokQueueImportTarget target) =>
+        string.IsNullOrEmpty(target.PlatformKey)
+            ? target.AccountProfileId
+            : target.PlatformKey + "\u001f" + target.AccountProfileId;
+
     private TikTokQueueImportTarget? CaptureTikTokQueueTarget()
     {
-        var target = TikTokQueueTargetRequested?.Invoke();
-        UpdateTikTokQueueTarget(target);
+        var target = string.IsNullOrEmpty(_activePlatformKey)
+            ? TikTokQueueTargetRequested?.Invoke()
+            : PlatformQueueTargetRequested?.Invoke(_activePlatformKey) ?? TikTokQueueTargetRequested?.Invoke();
+        if (string.IsNullOrEmpty(_activePlatformKey))
+            UpdateTikTokQueueTarget(target);
         if (target is not null) return target;
         LogRequested?.Invoke($"请先为左侧所选账号配置有效的{QueuePlatformLabel}上传工作目录");
         return null;
