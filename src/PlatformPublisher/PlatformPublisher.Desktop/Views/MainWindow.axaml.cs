@@ -1,8 +1,12 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using PlatformPublisher.Persistence;
+using TikTokPublisher.Ui.Services;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Common.Models;
@@ -15,7 +19,6 @@ using TikTokPublisher.Ui.Views;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Storage;
 using PlatformPublisher.Analytics.Models;
-using PlatformPublisher.Persistence;
 using PlatformPublisher.Publishing.Models;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Desktop.Services;
@@ -24,11 +27,19 @@ namespace PlatformPublisher.Desktop.Views;
 
 public partial class MainWindow : Window
 {
-    private const double ExpandedSidebarWidth = 198;
+    private const string PlacementKey = "ui.yunfan_main_window_placement";
     private const double CollapsedSidebarWidth = 42;
     private PlatformDatabase? _platformDatabase;
     private DatabaseBackupService? _databaseBackupService;
+    private IJsonSettingStore? _windowSettings;
     private bool _isGlobalSidebarCollapsed;
+    private bool _compactLayout;
+    private bool _startupLayoutApplied;
+    private bool _suspendPlacementTracking;
+    private MainWindowPlacement? _normalPlacement;
+
+    private double ExpandedSidebarWidth =>
+        _compactLayout ? LaptopLayout.CompactSidebarWidth : LaptopLayout.ExpandedSidebarWidth;
 
     public MainWindow()
     {
@@ -38,8 +49,18 @@ public partial class MainWindow : Window
         KuaishouWorkflowPage.KuaishouConfigRequested += (_, _) =>
             OpenKuaishouPersonalConfig_Click(null, new RoutedEventArgs());
         KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
-        Opened += (_, _) => ShowWeixinPage();
+        Opened += (_, _) =>
+        {
+            if (!_startupLayoutApplied)
+                ApplyStartupLayout();
+            ShowWeixinPage();
+        };
+        Closed += (_, _) => SavePlacement();
+        SizeChanged += (_, _) => RememberNormalPlacement();
+        PositionChanged += (_, _) => RememberNormalPlacement();
     }
+
+    public void BindWindowPlacement(IJsonSettingStore settingsStore) => _windowSettings = settingsStore;
 
     public void BindSettings(SystemSettingsViewModel viewModel)
     {
@@ -321,10 +342,7 @@ public partial class MainWindow : Window
     private void OnGlobalSidebarToggleClick(object? sender, RoutedEventArgs e)
     {
         _isGlobalSidebarCollapsed = !_isGlobalSidebarCollapsed;
-        ShellLayout.ColumnDefinitions[0].Width = new GridLength(
-            _isGlobalSidebarCollapsed ? CollapsedSidebarWidth : ExpandedSidebarWidth);
-        ExpandedGlobalSidebar.IsVisible = !_isGlobalSidebarCollapsed;
-        CollapsedGlobalSidebar.IsVisible = _isGlobalSidebarCollapsed;
+        ApplySidebarWidth();
     }
 
     private void OnGlobalAccountSettingsRequested(object? sender, EventArgs e)
@@ -551,5 +569,168 @@ public partial class MainWindow : Window
                 ViewModel.StatusMessage = "打开快手分账配置失败：" + ex.Message;
             await InfoDialog.ShowAsync(this, ex.Message, "打开快手分账配置失败");
         }
+    }
+
+    private void ApplyStartupLayout()
+    {
+        var screens = Screens;
+        if (screens is null)
+            return;
+
+        MainWindowPlacement? saved = null;
+        try
+        {
+            if (_windowSettings is not null &&
+                _windowSettings.TryLoad<MainWindowPlacement>(PlacementKey, out var loaded))
+                saved = loaded;
+        }
+        catch
+        {
+            saved = null;
+        }
+
+        var screen = saved is null
+            ? screens.Primary
+            : screens.ScreenFromPoint(new PixelPoint(saved.X + 16, saved.Y + 16)) ?? screens.Primary;
+        if (screen is null)
+            return;
+
+        var scale = screen.Scaling <= 0 ? 1d : screen.Scaling;
+        var workWidth = screen.WorkingArea.Width / scale;
+        var workHeight = screen.WorkingArea.Height / scale;
+        if (workWidth < 640 || workHeight < 480)
+            return;
+
+        var fit = LaptopLayout.FitWindow(workWidth, workHeight);
+        _suspendPlacementTracking = true;
+        try
+        {
+            MinWidth = fit.MinWidth;
+            MinHeight = fit.MinHeight;
+            ApplyCompactLayout(LaptopLayout.IsCompact(workWidth, workHeight), LaptopLayout.ShouldShortenNav(workWidth));
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            var restoreSaved = saved is not null
+                && LaptopLayout.PlacementFits(saved.Width, saved.Height, workWidth, workHeight)
+                && RestoredWindowMostlyVisible(saved, screen);
+            if (restoreSaved && saved is not null)
+            {
+                Width = saved.Width;
+                Height = saved.Height;
+                Position = new PixelPoint(saved.X, saved.Y);
+                _normalPlacement = saved;
+                if (saved.Maximized)
+                    WindowState = WindowState.Maximized;
+            }
+            else
+            {
+                Width = fit.Width;
+                Height = fit.Height;
+                var x = screen.WorkingArea.X + (int)Math.Round((screen.WorkingArea.Width - fit.Width * scale) / 2);
+                var y = screen.WorkingArea.Y + (int)Math.Round((screen.WorkingArea.Height - fit.Height * scale) / 2);
+                Position = new PixelPoint(Math.Max(screen.WorkingArea.X, x), Math.Max(screen.WorkingArea.Y, y));
+                _normalPlacement = new MainWindowPlacement
+                {
+                    X = Position.X,
+                    Y = Position.Y,
+                    Width = fit.Width,
+                    Height = fit.Height,
+                };
+            }
+        }
+        finally
+        {
+            _suspendPlacementTracking = false;
+            _startupLayoutApplied = true;
+        }
+    }
+
+    private void ApplyCompactLayout(bool compact, bool shortenNav)
+    {
+        _compactLayout = compact;
+        Classes.Set("compact", compact);
+        ApplySidebarWidth();
+        BrandTitle.Text = compact ? "云帆" : "云帆多平台发布助手";
+        ToolTip.SetTip(BrandTitle, compact ? "云帆多平台发布助手" : null);
+        SetNavLabel(WeixinNavButton, "视频号助手", "视频号", shortenNav);
+        SetNavLabel(DramaDownloadNavButton, "短剧下载", "下载", shortenNav);
+        SetNavLabel(KuaishouPersonalNavButton, "快手分账 · 个人", "快手个人", shortenNav);
+        SetNavLabel(KuaishouEnterpriseNavButton, "快手分账 · 企业", "快手企业", shortenNav);
+        SetNavLabel(AnalyticsNavButton, "数据统计", "统计", shortenNav);
+        SetNavLabel(DatabaseNavButton, "数据库", "数据库", shortenNav);
+        SetNavLabel(SettingsNavButton, "系统设置", "设置", shortenNav);
+    }
+
+    private void ApplySidebarWidth()
+    {
+        ShellLayout.ColumnDefinitions[0].Width = new GridLength(
+            _isGlobalSidebarCollapsed ? CollapsedSidebarWidth : ExpandedSidebarWidth);
+        ExpandedGlobalSidebar.IsVisible = !_isGlobalSidebarCollapsed;
+        CollapsedGlobalSidebar.IsVisible = _isGlobalSidebarCollapsed;
+    }
+
+    private static void SetNavLabel(Button button, string full, string shortLabel, bool shorten)
+    {
+        var useShort = shorten && !string.Equals(shortLabel, full, StringComparison.Ordinal);
+        button.Content = useShort ? shortLabel : full;
+        ToolTip.SetTip(button, useShort ? full : null);
+    }
+
+    private void RememberNormalPlacement()
+    {
+        if (_suspendPlacementTracking || WindowState != WindowState.Normal)
+            return;
+        if (double.IsNaN(Width) || double.IsNaN(Height) || Width < 200 || Height < 200)
+            return;
+
+        _normalPlacement = new MainWindowPlacement
+        {
+            X = Position.X,
+            Y = Position.Y,
+            Width = Width,
+            Height = Height,
+        };
+    }
+
+    private void SavePlacement()
+    {
+        if (_windowSettings is null)
+            return;
+        if (_normalPlacement is null)
+            RememberNormalPlacement();
+        if (_normalPlacement is null)
+            return;
+
+        _normalPlacement.Maximized = WindowState == WindowState.Maximized;
+        try
+        {
+            _windowSettings.Save(PlacementKey, _normalPlacement);
+        }
+        catch
+        {
+            // 关闭时写窗口位置失败不影响退出。
+        }
+    }
+
+    private static bool RestoredWindowMostlyVisible(MainWindowPlacement saved, Screen screen)
+    {
+        var scale = screen.Scaling <= 0 ? 1d : screen.Scaling;
+        var window = new PixelRect(
+            saved.X,
+            saved.Y,
+            Math.Max(1, (int)Math.Round(saved.Width * scale)),
+            Math.Max(1, (int)Math.Round(saved.Height * scale)));
+        var overlap = window.Intersect(screen.WorkingArea);
+        var windowArea = (double)window.Width * window.Height;
+        var overlapArea = (double)overlap.Width * overlap.Height;
+        return windowArea > 0 && overlapArea >= windowArea * 0.6;
+    }
+
+    private sealed class MainWindowPlacement
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public bool Maximized { get; set; }
     }
 }

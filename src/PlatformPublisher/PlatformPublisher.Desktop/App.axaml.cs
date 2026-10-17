@@ -63,6 +63,7 @@ public partial class App : Application
             var publishCoordinator = _services.GetRequiredService<PlatformPublishCoordinator>();
             var mainWindow = new MainWindow { DataContext = viewModel };
             mainWindow.BindDatabaseMaintenance(_services.GetRequiredService<PlatformDatabase>(),_services.GetRequiredService<DatabaseBackupService>());
+            mainWindow.BindWindowPlacement(_services.GetRequiredService<IJsonSettingStore>());
             mainWindow.BindAccountDatabase(_services.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>());
             mainWindow.BindLegacySessionImport(_services.GetRequiredService<LegacyAccountSessionImportService>());
             mainWindow.BindSettings(settingsViewModel);
