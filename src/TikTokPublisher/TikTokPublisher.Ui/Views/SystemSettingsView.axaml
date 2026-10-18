@@ -278,7 +278,7 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果短剧下载器（v2.3.7）" FontWeight="Bold" />
-                        <TextBlock Text="搜索和下载都不使用番茄 Cookie。视频解析使用下载器软件设置里的设备号，1080P 对应清晰度 1，红果线路一。"
+                        <TextBlock Text="搜索和下载都不使用番茄 Cookie。视频解析使用下载器软件设置里的设备号，解析前会登记该设备；1080P 对应清晰度 1，红果线路一。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">

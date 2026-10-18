@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -20,6 +21,9 @@ public static class PlayletDramaClient
     private const string VideoPath = "/api/drama/hongguo/video";
     private const string DecryptVideoPath = "/api/drama/hongguo/decryptVideo";
     private const string DetailPath = "/api/drama/hongguo/detail";
+    private const string MemberInfoPath = "/api/business/member/memberInfo";
+    private static readonly ConcurrentDictionary<string, string> MemberSessionDays = new(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> MemberSessionGates = new(StringComparer.Ordinal);
     private const string PassId = "start-prod-api";
     private const string PassToken = "MkYQyRrrD2iG5WuDEV7DjYcq2jq7";
     private const string DirectoryUserAgent =
@@ -122,41 +126,39 @@ public static class PlayletDramaClient
         }
 
         var server = NormalizeServerUrl(serverUrl);
-        string? lastMessage = null;
-        foreach (var qualityCode in BuildQualityFallbackCodes(quality))
+        InvalidOperationException? lastFailure = null;
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            var video = await RequestVideoAsync(
+            await EnsureMemberSessionAsync(
                 httpClient,
                 server,
-                VideoPath,
-                normalizedVideoId,
-                qualityCode,
                 normalizedDeviceId,
+                force: attempt > 0,
                 cancellationToken);
-            if (video.Success)
+            try
             {
-                return new VideoItem(video.Url!, video.Key);
+                return await ResolveVideoAsync(
+                    httpClient,
+                    server,
+                    normalizedVideoId,
+                    quality,
+                    normalizedDeviceId,
+                    cancellationToken);
             }
-
-            lastMessage = video.Message;
+            catch (InvalidOperationException ex) when (attempt == 0 &&
+                                                       ex.Message.Contains("未知错误", StringComparison.Ordinal))
+            {
+                // 设备登记过了当天就失效，服务器仍回「未知错误」。强制再登记一次后重试。
+                lastFailure = ex;
+            }
         }
 
-        var fallback = await RequestVideoAsync(
-            httpClient,
-            server,
-            DecryptVideoPath,
-            normalizedVideoId,
-            BuildQualityFallbackCodes(quality)[0],
-            normalizedDeviceId,
-            cancellationToken);
-        if (fallback.Success)
-        {
-            return new VideoItem(fallback.Url!, fallback.Key);
-        }
+        throw lastFailure ?? new InvalidOperationException("红果短剧下载器视频解析失败：未知错误");
+    }
 
-        throw new InvalidOperationException(
-            "红果短剧下载器视频解析失败：" +
-            (string.IsNullOrWhiteSpace(fallback.Message) ? lastMessage ?? "未知错误" : fallback.Message));
+    internal static void ResetMemberSessionCache()
+    {
+        MemberSessionDays.Clear();
     }
 
     public static async Task<IReadOnlyList<DramaSearchItem>> GetComicNewTodayAsync(
@@ -364,6 +366,124 @@ public static class PlayletDramaClient
         }
 
         return episodes;
+    }
+
+    private static async Task<VideoItem> ResolveVideoAsync(
+        HttpClient httpClient,
+        string server,
+        string videoId,
+        string? quality,
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        string? lastMessage = null;
+        foreach (var qualityCode in BuildQualityFallbackCodes(quality))
+        {
+            var video = await RequestVideoAsync(
+                httpClient,
+                server,
+                VideoPath,
+                videoId,
+                qualityCode,
+                deviceId,
+                cancellationToken);
+            if (video.Success)
+            {
+                return new VideoItem(video.Url!, video.Key);
+            }
+
+            lastMessage = video.Message;
+        }
+
+        var fallback = await RequestVideoAsync(
+            httpClient,
+            server,
+            DecryptVideoPath,
+            videoId,
+            BuildQualityFallbackCodes(quality)[0],
+            deviceId,
+            cancellationToken);
+        if (fallback.Success)
+        {
+            return new VideoItem(fallback.Url!, fallback.Key);
+        }
+
+        throw new InvalidOperationException(
+            "红果短剧下载器视频解析失败：" +
+            (string.IsNullOrWhiteSpace(fallback.Message) ? lastMessage ?? "未知错误" : fallback.Message));
+    }
+
+    private static async Task EnsureMemberSessionAsync(
+        HttpClient httpClient,
+        string serverUrl,
+        string deviceId,
+        bool force,
+        CancellationToken cancellationToken)
+    {
+        var day = ChinaToday().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var cacheKey = serverUrl + "\n" + deviceId;
+        if (!force && MemberSessionDays.TryGetValue(cacheKey, out var cachedDay) && cachedDay == day)
+        {
+            return;
+        }
+
+        var gate = MemberSessionGates.GetOrAdd(cacheKey, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!force && MemberSessionDays.TryGetValue(cacheKey, out cachedDay) && cachedDay == day)
+            {
+                return;
+            }
+
+            if (await PostMemberSessionAsync(httpClient, serverUrl, deviceId, cancellationToken))
+            {
+                MemberSessionDays[cacheKey] = day;
+            }
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private static async Task<bool> PostMemberSessionAsync(
+        HttpClient httpClient,
+        string serverUrl,
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["version"] = Encrypt(ClientVersion),
+                ["deviceId"] = Encrypt(deviceId),
+                ["memberType"] = Encrypt("drama_cn")
+            });
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}{MemberInfoPath}")
+            {
+                Content = content
+            };
+            ApplyGatewayHeaders(request, deviceId);
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            var text = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            using var document = JsonDocument.Parse(text);
+            return string.Equals(ReadCode(document.RootElement), "200", StringComparison.Ordinal);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static async Task<VideoAttempt> RequestVideoAsync(
