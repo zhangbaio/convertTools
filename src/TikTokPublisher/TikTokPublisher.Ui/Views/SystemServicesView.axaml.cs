@@ -155,4 +155,96 @@ public partial class SystemServicesView : UserControl
             await InfoDialog.ShowAsync(owner, ex.Message, "导入配置失败", 520, 200);
         }
     }
+
+    private async void OnUploadCloudConfigClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SystemServicesViewModel vm || vm.IsBusy)
+            return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var service = new TikTokManagementConfigSyncService();
+        vm.IsBusy = true;
+        TikTokConfigUploadPackage? package = null;
+        try
+        {
+            package = await Task.Run(service.PrepareUpload);
+            if (!package.Ok)
+            {
+                await InfoDialog.ShowAsync(owner, package.Message, "上传配置失败", 520, 180);
+                return;
+            }
+
+            var confirmed = await ConfirmDialog.ShowAsync(owner, "上传配置到云端", package.Summary, 560, 340);
+            if (!confirmed)
+                return;
+
+            var result = await service.UploadAsync(package);
+            await InfoDialog.ShowAsync(
+                owner,
+                result.Message,
+                result.Ok ? "上传配置" : "上传配置失败",
+                560,
+                result.Ok ? 180 : 220);
+        }
+        catch (Exception ex)
+        {
+            await InfoDialog.ShowAsync(owner, ex.Message, "上传配置失败", 520, 180);
+        }
+        finally
+        {
+            package?.Dispose();
+            vm.IsBusy = false;
+        }
+    }
+
+    private async void OnDownloadCloudConfigClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SystemServicesViewModel vm || vm.IsBusy)
+            return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var service = new TikTokManagementConfigSyncService();
+        vm.IsBusy = true;
+        try
+        {
+            var meta = await service.FetchMetaAsync();
+            if (!meta.Ok || !meta.Exists || meta.Meta is null)
+            {
+                await InfoDialog.ShowAsync(
+                    owner,
+                    meta.Message,
+                    meta.Ok ? "从云端下载配置" : "下载配置失败",
+                    520,
+                    180);
+                return;
+            }
+
+            var confirmed = await ConfirmDialog.ShowAsync(
+                owner,
+                "从云端下载配置",
+                meta.Meta.BuildConfirmationText(),
+                560,
+                380);
+            if (!confirmed)
+                return;
+
+            var result = await service.DownloadAndImportAsync(meta.Meta);
+            if (result.Ok)
+                vm.NotifyConfigImported();
+            await InfoDialog.ShowAsync(
+                owner,
+                result.Message,
+                result.Ok ? "下载配置" : "下载配置失败",
+                560,
+                result.Ok ? 360 : 220);
+        }
+        catch (Exception ex)
+        {
+            await InfoDialog.ShowAsync(owner, ex.Message, "下载配置失败", 520, 200);
+        }
+        finally
+        {
+            vm.IsBusy = false;
+        }
+    }
 }

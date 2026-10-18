@@ -24,6 +24,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _loginPassword = "";
     [ObservableProperty] private string _loginStatus = "";
     [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private bool _cloudConfigSyncEnabled;
     [ObservableProperty] private bool _feishuCommandEnabled;
     [ObservableProperty] private string _feishuCommandAppId = "";
     [ObservableProperty] private string _feishuCommandAppSecret = "";
@@ -133,6 +134,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     private void RefreshLicenseSummary()
     {
         var state = LicenseStore.Load();
+        CloudConfigSyncEnabled = state.IsActivated();
         if (!state.IsActivated())
         {
             LicenseSummary = "未登录";
