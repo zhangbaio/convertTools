@@ -27,6 +27,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string SourceText => _tableInfo.Source;
     public string EpisodeCountText => _tableInfo.EpisodeCount > 0 ? _tableInfo.EpisodeCount.ToString() : "-";
     public string CreatedAtText => Model.CreatedAt.ToLocalTime().ToString("MM-dd HH:mm");
+    [ObservableProperty] private int _queueIndex;
     public string AccountName => string.IsNullOrWhiteSpace(Model.AccountName) ? "默认账号" : Model.AccountName;
     public string StatusText => Model.Status switch
     {

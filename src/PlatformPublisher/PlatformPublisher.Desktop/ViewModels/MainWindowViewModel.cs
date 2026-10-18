@@ -2255,10 +2255,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         WorkflowCurrentPage = Math.Clamp(WorkflowCurrentPage, 1, WorkflowPageCount);
         PagedJobs.Clear();
-        foreach (var row in VisibleJobs
-                     .Skip((WorkflowCurrentPage - 1) * WorkflowPageSize)
-                     .Take(WorkflowPageSize))
-            PagedJobs.Add(row);
+        var pageRows = VisibleJobs
+            .Skip((WorkflowCurrentPage - 1) * WorkflowPageSize)
+            .Take(WorkflowPageSize)
+            .ToList();
+        for (var index = 0; index < pageRows.Count; index++)
+        {
+            pageRows[index].QueueIndex = (WorkflowCurrentPage - 1) * WorkflowPageSize + index + 1;
+            PagedJobs.Add(pageRows[index]);
+        }
         SelectedJob = selectId is null
             ? PagedJobs.FirstOrDefault()
             : PagedJobs.FirstOrDefault(row => row.Id == selectId) ?? PagedJobs.FirstOrDefault();
