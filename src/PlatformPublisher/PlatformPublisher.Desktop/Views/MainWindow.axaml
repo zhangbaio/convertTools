@@ -84,6 +84,7 @@
                         <Button x:Name="DramaDownloadNavButton" Classes="nav" Content="短剧下载" Click="OnDramaDownloadNavClick" />
                         <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
                         <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
+                        <Button x:Name="KuaishouConfigNavButton" Classes="nav" Content="快手分账配置" Click="OnKuaishouConfigNavClick" />
                         <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
                         <Button x:Name="DatabaseNavButton" Classes="nav" Content="数据库" Click="OnDatabaseClick" />
                         <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
@@ -345,6 +346,7 @@
         <Border x:Name="DramaDownloadPage" IsVisible="False" Padding="16,14" Background="#F3F6FA">
             <ContentControl x:Name="DramaDownloadHost" />
         </Border>
+        <views:KuaishouPersonalConfigDialog x:Name="KuaishouConfigPage" IsVisible="False" />
         <views:AnalyticsView x:Name="AnalyticsPage" IsVisible="False" />
         <TabControl x:Name="SettingsPage" Classes="secondaryTabs" IsVisible="False">
             <TabItem Header="通用配置">

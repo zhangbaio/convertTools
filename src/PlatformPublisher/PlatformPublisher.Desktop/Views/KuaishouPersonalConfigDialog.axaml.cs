@@ -1,38 +1,63 @@
+using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using ChannelsAccount = ChannelsPublisher.Core.Models.PublishAccount;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Kuaishou.Publishing;
+using TikTokPublisher.Ui.Views;
 
 namespace PlatformPublisher.Desktop.Views;
 
-public partial class KuaishouPersonalConfigDialog : Window
+public partial class KuaishouPersonalConfigDialog : UserControl
 {
-    private readonly KuaishouPersonalConfig _config;
-    private readonly PublishPlatform _platform;
+    private KuaishouPersonalConfig _config = new();
+    private PublishPlatform _platform = PublishPlatform.KuaishouPersonalRevenue;
+    private ChannelsAccount? _account;
+    private string _cleanJson = "";
+    private bool _suspendDirty;
+    public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
     public IReadOnlyList<string> GenderOptions { get; } = ["男", "女"];
     public IReadOnlyList<string> FirstPageActions { get; } = ["draft", "next"];
     public IReadOnlyList<string> FinalActions { get; } = ["keep", "submit_review"];
     public IReadOnlyList<string> RunModes { get; } = ["auto", "create", "edit"];
     public IReadOnlyList<string> VideoStorageProviders { get; } = ["browser", "aliyun_oss"];
 
-    public KuaishouPersonalConfigDialog() : this(new KuaishouPersonalConfig(), PublishPlatform.KuaishouPersonalRevenue) { }
-
-    private KuaishouPersonalConfigDialog(KuaishouPersonalConfig config, PublishPlatform platform)
+    public KuaishouPersonalConfigDialog()
     {
-        _config = config;
-        _platform = platform;
         DataContext = this;
         InitializeComponent();
-        Title = platform.DisplayName() + "配置";
         LoadValues();
+        CaptureClean();
+        UpdateHeading();
     }
 
-    public static Task<KuaishouPersonalConfig?> ShowAsync(
-        Window owner,
-        KuaishouPersonalConfig config,
-        PublishPlatform platform = PublishPlatform.KuaishouPersonalRevenue) =>
-        new KuaishouPersonalConfigDialog(config, platform).ShowDialog<KuaishouPersonalConfig?>(owner);
+    public async Task<bool> TryLeaveAsync(Window owner)
+    {
+        if (!HasUnsavedChanges()) return true;
+        var save = await ConfirmDialog.ShowAsync(owner, "保存快手分账配置",
+            $"「{_account?.Name ?? "当前账号"}」的{_platform.DisplayName()}配置已修改，是否保存？");
+        if (!save)
+        {
+            LoadAccount(_account, _platform);
+            return true;
+        }
+        return await SaveCurrentAsync();
+    }
+
+    public void LoadAccount(ChannelsAccount? account, PublishPlatform platform)
+    {
+        _account = account;
+        _platform = platform is PublishPlatform.KuaishouEnterpriseRevenue
+            ? PublishPlatform.KuaishouEnterpriseRevenue
+            : PublishPlatform.KuaishouPersonalRevenue;
+        _config = LoadStoredConfig();
+        _suspendDirty = true;
+        LoadValues();
+        _suspendDirty = false;
+        CaptureClean();
+        UpdateHeading();
+    }
 
     private void LoadValues()
     {
@@ -181,7 +206,7 @@ public partial class KuaishouPersonalConfigDialog : Window
 
     private async void PickCommitmentPdf_Click(object? sender, RoutedEventArgs e)
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "选择快手分账个人版承诺函 PDF",
             AllowMultiple = false,
@@ -192,7 +217,7 @@ public partial class KuaishouPersonalConfigDialog : Window
 
     private async void PickCommitmentTemplate_Click(object? sender, RoutedEventArgs e)
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "选择快手承诺函 Word 模板",
             AllowMultiple = false,
@@ -203,7 +228,7 @@ public partial class KuaishouPersonalConfigDialog : Window
 
     private async void PickCommitmentSeal_Click(object? sender, RoutedEventArgs e)
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "选择承诺函印章图片",
             AllowMultiple = false,
@@ -217,7 +242,7 @@ public partial class KuaishouPersonalConfigDialog : Window
         var path = KuaishouLegacyConfigImporter.DefaultSettingsPath;
         if (!File.Exists(path))
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "选择旧版短剧助手 settings.json",
                 AllowMultiple = false,
@@ -241,20 +266,22 @@ public partial class KuaishouPersonalConfigDialog : Window
         }
     }
 
-    private void Save_Click(object? sender, RoutedEventArgs e)
+    private async void Save_Click(object? sender, RoutedEventArgs e) => await SaveCurrentAsync();
+
+    private bool ApplyToConfig()
     {
         if (!int.TryParse(FreeEpisodeCountBox.Text, out var free) || free < 0 ||
             !int.TryParse(UnlockEpisodeCountBox.Text, out var unlock) || unlock < 0 ||
             !int.TryParse(UploadTimeoutBox.Text, out var timeout) || timeout is < 5 or > 240)
         {
             ValidationText.Text = "免费集数、解锁集数必须为非负整数；上传超时必须为 5–240 分钟。";
-            return;
+            return false;
         }
         if (!string.IsNullOrWhiteSpace(CommitmentPdfBox.Text) &&
             (!File.Exists(CommitmentPdfBox.Text) || !string.Equals(Path.GetExtension(CommitmentPdfBox.Text), ".pdf", StringComparison.OrdinalIgnoreCase)))
         {
             ValidationText.Text = "承诺函必须是存在的 PDF 文件。";
-            return;
+            return false;
         }
 
         _config.EntryUrl = EntryUrlBox.Text?.Trim() ?? string.Empty;
@@ -377,14 +404,7 @@ public partial class KuaishouPersonalConfigDialog : Window
             SynopsisTermsBox.Text ?? string.Empty, ConceptGroupsBox.Text ?? string.Empty,
             CombinationRulesBox.Text ?? string.Empty, KuaishouContentPolicyDefaults.SynopsisPolicyJson);
         _config.ContentPolicyMigrated = true;
-        var issues = KuaishouConfigurationValidator.Validate(_config);
-        if (issues.Count > 0)
-        {
-            ValidationText.Foreground = Avalonia.Media.Brushes.Red;
-            ValidationText.Text = string.Join("；", issues);
-            return;
-        }
-        Close(_config);
+        return true;
     }
 
     private static string FirstNonEmpty(params string?[] values) =>
@@ -396,5 +416,89 @@ public partial class KuaishouPersonalConfigDialog : Window
     private static int NonNegative(string? value, int fallback) =>
         int.TryParse(value, out var parsed) && parsed >= 0 ? parsed : fallback;
 
-    private void Cancel_Click(object? sender, RoutedEventArgs e) => Close(null);
+    private void Cancel_Click(object? sender, RoutedEventArgs e) => LoadAccount(_account, _platform);
+
+    private async void OnPersonalEditionClick(object? sender, RoutedEventArgs e) =>
+        await SwitchEditionAsync(PublishPlatform.KuaishouPersonalRevenue);
+
+    private async void OnEnterpriseEditionClick(object? sender, RoutedEventArgs e) =>
+        await SwitchEditionAsync(PublishPlatform.KuaishouEnterpriseRevenue);
+
+    private async Task SwitchEditionAsync(PublishPlatform platform)
+    {
+        if (platform == _platform) return;
+        if (TopLevel.GetTopLevel(this) is Window owner && !await TryLeaveAsync(owner)) return;
+        LoadAccount(_account, platform);
+    }
+
+    private async Task<bool> SaveCurrentAsync()
+    {
+        if (_account is null)
+        {
+            ValidationText.Text = "请先在左侧选择账号。";
+            return false;
+        }
+        if (!ApplyToConfig()) return false;
+        var issues = KuaishouConfigurationValidator.Validate(_config);
+        if (issues.Count > 0)
+        {
+            ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+            ValidationText.Text = string.Join("；", issues);
+            return false;
+        }
+        var path = ResolveConfigPath(createDefault: true);
+        await _config.SaveAsync(path);
+        CaptureClean();
+        ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
+        ValidationText.Text = "已保存。";
+        if (ConfigSaved is not null) await ConfigSaved(_account.Id, _platform, path);
+        return true;
+    }
+
+    private KuaishouPersonalConfig LoadStoredConfig()
+    {
+        if (_account is null) return new KuaishouPersonalConfig();
+        var path = ResolveConfigPath(createDefault: false);
+        return KuaishouPersonalConfig.Load(new PublishJob
+        {
+            Platform = _platform,
+            AccountId = _account.Id,
+            ConfigPath = !string.IsNullOrWhiteSpace(path) && File.Exists(path) ? path : string.Empty,
+        });
+    }
+
+    private string ResolveConfigPath(bool createDefault)
+    {
+        var configured = _platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? _account?.KuaishouEnterpriseConfigPath
+            : _account?.KuaishouPersonalConfigPath;
+        if (!string.IsNullOrWhiteSpace(configured)) return Path.GetFullPath(configured);
+        return createDefault && _account is not null
+            ? KuaishouPersonalConfig.DefaultConfigPath(_account.Id, _platform)
+            : string.Empty;
+    }
+
+    public string? AccountId => _account?.Id;
+    public PublishPlatform CurrentPlatform => _platform;
+
+    private bool HasUnsavedChanges()
+    {
+        if (_suspendDirty) return false;
+        if (!ApplyToConfig()) return true;
+        return JsonSerializer.Serialize(_config) != _cleanJson;
+    }
+
+    private void CaptureClean() => _cleanJson = JsonSerializer.Serialize(_config);
+
+    private void UpdateHeading()
+    {
+        var edition = _platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版";
+        AccountHeading.Text = _account is null ? "快手分账配置" : $"{_account.Name} · {edition}";
+        PersonalEditionButton.Classes.Set("navActive", _platform != PublishPlatform.KuaishouEnterpriseRevenue);
+        EnterpriseEditionButton.Classes.Set("navActive", _platform == PublishPlatform.KuaishouEnterpriseRevenue);
+    }
+
+    private IStorageProvider Files =>
+        TopLevel.GetTopLevel(this)?.StorageProvider
+        ?? throw new InvalidOperationException("当前页面无法选择文件。");
 }

@@ -534,6 +534,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
         NotifyCommands();
     }
 
+    public void RememberKuaishouConfigPath(string accountId, PublishPlatform platform, string path)
+    {
+        var account = _globalAccounts.FirstOrDefault(item =>
+            string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase));
+        if (account is null) return;
+        var fullPath = Path.GetFullPath(path);
+        if (platform == PublishPlatform.KuaishouEnterpriseRevenue)
+        {
+            account.KuaishouEnterpriseConfigPath = fullPath;
+            if (string.IsNullOrWhiteSpace(account.KuaishouEnterpriseAccount))
+                account.KuaishouEnterpriseAccount = account.Name;
+        }
+        else
+        {
+            account.KuaishouPersonalConfigPath = fullPath;
+            if (string.IsNullOrWhiteSpace(account.KuaishouPersonalAccount))
+                account.KuaishouPersonalAccount = account.Name;
+        }
+        _globalAccountStore.Update(account);
+        StatusMessage = $"{platform.DisplayName()}配置已保存到账号「{account.Name}」。";
+    }
+
     public async Task UpdateSelectedAccountConfigPathAsync(string configPath)
     {
         if (_activeGlobalAccount is null) throw new InvalidOperationException("请先在左侧选择全局账号。");

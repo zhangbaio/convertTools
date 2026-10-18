@@ -47,7 +47,9 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetSidebarVisible(false);
         GlobalAccountSidebar.UseShellChrome();
         KuaishouWorkflowPage.KuaishouConfigRequested += (_, _) =>
-            OpenKuaishouPersonalConfig_Click(null, new RoutedEventArgs());
+            ShowKuaishouConfigPage(ViewModel?.IsKuaishouPlatform == true
+                ? ViewModel.SelectedPlatform.Value
+                : PublishPlatform.KuaishouPersonalRevenue);
         KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
         Opened += (_, _) =>
         {
@@ -153,8 +155,17 @@ public partial class MainWindow : Window
     {
         WeixinPublisherView.UseAccountStore(accountStore);
         GlobalAccountSidebar.DataContext = WeixinPublisherView.DataContext;
-        WeixinPublisherView.SelectedAccountChanged += account =>
+        WeixinPublisherView.SelectedAccountChanged += async account =>
+        {
             ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, account);
+            await SwitchKuaishouConfigAccountAsync(account);
+        };
+        KuaishouConfigPage.ConfigSaved += (accountId, platform, path) =>
+        {
+            ViewModel?.RememberKuaishouConfigPath(accountId, platform, path);
+            return Task.CompletedTask;
+        };
+        KuaishouConfigPage.LoadAccount(WeixinPublisherView.SelectedAccountProfile, PublishPlatform.KuaishouPersonalRevenue);
         ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, WeixinPublisherView.SelectedAccountProfile);
     }
 
@@ -361,6 +372,9 @@ public partial class MainWindow : Window
     private void OnKuaishouEnterpriseNavClick(object? sender, RoutedEventArgs e) =>
         ShowKuaishouPage(PublishPlatform.KuaishouEnterpriseRevenue);
 
+    private void OnKuaishouConfigNavClick(object? sender, RoutedEventArgs e) =>
+        ShowKuaishouConfigPage(KuaishouConfigPage.CurrentPlatform);
+
     private void OnSettingsNavClick(object? sender, RoutedEventArgs e) => ShowSettingsPage();
     private void OnAnalyticsNavClick(object? sender, RoutedEventArgs e) => ShowAnalyticsPage();
     private async void OnDatabaseClick(object? sender,RoutedEventArgs e)
@@ -376,6 +390,7 @@ public partial class MainWindow : Window
         DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(WeixinNavButton);
@@ -387,6 +402,7 @@ public partial class MainWindow : Window
         DramaDownloadPage.IsVisible = true;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(DramaDownloadNavButton);
@@ -402,6 +418,7 @@ public partial class MainWindow : Window
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = true;
         KuaishouWorkflowPage.IsKuaishouMode = true;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
@@ -416,6 +433,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = true;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(SettingsNavButton);
@@ -427,6 +445,7 @@ public partial class MainWindow : Window
         DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = true;
         SetActiveNavigation(AnalyticsNavButton);
@@ -440,6 +459,7 @@ public partial class MainWindow : Window
                      DramaDownloadNavButton,
                      KuaishouPersonalNavButton,
                      KuaishouEnterpriseNavButton,
+                     KuaishouConfigNavButton,
                      AnalyticsNavButton,
                      SettingsNavButton,
                  })
@@ -536,39 +556,61 @@ public partial class MainWindow : Window
         ViewModel.StatusMessage = "视频号高级发表配置已应用到新任务。";
     }
 
+    private bool _switchingKuaishouConfig;
+
+    private void ShowKuaishouConfigPage(PublishPlatform platform)
+    {
+        if (ViewModel?.SelectedAccount is null)
+        {
+            if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧添加并选择账号。";
+            return;
+        }
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = true;
+        KuaishouConfigPage.LoadAccount(WeixinPublisherView.SelectedAccountProfile, platform);
+        SetActiveNavigation(KuaishouConfigNavButton);
+    }
+
     private async void OpenKuaishouPersonalConfig_Click(object? sender, RoutedEventArgs e)
     {
+        var platform = ViewModel?.IsKuaishouPlatform == true
+            ? ViewModel.SelectedPlatform.Value
+            : PublishPlatform.KuaishouPersonalRevenue;
+        if (KuaishouConfigPage.IsVisible && !await KuaishouConfigPage.TryLeaveAsync(this)) return;
+        ShowKuaishouConfigPage(platform);
+    }
+
+    private async Task SwitchKuaishouConfigAccountAsync(ChannelsPublisher.Core.Models.PublishAccount? account)
+    {
+        if (_switchingKuaishouConfig) return;
+        if (!KuaishouConfigPage.IsVisible)
+        {
+            KuaishouConfigPage.LoadAccount(account, KuaishouConfigPage.CurrentPlatform);
+            return;
+        }
+        var previousId = KuaishouConfigPage.AccountId;
+        if (!string.IsNullOrEmpty(previousId) &&
+            string.Equals(previousId, account?.Id, StringComparison.OrdinalIgnoreCase))
+            return;
+        _switchingKuaishouConfig = true;
         try
         {
-            if (ViewModel?.SelectedAccount is null)
+            if (!await KuaishouConfigPage.TryLeaveAsync(this))
             {
-                if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧添加并选择账号。";
-                await InfoDialog.ShowAsync(this, "请先在左侧点击「添加账号」，选中账号后再打开快手分账配置。", "快手分账配置");
+                if (!string.IsNullOrEmpty(previousId))
+                    WeixinPublisherView.SelectAccount(previousId);
                 return;
             }
-
-            var account = ViewModel.SelectedAccount.Model;
-            var platform = ViewModel.SelectedPlatform.Value;
-            var configuredPath = account.BaseConfigPath?.Trim() ?? string.Empty;
-            var path = string.IsNullOrWhiteSpace(configuredPath)
-                ? KuaishouPersonalConfig.DefaultConfigPath(account.Id, platform)
-                : Path.GetFullPath(configuredPath);
-            var config = KuaishouPersonalConfig.Load(new PublishJob
-            {
-                Platform = platform,
-                AccountId = account.Id,
-                ConfigPath = File.Exists(path) ? path : string.Empty,
-            });
-            var result = await KuaishouPersonalConfigDialog.ShowAsync(this, config, platform);
-            if (result is null) return;
-            await result.SaveAsync(path);
-            await ViewModel.UpdateSelectedAccountConfigPathAsync(path);
+            KuaishouConfigPage.LoadAccount(account, KuaishouConfigPage.CurrentPlatform);
         }
-        catch (Exception ex)
+        finally
         {
-            if (ViewModel is not null)
-                ViewModel.StatusMessage = "打开快手分账配置失败：" + ex.Message;
-            await InfoDialog.ShowAsync(this, ex.Message, "打开快手分账配置失败");
+            _switchingKuaishouConfig = false;
         }
     }
 
