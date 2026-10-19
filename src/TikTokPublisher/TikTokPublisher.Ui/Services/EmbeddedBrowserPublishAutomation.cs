@@ -91,6 +91,13 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 workflowDir,
                 L,
                 item.EnabledQueueSteps);
+            await TikTokNewTitleLanguageService.ApplyAsync(
+                options,
+                account,
+                item.ProjectDir,
+                item.Title,
+                L,
+                ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
