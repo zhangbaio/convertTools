@@ -32,8 +32,7 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
             signedOn.Should().BeOnOrAfter(new DateOnly(2025, 1, 1)).And.BeOnOrBefore(today);
             DateOnly.FromDateTime(filedAt).Should().Be(signedOn);
             stamp.FilingNumber.Should().HaveLength(10).And.StartWith(signedOn.Year.ToString());
-            stamp.BusinessId.Should().HaveLength(7);
-            int.Parse(stamp.BusinessId).Should().BeInRange(1_000_000, 9_999_999);
+            stamp.BusinessId.Should().HaveLength(7).And.StartWith("154");
             stamp.RegistrantShortName.Should().Be(ArticlesOfIncorporationFields.ToShortName(stamp.RegistrantName));
             stamp.RegistrantName.Split(' ').Should().HaveCount(3);
             stamp.Street.Should().MatchRegex(@"^\d{3,4} [A-Z][a-z]+ (Rd|St|Ave|Dr|Ln|Blvd|Ct|Way)$");
@@ -46,6 +45,47 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
     {
         var act = () => ArticlesOfIncorporationFields.CreateRandomFilingStamp(new DateOnly(2024, 12, 31), new Random(1));
         act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Translate_UsesChineseNameAddressAndDate()
+    {
+        ArticlesChineseText.TranslateName("LINDA JO HARRIS").Should().Be("琳达·乔·哈里斯");
+        ArticlesChineseText.TranslateShortName("LINDA JO HARRIS").Should().Be("琳达·哈里斯");
+        ArticlesChineseText.TranslateStreet("2708 Maple Ct").Should().Be("2708 枫树巷");
+        ArticlesChineseText.TranslateCity("Sumrall, MS 39482").Should().Be("萨姆罗尔, 密西西比州 39482");
+        ArticlesChineseText.TranslateCity("New Orleans, LA 70112").Should().Be("新奥尔良, 路易斯安那州 70112");
+        ArticlesChineseText.TranslateFiledAt("02/24/2025 09:29 PM").Should().Be("2025年02月24日 下午09:29");
+        ArticlesChineseText.TranslateSignedOn("02/24/2025").Should().Be("2025年2月24日");
+        ArticlesChineseText.TranslateName("ZELDA").Should().NotContainAny("A", "E", "L", "Z");
+    }
+
+    [Fact]
+    public void RenderChinese_FillsTranslatedTemplate()
+    {
+        var output = Path.Combine(Path.GetTempPath(), $"articles-zh-{Guid.NewGuid():N}.pdf");
+        try
+        {
+            ArticlesOfIncorporationPdfService.RenderChinese(output, new ArticlesOfIncorporationFields(
+                "2025657032",
+                "9292556",
+                "02/24/2025 09:29 PM",
+                "LINDA JO HARRIS",
+                "2708 Maple Ct",
+                "Sumrall, MS 39482",
+                "02/24/2025",
+                "LINDA HARRIS",
+                "2708 Maple Ct",
+                "Sumrall, MS 39482"));
+
+            using var pdf = PdfReader.Open(output, PdfDocumentOpenMode.Import);
+            pdf.PageCount.Should().Be(1);
+        }
+        finally
+        {
+            if (File.Exists(output))
+                File.Delete(output);
+        }
     }
 
     [Fact]

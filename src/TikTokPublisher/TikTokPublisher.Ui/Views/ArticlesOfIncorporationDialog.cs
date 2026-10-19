@@ -19,6 +19,12 @@ public sealed class ArticlesOfIncorporationDialog : Window
     private readonly TextBox _agentCity = Box();
     private readonly TextBox _signedOn = Box();
     private readonly TextBox _incorporatorName = Box();
+    private readonly CheckBox _alsoChinese = new()
+    {
+        Content = "同步生成中文PDF",
+        IsChecked = true,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
     private readonly TextBlock _status = new() { Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap };
     private readonly string? _suggestedDirectory;
 
@@ -70,8 +76,15 @@ public sealed class ArticlesOfIncorporationDialog : Window
         cancel.Click += (_, _) => Close();
         buttons.Children.Add(generate);
         buttons.Children.Add(cancel);
-        Grid.SetRow(buttons, 3);
-        root.Children.Add(buttons);
+        var actions = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+        };
+        actions.Children.Add(_alsoChinese);
+        Grid.SetColumn(buttons, 1);
+        actions.Children.Add(buttons);
+        Grid.SetRow(actions, 3);
+        root.Children.Add(actions);
         Content = root;
     }
 
@@ -189,9 +202,17 @@ public sealed class ArticlesOfIncorporationDialog : Window
         try
         {
             var path = file.TryGetLocalPath();
+            string? chinesePath = null;
             if (!string.IsNullOrWhiteSpace(path))
             {
-                await Task.Run(() => ArticlesOfIncorporationPdfService.Render(path, fields));
+                var writeChinese = _alsoChinese.IsChecked == true;
+                chinesePath = writeChinese ? ArticlesOfIncorporationPdfService.ChineseOutputPath(path) : null;
+                await Task.Run(() =>
+                {
+                    ArticlesOfIncorporationPdfService.Render(path, fields);
+                    if (chinesePath is not null)
+                        ArticlesOfIncorporationPdfService.RenderChinese(chinesePath, fields);
+                });
             }
             else
             {
@@ -211,7 +232,11 @@ public sealed class ArticlesOfIncorporationDialog : Window
             }
 
             _last = fields;
-            _status.Text = string.IsNullOrWhiteSpace(path) ? "已生成 PDF。" : $"已生成：{path}";
+            _status.Text = string.IsNullOrWhiteSpace(path)
+                ? "已生成 PDF。"
+                : chinesePath is null
+                    ? $"已生成：{path}"
+                    : $"已生成：{path}{Environment.NewLine}中文：{chinesePath}";
         }
         catch (Exception ex)
         {

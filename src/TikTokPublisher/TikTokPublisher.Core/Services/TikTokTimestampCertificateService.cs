@@ -250,6 +250,9 @@ public static class TikTokTimestampCertificateService
 
         public FontResolverInfo? ResolveTypeface(string familyName, bool isBold, bool isItalic)
         {
+            if (familyName.Equals("SimSun", StringComparison.OrdinalIgnoreCase))
+                return new FontResolverInfo("simsun");
+
             if (familyName.Equals("Times New Roman", StringComparison.OrdinalIgnoreCase))
             {
                 var face = (isBold, isItalic) switch
@@ -280,6 +283,7 @@ public static class TikTokTimestampCertificateService
                 "times-bold" => ReadTimes("timesbd.ttf"),
                 "times-italic" => ReadTimes("timesi.ttf"),
                 "times-bolditalic" => ReadTimes("timesbi.ttf"),
+                "simsun" => ReadSimSun(),
                 _ => File.ReadAllBytes(Path.Combine(assets, "NotoSerifSC-Light.ttf")),
             };
             _faces[faceName] = bytes;
@@ -292,6 +296,50 @@ public static class TikTokTimestampCertificateService
             if (!File.Exists(path))
                 throw new FileNotFoundException($"未找到 Times New Roman 字体文件 {fileName}。", path);
             return File.ReadAllBytes(path);
+        }
+
+        private static byte[] ReadSimSun()
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "simsun.ttc");
+            if (!File.Exists(path))
+                throw new FileNotFoundException("未找到宋体 simsun.ttc。", path);
+            return ExtractFirstTtcFont(File.ReadAllBytes(path));
+        }
+
+        private static byte[] ExtractFirstTtcFont(byte[] ttc)
+        {
+            var fontStart = ReadU32(ttc, 12);
+            var numTables = ReadU16(ttc, fontStart + 4);
+            var end = fontStart + 12 + numTables * 16;
+            for (var i = 0; i < numTables; i++)
+            {
+                var rec = fontStart + 12 + i * 16;
+                end = Math.Max(end, ReadU32(ttc, rec + 8) + ReadU32(ttc, rec + 12));
+            }
+
+            end = (end + 3) & ~3;
+            var font = new byte[end - fontStart];
+            Buffer.BlockCopy(ttc, fontStart, font, 0, font.Length);
+            for (var i = 0; i < numTables; i++)
+            {
+                var rec = 12 + i * 16;
+                WriteU32(font, rec + 8, ReadU32(font, rec + 8) - fontStart);
+            }
+
+            return font;
+        }
+
+        private static int ReadU16(byte[] data, int offset) => (data[offset] << 8) | data[offset + 1];
+
+        private static int ReadU32(byte[] data, int offset) =>
+            (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+
+        private static void WriteU32(byte[] data, int offset, int value)
+        {
+            data[offset] = (byte)(value >> 24);
+            data[offset + 1] = (byte)(value >> 16);
+            data[offset + 2] = (byte)(value >> 8);
+            data[offset + 3] = (byte)value;
         }
     }
 }

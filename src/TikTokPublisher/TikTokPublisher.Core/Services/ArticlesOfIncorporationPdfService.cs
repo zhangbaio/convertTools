@@ -41,7 +41,7 @@ public static class ArticlesOfIncorporationPdfService
         ArgumentNullException.ThrowIfNull(fields);
         TikTokTimestampCertificateService.EnsureSharedFontResolver();
 
-        var templatePath = ResolveTemplatePath();
+        var templatePath = ResolveTemplatePath("template.pdf");
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
         using var document = PdfReader.Open(templatePath, PdfDocumentOpenMode.Modify);
         var page = document.Pages[0];
@@ -65,6 +65,97 @@ public static class ArticlesOfIncorporationPdfService
         }
 
         document.Save(outputPath);
+    }
+
+    public static string ChineseOutputPath(string englishPath)
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(englishPath))!;
+        return Path.Combine(directory, Path.GetFileNameWithoutExtension(englishPath) + "-中文.pdf");
+    }
+
+    public static void RenderChinese(string outputPath, ArticlesOfIncorporationFields fields)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentNullException.ThrowIfNull(fields);
+        TikTokTimestampCertificateService.EnsureSharedFontResolver();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+        using var document = PdfReader.Open(ResolveTemplatePath("template-zh.pdf"), PdfDocumentOpenMode.Modify);
+        var page = document.Pages[0];
+        using (var graphics = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append))
+        {
+            var filing = new XFont("SimSun", FilingNumberSize, XFontStyleEx.Regular);
+            var stamp = new XFont("SimSun", StampSize, XFontStyleEx.Regular);
+            var body = new XFont("SimSun", BodySize, XFontStyleEx.Regular);
+
+            Draw(graphics, fields.FilingNumber, filing, FilingNumberRight, FilingNumberBaseline, XStringFormats.BaseLineRight);
+            DrawFittedCenter(graphics, Prefix(fields.BusinessId, "商业ID："), stamp, StampCenterX, 66, 145);
+            DrawFittedCenter(graphics, TranslateFiledLine(fields.FiledAt), new XFont("SimSun", 8.5, XFontStyleEx.Regular), StampCenterX, 78, 145);
+            Draw(graphics, ArticlesChineseText.TranslateName(fields.RegisteredAgentName), body, AgentX, AgentNameBaseline);
+            Draw(graphics, ArticlesChineseText.TranslateStreet(fields.RegisteredAgentStreet), body, AgentX, AgentStreetBaseline);
+            Draw(graphics, ArticlesChineseText.TranslateCity(fields.RegisteredAgentCity), body, AgentX, AgentCityBaseline);
+            DrawChineseSignedOn(graphics, fields.SignedOn, body);
+            Draw(graphics, ArticlesChineseText.TranslateShortName(fields.RegisteredAgentName), body, IncorporatorNameX, IncorporatorFirstBaseline);
+            Draw(graphics, ArticlesChineseText.TranslateStreet(fields.RegisteredAgentStreet), body, IncorporatorAddressX, IncorporatorFirstBaseline);
+            Draw(graphics, ArticlesChineseText.TranslateCity(fields.RegisteredAgentCity), body, IncorporatorAddressX, IncorporatorCityBaseline);
+        }
+
+        document.Save(outputPath);
+    }
+
+    private static string TranslateFiledLine(string filedAt)
+    {
+        var translated = ArticlesChineseText.TranslateFiledAt(filedAt);
+        return string.IsNullOrWhiteSpace(translated) ? string.Empty : translated;
+    }
+
+    private static void DrawChineseSignedOn(XGraphics graphics, string signedOn, XFont font)
+    {
+        var date = ArticlesChineseText.TranslateSignedOn(signedOn);
+        if (string.IsNullOrWhiteSpace(date) || date == signedOn.Trim().TrimEnd('.'))
+            return;
+
+        graphics.DrawRectangle(XBrushes.White, new XRect(36, 568, 534, 56));
+        var paragraph = "通过在提供的空格中填写我的姓名，我证明我有权代表该实体提交本文件，已审阅该文件，并据我所知和所信，截至"
+            + date
+            + "，该文件真实、准确且完整。";
+        var lines = Wrap(graphics, paragraph, font, 510);
+        for (var i = 0; i < lines.Count && i < 3; i++)
+            graphics.DrawString(lines[i], font, XBrushes.Black, new XPoint(40.4, 585.9 + i * 16.5));
+    }
+
+    private static void DrawFittedCenter(XGraphics graphics, string text, XFont font, double center, double baseline, double maxWidth)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        var width = graphics.MeasureString(text, font).Width;
+        if (width > maxWidth && width > 0)
+            font = new XFont("SimSun", Math.Max(7, font.Size * maxWidth / width), XFontStyleEx.Regular);
+        Draw(graphics, text, font, center, baseline, XStringFormats.BaseLineCenter);
+    }
+
+    private static List<string> Wrap(XGraphics graphics, string text, XFont font, double maxWidth)
+    {
+        var lines = new List<string>();
+        var current = string.Empty;
+        foreach (var ch in text)
+        {
+            var candidate = current + ch;
+            if (current.Length > 0 && graphics.MeasureString(candidate, font).Width > maxWidth)
+            {
+                lines.Add(current);
+                current = ch.ToString();
+            }
+            else
+            {
+                current = candidate;
+            }
+        }
+
+        if (current.Length > 0)
+            lines.Add(current);
+        return lines;
     }
 
     private static void DrawSignedOn(XGraphics graphics, string value, XFont dateFont, XFont periodFont)
@@ -116,9 +207,9 @@ public static class ArticlesOfIncorporationPdfService
         return text.Length == 0 ? string.Empty : prefix + text;
     }
 
-    private static string ResolveTemplatePath()
+    private static string ResolveTemplatePath(string fileName)
     {
-        var direct = Path.Combine(AppContext.BaseDirectory, "articles-of-incorporation", "template.pdf");
+        var direct = Path.Combine(AppContext.BaseDirectory, "articles-of-incorporation", fileName);
         if (File.Exists(direct))
             return direct;
 
@@ -132,7 +223,7 @@ public static class ArticlesOfIncorporationPdfService
                 "TikTokPublisher.Core",
                 "Resources",
                 "ArticlesOfIncorporation",
-                "template.pdf");
+                fileName);
             if (File.Exists(candidate))
                 return candidate;
             current = current.Parent;
@@ -191,7 +282,7 @@ public sealed record ArticlesOfIncorporationFields(
         var place = Places[rng.Next(Places.Length)];
         return new ArticlesFilingStamp(
             $"{day.Year}{rng.Next(0, 1_000_000):000000}",
-            rng.Next(1_000_000, 10_000_000).ToString(),
+            $"154{rng.Next(0, 10_000):0000}",
             $"{day:MM/dd/yyyy} {hour:00}:{minute:00} {meridiem}",
             $"{day:MM/dd/yyyy}",
             fullName,
