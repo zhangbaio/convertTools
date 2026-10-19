@@ -7,8 +7,8 @@
         x:Class="PlatformPublisher.Desktop.Views.MainWindow"
         Width="1496"
         Height="860"
-        MinWidth="1180"
-        MinHeight="720"
+        MinWidth="800"
+        MinHeight="560"
         Title="云帆多平台发布助手">
     <Grid x:Name="ShellLayout" RowDefinitions="58,*,30">
         <Grid.ColumnDefinitions>
@@ -29,7 +29,8 @@
                     BorderThickness="0,0,1,1"
                     Padding="12,0,8,0">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4">
-                    <TextBlock Text="云帆多平台发布助手"
+                    <TextBlock x:Name="BrandTitle"
+                               Text="云帆多平台发布助手"
                                VerticalAlignment="Center"
                                FontSize="15"
                                FontWeight="Bold"
@@ -77,14 +78,18 @@
 
         <Border Grid.Row="0" Grid.Column="1" Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="0,0,0,1">
             <Grid>
-                <StackPanel Orientation="Horizontal" Margin="10,0">
-                    <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
-                    <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
-                    <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
-                    <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
-                    <Button Classes="nav" Content="数据库" Click="OnDatabaseClick" />
-                    <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
-                </StackPanel>
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel Orientation="Horizontal" Margin="10,0">
+                        <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
+                        <Button x:Name="DramaDownloadNavButton" Classes="nav" Content="短剧下载" Click="OnDramaDownloadNavClick" />
+                        <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
+                        <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
+                        <Button x:Name="KuaishouConfigNavButton" Classes="nav" Content="快手分账配置" Click="OnKuaishouConfigNavClick" />
+                        <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
+                        <Button x:Name="DatabaseNavButton" Classes="nav" Content="数据库" Click="OnDatabaseClick" />
+                        <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
+                    </StackPanel>
+                </ScrollViewer>
             </Grid>
         </Border>
 
@@ -338,6 +343,10 @@
                                       DataContext="{Binding}" />
         </Grid>
         <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" />
+        <Border x:Name="DramaDownloadPage" IsVisible="False" Padding="16,14" Background="#F3F6FA">
+            <ContentControl x:Name="DramaDownloadHost" />
+        </Border>
+        <views:KuaishouPersonalConfigDialog x:Name="KuaishouConfigPage" IsVisible="False" />
         <views:AnalyticsView x:Name="AnalyticsPage" IsVisible="False" />
         <TabControl x:Name="SettingsPage" Classes="secondaryTabs" IsVisible="False">
             <TabItem Header="通用配置">

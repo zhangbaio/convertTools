@@ -538,6 +538,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             string.Equals(settings.DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase))
         {
             var highBookId = HongguoHighCrypto.EnsureBookPrefix(bookId);
+            var standardSingle = HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition
+                && !HongguoClientProfile.IsStandardBatchPlayback(settings.HghighStandardPlaybackMode);
+            var resolveParallel = standardSingle
+                ? Math.Clamp(Math.Max(request.Concurrent, HghighMinimumDownloadConcurrency), 1, 8)
+                : Math.Min(4, Math.Clamp(request.Concurrent, 1, 10));
             return await DownloadWithProviderAsync(
                 request,
                 progress,
@@ -549,14 +554,17 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadFileSegments: Math.Max(downloadFileSegments, 8),
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
-                separateResolveConcurrency: Math.Min(4, Math.Clamp(request.Concurrent, 1, 10)),
+                separateResolveConcurrency: resolveParallel,
                 registerResolvePlan: (videoIds, batchSize) =>
                 {
-                    var mode = HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition
-                        ? "标准版明文直链"
-                        : "高码率";
-                    progress?.Report($"{mode}播放地址启用批量解析：每批 {batchSize} 集，共 {videoIds.Count} 集");
-                    return _hghighApiService.RegisterBatchParsePlan(settings, videoIds, request.Quality, batchSize);
+                    var standardEdition = HongguoClientProfile.NormalizeEdition(settings.HghighEdition) == HongguoClientProfile.StandardEdition;
+                    var single = standardEdition && !HongguoClientProfile.IsStandardBatchPlayback(settings.HghighStandardPlaybackMode);
+                    var mode = standardEdition ? "标准版明文直链" : "高码率";
+                    var effectiveBatch = single ? 1 : batchSize;
+                    progress?.Report(single
+                        ? $"{mode}播放地址按单集解析：同时 {resolveParallel} 集，共 {videoIds.Count} 集"
+                        : $"{mode}播放地址启用批量解析：每批 {effectiveBatch} 集，共 {videoIds.Count} 集");
+                    return _hghighApiService.RegisterBatchParsePlan(settings, videoIds, request.Quality, effectiveBatch);
                 },
                 minConcurrency: HghighMinimumDownloadConcurrency,
                 pieceSize: HghighPieceSizeBytes,

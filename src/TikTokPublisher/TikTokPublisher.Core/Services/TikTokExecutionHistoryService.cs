@@ -11,6 +11,9 @@ public static class TikTokExecutionHistoryService
     public const int FailureRetentionDays = 30;
     private const string SnapshotMigrationKey = "upload-history-snapshots-v1";
     private static readonly HashSet<string> OptimizedDatabases = new(StringComparer.OrdinalIgnoreCase);
+    internal static readonly TimeSpan PruneInterval = TimeSpan.FromHours(1);
+    private static readonly Dictionary<string, DateTime> LastPrunedUtc = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object PruneScheduleLock = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -223,6 +226,26 @@ public static class TikTokExecutionHistoryService
         {
             return [];
         }
+    }
+
+    /// <summary>
+    /// 高频路径（如读取全局设置）使用的限频清理：同一数据库在 <see cref="PruneInterval"/> 内只执行一次全表清理。
+    /// </summary>
+    public static bool PruneOldEventsIfDue(string? databasePath = null, DateTime? utcNow = null)
+    {
+        var path = Path.GetFullPath(string.IsNullOrWhiteSpace(databasePath)
+            ? ClientSettingsStore.MainDatabasePath
+            : databasePath);
+        var now = utcNow ?? DateTime.UtcNow;
+        lock (PruneScheduleLock)
+        {
+            if (LastPrunedUtc.TryGetValue(path, out var last) && now - last < PruneInterval)
+                return false;
+            LastPrunedUtc[path] = now;
+        }
+
+        PruneOldEvents(path);
+        return true;
     }
 
     public static int PruneOldEvents(

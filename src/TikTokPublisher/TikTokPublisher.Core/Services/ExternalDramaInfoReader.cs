@@ -10,7 +10,9 @@ internal sealed record ExternalDramaInfo(
     string Category,
     int DeclaredEpisodeCount,
     string? IntroPath,
-    string IntroSource);
+    string IntroSource,
+    string BookId = "",
+    string PosterUrl = "");
 
 internal static partial class ExternalDramaInfoReader
 {
@@ -23,6 +25,8 @@ internal static partial class ExternalDramaInfoReader
     [
         "详细简介.txt", "短剧信息.txt",
     ];
+
+    private const string DownloaderMetadataFile = "metadata.json";
 
     private static readonly string[] MetadataIntroKeys =
     [
@@ -47,6 +51,8 @@ internal static partial class ExternalDramaInfoReader
             ["详细简介"] = "intro",
             ["发布时间"] = "published_at",
             ["发布日期"] = "published_at",
+            ["短剧ID"] = "book_id",
+            ["封面链接"] = "poster_url",
         };
 
     static ExternalDramaInfoReader() =>
@@ -74,6 +80,8 @@ internal static partial class ExternalDramaInfoReader
         var plainText = ReadTextFile(plainPath);
         var plainFields = ParseDetailedText(plainText);
         var plainIntro = ExtractIntro(plainText);
+        var downloader = ReadDownloaderMetadata(root);
+        var downloaderIntro = ReadMetadataIntro(downloader);
 
         var intro = FirstNonEmpty(
             metadataIntro,
@@ -95,6 +103,11 @@ internal static partial class ExternalDramaInfoReader
             introPath = detailPath;
             introSource = detailPath is null ? "" : $"{Path.GetFileName(detailPath)}:简介";
         }
+        else if (!string.IsNullOrWhiteSpace(downloaderIntro))
+        {
+            intro = downloaderIntro;
+            introSource = DownloaderMetadataFile;
+        }
 
         if (string.IsNullOrWhiteSpace(intro))
         {
@@ -112,19 +125,35 @@ internal static partial class ExternalDramaInfoReader
             Title: FirstNonEmpty(
                 metadataTitle,
                 plainFields.GetValueOrDefault("title"),
-                detailFields.GetValueOrDefault("title")),
+                detailFields.GetValueOrDefault("title"),
+                ReadString(downloader, "title")),
             Intro: Limit(intro, 4000),
             Category: FirstNonEmpty(
                 metadataCategory,
                 plainFields.GetValueOrDefault("category"),
-                detailFields.GetValueOrDefault("category")),
-            DeclaredEpisodeCount: Math.Max(
+                detailFields.GetValueOrDefault("category"),
+                ReadDownloaderCategory(downloader)),
+            DeclaredEpisodeCount: new[]
+            {
                 metadataEpisodeCount,
-                Math.Max(
-                    ParseEpisodeCount(plainFields.GetValueOrDefault("episode_count")),
-                    ParseEpisodeCount(detailFields.GetValueOrDefault("episode_count")))),
+                ParseEpisodeCount(plainFields.GetValueOrDefault("episode_count")),
+                ParseEpisodeCount(detailFields.GetValueOrDefault("episode_count")),
+                ParseEpisodeCount(ReadString(downloader, "episode_count")),
+            }.Max(),
             IntroPath: introPath,
-            IntroSource: introSource);
+            IntroSource: introSource,
+            BookId: FirstBookId(
+                plainFields.GetValueOrDefault("book_id"),
+                detailFields.GetValueOrDefault("book_id"),
+                ReadString(downloader, "drama_id"),
+                ReadString(downloader, "book_id"),
+                ReadString(downloader, "bookId")),
+            PosterUrl: PreferredPosterUrl(
+                plainFields.GetValueOrDefault("poster_url"),
+                detailFields.GetValueOrDefault("poster_url"),
+                ReadString(downloader, "cover_url"),
+                ReadString(downloader, "poster_url"),
+                ReadString(downloader, "cover")));
     }
 
     internal static string ExtractIntro(string? value)
@@ -145,8 +174,14 @@ internal static partial class ExternalDramaInfoReader
         var recognized = 0;
         foreach (var rawLine in text.Split('\n'))
         {
-            var match = DetailLineRegex().Match(rawLine);
-            var sourceKey = match.Success ? match.Groups["key"].Value.Trim() : "";
+            if (SeparatorLineRegex().IsMatch(rawLine))
+            {
+                activeKey = "";
+                continue;
+            }
+            var bracketMatch = BracketLineRegex().Match(rawLine);
+            var match = bracketMatch.Success ? bracketMatch : DetailLineRegex().Match(rawLine);
+            var sourceKey = match.Success ? NormalizeFieldKey(match.Groups["key"].Value) : "";
             if (match.Success && DetailKeyAliases.TryGetValue(sourceKey, out var normalizedKey))
             {
                 activeKey = normalizedKey;
@@ -154,6 +189,11 @@ internal static partial class ExternalDramaInfoReader
                 if (!fields.TryGetValue(activeKey, out var lines))
                     fields[activeKey] = lines = [];
                 lines.Add(match.Groups["value"].Value.Trim());
+                continue;
+            }
+            if (bracketMatch.Success)
+            {
+                activeKey = "";
                 continue;
             }
             if (activeKey == "intro")
@@ -187,6 +227,45 @@ internal static partial class ExternalDramaInfoReader
         }
         return "";
     }
+
+    private static JsonObject ReadDownloaderMetadata(string projectDirectory)
+    {
+        var path = Path.Combine(projectDirectory, DownloaderMetadataFile);
+        if (!File.Exists(path)) return new JsonObject();
+        try { return JsonNode.Parse(ReadTextFile(path)) as JsonObject ?? new JsonObject(); }
+        catch { return new JsonObject(); }
+    }
+
+    private static string ReadDownloaderCategory(JsonObject downloader)
+    {
+        var category = ReadString(downloader, "category");
+        if (!string.IsNullOrWhiteSpace(category)) return category;
+        if (downloader["categories"] is not JsonArray categories) return "";
+        var names = categories
+            .Select(node => node is JsonValue value && value.TryGetValue<string>(out var text) ? text.Trim() : "")
+            .Where(text => !string.IsNullOrWhiteSpace(text));
+        return string.Join('·', names);
+    }
+
+    private static string FirstBookId(params string?[] values) =>
+        values.Select(value => (value ?? "").Trim())
+            .FirstOrDefault(value => BookIdRegex().IsMatch(value)) ?? "";
+
+    private static string PreferredPosterUrl(params string?[] values)
+    {
+        // 红果简介里的封面链接常是 heic，平台上传不认，优先取 jpg/png 等常规格式。
+        var urls = values
+            .Select(value => (value ?? "").Trim())
+            .Where(value => value.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                            value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return urls.FirstOrDefault(url => !url.Contains(".heic", StringComparison.OrdinalIgnoreCase))
+               ?? urls.FirstOrDefault()
+               ?? "";
+    }
+
+    private static string NormalizeFieldKey(string value) =>
+        WhitespaceRegex().Replace(value ?? "", "");
 
     private static string? FirstExistingFile(string projectDirectory, IEnumerable<string> names)
     {
@@ -270,6 +349,18 @@ internal static partial class ExternalDramaInfoReader
 
     [GeneratedRegex(@"^\s*(?<key>[^：:\r\n]{1,20})\s*[：:]\s*(?<value>.*)$", RegexOptions.CultureInvariant)]
     private static partial Regex DetailLineRegex();
+
+    [GeneratedRegex(@"^\s*【(?<key>[^】\r\n]{1,20})】\s*(?<value>.*)$", RegexOptions.CultureInvariant)]
+    private static partial Regex BracketLineRegex();
+
+    [GeneratedRegex(@"^\s*[─━═\-=_*~·]{3,}\s*$", RegexOptions.CultureInvariant)]
+    private static partial Regex SeparatorLineRegex();
+
+    [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
+    private static partial Regex WhitespaceRegex();
+
+    [GeneratedRegex(@"^\d{6,}$", RegexOptions.CultureInvariant)]
+    private static partial Regex BookIdRegex();
 
     [GeneratedRegex(@"\d+", RegexOptions.CultureInvariant)]
     private static partial Regex EpisodeCountRegex();

@@ -2,12 +2,14 @@ using System.ComponentModel;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Archive;
@@ -51,10 +53,13 @@ public partial class TikTokQueueView : UserControl
         42, 48, 72, 120, 120, 48, 92, 56, 56, 56, 56, 56, 56, 56, 62, 56, 62, 0, 62, 56, 56, 120,
     };
     private readonly double[] _queueTableColumnWidths = QueueTableDefaultColumnWidths.ToArray();
+    private bool _queueColumnsUserAdjusted;
+    private bool _compactTable;
     private readonly List<WeakReference<Grid>> _queueTableRowGrids = new();
     private int _queueResizeColumnIndex = -1;
     private double _queueResizeStartX;
     private double _queueResizeStartWidth;
+    private bool _lockingQueueListHorizontalOffset;
     private readonly HashSet<string> _queueStopRequestedWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeQueueRunWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CancellationTokenSource> _copyrightProofPreparationRuns =
@@ -70,6 +75,12 @@ public partial class TikTokQueueView : UserControl
     public TikTokQueueView()
     {
         InitializeComponent();
+        QueueTableGrid.SetColumnWidths(QueueTableRootGrid, _queueTableColumnWidths);
+        QueueProjectList.AddHandler(
+            ScrollViewer.ScrollChangedEvent,
+            OnQueueProjectListScrollChanged,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
         DataContextChanged += OnDataContextChanged;
         Loaded += OnLoaded;
         DetachedFromVisualTree += async (_, _) => await CloseManualExternalBrowserSessionsAsync().ConfigureAwait(false);
@@ -318,7 +329,8 @@ public partial class TikTokQueueView : UserControl
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         _ready = true;
-        ApplyQueueTableColumnWidths();
+        AttachQueueListHorizontalLock();
+        ApplyFittedQueueColumns(QueueTableScrollViewer.Bounds.Width);
         ApplyConfigToVm();
         if (!string.IsNullOrWhiteSpace(_vm?.WorkspacePath))
             _vm.RefreshWorkspaceProjects();
@@ -672,7 +684,7 @@ public partial class TikTokQueueView : UserControl
             };
             vm.StatusMessage = $"{row.NewTitle}：{modeLabel}";
             vm.AppendLog(vm.StatusMessage);
-            await InfoDialog.ShowAsync(owner, modeLabel + "。下次执行“生成角色矢量图”时生效。", "角色素材已保存");
+            await InfoDialog.ShowAsync(owner, modeLabel + "。下次执行“角色图”时生效。", "角色素材已保存");
         }
         catch (Exception ex)
         {
@@ -743,6 +755,35 @@ public partial class TikTokQueueView : UserControl
         ApplyColumnWidths(grid);
     }
 
+    private void AttachQueueListHorizontalLock()
+    {
+        QueueProjectList.ApplyTemplate();
+        if (QueueProjectList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is not { } scroll)
+            return;
+
+        scroll.ScrollChanged -= OnQueueProjectListScrollChanged;
+        scroll.ScrollChanged += OnQueueProjectListScrollChanged;
+    }
+
+    private void OnQueueProjectListScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (_lockingQueueListHorizontalOffset || e.Source is not ScrollViewer scroll)
+            return;
+        if (scroll.Offset.X <= 0.5)
+            return;
+
+        // 行网格比视口宽时，滚动锚定会把纵向滑动变成横向偏移，表头却留在外层滚动里。
+        _lockingQueueListHorizontalOffset = true;
+        try
+        {
+            scroll.Offset = new Vector(0, scroll.Offset.Y);
+        }
+        finally
+        {
+            _lockingQueueListHorizontalOffset = false;
+        }
+    }
+
     private void OnQueueColumnResizerPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Control control ||
@@ -781,9 +822,78 @@ public partial class TikTokQueueView : UserControl
         if (_queueResizeColumnIndex < 0)
             return;
 
+        var resizedIndex = _queueResizeColumnIndex;
         e.Pointer.Capture(null);
         _queueResizeColumnIndex = -1;
+        if (resizedIndex >= 0 &&
+            Math.Abs(_queueTableColumnWidths[resizedIndex] - _queueResizeStartWidth) > 0.5)
+        {
+            _queueColumnsUserAdjusted = true;
+        }
+
         e.Handled = true;
+    }
+
+    public void SetCompactLayout(bool compact)
+    {
+        _compactTable = compact;
+        if (_queueColumnsUserAdjusted)
+            return;
+
+        ApplyFittedQueueColumns(QueueTableScrollViewer.Bounds.Width);
+    }
+
+    private void OnQueueTableViewportSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (!_compactTable || _queueColumnsUserAdjusted || _queueResizeColumnIndex >= 0)
+            return;
+
+        ApplyFittedQueueColumns(e.NewSize.Width);
+    }
+
+    private void ApplyFittedQueueColumns(double viewportWidth)
+    {
+        if (!_compactTable)
+        {
+            RestoreDefaultQueueColumns();
+            return;
+        }
+
+        if (viewportWidth < 80)
+            return;
+
+        var fitted = LaptopLayout.FitColumns(
+            QueueTableDefaultColumnWidths,
+            QueueTableMinColumnWidths,
+            Math.Max(0, viewportWidth - 2));
+        var changed = false;
+        for (var i = 0; i < fitted.Length && i < _queueTableColumnWidths.Length; i++)
+        {
+            if (Math.Abs(_queueTableColumnWidths[i] - fitted[i]) <= 0.5)
+                continue;
+
+            _queueTableColumnWidths[i] = fitted[i];
+            changed = true;
+        }
+
+        if (changed)
+            ApplyQueueTableColumnWidths();
+    }
+
+    private void RestoreDefaultQueueColumns()
+    {
+        var changed = false;
+        for (var i = 0; i < QueueTableDefaultColumnWidths.Length; i++)
+        {
+            if (Math.Abs(_queueTableColumnWidths[i] - QueueTableDefaultColumnWidths[i]) <= 0.5)
+                continue;
+
+            _queueTableColumnWidths[i] = QueueTableDefaultColumnWidths[i];
+            changed = true;
+        }
+
+        if (changed)
+            ApplyQueueTableColumnWidths();
     }
 
     private void ApplyQueueTableColumnWidths()
@@ -2323,7 +2433,7 @@ public partial class TikTokQueueView : UserControl
         if (result.ExecutionMode == CopyrightProofExecutionMode.GenerateAndEdit)
         {
             vm.AppendLog(
-                "AI 大纲补全专用模式已启用：仅执行“生成AI大纲、上传剧集”，" +
+                "AI 大纲补全专用模式已启用：仅执行“AI大纲、上传”，" +
                 "禁止生成其他证明材料及下载视频补源；编辑阶段只追加 AI剧本大纲.pdf。");
         }
         vm.AppendLog(
@@ -3998,7 +4108,7 @@ public partial class TikTokQueueView : UserControl
                 var confirmed = await ConfirmAsync(
                     owner,
                     "确认强制重跑",
-                    "已勾选“强制重跑已完成步骤”。继续执行会重新运行已完成的步骤，可能重新下载、改写、生成、删除源视频或上传。确认继续执行勾选队列？");
+                    "已勾选“强制重跑”。继续执行会重新运行已完成的步骤，可能重新下载、改写、生成、删除源视频或上传。确认继续执行勾选队列？");
                 if (!confirmed)
                 {
                     vm.StatusMessage = "已取消执行勾选队列";
@@ -4038,7 +4148,7 @@ public partial class TikTokQueueView : UserControl
         var isEditRun = string.Equals(displayOptions.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
         var isReplaceDraftRun = displayOptions.IsReplaceDraftRun();
         var isCopyrightProofRun = displayOptions.IsCopyrightProofWorkflowRun();
-        vm.StatusMessage = displayOptions.IsAiOutlineSupplementRun()
+        var runningStatusMessage = displayOptions.IsAiOutlineSupplementRun()
             ? "AI 大纲补全执行中…"
             : displayOptions.IsCopyrightProofMaterialOnlyRun()
             ? "证明材料生成中…"
@@ -4049,6 +4159,16 @@ public partial class TikTokQueueView : UserControl
             : isEditRun
                 ? "编辑剧集执行中…"
                 : "TikTok 队列执行中…";
+        vm.StatusMessage = "正在准备队列…";
+        void OnQueueWorkerStarted()
+        {
+            if (Dispatcher.UIThread.CheckAccess())
+                vm.StatusMessage = runningStatusMessage;
+            else
+                Dispatcher.UIThread.Post(() => vm.StatusMessage = runningStatusMessage);
+            onWorkerStarted?.Invoke();
+        }
+
         try
         {
             var host = CreateQueuePublishHost();
@@ -4066,10 +4186,12 @@ public partial class TikTokQueueView : UserControl
                 ct,
                 optionsOverride,
                 orderedProjectDirFilter,
-                onWorkerStarted,
+                OnQueueWorkerStarted,
                 runTarget,
                 preserveProjectLogsSince);
             workerReturnedSummary = summary is not null;
+            if (summary is null)
+                vm.StatusMessage = "目标工作目录队列为空，未启动执行";
             if (summary is not null && !summary.Stopped && summary.StoppedAccountCount > 0)
                 vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}，已按账号停止 {summary.StoppedAccountCount} 个";
             if (summary is not null && !summary.Stopped && summary.StoppedAccountCount == 0)

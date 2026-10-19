@@ -36,4 +36,29 @@
     <ProjectReference Include="..\..\TikTokPublisher\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
     <ProjectReference Include="..\..\ChannelsPublisher\ChannelsPublisher.Ui\ChannelsPublisher.Ui.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="$(MSBuildThisFileDirectory)..\..\ShortDrama\ShortDrama.Infrastructure\Tools\hongguo-high\provision_startup_masters.py">
+      <Link>tools\hongguo-high\provision_startup_masters.py</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\python\python.exe')">
+    <Content Include="$(MSBuildThisFileDirectory)..\..\..\packaging\dependencies\tools\win-x64\python\**\*">
+      <Link>tools\win-x64\python\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <!-- PreserveNewest keeps leftover Frida 17 files when the cache is pinned back to 16.7.19. -->
+  <Target Name="ResetStaleBundledFrida17" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <_BundledPythonOut>$(OutputPath)tools\win-x64\python</_BundledPythonOut>
+    </PropertyGroup>
+    <ItemGroup>
+      <_StaleFrida17 Include="$(_BundledPythonOut)\Lib\site-packages\frida-17.*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(_BundledPythonOut)"
+               Condition="'@(_StaleFrida17)' != '' or Exists('$(_BundledPythonOut)\Lib\site-packages\frida-17.17.0.dist-info')" />
+  </Target>
 </Project>

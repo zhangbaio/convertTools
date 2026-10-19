@@ -44,6 +44,7 @@ public sealed class TikTokPublishDefaultsTests
         settings.FrameExtractTime.Should().Be(ClientSettingsDefaults.FrameExtractTime);
         settings.FrameExtractNeighborOffsetsSeconds.Should().Be(ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds);
         settings.FrameExtractFallbackPercents.Should().Be(ClientSettingsDefaults.FrameExtractFallbackPercents);
+        settings.TiktokAccountAnalyticsEnabled.Should().BeFalse();
         settings.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
         settings.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
         settings.TiktokProjectImageRenderEpisodeLimit.Should().Be(6);
@@ -276,6 +277,7 @@ public sealed class TikTokPublishDefaultsTests
             loaded.FrameExtractTime.Should().Be(ClientSettingsDefaults.FrameExtractTime);
             loaded.FrameExtractNeighborOffsetsSeconds.Should().Be(ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds);
             loaded.FrameExtractFallbackPercents.Should().Be(ClientSettingsDefaults.FrameExtractFallbackPercents);
+            loaded.TiktokAccountAnalyticsEnabled.Should().BeFalse();
             loaded.TiktokAllowOverLimitUploadImport.Should().Be(ClientSettingsDefaults.TiktokAllowOverLimitUploadImport);
             loaded.TiktokOverLimitDownloadEpisodeCount.Should().Be(ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
             loaded.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);

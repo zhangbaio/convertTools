@@ -26,6 +26,9 @@ public static class ShortDramaDramaServices
     public static IDramaSearchService Search => Router.Value;
     public static IDramaDownloader Downloader => Router.Value;
 
+    public static void UseSettingsDatabase(string? databasePath) =>
+        SettingsProvider.Value.UseDatabase(databasePath);
+
     public static void RefreshSettings(ClientSettings? settings = null)
     {
         if (settings is not null)
@@ -34,7 +37,7 @@ public static class ShortDramaDramaServices
         }
         else
         {
-            SettingsProvider.Value.Replace(Services.ClientSettingsStore.Load());
+            SettingsProvider.Value.Reload();
         }
     }
 

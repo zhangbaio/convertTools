@@ -393,4 +393,55 @@
         <Setter Property="Padding" Value="0" />
     </Style>
 
+    <Style Selector="DockPanel.pageRoot, ScrollViewer.pageRoot">
+        <Setter Property="Margin" Value="16,14,16,16" />
+    </Style>
+
+    <!-- 笔记本等工作区较小时收紧顶栏、按钮和页边距。大屏不带 compact，保持原密度。 -->
+    <Style Selector="Window.compact TextBlock.topBrandLabel">
+        <Setter Property="FontSize" Value="15" />
+    </Style>
+
+    <Style Selector="Window.compact TextBlock.pageTitle">
+        <Setter Property="FontSize" Value="16" />
+    </Style>
+
+    <Style Selector="Window.compact Button">
+        <Setter Property="MinHeight" Value="30" />
+        <Setter Property="Padding" Value="8,4" />
+    </Style>
+
+    <Style Selector="Window.compact Button.topNavItem">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="Padding" Value="12,6,12,4" />
+        <Setter Property="MinHeight" Value="0" />
+    </Style>
+
+    <Style Selector="Window.compact Button.compactAction">
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="MinHeight" Value="30" />
+    </Style>
+
+    <Style Selector="Window.compact Button.queueLink">
+        <Setter Property="Padding" Value="6,0" />
+        <Setter Property="MinHeight" Value="30" />
+    </Style>
+
+    <Style Selector="Window.compact TextBox, Window.compact ComboBox, Window.compact NumericUpDown">
+        <Setter Property="MinHeight" Value="30" />
+    </Style>
+
+    <Style Selector="Window.compact TabControl.secondaryTabs TabItem">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="Margin" Value="0,0,16,6" />
+    </Style>
+
+    <Style Selector="Window.compact Border.controlsFrame">
+        <Setter Property="Padding" Value="10,8" />
+    </Style>
+
+    <Style Selector="Window.compact DockPanel.pageRoot, Window.compact ScrollViewer.pageRoot">
+        <Setter Property="Margin" Value="10,8,10,10" />
+    </Style>
+
 </Styles>

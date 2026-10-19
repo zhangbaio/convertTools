@@ -140,6 +140,7 @@ public static class LocalParaformerAsrClient
         using var detector = new VoiceActivityDetector(vadConfig, bufferSeconds);
         var window = vadConfig.SileroVad.WindowSize > 0 ? vadConfig.SileroVad.WindowSize : 512;
         var segments = new List<TranscriptSegment>();
+        var emptyResults = 0;
 
         lock (RecognizerLock)
         {
@@ -155,11 +156,17 @@ public static class LocalParaformerAsrClient
                 Array.Copy(samples, offset, chunk, 0, window);
                 detector.AcceptWaveform(chunk);
                 offset += window;
-                DrainSegments(detector, recognizer, sampleRate, segments, ct);
+                DrainSegments(detector, recognizer, sampleRate, segments, ref emptyResults, ct);
             }
 
             detector.Flush();
-            DrainSegments(detector, recognizer, sampleRate, segments, ct);
+            DrainSegments(detector, recognizer, sampleRate, segments, ref emptyResults, ct);
+        }
+
+        if (segments.Count == 0 && emptyResults > 0)
+        {
+            throw new InvalidOperationException(
+                "本地 ASR 没有返回文本。请确认 Paraformer 模型、tokens.txt 和 silero_vad.onnx 完整；模型路径含中文时需要能复制到英文缓存目录。");
         }
 
         return segments;
@@ -190,20 +197,52 @@ public static class LocalParaformerAsrClient
         OfflineRecognizer recognizer,
         int sampleRate,
         List<TranscriptSegment> segments,
+        ref int emptyResults,
         CancellationToken ct)
     {
         while (!detector.IsEmpty())
         {
             ct.ThrowIfCancellationRequested();
-            var seg = detector.Front();
+            SpeechSegment seg;
+            try
+            {
+                seg = detector.Front();
+            }
+            catch (NullReferenceException ex)
+            {
+                throw new InvalidOperationException(
+                    "本地 ASR 读取语音片段失败。请确认 silero_vad.onnx 完整，且模型路径可以转换到英文目录。",
+                    ex);
+            }
+
+            var samples = seg.Samples;
+            if (samples is not { Length: > 0 })
+            {
+                emptyResults++;
+                detector.Pop();
+                continue;
+            }
+
             using var stream = recognizer.CreateStream();
-            stream.AcceptWaveform(sampleRate, seg.Samples);
+            stream.AcceptWaveform(sampleRate, samples);
             recognizer.Decode(stream);
+            // sherpa-onnx 在片段没有文本时把结果指针留空，直接读 Text 会空引用。
+            string? text;
+            try
+            {
+                text = stream.Result?.Text;
+            }
+            catch (NullReferenceException)
+            {
+                text = null;
+                emptyResults++;
+            }
+
             var transcript = CreateTranscriptSegment(
                 seg.Start,
-                seg.Samples.Length,
+                samples.Length,
                 sampleRate,
-                stream.Result.Text);
+                text);
             if (transcript is { } value)
                 segments.Add(value);
 

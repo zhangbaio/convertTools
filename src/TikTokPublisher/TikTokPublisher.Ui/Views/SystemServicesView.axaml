@@ -5,7 +5,7 @@
              x:DataType="vm:SystemServicesViewModel"
              Background="{StaticResource PythonPageBgBrush}">
 
-    <ScrollViewer Margin="16,14,16,16">
+    <ScrollViewer Classes="pageRoot">
         <StackPanel Spacing="12">
             <TextBlock Text="系统能力" Classes="pageTitle" />
             <TextBlock Text="{Binding ServiceSummaryText}"
@@ -48,6 +48,8 @@
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="登录 / 更换账号" Click="OnLicenseLoginClick" Classes="primaryAction" />
                             <Button Content="退出登录 / 清除本机登录" Click="OnLicenseLogoutClick" />
+                            <Button Content="导出配置" Click="OnExportConfigClick" />
+                            <Button Content="导入配置" Click="OnImportConfigClick" />
                         </StackPanel>
 
                         <TextBlock Text="软件每次启动及运行期间都会联网校验账号和设备授权；网络失败、未登录、授权过期、设备不匹配或服务器拒绝授权时，软件将直接退出。登录信息保存在 ~/.tiktok_publisher/license_state.bin。"
@@ -233,21 +235,21 @@
                         </StackPanel>
 
                         <WrapPanel>
-                            <CheckBox Content="下载剧集" IsChecked="{Binding RemoteDownloadEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="改写信息" IsChecked="{Binding RemoteRewriteEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="生成海报" IsChecked="{Binding RemoteGeneratePosterEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="生成证明材料" IsChecked="{Binding RemoteGenerateProofMaterialEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="小文件修复" IsChecked="{Binding RemoteSmallVideoRepairEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="视频翻译" IsChecked="{Binding RemoteVideoTranslateEnabled}" Margin="0,0,16,10" IsVisible="False" />
-                            <CheckBox Content="素材校验" IsChecked="{Binding RemoteMaterialValidateEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="删除源视频" IsChecked="{Binding RemoteDeleteSourceVideosEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="上传剧集" IsChecked="{Binding RemoteUploadEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="下载" IsChecked="{Binding RemoteDownloadEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="改写" IsChecked="{Binding RemoteRewriteEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="海报" IsChecked="{Binding RemoteGeneratePosterEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="证明材料" IsChecked="{Binding RemoteGenerateProofMaterialEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="修复" IsChecked="{Binding RemoteSmallVideoRepairEnabled}" Margin="0,0,16,10" ToolTip.Tip="检查并修复过小的上传视频。" />
+                            <CheckBox Content="翻译" IsChecked="{Binding RemoteVideoTranslateEnabled}" Margin="0,0,16,10" IsVisible="False" />
+                            <CheckBox Content="校验" IsChecked="{Binding RemoteMaterialValidateEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="删源" IsChecked="{Binding RemoteDeleteSourceVideosEnabled}" Margin="0,0,16,10" ToolTip.Tip="上传副本就绪后删除源视频。" />
+                            <CheckBox Content="上传" IsChecked="{Binding RemoteUploadEnabled}" Margin="0,0,16,10" />
                         </WrapPanel>
 
                         <WrapPanel>
-                            <CheckBox Content="上传完成后自动归档" IsChecked="{Binding RemoteAutoArchiveAfterUpload}" Margin="0,0,18,10" />
-                            <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding RemoteForceRerunCompletedSteps}" Margin="0,0,18,10" />
-                            <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding RemotePreferUploadWhenReady}" Margin="0,0,18,10" />
+                            <CheckBox Content="传后归档" IsChecked="{Binding RemoteAutoArchiveAfterUpload}" Margin="0,0,18,10" ToolTip.Tip="上传成功后自动把项目移入归档。" />
+                            <CheckBox Content="强制重跑" IsChecked="{Binding RemoteForceRerunCompletedSteps}" Margin="0,0,18,10" ToolTip.Tip="已完成步骤会重新执行。" />
+                            <CheckBox Content="优先上传" IsChecked="{Binding RemotePreferUploadWhenReady}" Margin="0,0,18,10" ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
                         </WrapPanel>
 
                         <TextBlock Text="这组配置仅用于飞书远程命令里的“上传 TikTok 剧集”。本地 TikTok 上传页上的勾选步骤不会被这里覆盖。"

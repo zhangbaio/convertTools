@@ -4,7 +4,97 @@
              x:Class="PlatformPublisher.Desktop.Views.WeixinWorkflowView"
              x:DataType="vm:MainWindowViewModel"
              Background="#F3F6FA">
+    <UserControl.Styles>
+        <Style Selector="UserControl.kuaishouQueue Button.compactAction">
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="9,4" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="UserControl.kuaishouQueue ListBoxItem">
+            <Setter Property="Padding" Value="8,1" />
+            <Setter Property="MinHeight" Value="28" />
+        </Style>
+        <Style Selector="UserControl.kuaishouQueue ListBoxItem CheckBox">
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </UserControl.Styles>
     <Grid RowDefinitions="Auto,Auto,Auto,*,30" RowSpacing="8">
+        <Border x:Name="KuaishouChrome" Grid.Row="0" Grid.RowSpan="3" Classes="panel" Padding="8" IsVisible="False">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0"
+                            ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
+                    <Button x:Name="KuaishouUploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="快手分账配置" Click="OnKuaishouConfigClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <TextBlock Text="ADX" VerticalAlignment="Center" Margin="4,0,4,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <NumericUpDown x:Name="KuaishouAdxCount" Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <Button Content="下载ADX素材" Click="OnKuaishouAdxDownloadClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <Button Content="发布ADX素材" Click="OnKuaishouAdxPublishClick" Classes="primaryAction compactAction" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                </WrapPanel>
+                <Grid Grid.Row="1" ColumnDefinitions="64,*,Auto" ColumnSpacing="8">
+                    <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}" Watermark="选择快手分账工作目录" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                        <Button Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="secondaryAction compactAction" />
+                        <Button Content="重置" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" />
+                    </StackPanel>
+                </Grid>
+                <WrapPanel Grid.Row="2" Orientation="Horizontal">
+                    <TextBlock Text="本地：" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0" />
+                    <CheckBox Content="下载" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,12,0" />
+                    <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,0" />
+                    <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,12,0" />
+                    <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,12,0" />
+                    <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,16,0" />
+                    <TextBlock Text="浏览器：" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0" />
+                    <CheckBox Content="上传剧集" IsChecked="True" IsEnabled="False" Margin="0,0,12,0" />
+                    <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,0" />
+                    <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="secondaryAction compactAction" />
+                </WrapPanel>
+                <Grid Grid.Row="3" ColumnDefinitions="48,*,Auto" ColumnSpacing="8">
+                    <TextBlock Text="搜索" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <TextBox Grid.Column="1" Text="{Binding WorkflowFilterText}" Watermark="搜索原剧名 / 新剧名 / 账号 / 状态 / 问题" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                        <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="secondaryAction compactAction" />
+                        <Button Content="勾选到当前项目" Command="{Binding CheckToCurrentCommand}" Classes="secondaryAction compactAction" />
+                        <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="secondaryAction compactAction" />
+                        <Button Content="取消" Command="{Binding UncheckAllVisibleCommand}" Classes="secondaryAction compactAction" />
+                        <Button Content="删除勾选" Command="{Binding RemoveCheckedJobsCommand}" Classes="dangerAction compactAction"
+                                ToolTip.Tip="只从任务队列删除，保留项目目录和文件" />
+                        <TextBlock Text="每页" VerticalAlignment="Center" Foreground="#64748B" Margin="6,0,0,0" />
+                        <NumericUpDown Width="64" Value="{Binding WorkflowPageSize}" Minimum="5" Maximum="200" Increment="5" />
+                        <Button Content="‹" Command="{Binding PreviousWorkflowPageCommand}" Classes="secondaryAction compactAction" />
+                        <TextBlock Text="{Binding WorkflowPageSummary}" VerticalAlignment="Center" Foreground="#64748B" />
+                        <Button Content="›" Command="{Binding NextWorkflowPageCommand}" Classes="secondaryAction compactAction" />
+                    </StackPanel>
+                </Grid>
+                <WrapPanel Grid.Row="4" Orientation="Horizontal">
+                    <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <TextBlock Text="自动上架" VerticalAlignment="Center" Margin="4,0,6,0" />
+                    <NumericUpDown Width="60" Value="{Binding AutoShelfMaxPages}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
+                    <TextBlock Text="页" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <NumericUpDown Width="60" Value="{Binding AutoShelfMaxRounds}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
+                    <TextBlock Text="轮" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <Button Content="开始" Command="{Binding AutoShelfCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="重置当前任务" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="批量重置" Command="{Binding ResetCheckedJobsCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction compactAction" />
+                </WrapPanel>
+            </Grid>
+        </Border>
+        <Border x:Name="WeixinChrome" Grid.Row="0" Grid.RowSpan="3" IsVisible="True">
+        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
         <Border Grid.Row="0" Classes="panel" Padding="10">
             <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
                 <Grid ColumnDefinitions="78,*,Auto" ColumnSpacing="8">
@@ -31,8 +121,8 @@
                             ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
                     <Button x:Name="UploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,0"
                              ToolTip.Tip="按剧名精确搜索，创建项目并加入执行队列" />
-                    <TextBlock x:Name="KuaishouAdxCountLabel" Text="ADX素材数" VerticalAlignment="Center" Margin="2,0,4,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                    <NumericUpDown x:Name="KuaishouAdxCount" Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <TextBlock Text="ADX素材数" VerticalAlignment="Center" Margin="2,0,4,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <NumericUpDown Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
                     <Button x:Name="KuaishouAdxDownloadButton" Content="下载ADX素材" Click="OnKuaishouAdxDownloadClick"
                             Classes="secondaryAction compactAction" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
                     <Button x:Name="KuaishouAdxPublishButton" Content="发布ADX素材" Click="OnKuaishouAdxPublishClick"
@@ -155,6 +245,8 @@
                 </Grid>
             </Grid>
         </Border>
+        </Grid>
+        </Border>
 
         <Border Grid.Row="3" Classes="panel" ClipToBounds="True">
             <Grid RowDefinitions="Auto,*">
@@ -175,8 +267,47 @@
                     </Grid>
                 </Border>
                 <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <Grid MinWidth="2300" RowDefinitions="Auto,*">
-                        <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,7">
+                    <Grid MinWidth="1480" RowDefinitions="Auto,*">
+                        <Border x:Name="KuaishouQueueHeader" Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="8,4" IsVisible="False">
+                            <Grid ColumnDefinitions="52,52,220,220,70,110,90,100,100,110,90,100,80" ColumnSpacing="8">
+                                <TextBlock Text="序号" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="1" Text="执行" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="2" Text="原剧名" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="3" Text="新剧名" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="4" Text="集数" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="5" Text="加入时间" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="6" Text="下载" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="7" Text="改写信息" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="8" Text="生成海报" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="9" Text="生成工程图" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="10" Text="补齐字段" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="11" Text="上传剧集" FontWeight="SemiBold" />
+                                <TextBlock Grid.Column="12" Text="状态" FontWeight="SemiBold" />
+                            </Grid>
+                        </Border>
+                        <ListBox x:Name="KuaishouQueueList" Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
+                                 Background="#FFFFFF" BorderThickness="0" IsVisible="False">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PublishJobRowViewModel">
+                                    <Grid ColumnDefinitions="52,52,220,220,70,110,90,100,100,110,90,100,80" ColumnSpacing="8" Margin="8,2">
+                                        <TextBlock Text="{Binding QueueIndex}" VerticalAlignment="Center" />
+                                        <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="3" Text="{Binding NewTitle}" Foreground="#0369A1" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="4" Text="{Binding EpisodeCountText}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="5" Text="{Binding CreatedAtText}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="6" Text="{Binding DownloadStepStatus}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="7" Text="{Binding RewriteStepStatus}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="8" Text="{Binding PosterStepStatus}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="9" Text="{Binding ProjectImageStepStatus}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="10" Text="{Binding AutoFillStepStatus}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="11" Text="{Binding UploadStepStatus}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="12" Text="{Binding StatusText}" Foreground="#047857" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Border x:Name="QueueHeader" Grid.Row="0" Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,7">
                             <Grid ColumnDefinitions="44,110,210,210,90,60,100,64,72,64,64,64,64,64,64,80,80,64,72,64,64,64,90,240" ColumnSpacing="8">
                                 <TextBlock Text="勾选" FontWeight="SemiBold" />
                                 <TextBlock Grid.Column="1" Text="账号" FontWeight="SemiBold" />
@@ -204,12 +335,12 @@
                                 <TextBlock Grid.Column="23" Text="当前信息" FontWeight="SemiBold" />
                             </Grid>
                         </Border>
-                        <ListBox Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
+                        <ListBox x:Name="WeixinQueueList" Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
                                  Background="#FFFFFF" BorderThickness="0">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
-                                    <Grid ColumnDefinitions="44,110,210,210,90,60,100,64,72,64,64,64,64,64,64,80,80,64,72,64,64,64,90,240" ColumnSpacing="8" Margin="10,7">
-                                        <CheckBox IsChecked="{Binding IsChecked}" />
+                                    <Grid ColumnDefinitions="44,110,210,210,90,60,100,64,72,64,64,64,64,64,64,80,80,64,72,64,64,64,90,240" ColumnSpacing="8" Margin="8,2">
+                                        <CheckBox IsChecked="{Binding IsChecked}" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="1" Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="2" Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="3" Text="{Binding NewTitle}" Foreground="#0369A1" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />

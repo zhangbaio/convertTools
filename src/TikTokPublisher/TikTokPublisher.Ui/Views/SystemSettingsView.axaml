@@ -5,13 +5,13 @@
              x:DataType="vm:SystemSettingsViewModel"
              Background="{StaticResource PythonPageBgBrush}">
 
-    <DockPanel Margin="16,14,16,16">
+    <DockPanel Classes="pageRoot">
         <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
             <TextBlock Grid.Column="0" VerticalAlignment="Center" Classes="pageSummary" Text="{Binding SaveMessage}" />
             <Button Grid.Column="1" Content="保存设置" Command="{Binding SaveSettingsCommand}" Classes="primaryAction" MinWidth="140" />
         </Grid>
 
-        <TextBlock DockPanel.Dock="Top" Text="系统设置" FontSize="18" FontWeight="Bold" Margin="0,0,0,10" />
+        <TextBlock DockPanel.Dock="Top" Text="系统设置" Classes="pageTitle" FontWeight="Bold" Margin="0,0,0,10" />
 
         <TabControl Classes="secondaryTabs">
             <TabItem Header="登录设置">
@@ -96,18 +96,25 @@
                         <TextBlock Text="红果高码率链路（高码率版 / 标准版）" FontWeight="Bold" />
                         <TextBlock Text="两个版本共用账号、密码和 Enc/Sign Master；设备 ID、客户端与登录会话按版本隔离。切换版本后请读取对应设备 ID。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="客户端版本" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="HghighEditionCombo" HorizontalAlignment="Left" MinWidth="220" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="红果账号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HghighAccount}" Watermark="高码率版与标准版共用登录邮箱" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding HghighClientVersionLabel}" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1"
+                                     Text="{Binding HghighActiveClientVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Watermark="例如 2.2.1，留空则使用内置默认版本"
+                                     HorizontalAlignment="Left"
+                                     MinWidth="220" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="红果密码" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding HghighPassword}" PasswordChar="●" RevealPassword="False" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="红果账号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding HghighAccount}" Watermark="高码率版与标准版共用登录邮箱" />
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{Binding HghighDeviceLabel}" VerticalAlignment="Center" />
-                            <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="红果密码" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding HghighPassword}" PasswordChar="●" RevealPassword="False" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding HghighDeviceLabel}" VerticalAlignment="Center" />
+                            <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding HghighActiveDeviceId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Watermark="24 位十六进制 DeviceId" />
@@ -115,16 +122,16 @@
                                 <Button Grid.Column="2" Content="测试登录" Command="{Binding ProbeHghighLoginCommand}" MinWidth="96" />
                             </Grid>
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding HghighClientExeLabel}" VerticalAlignment="Center" />
-                            <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{Binding HghighClientExeLabel}" VerticalAlignment="Center" />
+                            <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding HghighActiveClientExe, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Watermark="选择当前版本的 HG 短剧下载器 exe" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseHghighClientExeClick" MinWidth="88" />
                             </Grid>
 
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Enc Master" VerticalAlignment="Center" />
-                            <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Enc Master" VerticalAlignment="Center" />
+                            <Grid Grid.Row="6" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding HghighEncMaster, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          PasswordChar="●"
@@ -139,8 +146,8 @@
                                         MinWidth="88" />
                             </Grid>
 
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Sign Master" VerticalAlignment="Center" />
-                            <Grid Grid.Row="6" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="Sign Master" VerticalAlignment="Center" />
+                            <Grid Grid.Row="7" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding HghighSignMaster, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          PasswordChar="●"
@@ -155,8 +162,8 @@
                                         MinWidth="88" />
                             </Grid>
 
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="启动密钥操作" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <StackPanel Grid.Row="7" Grid.Column="1" Spacing="8">
+                            <TextBlock Grid.Row="8" Grid.Column="0" Text="启动密钥操作" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="8" Grid.Column="1" Spacing="8">
                                 <Button Content="提取启动密钥"
                                         Command="{Binding ProvisionHghighMastersCommand}"
                                         HorizontalAlignment="Left"
@@ -164,8 +171,14 @@
                                 <TextBlock Text="{Binding HghighMastersStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                             </StackPanel>
 
-                            <TextBlock Grid.Row="8" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
-                            <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding HghighProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding HghighProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+
+                            <TextBlock Grid.Row="10" Grid.Column="0" Text="标准版播放" VerticalAlignment="Center"
+                                       IsVisible="{Binding IsHghighStandardEdition}" />
+                            <ComboBox Grid.Row="10" Grid.Column="1" x:Name="HghighStandardPlaybackCombo"
+                                      HorizontalAlignment="Left" MinWidth="220"
+                                      IsVisible="{Binding IsHghighStandardEdition}" />
                         </Grid>
 
                         <Separator Margin="0,4" IsVisible="False" />
@@ -265,7 +278,7 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果短剧下载器（v2.3.7）" FontWeight="Bold" />
-                        <TextBlock Text="搜索和下载都不使用番茄 Cookie。视频解析使用下载器软件设置里的设备号，1080P 对应清晰度 1，红果线路一。"
+                        <TextBlock Text="搜索和下载都不使用番茄 Cookie。视频解析使用下载器软件设置里的设备号，解析前会登记该设备；1080P 对应清晰度 1，红果线路一。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
@@ -295,6 +308,8 @@
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
                         <TextBlock Text="ASR 配置" FontWeight="Bold" />
+                        <TextBlock Text="系统默认使用本地 Paraformer ASR。火山 ASR 凭据仅用于视频翻译。"
+                                   TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="测试本地模型" Command="{Binding ProbeLocalAsrCommand}" />
                             <Button Content="测试火山 ASR" Command="{Binding ProbeVolcengineAsrCommand}" />
@@ -698,6 +713,9 @@
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="超长剧下载集数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TiktokOverLimitDownloadEpisodeCount}" Minimum="1" Maximum="120" Width="120" HorizontalAlignment="Left" />
                         </Grid>
+
+                        <TextBlock Text="账号数据统计" FontWeight="Bold" />
+                        <CheckBox IsChecked="{Binding TiktokAccountAnalyticsEnabled}" Content="在顶栏显示数据统计，并允许拉取账号播放数据" />
 
                         <TextBlock Text="数据统计" FontWeight="Bold" />
                         <TextBox Text="{Binding DatabaseStatsText}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />

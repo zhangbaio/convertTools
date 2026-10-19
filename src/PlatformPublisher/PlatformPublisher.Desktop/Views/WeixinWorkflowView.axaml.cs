@@ -39,6 +39,16 @@ public partial class WeixinWorkflowView : UserControl
 
     private void ApplyMode()
     {
+        if (KuaishouChrome is null || WeixinChrome is null || QueueHeader is null ||
+            KuaishouQueueHeader is null || KuaishouQueueList is null || WeixinQueueList is null) return;
+        KuaishouChrome.IsVisible = _isKuaishouMode;
+        WeixinChrome.IsVisible = !_isKuaishouMode;
+        KuaishouQueueHeader.IsVisible = _isKuaishouMode;
+        KuaishouQueueList.IsVisible = _isKuaishouMode;
+        QueueHeader.IsVisible = !_isKuaishouMode;
+        WeixinQueueList.IsVisible = !_isKuaishouMode;
+        Classes.Set("kuaishouQueue", _isKuaishouMode);
+        QueueHeader.Padding = _isKuaishouMode ? new Avalonia.Thickness(8, 4) : new Avalonia.Thickness(10, 7);
         if (!_isKuaishouMode) return;
         TaskTypeLabel.IsVisible = false;
         TaskTypeSummary.IsVisible = false;
@@ -120,7 +130,9 @@ public partial class WeixinWorkflowView : UserControl
         }
         var titles=await UploadDramaTitlesDialog.ShowAsync(owner);if(string.IsNullOrWhiteSpace(titles))return;
         UploadDramasButton.IsEnabled=false;
+        KuaishouUploadDramasButton.IsEnabled=false;
         UploadDramasButton.Content="正在处理…";
+        KuaishouUploadDramasButton.Content="正在处理…";
         try
         {
             ViewModel.StatusMessage="已接收剧名，正在搜索并创建项目…";
@@ -131,7 +143,9 @@ public partial class WeixinWorkflowView : UserControl
         finally
         {
             UploadDramasButton.Content="上传短剧";
+            KuaishouUploadDramasButton.Content="上传短剧";
             UploadDramasButton.IsEnabled=true;
+            KuaishouUploadDramasButton.IsEnabled=true;
         }
     }
 

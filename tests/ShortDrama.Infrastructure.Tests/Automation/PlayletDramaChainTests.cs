@@ -53,6 +53,7 @@ public sealed class PlayletDramaChainTests
     [Fact]
     public async Task Episodes_come_from_directory_and_video_uses_membership_device()
     {
+        PlayletDramaClient.ResetMemberSessionCache();
         var handler = new PlayletHandler();
         using var httpClient = new HttpClient(handler);
 
@@ -74,9 +75,40 @@ public sealed class PlayletDramaChainTests
         episodes[0].Title.Should().Be("第1集");
         video.Url.Should().Be("https://cdn.example.com/1.mp4");
         video.Key.Should().HaveLength(32);
+        var memberIndex = handler.Paths.FindIndex(path => path.EndsWith("/api/business/member/memberInfo", StringComparison.Ordinal));
+        var videoIndex = handler.Paths.FindIndex(path => path.EndsWith("/api/drama/hongguo/video", StringComparison.Ordinal));
+        memberIndex.Should().BeGreaterThanOrEqualTo(0);
+        videoIndex.Should().BeGreaterThan(memberIndex);
+        handler.MemberBodies.Should().ContainSingle();
+        handler.MemberBodies[0].Should().Contain("deviceId=");
+        handler.MemberBodies[0].Should().Contain("memberType=");
+        handler.MemberBodies[0].Should().Contain("version=");
         handler.VideoPaths.Should().ContainSingle().Which.Should().EndWith("/api/drama/hongguo/video");
         handler.VideoDeviceId.Should().Be("DC8D94CB6E7122F92E");
         handler.VideoPaths.Should().NotContain(path => path.EndsWith("/decryptVideo", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Video_reregisters_member_when_server_returns_unknown_error()
+    {
+        PlayletDramaClient.ResetMemberSessionCache();
+        var handler = new PlayletHandler { RejectVideoUntilSecondMember = true };
+        using var httpClient = new HttpClient(handler);
+
+        var video = await PlayletDramaClient.GetVideoAsync(
+            httpClient,
+            PlayletDramaClient.DefaultServerUrl,
+            "7650358399711841304",
+            "1080P",
+            "DC8D94CB6E7122F92E",
+            CancellationToken.None);
+
+        video.Url.Should().Be("https://cdn.example.com/1.mp4");
+        handler.MemberBodies.Should().HaveCount(2);
+        handler.VideoPaths.Should().HaveCount(6);
+        handler.VideoPaths.Take(4).Should().OnlyContain(path => path.EndsWith("/api/drama/hongguo/video", StringComparison.Ordinal));
+        handler.VideoPaths[4].Should().EndWith("/api/drama/hongguo/decryptVideo");
+        handler.VideoPaths[5].Should().EndWith("/api/drama/hongguo/video");
     }
 
     [Fact]
@@ -160,14 +192,26 @@ public sealed class PlayletDramaChainTests
     {
         public int SearchCookieCount { get; private set; }
         public int SearchNoCookieCount { get; private set; }
+        public bool RejectVideoUntilSecondMember { get; init; }
+        public List<string> Paths { get; } = [];
+        public List<string> MemberBodies { get; } = [];
         public List<string> VideoPaths { get; } = [];
         public string? VideoDeviceId { get; private set; }
         public string RankUrl { get; private set; } = "";
         public List<string> ComicNewUrls { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri?.AbsolutePath ?? "";
+            Paths.Add(path);
+            if (path.EndsWith("/api/business/member/memberInfo", StringComparison.OrdinalIgnoreCase))
+            {
+                var body = request.Content is null
+                    ? ""
+                    : await request.Content.ReadAsStringAsync(cancellationToken);
+                MemberBodies.Add(body);
+                return Json("""{"code":200,"msg":"操作成功","data":"encrypted"}""");
+            }
             if (path.Contains("/search/page/", StringComparison.Ordinal))
             {
                 var hasCookie = request.Headers.TryGetValues("cookie", out var cookies) &&
@@ -175,11 +219,11 @@ public sealed class PlayletDramaChainTests
                 if (hasCookie)
                 {
                     SearchCookieCount++;
-                    return Task.FromResult(Json("""{"code":6000,"message":"网络错误，请稍后重试"}"""));
+                    return Json("""{"code":6000,"message":"网络错误，请稍后重试"}""");
                 }
 
                 SearchNoCookieCount++;
-                return Task.FromResult(Json("""
+                return Json("""
                     {
                       "code": 0,
                       "data": {
@@ -197,19 +241,19 @@ public sealed class PlayletDramaChainTests
                         ]
                       }
                     }
-                    """));
+                    """);
             }
 
             if (path.Contains("/directory/list/", StringComparison.Ordinal))
             {
-                return Task.FromResult(Json("""
+                return Json("""
                     {
                       "code": 0,
                       "data": {
                         "item_list": ["7650358399711841304", "7650358459367427096"]
                       }
                     }
-                    """));
+                    """);
             }
 
             if (path.Contains("/subscribe/list/", StringComparison.Ordinal))
@@ -218,7 +262,7 @@ public sealed class PlayletDramaChainTests
                 ComicNewUrls.Add(url);
                 if (ComicNewUrls.Count == 1)
                 {
-                    return Task.FromResult(Json("""
+                    return Json("""
                         {
                           "code": 0,
                           "data": {
@@ -238,10 +282,10 @@ public sealed class PlayletDramaChainTests
                             ]
                           }
                         }
-                        """));
+                        """);
                 }
 
-                return Task.FromResult(Json("""
+                return Json("""
                     {
                       "code": 0,
                       "data": {
@@ -260,13 +304,13 @@ public sealed class PlayletDramaChainTests
                         ]
                       }
                     }
-                    """));
+                    """);
             }
 
             if (path.Contains("/bookmall/cell/change/", StringComparison.Ordinal))
             {
                 RankUrl = request.RequestUri?.ToString() ?? "";
-                return Task.FromResult(Json("""
+                return Json("""
                     {
                       "code": 0,
                       "data": {
@@ -288,10 +332,11 @@ public sealed class PlayletDramaChainTests
                         }
                       }
                     }
-                    """));
+                    """);
             }
 
-            if (path.EndsWith("/api/drama/hongguo/video", StringComparison.OrdinalIgnoreCase))
+            if (path.EndsWith("/api/drama/hongguo/video", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith("/api/drama/hongguo/decryptVideo", StringComparison.OrdinalIgnoreCase))
             {
                 VideoPaths.Add(path);
                 if (request.Headers.TryGetValues("deviceId", out var values))
@@ -299,7 +344,12 @@ public sealed class PlayletDramaChainTests
                     VideoDeviceId = values.FirstOrDefault();
                 }
 
-                return Task.FromResult(Json(JsonSerializer.Serialize(new
+                if (RejectVideoUntilSecondMember && MemberBodies.Count < 2)
+                {
+                    return Json("""{"code":500,"msg":"未知错误"}""");
+                }
+
+                return Json(JsonSerializer.Serialize(new
                 {
                     code = 200,
                     data = new
@@ -308,13 +358,13 @@ public sealed class PlayletDramaChainTests
                         url = "https://cdn.example.com/1.mp4",
                         key = new string('a', 32)
                     }
-                })));
+                }));
             }
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
+            return new HttpResponseMessage(HttpStatusCode.NotFound)
             {
                 Content = new StringContent($"unexpected {request.RequestUri}")
-            });
+            };
         }
 
         private static HttpResponseMessage Json(string json) => new(HttpStatusCode.OK)

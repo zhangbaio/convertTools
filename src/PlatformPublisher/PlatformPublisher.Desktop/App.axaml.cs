@@ -14,6 +14,7 @@ using PlatformPublisher.Desktop.Views;
 using ShortDrama.Infrastructure.DependencyInjection;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Infrastructure.Rendering;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Ui.ViewModels;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Security;
@@ -39,6 +40,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            ShortDramaDramaServices.UseSettingsDatabase(PlatformPublisherPaths.SettingsDatabasePath);
             _services = BuildServices();
             _ = _services.GetRequiredService<AnalyticsRepository>();
             _services.GetRequiredService<LegacyDatabaseImporter>().Import(
@@ -47,8 +49,13 @@ public partial class App : Application
             KuaishouPersonalConfig.ConfigureDatabase(
                 _services.GetRequiredService<AccountJsonSettingStore>(),
                 _services.GetRequiredService<KuaishouCredentialStore>());
+            var importedLegacyAccounts = Task.Run(() =>
+                    _services.GetRequiredService<LegacyAccountSessionImportService>().ImportAllLegacyProfilesAsync())
+                .GetAwaiter().GetResult();
             var viewModel = _services.GetRequiredService<MainWindowViewModel>();
             viewModel.Initialization.GetAwaiter().GetResult();
+            if (importedLegacyAccounts > 0)
+                viewModel.StatusMessage = $"已迁移 {importedLegacyAccounts} 个短剧助手账号及其配置和登录状态。";
             var kuaishouOnlineWorker = _services.GetRequiredService<KuaishouOnlineQueueWorker>();
             kuaishouOnlineWorker.Start();
             var migratedDrafts=_services.GetRequiredService<LegacyPublishDraftMigrator>().MigrateAsync().GetAwaiter().GetResult();
@@ -56,6 +63,7 @@ public partial class App : Application
             var publishCoordinator = _services.GetRequiredService<PlatformPublishCoordinator>();
             var mainWindow = new MainWindow { DataContext = viewModel };
             mainWindow.BindDatabaseMaintenance(_services.GetRequiredService<PlatformDatabase>(),_services.GetRequiredService<DatabaseBackupService>());
+            mainWindow.BindWindowPlacement(_services.GetRequiredService<IJsonSettingStore>());
             mainWindow.BindAccountDatabase(_services.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>());
             mainWindow.BindLegacySessionImport(_services.GetRequiredService<LegacyAccountSessionImportService>());
             mainWindow.BindSettings(settingsViewModel);

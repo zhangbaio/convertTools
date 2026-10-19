@@ -3,6 +3,7 @@
         xmlns:views="using:TikTokPublisher.Ui.Views"
         x:Class="TikTokPublisher.Desktop.Views.MainWindow"
         Width="1496" Height="860"
+        MinWidth="800" MinHeight="560"
         Title="云帆剧集工坊"
         Icon="/Assets/yunfan-studio-logo.ico"
         Background="{StaticResource PythonPageBgBrush}">
@@ -18,7 +19,7 @@
 
                 <Border x:Name="BrandPane" Grid.Column="0" BorderBrush="{StaticResource PythonPanelBorderBrush}" BorderThickness="0,0,1,0" Padding="12,0,10,0">
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="云帆剧集工坊" Classes="topBrandLabel" VerticalAlignment="Center" />
+                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="云帆剧集工坊" Classes="topBrandLabel" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                         <Button x:Name="SidebarToggleButton"
                                 Grid.Column="1"
                                 Content="‹"
@@ -33,17 +34,23 @@
                                 Click="OnSidebarToggleClick" />
                     </Grid>
                 </Border>
-                <StackPanel Grid.Column="1" x:Name="ModuleNav" Orientation="Horizontal"
-                            VerticalAlignment="Center" Margin="8,0,0,0">
-                    <Button Content="生产流水线" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="内容采集" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="发布账号" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="网页工具" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="查看报告" Tag="logs" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="应用配置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="系统能力" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
-                    <Button Content="资源回收站" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
-                </StackPanel>
+                <ScrollViewer Grid.Column="1"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              AllowAutoHide="True">
+                    <StackPanel x:Name="ModuleNav" Orientation="Horizontal"
+                                VerticalAlignment="Center" Margin="8,0,8,0">
+                        <Button Content="生产流水线" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="内容采集" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="发布账号" Tag="accounts" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="网页工具" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="查看报告" Tag="logs" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="应用配置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button Content="系统能力" Tag="services" Classes="topNavItem" Click="OnNavItemClick" />
+                        <Button x:Name="AnalyticsNavButton" Content="数据统计" Tag="analytics" Classes="topNavItem" Click="OnNavItemClick" IsVisible="False" />
+                        <Button Content="资源回收站" Tag="archived" Classes="topNavItem" Click="OnNavItemClick" />
+                    </StackPanel>
+                </ScrollViewer>
             </Grid>
         </Border>
 
@@ -80,6 +87,7 @@
                        VerticalAlignment="Top"
                        ZIndex="5" />
                 <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" ZIndex="10" />
+                <views:TikTokAccountAnalyticsView x:Name="AnalyticsView" IsVisible="False" />
                 <views:DramaDownloadView x:Name="DownloadView" IsVisible="False" />
                 <views:TikTokQueueView x:Name="QueueView" IsVisible="True" />
                 <views:AccountProfilesView x:Name="AccountsView" IsVisible="False" />
@@ -91,7 +99,7 @@
         </Grid>
 
         <Border Grid.Row="2" Classes="statusBarFrame" Height="28">
-            <Grid ColumnDefinitions="560,*,Auto" Margin="12,0">
+            <Grid ColumnDefinitions="*,*,Auto" Margin="12,0">
                 <TextBlock Grid.Column="0"
                            VerticalAlignment="Center"
                            FontSize="12"

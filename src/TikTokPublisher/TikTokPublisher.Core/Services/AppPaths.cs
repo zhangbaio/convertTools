@@ -10,6 +10,7 @@ public static class AppPaths
     public static string AccountsFile => Path.Combine(DataRoot, "accounts.json");
     public static string ActiveAccountFile => Path.Combine(DataRoot, "active-account.json");
     public static string AppDatabaseFile => Path.Combine(DataRoot, "app.db");
+    public static string AnalyticsDatabaseFile => Path.Combine(DataRoot, "analytics.db");
     public static string ProfilesRoot => Path.Combine(DataRoot, "profiles");
 
     public static string ProfileDirFor(string accountId) => Path.Combine(ProfilesRoot, accountId);

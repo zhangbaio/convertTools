@@ -399,6 +399,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
         DraftAccountName = account?.Name ?? string.Empty;
         DraftConfigPath = ResolveGlobalConfigPath(account, SelectedPlatform.Value);
+        if (IsKuaishouPlatform)
+            ApplyKuaishouWorkspace(account);
         RefreshVisibleJobs();
         RefreshVisibleAccounts(account?.Id);
         OnPropertyChanged(nameof(QueueSummary));
@@ -432,7 +434,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
         StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的{SelectedPlatform.Name}工作目录：{normalized}";
         AppendActivityLog(StatusMessage);
         ActiveAccountWorkRootDirectoryChanged?.Invoke();
+        if (IsKuaishouPlatform)
+            _ = EnsureWorkspaceProjectsLoadedAsync();
         return true;
+    }
+
+    public void LoadKuaishouWorkspace()
+    {
+        ApplyKuaishouWorkspace(_activeGlobalAccount);
+        _ = EnsureWorkspaceProjectsLoadedAsync();
+    }
+
+    private void ApplyKuaishouWorkspace(GlobalAccount? account)
+    {
+        if (string.IsNullOrWhiteSpace(account?.WorkRootDirectory) || !Directory.Exists(account.WorkRootDirectory))
+            return;
+        DraftProjectDirectory = Path.GetFullPath(account.WorkRootDirectory);
+    }
+
+    private async Task EnsureWorkspaceProjectsLoadedAsync()
+    {
+        if (!IsKuaishouPlatform || !CanScanWorkspace() || _activeGlobalAccount is null)
+            return;
+        var root = Path.GetFullPath(DraftProjectDirectory);
+        var prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                     + Path.DirectorySeparatorChar;
+        var hasProjects = _jobs.Any(job =>
+            job.Platform == SelectedPlatform.Value &&
+            job.Kind == PublishJobKind.Series &&
+            string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
+            Path.GetFullPath(job.ProjectDirectory).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        if (hasProjects)
+        {
+            RefreshVisibleJobs();
+            return;
+        }
+        await ScanWorkspaceAsync();
     }
 
     public DramaSourceConfigurationStatus GetDramaSourceConfigurationStatus()
@@ -494,6 +532,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsKuaishouPersonalPlatform));
         OnPropertyChanged(nameof(IsKuaishouPlatform));
         NotifyCommands();
+    }
+
+    public void RememberKuaishouConfigPath(string accountId, PublishPlatform platform, string path)
+    {
+        var account = _globalAccounts.FirstOrDefault(item =>
+            string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase));
+        if (account is null) return;
+        var fullPath = Path.GetFullPath(path);
+        if (platform == PublishPlatform.KuaishouEnterpriseRevenue)
+        {
+            account.KuaishouEnterpriseConfigPath = fullPath;
+            if (string.IsNullOrWhiteSpace(account.KuaishouEnterpriseAccount))
+                account.KuaishouEnterpriseAccount = account.Name;
+        }
+        else
+        {
+            account.KuaishouPersonalConfigPath = fullPath;
+            if (string.IsNullOrWhiteSpace(account.KuaishouPersonalAccount))
+                account.KuaishouPersonalAccount = account.Name;
+        }
+        _globalAccountStore.Update(account);
+        StatusMessage = $"{platform.DisplayName()}配置已保存到账号「{account.Name}」。";
     }
 
     public async Task UpdateSelectedAccountConfigPathAsync(string configPath)
@@ -745,14 +805,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return added;
     }
 
-    public async Task<int> ImportVideoChannelProjectDirectoriesAsync(TikTokQueueImportRequest request)
+    public Task<int> ImportVideoChannelProjectDirectoriesAsync(TikTokQueueImportRequest request) =>
+        ImportDownloadedProjectsAsync(request);
+
+    public async Task<int> ImportDownloadedProjectsAsync(TikTokQueueImportRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var platform = request.Target.PlatformKey switch
+        {
+            DramaQueuePlatforms.KuaishouPersonal => PublishPlatform.KuaishouPersonalRevenue,
+            DramaQueuePlatforms.KuaishouEnterprise => PublishPlatform.KuaishouEnterpriseRevenue,
+            _ => PublishPlatform.WeixinChannel,
+        };
+        var platformLabel = string.IsNullOrWhiteSpace(request.Target.PlatformLabel)
+            ? platform.DisplayName()
+            : request.Target.PlatformLabel;
         var account = _globalAccounts.FirstOrDefault(item =>
             string.Equals(item.Id, request.Target.AccountProfileId, StringComparison.OrdinalIgnoreCase));
         if (account is null)
         {
-            StatusMessage = $"视频号队列导入失败：账号「{request.Target.AccountProfileName}」已不存在。";
+            StatusMessage = $"{platformLabel}队列导入失败：账号「{request.Target.AccountProfileName}」已不存在。";
             AppendActivityLog(StatusMessage);
             return 0;
         }
@@ -761,8 +833,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             request.ProjectDirs,
             account.Id,
             account.Name,
-            account.ProfileDir);
-        StatusMessage = $"已加入「{account.Name}」的视频号队列：新增 {added} 个任务，工作目录 {request.Target.WorkspaceRoot}";
+            account.ProfileDir,
+            platform,
+            ResolveGlobalConfigPath(account, platform));
+        StatusMessage = $"已加入「{account.Name}」的{platformLabel}队列：新增 {added} 个任务，工作目录 {request.Target.WorkspaceRoot}";
         AppendActivityLog(StatusMessage);
         return added;
     }
@@ -802,7 +876,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         string? targetAccountId = null,
         string? targetAccountName = null,
         string? targetSessionDirectory = null,
-        PublishPlatform? platform = null)
+        PublishPlatform? platform = null,
+        string? configPath = null)
     {
         var effectivePlatform = platform ?? PublishPlatform.WeixinChannel;
         var effectiveAccountId = string.IsNullOrWhiteSpace(targetAccountId) ? _activeWeixinAccountId : targetAccountId;
@@ -826,7 +901,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ProjectDirectory = directory,
                 ConfigPath = effectivePlatform == PublishPlatform.WeixinChannel
                     ? ResolveScannedWeixinConfig(directory)
-                    : ResolveGlobalConfigPath(_activeGlobalAccount, effectivePlatform),
+                    : string.IsNullOrWhiteSpace(configPath)
+                        ? ResolveGlobalConfigPath(_activeGlobalAccount, effectivePlatform)
+                        : configPath,
                 AccountId = effectiveAccountId,
                 AccountName = string.IsNullOrWhiteSpace(targetAccountName) ? ActiveWeixinAccountName : targetAccountName,
                 AccountSessionDirectory = effectivePlatform == PublishPlatform.WeixinChannel
@@ -2180,12 +2257,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 VisibleJobs.Add(new PublishJobRowViewModel(job));
             }
 
-            if (SelectedPlatform.Value == PublishPlatform.WeixinChannel)
-                RefreshPagedJobs(selectId);
-            else
-                SelectedJob = selectId is null
-                    ? VisibleJobs.FirstOrDefault()
-                    : VisibleJobs.FirstOrDefault(row => row.Id == selectId);
+            RefreshPagedJobs(selectId);
             OnPropertyChanged(nameof(QueueSummary));
         }
 
@@ -2205,10 +2277,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         WorkflowCurrentPage = Math.Clamp(WorkflowCurrentPage, 1, WorkflowPageCount);
         PagedJobs.Clear();
-        foreach (var row in VisibleJobs
-                     .Skip((WorkflowCurrentPage - 1) * WorkflowPageSize)
-                     .Take(WorkflowPageSize))
-            PagedJobs.Add(row);
+        var pageRows = VisibleJobs
+            .Skip((WorkflowCurrentPage - 1) * WorkflowPageSize)
+            .Take(WorkflowPageSize)
+            .ToList();
+        for (var index = 0; index < pageRows.Count; index++)
+        {
+            pageRows[index].QueueIndex = (WorkflowCurrentPage - 1) * WorkflowPageSize + index + 1;
+            PagedJobs.Add(pageRows[index]);
+        }
         SelectedJob = selectId is null
             ? PagedJobs.FirstOrDefault()
             : PagedJobs.FirstOrDefault(row => row.Id == selectId) ?? PagedJobs.FirstOrDefault();

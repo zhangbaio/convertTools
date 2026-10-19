@@ -14,8 +14,11 @@ public sealed record DramaSourceSettings
     public string HghighEdition { get; init; } = "high";
     public string HghighDeviceId { get; init; } = "";
     public string HghighClientExe { get; init; } = "";
+    public string HghighClientVersion { get; init; } = "";
     public string HghighStandardDeviceId { get; init; } = "";
     public string HghighStandardClientExe { get; init; } = "";
+    public string HghighStandardClientVersion { get; init; } = "";
+    public string HghighStandardPlaybackMode { get; init; } = "single";
     public string MapleleafAccount { get; init; } = "";
     public string MapleleafPassword { get; init; } = "";
     public string MapleleafUdid { get; init; } = "";

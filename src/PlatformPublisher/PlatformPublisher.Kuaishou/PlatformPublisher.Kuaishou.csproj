@@ -10,6 +10,14 @@
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.0.2" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Policies\kuaishou-title-policy.json" />
+    <EmbeddedResource Include="Policies\kuaishou-synopsis-policy.json" />
+    <Content Include="Tools\kuaishou_prepare_bridge.py">
+      <Link>tools\kuaishou\kuaishou_prepare_bridge.py</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Adx\PlatformPublisher.Adx.csproj" />
     <ProjectReference Include="..\PlatformPublisher.Analytics\PlatformPublisher.Analytics.csproj" />

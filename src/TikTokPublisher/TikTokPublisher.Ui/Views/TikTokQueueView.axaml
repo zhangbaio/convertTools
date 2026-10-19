@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             xmlns:views="using:TikTokPublisher.Ui.Views"
              x:Class="TikTokPublisher.Ui.Views.TikTokQueueView"
              x:Name="QueueViewRoot"
              x:DataType="vm:MainViewModel"
@@ -206,9 +207,9 @@
         </Style>
     </UserControl.Styles>
 
-    <DockPanel Margin="16,14,16,16">
+    <DockPanel Classes="pageRoot">
         <!-- 顶部控制区：紧凑保留高频操作，低频操作收进菜单 -->
-        <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,8" Padding="16,10">
+        <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,8">
             <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
                     <TextBlock Grid.Column="0" Text="工作目录" VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -266,14 +267,13 @@
                 </Grid>
 
                 <Border Classes="taskStepFrame" Padding="8,6">
-                    <StackPanel Spacing="5">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                            <TextBlock Grid.Column="0" Text="启用步骤" FontWeight="SemiBold" VerticalAlignment="Center" />
-                            <WrapPanel Grid.Column="1" Orientation="Horizontal">
-                                <CheckBox Content="下载剧集" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="改写信息" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="生成海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="生成剧本"
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <StackPanel Grid.Column="0" Spacing="5">
+                            <WrapPanel Orientation="Horizontal">
+                                <CheckBox Content="下载" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="剧本"
                                           IsChecked="{Binding QueueGenerateEpisodeScriptEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Placement="Bottom"
@@ -292,7 +292,7 @@
                                         </ToolTip>
                                     </ToolTip.Tip>
                                 </CheckBox>
-                                <CheckBox Content="生成AI漫剧素材"
+                                <CheckBox Content="AI素材"
                                           IsChecked="{Binding QueueGenerateAiDramaMaterialsEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Placement="Bottom"
@@ -311,7 +311,7 @@
                                         </ToolTip>
                                     </ToolTip.Tip>
                                 </CheckBox>
-                                <CheckBox Content="生成AI大纲"
+                                <CheckBox Content="AI大纲"
                                           IsChecked="{Binding QueueGenerateAiScriptOutlineEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Placement="Bottom"
@@ -324,13 +324,13 @@
                                                     <TextBlock Text="操作" Classes="stepHintLabel" />
                                                     <TextBlock Text="根据剧名、简介和剧本生成 AI 剧本大纲。" Classes="stepHintBody" />
                                                     <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                    <TextBlock Text="工作项目目录中的“AI剧本大纲.pdf”。" Classes="stepHintBody" />
+                                                    <TextBlock Text="仅输出工作项目目录中的“AI剧本大纲.pdf”。" Classes="stepHintBody" />
                                                 </StackPanel>
                                             </Border>
                                         </ToolTip>
                                     </ToolTip.Tip>
                                 </CheckBox>
-                                <CheckBox Content="生成角色矢量图"
+                                <CheckBox Content="角色图"
                                           IsChecked="{Binding QueueGenerateRoleVectorEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Placement="Bottom"
@@ -349,7 +349,7 @@
                                         </ToolTip>
                                     </ToolTip.Tip>
                                 </CheckBox>
-                                <CheckBox Content="生成证明材料"
+                                <CheckBox Content="证明材料"
                                           IsChecked="{Binding QueueGenerateProofMaterialEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Placement="Bottom"
@@ -368,7 +368,7 @@
                                         </ToolTip>
                                     </ToolTip.Tip>
                                 </CheckBox>
-                                <CheckBox Content="生成时间戳"
+                                <CheckBox Content="时间戳"
                                           IsChecked="{Binding QueueGenerateTimestampCertificateEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Placement="Bottom"
@@ -387,25 +387,42 @@
                                         </ToolTip>
                                     </ToolTip.Tip>
                                 </CheckBox>
-                                <CheckBox Content="小文件修复" IsChecked="{Binding QueueSmallVideoRepairEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="小文件修复"
+                                          IsChecked="{Binding QueueSmallVideoRepairEnabled}"
+                                          Margin="0,0,12,2"
+                                          ToolTip.Tip="检查并修复过小的上传视频。" />
                                 <CheckBox Content="视频翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
                                 <CheckBox Content="成片检查" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="清理原片" IsChecked="{Binding QueueDeleteSourceVideosEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="清理原片"
+                                          IsChecked="{Binding QueueDeleteSourceVideosEnabled}"
+                                          Margin="0,0,12,2"
+                                          ToolTip.Tip="上传副本就绪后删除源视频。" />
                                 <CheckBox Content="发布剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
                             </WrapPanel>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                                <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
-                                <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="selectionAction compactAction" />
-                            </StackPanel>
-                        </Grid>
-
-                        <WrapPanel Orientation="Horizontal" Margin="64,0,0,0">
-                            <CheckBox Content="同步管理系统" IsChecked="{Binding SyncManagementAfterUpload}" Margin="0,0,16,0" />
-                            <CheckBox Content="上传完成后自动归档" IsChecked="{Binding AutoArchiveAfterUpload}" Margin="0,0,16,0" />
-                            <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding ForceRerunCompletedSteps}" Margin="0,0,16,0" />
-                            <CheckBox Content="有待上传项目时优先上传" IsChecked="{Binding PreferUploadWhenReady}" Margin="0,0,16,0" />
-                        </WrapPanel>
-                    </StackPanel>
+                            <WrapPanel Orientation="Horizontal">
+                                <CheckBox Content="同步管理"
+                                          IsChecked="{Binding SyncManagementAfterUpload}"
+                                          Margin="0,0,16,0"
+                                          ToolTip.Tip="上传完成后把项目同步到管理系统。" />
+                                <CheckBox Content="传后归档"
+                                          IsChecked="{Binding AutoArchiveAfterUpload}"
+                                          Margin="0,0,16,0"
+                                          ToolTip.Tip="上传成功后自动把项目移入归档。" />
+                                <CheckBox Content="强制重跑"
+                                          IsChecked="{Binding ForceRerunCompletedSteps}"
+                                          Margin="0,0,16,0"
+                                          ToolTip.Tip="已完成步骤会重新执行。" />
+                                <CheckBox Content="优先上传"
+                                          IsChecked="{Binding PreferUploadWhenReady}"
+                                          Margin="0,0,16,0"
+                                          ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
+                            </WrapPanel>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Vertical" Spacing="4" VerticalAlignment="Center">
+                            <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
+                            <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="selectionAction compactAction" />
+                        </StackPanel>
+                    </Grid>
                 </Border>
 
                 <TextBlock Text="{Binding RunningWorkspacesSummary}"
@@ -513,12 +530,13 @@
 
         <!-- 队列表格：作为 DockPanel 最后一个未指定 Dock 的子项，自动填充剩余空间 -->
         <Border Classes="queueTableFrame">
-            <ScrollViewer x:Name="QueueTableScrollViewer"
-                          HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Disabled"
-                          AllowAutoHide="False">
+                <ScrollViewer x:Name="QueueTableScrollViewer"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled"
+                              AllowAutoHide="False"
+                              SizeChanged="OnQueueTableViewportSizeChanged">
                 <Grid x:Name="QueueTableRootGrid" RowDefinitions="Auto,*" Width="1888">
-                    <Grid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180">
+                    <views:QueueTableGrid x:Name="QueueTableHeaderGrid" Grid.Row="0" ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180">
                         <TextBlock Grid.Column="0" Text="序号" Classes="tableHeader" />
                         <TextBlock Grid.Column="1" Text="启用" Classes="tableHeader" />
                         <TextBlock Grid.Column="2" Text="账号槽" Classes="tableHeader" />
@@ -562,7 +580,7 @@
                         <Border Grid.Column="18" Classes="queueColumnResizer" Tag="18" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="19" Classes="queueColumnResizer" Tag="19" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
                         <Border Grid.Column="20" Classes="queueColumnResizer" Tag="20" PointerPressed="OnQueueColumnResizerPointerPressed" PointerMoved="OnQueueColumnResizerPointerMoved" PointerReleased="OnQueueColumnResizerPointerReleased" />
-                    </Grid>
+                    </views:QueueTableGrid>
 
                     <ListBox x:Name="QueueProjectList"
                              Grid.Row="1"
@@ -573,8 +591,8 @@
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="vm:QueueProjectRowViewModel">
-                                <Border Classes="queueTableRow" Width="1888" Height="42" Loaded="OnQueueTableRowLoaded">
-                                    <Grid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180" ClipToBounds="True">
+                                <Border Classes="queueTableRow" Height="42" HorizontalAlignment="Left" Loaded="OnQueueTableRowLoaded">
+                                    <views:QueueTableGrid ColumnDefinitions="48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180" ClipToBounds="True">
                                         <TextBlock Grid.Column="0" Text="{Binding RowIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" HorizontalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding AccountName}" VerticalAlignment="Center" HorizontalAlignment="Stretch" Margin="4,0" TextAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="12" />
@@ -663,7 +681,7 @@
                                                  Text="{Binding Remark, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                  Watermark="备注"
                                                  Margin="6,5" />
-                                    </Grid>
+                                    </views:QueueTableGrid>
                                 </Border>
                             </DataTemplate>
                         </ListBox.ItemTemplate>

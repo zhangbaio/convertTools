@@ -40,6 +40,95 @@ public sealed class LegacyAccountSessionImportService
 
     public ChannelsAccount CreateTargetAccount(string name) => _accounts.Add(name);
 
+    public async Task<int> ImportAllLegacyProfilesAsync(string? sourceRoot = null, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var root = Path.GetFullPath(string.IsNullOrWhiteSpace(sourceRoot) ? DefaultLegacyRoot : sourceRoot);
+            var settingsPath = Path.Combine(root, "settings.json");
+            if (!File.Exists(settingsPath)) return 0;
+            using var settingsDocument = JsonDocument.Parse(File.ReadAllText(settingsPath));
+            if (!settingsDocument.RootElement.TryGetProperty("account_profiles_json", out var profilesProperty)) return 0;
+            using var profilesDocument = profilesProperty.ValueKind == JsonValueKind.String
+                ? JsonDocument.Parse(profilesProperty.GetString() ?? "[]")
+                : null;
+            var profiles = profilesDocument?.RootElement ?? profilesProperty;
+            if (profiles.ValueKind != JsonValueKind.Array) return 0;
+
+            _accounts.Load();
+            var imported = 0;
+            foreach (var profile in profiles.EnumerateArray())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var id = Text(profile, "id");
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                var name = Text(profile, "name");
+                if (string.IsNullOrWhiteSpace(name)) name = id;
+                var target = _accounts.Accounts.FirstOrDefault(account =>
+                        string.Equals(account.LegacyProfileId, id, StringComparison.OrdinalIgnoreCase))
+                    ?? _accounts.Accounts.FirstOrDefault(account =>
+                        string.Equals(account.Name, name, StringComparison.CurrentCultureIgnoreCase) &&
+                        string.IsNullOrWhiteSpace(account.LegacyProfileId));
+                if (target?.LegacySessionImportedAt is not null)
+                {
+                    var profileDirectory = Path.Combine(root, "profiles", id);
+                    await FillMissingWeixinSessionAsync(target, profileDirectory, cancellationToken);
+                    await FillContentPolicyAsync(target, profile, cancellationToken);
+                    continue;
+                }
+                target ??= _accounts.Add(name);
+                target.Name = name;
+                target.LegacyProfileId = id;
+                target.LegacySessionSourceRoot = root;
+                ApplyAccountFields(target, profile);
+                var directory = Path.Combine(root, "profiles", id);
+                var importedPlatforms = new List<string>();
+                if (await TryCopySessionAsync(target, ResolveNewestState(directory, "wx_auth_state*.json"),
+                        Path.Combine(_dataRoot, "sessions", Safe(target.Id), "weixin-storage-state.json"),
+                        "weixin.qq.com", cancellationToken) is string weixinPath)
+                {
+                    target.WeixinAuthStatePath = weixinPath;
+                    await MirrorAsync(weixinPath, Path.Combine(target.ProfileDir, "weixin-series-auth.json"), cancellationToken);
+                    await MirrorAsync(weixinPath, Path.Combine(target.ProfileDir, "weixin-auth.json"), cancellationToken);
+                    importedPlatforms.Add("视频号");
+                }
+                if (await TryCopySessionAsync(target, ResolveKuaishouState(directory, personal: true),
+                        Path.Combine(_dataRoot, "sessions", Safe(target.Id), "kuaishou-personal-storage-state.json"),
+                        "kuaishou.com", cancellationToken) is string personalPath)
+                {
+                    target.KuaishouPersonalAuthStatePath = personalPath;
+                    target.KuaishouPersonalAccount = FirstText(profile, "kuaishou_personal_nickname", "kuaishou_personal_username") ?? name;
+                    target.KuaishouPersonalConfigPath = await ApplyProfileConfigAsync(
+                        target, PublishPlatform.KuaishouPersonalRevenue, profile, personalPath, cancellationToken);
+                    importedPlatforms.Add("快手个人");
+                }
+                else
+                {
+                    target.KuaishouPersonalConfigPath = await ApplyProfileConfigAsync(
+                        target, PublishPlatform.KuaishouPersonalRevenue, profile, null, cancellationToken);
+                }
+                if (await TryCopySessionAsync(target, ResolveKuaishouState(directory, personal: false),
+                        Path.Combine(_dataRoot, "sessions", Safe(target.Id), "kuaishou-enterprise-storage-state.json"),
+                        "kuaishou.com", cancellationToken) is string enterprisePath)
+                {
+                    target.KuaishouEnterpriseAuthStatePath = enterprisePath;
+                    target.KuaishouEnterpriseAccount = FirstText(profile, "kuaishou_enterprise_nickname", "kuaishou_enterprise_username") ?? name;
+                    target.KuaishouEnterpriseConfigPath = await ApplyProfileConfigAsync(
+                        target, PublishPlatform.KuaishouEnterpriseRevenue, profile, enterprisePath, cancellationToken);
+                    importedPlatforms.Add("快手企业");
+                }
+                target.LegacySessionImportedAt = DateTimeOffset.Now;
+                if (target.LastLoginAt is null && importedPlatforms.Count > 0)
+                    target.LastLoginAt = DateTimeOffset.Now;
+                _accounts.Update(target);
+                imported++;
+            }
+            return imported;
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<LegacySessionImportResult> ImportAsync(LegacyAccountSessionCandidate candidate,
         ChannelsAccount target, LegacySessionImportSelection selection, CancellationToken cancellationToken = default)
     {
@@ -127,7 +216,11 @@ public sealed class LegacyAccountSessionImportService
     }
 
     private static async Task<string> ApplyKuaishouConfigAsync(ChannelsAccount account, PublishPlatform platform,
-        string authStatePath, CancellationToken cancellationToken)
+        string authStatePath, CancellationToken cancellationToken) =>
+        await ApplyProfileConfigAsync(account, platform, default, authStatePath, cancellationToken);
+
+    private static async Task<string> ApplyProfileConfigAsync(ChannelsAccount account, PublishPlatform platform,
+        JsonElement profile, string? authStatePath, CancellationToken cancellationToken)
     {
         var path = KuaishouPersonalConfig.DefaultConfigPath(account.Id, platform);
         var config = KuaishouPersonalConfig.Load(new PublishJob
@@ -136,9 +229,123 @@ public sealed class LegacyAccountSessionImportService
             AccountId = account.Id,
             ConfigPath = File.Exists(path) ? path : string.Empty,
         });
-        config.AuthStatePath = authStatePath;
+        if (profile.ValueKind == JsonValueKind.Object)
+            KuaishouLegacyConfigImporter.ImportElement(profile, config, platform, account.LegacySessionSourceRoot);
+        if (!string.IsNullOrWhiteSpace(authStatePath)) config.AuthStatePath = authStatePath;
         await config.SaveAsync(path, cancellationToken);
         return path;
+    }
+
+    private static void ApplyAccountFields(ChannelsAccount account, JsonElement profile)
+    {
+        account.CostReportCompanyName = Text(profile, "cost_report_company_name") ?? account.CostReportCompanyName;
+        account.CostReportSealPath = Text(profile, "cost_report_seal_path") ?? account.CostReportSealPath;
+        account.CostReportSignPath = Text(profile, "cost_report_sign_path") ?? account.CostReportSignPath;
+        account.CostReportTemplatePath = Text(profile, "cost_report_template_docx_path") ?? account.CostReportTemplatePath;
+        account.CostReportActorPayRatio = Text(profile, "cost_report_actor_pay_ratio") ?? account.CostReportActorPayRatio;
+        account.WorkRootDirectory = FirstExistingDirectory(
+            Text(profile, "last_task_queue_workspace"),
+            Text(profile, "kuaishou_personal_last_workspace"),
+            Text(profile, "kuaishou_last_workspace")) ?? account.WorkRootDirectory;
+        account.DownloadDirectory = FirstExistingDirectory(Text(profile, "last_download_workspace")) ?? account.DownloadDirectory;
+        account.ArchiveRootDirectory = FirstExistingDirectory(
+            Text(profile, "kuaishou_personal_archive_root_dir"),
+            Text(profile, "kuaishou_archive_root_dir")) ?? account.ArchiveRootDirectory;
+        account.Nickname = FirstText(profile, "kuaishou_personal_nickname") ?? account.Nickname;
+    }
+
+    private async Task<string?> TryCopySessionAsync(ChannelsAccount account, string source, string destination,
+        string requiredDomain, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(source)) return null;
+        try
+        {
+            EnsureLegacySource(new LegacyAccountSessionCandidate(
+                account.LegacyProfileId, account.Name, account.LegacySessionSourceRoot,
+                State(source), State(source), State(source)), source);
+            await CopyValidatedStateAsync(source, destination, requiredDomain, cancellationToken);
+            return destination;
+        }
+        catch { return null; }
+    }
+
+    private static async Task FillContentPolicyAsync(ChannelsAccount account, JsonElement profile, CancellationToken cancellationToken)
+    {
+        await FillContentPolicyAsync(account, profile, PublishPlatform.KuaishouPersonalRevenue, account.KuaishouPersonalConfigPath, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(account.KuaishouEnterpriseConfigPath))
+            await FillContentPolicyAsync(account, profile, PublishPlatform.KuaishouEnterpriseRevenue, account.KuaishouEnterpriseConfigPath, cancellationToken);
+    }
+
+    private static async Task FillContentPolicyAsync(ChannelsAccount account, JsonElement profile, PublishPlatform platform,
+        string? configPath, CancellationToken cancellationToken)
+    {
+        var path = string.IsNullOrWhiteSpace(configPath) ? KuaishouPersonalConfig.DefaultConfigPath(account.Id, platform) : configPath;
+        if (!File.Exists(path)) return;
+        var config = KuaishouPersonalConfig.Load(new PublishJob
+        {
+            Platform = platform,
+            AccountId = account.Id,
+            ConfigPath = path,
+        });
+        if (config.ContentPolicyMigrated) return;
+        var authStatePath = config.AuthStatePath;
+        KuaishouLegacyConfigImporter.ImportElement(profile, config, platform, account.LegacySessionSourceRoot);
+        config.AuthStatePath = authStatePath;
+        config.ContentPolicyMigrated = true;
+        await config.SaveAsync(path, cancellationToken);
+    }
+
+    private async Task FillMissingWeixinSessionAsync(ChannelsAccount account, string directory, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(account.WeixinAuthStatePath) && File.Exists(account.WeixinAuthStatePath)) return;
+        var copied = await TryCopySessionAsync(account, ResolveNewestState(directory, "wx_auth_state*.json"),
+            Path.Combine(_dataRoot, "sessions", Safe(account.Id), "weixin-storage-state.json"),
+            "weixin.qq.com", cancellationToken);
+        if (copied is null) return;
+        account.WeixinAuthStatePath = copied;
+        await MirrorAsync(copied, Path.Combine(account.ProfileDir, "weixin-series-auth.json"), cancellationToken);
+        await MirrorAsync(copied, Path.Combine(account.ProfileDir, "weixin-auth.json"), cancellationToken);
+        _accounts.Update(account);
+    }
+
+    private static string ResolveNewestState(string directory, string pattern)
+    {
+        if (!Directory.Exists(directory)) return Path.Combine(directory, "wx_auth_state.json");
+        var preferred = Path.Combine(directory, "wx_auth_state.json");
+        if (File.Exists(preferred)) return preferred;
+        var newest = Directory.EnumerateFiles(directory, pattern)
+            .Select(path => new FileInfo(path))
+            .OrderByDescending(file => file.LastWriteTimeUtc)
+            .FirstOrDefault();
+        return newest?.FullName ?? preferred;
+    }
+
+    private static string ResolveKuaishouState(string directory, bool personal)
+    {
+        var specific = Path.Combine(directory, personal
+            ? "kuaishou_personal_kdj_auth_state.json"
+            : "kuaishou_enterprise_kdj_auth_state.json");
+        if (File.Exists(specific)) return specific;
+        return Path.Combine(directory, "kuaishou_kdj_auth_state.json");
+    }
+
+    private static string? FirstText(JsonElement profile, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = Text(profile, name);
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+        }
+        return null;
+    }
+
+    private static string? FirstExistingDirectory(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value)) return value;
+        }
+        return null;
     }
 
     private static async Task CopyValidatedStateAsync(string source, string destination, string requiredDomain,

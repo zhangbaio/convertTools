@@ -96,7 +96,7 @@ public static class ClientSettingsStore
         var path = ResolvePath(databasePath);
         AppDatabaseInitializer.EnsureInitialized(path);
         TikTokExecutionHistoryService.EnsureStorageOptimized(path);
-        TikTokExecutionHistoryService.PruneOldEvents(path);
+        TikTokExecutionHistoryService.PruneOldEventsIfDue(path);
         var raw = LoadRawObject(path);
         if (raw is null)
         {
@@ -105,6 +105,7 @@ public static class ClientSettingsStore
 
         MigrateSharedAsrSettings(raw);
         MigrateProjectImageRenderEpisodeLimitDefault(raw);
+        MigrateHghighStandardClientVersionDefault(raw);
         var json = raw.ToJsonString();
         var settings = JsonSerializer.Deserialize<ClientSettings>(json, JsonOptions) ?? new ClientSettings();
         return ApplyNetworkPreference(Normalize(settings));
@@ -189,6 +190,33 @@ public static class ClientSettingsStore
                 return;
             settings[currentKey] = legacyValue?.DeepClone();
         }
+    }
+
+    private static void MigrateHghighStandardClientVersionDefault(JsonObject settings)
+    {
+        const string valueKey = "hghigh_standard_client_version";
+        const string markerKey = "hghigh_standard_client_version_default_migrated";
+        const string legacyDefault = "2.1.10";
+
+        if (settings[markerKey] is JsonValue marker &&
+            marker.TryGetValue<bool>(out var migrated) &&
+            migrated)
+        {
+            return;
+        }
+
+        var current = "";
+        if (settings[valueKey] is JsonValue value && value.TryGetValue<string>(out var text))
+        {
+            current = (text ?? "").Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(current) || current == legacyDefault)
+        {
+            settings[valueKey] = "2.2.1";
+        }
+
+        settings[markerKey] = true;
     }
 
     private static void MigrateProjectImageRenderEpisodeLimitDefault(JsonObject settings)

@@ -275,7 +275,7 @@ public sealed class QueueRunOptionsTests
         QueueStepRegistry.DefaultEnabledSteps
             .Should().NotContain(QueueStepRegistry.GenerateProofMaterial);
         QueueStepRegistry.LabelOf(QueueStepRegistry.GenerateProofMaterial)
-            .Should().Be("生成证明材料");
+            .Should().Be("证明材料");
     }
 
     [Fact]

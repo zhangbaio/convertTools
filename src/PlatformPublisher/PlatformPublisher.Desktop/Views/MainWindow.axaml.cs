@@ -1,6 +1,12 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using PlatformPublisher.Persistence;
+using TikTokPublisher.Ui.Services;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Common.Models;
@@ -9,10 +15,10 @@ using PlatformPublisher.Common.Services;
 using PlatformPublisher.Weixin.Publishing;
 using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Ui.ViewModels;
+using TikTokPublisher.Ui.Views;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Storage;
 using PlatformPublisher.Analytics.Models;
-using PlatformPublisher.Persistence;
 using PlatformPublisher.Publishing.Models;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Desktop.Services;
@@ -21,11 +27,19 @@ namespace PlatformPublisher.Desktop.Views;
 
 public partial class MainWindow : Window
 {
-    private const double ExpandedSidebarWidth = 198;
+    private const string PlacementKey = "ui.yunfan_main_window_placement";
     private const double CollapsedSidebarWidth = 42;
     private PlatformDatabase? _platformDatabase;
     private DatabaseBackupService? _databaseBackupService;
+    private IJsonSettingStore? _windowSettings;
     private bool _isGlobalSidebarCollapsed;
+    private bool _compactLayout;
+    private bool _startupLayoutApplied;
+    private bool _suspendPlacementTracking;
+    private MainWindowPlacement? _normalPlacement;
+
+    private double ExpandedSidebarWidth =>
+        _compactLayout ? LaptopLayout.CompactSidebarWidth : LaptopLayout.ExpandedSidebarWidth;
 
     public MainWindow()
     {
@@ -33,10 +47,22 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetSidebarVisible(false);
         GlobalAccountSidebar.UseShellChrome();
         KuaishouWorkflowPage.KuaishouConfigRequested += (_, _) =>
-            OpenKuaishouPersonalConfig_Click(null, new RoutedEventArgs());
+            ShowKuaishouConfigPage(ViewModel?.IsKuaishouPlatform == true
+                ? ViewModel.SelectedPlatform.Value
+                : PublishPlatform.KuaishouPersonalRevenue);
         KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
-        Opened += (_, _) => ShowWeixinPage();
+        Opened += (_, _) =>
+        {
+            if (!_startupLayoutApplied)
+                ApplyStartupLayout();
+            ShowWeixinPage();
+        };
+        Closed += (_, _) => SavePlacement();
+        SizeChanged += (_, _) => RememberNormalPlacement();
+        PositionChanged += (_, _) => RememberNormalPlacement();
     }
+
+    public void BindWindowPlacement(IJsonSettingStore settingsStore) => _windowSettings = settingsStore;
 
     public void BindSettings(SystemSettingsViewModel viewModel)
     {
@@ -129,8 +155,17 @@ public partial class MainWindow : Window
     {
         WeixinPublisherView.UseAccountStore(accountStore);
         GlobalAccountSidebar.DataContext = WeixinPublisherView.DataContext;
-        WeixinPublisherView.SelectedAccountChanged += account =>
+        WeixinPublisherView.SelectedAccountChanged += async account =>
+        {
             ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, account);
+            await SwitchKuaishouConfigAccountAsync(account);
+        };
+        KuaishouConfigPage.ConfigSaved += (accountId, platform, path) =>
+        {
+            ViewModel?.RememberKuaishouConfigPath(accountId, platform, path);
+            return Task.CompletedTask;
+        };
+        KuaishouConfigPage.LoadAccount(WeixinPublisherView.SelectedAccountProfile, PublishPlatform.KuaishouPersonalRevenue);
         ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, WeixinPublisherView.SelectedAccountProfile);
     }
 
@@ -149,40 +184,153 @@ public partial class MainWindow : Window
 
     public void BindWeixinDownload(MainWindowViewModel mainViewModel)
     {
-        var viewModel = new TikTokPublisher.Ui.ViewModels.DramaDownloadViewModel(PlatformPublisherPaths.SettingsDatabasePath);
-        viewModel.ConfigureQueuePlatform("视频号");
+        var viewModel = new DramaDownloadViewModel(PlatformPublisherPaths.SettingsDatabasePath);
+        viewModel.ConfigurePlatformQueues(
+        [
+            (DramaQueuePlatforms.KuaishouPersonal, "快手分账个人"),
+            (DramaQueuePlatforms.KuaishouEnterprise, "快手分账企业"),
+            (DramaQueuePlatforms.Weixin, "视频号"),
+        ]);
+        viewModel.PlatformQueueTargetRequested += ResolveDramaQueueTarget;
         viewModel.TikTokQueueTargetRequested += () =>
         {
             var account = WeixinPublisherView.SelectedAccountProfile;
-            var workspace = account?.WorkRootDirectory;
-            if (account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace)) return null;
-            return new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, workspace);
+            return account is null
+                ? null
+                : new TikTokQueueImportTarget(account.Id, account.Name, account.WorkRootDirectory ?? string.Empty);
         };
+        viewModel.TikTokQueueTargetsRequested += ListDramaQueueTargets;
         viewModel.ImportToQueueRequested += async request =>
         {
-            await mainViewModel.ImportVideoChannelProjectDirectoriesAsync(request);
+            await mainViewModel.ImportDownloadedProjectsAsync(request);
         };
-        var view = new TikTokPublisher.Ui.Views.DramaDownloadView();
+        var view = new DramaDownloadView();
         view.Bind(viewModel, message => mainViewModel.StatusMessage = message);
         viewModel.SearchViewMode = "封面视图";
         void RefreshTarget()
         {
             var account = WeixinPublisherView.SelectedAccountProfile;
-            var workspace = account?.WorkRootDirectory;
-            viewModel.UpdateTikTokQueueTarget(account is null || string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace)
+            viewModel.UpdateTikTokQueueTarget(account is null
                 ? null
-                : new TikTokPublisher.Ui.ViewModels.TikTokQueueImportTarget(account.Id, account.Name, workspace));
+                : new TikTokQueueImportTarget(account.Id, account.Name, account.WorkRootDirectory ?? string.Empty));
         }
         WeixinPublisherView.SelectedAccountChanged += _ => RefreshTarget();
         mainViewModel.ActiveAccountWorkRootDirectoryChanged += RefreshTarget;
         viewModel.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(TikTokPublisher.Ui.ViewModels.DramaDownloadViewModel.DownloadWorkspace))
+            if (args.PropertyName == nameof(DramaDownloadViewModel.DownloadWorkspace))
                 RefreshTarget();
         };
         RefreshTarget();
-        WeixinPublisherView.SetDramaDownloadContent(view);
+        DramaDownloadHost.Content = view;
+        WeixinPublisherView.SetDramaDownloadContent(CreateDramaDownloadShortcut());
     }
+
+    private Control CreateDramaDownloadShortcut()
+    {
+        var panel = new StackPanel
+        {
+            Spacing = 12,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "短剧搜索和下载在顶部「短剧下载」。可以把选中的剧加入快手分账个人、快手分账企业或视频号队列。",
+            Foreground = new SolidColorBrush(Color.Parse("#64748B")),
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 520,
+            TextAlignment = TextAlignment.Center,
+        });
+        var button = new Button
+        {
+            Content = "打开短剧下载",
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        button.Click += (_, _) => ShowDramaDownloadPage();
+        panel.Children.Add(button);
+        return panel;
+    }
+
+    private TikTokQueueImportTarget? ResolveDramaQueueTarget(string platformKey)
+    {
+        var account = WeixinPublisherView.SelectedAccountProfile;
+        if (account is null) return null;
+        var workspace = ResolveDramaQueueWorkspace(account, platformKey);
+        if (workspace is null) return null;
+        return new TikTokQueueImportTarget(
+            account.Id,
+            account.Name,
+            workspace,
+            platformKey,
+            DramaQueuePlatformLabel(platformKey));
+    }
+
+    private IReadOnlyList<TikTokQueueImportTarget> ListDramaQueueTargets()
+    {
+        var targets = new List<TikTokQueueImportTarget>();
+        foreach (var account in WeixinPublisherView.AccountProfiles)
+        {
+            foreach (var platformKey in new[]
+                     {
+                         DramaQueuePlatforms.KuaishouPersonal,
+                         DramaQueuePlatforms.KuaishouEnterprise,
+                         DramaQueuePlatforms.Weixin,
+                     })
+            {
+                var workspace = ResolveDramaQueueWorkspace(account, platformKey);
+                if (workspace is null) continue;
+                targets.Add(new TikTokQueueImportTarget(
+                    account.Id,
+                    account.Name,
+                    workspace,
+                    platformKey,
+                    DramaQueuePlatformLabel(platformKey)));
+            }
+        }
+        return targets;
+    }
+
+    private static string? ResolveDramaQueueWorkspace(ChannelsPublisher.Core.Models.PublishAccount account, string platformKey)
+    {
+        var configPath = platformKey switch
+        {
+            DramaQueuePlatforms.KuaishouPersonal => account.KuaishouPersonalConfigPath,
+            DramaQueuePlatforms.KuaishouEnterprise => account.KuaishouEnterpriseConfigPath,
+            _ => string.Empty,
+        };
+        if (platformKey is DramaQueuePlatforms.KuaishouPersonal or DramaQueuePlatforms.KuaishouEnterprise &&
+            (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)))
+            return null;
+        var configured = ReadConfigWorkspace(configPath);
+        if (Directory.Exists(configured)) return Path.GetFullPath(configured);
+        return Directory.Exists(account.WorkRootDirectory) ? Path.GetFullPath(account.WorkRootDirectory) : null;
+    }
+
+    private static string ReadConfigWorkspace(string? configPath)
+    {
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)) return string.Empty;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(configPath));
+            if (document.RootElement.TryGetProperty("LastWorkspace", out var workspace))
+                return workspace.GetString()?.Trim() ?? string.Empty;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+        catch (IOException)
+        {
+        }
+        return string.Empty;
+    }
+
+    private static string DramaQueuePlatformLabel(string platformKey) => platformKey switch
+    {
+        DramaQueuePlatforms.KuaishouPersonal => "快手分账个人",
+        DramaQueuePlatforms.KuaishouEnterprise => "快手分账企业",
+        _ => "视频号",
+    };
 
     public void BindAnalytics(AnalyticsViewModel analyticsViewModel, MainWindowViewModel mainViewModel)
     {
@@ -205,10 +353,7 @@ public partial class MainWindow : Window
     private void OnGlobalSidebarToggleClick(object? sender, RoutedEventArgs e)
     {
         _isGlobalSidebarCollapsed = !_isGlobalSidebarCollapsed;
-        ShellLayout.ColumnDefinitions[0].Width = new GridLength(
-            _isGlobalSidebarCollapsed ? CollapsedSidebarWidth : ExpandedSidebarWidth);
-        ExpandedGlobalSidebar.IsVisible = !_isGlobalSidebarCollapsed;
-        CollapsedGlobalSidebar.IsVisible = _isGlobalSidebarCollapsed;
+        ApplySidebarWidth();
     }
 
     private void OnGlobalAccountSettingsRequested(object? sender, EventArgs e)
@@ -219,11 +364,16 @@ public partial class MainWindow : Window
 
     private void OnWeixinNavClick(object? sender, RoutedEventArgs e) => ShowWeixinPage();
 
+    private void OnDramaDownloadNavClick(object? sender, RoutedEventArgs e) => ShowDramaDownloadPage();
+
     private void OnKuaishouPersonalNavClick(object? sender, RoutedEventArgs e) =>
         ShowKuaishouPage(PublishPlatform.KuaishouPersonalRevenue);
 
     private void OnKuaishouEnterpriseNavClick(object? sender, RoutedEventArgs e) =>
         ShowKuaishouPage(PublishPlatform.KuaishouEnterpriseRevenue);
+
+    private void OnKuaishouConfigNavClick(object? sender, RoutedEventArgs e) =>
+        ShowKuaishouConfigPage(KuaishouConfigPage.CurrentPlatform);
 
     private void OnSettingsNavClick(object? sender, RoutedEventArgs e) => ShowSettingsPage();
     private void OnAnalyticsNavClick(object? sender, RoutedEventArgs e) => ShowAnalyticsPage();
@@ -237,20 +387,38 @@ public partial class MainWindow : Window
     {
         ViewModel?.SelectPlatform(PublishPlatform.WeixinChannel);
         WeixinPublisherView.IsVisible = true;
+        DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(WeixinNavButton);
     }
 
+    private void ShowDramaDownloadPage()
+    {
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = true;
+        PipelinePage.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(DramaDownloadNavButton);
+    }
+
     private void ShowKuaishouPage(PublishPlatform platform)
     {
         ViewModel?.SelectPlatform(platform);
+        ViewModel?.LoadKuaishouWorkspace();
         WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = true;
+        KuaishouWorkflowPage.IsKuaishouMode = true;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
@@ -261,9 +429,11 @@ public partial class MainWindow : Window
     private void ShowSettingsPage()
     {
         WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = true;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(SettingsNavButton);
@@ -272,8 +442,10 @@ public partial class MainWindow : Window
     private void ShowAnalyticsPage()
     {
         WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = true;
         SetActiveNavigation(AnalyticsNavButton);
@@ -284,8 +456,10 @@ public partial class MainWindow : Window
         foreach (var button in new[]
                  {
                      WeixinNavButton,
+                     DramaDownloadNavButton,
                      KuaishouPersonalNavButton,
                      KuaishouEnterpriseNavButton,
+                     KuaishouConfigNavButton,
                      AnalyticsNavButton,
                      SettingsNavButton,
                  })
@@ -382,29 +556,224 @@ public partial class MainWindow : Window
         ViewModel.StatusMessage = "视频号高级发表配置已应用到新任务。";
     }
 
-    private async void OpenKuaishouPersonalConfig_Click(object? sender, RoutedEventArgs e)
+    private bool _switchingKuaishouConfig;
+
+    private void ShowKuaishouConfigPage(PublishPlatform platform)
     {
         if (ViewModel?.SelectedAccount is null)
         {
-            if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧选择全局账号。";
+            if (ViewModel is not null) ViewModel.StatusMessage = "请先在左侧添加并选择账号。";
             return;
         }
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = true;
+        KuaishouConfigPage.LoadAccount(WeixinPublisherView.SelectedAccountProfile, platform);
+        SetActiveNavigation(KuaishouConfigNavButton);
+    }
 
-        var account = ViewModel.SelectedAccount.Model;
-        var platform = ViewModel.SelectedPlatform.Value;
-        var configuredPath = account.BaseConfigPath?.Trim() ?? string.Empty;
-        var path = string.IsNullOrWhiteSpace(configuredPath)
-            ? KuaishouPersonalConfig.DefaultConfigPath(account.Id, platform)
-            : Path.GetFullPath(configuredPath);
-        var config = KuaishouPersonalConfig.Load(new PublishJob
+    private async void OpenKuaishouPersonalConfig_Click(object? sender, RoutedEventArgs e)
+    {
+        var platform = ViewModel?.IsKuaishouPlatform == true
+            ? ViewModel.SelectedPlatform.Value
+            : PublishPlatform.KuaishouPersonalRevenue;
+        if (KuaishouConfigPage.IsVisible && !await KuaishouConfigPage.TryLeaveAsync(this)) return;
+        ShowKuaishouConfigPage(platform);
+    }
+
+    private async Task SwitchKuaishouConfigAccountAsync(ChannelsPublisher.Core.Models.PublishAccount? account)
+    {
+        if (_switchingKuaishouConfig) return;
+        if (!KuaishouConfigPage.IsVisible)
         {
-            Platform = platform,
-            AccountId = account.Id,
-            ConfigPath = File.Exists(path) ? path : string.Empty,
-        });
-        var result = await KuaishouPersonalConfigDialog.ShowAsync(this, config, platform);
-        if (result is null) return;
-        await result.SaveAsync(path);
-        await ViewModel.UpdateSelectedAccountConfigPathAsync(path);
+            KuaishouConfigPage.LoadAccount(account, KuaishouConfigPage.CurrentPlatform);
+            return;
+        }
+        var previousId = KuaishouConfigPage.AccountId;
+        if (!string.IsNullOrEmpty(previousId) &&
+            string.Equals(previousId, account?.Id, StringComparison.OrdinalIgnoreCase))
+            return;
+        _switchingKuaishouConfig = true;
+        try
+        {
+            if (!await KuaishouConfigPage.TryLeaveAsync(this))
+            {
+                if (!string.IsNullOrEmpty(previousId))
+                    WeixinPublisherView.SelectAccount(previousId);
+                return;
+            }
+            KuaishouConfigPage.LoadAccount(account, KuaishouConfigPage.CurrentPlatform);
+        }
+        finally
+        {
+            _switchingKuaishouConfig = false;
+        }
+    }
+
+    private void ApplyStartupLayout()
+    {
+        var screens = Screens;
+        if (screens is null)
+            return;
+
+        MainWindowPlacement? saved = null;
+        try
+        {
+            if (_windowSettings is not null &&
+                _windowSettings.TryLoad<MainWindowPlacement>(PlacementKey, out var loaded))
+                saved = loaded;
+        }
+        catch
+        {
+            saved = null;
+        }
+
+        var screen = saved is null
+            ? screens.Primary
+            : screens.ScreenFromPoint(new PixelPoint(saved.X + 16, saved.Y + 16)) ?? screens.Primary;
+        if (screen is null)
+            return;
+
+        var scale = screen.Scaling <= 0 ? 1d : screen.Scaling;
+        var workWidth = screen.WorkingArea.Width / scale;
+        var workHeight = screen.WorkingArea.Height / scale;
+        if (workWidth < 640 || workHeight < 480)
+            return;
+
+        var fit = LaptopLayout.FitWindow(workWidth, workHeight);
+        _suspendPlacementTracking = true;
+        try
+        {
+            MinWidth = fit.MinWidth;
+            MinHeight = fit.MinHeight;
+            ApplyCompactLayout(LaptopLayout.IsCompact(workWidth, workHeight), LaptopLayout.ShouldShortenNav(workWidth));
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            var restoreSaved = saved is not null
+                && LaptopLayout.PlacementFits(saved.Width, saved.Height, workWidth, workHeight)
+                && RestoredWindowMostlyVisible(saved, screen);
+            if (restoreSaved && saved is not null)
+            {
+                Width = saved.Width;
+                Height = saved.Height;
+                Position = new PixelPoint(saved.X, saved.Y);
+                _normalPlacement = saved;
+                if (saved.Maximized)
+                    WindowState = WindowState.Maximized;
+            }
+            else
+            {
+                Width = fit.Width;
+                Height = fit.Height;
+                var x = screen.WorkingArea.X + (int)Math.Round((screen.WorkingArea.Width - fit.Width * scale) / 2);
+                var y = screen.WorkingArea.Y + (int)Math.Round((screen.WorkingArea.Height - fit.Height * scale) / 2);
+                Position = new PixelPoint(Math.Max(screen.WorkingArea.X, x), Math.Max(screen.WorkingArea.Y, y));
+                _normalPlacement = new MainWindowPlacement
+                {
+                    X = Position.X,
+                    Y = Position.Y,
+                    Width = fit.Width,
+                    Height = fit.Height,
+                };
+            }
+        }
+        finally
+        {
+            _suspendPlacementTracking = false;
+            _startupLayoutApplied = true;
+        }
+    }
+
+    private void ApplyCompactLayout(bool compact, bool shortenNav)
+    {
+        _compactLayout = compact;
+        Classes.Set("compact", compact);
+        ApplySidebarWidth();
+        BrandTitle.Text = compact ? "云帆" : "云帆多平台发布助手";
+        ToolTip.SetTip(BrandTitle, compact ? "云帆多平台发布助手" : null);
+        SetNavLabel(WeixinNavButton, "视频号助手", "视频号", shortenNav);
+        SetNavLabel(DramaDownloadNavButton, "短剧下载", "下载", shortenNav);
+        SetNavLabel(KuaishouPersonalNavButton, "快手分账 · 个人", "快手个人", shortenNav);
+        SetNavLabel(KuaishouEnterpriseNavButton, "快手分账 · 企业", "快手企业", shortenNav);
+        SetNavLabel(AnalyticsNavButton, "数据统计", "统计", shortenNav);
+        SetNavLabel(DatabaseNavButton, "数据库", "数据库", shortenNav);
+        SetNavLabel(SettingsNavButton, "系统设置", "设置", shortenNav);
+    }
+
+    private void ApplySidebarWidth()
+    {
+        ShellLayout.ColumnDefinitions[0].Width = new GridLength(
+            _isGlobalSidebarCollapsed ? CollapsedSidebarWidth : ExpandedSidebarWidth);
+        ExpandedGlobalSidebar.IsVisible = !_isGlobalSidebarCollapsed;
+        CollapsedGlobalSidebar.IsVisible = _isGlobalSidebarCollapsed;
+    }
+
+    private static void SetNavLabel(Button button, string full, string shortLabel, bool shorten)
+    {
+        var useShort = shorten && !string.Equals(shortLabel, full, StringComparison.Ordinal);
+        button.Content = useShort ? shortLabel : full;
+        ToolTip.SetTip(button, useShort ? full : null);
+    }
+
+    private void RememberNormalPlacement()
+    {
+        if (_suspendPlacementTracking || WindowState != WindowState.Normal)
+            return;
+        if (double.IsNaN(Width) || double.IsNaN(Height) || Width < 200 || Height < 200)
+            return;
+
+        _normalPlacement = new MainWindowPlacement
+        {
+            X = Position.X,
+            Y = Position.Y,
+            Width = Width,
+            Height = Height,
+        };
+    }
+
+    private void SavePlacement()
+    {
+        if (_windowSettings is null)
+            return;
+        if (_normalPlacement is null)
+            RememberNormalPlacement();
+        if (_normalPlacement is null)
+            return;
+
+        _normalPlacement.Maximized = WindowState == WindowState.Maximized;
+        try
+        {
+            _windowSettings.Save(PlacementKey, _normalPlacement);
+        }
+        catch
+        {
+            // 关闭时写窗口位置失败不影响退出。
+        }
+    }
+
+    private static bool RestoredWindowMostlyVisible(MainWindowPlacement saved, Screen screen)
+    {
+        var scale = screen.Scaling <= 0 ? 1d : screen.Scaling;
+        var window = new PixelRect(
+            saved.X,
+            saved.Y,
+            Math.Max(1, (int)Math.Round(saved.Width * scale)),
+            Math.Max(1, (int)Math.Round(saved.Height * scale)));
+        var overlap = window.Intersect(screen.WorkingArea);
+        var windowArea = (double)window.Width * window.Height;
+        var overlapArea = (double)overlap.Width * overlap.Height;
+        return windowArea > 0 && overlapArea >= windowArea * 0.6;
+    }
+
+    private sealed class MainWindowPlacement
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public bool Maximized { get; set; }
     }
 }

@@ -80,6 +80,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly QueueStatePersistService _queueStatePersist = new();
     private readonly XingeRemoteCommandService _xingeRemoteCommandService = new();
     private CancellationTokenSource? _queueCts;
+    private readonly Dictionary<string, CancellationTokenSource> _workspaceQueueRunCancellations =
+        new(StringComparer.OrdinalIgnoreCase);
     private string? _manualInterventionWorkspaceRoot;
     private bool _applyingQueueStepToggles;
     private bool _queueRunActive;
@@ -1840,6 +1842,49 @@ public sealed partial class MainViewModel : ViewModelBase
         if (target is null || string.IsNullOrWhiteSpace(target.WorkspaceRoot))
             return null;
 
+        // 后台准备期间 runner 尚未注册到编排器，停止请求需通过该工作目录专属的取消源送达。
+        var root = Path.GetFullPath(target.WorkspaceRoot);
+        using var workspaceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _workspaceQueueRunCancellations[root] = workspaceCts;
+        try
+        {
+            return await RunQueueWorkerCoreAsync(
+                    host,
+                    onProgress,
+                    onPersist,
+                    workspaceCts.Token,
+                    optionsOverride,
+                    projectDirFilter,
+                    onStarted,
+                    target,
+                    preserveProjectLogsSince)
+                .ConfigureAwait(true);
+        }
+        finally
+        {
+            if (_workspaceQueueRunCancellations.TryGetValue(root, out var registered) &&
+                ReferenceEquals(registered, workspaceCts))
+            {
+                _workspaceQueueRunCancellations.Remove(root);
+            }
+        }
+    }
+
+    private async Task<QueueWorkerSummary?> RunQueueWorkerCoreAsync(
+        IQueuePublishHost host,
+        Action<QueueWorkerProgress> onProgress,
+        Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
+        CancellationToken ct,
+        QueueRunOptions? optionsOverride,
+        IReadOnlyCollection<string>? projectDirFilter,
+        Action? onStarted,
+        WorkspaceQueueTarget? targetOverride,
+        DateTime? preserveProjectLogsSince)
+    {
+        var target = targetOverride ?? CaptureCurrentWorkspaceQueueTarget();
+        if (target is null || string.IsNullOrWhiteSpace(target.WorkspaceRoot))
+            return null;
+
         var root = Path.GetFullPath(target.WorkspaceRoot);
         var displayedWorkspace = WorkspacePath.Trim();
         var isDisplayedWorkspace = !string.IsNullOrWhiteSpace(displayedWorkspace) &&
@@ -1852,19 +1897,10 @@ public sealed partial class MainViewModel : ViewModelBase
                 root,
                 StringComparison.OrdinalIgnoreCase);
         projectDirFilter = target.ProjectDirFilter ?? projectDirFilter;
+        // 后台准备阶段只能读取列表副本，界面集合仍可能被 UI 线程增删。
         var displayedSnapshot = isDisplayedWorkspace && _queueItems.Count > 0
-            ? _queueItems
+            ? _queueItems.ToList()
             : null;
-        var queueItemsForRun = WorkspaceQueueService.ResolveExecutionSnapshot(
-            root,
-            displayedSnapshot,
-            target.PreferPersistedQueueSnapshot).ToList();
-        if (queueItemsForRun.Count == 0)
-        {
-            if (projectDirFilter is not null)
-                throw new InvalidOperationException($"目标工作目录队列为空，未匹配到本次导入项目：{root}");
-            return null;
-        }
 
         // 并行多账号时 SelectedAccount 会随 UI 切换，故优先使用本次执行目标账号；
         // 只有当前页面直接执行时才回退到当前选中账号。
@@ -1896,38 +1932,35 @@ public sealed partial class MainViewModel : ViewModelBase
             normalizedProjectFilterSet = normalizedProjectFilter.ToHashSet(StringComparer.OrdinalIgnoreCase);
         }
 
-        var runItems = queueItemsForRun.Where(item =>
-            item.Enabled &&
-            !item.Archived &&
-            (normalizedProjectFilterSet is null || normalizedProjectFilterSet.Contains(Path.GetFullPath(item.ProjectDir))))
-            .ToArray();
-        if (runItems.Length == 0)
-            throw new InvalidOperationException($"目标工作目录未匹配到可执行项目，已取消启动队列：{root}");
+        var preparation = await Task.Run(
+                () => PrepareQueueRun(
+                    root,
+                    displayedSnapshot,
+                    target.PreferPersistedQueueSnapshot,
+                    projectDirFilter is not null,
+                    normalizedProjectFilter,
+                    normalizedProjectFilterSet,
+                    effectiveAccount?.Model,
+                    runOptions,
+                    _store),
+                ct)
+            .ConfigureAwait(true);
+        if (preparation is null)
+            return null;
+        ct.ThrowIfCancellationRequested();
 
-        // 只有拥有明确执行账号的编排层才允许迁移失效绑定；Core Runner 本身保持严格，
-        // 不会把找不到的账号静默回退到当前活动账号。并且只修复本次实际执行的项目。
-        var repairedAccountBindingCount = 0;
-        if (effectiveAccount is not null)
+        var queueItemsForRun = preparation.Items;
+        var runItems = preparation.RunItems;
+        var repairedAccountBindingCount = preparation.RepairedItems.Count;
+        if (repairedAccountBindingCount > 0)
         {
-            foreach (var item in runItems)
+            if (isDisplayedWorkspace)
             {
-                if (!QueueAccountBindingResolver.RepairForWorkspaceDefault(
-                        _store,
-                        item,
-                        effectiveAccount.Model))
-                {
-                    continue;
-                }
-
-                repairedAccountBindingCount++;
-                if (isDisplayedWorkspace)
+                foreach (var item in preparation.RepairedItems)
                     RefreshQueueRowFor(item);
             }
 
-            if (repairedAccountBindingCount > 0)
-            {
-                AppendLog($"检测到账号删除、重建或重命名，已校正 {repairedAccountBindingCount} 个队列项目的账号绑定。");
-            }
+            AppendLog($"检测到账号删除、重建或重命名，已校正 {repairedAccountBindingCount} 个队列项目的账号绑定。");
         }
 
         if (optionsOverride is null && isDisplayedWorkspace)
@@ -1935,15 +1968,15 @@ public sealed partial class MainViewModel : ViewModelBase
         else if (repairedAccountBindingCount > 0)
             _queueStatePersist.Enqueue(root, queueItemsForRun, runOptions);
         if (repairedAccountBindingCount > 0)
-            _queueStatePersist.Flush(root, TimeSpan.FromSeconds(1));
+        {
+            await Task.Run(() => _queueStatePersist.Flush(root, TimeSpan.FromSeconds(1)))
+                .ConfigureAwait(true);
+        }
         CacheWorkspaceQueueSnapshot(root, queueItemsForRun, runOptions);
         MarkQueueExcelExportPending(root);
 
-        var selectedRunCount = QueueWorkerRunner.ValidateRunSelection(
-            queueItemsForRun,
-            runOptions,
-            _store,
-            normalizedProjectFilter);
+        preparation.ValidationError?.Throw();
+        var selectedRunCount = preparation.SelectedRunCount;
 
         Logs.ClearProjectEntries(runItems, preserveProjectLogsSince);
         RefreshRunningWorkspacesSummary();
@@ -1995,7 +2028,8 @@ public sealed partial class MainViewModel : ViewModelBase
                 },
                 ct,
                 normalizedProjectFilter,
-                onStarted);
+                onStarted,
+                selectionValidated: true);
             TikTokExecutionHistoryService.AppendEvent(
                 "run_finished",
                 summary?.Stopped == true ? "stopped" : "completed",
@@ -2040,6 +2074,79 @@ public sealed partial class MainViewModel : ViewModelBase
                 CompleteWorkspaceQueueRunLifecycle(runLifecycle);
                 RemoveWorkspaceQueueExecutionContext(root, batchId);
             }
+        }
+    }
+
+    private sealed record QueueRunPreparation(
+        List<QueueProjectItem> Items,
+        QueueProjectItem[] RunItems,
+        IReadOnlyList<QueueProjectItem> RepairedItems,
+        int SelectedRunCount,
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? ValidationError);
+
+    /// <summary>
+    /// 启动前的磁盘扫描、账号绑定修复与可执行性校验，在线程池执行，不得访问界面集合或绑定属性。
+    /// </summary>
+    private static QueueRunPreparation? PrepareQueueRun(
+        string root,
+        IReadOnlyList<QueueProjectItem>? displayedSnapshot,
+        bool preferPersistedSnapshot,
+        bool hasProjectFilter,
+        IReadOnlyList<string>? normalizedProjectFilter,
+        HashSet<string>? normalizedProjectFilterSet,
+        TikTokAccountProfile? effectiveAccount,
+        QueueRunOptions runOptions,
+        AccountStore store)
+    {
+        var queueItemsForRun = WorkspaceQueueService.ResolveExecutionSnapshot(
+            root,
+            displayedSnapshot,
+            preferPersistedSnapshot).ToList();
+        if (queueItemsForRun.Count == 0)
+        {
+            if (hasProjectFilter)
+                throw new InvalidOperationException($"目标工作目录队列为空，未匹配到本次导入项目：{root}");
+            return null;
+        }
+
+        var runItems = queueItemsForRun.Where(item =>
+            item.Enabled &&
+            !item.Archived &&
+            (normalizedProjectFilterSet is null || normalizedProjectFilterSet.Contains(Path.GetFullPath(item.ProjectDir))))
+            .ToArray();
+        if (runItems.Length == 0)
+            throw new InvalidOperationException($"目标工作目录未匹配到可执行项目，已取消启动队列：{root}");
+
+        // 只有拥有明确执行账号的编排层才允许迁移失效绑定；Core Runner 本身保持严格，
+        // 不会把找不到的账号静默回退到当前活动账号。并且只修复本次实际执行的项目。
+        var repairedItems = new List<QueueProjectItem>();
+        if (effectiveAccount is not null)
+        {
+            foreach (var item in runItems)
+            {
+                if (QueueAccountBindingResolver.RepairForWorkspaceDefault(store, item, effectiveAccount))
+                    repairedItems.Add(item);
+            }
+        }
+
+        // 校验失败也要先让调用方落盘已修复的绑定，因此异常延后到 UI 线程抛出。
+        try
+        {
+            var selectedRunCount = QueueWorkerRunner.ValidateRunSelection(
+                queueItemsForRun,
+                runOptions,
+                store,
+                normalizedProjectFilter);
+            return new QueueRunPreparation(queueItemsForRun, runItems, repairedItems, selectedRunCount, null);
+        }
+        catch (Exception ex)
+        {
+            return new QueueRunPreparation(
+                queueItemsForRun,
+                runItems,
+                repairedItems,
+                0,
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex));
         }
     }
 
@@ -2239,6 +2346,8 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = (workspaceRoot ?? WorkspacePath).Trim();
         if (!string.IsNullOrEmpty(root))
         {
+            if (_workspaceQueueRunCancellations.TryGetValue(SafeFullPath(root), out var workspaceCts))
+                workspaceCts.Cancel();
             _queueOrchestrator.StopWorkspace(root);
         }
         else
@@ -3061,8 +3170,9 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool IsActiveWorkspace(string? workspaceRoot)
     {
         var root = WorkspacePath.Trim();
+        // 当前账号没有工作目录时，不能把其他账号正在运行的队列当成当前表格。
         if (string.IsNullOrEmpty(root) || string.IsNullOrWhiteSpace(workspaceRoot))
-            return true;
+            return false;
         return string.Equals(
             NormalizePathCached(workspaceRoot),
             NormalizePathCached(root),
@@ -3635,6 +3745,12 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         return true;
+    }
+
+    public void ReloadAccountsFromDisk()
+    {
+        _store.Load();
+        ReloadAccounts();
     }
 
     public void ReloadAccounts()

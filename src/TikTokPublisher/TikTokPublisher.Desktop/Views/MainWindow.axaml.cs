@@ -2,6 +2,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Platform;
 using Avalonia.Threading;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Licensing;
@@ -16,8 +17,20 @@ namespace TikTokPublisher.Desktop.Views;
 
 public partial class MainWindow : Window
 {
-    private const double ExpandedSidebarWidth = 198;
     private const double CollapsedSidebarWidth = 44;
+
+    private static readonly Dictionary<string, (string Full, string Short)> NavLabels = new(StringComparer.Ordinal)
+    {
+        ["browser"] = ("浏览器", "浏览器"),
+        ["download"] = ("短剧下载", "下载"),
+        ["queue"] = ("TikTok 上传", "上传"),
+        ["accounts"] = ("账号管理", "账号"),
+        ["logs"] = ("运行日志", "日志"),
+        ["settings"] = ("系统设置", "设置"),
+        ["services"] = ("系统服务", "服务"),
+        ["analytics"] = ("数据统计", "统计"),
+        ["archived"] = ("已归档项目", "归档"),
+    };
 
     private readonly AccountStore _accountStore = new();
     private readonly BrowserSessionHost _browserHost = new();
@@ -26,6 +39,10 @@ public partial class MainWindow : Window
     private readonly HashSet<string> _externalLoginsInProgress = new(StringComparer.Ordinal);
     private string _activeNavTag = "queue";
     private bool _isSidebarCollapsed;
+    private bool _compactLayout;
+    private bool _startupLayoutApplied;
+    private bool _suspendPlacementTracking;
+    private MainWindowPlacement? _normalPlacement;
     private DispatcherTimer? _licenseVerifyTimer;
     private bool _licenseVerifyRunning;
     private bool _licenseLoginDialogOpen;
@@ -56,8 +73,24 @@ public partial class MainWindow : Window
         LogView.Bind(_viewModel, _viewModel.Logs);
         SettingsView.Bind(_viewModel.SystemSettings);
         ServicesView.Bind(_viewModel.SystemServices);
+        _viewModel.SystemServices.ConfigImported += () =>
+        {
+            _viewModel.ReloadAccountsFromDisk();
+            _viewModel.SystemSettings.Load();
+            _viewModel.SystemServices.Load();
+            ApplyAccountAnalytics(_viewModel.SystemSettings.TiktokAccountAnalyticsEnabled);
+        };
         ArchivedView.Bind(_viewModel.ArchivedProjects);
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
+        AnalyticsView.Bind(_viewModel.Accounts, _viewModel.AppendLog);
+        AnalyticsView.SearchOriginalRequested += keyword =>
+        {
+            NavigateTo("download");
+            DownloadView.SearchByKeyword(keyword);
+        };
+        _viewModel.SystemSettings.SettingsSaved += settings =>
+            ApplyAccountAnalytics(settings.TiktokAccountAnalyticsEnabled);
+        ApplyAccountAnalytics(_viewModel.SystemSettings.TiktokAccountAnalyticsEnabled);
 
         QueueView.OpenBrowserRequested += (_, _) => NavigateTo("browser");
         QueueView.PublishBrowserFocusRequested += account =>
@@ -94,6 +127,29 @@ public partial class MainWindow : Window
         SetSidebarCollapsed(false);
         NavigateTo("queue");
         Closed += OnWindowClosed;
+        ApplyStartupLayout();
+        SizeChanged += (_, _) => RememberNormalPlacement();
+        PositionChanged += (_, _) => RememberNormalPlacement();
+    }
+
+    protected override void OnOpened(EventArgs e)
+    {
+        base.OnOpened(e);
+        if (!_startupLayoutApplied)
+            ApplyStartupLayout();
+    }
+
+    private double ExpandedSidebarWidth =>
+        _compactLayout ? LaptopLayout.CompactSidebarWidth : LaptopLayout.ExpandedSidebarWidth;
+
+    private void ApplyAccountAnalytics(bool enabled)
+    {
+        AnalyticsNavButton.IsVisible = enabled;
+        AnalyticsView.SetEnabled(enabled);
+        if (!enabled && string.Equals(_activeNavTag, "analytics", StringComparison.OrdinalIgnoreCase))
+            NavigateTo("queue");
+        else if (!enabled)
+            AnalyticsView.IsVisible = false;
     }
 
     private void OnNavItemClick(object? sender, RoutedEventArgs e)
@@ -116,7 +172,11 @@ public partial class MainWindow : Window
         AccountSidebar.IsVisible = !collapsed;
         CollapsedSidebarRail.IsVisible = collapsed;
         BrandLabel.IsVisible = !collapsed;
-        BrandPane.Padding = collapsed ? new Avalonia.Thickness(7, 0) : new Avalonia.Thickness(12, 0, 10, 0);
+        BrandPane.Padding = collapsed
+            ? new Avalonia.Thickness(4, 0)
+            : _compactLayout
+                ? new Avalonia.Thickness(8, 0, 6, 0)
+                : new Avalonia.Thickness(12, 0, 10, 0);
 
         SidebarToggleButton.Content = collapsed ? "›" : "‹";
         ToolTip.SetTip(SidebarToggleButton, collapsed ? "展开左侧面板" : "收起左侧面板");
@@ -124,6 +184,7 @@ public partial class MainWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs e)
     {
+        SavePlacement();
         _licenseVerifyTimer?.Stop();
         _licenseVerifyTimer = null;
         _viewModel.StopXingeRemoteCommandService();
@@ -429,6 +490,9 @@ public partial class MainWindow : Window
 
     private void NavigateTo(string tag)
     {
+        if (string.Equals(tag, "analytics", StringComparison.OrdinalIgnoreCase) && !AnalyticsNavButton.IsVisible)
+            tag = "queue";
+
         _activeNavTag = tag;
         UpdateNavHighlight();
         ShowPage(tag);
@@ -442,6 +506,8 @@ public partial class MainWindow : Window
             var tag = btn.Tag?.ToString() ?? "";
             var isActive = string.Equals(tag, _activeNavTag, StringComparison.OrdinalIgnoreCase);
             btn.Classes.Set("topNavItemActive", isActive);
+            if (isActive && btn.IsLoaded)
+                btn.BringIntoView();
         }
     }
 
@@ -452,6 +518,7 @@ public partial class MainWindow : Window
         const int inactiveZ = 0;
 
         DownloadView.IsVisible = tag == "download";
+        AnalyticsView.IsVisible = tag == "analytics";
         QueueView.IsVisible = tag == "queue";
         AccountsView.IsVisible = tag == "accounts";
         LogView.IsVisible = tag == "logs";
@@ -460,6 +527,7 @@ public partial class MainWindow : Window
         ArchivedView.IsVisible = tag == "archived";
 
         DownloadView.ZIndex = tag == "download" ? activeZ : inactiveZ;
+        AnalyticsView.ZIndex = tag == "analytics" ? activeZ : inactiveZ;
         QueueView.ZIndex = tag == "queue" ? activeZ : inactiveZ;
         AccountsView.ZIndex = tag == "accounts" ? activeZ : inactiveZ;
         LogView.ZIndex = tag == "logs" ? activeZ : inactiveZ;
@@ -485,6 +553,8 @@ public partial class MainWindow : Window
             _browserHost.SetPresentationVisible(false);
         }
 
+        if (tag == "analytics" && AnalyticsNavButton.IsVisible)
+            AnalyticsView.Activate();
         if (tag == "logs")
             _viewModel.RefreshLogSnapshot();
         if (tag == "archived")
@@ -494,5 +564,162 @@ public partial class MainWindow : Window
             _viewModel.SystemServices.Load();
             _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
         }
+    }
+
+    private void ApplyStartupLayout()
+    {
+        var screens = Screens;
+        if (screens is null)
+            return;
+
+        MainWindowPlacement? saved = null;
+        try
+        {
+            if (AppSettingStore.TryLoadJson<MainWindowPlacement>(LaptopLayout.MainWindowPlacementKey, out var loaded))
+                saved = loaded;
+        }
+        catch
+        {
+            saved = null;
+        }
+
+        var screen = saved is null
+            ? screens.Primary
+            : screens.ScreenFromPoint(new PixelPoint(saved.X + 16, saved.Y + 16)) ?? screens.Primary;
+        if (screen is null)
+            return;
+
+        var scale = screen.Scaling <= 0 ? 1d : screen.Scaling;
+        var workWidth = screen.WorkingArea.Width / scale;
+        var workHeight = screen.WorkingArea.Height / scale;
+        if (workWidth < 640 || workHeight < 480)
+            return;
+
+        var fit = LaptopLayout.FitWindow(workWidth, workHeight);
+
+        _suspendPlacementTracking = true;
+        try
+        {
+            MinWidth = fit.MinWidth;
+            MinHeight = fit.MinHeight;
+
+            ApplyCompactLayout(LaptopLayout.IsCompact(workWidth, workHeight), LaptopLayout.ShouldShortenNav(workWidth));
+            WindowStartupLocation = WindowStartupLocation.Manual;
+
+            var restoreSaved = saved is not null
+                && LaptopLayout.PlacementFits(saved.Width, saved.Height, workWidth, workHeight)
+                && RestoredWindowMostlyVisible(saved, screen);
+            if (restoreSaved && saved is not null)
+            {
+                Width = saved.Width;
+                Height = saved.Height;
+                Position = new PixelPoint(saved.X, saved.Y);
+                _normalPlacement = saved;
+                if (saved.Maximized)
+                    WindowState = WindowState.Maximized;
+            }
+            else
+            {
+                Width = fit.Width;
+                Height = fit.Height;
+                var x = screen.WorkingArea.X + (int)Math.Round((screen.WorkingArea.Width - fit.Width * scale) / 2);
+                var y = screen.WorkingArea.Y + (int)Math.Round((screen.WorkingArea.Height - fit.Height * scale) / 2);
+                Position = new PixelPoint(Math.Max(screen.WorkingArea.X, x), Math.Max(screen.WorkingArea.Y, y));
+                _normalPlacement = new MainWindowPlacement
+                {
+                    X = Position.X,
+                    Y = Position.Y,
+                    Width = fit.Width,
+                    Height = fit.Height,
+                };
+            }
+        }
+        finally
+        {
+            _suspendPlacementTracking = false;
+            _startupLayoutApplied = true;
+        }
+    }
+
+    private void ApplyCompactLayout(bool compact, bool shortenNav)
+    {
+        _compactLayout = compact;
+        Classes.Set("compact", compact);
+        ApplyNavLabels(shortenNav);
+        SetSidebarCollapsed(_isSidebarCollapsed);
+        LogView.SetCompactLayout(compact);
+        QueueView.SetCompactLayout(compact);
+    }
+
+    private void ApplyNavLabels(bool shorten)
+    {
+        foreach (var child in ModuleNav.Children)
+        {
+            if (child is not Button button || button.Tag is not string tag)
+                continue;
+            if (!NavLabels.TryGetValue(tag, out var labels))
+                continue;
+
+            var useShort = shorten && !string.Equals(labels.Short, labels.Full, StringComparison.Ordinal);
+            button.Content = useShort ? labels.Short : labels.Full;
+            ToolTip.SetTip(button, useShort ? labels.Full : null);
+        }
+    }
+
+    private void RememberNormalPlacement()
+    {
+        if (_suspendPlacementTracking || WindowState != WindowState.Normal)
+            return;
+        if (double.IsNaN(Width) || double.IsNaN(Height) || Width < 200 || Height < 200)
+            return;
+
+        _normalPlacement = new MainWindowPlacement
+        {
+            X = Position.X,
+            Y = Position.Y,
+            Width = Width,
+            Height = Height,
+        };
+    }
+
+    private void SavePlacement()
+    {
+        if (_normalPlacement is null)
+            RememberNormalPlacement();
+        if (_normalPlacement is null)
+            return;
+
+        _normalPlacement.Maximized = WindowState == WindowState.Maximized;
+        try
+        {
+            AppSettingStore.SaveJson(LaptopLayout.MainWindowPlacementKey, _normalPlacement);
+        }
+        catch
+        {
+            // 关闭时写窗口位置失败不影响退出。
+        }
+    }
+
+    private static bool RestoredWindowMostlyVisible(MainWindowPlacement saved, Screen screen)
+    {
+        var scale = screen.Scaling <= 0 ? 1d : screen.Scaling;
+        var window = new PixelRect(
+            saved.X,
+            saved.Y,
+            Math.Max(1, (int)Math.Round(saved.Width * scale)),
+            Math.Max(1, (int)Math.Round(saved.Height * scale)));
+        var overlap = window.Intersect(screen.WorkingArea);
+        var windowArea = (double)window.Width * window.Height;
+        var overlapArea = (double)overlap.Width * overlap.Height;
+        return windowArea > 0 && overlapArea >= windowArea * 0.6;
+    }
+
+    private sealed class MainWindowPlacement
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public bool Maximized { get; set; }
     }
 }
