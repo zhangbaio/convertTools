@@ -119,7 +119,7 @@ public static class ArticlesOfIncorporationPdfService
         var paragraph = "通过在提供的空格中填写我的姓名，我证明我有权代表该实体提交本文件，已审阅该文件，并据我所知和所信，截至"
             + date
             + "，该文件真实、准确且完整。";
-        var lines = Wrap(graphics, paragraph, font, 510);
+        var lines = Wrap(paragraph, 510, value => graphics.MeasureString(value, font).Width);
         for (var i = 0; i < lines.Count && i < 3; i++)
             graphics.DrawString(lines[i], font, XBrushes.Black, new XPoint(40.4, 585.9 + i * 16.5));
     }
@@ -135,17 +135,24 @@ public static class ArticlesOfIncorporationPdfService
         Draw(graphics, text, font, center, baseline, XStringFormats.BaseLineCenter);
     }
 
-    private static List<string> Wrap(XGraphics graphics, string text, XFont font, double maxWidth)
+    internal static List<string> Wrap(string text, double maxWidth, Func<string, double> measure)
     {
         var lines = new List<string>();
         var current = string.Empty;
         foreach (var ch in text)
         {
             var candidate = current + ch;
-            if (current.Length > 0 && graphics.MeasureString(candidate, font).Width > maxWidth)
+            if (current.Length > 0 && measure(candidate) > maxWidth)
             {
+                var next = ch.ToString();
+                while (current.Length > 1 && CannotStartLine(next[0]))
+                {
+                    next = current[^1] + next;
+                    current = current[..^1];
+                }
+
                 lines.Add(current);
-                current = ch.ToString();
+                current = next;
             }
             else
             {
@@ -157,6 +164,9 @@ public static class ArticlesOfIncorporationPdfService
             lines.Add(current);
         return lines;
     }
+
+    private static bool CannotStartLine(char value) =>
+        "，。、；：！？）》」』…".Contains(value);
 
     private static void DrawSignedOn(XGraphics graphics, string value, XFont dateFont, XFont periodFont)
     {

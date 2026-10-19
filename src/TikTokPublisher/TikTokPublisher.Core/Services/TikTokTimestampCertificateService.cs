@@ -290,20 +290,23 @@ public static class TikTokTimestampCertificateService
             return bytes;
         }
 
-        private static byte[] ReadTimes(string fileName)
-        {
-            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), fileName);
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"未找到 Times New Roman 字体文件 {fileName}。", path);
-            return File.ReadAllBytes(path);
-        }
+        private static byte[] ReadTimes(string fileName) => File.ReadAllBytes(ResolveBundledOrSystemFont(fileName));
 
-        private static byte[] ReadSimSun()
+        private static byte[] ReadSimSun() =>
+            ExtractFirstTtcFont(File.ReadAllBytes(ResolveBundledOrSystemFont("simsun.ttc")));
+
+        private static string ResolveBundledOrSystemFont(string fileName)
         {
-            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "simsun.ttc");
-            if (!File.Exists(path))
-                throw new FileNotFoundException("未找到宋体 simsun.ttc。", path);
-            return ExtractFirstTtcFont(File.ReadAllBytes(path));
+            var candidates = new[]
+            {
+                Path.Combine(AppContext.BaseDirectory, "articles-of-incorporation", "fonts", fileName),
+                Path.Combine(AppContext.BaseDirectory, "tools", "fonts", fileName),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), fileName),
+            };
+            return candidates.FirstOrDefault(File.Exists)
+                ?? throw new FileNotFoundException(
+                    $"未找到字体文件 {fileName}。安装包应包含 articles-of-incorporation\\fonts\\{fileName}。",
+                    candidates[0]);
         }
 
         private static byte[] ExtractFirstTtcFont(byte[] ttc)

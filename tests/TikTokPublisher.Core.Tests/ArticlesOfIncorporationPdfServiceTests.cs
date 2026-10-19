@@ -48,6 +48,19 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
     }
 
     [Fact]
+    public void Wrap_MovesLineStartPunctuationBackToThePreviousLine()
+    {
+        var lines = ArticlesOfIncorporationPdfService.Wrap(
+            "通过在提供的空格中填写我的姓名，我证明我有权代表该实体提交本文件，已审阅该文件，并据我所知和所信，截至2025年10月28日，该文件真实、准确且完整。",
+            32,
+            text => text.Length);
+
+        lines.Should().AllSatisfy(line => "，。、；：！？".Contains(line[0]).Should().BeFalse());
+        string.Join(string.Empty, lines).Should().Be(
+            "通过在提供的空格中填写我的姓名，我证明我有权代表该实体提交本文件，已审阅该文件，并据我所知和所信，截至2025年10月28日，该文件真实、准确且完整。");
+    }
+
+    [Fact]
     public void Translate_UsesChineseNameAddressAndDate()
     {
         ArticlesChineseText.TranslateName("LINDA JO HARRIS").Should().Be("琳达·乔·哈里斯");

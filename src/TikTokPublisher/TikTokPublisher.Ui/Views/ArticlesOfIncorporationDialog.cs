@@ -9,8 +9,6 @@ namespace TikTokPublisher.Ui.Views;
 
 public sealed class ArticlesOfIncorporationDialog : Window
 {
-    private static ArticlesOfIncorporationFields _last = ArticlesOfIncorporationFields.Sample;
-
     private readonly TextBox _filingNumber = Box();
     private readonly TextBox _businessId = Box();
     private readonly TextBox _filedAt = Box();
@@ -39,8 +37,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         _incorporatorName.IsReadOnly = true;
         _incorporatorName.Watermark = "由注册人名称自动生成";
         _agentName.TextChanged += (_, _) => SyncShortName();
-
-        Apply(_last);
+        RandomizeFilingStamp();
 
         var root = new Grid
         {
@@ -132,18 +129,6 @@ public sealed class ArticlesOfIncorporationDialog : Window
 
     private static TextBox Box() => new() { MinWidth = 240, Watermark = "留空则不写入" };
 
-    private void Apply(ArticlesOfIncorporationFields fields)
-    {
-        _filingNumber.Text = fields.FilingNumber;
-        _businessId.Text = fields.BusinessId;
-        _filedAt.Text = fields.FiledAt;
-        _agentName.Text = fields.RegisteredAgentName;
-        _agentStreet.Text = fields.RegisteredAgentStreet;
-        _agentCity.Text = fields.RegisteredAgentCity;
-        _signedOn.Text = fields.SignedOn;
-        SyncShortName();
-    }
-
     private ArticlesOfIncorporationFields ReadFields() => new(
         _filingNumber.Text ?? string.Empty,
         _businessId.Text ?? string.Empty,
@@ -231,7 +216,6 @@ public sealed class ArticlesOfIncorporationDialog : Window
                 }
             }
 
-            _last = fields;
             _status.Text = string.IsNullOrWhiteSpace(path)
                 ? "已生成 PDF。"
                 : chinesePath is null
