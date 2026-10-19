@@ -77,7 +77,10 @@ public static class SherpaOnnxModelResolver
 
         var cacheRoot = AsciiModelCacheRoot();
         if (cacheRoot is null)
-            return text;
+        {
+            throw new InvalidOperationException(
+                $"本地 ASR 模型路径包含中文或特殊字符，且没有可用的英文缓存目录：{text}");
+        }
 
         var target = Path.Combine(cacheRoot, Path.GetFileName(text));
         try
@@ -86,9 +89,11 @@ public static class SherpaOnnxModelResolver
                 File.Copy(text, target, overwrite: true);
             return target;
         }
-        catch
+        catch (Exception ex)
         {
-            return text;
+            throw new InvalidOperationException(
+                $"本地 ASR 模型路径包含中文或特殊字符，复制到英文缓存目录失败：{text}。{ex.Message}",
+                ex);
         }
     }
 
