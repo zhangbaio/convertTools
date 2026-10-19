@@ -60,14 +60,18 @@ public sealed class WorkspaceQueueOrchestrator
         Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
         CancellationToken ct,
         IReadOnlyCollection<string>? projectDirFilter = null,
-        Action? onStarted = null)
+        Action? onStarted = null,
+        bool selectionValidated = false)
     {
         var root = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(root))
             throw new DirectoryNotFoundException($"工作目录不存在：{root}");
 
         // 必须在注册 ActiveRun / 通知远程 started 之前确认筛选确实能产生任务。
-        QueueWorkerRunner.ValidateRunSelection(items, options, store, projectDirFilter);
+        // 调用方已在后台用同一份 items/options/筛选校验过时跳过，避免在 UI 线程重复扫描产物。
+        // 校验与注册之间不得出现 await，否则停止请求可能落在未注册的空窗里丢失。
+        if (!selectionValidated)
+            QueueWorkerRunner.ValidateRunSelection(items, options, store, projectDirFilter);
 
         CancellationTokenSource linkedCts;
         ActiveRun run;

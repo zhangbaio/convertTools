@@ -4148,7 +4148,7 @@ public partial class TikTokQueueView : UserControl
         var isEditRun = string.Equals(displayOptions.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
         var isReplaceDraftRun = displayOptions.IsReplaceDraftRun();
         var isCopyrightProofRun = displayOptions.IsCopyrightProofWorkflowRun();
-        vm.StatusMessage = displayOptions.IsAiOutlineSupplementRun()
+        var runningStatusMessage = displayOptions.IsAiOutlineSupplementRun()
             ? "AI 大纲补全执行中…"
             : displayOptions.IsCopyrightProofMaterialOnlyRun()
             ? "证明材料生成中…"
@@ -4159,6 +4159,16 @@ public partial class TikTokQueueView : UserControl
             : isEditRun
                 ? "编辑剧集执行中…"
                 : "TikTok 队列执行中…";
+        vm.StatusMessage = "正在准备队列…";
+        void OnQueueWorkerStarted()
+        {
+            if (Dispatcher.UIThread.CheckAccess())
+                vm.StatusMessage = runningStatusMessage;
+            else
+                Dispatcher.UIThread.Post(() => vm.StatusMessage = runningStatusMessage);
+            onWorkerStarted?.Invoke();
+        }
+
         try
         {
             var host = CreateQueuePublishHost();
@@ -4176,10 +4186,12 @@ public partial class TikTokQueueView : UserControl
                 ct,
                 optionsOverride,
                 orderedProjectDirFilter,
-                onWorkerStarted,
+                OnQueueWorkerStarted,
                 runTarget,
                 preserveProjectLogsSince);
             workerReturnedSummary = summary is not null;
+            if (summary is null)
+                vm.StatusMessage = "目标工作目录队列为空，未启动执行";
             if (summary is not null && !summary.Stopped && summary.StoppedAccountCount > 0)
                 vm.StatusMessage = $"队列结束：成功 {summary.SuccessCount}，失败 {summary.FailedCount}，已按账号停止 {summary.StoppedAccountCount} 个";
             if (summary is not null && !summary.Stopped && summary.StoppedAccountCount == 0)

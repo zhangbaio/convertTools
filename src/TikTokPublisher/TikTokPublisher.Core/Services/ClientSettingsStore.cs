@@ -96,7 +96,7 @@ public static class ClientSettingsStore
         var path = ResolvePath(databasePath);
         AppDatabaseInitializer.EnsureInitialized(path);
         TikTokExecutionHistoryService.EnsureStorageOptimized(path);
-        TikTokExecutionHistoryService.PruneOldEvents(path);
+        TikTokExecutionHistoryService.PruneOldEventsIfDue(path);
         var raw = LoadRawObject(path);
         if (raw is null)
         {

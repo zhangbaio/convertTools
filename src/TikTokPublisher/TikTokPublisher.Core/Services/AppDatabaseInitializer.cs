@@ -6,12 +6,19 @@ namespace TikTokPublisher.Core.Services;
 public static class AppDatabaseInitializer
 {
     internal static object WriteSyncRoot { get; } = new();
+    private static readonly HashSet<string> InitializedDatabases = new(StringComparer.OrdinalIgnoreCase);
 
     public static void EnsureInitialized(string databasePath)
     {
+        var path = Path.GetFullPath(databasePath);
         lock (WriteSyncRoot)
         {
-            EnsureInitializedCore(databasePath);
+            // 库文件被删除后必须重新建表，因此缓存命中仍要求文件存在。
+            if (InitializedDatabases.Contains(path) && File.Exists(path))
+                return;
+
+            EnsureInitializedCore(path);
+            InitializedDatabases.Add(path);
         }
     }
 

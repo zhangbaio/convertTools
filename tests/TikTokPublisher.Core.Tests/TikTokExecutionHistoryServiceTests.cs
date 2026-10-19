@@ -47,6 +47,26 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
     }
 
     [Fact]
+    public void PruneOldEventsIfDue_prunes_at_most_once_per_interval()
+    {
+        var start = new DateTime(2026, 10, 19, 4, 0, 0, DateTimeKind.Utc);
+        InsertEvent("first-expired", "2025-01-01T00:00:00");
+
+        TikTokExecutionHistoryService.PruneOldEventsIfDue(_databasePath, start).Should().BeTrue();
+        ReadEventIds().Should().BeEmpty();
+
+        InsertEvent("second-expired", "2025-01-01T00:00:00");
+        TikTokExecutionHistoryService.PruneOldEventsIfDue(_databasePath, start.AddMinutes(30)).Should().BeFalse();
+        ReadEventIds().Should().Equal("second-expired");
+
+        TikTokExecutionHistoryService.PruneOldEventsIfDue(
+                _databasePath,
+                start + TikTokExecutionHistoryService.PruneInterval)
+            .Should().BeTrue();
+        ReadEventIds().Should().BeEmpty();
+    }
+
+    [Fact]
     public void PruneOldEvents_keeps_failures_for_thirty_days()
     {
         InsertEvent("expired-failure", "2026-06-04T12:00:00", ProjectPayload("queue_progress", "失败", "too old"));

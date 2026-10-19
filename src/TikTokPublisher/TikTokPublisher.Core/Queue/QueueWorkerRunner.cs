@@ -187,7 +187,15 @@ public sealed class QueueWorkerRunner
         IEnumerable<QueueProjectItem> items,
         QueueRunOptions options,
         AccountStore accountStore,
-        IReadOnlyCollection<string>? projectDirFilter = null)
+        IReadOnlyCollection<string>? projectDirFilter = null) =>
+        ValidateRunSelection(items, options, accountStore, projectDirFilter, settingsLoader: null);
+
+    internal static int ValidateRunSelection(
+        IEnumerable<QueueProjectItem> items,
+        QueueRunOptions options,
+        AccountStore accountStore,
+        IReadOnlyCollection<string>? projectDirFilter,
+        Func<ClientSettings>? settingsLoader)
     {
         var filterOrder = BuildProjectDirOrder(projectDirFilter);
         var candidates = BuildInitialCandidates(
@@ -195,7 +203,8 @@ public sealed class QueueWorkerRunner
             options,
             accountStore,
             filterOrder,
-            options.OrderedEnabledSteps());
+            options.OrderedEnabledSteps(),
+            settingsLoader);
         EnsureExplicitFilterMatched(filterOrder, candidates.Count);
         return candidates.Count;
     }
@@ -205,17 +214,20 @@ public sealed class QueueWorkerRunner
         QueueRunOptions options,
         AccountStore accountStore,
         Dictionary<string, int>? filterOrder,
-        IReadOnlyList<string> orderedSteps)
+        IReadOnlyList<string> orderedSteps,
+        Func<ClientSettings>? settingsLoader = null)
     {
+        // 一次候选筛选内所有项目、所有步骤共用同一份全局设置，避免逐项逐步读库。
+        var settings = new Lazy<ClientSettings>(settingsLoader ?? (() => ClientSettingsStore.Load()));
         var filter = filterOrder?.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidateQuery = items
             .Where(i => i.Enabled && !i.Archived)
             .Where(i => filter is null || filter.Contains(Path.GetFullPath(i.ProjectDir)))
-            .Where(i => orderedSteps.Any(stepKey => ShouldRunStep(
-                i,
-                stepKey,
-                options,
-                QueueAccountBindingResolver.Resolve(accountStore, i))));
+            .Where(i =>
+            {
+                var account = QueueAccountBindingResolver.Resolve(accountStore, i);
+                return orderedSteps.Any(stepKey => ShouldRunStep(i, stepKey, options, account, settings));
+            });
         return filterOrder is not null
             ? candidateQuery
                 .OrderBy(i => filterOrder.GetValueOrDefault(Path.GetFullPath(i.ProjectDir), int.MaxValue))
@@ -1652,8 +1664,11 @@ public sealed class QueueWorkerRunner
         QueueProjectItem item,
         string stepKey,
         QueueRunOptions options,
-        TikTokAccountProfile? account = null)
+        TikTokAccountProfile? account = null,
+        Lazy<ClientSettings>? settings = null)
     {
+        ClientSettings LoadSettings() => settings?.Value ?? ClientSettingsStore.Load();
+
         if (stepKey == QueueStepRegistry.UploadSeries && options.IsCopyrightProofOnlyRun())
             return true;
         if (options.ForceRerunCompletedSteps) return true;
@@ -1671,13 +1686,13 @@ public sealed class QueueWorkerRunner
         }
         if (stepKey == QueueStepRegistry.GeneratePoster &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, ClientSettingsStore.Load()))
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, LoadSettings()))
         {
             return true;
         }
         if (stepKey == QueueStepRegistry.GenerateProjectImages &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            TikTokProjectImageService.NeedsGenerateProjectImages(item, ClientSettingsStore.Load()))
+            TikTokProjectImageService.NeedsGenerateProjectImages(item, LoadSettings()))
         {
             return true;
         }
@@ -1718,7 +1733,7 @@ public sealed class QueueWorkerRunner
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokProofMaterialService.NeedsGenerateProofMaterial(
                 item,
-                ClientSettingsStore.Load(),
+                LoadSettings(),
                 account,
                 options))
         {
@@ -1740,7 +1755,7 @@ public sealed class QueueWorkerRunner
                                       TikTokAccountProfile.DefaultRoleVectorCharacterCount;
                 var minimumCount = account?.TiktokRoleVectorMinimumCharacterCount ??
                                    TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
-                var viewMode = ClientSettingsStore.Load().TiktokRoleVectorViewMode;
+                var viewMode = LoadSettings().TiktokRoleVectorViewMode;
                 if (!TikTokRoleVectorService.HasCurrentOutput(
                         workflow,
                         configuredCount,
@@ -1761,7 +1776,7 @@ public sealed class QueueWorkerRunner
         if (stepKey == QueueStepRegistry.MaterialValidate &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed)
         {
-            var validationSettings = ClientSettingsStore.Load();
+            var validationSettings = LoadSettings();
             var validationOptions = TikTokMaterialValidationService.Options.FromAccount(
                 account,
                 validationSettings,

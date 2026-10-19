@@ -77,6 +77,55 @@ public sealed class QueueWorkerRunnerTests
     }
 
     [Fact]
+    public void ValidateRunSelection_loads_client_settings_once_per_pass()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tiktok-settings-once-{Guid.NewGuid():N}");
+        try
+        {
+            var items = Enumerable.Range(1, 4)
+                .Select(index =>
+                {
+                    var projectDir = Path.Combine(root, $"project-{index}");
+                    Directory.CreateDirectory(projectDir);
+                    return new QueueProjectItem
+                    {
+                        ProjectDir = projectDir,
+                        Enabled = true,
+                        StepStates = new Dictionary<string, string>
+                        {
+                            [QueueStepRegistry.GeneratePoster] = QueueStepStatus.Completed,
+                            [QueueStepRegistry.GenerateProjectImages] = QueueStepStatus.Completed,
+                        },
+                    };
+                })
+                .ToArray();
+            var options = new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.GeneratePoster, QueueStepRegistry.GenerateProjectImages],
+            };
+            var loads = 0;
+
+            QueueWorkerRunner.ValidateRunSelection(
+                items,
+                options,
+                new AccountStore(),
+                projectDirFilter: null,
+                settingsLoader: () =>
+                {
+                    loads++;
+                    return new ClientSettings();
+                });
+
+            loads.Should().Be(1);
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); }
+            catch (IOException) { }
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_uploads_all_projects_when_preupload_steps_complete_synchronously()
     {
         var account = new TikTokAccountProfile
