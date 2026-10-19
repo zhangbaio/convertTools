@@ -93,6 +93,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformPublisher.Publishin
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformPublisher.Materials.Tests", "tests\PlatformPublisher.Materials.Tests\PlatformPublisher.Materials.Tests.csproj", "{51FA009F-F606-4B02-854A-9BA59D4B9AAD}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlatformPublisher.Kuaishou.Tests", "tests\PlatformPublisher.Kuaishou.Tests\PlatformPublisher.Kuaishou.Tests.csproj", "{3954C979-3401-491E-B2C0-9EC051BFE987}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -254,6 +256,10 @@ Global
 		{51FA009F-F606-4B02-854A-9BA59D4B9AAD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{51FA009F-F606-4B02-854A-9BA59D4B9AAD}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{51FA009F-F606-4B02-854A-9BA59D4B9AAD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3954C979-3401-491E-B2C0-9EC051BFE987}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3954C979-3401-491E-B2C0-9EC051BFE987}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3954C979-3401-491E-B2C0-9EC051BFE987}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3954C979-3401-491E-B2C0-9EC051BFE987}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{8E3335D2-1EB3-4188-85CB-67F6057886A0} = {10871E69-F49D-4411-B029-CE261D01D6D5}
@@ -298,5 +304,6 @@ Global
 		{2E76A70A-7E87-436A-9669-81F830CFFF1F} = {31320864-2C29-492F-B38B-C2DBF8B112D4}
 		{42CD69DC-D4E5-4C98-A96F-A917FE478FA8} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
 		{51FA009F-F606-4B02-854A-9BA59D4B9AAD} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
+		{3954C979-3401-491E-B2C0-9EC051BFE987} = {D5D117F1-7555-4720-BD22-2B6AEC8F491A}
 	EndGlobalSection
 EndGlobal

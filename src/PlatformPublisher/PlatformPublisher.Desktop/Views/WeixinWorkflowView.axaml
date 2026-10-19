@@ -296,13 +296,13 @@
                                         <TextBlock Grid.Column="3" Text="{Binding NewTitle}" Foreground="#0369A1" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="4" Text="{Binding EpisodeCountText}" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="5" Text="{Binding CreatedAtText}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="6" Text="{Binding DownloadStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="7" Text="{Binding RewriteStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="8" Text="{Binding PosterStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="9" Text="{Binding ProjectImageStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="10" Text="{Binding AutoFillStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="11" Text="{Binding UploadStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="12" Text="{Binding StatusText}" Foreground="#047857" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="6" Text="{Binding DownloadStepStatus}" Foreground="{Binding DownloadStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="7" Text="{Binding RewriteStepStatus}" Foreground="{Binding RewriteStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="8" Text="{Binding PosterStepStatus}" Foreground="{Binding PosterStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="9" Text="{Binding ProjectImageStepStatus}" Foreground="{Binding ProjectImageStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="10" Text="{Binding AutoFillStepStatus}" Foreground="{Binding AutoFillStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="11" Text="{Binding UploadStepStatus}" Foreground="{Binding UploadStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="12" Text="{Binding StatusText}" Foreground="{Binding StatusBrushValue}" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

@@ -198,7 +198,7 @@ public sealed class KuaishouPersonalPreparationService
             ["tag_label_list"] = autoFill["tag_label_list"]?.DeepClone(),
             ["content_type"] = autoFill["content_type"]?.DeepClone(),
             ["product_method"] = autoFill["comic_product_method"]?.DeepClone(),
-            ["product_method_label"] = config.ProductionMethod,
+            ["product_method_label"] = KuaishouFormChoices.LabelOf(KuaishouFormChoices.ComicMethods, config.ProductionMethod, "3"),
             ["sync_profile"] = false,
             ["has_copyright_proof"] = config.HasCopyrightProof,
             ["copyright_proof_type"] = ParseInt(config.CopyrightProofType, 1),
@@ -444,7 +444,11 @@ public sealed class KuaishouPersonalPreparationService
         DateTimeOffset.TryParse(value, out var result) ? result : fallback;
     private static int AuthorDeclarationValue(string? value) =>
         string.IsNullOrWhiteSpace(value) || value.Contains('无') ? 0 : int.TryParse(value, out var result) ? result : 1;
-    private static int ProductionMethodValue(string value) => value.Contains("AIGC", StringComparison.OrdinalIgnoreCase) ? 3 : 1;
-    private static int SaleTypeValue(string value) => value.Contains("广告", StringComparison.Ordinal) ? 3 : value.Contains("单集", StringComparison.Ordinal) ? 2 : 0;
+    private static int ProductionMethodValue(string value)
+    {
+        var canonical = KuaishouFormChoices.CanonicalValue(KuaishouFormChoices.ComicMethods, value, "3");
+        return int.TryParse(canonical, out var code) ? code : 3;
+    }
+    private static int SaleTypeValue(string value) => KuaishouFormChoices.SaleTypeCode(value);
     private static string First(params string?[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 }

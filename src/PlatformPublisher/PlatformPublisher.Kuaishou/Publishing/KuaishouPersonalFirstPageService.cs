@@ -18,13 +18,13 @@ public sealed class KuaishouPersonalFirstPageService
         await HandleCropDialogAsync(page, 15, cancellationToken);
         await FillTextAsync(page, "短剧简介", data.Intro, required: true);
         await SelectAsync(page, "短剧分类", config.Category, required: false);
-        await SelectAsync(page, "内容类型", config.ContentType, required: false);
-        await SelectAsync(page, "漫剧制作方式", config.ProductionMethod, required: false);
+        await SelectAsync(page, "内容类型", KuaishouFormChoices.LabelOf(KuaishouFormChoices.ContentTypes, config.ContentType, "漫剧"), required: false);
+        await SelectAsync(page, "漫剧制作方式", KuaishouFormChoices.LabelOf(KuaishouFormChoices.ComicMethods, config.ProductionMethod, "3"), required: false);
         await FillTextAsync(page, "短标题", data.ShortTitle, required: false);
         await FillTextAsync(page, "标签", string.Join(',', data.Tags), required: false);
 
         await SetRadioAsync(page, "是否有备案号", config.HasRecordNumber ? "是" : "否", required: true);
-        await SetRadioAsync(page, "制作形式", config.ProductionForm, required: false);
+        await SetRadioAsync(page, "制作形式", KuaishouFormChoices.LabelOf(KuaishouFormChoices.ProductionForms, config.ProductionForm, "auto"), required: false);
         await FillTextAsync(page, "出品年份", config.ProductionYear, required: false);
         await FillTextAsync(page, "制作成本", config.ProductionCost, required: false);
         await FillTextAsync(page, "单集平均时长", config.AverageEpisodeMinutes, required: false);
@@ -39,10 +39,10 @@ public sealed class KuaishouPersonalFirstPageService
         await FillTextAsync(page, "播出时间", config.BroadcastDate, required: false);
         await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", "否", required: false);
         await SetRadioAsync(page, "是否完结", config.Finished ? "是" : "否", required: true);
-        await SelectAsync(page, "版权证明类型", string.IsNullOrWhiteSpace(config.CopyrightProofType) ? "自有版权" : config.CopyrightProofType, required: false);
+        await SelectAsync(page, "版权证明类型", KuaishouFormChoices.LabelOf(KuaishouFormChoices.CopyrightProofTypes, config.CopyrightProofType, "1"), required: false);
         await SelectAsync(page, "版权证明材料", string.IsNullOrWhiteSpace(config.AuthorDeclaration) ? "现场拍摄图/短剧工程文件" : config.AuthorDeclaration, required: false);
         await UploadProofMaterialsAsync(page, data, config, cancellationToken);
-        await SelectAsync(page, "售卖方式", config.SaleType, required: false);
+        await SelectAsync(page, "售卖方式", KuaishouFormChoices.LabelOf(KuaishouFormChoices.SaleTypes, config.SaleType, "3"), required: false);
         await FillTextAsync(page, "免费集数", config.FreeEpisodeCount.ToString(), required: false);
         await FillTextAsync(page, "广告解锁集数", config.UnlockEpisodeCount.ToString(), required: false);
         await FillTextAsync(page, "单集价格", config.EpisodePrice, required: false);

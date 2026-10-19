@@ -17,254 +17,352 @@
         <TabControl Grid.Row="1">
             <TabItem Header="登录授权">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <TextBlock Text="经营者平台入口" VerticalAlignment="Center" />
-                        <TextBox x:Name="EntryUrlBox" Grid.Column="1" />
-                        <TextBlock Grid.Row="1" Text="API Base URL" VerticalAlignment="Center" />
-                        <TextBox x:Name="ApiBaseUrlBox" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Grid.Row="2" Text="用户快手号 ID" VerticalAlignment="Center" />
-                        <TextBox x:Name="KuaishouIdBox" Grid.Row="2" Grid.Column="1" />
-                        <TextBlock Grid.Row="3" Text="快手昵称" VerticalAlignment="Center" />
-                        <TextBox x:Name="NicknameBox" Grid.Row="3" Grid.Column="1" />
-                        <TextBlock Grid.Row="4" Text="真实姓名" VerticalAlignment="Center" />
-                        <TextBox x:Name="RealNameBox" Grid.Row="4" Grid.Column="1" />
-                        <TextBlock Grid.Row="5" Text="性别" VerticalAlignment="Center" />
-                        <ComboBox x:Name="GenderBox" Grid.Row="5" Grid.Column="1" ItemsSource="{Binding GenderOptions}" />
-                        <TextBlock Grid.Row="6" Text="应用名称" VerticalAlignment="Center" />
-                        <TextBox x:Name="AppNameBox" Grid.Row="6" Grid.Column="1" />
-                        <TextBlock Grid.Row="7" Text="AppID" VerticalAlignment="Center" />
-                        <TextBox x:Name="AppIdBox" Grid.Row="7" Grid.Column="1" />
-                        <TextBlock Grid.Row="8" Text="Secret" VerticalAlignment="Center" />
-                        <TextBox x:Name="AppSecretBox" Grid.Row="8" Grid.Column="1" PasswordChar="●" />
-                        <TextBlock Grid.Row="9" Text="授权 Base URL" VerticalAlignment="Center" />
-                        <TextBox x:Name="AuthorizeBaseUrlBox" Grid.Row="9" Grid.Column="1" />
-                        <TextBlock Grid.Row="10" Text="Auth Code" VerticalAlignment="Center" />
-                        <TextBox x:Name="AuthCodeBox" Grid.Row="10" Grid.Column="1" PasswordChar="●" />
-                        <TextBlock Grid.Row="11" Text="Access Token" VerticalAlignment="Center" />
-                        <TextBox x:Name="AccessTokenBox" Grid.Row="11" Grid.Column="1" PasswordChar="●" />
-                        <TextBlock Grid.Row="12" Text="Access Token 到期" VerticalAlignment="Center" />
-                        <TextBox x:Name="AccessTokenExpiresAtBox" Grid.Row="12" Grid.Column="1" />
-                        <TextBlock Grid.Row="13" Text="Refresh Token" VerticalAlignment="Center" />
-                        <TextBox x:Name="RefreshTokenBox" Grid.Row="13" Grid.Column="1" PasswordChar="●" />
-                        <TextBlock Grid.Row="14" Text="Refresh Token 到期" VerticalAlignment="Center" />
-                        <TextBox x:Name="RefreshTokenExpiresAtBox" Grid.Row="14" Grid.Column="1" />
-                        <TextBlock Grid.Row="15" Text="Token Header" VerticalAlignment="Center" />
-                        <TextBox x:Name="TokenHeaderBox" Grid.Row="15" Grid.Column="1" />
-                        <CheckBox x:Name="RemoteTokenBox" Grid.Row="16" Grid.Column="1" Content="优先使用管理系统共享 Token" />
-                        <StackPanel Grid.Row="17" Grid.Column="1" Orientation="Horizontal" Spacing="18">
-                            <CheckBox x:Name="HeadlessBox" Content="使用无头浏览器" />
-                            <CheckBox x:Name="KeepBrowserBox" Content="失败时保留浏览器" />
-                        </StackPanel>
+                    <Grid Margin="16" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="API Base URL" VerticalAlignment="Center" />
+                        <TextBox x:Name="ApiBaseUrlBox" Grid.Column="1" />
+                        <TextBlock Grid.Row="1" Text="用户快手号 ID" VerticalAlignment="Center" />
+                        <TextBox x:Name="AdvertiserIdBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="2" Text="快手昵称" VerticalAlignment="Center" />
+                        <TextBox x:Name="NicknameBox" Grid.Row="2" Grid.Column="1" Watermark="快手昵称，个人分账制作机构会使用：快手昵称+用户快手号ID" />
+                        <TextBlock Grid.Row="3" Text="应用名称" VerticalAlignment="Center" />
+                        <TextBox x:Name="AppNameBox" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="4" Text="AppID" VerticalAlignment="Center" />
+                        <TextBox x:Name="AppIdBox" Grid.Row="4" Grid.Column="1" />
+                        <TextBlock Grid.Row="5" Text="Secret" VerticalAlignment="Center" />
+                        <TextBox x:Name="AppSecretBox" Grid.Row="5" Grid.Column="1" PasswordChar="●" />
+                        <TextBlock Grid.Row="6" Text="授权 Base URL" VerticalAlignment="Center" />
+                        <TextBox x:Name="AuthorizeBaseUrlBox" Grid.Row="6" Grid.Column="1" />
+                        <TextBlock Grid.Row="7" Text="Auth Code" VerticalAlignment="Center" />
+                        <TextBox x:Name="AuthCodeBox" Grid.Row="7" Grid.Column="1" PasswordChar="●" />
+                        <CheckBox x:Name="RemoteTokenBox" Grid.Row="8" Grid.Column="1" Content="优先使用管理系统共享 Token" />
+                        <TextBlock Grid.Row="9" Text="Access Token" VerticalAlignment="Center" />
+                        <TextBox x:Name="AccessTokenBox" Grid.Row="9" Grid.Column="1" PasswordChar="●" />
+                        <TextBlock Grid.Row="10" Text="Access Token 到期" VerticalAlignment="Center" />
+                        <TextBox x:Name="AccessTokenExpiresAtBox" Grid.Row="10" Grid.Column="1" IsReadOnly="True" />
+                        <TextBlock Grid.Row="11" Text="Refresh Token" VerticalAlignment="Center" />
+                        <TextBox x:Name="RefreshTokenBox" Grid.Row="11" Grid.Column="1" PasswordChar="●" />
+                        <TextBlock Grid.Row="12" Text="Refresh Token 到期" VerticalAlignment="Center" />
+                        <TextBox x:Name="RefreshTokenExpiresAtBox" Grid.Row="12" Grid.Column="1" IsReadOnly="True" />
+                        <TextBlock Grid.Row="13" Text="Token Header" VerticalAlignment="Center" />
+                        <TextBox x:Name="TokenHeaderBox" Grid.Row="13" Grid.Column="1" />
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="承诺函">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="170,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                        <TextBlock Text="固定承诺函 PDF" VerticalAlignment="Center" />
-                        <TextBox x:Name="CommitmentPdfBox" Grid.Column="1" Watermark="选择快手分账个人版承诺函 PDF" />
-                        <Button Grid.Column="2" Content="选择文件" Click="PickCommitmentPdf_Click" />
-                        <TextBlock Grid.Row="1" Text="Word 模板" VerticalAlignment="Center" />
-                        <TextBox x:Name="CommitmentTemplateBox" Grid.Row="1" Grid.Column="1" />
-                        <Button Grid.Row="1" Grid.Column="2" Content="选择模板" Click="PickCommitmentTemplate_Click" />
-                        <TextBlock Grid.Row="2" Text="印章图片" VerticalAlignment="Center" />
-                        <TextBox x:Name="CommitmentSealBox" Grid.Row="2" Grid.Column="1" />
-                        <Button Grid.Row="2" Grid.Column="2" Content="选择印章" Click="PickCommitmentSeal_Click" />
-                        <TextBlock Grid.Row="3" Text="收函公司" VerticalAlignment="Center" />
-                        <TextBox x:Name="CommitmentRecipientBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
-                        <TextBlock Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
-                                   Text="优先使用固定 PDF；未设置时可由 Word 模板和印章生成承诺函。"
-                                   Foreground="#64748B" TextWrapping="Wrap" />
-                    </Grid>
+                    <StackPanel Margin="16" Spacing="12">
+                        <TextBlock Text="快手上传配置" FontWeight="SemiBold" />
+                        <Grid ColumnDefinitions="170,*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Text="制作机构" VerticalAlignment="Center" />
+                            <TextBox x:Name="CommitmentRecipientBox" Grid.Column="1" Grid.ColumnSpan="2" />
+                            <TextBlock Grid.Row="1" Text="盖章图片" VerticalAlignment="Center" />
+                            <TextBox x:Name="CommitmentSealBox" Grid.Row="1" Grid.Column="1" Watermark="留空则使用成本报表的印章地址" />
+                            <Button Grid.Row="1" Grid.Column="2" Content="选择" Click="PickCommitmentSeal_Click" />
+                            <TextBlock Grid.Row="2" Text="承诺函模板" VerticalAlignment="Center" />
+                            <TextBox x:Name="CommitmentTemplateBox" Grid.Row="2" Grid.Column="1" />
+                            <Button Grid.Row="2" Grid.Column="2" Content="选择" Click="PickCommitmentTemplate_Click" />
+                        </Grid>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="基础字段">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="170,*,170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <TextBlock Text="短剧分类" VerticalAlignment="Center" />
-                        <TextBox x:Name="CategoryBox" Grid.Column="1" />
-                        <TextBlock Grid.Column="2" Text="内容类型" VerticalAlignment="Center" />
-                        <TextBox x:Name="ContentTypeBox" Grid.Column="3" />
+                    <Grid Margin="16" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="内容类型" VerticalAlignment="Center" />
+                        <ComboBox x:Name="ContentTypeBox" Grid.Column="1" />
                         <TextBlock Grid.Row="1" Text="漫剧制作方式" VerticalAlignment="Center" />
-                        <TextBox x:Name="ProductionMethodBox" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Grid.Row="1" Grid.Column="2" Text="制作形式" VerticalAlignment="Center" />
-                        <TextBox x:Name="ProductionFormBox" Grid.Row="1" Grid.Column="3" />
-                        <TextBlock Grid.Row="2" Text="出品年份" VerticalAlignment="Center" />
-                        <TextBox x:Name="ProductionYearBox" Grid.Row="2" Grid.Column="1" />
-                        <TextBlock Grid.Row="2" Grid.Column="2" Text="制作成本" VerticalAlignment="Center" />
-                        <TextBox x:Name="ProductionCostBox" Grid.Row="2" Grid.Column="3" />
-                        <TextBlock Grid.Row="3" Text="单集平均时长（分）" VerticalAlignment="Center" />
-                        <TextBox x:Name="AverageDurationBox" Grid.Row="3" Grid.Column="1" />
-                        <TextBlock Grid.Row="3" Grid.Column="2" Text="播出平台" VerticalAlignment="Center" />
-                        <TextBox x:Name="BroadcastPlatformBox" Grid.Row="3" Grid.Column="3" />
-                        <TextBlock Grid.Row="4" Text="播出途径" VerticalAlignment="Center" />
-                        <TextBox x:Name="BroadcastChannelBox" Grid.Row="4" Grid.Column="1" />
-                        <TextBlock Grid.Row="4" Grid.Column="2" Text="播出日期" VerticalAlignment="Center" />
-                        <TextBox x:Name="BroadcastDateBox" Grid.Row="4" Grid.Column="3" Watermark="yyyy-MM-dd" />
-                        <CheckBox x:Name="FinishedBox" Grid.Row="5" Grid.Column="1" Content="短剧已完结" />
-                        <CheckBox x:Name="HasRecordNumberBox" Grid.Row="5" Grid.Column="3" Content="已有备案号" />
-                        <TextBlock Grid.Row="6" Text="主要演员" VerticalAlignment="Top" />
-                        <TextBox x:Name="ActorsBox" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3"
-                                 AcceptsReturn="True" MinHeight="86" TextWrapping="Wrap"
-                                 Watermark="演员A:男:男主;演员B:女:女主" />
+                        <ComboBox x:Name="ComicMethodBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="2" Text="作者声明" VerticalAlignment="Center" />
+                        <ComboBox x:Name="AuthorDeclarationBox" Grid.Row="2" Grid.Column="1" />
+                        <TextBlock Grid.Row="3" Text="制作形式" VerticalAlignment="Center" />
+                        <ComboBox x:Name="ProductionFormBox" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="4" Text="出品年份" VerticalAlignment="Center" />
+                        <TextBox x:Name="ProductionYearBox" Grid.Row="4" Grid.Column="1" />
+                        <TextBlock Grid.Row="5" Text="单集平均时长" VerticalAlignment="Center" />
+                        <TextBox x:Name="AverageDurationBox" Grid.Row="5" Grid.Column="1" />
+                        <TextBlock Grid.Row="6" Text="制作成本（万元）" VerticalAlignment="Center" />
+                        <TextBox x:Name="ProductionCostBox" Grid.Row="6" Grid.Column="1" Watermark="单位：万元，例如 1.0" />
+                        <TextBlock Grid.Row="7" Text="售卖类型" VerticalAlignment="Center" />
+                        <ComboBox x:Name="SaleTypeBox" Grid.Row="7" Grid.Column="1" SelectionChanged="SaleTypeBox_SelectionChanged" />
+                        <TextBlock x:Name="FreeEpisodeLabel" Grid.Row="8" Text="免费集数" VerticalAlignment="Center" />
+                        <TextBox x:Name="FreeEpisodeCountBox" Grid.Row="8" Grid.Column="1" Watermark="默认 1，如 3" />
+                        <TextBlock x:Name="UnlockCountLabel" Grid.Row="9" Text="广告解锁集数" VerticalAlignment="Center" />
+                        <TextBox x:Name="UnlockEpisodeCountBox" Grid.Row="9" Grid.Column="1" Watermark="默认 1，限制 1~8；saleType 为 3 时有效" />
+                        <TextBlock x:Name="SmallAmountLabel" Grid.Row="10" Text="小额解锁" VerticalAlignment="Center" />
+                        <CheckBox x:Name="SmallAmountUnlockBox" Grid.Row="10" Grid.Column="1" Content="是" />
+                        <TextBlock x:Name="EpisodePriceLabel" Grid.Row="11" Text="单集价格（元）" VerticalAlignment="Center" />
+                        <TextBox x:Name="EpisodePriceBox" Grid.Row="11" Grid.Column="1" Watermark="saleType=2 时有效，单位：元，例如 0.11" />
+                        <TextBlock x:Name="SeriesPriceLabel" Grid.Row="12" Text="整剧价格（元）" VerticalAlignment="Center" />
+                        <TextBox x:Name="SeriesPriceBox" Grid.Row="12" Grid.Column="1" Watermark="saleType=0/2 时必填，单位：元，例如 1.00" />
+                        <TextBlock Grid.Row="13" Text="有版权证明" VerticalAlignment="Center" />
+                        <CheckBox x:Name="HasCopyrightProofBox" Grid.Row="13" Grid.Column="1" Content="是" />
+                        <TextBlock Grid.Row="14" Text="版权证明类型" VerticalAlignment="Center" />
+                        <ComboBox x:Name="CopyrightProofTypeBox" Grid.Row="14" Grid.Column="1" />
+                        <TextBlock Grid.Row="15" Text="完结" VerticalAlignment="Center" />
+                        <CheckBox x:Name="FinishedBox" Grid.Row="15" Grid.Column="1" Content="是" />
+                        <TextBlock Grid.Row="16" Text="全场景展示" VerticalAlignment="Center" />
+                        <CheckBox x:Name="FullSceneDisplayBox" Grid.Row="16" Grid.Column="1" Content="是" />
+                        <TextBlock Grid.Row="17" Text="备案号" VerticalAlignment="Center" />
+                        <CheckBox x:Name="HasRecordNumberBox" Grid.Row="17" Grid.Column="1" Content="是" />
+                        <TextBlock Grid.Row="18" Text="重大/历史/特殊题材" VerticalAlignment="Center" />
+                        <CheckBox x:Name="SpecialThemeBox" Grid.Row="18" Grid.Column="1" Content="是" />
+                        <TextBlock Grid.Row="19" Text="情节" VerticalAlignment="Top" />
+                        <TextBox x:Name="PlotLabelsBox" Grid.Row="19" Grid.Column="1" AcceptsReturn="True" MinHeight="110" TextWrapping="Wrap" />
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="播出与人员">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <TextBlock Text="演员" VerticalAlignment="Top" />
-                        <TextBox x:Name="PeopleActorsBox" Grid.Column="1" AcceptsReturn="True" MinHeight="70" TextWrapping="Wrap" />
-                        <TextBlock Grid.Row="1" Text="导演" VerticalAlignment="Top" />
-                        <TextBox x:Name="DirectorsBox" Grid.Row="1" Grid.Column="1" AcceptsReturn="True" MinHeight="55" />
-                        <TextBlock Grid.Row="2" Text="编剧" VerticalAlignment="Top" />
-                        <TextBox x:Name="ScreenwritersBox" Grid.Row="2" Grid.Column="1" AcceptsReturn="True" MinHeight="55" />
-                        <TextBlock Grid.Row="3" Text="制作机构" VerticalAlignment="Center" />
-                        <TextBox x:Name="ProductionOrganizationBox" Grid.Row="3" Grid.Column="1" />
-                        <TextBlock Grid.Row="4" Text="受众性别" VerticalAlignment="Center" />
-                        <TextBox x:Name="AudienceGenderBox" Grid.Row="4" Grid.Column="1" />
-                        <TextBlock Grid.Row="5" Text="剧情标签" VerticalAlignment="Center" />
-                        <TextBox x:Name="PlotLabelsBox" Grid.Row="5" Grid.Column="1" Watermark="逗号或分号分隔" />
-                        <TextBlock Grid.Row="6" Text="内容标签" VerticalAlignment="Center" />
-                        <TextBox x:Name="TagLabelsBox" Grid.Row="6" Grid.Column="1" Watermark="逗号或分号分隔" />
-                        <TextBlock Grid.Row="7" Text="作者声明" VerticalAlignment="Center" />
-                        <TextBox x:Name="AuthorDeclarationBox" Grid.Row="7" Grid.Column="1" />
-                        <StackPanel Grid.Row="8" Grid.Column="1" Orientation="Horizontal" Spacing="18">
-                            <CheckBox x:Name="HasCopyrightProofBox" Content="已有版权证明" />
-                            <CheckBox x:Name="HasSubAuthorizationBox" Content="拥有转授权权利" />
-                            <CheckBox x:Name="FullSceneDisplayBox" Content="全场景展示" />
+                    <Grid Margin="16" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="播出平台" VerticalAlignment="Center" />
+                        <TextBox x:Name="BroadcastPlatformBox" Grid.Column="1" />
+                        <TextBlock Grid.Row="1" Text="播出途径" VerticalAlignment="Center" />
+                        <ComboBox x:Name="BroadcastChannelBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="2" Text="播出时间模式" VerticalAlignment="Center" />
+                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                            <ComboBox x:Name="BroadcastTimeModeBox" Width="140" SelectionChanged="BroadcastTimeModeBox_SelectionChanged" />
+                            <TextBox x:Name="BroadcastDateBox" Width="160" Watermark="yyyy-MM-dd" />
                         </StackPanel>
+                        <TextBlock Grid.Row="3" Text="演员库" VerticalAlignment="Top" />
+                        <TextBox x:Name="ActorLibraryBox" Grid.Row="3" Grid.Column="1" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap"
+                                 Watermark="格式：姓名|性别|角色1,角色2&#10;例如：沈清秋|女|许初夏,林晚意" />
+                        <TextBlock Grid.Row="4" Text="演员 JSON" VerticalAlignment="Top" />
+                        <TextBox x:Name="ActorInfoBox" Grid.Row="4" Grid.Column="1" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap"
+                                 Watermark='[{"name":"演员A","gender":"男","role":"男主"}]' />
+                        <TextBlock Grid.Row="5" Text="导演 JSON" VerticalAlignment="Top" />
+                        <TextBox x:Name="DirectorInfoBox" Grid.Row="5" Grid.Column="1" AcceptsReturn="True" MinHeight="70" TextWrapping="Wrap"
+                                 Watermark='[{"name":"导演A","gender":"男"}]' />
+                        <TextBlock Grid.Row="6" Text="编剧 JSON" VerticalAlignment="Top" />
+                        <TextBox x:Name="ScreenwriterInfoBox" Grid.Row="6" Grid.Column="1" AcceptsReturn="True" MinHeight="70" TextWrapping="Wrap"
+                                 Watermark='[{"name":"编剧A","gender":"女"}]' />
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="高级配置">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="190,*,190,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <TextBlock Text="登录超时（秒）" VerticalAlignment="Center" />
-                        <TextBox x:Name="LoginTimeoutBox" Grid.Column="1" />
-                        <TextBlock Grid.Column="2" Text="并行项目数" VerticalAlignment="Center" />
-                        <TextBox x:Name="QueueParallelBox" Grid.Column="3" />
-                        <TextBlock Grid.Row="1" Text="提交前等待（秒）" VerticalAlignment="Center" />
-                        <TextBox x:Name="SubmitPreCheckBox" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Grid.Row="1" Grid.Column="2" Text="就绪检测间隔（秒）" VerticalAlignment="Center" />
-                        <TextBox x:Name="SubmitReadyIntervalBox" Grid.Row="1" Grid.Column="3" />
-                        <TextBlock Grid.Row="2" Text="就绪检测次数" VerticalAlignment="Center" />
-                        <TextBox x:Name="SubmitReadyMaxBox" Grid.Row="2" Grid.Column="1" />
-                        <TextBlock Grid.Row="2" Grid.Column="2" Text="提交重试次数" VerticalAlignment="Center" />
-                        <TextBox x:Name="SubmitRetryMaxBox" Grid.Row="2" Grid.Column="3" />
-                        <TextBlock Grid.Row="3" Text="提交重试间隔（秒）" VerticalAlignment="Center" />
-                        <TextBox x:Name="SubmitRetryIntervalBox" Grid.Row="3" Grid.Column="1" />
-                        <TextBlock Grid.Row="3" Grid.Column="2" Text="视频存储方式" VerticalAlignment="Center" />
-                        <ComboBox x:Name="VideoStorageProviderBox" Grid.Row="3" Grid.Column="3" ItemsSource="{Binding VideoStorageProviders}" />
-                        <TextBlock Grid.Row="4" Text="公共存储并发" VerticalAlignment="Center" />
-                        <TextBox x:Name="StorageConcurrencyBox" Grid.Row="4" Grid.Column="1" />
-                        <TextBlock Grid.Row="4" Grid.Column="2" Text="公共存储重试" VerticalAlignment="Center" />
-                        <TextBox x:Name="StorageRetryBox" Grid.Row="4" Grid.Column="3" />
-                        <CheckBox x:Name="OssCleanupBox" Grid.Row="5" Grid.Column="1" Content="启用 OSS 清理" />
-                        <CheckBox x:Name="OssDeleteOnProjectDeleteBox" Grid.Row="5" Grid.Column="3" Content="删除项目时清理 OSS" />
+                    <Grid Margin="16" ColumnDefinitions="220,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="是否启用新剧名别名" VerticalAlignment="Center" />
+                        <CheckBox x:Name="NewTitleAliasEnabledBox" Grid.Column="1" Content="启用" />
+                        <TextBlock Grid.Row="1" Text="别名位置" VerticalAlignment="Center" />
+                        <ComboBox x:Name="NewTitleAliasPositionBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="2" Text="别名值" VerticalAlignment="Center" />
+                        <TextBox x:Name="NewTitleAliasValueBox" Grid.Row="2" Grid.Column="1" Watermark="例如 2" />
+                        <TextBlock Grid.Row="3" Text="任务队列并发数" VerticalAlignment="Center" />
+                        <TextBox x:Name="QueueParallelBox" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="4" Text="素材上传接口路径" VerticalAlignment="Center" />
+                        <TextBox x:Name="MaterialUploadPathBox" Grid.Row="4" Grid.Column="1" />
+                        <TextBlock Grid.Row="5" Text="创建短剧接口路径" VerticalAlignment="Center" />
+                        <TextBox x:Name="SeriesCreatePathBox" Grid.Row="5" Grid.Column="1" />
+                        <TextBlock Grid.Row="6" Text="短剧基本信息查询接口路径" VerticalAlignment="Center" />
+                        <TextBox x:Name="SeriesBaseInfoPathBox" Grid.Row="6" Grid.Column="1" />
+                        <TextBlock Grid.Row="7" Text="上下架接口路径" VerticalAlignment="Center" />
+                        <TextBox x:Name="OnlineOfflinePathBox" Grid.Row="7" Grid.Column="1" />
+                        <TextBlock Grid.Row="8" Text="剧集视频上传接口路径" VerticalAlignment="Center" />
+                        <TextBox x:Name="EpisodeUploadPathBox" Grid.Row="8" Grid.Column="1" />
+                        <TextBlock Grid.Row="9" Text="单集封面更新接口路径" VerticalAlignment="Center" />
+                        <TextBox x:Name="EpisodeCoverPathBox" Grid.Row="9" Grid.Column="1" />
+                        <TextBlock Grid.Row="10" Text="提交短剧接口路径" VerticalAlignment="Center" />
+                        <TextBox x:Name="SeriesSubmitPathBox" Grid.Row="10" Grid.Column="1" />
+                        <TextBlock Grid.Row="11" Text="提交前预等待时间(秒)" VerticalAlignment="Center" />
+                        <ComboBox x:Name="SubmitPreCheckBox" Grid.Row="11" Grid.Column="1" />
+                        <TextBlock Grid.Row="12" Text="提交前状态查询次数" VerticalAlignment="Center" />
+                        <TextBox x:Name="SubmitReadyMaxBox" Grid.Row="12" Grid.Column="1" Watermark="提交前最多查询次数，例如 3" />
+                        <TextBlock Grid.Row="13" Text="提交前状态查询间隔(秒)" VerticalAlignment="Center" />
+                        <TextBox x:Name="SubmitReadyIntervalBox" Grid.Row="13" Grid.Column="1" Watermark="单位：秒，例如 30" />
+                        <TextBlock Grid.Row="14" Text="提交重试次数" VerticalAlignment="Center" />
+                        <TextBox x:Name="SubmitRetryMaxBox" Grid.Row="14" Grid.Column="1" Watermark="code=119 时最多重试次数，例如 3" />
+                        <TextBlock Grid.Row="15" Text="提交重试间隔(秒)" VerticalAlignment="Center" />
+                        <TextBox x:Name="SubmitRetryIntervalBox" Grid.Row="15" Grid.Column="1" Watermark="单位：秒，例如 30" />
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="工程图配置">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <TextBlock Text="工程图模板根目录" VerticalAlignment="Center" />
-                        <TextBox x:Name="ProjectImageRootBox" Grid.Column="1" />
-                        <TextBlock Grid.Row="1" Text="当前版本模板 ID" VerticalAlignment="Center" />
-                        <TextBox x:Name="ProjectImageTemplateIdBox" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Grid.Row="2" Text="项目准备步骤" VerticalAlignment="Top" />
-                        <WrapPanel Grid.Row="2" Grid.Column="1">
-                            <CheckBox x:Name="PrepareDownloadBox" Content="下载" Margin="0,0,14,8" />
-                            <CheckBox x:Name="PrepareRewriteBox" Content="改写" Margin="0,0,14,8" />
-                            <CheckBox x:Name="PreparePosterBox" Content="海报" Margin="0,0,14,8" />
-                            <CheckBox x:Name="PrepareGuaranteeBox" Content="承诺函" Margin="0,0,14,8" />
-                            <CheckBox x:Name="PrepareProjectImagesBox" Content="工程图" Margin="0,0,14,8" />
-                            <CheckBox x:Name="PrepareAutoFillBox" Content="补齐字段" Margin="0,0,14,8" />
-                        </WrapPanel>
-                        <CheckBox x:Name="PrepareForceRerunBox" Grid.Row="3" Grid.Column="1" Content="强制重新执行已完成的准备步骤" />
-                    </Grid>
+                    <StackPanel Margin="16" Spacing="12">
+                        <TextBlock Text="三个快手模块固定使用图片模板，每个项目生成 4 张工程图；不会使用剪映或顺序轮询模板。" TextWrapping="Wrap" Foreground="#64748B" />
+                        <Grid ColumnDefinitions="180,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Text="工程图模板根目录" VerticalAlignment="Center" />
+                            <TextBox x:Name="ProjectImageRootBox" Grid.Column="1" Watermark="留空时使用系统工程图模板根目录和内置模板" />
+                            <Button Grid.Column="2" Content="浏览" Click="PickProjectImageRoot_Click" />
+                            <TextBlock Grid.Row="1" Text="快手上传模板" VerticalAlignment="Center" />
+                            <ComboBox x:Name="UploadTemplateBox" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" />
+                            <TextBlock Grid.Row="2" Text="分账个人版模板" VerticalAlignment="Center" />
+                            <ComboBox x:Name="PersonalTemplateBox" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" />
+                            <TextBlock Grid.Row="3" Text="分账企业版模板" VerticalAlignment="Center" />
+                            <ComboBox x:Name="EnterpriseTemplateBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
+                        </Grid>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="视频管理">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="190,*,190,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <CheckBox x:Name="AutoOnlineBox" Content="启用自动上架" />
-                        <TextBlock Grid.Column="2" Text="轮询间隔（分钟）" VerticalAlignment="Center" />
-                        <TextBox x:Name="AutoOnlineIntervalBox" Grid.Column="3" />
-                        <TextBlock Grid.Row="1" Text="单轮最大数量" VerticalAlignment="Center" />
-                        <TextBox x:Name="AutoOnlineMaxItemsBox" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Grid.Row="1" Grid.Column="2" Text="最长等待（天）" VerticalAlignment="Center" />
-                        <TextBox x:Name="AutoOnlineMaxWaitBox" Grid.Row="1" Grid.Column="3" />
-                        <CheckBox x:Name="OnlineCleanupBox" Grid.Row="2" Content="启用线上清理" />
-                        <CheckBox x:Name="OnlineAutoDistributionBox" Grid.Row="2" Grid.Column="2" Content="上架后自动分销" />
-                        <TextBlock Grid.Row="3" Text="在线保留天数" VerticalAlignment="Center" />
-                        <TextBox x:Name="KeepOnlineDaysBox" Grid.Row="3" Grid.Column="1" />
-                        <TextBlock Grid.Row="3" Grid.Column="2" Text="驳回保留天数" VerticalAlignment="Center" />
-                        <TextBox x:Name="KeepRejectedDaysBox" Grid.Row="3" Grid.Column="3" />
-                        <TextBlock Grid.Row="4" Text="失效保留天数" VerticalAlignment="Center" />
-                        <TextBox x:Name="KeepInvalidDaysBox" Grid.Row="4" Grid.Column="1" />
-                        <TextBlock Grid.Row="4" Grid.Column="2" Text="手动上架保留天数" VerticalAlignment="Center" />
-                        <TextBox x:Name="KeepManualDaysBox" Grid.Row="4" Grid.Column="3" />
-                        <WrapPanel Grid.Row="5" Grid.ColumnSpan="4">
-                            <CheckBox x:Name="OnlineNotifyBox" Content="启用通知" Margin="0,0,18,0" />
-                            <CheckBox x:Name="RejectedNotifyBox" Content="驳回通知" Margin="0,0,18,0" />
-                            <CheckBox x:Name="RejectedNotifyOnceBox" Content="驳回仅通知一次" />
-                        </WrapPanel>
+                    <Grid Margin="16" ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="视频临时存储" VerticalAlignment="Center" />
+                        <ComboBox x:Name="VideoStorageProviderBox" Grid.Column="1" />
+                        <TextBlock Grid.Row="1" Text="上传并发上限" VerticalAlignment="Center" />
+                        <TextBox x:Name="StorageConcurrencyBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="2" Text="上传失败重试" VerticalAlignment="Center" />
+                        <TextBox x:Name="StorageRetryBox" Grid.Row="2" Grid.Column="1" />
+                        <TextBlock Grid.Row="3" Text="定时清理" VerticalAlignment="Center" />
+                        <CheckBox x:Name="OssCleanupBox" Grid.Row="3" Grid.Column="1" Content="启用提交后定时删除临时存储视频" />
+                        <TextBlock Grid.Row="4" Text="保留时长(小时)" VerticalAlignment="Center" />
+                        <TextBox x:Name="OssRetentionHoursBox" Grid.Row="4" Grid.Column="1" Watermark="提交完成后保留小时数，例如 24" />
+                        <TextBlock Grid.Row="5" Text="检查间隔(分钟)" VerticalAlignment="Center" />
+                        <TextBox x:Name="OssIntervalBox" Grid.Row="5" Grid.Column="1" Watermark="后台检查间隔，例如 60" />
+                        <TextBlock Grid.Row="6" Text="失败重试次数" VerticalAlignment="Center" />
+                        <TextBox x:Name="OssMaxAttemptsBox" Grid.Row="6" Grid.Column="1" Watermark="删除失败重试次数，例如 5" />
+                        <TextBlock Grid.Row="7" Text="项目删除/归档" VerticalAlignment="Center" />
+                        <CheckBox x:Name="OssDeleteOnProjectDeleteBox" Grid.Row="7" Grid.Column="1" Content="删除/归档本地项目时同步删除临时存储视频" />
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="剧集上架">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="190,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <TextBlock Text="创建剧集 API 路径" VerticalAlignment="Center" />
-                        <TextBox x:Name="SeriesCreatePathBox" Grid.Column="1" />
-                        <TextBlock Grid.Row="1" Text="基础信息 API 路径" VerticalAlignment="Center" />
-                        <TextBox x:Name="SeriesBaseInfoPathBox" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Grid.Row="2" Text="分集上传 API 路径" VerticalAlignment="Center" />
-                        <TextBox x:Name="EpisodeUploadPathBox" Grid.Row="2" Grid.Column="1" />
-                        <TextBlock Grid.Row="3" Text="封面更新 API 路径" VerticalAlignment="Center" />
-                        <TextBox x:Name="EpisodeCoverPathBox" Grid.Row="3" Grid.Column="1" />
-                        <TextBlock Grid.Row="4" Text="提交审核 API 路径" VerticalAlignment="Center" />
-                        <TextBox x:Name="SeriesSubmitPathBox" Grid.Row="4" Grid.Column="1" />
-                        <TextBlock Grid.Row="5" Text="分集文件字段名" VerticalAlignment="Center" />
-                        <TextBox x:Name="EpisodeFileFieldBox" Grid.Row="5" Grid.Column="1" />
-                        <WrapPanel Grid.Row="6" Grid.Column="1">
-                            <CheckBox x:Name="StepCreateSeriesBox" Content="创建剧集" Margin="0,0,14,8" />
-                            <CheckBox x:Name="StepUploadImagesBox" Content="上传图片" Margin="0,0,14,8" />
-                            <CheckBox x:Name="StepUploadVideosBox" Content="上传视频" Margin="0,0,14,8" />
-                            <CheckBox x:Name="StepSubmitSeriesBox" Content="提交审核" Margin="0,0,14,8" />
-                            <CheckBox x:Name="StepOnlineSeriesBox" Content="自动上架" Margin="0,0,14,8" />
-                            <CheckBox x:Name="StepDistributionSeriesBox" Content="自动分销" />
-                        </WrapPanel>
+                    <Grid Margin="16" ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="启用自动上架" VerticalAlignment="Center" />
+                        <CheckBox x:Name="AutoOnlineBox" Grid.Column="1" Content="提交短剧后登记待上架队列，并定时查询审核状态" />
+                        <TextBlock Grid.Row="1" Text="检查间隔" VerticalAlignment="Center" />
+                        <TextBox x:Name="AutoOnlineIntervalBox" Grid.Row="1" Grid.Column="1" />
+                        <TextBlock Grid.Row="2" Text="每轮最多处理" VerticalAlignment="Center" />
+                        <TextBox x:Name="AutoOnlineMaxItemsBox" Grid.Row="2" Grid.Column="1" />
+                        <TextBlock Grid.Row="3" Text="最大等待审核" VerticalAlignment="Center" />
+                        <TextBox x:Name="AutoOnlineMaxWaitBox" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="4" Text="空闲时执行" VerticalAlignment="Center" />
+                        <CheckBox x:Name="AutoOnlineOnlyWhenIdleBox" Grid.Row="4" Grid.Column="1" Content="快手上传队列运行中跳过本轮自动上架" />
+                        <TextBlock Grid.Row="5" Text="上架后自动分销" VerticalAlignment="Center" />
+                        <CheckBox x:Name="OnlineAutoDistributionBox" Grid.Row="5" Grid.Column="1" Content="上架成功后自动执行分销" />
+                        <TextBlock Grid.Row="6" Text="结果弹窗" VerticalAlignment="Center" />
+                        <CheckBox x:Name="OnlineShowResultDialogBox" Grid.Row="6" Grid.Column="1" Content="手动上架完成后弹出结果窗口" />
+                        <TextBlock Grid.Row="7" Text="飞书推送条件" VerticalAlignment="Center" />
+                        <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                            <CheckBox x:Name="OnlineNotifyBox" Content="自动上架成功" />
+                            <CheckBox x:Name="RejectedNotifyBox" Content="审核未通过" />
+                        </StackPanel>
+                        <TextBlock Grid.Row="8" Text="审核未通过去重" VerticalAlignment="Center" />
+                        <CheckBox x:Name="RejectedNotifyOnceBox" Grid.Row="8" Grid.Column="1" Content="同一短剧只通知一次审核未通过" />
+                        <TextBlock Grid.Row="9" Text="队列清理" VerticalAlignment="Center" />
+                        <CheckBox x:Name="OnlineCleanupBox" Grid.Row="9" Grid.Column="1" Content="自动清理已完成的上架队列记录" />
+                        <TextBlock Grid.Row="10" Text="自动上架记录保留" VerticalAlignment="Center" />
+                        <TextBox x:Name="KeepOnlineDaysBox" Grid.Row="10" Grid.Column="1" />
+                        <TextBlock Grid.Row="11" Text="手动上架记录保留" VerticalAlignment="Center" />
+                        <TextBox x:Name="KeepManualDaysBox" Grid.Row="11" Grid.Column="1" />
+                        <TextBlock Grid.Row="12" Text="打回/异常记录保留" VerticalAlignment="Center" />
+                        <TextBox x:Name="KeepRejectedDaysBox" Grid.Row="12" Grid.Column="1" />
                     </Grid>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="分销管理">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="190,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <CheckBox x:Name="DistributionEnabledBox" Content="启用分销配置" />
-                        <TextBlock Grid.Row="1" Text="分销 API 路径" VerticalAlignment="Center" />
-                        <TextBox x:Name="DistributionApiPathBox" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Grid.Row="2" Text="分销模式" VerticalAlignment="Center" />
-                        <TextBox x:Name="DistributionModeBox" Grid.Row="2" Grid.Column="1" />
-                        <TextBlock Grid.Row="3" Text="默认分成比例（%）" VerticalAlignment="Center" />
-                        <TextBox x:Name="DistributionRateBox" Grid.Row="3" Grid.Column="1" />
-                        <TextBlock Grid.Row="4" Text="分销商账号 JSON" VerticalAlignment="Top" />
-                        <TextBox x:Name="DistributorAccountsBox" Grid.Row="4" Grid.Column="1" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
-                        <WrapPanel Grid.Row="5" Grid.Column="1">
-                            <CheckBox x:Name="DistributionSubmitBox" Content="自动提交" Margin="0,0,18,0" />
-                            <CheckBox x:Name="DistributionJuxingBox" Content="允许聚星" Margin="0,0,18,0" />
-                            <CheckBox x:Name="DistributionOnlineTimeBox" Content="允许设置上线时间" />
-                        </WrapPanel>
-                    </Grid>
+                    <StackPanel Margin="16" Spacing="10">
+                        <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                            <TextBlock Text="分销功能" VerticalAlignment="Center" />
+                            <CheckBox x:Name="DistributionEnabledBox" Grid.Column="1" Content="启用快手经营者平台分销自动化" />
+                            <TextBlock Grid.Row="1" Text="执行方式" VerticalAlignment="Center" />
+                            <ComboBox x:Name="DistributionModeBox" Grid.Row="1" Grid.Column="1" SelectionChanged="DistributionModeBox_SelectionChanged" />
+                            <TextBlock x:Name="DistributionApiPathLabel" Grid.Row="2" Text="API 接口路径" VerticalAlignment="Center" />
+                            <TextBox x:Name="DistributionApiPathBox" Grid.Row="2" Grid.Column="1" />
+                            <TextBlock x:Name="DistributionOnlineTimeLabel" Grid.Row="3" Text="允许最早上架时间" VerticalAlignment="Center" />
+                            <TextBox x:Name="DistributionOnlineTimeBox" Grid.Row="3" Grid.Column="1" Watermark="可选，Unix 毫秒时间戳；0 表示不传" />
+                        </Grid>
+                        <TextBlock Text="分销商账号" FontWeight="SemiBold" />
+                        <Border BorderBrush="#D9E2EC" BorderThickness="1" CornerRadius="6">
+                            <DockPanel>
+                                <Grid DockPanel.Dock="Top" ColumnDefinitions="70,2*,2*,120" Background="#EDF3F9">
+                                    <TextBlock Margin="8,6" Text="启用" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="1" Margin="8,6" Text="分销商名称" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="2" Margin="8,6" Text="UID" FontWeight="SemiBold" />
+                                    <TextBlock Grid.Column="3" Margin="8,6" Text="分成比例(%)" FontWeight="SemiBold" />
+                                </Grid>
+                                <ListBox x:Name="DistributorAccountList" MinHeight="120" SelectionMode="Multiple" Background="Transparent" BorderThickness="0">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ColumnDefinitions="70,2*,2*,120" Margin="0,2">
+                                                <CheckBox Margin="8,0" IsChecked="{Binding Enabled}" VerticalAlignment="Center" />
+                                                <TextBox Grid.Column="1" Margin="4,2" Text="{Binding Name}" />
+                                                <TextBox Grid.Column="2" Margin="4,2" Text="{Binding Uid}" />
+                                                <TextBox Grid.Column="3" Margin="4,2" Text="{Binding Rate}" Watermark="默认" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="新增账号" Click="AddDistributorAccount_Click" />
+                            <Button Content="删除选中" Click="RemoveDistributorAccount_Click" />
+                            <Button Content="批量导入" Click="ImportDistributorAccounts_Click" />
+                        </StackPanel>
+                        <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                            <TextBlock Text="是否允许投放聚星" VerticalAlignment="Center" />
+                            <CheckBox x:Name="DistributionJuxingBox" Grid.Column="1" Content="是" />
+                            <TextBlock Grid.Row="1" Text="启用提交" VerticalAlignment="Center" />
+                            <CheckBox x:Name="DistributionSubmitBox" Grid.Row="1" Grid.Column="1" Content="点击创建分销短剧按钮" />
+                            <TextBlock x:Name="DistributionHeadlessLabel" Grid.Row="2" Text="浏览器无头模式" VerticalAlignment="Center" />
+                            <CheckBox x:Name="DistributionHeadlessBox" Grid.Row="2" Grid.Column="1" Content="自动分销使用无头浏览器" />
+                            <TextBlock x:Name="DistributionManualLabel" Grid.Row="3" Text="手动介入" VerticalAlignment="Center" />
+                            <CheckBox x:Name="DistributionManualBox" Grid.Row="3" Grid.Column="1" Content="浏览器执行失败时保留窗口，允许手动介入" />
+                            <TextBlock Grid.Row="4" Text="结果通知" VerticalAlignment="Center" />
+                            <CheckBox x:Name="DistributionFeishuBox" Grid.Row="4" Grid.Column="1" Content="分销完成或失败时发送飞书消息" />
+                            <TextBlock x:Name="DistributionLoginNotifyLabel" Grid.Row="5" Text="登录通知" VerticalAlignment="Center" />
+                            <CheckBox x:Name="DistributionLoginNotifyBox" Grid.Row="5" Grid.Column="1" Content="未登录时发送飞书扫码截图" />
+                            <TextBlock x:Name="DistributionLoginTimeoutLabel" Grid.Row="6" Text="登录超时(秒)" VerticalAlignment="Center" />
+                            <TextBox x:Name="DistributionLoginTimeoutBox" Grid.Row="6" Grid.Column="1" Watermark="等待扫码登录超时时间，默认 300" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="分账配置">
+                <ScrollViewer>
+                    <StackPanel Margin="16" Spacing="14">
+                        <Border BorderBrush="#D8C3A8" BorderThickness="1" CornerRadius="8" Background="#FFFAF5" Padding="12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="个人版配置" FontWeight="SemiBold" />
+                                <TextBlock Text="仅用于快手分账个人版：入口地址、人员姓名/性别，以及固定复用的承诺函 PDF 文件。企业版使用本页企业版入口和承诺函。"
+                                           TextWrapping="Wrap" Foreground="#665A4B" />
+                                <Grid ColumnDefinitions="160,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                    <TextBlock Text="个人版入口URL" VerticalAlignment="Center" />
+                                    <TextBox x:Name="EntryUrlBox" Grid.Column="1" Grid.ColumnSpan="2" />
+                                    <TextBlock Grid.Row="1" Text="用户名" VerticalAlignment="Center" />
+                                    <TextBox x:Name="UsernameBox" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Watermark="导演 / 编剧 / 制片人统一使用此用户名" />
+                                    <TextBlock Grid.Row="2" Text="性别" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="GenderBox" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" />
+                                    <TextBlock Grid.Row="3" Text="承诺函 PDF 文件" VerticalAlignment="Center" />
+                                    <TextBox x:Name="CommitmentPdfBox" Grid.Row="3" Grid.Column="1" Watermark="选择固定复用的承诺函 PDF 文件" />
+                                    <Button Grid.Row="3" Grid.Column="2" Content="选择" Click="PickCommitmentPdf_Click" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                        <Border BorderBrush="#AEBFD2" BorderThickness="1" CornerRadius="8" Background="#F7FBFF" Padding="12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="共用配置（个人版 / 企业版）" FontWeight="SemiBold" />
+                                <TextBlock Text="同时影响快手分账个人版和企业版：上传浏览器模式、全场景展示、登录等待、出错保留浏览器、第一页和最终提交动作。"
+                                           TextWrapping="Wrap" Foreground="#536171" />
+                                <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                    <TextBlock Text="登录超时(秒)" VerticalAlignment="Center" />
+                                    <TextBox x:Name="LoginTimeoutBox" Grid.Column="1" Watermark="登录等待秒数，默认 300（个人版/企业版共用）" />
+                                    <TextBlock Grid.Row="1" Text="上传浏览器模式" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="RevenueShareBrowserModeBox" Grid.Row="1" Grid.Column="1" />
+                                    <TextBlock Grid.Row="2" Text="全场景展示" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="RevenueShareFullSceneBox" Grid.Row="2" Grid.Column="1" Content="是" />
+                                    <TextBlock Grid.Row="3" Text="出错时手工介入" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="KeepBrowserBox" Grid.Row="3" Grid.Column="1" Content="启用" />
+                                    <TextBlock Grid.Row="4" Text="第一页提交动作" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="FirstPageActionBox" Grid.Row="4" Grid.Column="1" />
+                                    <TextBlock Grid.Row="5" Text="最终提交动作" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="FinalActionBox" Grid.Row="5" Grid.Column="1" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
@@ -288,41 +386,7 @@
                         <CheckBox x:Name="AiComplianceBox" Content="启用独立 AI 语义审核（推荐；会增加一次或多次 AI 请求）" />
                         <CheckBox x:Name="SynopsisRewriteBox" Content="默认使用 AI 改写简介（关闭时保留合规原简介；命中风险仍强制改写）" />
                         <Button Content="恢复系统默认词库" Click="RestoreContentPolicy_Click" HorizontalAlignment="Left" />
-                        <TextBlock Text="版权证明类型" />
-                        <TextBox x:Name="CopyrightProofTypeBox" />
-                        <TextBlock Text="版权有效期" />
-                        <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="8">
-                            <TextBox x:Name="CopyrightStartBox" Watermark="开始日期" />
-                            <TextBlock Grid.Column="1" Text="至" VerticalAlignment="Center" />
-                            <TextBox x:Name="CopyrightEndBox" Grid.Column="2" Watermark="结束日期" />
-                        </Grid>
                     </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="分账配置">
-                <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="170,*,170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                        <TextBlock Text="售卖方式" VerticalAlignment="Center" />
-                        <TextBox x:Name="SaleTypeBox" Grid.Column="1" />
-                        <TextBlock Grid.Column="2" Text="单集价格" VerticalAlignment="Center" />
-                        <TextBox x:Name="EpisodePriceBox" Grid.Column="3" />
-                        <TextBlock Grid.Row="1" Text="免费集数" VerticalAlignment="Center" />
-                        <TextBox x:Name="FreeEpisodeCountBox" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Grid.Row="1" Grid.Column="2" Text="广告解锁集数" VerticalAlignment="Center" />
-                        <TextBox x:Name="UnlockEpisodeCountBox" Grid.Row="1" Grid.Column="3" />
-                        <TextBlock Grid.Row="2" Text="第一页动作" VerticalAlignment="Center" />
-                        <ComboBox x:Name="FirstPageActionBox" Grid.Row="2" Grid.Column="1" ItemsSource="{Binding FirstPageActions}" />
-                        <TextBlock Grid.Row="2" Grid.Column="2" Text="最终动作" VerticalAlignment="Center" />
-                        <ComboBox x:Name="FinalActionBox" Grid.Row="2" Grid.Column="3" ItemsSource="{Binding FinalActions}" />
-                        <TextBlock Grid.Row="3" Text="运行模式" VerticalAlignment="Center" />
-                        <ComboBox x:Name="RunModeBox" Grid.Row="3" Grid.Column="1" ItemsSource="{Binding RunModes}" />
-                        <TextBlock Grid.Row="3" Grid.Column="2" Text="上传超时（分钟）" VerticalAlignment="Center" />
-                        <TextBox x:Name="UploadTimeoutBox" Grid.Row="3" Grid.Column="3" />
-                        <CheckBox x:Name="ForceRerunBox" Grid.Row="4" Grid.Column="1" Content="忽略旧状态并重新执行" />
-                        <TextBlock Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Foreground="#64748B" TextWrapping="Wrap"
-                                   Text="draft=保存第一页草稿；next=继续上传视频。keep=保持在审核前；submit_review=提交审核。auto 优先续传已有剧集。" />
-                    </Grid>
                 </ScrollViewer>
             </TabItem>
         </TabControl>
