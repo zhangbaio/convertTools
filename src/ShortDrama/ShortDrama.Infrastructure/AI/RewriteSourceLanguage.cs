@@ -7,9 +7,20 @@ public static class RewriteSourceLanguage
 {
     public const string Chinese = "zh";
     public const string English = "en";
+    public const string Indonesian = "id";
+    public const string Portuguese = "pt";
     public const string Japanese = "ja";
-    public const string Korean = "ko";
     public const string Thai = "th";
+    public const string Spanish = "es";
+    public const string Korean = "ko";
+    public const string Turkish = "tr";
+    public const string Hindi = "hi";
+    public const string CachePropertyName = "rewriteSourceLanguage";
+
+    public static readonly IReadOnlySet<string> AllowedCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        Chinese, English, Indonesian, Portuguese, Japanese, Thai, Spanish, Korean, Turkish, Hindi,
+    };
 
     public readonly record struct Limits(
         int TitleMin,
@@ -210,14 +221,117 @@ public static class RewriteSourceLanguage
             current = incoming.Trim();
     }
 
-    public static string DisplayName(string code) => code switch
+    public static string? ReadCached(string? projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+            return null;
+        var cached = ReadJsonString(Path.Combine(projectDir, "shortdrama-project.json"), CachePropertyName);
+        return TryNormalize(cached, out var code) ? code : null;
+    }
+
+    public static void SaveCached(string projectDir, string code)
+    {
+        if (!TryNormalize(code, out var normalized))
+            return;
+
+        var path = Path.Combine(projectDir, "shortdrama-project.json");
+        JsonObject root;
+        if (File.Exists(path))
+        {
+            try
+            {
+                root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject();
+            }
+            catch (Exception)
+            {
+                root = new JsonObject();
+            }
+        }
+        else
+        {
+            root = new JsonObject();
+        }
+
+        root[CachePropertyName] = normalized;
+        Directory.CreateDirectory(projectDir);
+        File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    public static string BuildDetectionPrompt(string? title, string? synopsis) => $"""
+        判断下面短剧原剧名和原简介的语言。只返回一个语言代码，不要解释。
+        只能返回：zh、en、id、pt、ja、th、es、ko、tr、hi。
+        zh=中文，en=英语，id=印尼语，pt=葡萄牙语，ja=日语，th=泰语，es=西班牙语，ko=韩语，tr=土耳其语，hi=印地语。
+        如果不是以上任何一种语言，只返回 unsupported。
+
+        原剧名：{title}
+        原简介：{synopsis}
+        """;
+
+    public static bool TryParseDetectedLanguage(string? content, out string code, out string failure)
+    {
+        code = "";
+        var text = StripCodeFence(content);
+        var token = FirstToken(text);
+        if (TryNormalize(token, out var normalized))
+        {
+            code = normalized;
+            failure = "";
+            return true;
+        }
+
+        var shown = string.IsNullOrWhiteSpace(text) ? "空" : TrimForLog(text);
+        failure = token.Equals("unsupported", StringComparison.OrdinalIgnoreCase)
+            ? "改写失败：原剧名和原简介的语言不在允许范围内。允许中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。"
+            : $"改写失败：源语言识别结果「{shown}」不在允许范围内。允许中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。";
+        return false;
+    }
+
+    public static bool TryNormalize(string? code, out string normalized)
+    {
+        normalized = (code ?? string.Empty).Trim().ToLowerInvariant();
+        if (!AllowedCodes.Contains(normalized))
+        {
+            normalized = "";
+            return false;
+        }
+
+        return true;
+    }
+
+    public static string DisplayName(string code) => (code ?? string.Empty).Trim().ToLowerInvariant() switch
     {
         English => "英语",
+        Indonesian => "印尼语",
+        Portuguese => "葡语",
         Japanese => "日语",
-        Korean => "韩语",
         Thai => "泰语",
+        Spanish => "西语",
+        Korean => "韩语",
+        Turkish => "土耳其语",
+        Hindi => "印地语",
         _ => "中文",
     };
+
+    private static string StripCodeFence(string? content)
+    {
+        var text = (content ?? string.Empty).Trim();
+        if (!text.StartsWith("```", StringComparison.Ordinal))
+            return text;
+        var lines = text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(' ', lines.Where(line => !line.Trim().StartsWith("```", StringComparison.Ordinal))).Trim();
+    }
+
+    private static string FirstToken(string text)
+    {
+        var token = new string((text ?? string.Empty).Trim().TakeWhile(ch => char.IsLetter(ch) || ch == '-').ToArray());
+        return token.Trim().ToLowerInvariant();
+    }
+
+    private static string TrimForLog(string text)
+    {
+        var compact = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return compact.Length <= 40 ? compact : compact[..40];
+    }
 
     public static Limits GetLimits(string code) => IsChinese(code)
         ? new Limits(6, 15, 8, 20, 100, 300)

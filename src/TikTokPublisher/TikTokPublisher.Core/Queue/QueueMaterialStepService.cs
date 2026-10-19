@@ -1456,14 +1456,7 @@ public static class QueueMaterialStepService
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
         if (account?.TiktokRewriteFollowsSourceLanguage == true)
         {
-            var imported = RewriteSourceLanguage.ReadImported(context.SourceProjectDir);
-            var workflowImported = RewriteSourceLanguage.ReadImported(Path.GetDirectoryName(infoPath));
-            var languageTitle = FirstNonEmpty(imported.Title, workflowImported.Title, originalTitle);
-            var languageSynopsis = FirstNonEmpty(imported.Synopsis, workflowImported.Synopsis, sourceSynopsis);
-            var sourceLanguage = RewriteSourceLanguage.Detect(languageTitle, languageSynopsis);
-            log(RewriteSourceLanguage.IsChinese(sourceLanguage)
-                ? "改写信息跟随源语言：识别为中文，标题和简介仍用中文。"
-                : $"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(sourceLanguage)}，标题、推荐语和简介使用该语言。");
+            log("改写信息跟随源语言：将用 AI 判断原剧名和原简介的语言。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语，其他语言改写失败。");
         }
 
         var rewriteVariantKey = BuildRewriteVariantKey(context, account);
@@ -1598,7 +1591,15 @@ public static class QueueMaterialStepService
 
         PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis, rewriteVariantKey);
         if (generatedResult is not null)
+        {
+            if (account?.TiktokRewriteFollowsSourceLanguage == true)
+            {
+                var detected = RewriteSourceLanguage.ReadCached(workflowDir);
+                if (detected is not null)
+                    log($"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题、推荐语和简介使用该语言。");
+            }
             log($"改写完成：{generatedResult.Title}");
+        }
 
         var newTitle = ResolveNewTitle(infoPath, item, context);
         if (!string.IsNullOrWhiteSpace(newTitle))

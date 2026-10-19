@@ -184,7 +184,15 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         if (followSourceLanguage)
             (project, canonicalOriginalTitle) = ApplyImportedSource(project, canonicalOriginalTitle);
         var outputLanguage = followSourceLanguage
-            ? RewriteSourceLanguage.Detect(canonicalOriginalTitle, project.Synopsis)
+            ? await ResolveSourceLanguageAsync(
+                endpoint,
+                modelId,
+                apiKey,
+                timeoutSeconds,
+                project.ProjectDir,
+                canonicalOriginalTitle,
+                project.Synopsis,
+                cancellationToken)
             : RewriteSourceLanguage.Chinese;
 
         if (File.Exists(request.OutputFilePath) && !request.Overwrite)
@@ -257,6 +265,82 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             Title = title,
             Synopsis = synopsis,
         }, title);
+    }
+
+    private async Task<string> ResolveSourceLanguageAsync(
+        string endpoint,
+        string modelId,
+        string apiKey,
+        int timeoutSeconds,
+        string projectDir,
+        string title,
+        string? synopsis,
+        CancellationToken cancellationToken)
+    {
+        var cached = RewriteSourceLanguage.ReadCached(projectDir);
+        if (cached is not null)
+        {
+            _logger.LogInformation("源语言使用已保存的识别结果：{Language}", RewriteSourceLanguage.DisplayName(cached));
+            return cached;
+        }
+
+        var content = await RequestChatTextAsync(
+            endpoint,
+            modelId,
+            apiKey,
+            RewriteSourceLanguage.BuildDetectionPrompt(title, synopsis),
+            timeoutSeconds,
+            temperature: 0,
+            cancellationToken);
+        if (!RewriteSourceLanguage.TryParseDetectedLanguage(content, out var code, out var failure))
+            throw new InvalidOperationException(failure);
+
+        RewriteSourceLanguage.SaveCached(projectDir, code);
+        _logger.LogInformation("源语言识别为{Language}", RewriteSourceLanguage.DisplayName(code));
+        return code;
+    }
+
+    private async Task<string> RequestChatTextAsync(
+        string endpoint,
+        string modelId,
+        string apiKey,
+        string prompt,
+        int timeoutSeconds,
+        double temperature,
+        CancellationToken cancellationToken)
+    {
+        var payload = new
+        {
+            model = modelId,
+            temperature = Math.Clamp(temperature, 0, 2),
+            messages = new object[]
+            {
+                new { role = "user", content = prompt }
+            }
+        };
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions");
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 600)));
+
+        using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
+        var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                "改写失败：源语言识别请求失败。" +
+                AiApiErrorMessage.Create("AI 语种识别", response.StatusCode, response.ReasonPhrase, responseText));
+        }
+
+        var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions)
+            ?? throw new InvalidOperationException("改写失败：源语言识别没有返回内容。");
+        var content = parsed.Choices?.FirstOrDefault()?.Message?.Content;
+        if (string.IsNullOrWhiteSpace(content))
+            throw new InvalidOperationException("改写失败：源语言识别没有返回内容。");
+        return content;
     }
 
     private static string BuildPrompt(
