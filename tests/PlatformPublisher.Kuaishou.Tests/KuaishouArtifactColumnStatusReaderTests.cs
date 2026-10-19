@@ -237,4 +237,43 @@ public sealed class KuaishouFormChoicesTests
         Assert.Equal("含AI生成内容", KuaishouFormChoices.LabelOf(KuaishouFormChoices.AuthorDeclarations, "1", "0"));
         Assert.Equal("自有版权", KuaishouFormChoices.LabelOf(KuaishouFormChoices.CopyrightProofTypes, "1", "2"));
     }
+
+    [Fact]
+    public void Resolver_UsesAssistantRulesForEditedConfig()
+    {
+        var config = new KuaishouPersonalConfig
+        {
+            ProductionMethod = "3",
+            ProductionForm = "auto",
+            AuthorDeclaration = "1",
+            SaleType = "3",
+            BroadcastTimeMode = "today",
+            RevenueShareFullSceneDisplay = true,
+            FullSceneDisplay = false,
+            KuaishouNickname = "星燃漫剧",
+            AdvertiserId = "5162494128",
+            Username = "张彪",
+            Gender = "男",
+            FreeEpisodeCount = 0,
+            UnlockEpisodeCount = 0,
+            EpisodePrice = "0.11",
+            SpecialTheme = "false",
+            ActorInfoJson = """[{"name":"顾承宇","gender":"男","role":"男主"}]""",
+        };
+
+        var form = KuaishouPersonalFormResolver.Resolve(config, videoWidth: 1080, videoHeight: 1920, today: new DateTime(2026, 10, 19));
+
+        Assert.Equal("AIGC剧", form.ComicMethodLabel);
+        Assert.Equal("竖屏", form.ProductionForm);
+        Assert.Equal("含AI生成内容", form.AuthorDeclarationLabel);
+        Assert.Equal("观看广告解锁", form.SaleTypeLabel);
+        Assert.Equal("2026-10-19", form.BroadcastDate);
+        Assert.True(form.FullSceneDisplay);
+        Assert.Equal("星燃漫剧+5162494128", form.ProductionOrg);
+        Assert.Equal("张彪", form.CreditName);
+        Assert.Equal(1, form.FreeEpisodeCount);
+        Assert.Equal("顾承宇", form.Actors[0].Name);
+        Assert.Equal("横屏", KuaishouPersonalFormResolver.ResolveProductionForm("auto", 1920, 1080));
+        Assert.Equal("横屏", KuaishouPersonalFormResolver.ResolveProductionForm("横屏", 1080, 1920));
+    }
 }

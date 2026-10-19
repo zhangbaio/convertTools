@@ -72,7 +72,7 @@ public sealed class KuaishouPersonalProjectDataService
             commitment,
             projectImages,
             videos,
-            ParseActors(config.Actors));
+            KuaishouPersonalFormResolver.ResolveActors(config.ActorInfoJson));
     }
 
     private static Dictionary<string, string> ParseInfo(string path)

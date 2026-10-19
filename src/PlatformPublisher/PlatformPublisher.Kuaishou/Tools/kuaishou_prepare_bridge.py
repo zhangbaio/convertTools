@@ -40,9 +40,47 @@ def _settings_for_workspace(tool_root: Path, settings_path: Path, workspace: Pat
     return GlobalSettings(**{key: value for key, value in data.items() if key in allowed})
 
 
-def rebuild(workflow: Path, tool_root: Path, settings_path: Path, workspace: Path | None = None) -> dict:
+def _apply_overrides(settings, overrides: Path | None):
+    if overrides is None or not overrides.is_file():
+        return settings
+    import dataclasses
+
+    from app_settings import GlobalSettings
+
+    raw = json.loads(overrides.read_text(encoding="utf-8"))
+    data = dataclasses.asdict(settings)
+    fields = GlobalSettings.__dataclass_fields__
+    for key, value in raw.items():
+        field = fields.get(key)
+        if field is None or value is None:
+            continue
+        data[key] = _coerce_setting(field.type, value)
+    return GlobalSettings(**{key: data[key] for key in fields})
+
+
+def _coerce_setting(annotation, value):
+    args = getattr(annotation, "__args__", None)
+    if args:
+        concrete = [item for item in args if item is not type(None)]
+        if len(concrete) == 1:
+            annotation = concrete[0]
+    if annotation is bool:
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes"}
+    if annotation is int:
+        return int(float(value))
+    if annotation is float:
+        return float(value)
+    return value
+
+
+def rebuild(workflow: Path, tool_root: Path, settings_path: Path, workspace: Path | None = None, overrides: Path | None = None) -> dict:
     workflow = workflow.resolve()
-    settings = _settings_for_workspace(tool_root, settings_path, workspace or _workspace_for(workflow))
+    settings = _apply_overrides(
+        _settings_for_workspace(tool_root, settings_path, workspace or _workspace_for(workflow)),
+        overrides,
+    )
     from modules.kuaishou.auto_fill_service import generate_kuaishou_auto_fill
     from modules.kuaishou.upload_service import _build_local_proof_items, build_kuaishou_form_payload
     from project_info_text import parse_project_info_file
@@ -71,9 +109,10 @@ def main() -> int:
     parser.add_argument("--tool-root", required=True)
     parser.add_argument("--settings", default=str(Path.home() / ".weixin_channel_tool" / "settings.json"))
     parser.add_argument("--workspace", default="")
+    parser.add_argument("--overrides", default="")
     args = parser.parse_args()
     workspace = Path(args.workspace) if args.workspace else None
-    result = rebuild(Path(args.workflow), Path(args.tool_root), Path(args.settings), workspace)
+    result = rebuild(Path(args.workflow), Path(args.tool_root), Path(args.settings), workspace, Path(args.overrides) if args.overrides else None)
     print(json.dumps(result, ensure_ascii=False))
     return 0
 

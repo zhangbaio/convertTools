@@ -30,9 +30,6 @@ public sealed class KuaishouPersonalPublishAdapter : IPlatformPublishAdapter
             return;
         }
         await _uploadService.RunAsync(job, progress, cancellationToken);
-        var config = KuaishouPersonalConfig.Load(job);
-        if (!string.Equals(config.FirstPageAction, "next", StringComparison.OrdinalIgnoreCase))
-            throw new NotSupportedException("快手分账个人版第一页草稿已保存；将配置 firstPageAction 改为 next 后可继续单集与视频上传，当前任务未标记完成。");
     }
 
     public Task OpenLoginAsync(PublishJob job, CancellationToken cancellationToken) =>

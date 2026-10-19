@@ -12,43 +12,49 @@ public sealed class KuaishouPersonalFirstPageService
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        var size = await ProbeVideoSizeAsync(data.VideoPaths.FirstOrDefault());
+        var form = KuaishouPersonalFormResolver.Resolve(config, size.Width, size.Height);
+        if (string.IsNullOrWhiteSpace(form.CreditName))
+            throw new InvalidOperationException("请先在快手分账配置的“分账配置”中填写用户名。");
+        if (string.IsNullOrWhiteSpace(config.KuaishouNickname) || !form.ProductionOrg.Contains('+'))
+            throw new InvalidOperationException("请先在快手分账配置的“登录授权”中填写快手昵称和用户快手号 ID。");
+
         await NavigateToUploadAsync(page, cancellationToken);
         await FillTextAsync(page, "短剧标题", data.Title, required: true);
+        await FillTextAsync(page, "短剧简介", data.Intro, required: true);
+        await SelectAsync(page, "内容类型", form.ContentTypeLabel, required: false);
+        await SelectAsync(page, "漫剧制作方式", form.ComicMethodLabel, required: false);
+        await SelectAsync(page, "作者声明", form.AuthorDeclarationLabel, required: true);
+        await FillTextAsync(page, "短标题", data.ShortTitle, required: false);
+        await FillTextAsync(page, "标签", string.Join(' ', data.Tags), required: false);
+        await SelectAsync(page, "版权证明类型", form.CopyrightProofTypeLabel, required: false);
+        await SetRadioAsync(page, "是否完结", form.Finished ? "是" : "否", required: true);
+        await SetRadioAsync(page, "是否全场景展示", form.FullSceneDisplay ? "是" : "否", required: false);
+        await SetRadioAsync(page, "是否有备案号", form.HasRecordNumber ? "是" : "否", required: true);
+        await page.WaitForTimeoutAsync(600);
+        await SetRadioAsync(page, "制作形式", form.ProductionForm, required: false);
+        await FillTextAsync(page, "出品年份", form.ProductionYear.ToString(), required: false);
+        await FillTextAsync(page, "制作成本", form.ProductionCost, required: false);
+        await FillTextAsync(page, "单集平均时长", form.AverageDurationMinutes.ToString(), required: false);
+        await FillTextAsync(page, "制作机构", form.ProductionOrg, required: false);
+        await FillPeopleAsync(page, form.CreditName, form.Gender, cancellationToken);
+        await SelectAsync(page, "播出平台", form.BroadcastPlatform, required: false);
+        await SelectAsync(page, "播出途径", form.BroadcastChannel, required: false);
+        await FillTextAsync(page, "播出时间", form.BroadcastDate, required: false);
+        if (!form.HasRecordNumber) await FillActorsAsync(page, form.Actors, cancellationToken);
+        await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", form.SpecialTheme ? "是" : "否", required: false);
         await UploadScopedAsync(page, ["短剧封面", "横屏封面"], data.HorizontalCoverPath, required: true);
         await HandleCropDialogAsync(page, 15, cancellationToken);
-        await FillTextAsync(page, "短剧简介", data.Intro, required: true);
-        await SelectAsync(page, "短剧分类", config.Category, required: false);
-        await SelectAsync(page, "内容类型", KuaishouFormChoices.LabelOf(KuaishouFormChoices.ContentTypes, config.ContentType, "漫剧"), required: false);
-        await SelectAsync(page, "漫剧制作方式", KuaishouFormChoices.LabelOf(KuaishouFormChoices.ComicMethods, config.ProductionMethod, "3"), required: false);
-        await FillTextAsync(page, "短标题", data.ShortTitle, required: false);
-        await FillTextAsync(page, "标签", string.Join(',', data.Tags), required: false);
-
-        await SetRadioAsync(page, "是否有备案号", config.HasRecordNumber ? "是" : "否", required: true);
-        await SetRadioAsync(page, "制作形式", KuaishouFormChoices.LabelOf(KuaishouFormChoices.ProductionForms, config.ProductionForm, "auto"), required: false);
-        await FillTextAsync(page, "出品年份", config.ProductionYear, required: false);
-        await FillTextAsync(page, "制作成本", config.ProductionCost, required: false);
-        await FillTextAsync(page, "单集平均时长", config.AverageEpisodeMinutes, required: false);
-        var organization = string.IsNullOrWhiteSpace(config.ProductionOrganization)
-            ? string.Join('+', new[] { config.KuaishouNickname, config.KuaishouId }.Where(value => !string.IsNullOrWhiteSpace(value)))
-            : config.ProductionOrganization;
-        await FillTextAsync(page, "制作机构", organization, required: false);
-        await FillPeopleAsync(page, config, cancellationToken);
-        await FillActorsAsync(page, data.Actors, cancellationToken);
-        await SelectAsync(page, "播出平台", config.BroadcastPlatform, required: false);
-        await SelectAsync(page, "播出途径", config.BroadcastChannel, required: false);
-        await FillTextAsync(page, "播出时间", config.BroadcastDate, required: false);
-        await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", "否", required: false);
-        await SetRadioAsync(page, "是否完结", config.Finished ? "是" : "否", required: true);
-        await SelectAsync(page, "版权证明类型", KuaishouFormChoices.LabelOf(KuaishouFormChoices.CopyrightProofTypes, config.CopyrightProofType, "1"), required: false);
-        await SelectAsync(page, "版权证明材料", string.IsNullOrWhiteSpace(config.AuthorDeclaration) ? "现场拍摄图/短剧工程文件" : config.AuthorDeclaration, required: false);
         await UploadProofMaterialsAsync(page, data, config, cancellationToken);
-        await SelectAsync(page, "售卖方式", KuaishouFormChoices.LabelOf(KuaishouFormChoices.SaleTypes, config.SaleType, "3"), required: false);
-        await FillTextAsync(page, "免费集数", config.FreeEpisodeCount.ToString(), required: false);
-        await FillTextAsync(page, "广告解锁集数", config.UnlockEpisodeCount.ToString(), required: false);
-        await FillTextAsync(page, "单集价格", config.EpisodePrice, required: false);
+        await SetRadioAsync(page, "售卖方式", form.SaleTypeLabel, required: false);
+        await SetRadioAsync(page, "售卖类型", form.SaleTypeLabel, required: false);
+        await FillTextAsync(page, "免费集数", form.FreeEpisodeCount.ToString(), required: false);
+        await FillTextAsync(page, "广告解锁集数", form.UnlockCount.ToString(), required: false);
+        await FillTextAsync(page, "全剧价格", form.EpisodePrice, required: false);
+        if (form.SmallAmountUnlock) await SetRadioAsync(page, "小额解锁", "是", required: false);
         await SetCheckboxAsync(page, ["付费短剧经营者服务协议", "我已阅读并同意"]);
 
-        progress?.Report($"{config.StoragePlatform.DisplayName()}：第一页基础字段和证明材料已填写。 ");
+        progress?.Report($"{config.StoragePlatform.DisplayName()}：第一页已按当前配置填写。制作形式 {form.ProductionForm}，播出 {form.BroadcastDate}，售卖 {form.SaleTypeLabel}。 ");
         if (string.Equals(config.FirstPageAction, "draft", StringComparison.OrdinalIgnoreCase))
         {
             var saved = await ClickVisibleTextAsync(page, ["保存草稿", "存草稿"], 8_000);
@@ -175,18 +181,46 @@ public sealed class KuaishouPersonalFirstPageService
         }
     }
 
-    private static async Task FillPeopleAsync(IPage page, KuaishouPersonalConfig config, CancellationToken cancellationToken)
+    private static async Task FillPeopleAsync(IPage page, string creditName, string gender, CancellationToken cancellationToken)
     {
-        foreach (var item in new[]
-                 {
-                     (Label: "导演", Value: First(config.Directors, config.RealName)),
-                     (Label: "编剧", Value: First(config.Screenwriters, config.RealName)),
-                     (Label: "制片人", Value: First(config.ProductionOrganization, config.RealName)),
-                 })
+        foreach (var label in new[] { "导演", "编剧", "制片人" })
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await FillTextAsync(page, item.Label, item.Value, required: false);
-            await SetRadioAsync(page, item.Label, config.Gender, required: false);
+            await FillTextAsync(page, label, creditName, required: label == "导演");
+            await SelectAsync(page, label, gender, required: false);
+            await SetRadioAsync(page, label, gender, required: false);
+        }
+    }
+
+    private static async Task<(int Width, int Height)> ProbeVideoSizeAsync(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return (0, 0);
+        try
+        {
+            using var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "ffprobe",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                },
+            };
+            foreach (var argument in new[] { "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", path })
+                process.StartInfo.ArgumentList.Add(argument);
+            process.Start();
+            var output = await process.StandardOutput.ReadToEndAsync();
+            if (!process.WaitForExit(8000)) return (0, 0);
+            var parts = output.Trim().Split('x');
+            return parts.Length == 2 && int.TryParse(parts[0], out var width) && int.TryParse(parts[1], out var height)
+                ? (width, height)
+                : (0, 0);
+        }
+        catch
+        {
+            return (0, 0);
         }
     }
 
