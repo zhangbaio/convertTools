@@ -235,6 +235,10 @@ JSON 结构：
                 await GenerateErasePilTitlePosterAsync(
                     request, inputPath, outputPath, posterName, request.ConfigFile, cancellationToken);
                 break;
+            case "erase_fixed_lower_title":
+                await GenerateEraseFixedLowerTitlePosterAsync(
+                    request, inputPath, outputPath, posterName, request.ConfigFile, cancellationToken);
+                break;
             default:
                 await RenderPosterAsync(inputPath, outputPath, posterName, request.ConfigFile, request, cancellationToken);
                 break;

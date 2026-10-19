@@ -559,7 +559,7 @@ public static class ClientSettingsStore
     private static string NormalizePosterMode(string? value) =>
         (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch
         {
-            "original" or "poster_ai_erase_pil_title" =>
+            "original" or "poster_ai_erase_pil_title" or "erase_fixed_lower_title" =>
                 (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant(),
             _ => ClientSettingsDefaults.PosterMode
         };

@@ -30,4 +30,23 @@ public sealed class PosterTitleProgrammaticRendererTests
         layout.TextColor.Should().Be(new SixLabors.ImageSharp.PixelFormats.Rgba32(255, 255, 255, 255));
         layout.Align.Should().Be(SixLabors.Fonts.HorizontalAlignment.Left);
     }
+
+    [Fact]
+    public void FormatLowerHalfLines_keeps_latin_words()
+    {
+        PosterTitleProgrammaticRenderer.FormatLowerHalfLines("O Bilionário que Vivia como Sem-Teto")
+            .Should().Contain("Bilionário")
+            .And.Contain(" ");
+    }
+
+    [Fact]
+    public void CreateLowerHalfLayout_places_yellow_title_in_the_lower_half()
+    {
+        var layout = PosterTitleProgrammaticRenderer.CreateLowerHalfLayout("O Bilionário\nque Vivia", 600, 858);
+
+        layout.Y.Should().BeGreaterThanOrEqualTo(0.50f);
+        layout.Width.Should().BeApproximately(0.86f, 0.001f);
+        layout.TextColor.Should().Be(new SixLabors.ImageSharp.PixelFormats.Rgba32(255, 214, 0, 255));
+        layout.Align.Should().Be(SixLabors.Fonts.HorizontalAlignment.Center);
+    }
 }

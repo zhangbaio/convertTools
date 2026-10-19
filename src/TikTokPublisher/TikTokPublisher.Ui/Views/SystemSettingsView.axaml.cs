@@ -148,6 +148,7 @@ public partial class SystemSettingsView : UserControl
 
         PosterModeCombo.Items.Clear();
         PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
+        PosterModeCombo.Items.Add(CreateItem("AI清除原文字并固定字体写入", "erase_fixed_lower_title"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
 
         PosterLayoutRequestModeCombo.Items.Clear();
@@ -212,8 +213,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(HongguoLocalTranscodeEngineCombo, _vm.HongguoLocalTranscodeEngine);
         SelectComboItem(RoleReferenceSelectionModeCombo, _vm.TiktokRoleReferenceSelectionMode);
         SelectComboItem(RoleVectorViewModeCombo, _vm.TiktokRoleVectorViewMode);
-        _vm.PosterMode = ClientSettingsDefaults.PosterMode;
-        SelectComboItem(PosterModeCombo, ClientSettingsDefaults.PosterMode);
+        SelectComboItem(PosterModeCombo, _vm.PosterMode);
         SelectComboItem(PosterLayoutRequestModeCombo, _vm.PosterLayoutRequestMode);
         SelectComboItem(NetworkAddressPreferenceCombo, _vm.NetworkAddressPreference);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
@@ -382,7 +382,9 @@ public partial class SystemSettingsView : UserControl
                    ?? _vm?.PosterMode
                    ?? "original";
         FrameExtractSettingsPanel.IsVisible = string.Equals(mode, "video_frame", StringComparison.OrdinalIgnoreCase);
-        PosterModeHintText.Text = "替换原海报标题，清除人物名、作者说明等其他文字，并进行全图校验。";
+        PosterModeHintText.Text = string.Equals(mode, "erase_fixed_lower_title", StringComparison.OrdinalIgnoreCase)
+            ? "AI 只清除封面上的原文字，然后在下半部分用固定黄字黑边写入新剧名。不改变「原始海报AI改标题并校验」。"
+            : "替换原海报标题，清除人物名、作者说明等其他文字，并进行全图校验。";
     }
 
     private void OnImageProviderChanged(object? sender, SelectionChangedEventArgs e)

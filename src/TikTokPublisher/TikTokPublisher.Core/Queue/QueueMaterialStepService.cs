@@ -1759,6 +1759,9 @@ public static class QueueMaterialStepService
                 case "poster_ai_erase_pil_title":
                     log("开始使用 AI 去字并程序绘制标题…");
                     break;
+                case "erase_fixed_lower_title":
+                    log("开始清除封面原文字，并在下半部分用固定字体写入新剧名…");
+                    break;
                 default:
                     log("开始 AI 海报改标题…");
                     log("正在检测海报标题区域…");
@@ -2776,7 +2779,7 @@ public static class QueueMaterialStepService
     private static bool IsAiPosterMode(string? posterMode)
     {
         var mode = (posterMode ?? "original").Trim().ToLowerInvariant();
-        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "video_frame" or "poster_ai_edit";
+        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "erase_fixed_lower_title" or "video_frame" or "poster_ai_edit";
     }
 
     private static bool IsHeicLike(string path)

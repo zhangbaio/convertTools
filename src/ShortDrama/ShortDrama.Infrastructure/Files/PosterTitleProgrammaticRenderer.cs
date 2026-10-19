@@ -69,15 +69,51 @@ internal static class PosterTitleProgrammaticRenderer
         canvas.Mutate(ctx => DrawOutlinedText(ctx, displayTitle, font, renderLayout.TextColor, strokeColor, strokeWidth, origin));
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        SaveCanvas(canvas, outputPath);
+    }
+
+    public static void RenderLowerHalf(string inputPath, string outputPath, string title)
+    {
+        using var source = Image.Load<Rgba32>(inputPath);
+        using var canvas = source.CloneAs<Rgba32>();
+        var width = canvas.Width;
+        var height = canvas.Height;
+        var displayTitle = FormatLowerHalfLines(title);
+        var renderLayout = CreateLowerHalfLayout(displayTitle, width, height);
+        var rx = Math.Max(0, (int)Math.Round(width * renderLayout.X));
+        var ry = Math.Max(0, (int)Math.Round(height * renderLayout.Y));
+        var rw = Math.Min(width - rx, (int)Math.Round(width * renderLayout.Width));
+        var rh = Math.Min(height - ry, (int)Math.Round(height * renderLayout.Height));
+        var fontSize = Math.Max(28, (int)Math.Round(height * renderLayout.FontScale));
+        var minimumFontSize = Math.Max(18, (int)Math.Round(height * (40f / 858f)));
+        var strokeWidth = Math.Max(3f, fontSize / 12f);
+        var font = FitTitleFont(displayTitle, rw, rh, fontSize, minimumFontSize, strokeWidth);
+        var textBounds = TextMeasurer.MeasureBounds(displayTitle, new TextOptions(font) { Dpi = 72 });
+        var origin = new PointF(
+            rx + (rw - textBounds.Width) / 2f - textBounds.Left,
+            ry + (rh - textBounds.Height) / 2f - textBounds.Top);
+        canvas.Mutate(ctx => DrawOutlinedText(
+            ctx,
+            displayTitle,
+            font,
+            renderLayout.TextColor,
+            new Rgba32(0, 0, 0, 255),
+            strokeWidth,
+            origin));
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+        SaveCanvas(canvas, outputPath);
+    }
+
+    private static void SaveCanvas(Image<Rgba32> canvas, string outputPath)
+    {
         if (Path.GetExtension(outputPath).Equals(".jpg", StringComparison.OrdinalIgnoreCase)
             || Path.GetExtension(outputPath).Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
         {
             canvas.SaveAsJpeg(outputPath);
+            return;
         }
-        else
-        {
-            canvas.SaveAsPng(outputPath);
-        }
+
+        canvas.SaveAsPng(outputPath);
     }
 
     private static void DrawOutlinedText(
@@ -176,6 +212,59 @@ internal static class PosterTitleProgrammaticRenderer
             BackgroundColor: new Rgba32(0, 0, 0, 255),
             BackgroundOpacity: 0,
             Align: HorizontalAlignment.Left);
+    }
+
+    internal static string FormatLowerHalfLines(string? title)
+    {
+        var text = (title ?? string.Empty).Replace("\r", string.Empty, StringComparison.Ordinal).Trim();
+        var cjk = text.Count(character => character is >= '\u4E00' and <= '\u9FFF');
+        var letters = text.Count(char.IsLetter);
+        if (cjk >= 4 && cjk * 2 >= letters)
+            return FormatTitleLines(text);
+
+        var words = text.Split([' ', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length <= 1)
+            return text;
+
+        var lineCount = words.Length <= 4 ? 2 : 3;
+        var lines = new List<string>(lineCount);
+        var target = Math.Max(1, (int)Math.Ceiling(words.Length / (double)lineCount));
+        var index = 0;
+        for (var lineIndex = 0; lineIndex < lineCount && index < words.Length; lineIndex++)
+        {
+            var remainingLines = lineCount - lineIndex;
+            var take = lineIndex == lineCount - 1
+                ? words.Length - index
+                : Math.Max(1, Math.Min(target, words.Length - index - (remainingLines - 1)));
+            lines.Add(string.Join(' ', words.Skip(index).Take(take)));
+            index += take;
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    internal static PosterTitleLayout CreateLowerHalfLayout(
+        string displayTitle,
+        int canvasWidth,
+        int canvasHeight)
+    {
+        if (canvasWidth <= 0 || canvasHeight <= 0 || string.IsNullOrWhiteSpace(displayTitle))
+            return default;
+
+        var lineCount = Math.Max(1, displayTitle.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+        var regionHeight = Math.Min(0.42f, lineCount * 0.11f + 0.06f);
+        var bottomMargin = 0.06f;
+        var y = Math.Max(0.50f, 1f - bottomMargin - regionHeight);
+        return new PosterTitleLayout(
+            X: 0.07f,
+            Y: y,
+            Width: 0.86f,
+            Height: regionHeight,
+            FontScale: 0.078f,
+            TextColor: new Rgba32(255, 214, 0, 255),
+            BackgroundColor: new Rgba32(0, 0, 0, 255),
+            BackgroundOpacity: 0,
+            Align: HorizontalAlignment.Center);
     }
 
     private static Font FitTitleFont(
