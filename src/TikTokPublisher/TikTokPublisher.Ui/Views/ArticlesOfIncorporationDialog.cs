@@ -42,20 +42,14 @@ public sealed class ArticlesOfIncorporationDialog : Window
         var root = new Grid
         {
             Margin = new Thickness(18),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
             RowSpacing = 14,
         };
-        root.Children.Add(new TextBlock
-        {
-            Text = "填写之前从公司注册文件中消除的内容，按原位置生成一份新 PDF。公司名称、费用和其他固定文字保持模板原样。留空的项目不会写入。注册人简称随注册人名称自动生成，注册人地址同时写到文件中的两处地址。",
-            TextWrapping = TextWrapping.Wrap,
-        });
 
         var form = BuildForm();
-        Grid.SetRow(form, 1);
         root.Children.Add(form);
 
-        Grid.SetRow(_status, 2);
+        Grid.SetRow(_status, 1);
         root.Children.Add(_status);
 
         var buttons = new StackPanel
@@ -80,7 +74,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         actions.Children.Add(_alsoChinese);
         Grid.SetColumn(buttons, 1);
         actions.Children.Add(buttons);
-        Grid.SetRow(actions, 3);
+        Grid.SetRow(actions, 2);
         root.Children.Add(actions);
         Content = root;
     }

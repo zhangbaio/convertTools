@@ -191,7 +191,7 @@ public static class TikTokTimestampCertificateService
             values.GetValueOrDefault("报审机构"), "未填写报审机构");
     }
 
-    private static string ResolveAssetsDirectory()
+    private static string? FindAssetsDirectory()
     {
         var candidates = new[]
         {
@@ -199,12 +199,15 @@ public static class TikTokTimestampCertificateService
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "TikTokPublisher.Core", "Resources", "TimestampCertificate")),
             Path.Combine(Directory.GetCurrentDirectory(), "src", "TikTokPublisher", "TikTokPublisher.Core", "Resources", "TimestampCertificate"),
         };
-        return candidates.FirstOrDefault(path => File.Exists(Path.Combine(path, "tsa_certificate_template.pdf")))
-               ?? throw new DirectoryNotFoundException("未找到随程序附带的可信时间戳模板资源。");
+        return candidates.FirstOrDefault(path => File.Exists(Path.Combine(path, "tsa_certificate_template.pdf")));
     }
 
+    private static string ResolveAssetsDirectory() =>
+        FindAssetsDirectory()
+        ?? throw new DirectoryNotFoundException("未找到随程序附带的可信时间戳模板资源。");
+
     internal static void EnsureSharedFontResolver() =>
-        EnsureFontResolver(ResolveAssetsDirectory());
+        EnsureFontResolver(FindAssetsDirectory() ?? AppContext.BaseDirectory);
 
     private static void EnsureFontResolver(string assets)
     {

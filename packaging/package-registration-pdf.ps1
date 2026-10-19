@@ -52,6 +52,51 @@ function Assert-RegistrationPdfPublished {
     }
 }
 
+function Remove-UnusedRegistrationPdfPayload {
+    param([Parameter(Mandatory = $true)][string]$PublishDirectory)
+
+    foreach ($dir in @(".playwright", "templates", "timestamp-certificate", "fablecut", "tools")) {
+        $path = Join-Path $PublishDirectory $dir
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force
+        }
+    }
+
+    $unusedFiles = @(
+        "onnxruntime.dll",
+        "sherpa-onnx.dll",
+        "sherpa-onnx-c-api.dll",
+        "DocumentFormat.OpenXml.dll",
+        "DocumentFormat.OpenXml.Framework.dll",
+        "Microsoft.Playwright.dll",
+        "Microsoft.Data.Sqlite.dll",
+        "Microsoft.DiaSymReader.Native.amd64.dll",
+        "e_sqlite3.dll",
+        "SQLitePCLRaw.batteries_v2.dll",
+        "SQLitePCLRaw.core.dll",
+        "SQLitePCLRaw.provider.e_sqlite3.dll",
+        "SixLabors.ImageSharp.dll",
+        "SixLabors.ImageSharp.Drawing.dll",
+        "ShortDrama.Core.dll",
+        "ShortDrama.Infrastructure.dll",
+        "ChannelsPublisher.Clip.dll",
+        "mscordaccore.dll",
+        "mscordbi.dll"
+    )
+    Get-ChildItem -LiteralPath $PublishDirectory -File -Filter "mscordaccore*.dll" |
+        Remove-Item -Force
+    foreach ($name in $unusedFiles) {
+        $path = Join-Path $PublishDirectory $name
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+
+    Get-ChildItem -LiteralPath $PublishDirectory -Recurse -File |
+        Where-Object { $_.Extension -in ".pdb", ".xml" } |
+        Remove-Item -Force
+}
+
 $dotnet = Join-Path $Root ".dotnet\dotnet.exe"
 if (-not (Test-Path -LiteralPath $dotnet)) {
     $dotnet = "dotnet"
@@ -70,9 +115,15 @@ Invoke-Checked -FilePath $dotnet -Arguments @(
     "-r", $Runtime,
     "--self-contained", "true",
     "-o", $PublishDir,
-    "/p:PublishSingleFile=false"
+    "/p:PublishSingleFile=false",
+    "/p:DebugType=none",
+    "/p:DebugSymbols=false",
+    "/p:DebuggerSupport=false",
+    "/p:SatelliteResourceLanguages=en"
 )
 
+Assert-RegistrationPdfPublished -PublishDirectory $PublishDir
+Remove-UnusedRegistrationPdfPayload -PublishDirectory $PublishDir
 Assert-RegistrationPdfPublished -PublishDirectory $PublishDir
 
 if (Test-Path -LiteralPath $ZipPath) {

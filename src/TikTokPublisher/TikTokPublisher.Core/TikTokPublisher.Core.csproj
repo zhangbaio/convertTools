@@ -20,7 +20,7 @@
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Core\ShortDrama.Core.csproj" />
     <ProjectReference Include="..\..\ShortDrama\ShortDrama.Infrastructure\ShortDrama.Infrastructure.csproj" />
   </ItemGroup>
-  <ItemGroup>
+  <ItemGroup Condition="'$(ExcludeRegistrationPdfAssets)' != 'true'">
     <Content Include="..\..\ShortDrama\templates\project-image\image_template_project_image_3\**\*">
       <Link>templates\project-image\image_template_project_image_3\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -65,12 +65,14 @@
       <Link>timestamp-certificate\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="Resources\ArticlesOfIncorporation\**\*">
       <Link>articles-of-incorporation\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
-  <ItemGroup>
+  <ItemGroup Condition="'$(ExcludeRegistrationPdfAssets)' != 'true'">
     <EmbeddedResource Include="Resources\权力声明模板.docx"
                       LogicalName="TikTokPublisher.Core.Resources.ProofMaterialTemplate.docx" />
     <EmbeddedResource Include="Resources\项目AI剧本大纲.docx"

@@ -18,7 +18,7 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\TikTokPublisher.Core\TikTokPublisher.Core.csproj" />
+    <ProjectReference Include="..\TikTokPublisher.Core\TikTokPublisher.Core.csproj" AdditionalProperties="ExcludeRegistrationPdfAssets=true;BaseOutputPath=obj\registration-pdf\" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\TikTokPublisher.Ui\Views\ArticlesOfIncorporationDialog.cs" Link="Views\ArticlesOfIncorporationDialog.cs" />
