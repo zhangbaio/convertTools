@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.AI;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
@@ -1453,6 +1454,18 @@ public static class QueueMaterialStepService
         }
 
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
+        if (account?.TiktokRewriteFollowsSourceLanguage == true)
+        {
+            var imported = RewriteSourceLanguage.ReadImported(context.SourceProjectDir);
+            var workflowImported = RewriteSourceLanguage.ReadImported(Path.GetDirectoryName(infoPath));
+            var languageTitle = FirstNonEmpty(imported.Title, workflowImported.Title, originalTitle);
+            var languageSynopsis = FirstNonEmpty(imported.Synopsis, workflowImported.Synopsis, sourceSynopsis);
+            var sourceLanguage = RewriteSourceLanguage.Detect(languageTitle, languageSynopsis);
+            log(RewriteSourceLanguage.IsChinese(sourceLanguage)
+                ? "改写信息跟随源语言：识别为中文，标题和简介仍用中文。"
+                : $"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(sourceLanguage)}，标题、推荐语和简介使用该语言。");
+        }
+
         var rewriteVariantKey = BuildRewriteVariantKey(context, account);
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings, account);
         ProjectInfoRewriteResult? generatedResult = null;
@@ -2350,7 +2363,8 @@ public static class QueueMaterialStepService
     {
         var accountKey = FirstNonEmpty(account?.Id, account?.DisplayName, "default");
         var synopsisMode = account?.TiktokAiRewriteSynopsis == true ? "1" : "0";
-        return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}#synopsis={synopsisMode}";
+        var followSource = account?.TiktokRewriteFollowsSourceLanguage == true ? "#follow=source" : "";
+        return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}{followSource}#synopsis={synopsisMode}";
     }
 
     private static bool RewriteVariantKeysEqual(string? left, string? right) =>

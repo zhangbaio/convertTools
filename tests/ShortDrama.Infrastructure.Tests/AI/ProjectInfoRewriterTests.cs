@@ -13,6 +13,58 @@ namespace ShortDrama.Infrastructure.Tests.AI;
 public sealed class ProjectInfoRewriterTests
 {
     [Fact]
+    public void Detect_treats_an_english_import_title_as_english()
+    {
+        RewriteSourceLanguage.Detect("My CEO Mom Married a Security Guard", "A CEO discovers her mother married the building guard.")
+            .Should().Be(RewriteSourceLanguage.English);
+        RewriteSourceLanguage.Detect("亲戚别来我家", "极品亲戚登门。")
+            .Should().Be(RewriteSourceLanguage.Chinese);
+        RewriteSourceLanguage.Detect(
+                "MyCEOMomMarriedaSecurityGuard",
+                "五年前，隐退的顶级强者兰登意外结识遭人设计的萨曼莎，两人结缘后生下女儿。")
+            .Should().Be(RewriteSourceLanguage.English);
+    }
+
+    [Fact]
+    public async Task RewriteAsync_follows_the_english_source_language()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(projectDir.FullName, "config.json");
+        File.WriteAllText(configPath, """
+{
+  "AiTextEndpoint": "https://example.com/api/v3",
+  "AiTextApiKey": "test-key",
+  "AiTextModel": "test-model",
+  "AiRewriteSynopsis": false,
+  "AiRewriteFollowsSourceLanguage": true
+}
+""");
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(
+            projectDir.FullName,
+            "My CEO Mom Married a Security Guard",
+            "A powerful CEO learns that her mother quietly married the guard who protected their building.");
+
+        var handler = new RecordingHandler(
+        [
+            """
+            {"title":"The Guard Who Married Her Mother","tagline":"A family secret reaches the altar","synopsis":"unused"}
+            """
+        ]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var result = await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir.FullName, configPath, outputPath, Overwrite: true),
+            CancellationToken.None);
+
+        result.Title.Should().Be("The Guard Who Married Her Mother");
+        ExtractUserPrompt(handler.RequestBodies[0]).Should().Contain("禁止翻译成中文");
+    }
+
+    [Fact]
     public async Task RewriteAsync_Should_Send_UserPrompt_Only()
     {
         var projectDir = Directory.CreateTempSubdirectory();

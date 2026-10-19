@@ -145,6 +145,8 @@ public sealed class TikTokAccountProfile
         }
     }
     public bool TiktokAiRewriteSynopsis { get; set; } = true;
+    /// <summary>开启后，标题、推荐语和简介按导入短剧的语言生成，不再固定写成中文。</summary>
+    public bool TiktokRewriteFollowsSourceLanguage { get; set; }
     public string TiktokAiNewTitleRandomness { get; set; } = ClientSettingsDefaults.AiNewTitleRandomness;
     public string TiktokAiSynopsisRandomness { get; set; } = ClientSettingsDefaults.AiNewTitleRandomness;
     public string TiktokPublishMode { get; set; } = "auto_after_review";
