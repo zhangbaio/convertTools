@@ -16,9 +16,14 @@ public static class LicenseStore
         WriteIndented = false,
     };
 
-    public static string StateDirectory => AppPaths.DataRoot;
+    private static string? _stateDirectory;
+
+    public static string StateDirectory => _stateDirectory ?? AppPaths.DataRoot;
 
     public static string StatePath => Path.Combine(StateDirectory, "license_state.bin");
+
+    public static void UseStateDirectory(string? directory) =>
+        _stateDirectory = string.IsNullOrWhiteSpace(directory) ? null : directory.Trim();
 
     public static event Action? StateChanged;
 

@@ -91,6 +91,8 @@ public sealed class ArticlesOfIncorporationDialog : Window
         return dialog.ShowDialog(owner);
     }
 
+    public static ArticlesOfIncorporationDialog CreateStandaloneWindow() => new(null);
+
     private Grid BuildForm()
     {
         var form = new Grid

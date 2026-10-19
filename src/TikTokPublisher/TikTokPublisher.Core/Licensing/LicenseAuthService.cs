@@ -21,10 +21,21 @@ public class LicenseRejectedException : LicenseServiceException
 
 public static class LicenseAuthService
 {
-    public const string AppName = "TikTok 短剧上传助手";
-    public const string AppVersion = "0.1.0";
-    public const string DeviceName = "TikTok Uploader Desktop";
+    public static string AppName { get; private set; } = "TikTok 短剧上传助手";
+    public static string AppVersion { get; private set; } = "0.1.0";
+    public static string DeviceName { get; private set; } = "TikTok Uploader Desktop";
     public const int VerifyIntervalHours = 1;
+
+    public static void UseProduct(string appName, string deviceName, string? appVersion = null)
+    {
+        if (string.IsNullOrWhiteSpace(appName))
+            throw new ArgumentException("应用名不能为空。", nameof(appName));
+        AppName = appName.Trim();
+        if (!string.IsNullOrWhiteSpace(deviceName))
+            DeviceName = deviceName.Trim();
+        if (!string.IsNullOrWhiteSpace(appVersion))
+            AppVersion = appVersion.Trim();
+    }
     public const int NetworkRetryAttempts = 3;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
@@ -94,6 +105,44 @@ public static class LicenseAuthService
         return state;
     }
 
+    public static async Task<LicenseState> LoginWithLicenseCodeAsync(
+        string serverUrl,
+        string account,
+        string password,
+        string licenseCode,
+        CancellationToken ct = default)
+    {
+        var code = (licenseCode ?? "").Trim();
+        if (code.Length == 0)
+            throw new LicenseServiceException("请输入授权码");
+
+        var previousState = LicenseStore.Load();
+        var baseUrl = CleanBaseUrl(serverUrl);
+        var machineId = MachineFingerprintHelper.GetMachineFingerprint();
+        var state = await LoginCoreAsync(baseUrl, account, password, machineId, ct);
+        var proof = await ActivateLicenseCoreAsync(baseUrl, code, machineId, ct);
+        state.BoundLicenseKey = code;
+        state.BoundLicenseToken = proof.Token;
+        state.BoundLicenseExpiresAt = proof.ExpiresAt;
+        if (previousState.IsActivated() && !IsSameLoginScope(previousState, state))
+            await LogoutStateAsync(previousState, ct);
+        LicenseStore.Save(state);
+        return state;
+    }
+
+    public static LicenseState VerifyRegistrationLicense(
+        LicenseState state,
+        string? serverUrl,
+        string? account,
+        string? password,
+        CancellationToken ct = default)
+    {
+        var verified = VerifyStateWithCredentials(state, serverUrl, account, password, ct);
+        VerifyBoundLicense(verified, ct);
+        LicenseStore.Save(verified);
+        return verified;
+    }
+
     public static LicenseState VerifyState(LicenseState state, string? serverUrl, CancellationToken ct = default) =>
         VerifyStateWithCredentials(state, serverUrl, account: null, password: null, ct);
 
@@ -122,6 +171,9 @@ public static class LicenseAuthService
                 var loginState = LoginCoreAsync(baseUrl, loginAccount, password!, machineId, ct)
                     .GetAwaiter()
                     .GetResult();
+                loginState.BoundLicenseKey = state.BoundLicenseKey;
+                loginState.BoundLicenseToken = state.BoundLicenseToken;
+                loginState.BoundLicenseExpiresAt = state.BoundLicenseExpiresAt;
                 LicenseStore.Save(loginState);
                 return loginState;
             }
@@ -222,6 +274,58 @@ public static class LicenseAuthService
         return BuildState(result, machineId, baseUrl);
     }
 
+    private static async Task<LicenseState> ActivateLicenseCoreAsync(
+        string baseUrl,
+        string licenseCode,
+        string machineId,
+        CancellationToken ct)
+    {
+        if (baseUrl.Length == 0)
+            throw new LicenseServiceException("请先填写授权服务地址");
+
+        var payload = await PostJsonAsync(
+            $"{baseUrl}/license/activate",
+            new Dictionary<string, object?>
+            {
+                ["license_key"] = licenseCode,
+                ["machine_id"] = machineId,
+                ["app_name"] = AppName,
+                ["app_version"] = AppVersion,
+            },
+            ct);
+        return BuildState(EnsureSuccess(payload), machineId, baseUrl);
+    }
+
+    private static void VerifyBoundLicense(LicenseState state, CancellationToken ct)
+    {
+        var code = (state.BoundLicenseKey ?? "").Trim();
+        if (code.Length == 0)
+            throw new LicenseRejectedException("缺少授权码，请重新登录");
+
+        var baseUrl = CleanBaseUrl(state.ServerUrl);
+        var machineId = (state.MachineId ?? "").Trim();
+        var payload = PostJsonAsync(
+            $"{baseUrl}/license/verify",
+            new Dictionary<string, object?>
+            {
+                ["license_key"] = code,
+                ["machine_id"] = machineId,
+                ["token"] = state.BoundLicenseToken ?? "",
+                ["app_name"] = AppName,
+                ["app_version"] = AppVersion,
+            },
+            ct).GetAwaiter().GetResult();
+        var result = EnsureSuccess(payload);
+        var token = ReadString(result, "token") ?? state.BoundLicenseToken ?? "";
+        var ticket = ReadString(result, "authorization_ticket")
+                     ?? throw new LicenseRejectedException("授权服务器未返回签名票据");
+        var claims = LicenseTicketVerifier.VerifyFresh(ticket, machineId, token, AppName, AppVersion);
+        state.BoundLicenseToken = token;
+        state.BoundLicenseExpiresAt = claims.AccountExpiresAt;
+        if (new LicenseState { ExpiresAt = claims.AccountExpiresAt }.IsExpired())
+            throw new LicenseRejectedException("授权码已过期");
+    }
+
     private static LicenseState VerifyByToken(
         LicenseState state,
         string baseUrl,
@@ -281,6 +385,9 @@ public static class LicenseAuthService
             Edition = claims.Edition,
             Licensee = claims.Licensee,
             ServerUrl = serverUrl,
+            BoundLicenseKey = baseState.BoundLicenseKey,
+            BoundLicenseToken = baseState.BoundLicenseToken,
+            BoundLicenseExpiresAt = baseState.BoundLicenseExpiresAt,
         };
     }
 

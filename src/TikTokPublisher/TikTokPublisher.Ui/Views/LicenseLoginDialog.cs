@@ -10,13 +10,15 @@ public sealed record LicenseLoginDialogResult(
     string ServerUrl,
     string Account,
     string Password,
-    LicenseState State);
+    LicenseState State,
+    string LicenseCode = "");
 
 public sealed class LicenseLoginDialog : Window
 {
     private readonly TextBox _serverUrlBox;
     private readonly TextBox _accountBox;
     private readonly TextBox _passwordBox;
+    private readonly TextBox? _licenseCodeBox;
     private readonly TextBlock _statusText;
     private readonly Button _loginButton;
     private readonly Button _cancelButton;
@@ -26,11 +28,13 @@ public sealed class LicenseLoginDialog : Window
         string serverUrl,
         string account,
         string password,
-        string message)
+        string message,
+        bool requireLicenseCode = false,
+        string licenseCode = "")
     {
         Title = "软件授权登录";
         Width = 560;
-        Height = 330;
+        Height = requireLicenseCode ? 390 : 330;
         MinWidth = 520;
         CanResize = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -58,6 +62,7 @@ public sealed class LicenseLoginDialog : Window
             },
             RowDefinitions =
             {
+                new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
                 new RowDefinition(GridLength.Auto),
@@ -97,6 +102,23 @@ public sealed class LicenseLoginDialog : Window
         Grid.SetColumn(_passwordBox, 1);
         form.Children.Add(_passwordBox);
 
+        if (requireLicenseCode)
+        {
+            form.Children.Add(BuildLabel("授权码", 3));
+            _licenseCodeBox = new TextBox
+            {
+                Text = licenseCode,
+                Watermark = "请输入授权码",
+            };
+            Grid.SetRow(_licenseCodeBox, 3);
+            Grid.SetColumn(_licenseCodeBox, 1);
+            form.Children.Add(_licenseCodeBox);
+        }
+        else
+        {
+            _licenseCodeBox = null;
+        }
+
         root.Children.Add(form);
 
         _statusText = new TextBlock
@@ -128,6 +150,8 @@ public sealed class LicenseLoginDialog : Window
                 _accountBox.Focus();
             else if (string.IsNullOrEmpty(_passwordBox.Text))
                 _passwordBox.Focus();
+            else if (_licenseCodeBox is not null && string.IsNullOrWhiteSpace(_licenseCodeBox.Text))
+                _licenseCodeBox.Focus();
             else
                 _loginButton.Focus();
         };
@@ -151,9 +175,11 @@ public sealed class LicenseLoginDialog : Window
         string serverUrl,
         string account,
         string password,
-        string message = "")
+        string message = "",
+        bool requireLicenseCode = false,
+        string licenseCode = "")
     {
-        var dialog = new LicenseLoginDialog(serverUrl, account, password, message)
+        var dialog = new LicenseLoginDialog(serverUrl, account, password, message, requireLicenseCode, licenseCode)
         {
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
         };
@@ -171,11 +197,14 @@ public sealed class LicenseLoginDialog : Window
         var serverUrl = (_serverUrlBox.Text ?? "").Trim().TrimEnd('/');
         var account = (_accountBox.Text ?? "").Trim();
         var password = _passwordBox.Text ?? "";
+        var licenseCode = (_licenseCodeBox?.Text ?? "").Trim();
 
         try
         {
-            var state = await LicenseAuthService.LoginAsync(serverUrl, account, password);
-            _result = new LicenseLoginDialogResult(serverUrl, account, password, state);
+            var state = _licenseCodeBox is null
+                ? await LicenseAuthService.LoginAsync(serverUrl, account, password)
+                : await LicenseAuthService.LoginWithLicenseCodeAsync(serverUrl, account, password, licenseCode);
+            _result = new LicenseLoginDialogResult(serverUrl, account, password, state, licenseCode);
             Close(_result);
         }
         catch (Exception ex)
@@ -192,6 +221,8 @@ public sealed class LicenseLoginDialog : Window
         _serverUrlBox.IsEnabled = !busy;
         _accountBox.IsEnabled = !busy;
         _passwordBox.IsEnabled = !busy;
+        if (_licenseCodeBox is not null)
+            _licenseCodeBox.IsEnabled = !busy;
     }
 
     private static TextBlock BuildLabel(string text, int row)

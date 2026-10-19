@@ -15,6 +15,9 @@ public sealed class LicenseState
     public string Edition { get; set; } = "";
     public string Licensee { get; set; } = "";
     public string ServerUrl { get; set; } = "";
+    public string BoundLicenseKey { get; set; } = "";
+    public string BoundLicenseToken { get; set; } = "";
+    public string BoundLicenseExpiresAt { get; set; } = "";
 
     public bool IsActivated()
     {
