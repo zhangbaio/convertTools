@@ -61,8 +61,11 @@ public sealed class ArticlesOfIncorporationDialog : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
         };
+        var randomize = new Button { Content = "随机生成", MinWidth = 108 };
+        randomize.Click += (_, _) => RandomizeFilingStamp();
         var generate = new Button { Content = "生成 PDF", MinWidth = 108, IsDefault = true };
         generate.Click += async (_, _) => await GenerateAsync();
+        buttons.Children.Add(randomize);
         var cancel = new Button { Content = "关闭", MinWidth = 88, IsCancel = true };
         cancel.Click += (_, _) => Close();
         buttons.Children.Add(generate);
@@ -142,6 +145,20 @@ public sealed class ArticlesOfIncorporationDialog : Window
 
     private void SyncShortName() =>
         _incorporatorName.Text = ArticlesOfIncorporationFields.ToShortName(_agentName.Text);
+
+    private void RandomizeFilingStamp()
+    {
+        var stamp = ArticlesOfIncorporationFields.CreateRandomFilingStamp(DateOnly.FromDateTime(DateTime.Today));
+        _filingNumber.Text = stamp.FilingNumber;
+        _businessId.Text = stamp.BusinessId;
+        _filedAt.Text = stamp.FiledAt;
+        _signedOn.Text = stamp.SignedOn;
+        _agentName.Text = stamp.RegistrantName;
+        _agentStreet.Text = stamp.Street;
+        _agentCity.Text = stamp.City;
+        SyncShortName();
+        _status.Text = "已随机生成备案信息、注册人名称和地址。";
+    }
 
     private async Task GenerateAsync()
     {

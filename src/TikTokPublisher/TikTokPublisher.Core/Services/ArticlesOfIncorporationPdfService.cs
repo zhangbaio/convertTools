@@ -142,6 +142,16 @@ public static class ArticlesOfIncorporationPdfService
     }
 }
 
+public readonly record struct ArticlesFilingStamp(
+    string FilingNumber,
+    string BusinessId,
+    string FiledAt,
+    string SignedOn,
+    string RegistrantName,
+    string RegistrantShortName,
+    string Street,
+    string City);
+
 public sealed record ArticlesOfIncorporationFields(
     string FilingNumber,
     string BusinessId,
@@ -165,6 +175,53 @@ public sealed record ArticlesOfIncorporationFields(
         "ANTHONY CLUNIS",
         "1562 Oloh Rd",
         "Sumrall, MS 39482");
+
+    public static ArticlesFilingStamp CreateRandomFilingStamp(DateOnly today, Random? random = null)
+    {
+        var earliest = new DateOnly(2025, 1, 1);
+        if (today < earliest)
+            throw new ArgumentOutOfRangeException(nameof(today), "当前日期早于 2025 年，无法生成备案日期。");
+
+        var rng = random ?? Random.Shared;
+        var day = DateOnly.FromDayNumber(earliest.DayNumber + rng.Next(today.DayNumber - earliest.DayNumber + 1));
+        var hour = rng.Next(1, 13);
+        var minute = rng.Next(0, 60);
+        var meridiem = rng.Next(2) == 0 ? "AM" : "PM";
+        var fullName = $"{Pick(rng, GivenNames)} {Pick(rng, MiddleNames)} {Pick(rng, FamilyNames)}";
+        var place = Places[rng.Next(Places.Length)];
+        return new ArticlesFilingStamp(
+            $"{day.Year}{rng.Next(0, 1_000_000):000000}",
+            rng.Next(1_000_000, 10_000_000).ToString(),
+            $"{day:MM/dd/yyyy} {hour:00}:{minute:00} {meridiem}",
+            $"{day:MM/dd/yyyy}",
+            fullName,
+            ToShortName(fullName),
+            $"{rng.Next(100, 10000)} {Pick(rng, StreetNames)} {Pick(rng, StreetSuffixes)}",
+            $"{place.City}, {place.State} {place.Zip}");
+    }
+
+    private static string Pick(Random random, string[] values) => values[random.Next(values.Length)];
+
+    private static readonly string[] GivenNames = ["ANTHONY", "JAMES", "MARIA", "ROBERT", "LINDA", "DAVID", "SARAH", "MICHAEL"];
+    private static readonly string[] MiddleNames = ["CLYDE", "LEE", "ANN", "JAMES", "MARIE", "RAY", "JO", "PAUL"];
+    private static readonly string[] FamilyNames = ["CLUNIS", "HARRIS", "WALKER", "BROOKS", "REED", "COLEMAN", "HAYES", "FOSTER"];
+    private static readonly string[] StreetNames = ["Oloh", "Oak", "Maple", "Pine", "Cedar", "Highland", "Lakeview", "River"];
+    private static readonly string[] StreetSuffixes = ["Rd", "St", "Ave", "Dr", "Ln", "Blvd", "Ct", "Way"];
+    private static readonly (string City, string State, string Zip)[] Places =
+    [
+        ("Sumrall", "MS", "39482"),
+        ("Jackson", "MS", "39201"),
+        ("Hattiesburg", "MS", "39401"),
+        ("Gulfport", "MS", "39501"),
+        ("Austin", "TX", "78701"),
+        ("Dallas", "TX", "75201"),
+        ("Atlanta", "GA", "30303"),
+        ("Memphis", "TN", "38103"),
+        ("Birmingham", "AL", "35203"),
+        ("New Orleans", "LA", "70112"),
+        ("Baton Rouge", "LA", "70801"),
+        ("Nashville", "TN", "37201"),
+    ];
 
     public static string ToShortName(string? fullName)
     {
