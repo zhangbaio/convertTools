@@ -406,20 +406,11 @@
                     </Grid>
                 </Border>
 
-                <TextBlock Text="{Binding RunningWorkspacesSummary}"
-                           Foreground="#1A5F8A"
-                           IsVisible="{Binding IsQueueRunning}"
-                           TextWrapping="Wrap" Margin="0,-2,0,0" />
                 <TextBlock x:Name="ManualInterventionHint"
                            Text="{Binding ManualInterventionHint}"
                            Foreground="#B94218"
                            IsVisible="{Binding ManualInterventionPending}"
                            TextWrapping="Wrap" Margin="0,-4,0,0" />
-
-                <WrapPanel Orientation="Horizontal">
-                    <TextBlock Classes="pageSummary" Text="{Binding WorkspaceBindingSummary}" Margin="0,0,12,0" />
-                    <TextBlock Classes="pageSummary" Text="{Binding QueueSummaryText}" />
-                </WrapPanel>
             </StackPanel>
         </Border>
 
