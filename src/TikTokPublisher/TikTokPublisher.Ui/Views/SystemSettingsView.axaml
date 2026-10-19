@@ -308,6 +308,8 @@
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
                         <TextBlock Text="ASR 配置" FontWeight="Bold" />
+                        <TextBlock Text="系统默认使用本地 Paraformer ASR。火山 ASR 凭据仅用于视频翻译。"
+                                   TextWrapping="Wrap" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <Button Content="测试本地模型" Command="{Binding ProbeLocalAsrCommand}" />
                             <Button Content="测试火山 ASR" Command="{Binding ProbeVolcengineAsrCommand}" />
