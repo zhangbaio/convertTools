@@ -70,4 +70,19 @@ public sealed class LogMessageLevelClassifierTests
     {
         LogMessageLevelClassifier.InferLevel("无法排除重复人物").Should().Be("error");
     }
+
+    [Theory]
+    [InlineData("[O Bilionário que Vivia como Sem-Teto] 标题区域校验发现文字差异，开始全图复核：识别标题为“OBilionario”；检测到异体字或非标准字符")]
+    [InlineData("标题校验发现差异，改为去字后重绘：检测到异体字或异常字符")]
+    public void Poster_verification_that_continues_is_info(string message)
+    {
+        LogMessageLevelClassifier.InferLevel(message).Should().Be("info");
+    }
+
+    [Fact]
+    public void Poster_verification_that_still_fails_is_error()
+    {
+        LogMessageLevelClassifier.InferLevel("海报文字清理后标题校验仍未通过：检测到异体字或非标准字符")
+            .Should().Be("error");
+    }
 }
