@@ -203,6 +203,9 @@ public static class TikTokTimestampCertificateService
                ?? throw new DirectoryNotFoundException("未找到随程序附带的可信时间戳模板资源。");
     }
 
+    internal static void EnsureSharedFontResolver() =>
+        EnsureFontResolver(ResolveAssetsDirectory());
+
     private static void EnsureFontResolver(string assets)
     {
         lock (FontLock)
@@ -240,13 +243,55 @@ public static class TikTokTimestampCertificateService
 
     private sealed class TimestampFontResolver(string assets) : IFontResolver
     {
+        private readonly Dictionary<string, byte[]> _faces = new(StringComparer.Ordinal);
+
         public const string SerifFamily = "TimestampNotoSerif";
         public const string SansFamily = "TimestampNotoSans";
-        public FontResolverInfo? ResolveTypeface(string familyName, bool isBold, bool isItalic) =>
-            familyName == SansFamily ? new FontResolverInfo("timestamp-sans") : new FontResolverInfo("timestamp-serif");
+
+        public FontResolverInfo? ResolveTypeface(string familyName, bool isBold, bool isItalic)
+        {
+            if (familyName.Equals("Times New Roman", StringComparison.OrdinalIgnoreCase))
+            {
+                var face = (isBold, isItalic) switch
+                {
+                    (true, true) => "times-bolditalic",
+                    (true, false) => "times-bold",
+                    (false, true) => "times-italic",
+                    _ => "times-regular",
+                };
+                return new FontResolverInfo(face);
+            }
+
+            return familyName == SansFamily
+                ? new FontResolverInfo("timestamp-sans")
+                : new FontResolverInfo("timestamp-serif");
+        }
+
         // PDFsharp cannot embed the CFF outlines in the reference OTF reliably. The bundled
         // Noto Serif TTF covers the same full Chinese/Latin charset and keeps every field vector.
-        public byte[]? GetFont(string faceName) =>
-            File.ReadAllBytes(Path.Combine(assets, "NotoSerifSC-Light.ttf"));
+        public byte[]? GetFont(string faceName)
+        {
+            if (_faces.TryGetValue(faceName, out var cached))
+                return cached;
+
+            var bytes = faceName switch
+            {
+                "times-regular" => ReadTimes("times.ttf"),
+                "times-bold" => ReadTimes("timesbd.ttf"),
+                "times-italic" => ReadTimes("timesi.ttf"),
+                "times-bolditalic" => ReadTimes("timesbi.ttf"),
+                _ => File.ReadAllBytes(Path.Combine(assets, "NotoSerifSC-Light.ttf")),
+            };
+            _faces[faceName] = bytes;
+            return bytes;
+        }
+
+        private static byte[] ReadTimes(string fileName)
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), fileName);
+            if (!File.Exists(path))
+                throw new FileNotFoundException($"未找到 Times New Roman 字体文件 {fileName}。", path);
+            return File.ReadAllBytes(path);
+        }
     }
 }

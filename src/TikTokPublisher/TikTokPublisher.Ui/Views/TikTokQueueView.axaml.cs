@@ -2525,6 +2525,18 @@ public partial class TikTokQueueView : UserControl
                 : null);
     }
 
+    private async void OnGenerateArticlesPdfClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (TopLevel.GetTopLevel(this) is not Window owner)
+            return;
+
+        var workspace = (_vm?.WorkspacePath ?? string.Empty).Trim();
+        await ArticlesOfIncorporationDialog.ShowAsync(
+            owner,
+            Directory.Exists(workspace) ? workspace : null);
+    }
+
     private async void OnManualDeletedCopyrightProofClick(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;

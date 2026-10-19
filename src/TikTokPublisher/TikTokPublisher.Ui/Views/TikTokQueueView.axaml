@@ -223,6 +223,7 @@
                 </WrapPanel>
 
                 <WrapPanel Orientation="Horizontal">
+                    <Button Content="生成注册PDF" Click="OnGenerateArticlesPdfClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="查询原剧" Click="OnLookupOriginalDramaClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
