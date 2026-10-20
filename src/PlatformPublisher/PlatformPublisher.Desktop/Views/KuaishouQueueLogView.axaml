@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PlatformPublisher.Desktop.Views.KuaishouQueueLogView"
+             Background="#F3F6FA">
+    <DockPanel Margin="16,14,16,16">
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
+            <TextBlock x:Name="TitleLabel"
+                       Grid.Column="0"
+                       Text="快手分账"
+                       FontWeight="Bold"
+                       VerticalAlignment="Center"
+                       Margin="0,0,12,8" />
+            <WrapPanel Grid.Column="1">
+                <CheckBox x:Name="AutoFollowBox" Content="跟随最近活跃项目" IsChecked="True" Margin="0,0,8,8" />
+                <CheckBox x:Name="ProblemsOnlyBox" Content="仅看问题" Margin="0,0,8,8" />
+                <Button x:Name="StopButton" Content="停止" Classes="dangerAction" Click="OnStopClick" Margin="0,0,8,8" />
+                <Button Content="复制日志" Click="OnCopyClick" Margin="0,0,8,8" />
+                <Button Content="复制选中" Click="OnCopySelectionClick" Margin="0,0,8,8" />
+                <Button Content="全选日志" Click="OnSelectAllLogClick" Margin="0,0,8,8" />
+            </WrapPanel>
+            <Button Grid.Column="2"
+                    x:Name="ReturnButton"
+                    Content="返回快手分账"
+                    Click="OnReturnClick"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="8,0,0,8" />
+        </Grid>
+
+        <TextBlock x:Name="WorkspaceLabel" DockPanel.Dock="Top" Foreground="#64748B" Margin="0,0,0,4" />
+        <TextBlock x:Name="SummaryLabel" DockPanel.Dock="Top" Foreground="#64748B" Margin="0,0,0,8" />
+
+        <Grid x:Name="ProjectSplit" ColumnDefinitions="280,*">
+            <ListBox x:Name="ProjectList" Grid.Column="0" Margin="0,0,8,0" MinHeight="300">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <Border Grid.Column="1"
+                    Background="#FFFFFF"
+                    BorderBrush="#D9E2EC"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="10,8">
+                <ScrollViewer x:Name="LogScrollViewer"
+                              HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto">
+                    <SelectableTextBlock x:Name="LogTextBlock"
+                                         TextWrapping="Wrap"
+                                         FontFamily="Cascadia Mono,Consolas,Microsoft YaHei UI"
+                                         FontSize="12"
+                                         Foreground="#334155" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </DockPanel>
+</UserControl>

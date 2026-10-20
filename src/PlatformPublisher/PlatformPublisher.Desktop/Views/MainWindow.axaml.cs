@@ -51,6 +51,12 @@ public partial class MainWindow : Window
                 ? ViewModel.SelectedPlatform.Value
                 : PublishPlatform.KuaishouPersonalRevenue);
         KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
+        KuaishouWorkflowPage.ViewLogsRequested += (_, _) => ShowKuaishouLogs();
+        KuaishouLogPage.ReturnRequested += (_, _) =>
+        {
+            if (ViewModel?.IsKuaishouPlatform == true)
+                ShowKuaishouPage(ViewModel.SelectedPlatform.Value);
+        };
         Opened += (_, _) =>
         {
             if (!_startupLayoutApplied)
@@ -390,6 +396,7 @@ public partial class MainWindow : Window
         DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
@@ -402,6 +409,7 @@ public partial class MainWindow : Window
         DramaDownloadPage.IsVisible = true;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
@@ -418,10 +426,30 @@ public partial class MainWindow : Window
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = true;
         KuaishouWorkflowPage.IsKuaishouMode = true;
+        KuaishouLogPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
+            ? KuaishouPersonalNavButton
+            : KuaishouEnterpriseNavButton);
+    }
+
+    private void ShowKuaishouLogs()
+    {
+        if (ViewModel?.IsKuaishouPlatform != true)
+            return;
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = true;
+        KuaishouLogPage.Refresh();
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(ViewModel.SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue
             ? KuaishouPersonalNavButton
             : KuaishouEnterpriseNavButton);
     }
@@ -433,6 +461,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = true;
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = true;
         AnalyticsPage.IsVisible = false;
@@ -445,6 +474,7 @@ public partial class MainWindow : Window
         DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = true;
@@ -569,6 +599,7 @@ public partial class MainWindow : Window
         DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = true;

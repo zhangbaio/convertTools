@@ -31,6 +31,7 @@
                     <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="快手分账配置" Click="OnKuaishouConfigClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <TextBlock Text="ADX" VerticalAlignment="Center" Margin="4,0,4,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
