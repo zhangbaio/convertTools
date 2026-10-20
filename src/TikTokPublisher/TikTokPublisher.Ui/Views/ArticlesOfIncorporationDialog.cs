@@ -9,6 +9,8 @@ namespace TikTokPublisher.Ui.Views;
 
 public sealed class ArticlesOfIncorporationDialog : Window
 {
+    private readonly TextBox _companyName = Box();
+    private readonly TextBox _email = Box();
     private readonly TextBox _filingNumber = Box();
     private readonly TextBox _businessId = Box();
     private readonly TextBox _filedAt = Box();
@@ -92,17 +94,19 @@ public sealed class ArticlesOfIncorporationDialog : Window
         var form = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("Auto,*,18,Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
             RowSpacing = 8,
         };
-        Place(form, "备案号", _filingNumber, 0, 0);
-        Place(form, "Business ID", _businessId, 0, 1);
-        Place(form, "备案时间", _filedAt, 1, 0);
-        Place(form, "签署日期", _signedOn, 1, 1);
-        Place(form, "注册人名称", _agentName, 2, 0);
-        Place(form, "注册人简称", _incorporatorName, 2, 1);
-        Place(form, "注册人地址", _agentStreet, 3, 0);
-        Place(form, "城市", _agentCity, 3, 1);
+        Place(form, "企业名称", _companyName, 0, 0);
+        Place(form, "企业邮箱", _email, 0, 1);
+        Place(form, "备案号", _filingNumber, 1, 0);
+        Place(form, "Business ID", _businessId, 1, 1);
+        Place(form, "备案时间", _filedAt, 2, 0);
+        Place(form, "签署日期", _signedOn, 2, 1);
+        Place(form, "注册人名称", _agentName, 3, 0);
+        Place(form, "注册人简称", _incorporatorName, 3, 1);
+        Place(form, "注册人地址", _agentStreet, 4, 0);
+        Place(form, "城市", _agentCity, 4, 1);
         return form;
     }
 
@@ -125,6 +129,13 @@ public sealed class ArticlesOfIncorporationDialog : Window
 
     private static TextBox Box() => new() { MinWidth = 240, Watermark = "留空则不写入" };
 
+    private static string SuggestedPdfName(string? companyName)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var name = new string((companyName ?? string.Empty).Trim().Select(ch => invalid.Contains(ch) ? ' ' : ch).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(name) ? "公司注册.pdf" : name + ".pdf";
+    }
+
     private ArticlesOfIncorporationFields ReadFields() => new(
         _filingNumber.Text ?? string.Empty,
         _businessId.Text ?? string.Empty,
@@ -135,7 +146,9 @@ public sealed class ArticlesOfIncorporationDialog : Window
         _signedOn.Text ?? string.Empty,
         ArticlesOfIncorporationFields.ToShortName(_agentName.Text),
         _agentStreet.Text ?? string.Empty,
-        _agentCity.Text ?? string.Empty);
+        _agentCity.Text ?? string.Empty,
+        _companyName.Text ?? string.Empty,
+        _email.Text ?? string.Empty);
 
     private void SyncShortName() =>
         _incorporatorName.Text = ArticlesOfIncorporationFields.ToShortName(_agentName.Text);
@@ -150,8 +163,10 @@ public sealed class ArticlesOfIncorporationDialog : Window
         _agentName.Text = stamp.RegistrantName;
         _agentStreet.Text = stamp.Street;
         _agentCity.Text = stamp.City;
+        _companyName.Text = stamp.CompanyName;
+        _email.Text = stamp.Email;
         SyncShortName();
-        _status.Text = "已随机生成备案信息、注册人名称和地址。";
+        _status.Text = "已随机生成备案信息、企业名称、邮箱、注册人名称和地址。";
     }
 
     private async Task GenerateAsync()
@@ -170,7 +185,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "保存公司注册 PDF",
-            SuggestedFileName = "Tangible Group INC.pdf",
+            SuggestedFileName = SuggestedPdfName(_companyName.Text),
             SuggestedStartLocation = start,
             FileTypeChoices = [new FilePickerFileType("PDF") { Patterns = ["*.pdf"] }],
         });

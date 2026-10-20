@@ -59,6 +59,22 @@ public static partial class ArticlesChineseText
         return $"{value:yyyy年MM月dd日} {meridiem}{hour:00}:{value:mm}";
     }
 
+    public static string TranslateCompany(string? english)
+    {
+        var text = (english ?? string.Empty).Trim();
+        if (text.Length == 0)
+            return string.Empty;
+
+        if (text.EndsWith("公司"))
+            return text;
+        if (text.EndsWith(" INC", StringComparison.OrdinalIgnoreCase))
+            text = text[..^4].Trim();
+        else if (text.EndsWith("INC", StringComparison.OrdinalIgnoreCase))
+            text = text[..^3].Trim();
+
+        return text.Length == 0 ? "公司" : text + " 公司";
+    }
+
     public static string TranslateSignedOn(string? english)
     {
         var text = (english ?? string.Empty).Trim().TrimEnd('.');

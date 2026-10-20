@@ -37,6 +37,9 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
             stamp.RegistrantName.Split(' ').Should().HaveCount(3);
             stamp.Street.Should().MatchRegex(@"^\d{3,4} [A-Z][a-z]+ (Rd|St|Ave|Dr|Ln|Blvd|Ct|Way)$");
             stamp.City.Should().MatchRegex(@"^.+, [A-Z]{2} \d{5}$");
+            stamp.CompanyName.Should().MatchRegex(@"^[A-Z][a-z]+ [A-Z][a-z]+ INC$");
+            stamp.Email.Should().MatchRegex(@"^[a-z]{6,}@[a-z]{14,}\.com$");
+            stamp.Email.Should().NotContain(stamp.CompanyName.Split(' ')[0].ToLowerInvariant());
         }
     }
 
@@ -70,6 +73,9 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         ArticlesChineseText.TranslateCity("New Orleans, LA 70112").Should().Be("新奥尔良, 路易斯安那州 70112");
         ArticlesChineseText.TranslateFiledAt("02/24/2025 09:29 PM").Should().Be("2025年02月24日 下午09:29");
         ArticlesChineseText.TranslateSignedOn("02/24/2025").Should().Be("2025年2月24日");
+        ArticlesChineseText.TranslateCompany("Harbor Peak INC").Should().Be("Harbor Peak 公司");
+        ArticlesChineseText.TranslateCompany("SOZepyqwu INC").Should().Be("SOZepyqwu 公司");
+        ArticlesChineseText.TranslateCompany("").Should().BeEmpty();
         ArticlesChineseText.TranslateName("ZELDA").Should().NotContainAny("A", "E", "L", "Z");
     }
 

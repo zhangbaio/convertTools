@@ -34,6 +34,13 @@ public static class ArticlesOfIncorporationPdfService
     private const double IncorporatorAddressX = 343.63;
     private const double IncorporatorFirstBaseline = 659.50;
     private const double IncorporatorCityBaseline = 675.98;
+    private const double BusinessValueX = 152.46;
+    private const double BusinessNameBaseline = 215.08;
+    private const double BusinessEmailBaseline = 232.11;
+    private const double ChineseBusinessValueX = 131;
+    private const double ChineseBusinessNameBaseline = 215.10;
+    private const double ChineseBusinessEmailBaseline = 232.10;
+    private const double ChineseBusinessSize = 16.48;
 
     public static void Render(string outputPath, ArticlesOfIncorporationFields fields)
     {
@@ -55,6 +62,8 @@ public static class ArticlesOfIncorporationPdfService
             DrawScaled(graphics, fields.FilingNumber, bold, FilingNumberRight, FilingNumberBaseline, BoldWidthScale, Align.Right);
             Draw(graphics, Prefix(fields.BusinessId, "Business ID: "), stamp, StampCenterX, BusinessIdBaseline, XStringFormats.BaseLineCenter);
             Draw(graphics, Prefix(fields.FiledAt, "Filed: "), stamp, StampCenterX, FiledBaseline, XStringFormats.BaseLineCenter);
+            Draw(graphics, fields.CompanyName, body, BusinessValueX, BusinessNameBaseline);
+            Draw(graphics, fields.Email, body, BusinessValueX, BusinessEmailBaseline);
             Draw(graphics, fields.RegisteredAgentName, body, AgentX, AgentNameBaseline);
             Draw(graphics, fields.RegisteredAgentStreet, body, AgentX, AgentStreetBaseline);
             Draw(graphics, fields.RegisteredAgentCity, body, AgentX, AgentCityBaseline);
@@ -91,6 +100,9 @@ public static class ArticlesOfIncorporationPdfService
             Draw(graphics, fields.FilingNumber, filing, FilingNumberRight, FilingNumberBaseline, XStringFormats.BaseLineRight);
             DrawFittedCenter(graphics, Prefix(fields.BusinessId, "商业ID："), stamp, StampCenterX, 66, 145);
             DrawFittedCenter(graphics, TranslateFiledLine(fields.FiledAt), new XFont("SimSun", 8.5, XFontStyleEx.Regular), StampCenterX, 78, 145);
+            var business = new XFont("SimSun", ChineseBusinessSize, XFontStyleEx.Regular);
+            Draw(graphics, ArticlesChineseText.TranslateCompany(fields.CompanyName), business, ChineseBusinessValueX, ChineseBusinessNameBaseline);
+            Draw(graphics, fields.Email, business, ChineseBusinessValueX, ChineseBusinessEmailBaseline);
             Draw(graphics, ArticlesChineseText.TranslateName(fields.RegisteredAgentName), body, AgentX, AgentNameBaseline);
             Draw(graphics, ArticlesChineseText.TranslateStreet(fields.RegisteredAgentStreet), body, AgentX, AgentStreetBaseline);
             Draw(graphics, ArticlesChineseText.TranslateCity(fields.RegisteredAgentCity), body, AgentX, AgentCityBaseline);
@@ -251,7 +263,9 @@ public readonly record struct ArticlesFilingStamp(
     string RegistrantName,
     string RegistrantShortName,
     string Street,
-    string City);
+    string City,
+    string CompanyName,
+    string Email);
 
 public sealed record ArticlesOfIncorporationFields(
     string FilingNumber,
@@ -263,7 +277,9 @@ public sealed record ArticlesOfIncorporationFields(
     string SignedOn,
     string IncorporatorName,
     string IncorporatorStreet,
-    string IncorporatorCity)
+    string IncorporatorCity,
+    string CompanyName = "",
+    string Email = "")
 {
     public static ArticlesOfIncorporationFields Sample { get; } = new(
         "2026357992",
@@ -275,7 +291,9 @@ public sealed record ArticlesOfIncorporationFields(
         "04/19/2026",
         "ANTHONY CLUNIS",
         "1562 Oloh Rd",
-        "Sumrall, MS 39482");
+        "Sumrall, MS 39482",
+        "Tangible Group INC",
+        "tentative@solutionsresults.com");
 
     public static ArticlesFilingStamp CreateRandomFilingStamp(DateOnly today, Random? random = null)
     {
@@ -290,6 +308,8 @@ public sealed record ArticlesOfIncorporationFields(
         var meridiem = rng.Next(2) == 0 ? "AM" : "PM";
         var fullName = $"{Pick(rng, GivenNames)} {Pick(rng, MiddleNames)} {Pick(rng, FamilyNames)}";
         var place = Places[rng.Next(Places.Length)];
+        var adjective = Pick(rng, CompanyAdjectives);
+        var noun = Pick(rng, CompanyNouns);
         return new ArticlesFilingStamp(
             $"{day.Year}{rng.Next(0, 1_000_000):000000}",
             $"154{rng.Next(0, 10_000):0000}",
@@ -298,7 +318,18 @@ public sealed record ArticlesOfIncorporationFields(
             fullName,
             ToShortName(fullName),
             $"{rng.Next(100, 10000)} {Pick(rng, StreetNames)} {Pick(rng, StreetSuffixes)}",
-            $"{place.City}, {place.State} {place.Zip}");
+            $"{place.City}, {place.State} {place.Zip}",
+            $"{adjective} {noun} INC",
+            CreateRandomEmail(rng));
+    }
+
+    private static string CreateRandomEmail(Random random)
+    {
+        var first = Pick(random, EmailDomainWords);
+        var second = Pick(random, EmailDomainWords);
+        if (second == first)
+            second = EmailDomainWords[(Array.IndexOf(EmailDomainWords, first) + 1) % EmailDomainWords.Length];
+        return $"{Pick(random, EmailLocals)}@{first}{second}.com";
     }
 
     private static string Pick(Random random, string[] values) => values[random.Next(values.Length)];
@@ -308,6 +339,10 @@ public sealed record ArticlesOfIncorporationFields(
     private static readonly string[] FamilyNames = ["CLUNIS", "HARRIS", "WALKER", "BROOKS", "REED", "COLEMAN", "HAYES", "FOSTER"];
     private static readonly string[] StreetNames = ["Oloh", "Oak", "Maple", "Pine", "Cedar", "Highland", "Lakeview", "River"];
     private static readonly string[] StreetSuffixes = ["Rd", "St", "Ave", "Dr", "Ln", "Blvd", "Ct", "Way"];
+    private static readonly string[] CompanyAdjectives = ["Tangible", "Harbor", "Silver", "North", "Maple", "Clear", "Summit", "River", "Golden", "Pacific"];
+    private static readonly string[] CompanyNouns = ["Group", "Peak", "Oak", "Line", "Ridge", "Goods", "Retail", "Stone", "Field", "Trade"];
+    private static readonly string[] EmailLocals = ["tentative", "primary", "general", "direct", "formal", "current", "active", "pending"];
+    private static readonly string[] EmailDomainWords = ["solutions", "results", "services", "partners", "holdings", "systems", "capital", "ventures", "markets", "products"];
     private static readonly (string City, string State, string Zip)[] Places =
     [
         ("Sumrall", "MS", "39482"),
@@ -339,6 +374,6 @@ public sealed record ArticlesOfIncorporationFields(
         new[]
         {
             FilingNumber, BusinessId, FiledAt, RegisteredAgentName, RegisteredAgentStreet, RegisteredAgentCity,
-            SignedOn, IncorporatorName, IncorporatorStreet, IncorporatorCity,
+            SignedOn, IncorporatorName, IncorporatorStreet, IncorporatorCity, CompanyName, Email,
         }.Any(value => !string.IsNullOrWhiteSpace(value));
 }
