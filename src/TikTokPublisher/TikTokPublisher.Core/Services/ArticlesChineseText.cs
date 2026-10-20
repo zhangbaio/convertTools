@@ -69,10 +69,114 @@ public static partial class ArticlesChineseText
             return text;
         if (text.EndsWith(" INC", StringComparison.OrdinalIgnoreCase))
             text = text[..^4].Trim();
+        else if (text.EndsWith(" Inc.", StringComparison.OrdinalIgnoreCase))
+            text = text[..^5].Trim();
         else if (text.EndsWith("INC", StringComparison.OrdinalIgnoreCase))
             text = text[..^3].Trim();
 
         return text.Length == 0 ? "公司" : text + " 公司";
+    }
+
+    public static string TranslateKentuckyCompany(string? english)
+    {
+        var text = (english ?? string.Empty).Trim();
+        if (text.Length == 0)
+            return string.Empty;
+
+        foreach (var suffix in new[] { " INC.", " INC", " Inc.", " Inc" })
+        {
+            if (text.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                text = text[..^suffix.Length].Trim();
+                break;
+            }
+        }
+
+        var builder = new StringBuilder();
+        foreach (var token in text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var index = 0;
+            while (index < token.Length)
+            {
+                if (char.IsDigit(token[index]))
+                {
+                    var start = index;
+                    while (index < token.Length && char.IsDigit(token[index]))
+                        index++;
+                    builder.Append(token.AsSpan(start, index - start));
+                }
+                else if (char.IsLetter(token[index]))
+                {
+                    var start = index;
+                    while (index < token.Length && char.IsLetter(token[index]))
+                        index++;
+                    builder.Append(TranslateToken(token[start..index]));
+                }
+                else
+                {
+                    index++;
+                }
+            }
+        }
+
+        if (builder.Length == 0)
+            return "公司";
+        if (!builder.ToString().EndsWith("公司", StringComparison.Ordinal))
+            builder.Append("公司");
+        return builder.ToString();
+    }
+
+    public static string TranslateKentuckyAddress(string? street, string? cityLine)
+    {
+        var road = (street ?? string.Empty).Trim();
+        var city = TranslateCity(cityLine);
+        if (road.Length == 0)
+            return city;
+        if (city.Length == 0)
+            return road;
+        return $"{road}, {city}";
+    }
+
+    public static string TranslateKentuckyFiledAt(string? english)
+    {
+        if (!TryParseKentuckyFiledAt(english, out var value))
+            return (english ?? string.Empty).Trim();
+
+        var meridiem = value.Hour >= 12 ? "下午" : "上午";
+        var hour = value.Hour % 12;
+        if (hour == 0)
+            hour = 12;
+        return $"{value.Year}年{value.Month}月{value.Day}日 {meridiem}{hour}:{value:mm:ss}";
+    }
+
+    public static string TranslateKentuckyEffectiveOn(string? english)
+    {
+        if (!TryParseKentuckyEffectiveOn(english, out var value) && !TryParseKentuckyFiledAt(english, out value))
+            return (english ?? string.Empty).Trim();
+
+        var weekday = value.DayOfWeek switch
+        {
+            DayOfWeek.Monday => "星期一",
+            DayOfWeek.Tuesday => "星期二",
+            DayOfWeek.Wednesday => "星期三",
+            DayOfWeek.Thursday => "星期四",
+            DayOfWeek.Friday => "星期五",
+            DayOfWeek.Saturday => "星期六",
+            _ => "星期日",
+        };
+        return $"{value.Year}年{value.Month}月{value.Day}日（{weekday}）";
+    }
+
+    private static bool TryParseKentuckyFiledAt(string? english, out DateTime value)
+    {
+        var text = (english ?? string.Empty).Trim();
+        return DateTime.TryParseExact(text, ["M/d/yyyy h:mm:ss tt", "MM/dd/yyyy hh:mm tt", "M/d/yyyy h:mm tt"], CultureInfo.InvariantCulture, DateTimeStyles.None, out value);
+    }
+
+    private static bool TryParseKentuckyEffectiveOn(string? english, out DateTime value)
+    {
+        var text = (english ?? string.Empty).Trim().TrimEnd('.');
+        return DateTime.TryParseExact(text, "dddd, MMMM d, yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out value);
     }
 
     public static string TranslateSignedOn(string? english)
@@ -180,7 +284,15 @@ public static partial class ArticlesChineseText
         ["GULFPORT"] = "格尔夫波特", ["AUSTIN"] = "奥斯汀", ["DALLAS"] = "达拉斯",
         ["ATLANTA"] = "亚特兰大", ["MEMPHIS"] = "孟菲斯", ["BIRMINGHAM"] = "伯明翰",
         ["NEW ORLEANS"] = "新奥尔良", ["BATON ROUGE"] = "巴吞鲁日", ["NASHVILLE"] = "纳什维尔",
+        ["GRAYSON"] = "格雷森", ["ROAM"] = "罗姆", ["BUREAU"] = "局",
+        ["TANGIBLE"] = "坦吉布尔", ["HARBOR"] = "港湾", ["SILVER"] = "银", ["NORTH"] = "北",
+        ["CLEAR"] = "克利尔", ["SUMMIT"] = "顶峰", ["GOLDEN"] = "金", ["PACIFIC"] = "太平洋",
+        ["GROUP"] = "集团", ["PEAK"] = "峰", ["LINE"] = "线", ["RIDGE"] = "岭",
+        ["GOODS"] = "货品", ["RETAIL"] = "零售", ["STONE"] = "石", ["FIELD"] = "田", ["TRADE"] = "贸易",
+        ["ELIZABETHTOWN"] = "埃利萨伯敦", ["LOUISVILLE"] = "路易斯维尔", ["LEXINGTON"] = "列克星敦",
+        ["FRANKFORT"] = "弗兰克福", ["BOWLING GREEN"] = "鲍灵格林", ["RICHMOND"] = "里士满",
         ["MS"] = "密西西比州", ["TX"] = "得克萨斯州", ["GA"] = "佐治亚州", ["TN"] = "田纳西州",
+        ["KY"] = "肯塔基州",
         ["AL"] = "亚拉巴马州", ["LA"] = "路易斯安那州", ["NC"] = "北卡罗来纳州", ["FL"] = "佛罗里达州",
     };
 

@@ -51,6 +51,47 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
     }
 
     [Fact]
+    public void CreateRandomKentucky_UsesTheFilingDayForTheEffectiveDate()
+    {
+        var today = new DateOnly(2026, 10, 20);
+        var random = new Random(4);
+        for (var i = 0; i < 50; i++)
+        {
+            var fields = KentuckyArticlesPdfService.CreateRandom(today, random);
+            var filed = DateTime.ParseExact(fields.FiledAt, "M/d/yyyy h:mm:ss tt", System.Globalization.CultureInfo.InvariantCulture);
+            var effective = DateTime.ParseExact(fields.EffectiveOn.TrimEnd('.'), "dddd, MMMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
+            DateOnly.FromDateTime(filed).Should().Be(DateOnly.FromDateTime(effective));
+            DateOnly.FromDateTime(filed).Should().BeOnOrAfter(new DateOnly(2025, 1, 1)).And.BeOnOrBefore(today);
+            fields.FilingNumber.Should().MatchRegex(@"^157\d{4}\.\d{2}$");
+            fields.CityLine.Should().Contain(", KY ");
+            fields.Street.Should().MatchRegex(@"^\d{3,4} [A-Za-z]+ (Rd|St|Ave|Dr|Ln|Ct|Way)$");
+        }
+    }
+
+    [Fact]
+    public void RenderKentucky_FillsBothTemplates()
+    {
+        var fields = KentuckyArticlesPdfService.CreateRandom(new DateOnly(2026, 10, 20), new Random(2));
+        var english = Path.Combine(Path.GetTempPath(), $"ky-{Guid.NewGuid():N}.pdf");
+        var chinese = Path.Combine(Path.GetTempPath(), $"ky-zh-{Guid.NewGuid():N}.pdf");
+        try
+        {
+            KentuckyArticlesPdfService.Render(english, fields);
+            KentuckyArticlesPdfService.RenderChinese(chinese, fields);
+            using var left = PdfReader.Open(english, PdfDocumentOpenMode.Import);
+            using var right = PdfReader.Open(chinese, PdfDocumentOpenMode.Import);
+            left.PageCount.Should().Be(1);
+            right.PageCount.Should().Be(1);
+        }
+        finally
+        {
+            if (File.Exists(english)) File.Delete(english);
+            if (File.Exists(chinese)) File.Delete(chinese);
+        }
+    }
+
+    [Fact]
     public void Wrap_MovesLineStartPunctuationBackToThePreviousLine()
     {
         var lines = ArticlesOfIncorporationPdfService.Wrap(
@@ -76,6 +117,12 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         ArticlesChineseText.TranslateCompany("Harbor Peak INC").Should().Be("Harbor Peak 公司");
         ArticlesChineseText.TranslateCompany("SOZepyqwu INC").Should().Be("SOZepyqwu 公司");
         ArticlesChineseText.TranslateCompany("").Should().BeEmpty();
+        ArticlesChineseText.TranslateKentuckyCompany("GRAYSON 74ROAM BUREAU Inc.").Should().Be("格雷森74罗姆局公司");
+        ArticlesChineseText.TranslateKentuckyCompany("Summit Ridge INC").Should().Be("顶峰岭公司");
+        ArticlesChineseText.TranslateKentuckyAddress("27 Reins Ct", "Elizabethtown, KY 42701")
+            .Should().Be("27 Reins Ct, 埃利萨伯敦, 肯塔基州 42701");
+        ArticlesChineseText.TranslateKentuckyFiledAt("5/5/2026 8:10:52 AM").Should().Be("2026年5月5日 上午8:10:52");
+        ArticlesChineseText.TranslateKentuckyEffectiveOn("Tuesday, May 5, 2026.").Should().Be("2026年5月5日（星期二）");
         ArticlesChineseText.TranslateName("ZELDA").Should().NotContainAny("A", "E", "L", "Z");
     }
 

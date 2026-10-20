@@ -20,6 +20,13 @@ public sealed class ArticlesOfIncorporationDialog : Window
     private readonly TextBox _agentCity = Box();
     private readonly TextBox _signedOn = Box();
     private readonly TextBox _incorporatorName = Box();
+    private readonly TextBox _kyFilingNumber = Box();
+    private readonly TextBox _kyFiledAt = Box();
+    private readonly TextBox _kyCompanyName = Box();
+    private readonly TextBox _kyStreet = Box();
+    private readonly TextBox _kyCity = Box();
+    private readonly TextBox _kyEffectiveOn = Box();
+    private readonly TabControl _tabs = new();
     private readonly CheckBox _alsoChinese = new()
     {
         Content = "同步生成中文PDF",
@@ -52,6 +59,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
                 return;
             RegistrantNameStore.Save(_agentName.Text, _incorporatorName.Text);
         };
+        RandomizeKentucky();
         RandomizeFilingStamp();
 
         var root = new Grid
@@ -61,8 +69,9 @@ public sealed class ArticlesOfIncorporationDialog : Window
             RowSpacing = 14,
         };
 
-        var form = BuildForm();
-        root.Children.Add(form);
+        _tabs.Items.Add(new TabItem { Header = "模板1", Content = BuildForm() });
+        _tabs.Items.Add(new TabItem { Header = "模板2", Content = BuildKentuckyForm() });
+        root.Children.Add(_tabs);
 
         Grid.SetRow(_status, 1);
         root.Children.Add(_status);
@@ -74,7 +83,13 @@ public sealed class ArticlesOfIncorporationDialog : Window
             Spacing = 8,
         };
         var randomize = new Button { Content = "随机生成", MinWidth = 108 };
-        randomize.Click += (_, _) => RandomizeFilingStamp();
+        randomize.Click += (_, _) =>
+        {
+            if (_tabs.SelectedIndex == 1)
+                RandomizeKentucky();
+            else
+                RandomizeFilingStamp();
+        };
         var generate = new Button { Content = "生成 PDF", MinWidth = 108, IsDefault = true };
         generate.Click += async (_, _) => await GenerateAsync();
         buttons.Children.Add(randomize);
@@ -120,6 +135,24 @@ public sealed class ArticlesOfIncorporationDialog : Window
         Place(form, "注册人简称", _incorporatorName, 3, 1);
         Place(form, "注册人地址", _agentStreet, 4, 0);
         Place(form, "城市", _agentCity, 4, 1);
+        return form;
+    }
+
+    private Grid BuildKentuckyForm()
+    {
+        var form = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,18,Auto,*"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
+            RowSpacing = 8,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        Place(form, "备案号", _kyFilingNumber, 0, 0);
+        Place(form, "备案时间", _kyFiledAt, 0, 1);
+        Place(form, "公司名称", _kyCompanyName, 1, 0);
+        Place(form, "生效日期", _kyEffectiveOn, 1, 1);
+        Place(form, "街道", _kyStreet, 2, 0);
+        Place(form, "城市", _kyCity, 2, 1);
         return form;
     }
 
@@ -184,10 +217,32 @@ public sealed class ArticlesOfIncorporationDialog : Window
         _status.Text = "已随机生成备案信息、企业名称、邮箱和地址。";
     }
 
+    private void RandomizeKentucky()
+    {
+        var fields = KentuckyArticlesPdfService.CreateRandom(DateOnly.FromDateTime(DateTime.Today));
+        _kyFilingNumber.Text = fields.FilingNumber;
+        _kyFiledAt.Text = fields.FiledAt;
+        _kyCompanyName.Text = fields.CompanyName;
+        _kyStreet.Text = fields.Street;
+        _kyCity.Text = fields.CityLine;
+        _kyEffectiveOn.Text = fields.EffectiveOn;
+        _status.Text = "已随机生成肯塔基备案号、时间、公司名称、地址和生效日期。";
+    }
+
+    private KentuckyArticlesFields ReadKentuckyFields() => new(
+        _kyFilingNumber.Text ?? string.Empty,
+        _kyFiledAt.Text ?? string.Empty,
+        _kyCompanyName.Text ?? string.Empty,
+        _kyStreet.Text ?? string.Empty,
+        _kyCity.Text ?? string.Empty,
+        _kyEffectiveOn.Text ?? string.Empty);
+
     private async Task GenerateAsync()
     {
-        var fields = ReadFields();
-        if (!fields.HasAnyValue())
+        var kentucky = _tabs.SelectedIndex == 1;
+        var fields = kentucky ? null : ReadFields();
+        var kentuckyFields = kentucky ? ReadKentuckyFields() : null;
+        if (kentucky ? !kentuckyFields!.HasAnyValue() : !fields!.HasAnyValue())
         {
             _status.Text = "请至少填写一项。";
             return;
@@ -200,7 +255,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             Title = "保存公司注册 PDF",
-            SuggestedFileName = SuggestedPdfName(_companyName.Text),
+            SuggestedFileName = SuggestedPdfName(kentucky ? _kyCompanyName.Text : _companyName.Text),
             SuggestedStartLocation = start,
             FileTypeChoices = [new FilePickerFileType("PDF") { Patterns = ["*.pdf"] }],
         });
@@ -220,9 +275,18 @@ public sealed class ArticlesOfIncorporationDialog : Window
                 chinesePath = writeChinese ? ArticlesOfIncorporationPdfService.ChineseOutputPath(path) : null;
                 await Task.Run(() =>
                 {
-                    ArticlesOfIncorporationPdfService.Render(path, fields);
-                    if (chinesePath is not null)
-                        ArticlesOfIncorporationPdfService.RenderChinese(chinesePath, fields);
+                    if (kentucky)
+                    {
+                        KentuckyArticlesPdfService.Render(path, kentuckyFields!);
+                        if (chinesePath is not null)
+                            KentuckyArticlesPdfService.RenderChinese(chinesePath, kentuckyFields);
+                    }
+                    else
+                    {
+                        ArticlesOfIncorporationPdfService.Render(path, fields!);
+                        if (chinesePath is not null)
+                            ArticlesOfIncorporationPdfService.RenderChinese(chinesePath, fields);
+                    }
                 });
             }
             else
@@ -230,7 +294,13 @@ public sealed class ArticlesOfIncorporationDialog : Window
                 var temp = Path.Combine(Path.GetTempPath(), $"articles-{Guid.NewGuid():N}.pdf");
                 try
                 {
-                    await Task.Run(() => ArticlesOfIncorporationPdfService.Render(temp, fields));
+                    await Task.Run(() =>
+                    {
+                        if (kentucky)
+                            KentuckyArticlesPdfService.Render(temp, kentuckyFields!);
+                        else
+                            ArticlesOfIncorporationPdfService.Render(temp, fields!);
+                    });
                     await using var input = File.OpenRead(temp);
                     await using var output = await file.OpenWriteAsync();
                     await input.CopyToAsync(output);

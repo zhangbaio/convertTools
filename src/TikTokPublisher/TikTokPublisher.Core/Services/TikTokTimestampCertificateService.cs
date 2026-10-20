@@ -256,6 +256,9 @@ public static class TikTokTimestampCertificateService
             if (familyName.Equals("SimSun", StringComparison.OrdinalIgnoreCase))
                 return new FontResolverInfo("simsun");
 
+            if (familyName.Equals("Arial", StringComparison.OrdinalIgnoreCase))
+                return new FontResolverInfo(isBold ? "arial-bold" : "arial");
+
             if (familyName.Equals("Times New Roman", StringComparison.OrdinalIgnoreCase))
             {
                 var face = (isBold, isItalic) switch
@@ -287,13 +290,17 @@ public static class TikTokTimestampCertificateService
                 "times-italic" => ReadTimes("timesi.ttf"),
                 "times-bolditalic" => ReadTimes("timesbi.ttf"),
                 "simsun" => ReadSimSun(),
+                "arial" => ReadBundledFont("arial.ttf"),
+                "arial-bold" => ReadBundledFont("arialbd.ttf"),
                 _ => File.ReadAllBytes(Path.Combine(assets, "NotoSerifSC-Light.ttf")),
             };
             _faces[faceName] = bytes;
             return bytes;
         }
 
-        private static byte[] ReadTimes(string fileName) => File.ReadAllBytes(ResolveBundledOrSystemFont(fileName));
+        private static byte[] ReadTimes(string fileName) => ReadBundledFont(fileName);
+
+        private static byte[] ReadBundledFont(string fileName) => File.ReadAllBytes(ResolveBundledOrSystemFont(fileName));
 
         private static byte[] ReadSimSun() =>
             ExtractFirstTtcFont(File.ReadAllBytes(ResolveBundledOrSystemFont("simsun.ttc")));

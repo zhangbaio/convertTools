@@ -234,7 +234,7 @@ public static class ArticlesOfIncorporationPdfService
         return text.Length == 0 ? string.Empty : prefix + text;
     }
 
-    private static string ResolveTemplatePath(string fileName)
+    internal static string ResolveTemplatePath(string fileName)
     {
         var direct = Path.Combine(AppContext.BaseDirectory, "articles-of-incorporation", fileName);
         if (File.Exists(direct))
