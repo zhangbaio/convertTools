@@ -2,13 +2,15 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ShortDrama.Infrastructure.AI;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Publishing;
 
 /// <summary>
-/// 源语言选「AI识别语言」时，只根据生成的新剧名判断，结果必须是发布配置里已有的语种。
+/// 源语言选「AI识别语言」时，优先复用标题和简介改写时已经判定的语言。
+/// 没有这份结果时，再按新剧名的文字判断，结果必须是发布配置里已有的语种。
 /// </summary>
 public static class TikTokNewTitleLanguageService
 {
@@ -29,6 +31,12 @@ public static class TikTokNewTitleLanguageService
             return;
 
         var title = ReadNewTitle(projectDir, fallbackTitle: null);
+        if (TryReadRewriteLanguage(projectDir, title, out var rewriteLanguage))
+        {
+            options.SourceLanguage = rewriteLanguage;
+            return;
+        }
+
         if (TryReadCache(projectDir, title, out var cached))
         {
             options.SourceLanguage = cached;
@@ -81,6 +89,13 @@ public static class TikTokNewTitleLanguageService
             return "zh";
         }
 
+        if (TryReadRewriteLanguage(projectDir, title, out var rewriteLanguage))
+        {
+            SaveCache(projectDir, title, rewriteLanguage);
+            log?.Invoke($"源语言复用标题和简介已识别的{DisplayName(rewriteLanguage)}，新剧名「{title}」。");
+            return rewriteLanguage;
+        }
+
         if (TryReadCache(projectDir, title, out var cached))
         {
             log?.Invoke($"源语言按新剧名「{title}」使用已识别结果：{DisplayName(cached)}。");
@@ -117,6 +132,52 @@ public static class TikTokNewTitleLanguageService
         }
 
         return "en";
+    }
+
+    private static bool TryReadRewriteLanguage(string? projectDir, string title, out string language)
+    {
+        language = "";
+        foreach (var dir in CandidateProjectDirs(projectDir))
+        {
+            var cached = RewriteSourceLanguage.ReadCached(dir);
+            if (cached is null || !TitleAgreesWithRewriteLanguage(title, cached))
+                continue;
+
+            language = cached;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TitleAgreesWithRewriteLanguage(string title, string language)
+    {
+        var script = ClassifyScript(title);
+        if (script is null)
+            return LatinCodes.Contains(language, StringComparer.OrdinalIgnoreCase);
+
+        return string.Equals(script, language, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string> CandidateProjectDirs(string? projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+            yield break;
+
+        string workflow = "";
+        try
+        {
+            workflow = TikTokUploadStateStore.ResolveWorkflowProjectDir(projectDir);
+        }
+        catch (Exception)
+        {
+            workflow = "";
+        }
+
+        if (!string.IsNullOrWhiteSpace(workflow))
+            yield return workflow;
+        if (!string.Equals(workflow, projectDir, StringComparison.OrdinalIgnoreCase))
+            yield return projectDir;
     }
 
     public static string? ClassifyScript(string? title)
