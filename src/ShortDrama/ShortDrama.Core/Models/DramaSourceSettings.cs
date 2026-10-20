@@ -41,6 +41,7 @@ public sealed record DramaSourceSettings
 
     public string PlayletServerUrl { get; init; } = "https://startvlog.cn/start-prod-api";
     public string PlayletDeviceId { get; init; } = "";
+    public string DramaBoxApiBaseUrl { get; init; } = "http://127.0.0.1:17865";
 
     public DramaSourceSettings WithPikachuDeviceId(string deviceId) =>
         this with { PikachuDeviceId = deviceId.Trim() };

@@ -108,6 +108,7 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
+        DramaSourceCombo.Items.Add(CreateItem("DramaBox", "dramabox"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
 
         HghighEditionCombo.Items.Clear();

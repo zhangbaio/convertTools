@@ -277,6 +277,17 @@
 
                         <Separator Margin="0,4" />
 
+                        <TextBlock Text="DramaBox 下载器（v1.5.7）" FontWeight="Bold" />
+                        <TextBlock Text="搜索和下载走本机接口。助手会在 127.0.0.1:17865 提供搜索、分集和播放地址；加密成片仍由 DramaBox 下载器解密，这里只下载能直接取得地址的剧集。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="本机接口" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DramaBoxApiBaseUrl}" Watermark="http://127.0.0.1:17865" />
+                        </Grid>
+
+                        <Separator Margin="0,4" />
+
                         <TextBlock Text="红果短剧下载器（v2.3.7）" FontWeight="Bold" />
                         <TextBlock Text="搜索和下载都不使用番茄 Cookie。视频解析使用下载器软件设置里的设备号，解析前会登记该设备；1080P 对应清晰度 1，红果线路一。"
                                    Classes="pageSummary"

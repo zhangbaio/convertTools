@@ -46,6 +46,7 @@ public sealed class ClientSettings
     public string PikachuClientVersion { get; set; } = "1.4.4";
     public string PlayletServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PlayletDeviceId { get; set; } = "";
+    public string DramaBoxApiBaseUrl { get; set; } = "http://127.0.0.1:17865";
 
     public string TiktokAsrLocalModelDir { get; set; } = "";
     public string TiktokAsrLocalVadPath { get; set; } = "";
@@ -221,6 +222,7 @@ public sealed class ClientSettings
         PikachuClientVersion = PikachuClientVersion,
         PlayletServerUrl = PlayletServerUrl,
         PlayletDeviceId = PlayletDeviceId,
+        DramaBoxApiBaseUrl = DramaBoxApiBaseUrl,
         TiktokAsrLocalModelDir = TiktokAsrLocalModelDir,
         TiktokAsrLocalVadPath = TiktokAsrLocalVadPath,
         TiktokAsrAppId = TiktokAsrAppId,

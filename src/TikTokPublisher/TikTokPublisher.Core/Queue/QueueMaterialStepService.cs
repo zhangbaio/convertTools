@@ -1054,7 +1054,7 @@ public static class QueueMaterialStepService
     internal static string NormalizeDramaSource(string? source)
     {
         var value = (source ?? string.Empty).Trim().ToLowerInvariant();
-        return value is "hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader"
+        return value is "hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader" or "dramabox"
             ? value
             : "hgnew";
     }
@@ -1073,6 +1073,8 @@ public static class QueueMaterialStepService
         if (id.StartsWith("pikachu:", StringComparison.OrdinalIgnoreCase)) return "pikachu";
         if (id.StartsWith("playlet:", StringComparison.OrdinalIgnoreCase) ||
             id.StartsWith("playlet_ep:", StringComparison.OrdinalIgnoreCase)) return "playlet";
+        if (id.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("dramabox_ep:", StringComparison.OrdinalIgnoreCase)) return "dramabox";
         return "hgnew";
     }
 
@@ -1094,6 +1096,7 @@ public static class QueueMaterialStepService
             "hglocal" => "本地直连",
             "pikachu" => "皮卡丘",
             "playlet" => "红果短剧下载器",
+            "dramabox" => "DramaBox",
             _ => "红果新接口",
         };
 

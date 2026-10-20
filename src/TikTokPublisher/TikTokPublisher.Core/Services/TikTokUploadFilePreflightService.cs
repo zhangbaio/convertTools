@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
@@ -12,9 +11,6 @@ public sealed record TikTokUploadFilePreflightResult(
 
 public static class TikTokUploadFilePreflightService
 {
-    private static readonly Regex EpisodeNumberPattern =
-        new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
-
     public static Task<TikTokUploadFilePreflightResult> ValidateAsync(
         QueueProjectItem item,
         Action<string>? log = null,
@@ -123,8 +119,7 @@ public static class TikTokUploadFilePreflightService
 
     private static int ResolveEpisodeIndex(string path, int fallbackIndex)
     {
-        var match = EpisodeNumberPattern.Match(Path.GetFileName(path));
-        return match.Success && int.TryParse(match.Groups[1].Value, out var episode) && episode > 0
+        return QueueMaterialStepService.TryReadEpisodeNumberFromFileName(path, out var episode) && episode > 0
             ? episode
             : fallbackIndex + 1;
     }

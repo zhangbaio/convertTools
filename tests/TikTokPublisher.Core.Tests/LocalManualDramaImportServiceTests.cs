@@ -219,6 +219,51 @@ public sealed class LocalManualDramaImportServiceTests
         }
     }
 
+    [Fact]
+    public void Import_Accepts_DramaBox_Numbered_Videos_Cover_And_Synopsis()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-dramabox-{Guid.NewGuid():N}");
+        var title = "I Woke Up as the Dragon Prince's Evil Consort";
+        var source = Path.Combine(workspace, title);
+        var synopsis = "Rowan wakes as the dragon prince's consort.";
+
+        try
+        {
+            Directory.CreateDirectory(source);
+            File.WriteAllBytes(Path.Combine(source, "01.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(source, "02.mp4"), [2]);
+            File.WriteAllBytes(Path.Combine(source, "03.mp4"), [3]);
+            File.WriteAllBytes(Path.Combine(source, "cover.jpg"), [4, 5, 6]);
+            File.WriteAllText(Path.Combine(source, title + ".txt"), synopsis);
+
+            var preview = LocalManualDramaImportService.ListCandidates(workspace).Should().ContainSingle().Subject;
+            preview.DisplayName.Should().Be(title);
+            preview.EpisodeCount.Should().Be(3);
+            preview.PosterPath.Should().EndWith("cover.jpg");
+            preview.IntroPath.Should().EndWith(title + ".txt");
+
+            var result = LocalManualDramaImportService.Import(workspace, source);
+            result.EpisodeCount.Should().Be(3);
+            result.DisplayName.Should().Be(title);
+            File.Exists(Path.Combine(source, "海报原图.jpg")).Should().BeTrue();
+            var info = File.ReadAllText(Path.Combine(source, "短剧信息.txt"));
+            info.Should().Contain($"原剧名: {title}");
+            info.Should().Contain("集数: 3");
+            info.Should().Contain(synopsis);
+            ProjectVideoResolver.ResolveUploadVideos(source).Select(Path.GetFileName)
+                .Should().Equal("01.mp4", "02.mp4", "03.mp4");
+            TikTokUploadEpisodeConsistencyService.ValidateBeforeUpload(new QueueProjectItem
+            {
+                ProjectDir = source,
+                EpisodeCount = 3,
+            }).Ok.Should().BeTrue();
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
     private const string HongguoTitle = "珩珩漫漫寻恩路";
     private const string HongguoBookId = "7693110299905231896";
     private const string HongguoJpegUrl = "https://p3-novel.byteimg.com/novel-pic/cover.jpeg";

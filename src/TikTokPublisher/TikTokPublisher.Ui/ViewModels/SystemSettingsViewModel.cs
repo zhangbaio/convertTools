@@ -131,6 +131,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _isPikachuBusy;
     [ObservableProperty] private string _playletServerUrl = PlayletDramaClient.DefaultServerUrl;
     [ObservableProperty] private string _playletDeviceId = "";
+    [ObservableProperty] private string _dramaBoxApiBaseUrl = DramaBoxApiService.DefaultBaseUrl;
     [ObservableProperty] private string _playletProbeStatus = "";
     [ObservableProperty] private bool _isPlayletBusy;
     [ObservableProperty] private string _hongguoLocalProbeStatus = "";
@@ -223,7 +224,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         "hghigh",
         "hglocal",
         "pikachu",
-        "playlet"
+        "playlet",
+        "dramabox"
     ];
 
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
@@ -293,6 +295,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim(),
         PlayletServerUrl = string.IsNullOrWhiteSpace(PlayletServerUrl) ? PlayletDramaClient.DefaultServerUrl : PlayletServerUrl.Trim(),
         PlayletDeviceId = PlayletDeviceId.Trim().ToUpperInvariant(),
+        DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(DramaBoxApiBaseUrl) ? DramaBoxApiService.DefaultBaseUrl : DramaBoxApiBaseUrl.Trim().TrimEnd('/'),
         TiktokAsrLocalModelDir = TiktokAsrLocalModelDir.Trim(),
         TiktokAsrLocalVadPath = TiktokAsrLocalVadPath.Trim(),
         TiktokAsrAppId = TiktokAsrAppId.Trim(),
@@ -1123,6 +1126,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             ? PlayletDramaClient.DefaultServerUrl
             : settings.PlayletServerUrl;
         PlayletDeviceId = settings.PlayletDeviceId;
+        DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(settings.DramaBoxApiBaseUrl)
+            ? DramaBoxApiService.DefaultBaseUrl
+            : settings.DramaBoxApiBaseUrl;
         TiktokAsrLocalModelDir = settings.TiktokAsrLocalModelDir;
         TiktokAsrLocalVadPath = settings.TiktokAsrLocalVadPath;
         TiktokAsrAppId = settings.TiktokAsrAppId;

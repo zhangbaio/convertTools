@@ -15,7 +15,7 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
-    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "playlet", "hghigh", "mapleleaf", "downloader"];
+    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "playlet", "hghigh", "mapleleaf", "downloader", "dramabox"];
     private static readonly string[] NewReleaseServices = ["hgnew", "hglocal", "hghigh", "mapleleaf", "downloader"];
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
@@ -48,6 +48,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private readonly HongguoHighApiService _hghighApiService;
     private readonly MapleleafApiService _mapleleafApiService;
     private readonly DownloaderGatewayApiService _downloaderApiService;
+    private readonly DramaBoxApiService _dramaBoxApiService;
 
     public DramaSourceRouter(
         HttpClient httpClient,
@@ -113,6 +114,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         _hghighApiService = hghighApiService;
         _mapleleafApiService = mapleleafApiService;
         _downloaderApiService = new DownloaderGatewayApiService(httpClient);
+        _dramaBoxApiService = new DramaBoxApiService(httpClient);
     }
 
     public Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
@@ -138,6 +140,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken, searchCategory),
             "mapleleaf" => await _mapleleafApiService.SearchAsync(settings, keyword, page, cancellationToken),
             "downloader" => await _downloaderApiService.SearchAsync(settings, keyword, page, cancellationToken),
+            "dramabox" => await _dramaBoxApiService.SearchAsync(settings, keyword, page, cancellationToken),
             _ => []
         };
     }
@@ -204,6 +207,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         IProgress<IReadOnlyList<DramaSearchItem>>? detailResults = null)
     {
         var settings = _settingsProvider.Get();
+        if (string.Equals(settings.DramaSourceChain?.Trim(), "dramabox", StringComparison.OrdinalIgnoreCase))
+        {
+            progress?.Report("正在读取 DramaBox New…");
+            var items = await _dramaBoxApiService.GetNewChannelAsync(cancellationToken);
+            partialResults?.Report(items);
+            return FilterByRecentDays(items, days);
+        }
+
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
@@ -569,6 +580,26 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 minConcurrency: HghighMinimumDownloadConcurrency,
                 pieceSize: HghighPieceSizeBytes,
                 pieceWorkers: HghighPiecePoolWorkers);
+        }
+
+        if (bookId.StartsWith(DramaBoxApiService.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            bookId.StartsWith(DramaBoxApiService.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(settings.DramaSourceChain?.Trim(), "dramabox", StringComparison.OrdinalIgnoreCase))
+        {
+            var dramaBoxBookId = bookId.StartsWith(DramaBoxApiService.BookPrefix, StringComparison.OrdinalIgnoreCase)
+                ? bookId
+                : DramaBoxApiService.BookPrefix + bookId;
+            return await DownloadWithProviderAsync(
+                request,
+                progress,
+                cancellationToken,
+                resolveEpisodes: ct => GetDramaBoxEpisodesAsync(dramaBoxBookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetDramaBoxVideoUrlAsync(videoId, quality, settings, ct),
+                posterPrefix: DramaBoxApiService.BookPrefix,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("dramabox"),
+                downloadFileSegments: downloadFileSegments,
+                downloadTimeoutSeconds: downloadTimeoutSeconds,
+                downloadAttempts: downloadAttempts);
         }
 
         if (bookId.StartsWith(PlayletDramaClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -2302,6 +2333,21 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken)
     {
         return _hglocalApiService.SearchAsync(settings, keyword, page, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<SourceEpisode>> GetDramaBoxEpisodesAsync(
+        string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
+    {
+        var items = await _dramaBoxApiService.GetEpisodesAsync(settings, bookId, cancellationToken);
+        return items.Select(item => new SourceEpisode(
+            item.EpisodeNumber, item.Title, item.VideoId, string.Empty)).ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetDramaBoxVideoUrlAsync(
+        string videoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
+    {
+        var detail = await _dramaBoxApiService.GetPlaybackAsync(settings, videoId, quality, cancellationToken);
+        return new SourceVideoDetail(detail.Url);
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetDownloaderEpisodesAsync(
