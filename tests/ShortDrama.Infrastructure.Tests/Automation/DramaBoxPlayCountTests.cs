@@ -34,6 +34,19 @@ public class DramaBoxPlayCountTests
     }
 
     [Fact]
+    public void Reads_cover_from_search_and_chapter_payloads()
+    {
+        using var search = JsonDocument.Parse("""{"cover":"https://img.example/a.jpg"}""");
+        DramaBoxApiService.ReadCoverUrl(search.RootElement).Should().Be("https://img.example/a.jpg");
+
+        using var book = JsonDocument.Parse("""{"bookCover":"https://img.example/b.webp","cover":"https://img.example/ignored.jpg"}""");
+        DramaBoxApiService.ReadCoverUrl(book.RootElement).Should().Be("https://img.example/b.webp");
+
+        using var empty = JsonDocument.Parse("""{"cover":"not-a-url"}""");
+        DramaBoxApiService.ReadCoverUrl(empty.RootElement).Should().BeEmpty();
+    }
+
+    [Fact]
     public void Reads_numeric_play_count()
     {
         using var document = JsonDocument.Parse("8600");

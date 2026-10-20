@@ -857,6 +857,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         if (!string.IsNullOrWhiteSpace(posterUrl))
         {
+            RememberPosterUrl(request.ProjectDir, posterUrl);
             await EnsurePosterAsync(request.OutputDir, request.DisplayName, posterUrl, progress, cancellationToken);
         }
 
@@ -2442,8 +2443,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var items = await _dramaBoxApiService.GetEpisodesAsync(settings, bookId, cancellationToken);
+        var coverUrl = items.Select(item => item.CoverUrl).FirstOrDefault(url => !string.IsNullOrWhiteSpace(url)) ?? string.Empty;
         return items.Select(item => new SourceEpisode(
-            item.EpisodeNumber, item.Title, item.VideoId, string.Empty)).ToArray();
+            item.EpisodeNumber, item.Title, item.VideoId, coverUrl)).ToArray();
     }
 
     private async Task<SourceVideoDetail> GetDramaBoxVideoUrlAsync(
@@ -2841,9 +2843,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             await target.FlushAsync(cancellationToken);
             progress?.Report($"海报下载完成: {Path.GetFileName(targetPath)}");
         }
-        catch
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Poster download is best-effort for routed sources.
+            progress?.Report($"海报下载失败: {ex.Message}");
         }
     }
 
@@ -3344,6 +3346,32 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         catch
         {
             // Ignore metadata update failures.
+        }
+    }
+
+    private static void RememberPosterUrl(string projectDir, string posterUrl)
+    {
+        if (!LooksLikeHttpUrl(posterUrl))
+            return;
+        var metadataPath = Path.Combine(projectDir, "shortdrama-project.json");
+        if (!File.Exists(metadataPath))
+            return;
+
+        try
+        {
+            var json = File.ReadAllText(metadataPath);
+            using var document = JsonDocument.Parse(json);
+            var current = GetString(document.RootElement, "posterUrl") ?? GetString(document.RootElement, "poster_url") ?? "";
+            if (LooksLikeHttpUrl(current))
+                return;
+            var payload = JsonSerializer.Deserialize<Dictionary<string, object?>>(document.RootElement.GetRawText())
+                          ?? new Dictionary<string, object?>(StringComparer.Ordinal);
+            payload["posterUrl"] = posterUrl;
+            File.WriteAllText(metadataPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch
+        {
+            // The downloaded image is what the poster step needs.
         }
     }
 

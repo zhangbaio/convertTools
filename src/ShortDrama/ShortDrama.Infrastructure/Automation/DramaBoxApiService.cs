@@ -189,12 +189,13 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         DramaSourceSettings settings, string bookReference, CancellationToken cancellationToken)
     {
         var bookId = StripPrefix(bookReference, BookPrefix);
-        var chapters = await LoadChaptersAsync(settings, bookId, cancellationToken);
+        var (chapters, coverUrl) = await LoadChaptersAsync(settings, bookId, cancellationToken);
         return chapters
             .Select(chapter => new GatewayEpisode(
                 chapter.EpisodeNumber,
                 string.IsNullOrWhiteSpace(chapter.Title) ? $"第{chapter.EpisodeNumber}集" : chapter.Title,
-                $"{EpisodePrefix}{bookId}|{chapter.ChapterId}"))
+                $"{EpisodePrefix}{bookId}|{chapter.ChapterId}",
+                coverUrl))
             .ToArray();
     }
 
@@ -205,7 +206,7 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         var split = reference.Split('|', 2);
         if (split.Length != 2 || string.IsNullOrWhiteSpace(split[0]) || string.IsNullOrWhiteSpace(split[1]))
             throw new InvalidOperationException("DramaBox 分集号无效。");
-        var chapters = await LoadChaptersAsync(settings, split[0], cancellationToken);
+        var (chapters, _) = await LoadChaptersAsync(settings, split[0], cancellationToken);
         var chapter = chapters.FirstOrDefault(item => string.Equals(item.ChapterId, split[1], StringComparison.Ordinal))
                       ?? throw new InvalidOperationException("DramaBox 分集列表里没有这一集。");
         var url = PickUrl(chapter.Urls, quality)
@@ -272,16 +273,17 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             "");
     }
 
-    public sealed record GatewayEpisode(int EpisodeNumber, string Title, string VideoId);
+    public sealed record GatewayEpisode(int EpisodeNumber, string Title, string VideoId, string CoverUrl = "");
     public sealed record GatewayPlayback(string Url, string SpadeA, bool Encrypted);
 
-    private async Task<IReadOnlyList<DramaChapter>> LoadChaptersAsync(
+    private async Task<(IReadOnlyList<DramaChapter> Chapters, string CoverUrl)> LoadChaptersAsync(
         DramaSourceSettings settings, string bookId, CancellationToken cancellationToken)
     {
         var chapters = new List<DramaChapter>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var index = 1;
         var expected = 0;
+        var coverUrl = "";
         for (var page = 0; page < 40; page++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -291,6 +293,8 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
                 new { boundaryIndex = 0, index, preLoad = false, bookId },
                 cancellationToken);
             var data = DataObject(document.RootElement);
+            if (coverUrl.Length == 0)
+                coverUrl = ReadCoverUrl(data);
             if (expected <= 0)
                 expected = ReadInt(data, "chapterCount") ?? 0;
             var batch = ReadChapters(data);
@@ -322,9 +326,7 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
                 .ToList();
         }
 
-        return chapters
-            .OrderBy(item => item.EpisodeNumber)
-            .ToArray();
+        return (chapters.OrderBy(item => item.EpisodeNumber).ToArray(), coverUrl);
     }
 
     private async Task<JsonDocument> PostSignedAsync(
@@ -581,7 +583,7 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             bookId,
             title,
             ReadString(item, "introduction") ?? "",
-            ReadString(item, "coverWap") ?? ReadString(item, "bookCover") ?? "",
+            ReadCoverUrl(item),
             ReadEpisodeCount(item),
             JoinTags(item),
             ReadString(item, "bookShelfTime") ?? ReadString(item, "shelfTime") ?? "",
@@ -762,6 +764,19 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
 
     private static string ReadMessage(JsonElement root) =>
         ReadString(root, "msg") ?? ReadString(root, "message") ?? "未知错误";
+
+    internal static string ReadCoverUrl(JsonElement item)
+    {
+        foreach (var name in new[] { "coverWap", "bookCover", "cover" })
+        {
+            var value = ReadString(item, name);
+            if (!string.IsNullOrWhiteSpace(value) &&
+                value.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                return value;
+        }
+
+        return "";
+    }
 
     private static string? ReadString(JsonElement element, string name)
     {
