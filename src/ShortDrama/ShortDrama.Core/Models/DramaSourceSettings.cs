@@ -41,6 +41,10 @@ public sealed record DramaSourceSettings
 
     public string PlayletServerUrl { get; init; } = "https://startvlog.cn/start-prod-api";
     public string PlayletDeviceId { get; init; } = "";
+    public string ForeignServerUrl { get; init; } = "https://startvlog.cn/start-prod-api";
+    public string ForeignDeviceId { get; init; } = "";
+    public string ForeignSearchSource { get; init; } = "reelshort";
+    public string ForeignLanguage { get; init; } = "en";
     public string DramaBoxApiBaseUrl { get; init; } = "http://127.0.0.1:17865";
 
     public DramaSourceSettings WithPikachuDeviceId(string deviceId) =>

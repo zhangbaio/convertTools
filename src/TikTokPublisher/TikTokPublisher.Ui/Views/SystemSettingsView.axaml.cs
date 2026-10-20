@@ -109,7 +109,18 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
         DramaSourceCombo.Items.Add(CreateItem("DramaBox", "dramabox"));
+        DramaSourceCombo.Items.Add(CreateItem("海外短剧下载器", "foreign"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
+
+        ForeignSourceCombo.Items.Clear();
+        foreach (var source in ForeignPlayletClient.Sources)
+            ForeignSourceCombo.Items.Add(CreateItem(source.Label, source.Id));
+        ForeignSourceCombo.SelectionChanged += OnForeignSourceChanged;
+
+        ForeignLanguageCombo.Items.Clear();
+        foreach (var language in ForeignPlayletClient.Languages)
+            ForeignLanguageCombo.Items.Add(CreateItem(language.Label, language.Id));
+        ForeignLanguageCombo.SelectionChanged += OnForeignLanguageChanged;
 
         HghighEditionCombo.Items.Clear();
         HghighEditionCombo.Items.Add(CreateItem("高码率版", HongguoClientProfile.HighEdition));
@@ -207,6 +218,8 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null) return;
         SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
+        SelectComboItem(ForeignSourceCombo, _vm.ForeignSearchSource);
+        SelectComboItem(ForeignLanguageCombo, _vm.ForeignLanguage);
         SelectComboItem(HghighEditionCombo, _vm.HghighEdition);
         SelectComboItem(HghighStandardPlaybackCombo, _vm.HghighStandardPlaybackMode);
         SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
@@ -283,6 +296,18 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || DramaSourceCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.DramaSourceChain = item.Tag as string ?? VisibleDramaSource.DefaultChain;
+    }
+
+    private void OnForeignSourceChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ForeignSourceCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.ForeignSearchSource = item.Tag as string ?? ForeignPlayletClient.DefaultSource;
+    }
+
+    private void OnForeignLanguageChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ForeignLanguageCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.ForeignLanguage = item.Tag as string ?? ForeignPlayletClient.DefaultLanguage;
     }
 
     private void OnPikachuTypeChanged(object? sender, SelectionChangedEventArgs e)

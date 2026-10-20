@@ -87,6 +87,28 @@ public sealed class DramaSourceConfigurationValidatorTests
         Assert.Equal("pikachu", VisibleDramaSource.Normalize("pikachu"));
         Assert.Equal("playlet", VisibleDramaSource.Normalize("playlet"));
         Assert.Equal("dramabox", VisibleDramaSource.Normalize("dramabox"));
+        Assert.Equal("foreign", VisibleDramaSource.Normalize("foreign"));
+    }
+
+    [Fact]
+    public void ForeignSourceRequiresServerAndDevice()
+    {
+        var missing = DramaSourceConfigurationValidator.Check(new ClientSettings
+        {
+            DramaSourceChain = "foreign",
+            ForeignServerUrl = "https://startvlog.cn/start-prod-api",
+        });
+        Assert.False(missing.IsConfigured);
+        Assert.Contains("设备号", missing.Message);
+
+        var configured = DramaSourceConfigurationValidator.Check(new ClientSettings
+        {
+            DramaSourceChain = "foreign",
+            ForeignServerUrl = "https://startvlog.cn/start-prod-api",
+            ForeignDeviceId = "DC8D94CB6E7122F92E",
+        });
+        Assert.True(configured.IsConfigured);
+        Assert.Contains("海外短剧下载器", configured.Message);
     }
 
     [Fact]

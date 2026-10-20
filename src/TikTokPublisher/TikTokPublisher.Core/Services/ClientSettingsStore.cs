@@ -339,6 +339,12 @@ public static class ClientSettingsStore
             ? PlayletDramaClient.DefaultServerUrl
             : settings.PlayletServerUrl.Trim().TrimEnd('/');
         settings.PlayletDeviceId = (settings.PlayletDeviceId ?? string.Empty).Trim().ToUpperInvariant();
+        settings.ForeignServerUrl = string.IsNullOrWhiteSpace(settings.ForeignServerUrl)
+            ? ForeignPlayletClient.DefaultServerUrl
+            : settings.ForeignServerUrl.Trim().TrimEnd('/');
+        settings.ForeignDeviceId = (settings.ForeignDeviceId ?? string.Empty).Trim().ToUpperInvariant();
+        settings.ForeignSearchSource = ForeignPlayletClient.NormalizeSource(settings.ForeignSearchSource);
+        settings.ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(settings.ForeignLanguage);
         settings.TiktokMaterialValidateConcurrency = Math.Clamp(settings.TiktokMaterialValidateConcurrency, 1, 16);
         settings.TiktokAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokAsrLanguage)
             ? "zh-CN"

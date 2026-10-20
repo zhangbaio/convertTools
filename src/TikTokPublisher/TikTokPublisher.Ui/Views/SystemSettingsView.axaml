@@ -311,6 +311,38 @@
                                 <TextBlock Text="{Binding PlayletProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                             </StackPanel>
                         </Grid>
+
+                        <Separator Margin="0,4" />
+
+                        <TextBlock Text="海外短剧下载器（v2.4.0）" FontWeight="Bold" />
+                        <TextBlock Text="认证与红果短剧下载器相同：使用软件设置里的设备号登记会员。搜索源决定去哪个平台找剧，下拉里的源都已接入搜索和下载。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="服务地址" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ForeignServerUrl}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="设备号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1"
+                                     Text="{Binding ForeignDeviceId}"
+                                     Watermark="下载器软件设置中的设备信息" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="搜索源" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ForeignSourceCombo" HorizontalAlignment="Left" MinWidth="220" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="搜索语言" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ForeignLanguageCombo" HorizontalAlignment="Left" MinWidth="220" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="8">
+                                <Button Content="测试海外短剧下载器"
+                                        Command="{Binding ProbeForeignConnectivityCommand}"
+                                        IsEnabled="{Binding !IsForeignBusy}"
+                                        MinWidth="180"
+                                        HorizontalAlignment="Left" />
+                                <TextBlock Text="{Binding ForeignProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
