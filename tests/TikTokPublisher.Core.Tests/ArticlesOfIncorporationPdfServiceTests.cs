@@ -71,6 +71,19 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
     }
 
     [Fact]
+    public void CreateRandomKentucky_DoesNotRepeatAPreviousDraw()
+    {
+        var today = new DateOnly(2026, 10, 20);
+        var random = new Random(9);
+        var first = KentuckyArticlesPdfService.CreateRandom(today, random);
+        var second = KentuckyArticlesPdfService.CreateRandom(today, random, [first]);
+
+        second.CompanyName.Should().NotBe(first.CompanyName);
+        second.FilingNumber.Should().NotBe(first.FilingNumber);
+        second.FiledAt.Should().NotBe(first.FiledAt);
+    }
+
+    [Fact]
     public void RenderKentucky_FillsBothTemplates()
     {
         var fields = KentuckyArticlesPdfService.CreateRandom(new DateOnly(2026, 10, 20), new Random(2));

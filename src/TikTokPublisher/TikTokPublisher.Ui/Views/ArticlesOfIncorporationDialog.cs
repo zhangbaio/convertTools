@@ -219,13 +219,18 @@ public sealed class ArticlesOfIncorporationDialog : Window
 
     private void RandomizeKentucky()
     {
-        var fields = KentuckyArticlesPdfService.CreateRandom(DateOnly.FromDateTime(DateTime.Today));
+        var previous = KentuckyRandomHistory.Load();
+        var current = ReadKentuckyFields();
+        if (current.HasAnyValue())
+            previous.Add(current);
+        var fields = KentuckyArticlesPdfService.CreateRandom(DateOnly.FromDateTime(DateTime.Today), previous: previous);
         _kyFilingNumber.Text = fields.FilingNumber;
         _kyFiledAt.Text = fields.FiledAt;
         _kyCompanyName.Text = fields.CompanyName;
         _kyStreet.Text = fields.Street;
         _kyCity.Text = fields.CityLine;
         _kyEffectiveOn.Text = fields.EffectiveOn;
+        KentuckyRandomHistory.Remember(fields);
         _status.Text = "已随机生成肯塔基备案号、时间、公司名称、地址和生效日期。";
     }
 
@@ -373,4 +378,45 @@ file static class RegistrantNameStore
         (DefaultName, ArticlesOfIncorporationFields.ToShortName(DefaultName));
 
     private sealed record SavedRegistrant(string Name, string ShortName);
+}
+
+file static class KentuckyRandomHistory
+{
+    private const int MaxEntries = 300;
+
+    private static string FilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".registration_pdf",
+        "kentucky-random-history.json");
+
+    public static List<KentuckyArticlesFields> Load()
+    {
+        try
+        {
+            if (!File.Exists(FilePath))
+                return [];
+            return JsonSerializer.Deserialize<List<KentuckyArticlesFields>>(File.ReadAllText(FilePath)) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    public static void Remember(KentuckyArticlesFields fields)
+    {
+        try
+        {
+            var history = Load();
+            history.Add(fields);
+            if (history.Count > MaxEntries)
+                history.RemoveRange(0, history.Count - MaxEntries);
+            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(history));
+        }
+        catch
+        {
+            // Remembering a draw should not block the next random generation.
+        }
+    }
 }

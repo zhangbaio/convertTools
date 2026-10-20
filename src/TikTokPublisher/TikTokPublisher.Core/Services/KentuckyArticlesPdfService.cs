@@ -84,13 +84,24 @@ public static class KentuckyArticlesPdfService
         document.Save(outputPath);
     }
 
-    public static KentuckyArticlesFields CreateRandom(DateOnly today, Random? random = null)
+    public static KentuckyArticlesFields CreateRandom(
+        DateOnly today,
+        Random? random = null,
+        IReadOnlyCollection<KentuckyArticlesFields>? previous = null)
     {
         var earliest = new DateOnly(2025, 1, 1);
         if (today < earliest)
             throw new ArgumentOutOfRangeException(nameof(today), "当前日期早于 2025 年，无法生成备案日期。");
 
         var rng = random ?? Random.Shared;
+        KentuckyArticlesFields fields = CreateRandomOnce(today, earliest, rng);
+        for (var attempt = 0; attempt < 40 && ConflictsWithPrevious(fields, previous); attempt++)
+            fields = CreateRandomOnce(today, earliest, rng);
+        return fields;
+    }
+
+    private static KentuckyArticlesFields CreateRandomOnce(DateOnly today, DateOnly earliest, Random rng)
+    {
         var day = DateOnly.FromDayNumber(earliest.DayNumber + rng.Next(today.DayNumber - earliest.DayNumber + 1));
         var hour12 = rng.Next(1, 13);
         var minute = rng.Next(0, 60);
@@ -106,6 +117,20 @@ public static class KentuckyArticlesPdfService
             $"{place.City}, KY {place.Zip}",
             filed.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture) + ".");
     }
+
+    private static bool ConflictsWithPrevious(KentuckyArticlesFields fields, IReadOnlyCollection<KentuckyArticlesFields>? previous)
+    {
+        if (previous is null || previous.Count == 0)
+            return false;
+        return previous.Any(item =>
+            Same(item.CompanyName, fields.CompanyName)
+            || Same(item.FilingNumber, fields.FilingNumber)
+            || (Same(item.Street, fields.Street) && Same(item.CityLine, fields.CityLine))
+            || Same(item.FiledAt, fields.FiledAt));
+    }
+
+    private static bool Same(string left, string right) =>
+        string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private static string JoinAddress(string street, string cityLine)
     {
