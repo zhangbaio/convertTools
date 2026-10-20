@@ -456,20 +456,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (!IsKuaishouPlatform || !CanScanWorkspace() || _activeGlobalAccount is null)
             return;
-        var root = Path.GetFullPath(DraftProjectDirectory);
-        var prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                     + Path.DirectorySeparatorChar;
-        var hasProjects = _jobs.Any(job =>
-            job.Platform == SelectedPlatform.Value &&
-            job.Kind == PublishJobKind.Series &&
-            string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
-            Path.GetFullPath(job.ProjectDirectory).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-        if (hasProjects)
-        {
-            RefreshVisibleJobs();
-            return;
-        }
+        // 快手个人版和企业版共用同一工作目录。短剧助手每次进入都会按磁盘重扫；
+        // 这里不能因为已有旧任务就跳过，否则后加入的项目只会出现在后扫描的那一版。
         await ScanWorkspaceAsync();
     }
 
@@ -956,12 +944,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 StatusMessage = $"正在扫描{platform.DisplayName()}工作目录：{rootDirectory}";
                 AppendActivityLog(StatusMessage);
                 var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
+                var projects = result.Projects;
+                if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+                {
+                    projects = projects
+                        .Where(project => KuaishouWorkspaceProjects.IsListed(rootDirectory, project.SourceProjectDir))
+                        .ToList();
+                }
+
                 var existing = _jobs
                     .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
                     .Select(job => Path.GetFullPath(job.ProjectDirectory))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var added = 0;
-                foreach (var project in result.Projects)
+                foreach (var project in projects)
                 {
                     var sourceDirectory = Path.GetFullPath(project.SourceProjectDir);
                     if (!existing.Add(sourceDirectory)) continue;
@@ -988,7 +984,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 await PersistAsync(cancellationToken);
                 RefreshVisibleJobs();
-                StatusMessage = $"扫描完成：发现 {result.TotalProjects} 个项目，新增 {added} 个任务。";
+                StatusMessage = $"扫描完成：发现 {projects.Count} 个项目，新增 {added} 个任务。";
                 AppendActivityLog(StatusMessage);
             }
             catch (OperationCanceledException)
@@ -2240,6 +2236,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             VisibleJobs.Clear();
             foreach (var job in _jobs
                          .Where(job => job.Platform == SelectedPlatform.Value)
+                         .Where(job => !IsKuaishouPlatform ||
+                                       KuaishouWorkspaceProjects.IsListed(DraftProjectDirectory, job.ProjectDirectory))
                          .Where(job => _activeGlobalAccount is null ||
                                        string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase))
                          .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
