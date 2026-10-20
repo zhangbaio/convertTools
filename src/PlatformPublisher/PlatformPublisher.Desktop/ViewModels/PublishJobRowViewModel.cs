@@ -1,7 +1,9 @@
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Kuaishou.Publishing;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -15,6 +17,8 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         _isChecked = model.IsChecked;
         _tableInfo = ResolveTableInfo(model);
         ReloadKuaishouArtifacts();
+        OpenSourceDirectoryCommand = new RelayCommand(() => OpenDirectory(SourceDirectory));
+        OpenWorkflowDirectoryCommand = new RelayCommand(() => OpenDirectory(WorkflowDirectory));
     }
 
     public PublishJob Model { get; }
@@ -28,6 +32,10 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string ProjectDirectory => Model.ProjectDirectory;
     public string OriginalTitle => FirstNonEmpty(_kuaishou?.OriginalTitle, _tableInfo.OriginalTitle);
     public string NewTitle => FirstNonEmpty(_kuaishou?.NewTitle, _tableInfo.NewTitle);
+    public string SourceDirectory => _tableInfo.SourceDirectory;
+    public string WorkflowDirectory => _tableInfo.WorkflowDirectory;
+    public IRelayCommand OpenSourceDirectoryCommand { get; }
+    public IRelayCommand OpenWorkflowDirectoryCommand { get; }
     public string SourceText => _tableInfo.Source;
     public string EpisodeCountText
     {
@@ -182,15 +190,37 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         return "";
     }
 
+    private static void OpenDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return;
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = $"\"{path}\"",
+            UseShellExecute = true,
+        });
+    }
+
     private static ProjectTableInfo ResolveTableInfo(PublishJob model)
     {
         var original = model.ProjectName;
         var renamed = model.ProjectName;
         var source = model.Kind == PublishJobKind.Series ? "本地" : model.Kind.DisplayName();
         var episodeCount = 0;
+        var sourceDirectory = model.ProjectDirectory;
+        var workflowDirectory = model.ProjectDirectory;
         try
         {
-            var selected = model.ProjectDirectory;
+            if (model.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue
+                && Directory.Exists(model.ProjectDirectory))
+            {
+                var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(model.ProjectDirectory);
+                sourceDirectory = directories.SourceDirectory;
+                workflowDirectory = directories.WorkflowDirectory;
+            }
+
+            var selected = sourceDirectory;
             var metadataPath = Path.Combine(selected, "shortdrama-project.json");
             if (File.Exists(metadataPath))
             {
@@ -200,7 +230,11 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
                 source = JsonText(root, "sourceType", "queueEntrySource") ?? source;
                 if (root.TryGetProperty("episodeCount", out var count) && count.TryGetInt32(out var parsed)) episodeCount = parsed;
                 var workflow = JsonText(root, "workflowProjectDir");
-                if (!string.IsNullOrWhiteSpace(workflow) && Directory.Exists(workflow)) selected = workflow;
+                if (!string.IsNullOrWhiteSpace(workflow) && Directory.Exists(workflow))
+                {
+                    workflowDirectory = Path.GetFullPath(workflow);
+                    selected = workflowDirectory;
+                }
             }
             var infoPath = Path.Combine(selected, "短剧信息.txt");
             if (File.Exists(infoPath))
@@ -225,7 +259,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         {
             // 表格摘要读取失败时使用任务自身字段，不影响队列执行。
         }
-        return new ProjectTableInfo(original, renamed, source, episodeCount);
+        return new ProjectTableInfo(original, renamed, source, episodeCount, sourceDirectory, workflowDirectory);
     }
 
     private static string? JsonText(JsonElement root, params string[] names)
@@ -271,7 +305,13 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(StepProgressSummary));
     }
 
-    private sealed record ProjectTableInfo(string OriginalTitle, string NewTitle, string Source, int EpisodeCount);
+    private sealed record ProjectTableInfo(
+        string OriginalTitle,
+        string NewTitle,
+        string Source,
+        int EpisodeCount,
+        string SourceDirectory,
+        string WorkflowDirectory);
 
     private static readonly IBrush SuccessBrush = new SolidColorBrush(Color.Parse("#1F7A42"));
     private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#0F63C7"));

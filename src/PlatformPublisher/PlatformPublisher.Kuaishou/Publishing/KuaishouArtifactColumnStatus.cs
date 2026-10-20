@@ -28,6 +28,13 @@ public static class KuaishouArtifactColumnStatusReader
 
     private static readonly string[] ProjectImageSuffixes = [".png", ".jpg", ".jpeg", ".bmp"];
 
+    public static (string SourceDirectory, string WorkflowDirectory) ResolveDirectories(string projectDirectory)
+    {
+        var projectDir = Path.GetFullPath(projectDirectory);
+        var sourceDir = ResolveSourceDirectory(projectDir);
+        return (sourceDir, ResolveWorkflowDirectory(projectDir, sourceDir));
+    }
+
     public static KuaishouArtifactColumnStatus Read(string projectDirectory, bool enterprise)
     {
         var projectDir = Path.GetFullPath(projectDirectory);

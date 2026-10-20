@@ -1083,7 +1083,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var targets = ResolveSharedPipelineTargets();
         if (targets.Count == 0)
         {
-            StatusMessage = "请先勾选或选择要执行的项目。";
+            StatusMessage = IsKuaishouPlatform
+                ? "请先勾选要执行的项目。"
+                : "请先勾选或选择要执行的项目。";
             AppendActivityLog(StatusMessage);
             return;
         }
@@ -1110,6 +1112,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             });
             var succeeded = 0;
             var failed = 0;
+            var stepNames = steps.Select(step => step.Label).ToList();
+            if (PipelineAutoRepairEnabled) stepNames.Add("一键修复");
+            if (PipelineAutoFillEnabled) stepNames.Add("补齐字段");
+            if (PipelineRemuxEnabled) stepNames.Add("无损重封装");
+            AppendActivityLog($"执行勾选步骤：{targets.Count} 个项目，步骤：{(stepNames.Count == 0 ? "无" : string.Join("、", stepNames))}。已完成的步骤会跳过。");
             foreach (var projectDirectory in targets)
             {
                 var trackedJob = _jobs.FirstOrDefault(job =>
@@ -1193,7 +1200,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         });
                     }
 
-                    if (IsKuaishouPlatform)
+                    if (IsKuaishouPlatform && (PipelinePosterEnabled || PipelineProjectImageEnabled || PipelineAutoFillEnabled))
                     {
                         var kuaishouPlatform = SelectedPlatform.Value;
                         await RunTrackedStepAsync(trackedJob, trackedRow, "kuaishou-personal-artifacts", "快手分账产物", PipelineForceRerun, async () =>
@@ -1285,7 +1292,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .Select(row => Path.GetFullPath(row.Model.ProjectDirectory))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (checkedDirectories.Length > 0)
+        if (checkedDirectories.Length > 0 || IsKuaishouPlatform)
             return checkedDirectories;
         if (SelectedJob is not null && Directory.Exists(SelectedJob.Model.ProjectDirectory))
             return [Path.GetFullPath(SelectedJob.Model.ProjectDirectory)];
