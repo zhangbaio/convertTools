@@ -322,13 +322,14 @@
                             </StackPanel>
                         </Grid>
 
-                        <Separator Margin="0,4" />
+                        <Separator Margin="0,4" IsVisible="False" />
 
-                        <TextBlock Text="海外短剧下载器（v2.4.0）" FontWeight="Bold" />
+                        <TextBlock Text="海外短剧下载器（v2.4.0）" FontWeight="Bold" IsVisible="False" />
                         <TextBlock Text="认证与红果短剧下载器相同：使用软件设置里的设备号登记会员。搜索源决定去哪个平台找剧，下拉里的源都已接入搜索和下载。"
                                    Classes="pageSummary"
-                                   TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                   TextWrapping="Wrap"
+                                   IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="服务地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ForeignServerUrl}" />
 

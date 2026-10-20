@@ -153,6 +153,19 @@ public sealed class UploadTitleImportServiceTests
         notice.Should().Be("作者排除原因：剧A: 命中作者排除：掌玩短剧（包含 掌玩）。");
     }
 
+    [Theory]
+    [InlineData("dramabox", false)]
+    [InlineData("DramaBox", false)]
+    [InlineData("dramabox:42000030939", false)]
+    [InlineData(" playlet ", true)]
+    [InlineData("hghigh:123", true)]
+    [InlineData("", true)]
+    [InlineData(null, true)]
+    public void DramaBox_does_not_apply_author_exclusion(string? chain, bool expected)
+    {
+        UploadTitleImportService.ShouldApplyAuthorExclusion(chain).Should().Be(expected);
+    }
+
     [Fact]
     public async Task Unknown_author_requires_explicit_confirmation_when_exclusions_are_enabled()
     {

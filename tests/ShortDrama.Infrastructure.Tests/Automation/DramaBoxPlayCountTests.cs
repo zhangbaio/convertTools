@@ -20,6 +20,20 @@ public class DramaBoxPlayCountTests
     }
 
     [Fact]
+    public void Reads_episode_count_when_chapter_count_is_zero()
+    {
+        using var document = JsonDocument.Parse("""{"chapterCount":0,"totalChapterNum":31}""");
+        DramaBoxApiService.ReadEpisodeCount(document.RootElement).Should().Be(31);
+    }
+
+    [Fact]
+    public void Reads_episode_count_from_chapter_count()
+    {
+        using var document = JsonDocument.Parse("""{"chapterCount":31}""");
+        DramaBoxApiService.ReadEpisodeCount(document.RootElement).Should().Be(31);
+    }
+
+    [Fact]
     public void Reads_numeric_play_count()
     {
         using var document = JsonDocument.Parse("8600");

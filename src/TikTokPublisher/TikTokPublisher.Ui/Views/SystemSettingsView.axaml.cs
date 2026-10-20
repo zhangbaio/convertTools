@@ -109,7 +109,6 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
         DramaSourceCombo.Items.Add(CreateItem("DramaBox", "dramabox"));
-        DramaSourceCombo.Items.Add(CreateItem("海外短剧下载器", "foreign"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
 
         ForeignSourceCombo.Items.Clear();

@@ -90,7 +90,7 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             },
             cancellationToken);
         var books = ReadSearchList(document.RootElement);
-        return books.Select(ToSearchItem).ToArray();
+        return await FillEpisodeCountsAsync(settings, books.Select(ToSearchItem).ToArray(), cancellationToken);
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetNewChannelAsync(CancellationToken cancellationToken)
@@ -125,7 +125,64 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
                 break;
         }
 
-        return books.Select(ToSearchItem).ToArray();
+        return await FillEpisodeCountsAsync(settings, books.Select(ToSearchItem).ToArray(), cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> FillEpisodeCountsAsync(
+        DramaSourceSettings settings,
+        DramaSearchItem[] items,
+        CancellationToken cancellationToken)
+    {
+        if (items.All(item => item.EpisodeTotal > 0))
+            return items;
+
+        using var gate = new SemaphoreSlim(4);
+        var filled = new DramaSearchItem[items.Length];
+        await Task.WhenAll(items.Select(async (item, index) =>
+        {
+            if (item.EpisodeTotal > 0)
+            {
+                filled[index] = item;
+                return;
+            }
+
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                var count = await ReadDetailEpisodeCountAsync(settings, item.BookId, cancellationToken);
+                filled[index] = count > 0 ? item with { EpisodeTotal = count } : item;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                filled[index] = item;
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }));
+        return filled;
+    }
+
+    private async Task<int> ReadDetailEpisodeCountAsync(
+        DramaSourceSettings settings,
+        string bookReference,
+        CancellationToken cancellationToken)
+    {
+        var bookId = StripPrefix(bookReference, BookPrefix);
+        using var document = await PostSignedAsync(
+            settings,
+            "/drama-box/chapterv2/detail",
+            new { bookId },
+            cancellationToken);
+        var data = DataObject(document.RootElement);
+        return data.TryGetProperty("list", out var list) && list.ValueKind == JsonValueKind.Array
+            ? list.GetArrayLength()
+            : 0;
     }
 
     public async Task<IReadOnlyList<GatewayEpisode>> GetEpisodesAsync(
@@ -510,7 +567,7 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             title,
             ReadString(item, "introduction") ?? "",
             ReadString(item, "coverWap") ?? ReadString(item, "bookCover") ?? "",
-            ReadInt(item, "chapterCount") ?? 0,
+            ReadEpisodeCount(item),
             JoinTags(item),
             ReadString(item, "bookShelfTime") ?? ReadString(item, "shelfTime") ?? "",
             ReadPlayCount(item));
@@ -574,6 +631,37 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             : 1080;
         return urls.OrderBy(item => Math.Abs(item.Quality - preferred)).Select(item => item.Url).FirstOrDefault();
     }
+
+    internal static int ReadEpisodeCount(JsonElement item)
+    {
+        foreach (var name in EpisodeCountFields)
+        {
+            var count = ReadInt(item, name);
+            if (count is > 0)
+                return count.Value;
+        }
+
+        foreach (var nestedName in new[] { "book", "bookInfo", "detail" })
+        {
+            if (!item.TryGetProperty(nestedName, out var nested) || nested.ValueKind != JsonValueKind.Object)
+                continue;
+            var count = ReadEpisodeCount(nested);
+            if (count > 0)
+                return count;
+        }
+
+        return 0;
+    }
+
+    private static readonly string[] EpisodeCountFields =
+    [
+        "episodeCount", "episode_count", "episode_cnt",
+        "chapterCount", "chapter_count", "chapterCnt", "chapter_cnt",
+        "chapterNum", "chapter_num", "chapterTotal", "chapter_total",
+        "totalChapter", "total_chapter", "totalChapterNum", "total_chapter_num",
+        "totalEpisode", "total_episode", "episodeTotal", "episode_total",
+        "chapterSize", "chapter_size", "sectionCount", "section_count",
+    ];
 
     private static int ReadPlayCount(JsonElement item)
     {

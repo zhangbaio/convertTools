@@ -71,12 +71,13 @@ public sealed class DramaSourceConfigurationValidatorTests
     [InlineData("hgnew")]
     [InlineData("mapleleaf")]
     [InlineData("downloader")]
+    [InlineData("foreign")]
     [InlineData("unknown")]
     [InlineData(null)]
     public void RetiredAndUnknownChainsBecomePlaylet(string? chain)
     {
         Assert.Equal("playlet", VisibleDramaSource.Normalize(chain));
-        Assert.Equal(chain is "hgnew" or "mapleleaf" or "downloader", VisibleDramaSource.IsRetired(chain));
+        Assert.Equal(chain is "hgnew" or "mapleleaf" or "downloader" or "foreign", VisibleDramaSource.IsRetired(chain));
     }
 
     [Fact]
@@ -87,7 +88,6 @@ public sealed class DramaSourceConfigurationValidatorTests
         Assert.Equal("pikachu", VisibleDramaSource.Normalize("pikachu"));
         Assert.Equal("playlet", VisibleDramaSource.Normalize("playlet"));
         Assert.Equal("dramabox", VisibleDramaSource.Normalize("dramabox"));
-        Assert.Equal("foreign", VisibleDramaSource.Normalize("foreign"));
     }
 
     [Fact]

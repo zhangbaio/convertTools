@@ -1758,7 +1758,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var skipped = new List<DramaSearchItem>();
         foreach (var item in selectedItems)
         {
-            if (excluded.Any(token => ContainsToken(item.Author, token)))
+            if (UploadTitleImportService.ShouldApplyAuthorExclusion(item.BookId)
+                && excluded.Any(token => ContainsToken(item.Author, token)))
                 skipped.Add(item);
             else
                 kept.Add(item);

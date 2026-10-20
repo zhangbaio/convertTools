@@ -234,8 +234,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         "hglocal",
         "pikachu",
         "playlet",
-        "dramabox",
-        "foreign"
+        "dramabox"
     ];
 
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
