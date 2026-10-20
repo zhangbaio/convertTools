@@ -1456,7 +1456,7 @@ public static class QueueMaterialStepService
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
         if (account?.TiktokRewriteFollowsSourceLanguage == true)
         {
-            log("改写信息跟随源语言：将用 AI 判断原剧名和原简介的语言。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语，其他语言改写失败。");
+            log("改写信息跟随源语言：将用 AI 判断原剧名和原简介的语言。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。");
         }
 
         var rewriteVariantKey = BuildRewriteVariantKey(context, account);
