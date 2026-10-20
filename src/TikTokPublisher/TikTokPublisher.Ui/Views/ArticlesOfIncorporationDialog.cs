@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -27,6 +28,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
     };
     private readonly TextBlock _status = new() { Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap };
     private readonly string? _suggestedDirectory;
+    private bool _syncingShortName;
 
     private ArticlesOfIncorporationDialog(string? suggestedDirectory)
     {
@@ -36,9 +38,20 @@ public sealed class ArticlesOfIncorporationDialog : Window
         MinWidth = 760;
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        _incorporatorName.IsReadOnly = true;
-        _incorporatorName.Watermark = "由注册人名称自动生成";
-        _agentName.TextChanged += (_, _) => SyncShortName();
+        var savedName = RegistrantNameStore.Load();
+        _agentName.Text = savedName.Name;
+        _incorporatorName.Text = savedName.ShortName;
+        _agentName.TextChanged += (_, _) =>
+        {
+            SyncShortName();
+            RegistrantNameStore.Save(_agentName.Text, _incorporatorName.Text);
+        };
+        _incorporatorName.TextChanged += (_, _) =>
+        {
+            if (_syncingShortName)
+                return;
+            RegistrantNameStore.Save(_agentName.Text, _incorporatorName.Text);
+        };
         RandomizeFilingStamp();
 
         var root = new Grid
@@ -144,14 +157,18 @@ public sealed class ArticlesOfIncorporationDialog : Window
         _agentStreet.Text ?? string.Empty,
         _agentCity.Text ?? string.Empty,
         _signedOn.Text ?? string.Empty,
-        ArticlesOfIncorporationFields.ToShortName(_agentName.Text),
+        _incorporatorName.Text ?? string.Empty,
         _agentStreet.Text ?? string.Empty,
         _agentCity.Text ?? string.Empty,
         _companyName.Text ?? string.Empty,
         _email.Text ?? string.Empty);
 
-    private void SyncShortName() =>
+    private void SyncShortName()
+    {
+        _syncingShortName = true;
         _incorporatorName.Text = ArticlesOfIncorporationFields.ToShortName(_agentName.Text);
+        _syncingShortName = false;
+    }
 
     private void RandomizeFilingStamp()
     {
@@ -160,13 +177,11 @@ public sealed class ArticlesOfIncorporationDialog : Window
         _businessId.Text = stamp.BusinessId;
         _filedAt.Text = stamp.FiledAt;
         _signedOn.Text = stamp.SignedOn;
-        _agentName.Text = stamp.RegistrantName;
         _agentStreet.Text = stamp.Street;
         _agentCity.Text = stamp.City;
         _companyName.Text = stamp.CompanyName;
         _email.Text = stamp.Email;
-        SyncShortName();
-        _status.Text = "已随机生成备案信息、企业名称、邮箱、注册人名称和地址。";
+        _status.Text = "已随机生成备案信息、企业名称、邮箱和地址。";
     }
 
     private async Task GenerateAsync()
@@ -238,4 +253,54 @@ public sealed class ArticlesOfIncorporationDialog : Window
             _status.Text = $"生成失败：{ex.Message}";
         }
     }
+}
+
+file static class RegistrantNameStore
+{
+    private const string DefaultName = "ANTHONY CLYDE CLUNIS";
+
+    private static string FilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".registration_pdf",
+        "registrant.json");
+
+    public static (string Name, string ShortName) Load()
+    {
+        try
+        {
+            if (!File.Exists(FilePath))
+                return Default();
+            var saved = JsonSerializer.Deserialize<SavedRegistrant>(File.ReadAllText(FilePath));
+            var name = string.IsNullOrWhiteSpace(saved?.Name) ? DefaultName : saved.Name.Trim();
+            var shortName = string.IsNullOrWhiteSpace(saved?.ShortName)
+                ? ArticlesOfIncorporationFields.ToShortName(name)
+                : saved.ShortName.Trim();
+            return (name, shortName);
+        }
+        catch
+        {
+            return Default();
+        }
+    }
+
+    public static void Save(string? name, string? shortName)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+            var payload = new SavedRegistrant(
+                (name ?? string.Empty).Trim(),
+                (shortName ?? string.Empty).Trim());
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(payload));
+        }
+        catch
+        {
+            // A failed preference write should not block PDF generation.
+        }
+    }
+
+    private static (string Name, string ShortName) Default() =>
+        (DefaultName, ArticlesOfIncorporationFields.ToShortName(DefaultName));
+
+    private sealed record SavedRegistrant(string Name, string ShortName);
 }

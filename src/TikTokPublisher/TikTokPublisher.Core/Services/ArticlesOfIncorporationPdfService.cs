@@ -68,7 +68,7 @@ public static class ArticlesOfIncorporationPdfService
             Draw(graphics, fields.RegisteredAgentStreet, body, AgentX, AgentStreetBaseline);
             Draw(graphics, fields.RegisteredAgentCity, body, AgentX, AgentCityBaseline);
             DrawSignedOn(graphics, fields.SignedOn, date, body);
-            Draw(graphics, ArticlesOfIncorporationFields.ToShortName(fields.RegisteredAgentName), body, IncorporatorNameX, IncorporatorFirstBaseline);
+            Draw(graphics, ShortName(fields), body, IncorporatorNameX, IncorporatorFirstBaseline);
             Draw(graphics, fields.RegisteredAgentStreet, body, IncorporatorAddressX, IncorporatorFirstBaseline);
             Draw(graphics, fields.RegisteredAgentCity, body, IncorporatorAddressX, IncorporatorCityBaseline);
         }
@@ -107,13 +107,18 @@ public static class ArticlesOfIncorporationPdfService
             Draw(graphics, ArticlesChineseText.TranslateStreet(fields.RegisteredAgentStreet), body, AgentX, AgentStreetBaseline);
             Draw(graphics, ArticlesChineseText.TranslateCity(fields.RegisteredAgentCity), body, AgentX, AgentCityBaseline);
             DrawChineseSignedOn(graphics, fields.SignedOn, body);
-            Draw(graphics, ArticlesChineseText.TranslateShortName(fields.RegisteredAgentName), body, IncorporatorNameX, IncorporatorFirstBaseline);
+            Draw(graphics, ArticlesChineseText.TranslateShortName(ShortName(fields)), body, IncorporatorNameX, IncorporatorFirstBaseline);
             Draw(graphics, ArticlesChineseText.TranslateStreet(fields.RegisteredAgentStreet), body, IncorporatorAddressX, IncorporatorFirstBaseline);
             Draw(graphics, ArticlesChineseText.TranslateCity(fields.RegisteredAgentCity), body, IncorporatorAddressX, IncorporatorCityBaseline);
         }
 
         document.Save(outputPath);
     }
+
+    private static string ShortName(ArticlesOfIncorporationFields fields) =>
+        string.IsNullOrWhiteSpace(fields.IncorporatorName)
+            ? ArticlesOfIncorporationFields.ToShortName(fields.RegisteredAgentName)
+            : fields.IncorporatorName.Trim();
 
     private static string TranslateFiledLine(string filedAt)
     {
