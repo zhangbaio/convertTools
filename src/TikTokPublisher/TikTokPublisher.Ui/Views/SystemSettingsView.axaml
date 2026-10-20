@@ -278,12 +278,22 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="DramaBox 下载器（v1.5.7）" FontWeight="Bold" />
-                        <TextBlock Text="搜索和下载走本机接口。助手会在 127.0.0.1:17865 提供搜索、分集和播放地址；加密成片仍由 DramaBox 下载器解密，这里只下载能直接取得地址的剧集。"
+                        <TextBlock Text="搜索、New 上新和下载都使用 DramaBox 下载器的设备授权。画质优先 1080P，分集按 01、02 这样的顺序保存。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="本机接口" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DramaBoxApiBaseUrl}" Watermark="http://127.0.0.1:17865" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="设备ID" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DramaBoxDeviceId}" Watermark="d001277c5c31829ceba9d49c" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="8">
+                                <Button Content="测试 DramaBox"
+                                        Command="{Binding ProbeDramaBoxConnectivityCommand}"
+                                        IsEnabled="{Binding !IsDramaBoxBusy}"
+                                        MinWidth="160"
+                                        HorizontalAlignment="Left" />
+                                <TextBlock Text="{Binding DramaBoxProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                            </StackPanel>
                         </Grid>
 
                         <Separator Margin="0,4" />

@@ -222,7 +222,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         if (string.Equals(settings.DramaSourceChain?.Trim(), "dramabox", StringComparison.OrdinalIgnoreCase))
         {
             progress?.Report("正在读取 DramaBox New…");
-            var items = await _dramaBoxApiService.GetNewChannelAsync(cancellationToken);
+            var items = await _dramaBoxApiService.GetNewChannelAsync(settings, cancellationToken);
             partialResults?.Report(items);
             return FilterByRecentDays(items, days);
         }
@@ -615,7 +615,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 validateVideoEncoding: ShouldValidateVideoEncodingForSource("dramabox"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
-                downloadAttempts: downloadAttempts);
+                downloadAttempts: downloadAttempts,
+                prepareDownloadedFile: (path, episode, ct) => _dramaBoxApiService.DecryptPrivateMp4Async(path, settings, episode, ct));
         }
 
         if (bookId.StartsWith(ForeignPlayletClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -774,7 +775,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         Func<IReadOnlyList<string>, int, IDisposable>? registerResolvePlan = null,
         int minConcurrency = 0,
         int pieceSize = 0,
-        int pieceWorkers = 0)
+        int pieceWorkers = 0,
+        Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null)
     {
         Directory.CreateDirectory(request.OutputDir);
         progress?.Report($"开始下载《{request.DisplayName}》...");
@@ -843,7 +845,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             downloadAttempts,
             cancellationToken,
             pieceSize,
-            pieceWorkers));
+            pieceWorkers,
+            prepareDownloadedFile));
         await Task.WhenAll(downloads);
 
         var posterUrl = ReadPosterUrlFromProject(request.ProjectDir);
@@ -898,7 +901,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int downloadAttempts,
         CancellationToken cancellationToken,
         int pieceSize = 0,
-        int pieceWorkers = 0)
+        int pieceWorkers = 0,
+        Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null)
     {
         var lifecycleSlotHeld = false;
         if (resolveSemaphore is null)
@@ -987,7 +991,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         detail.TranscodeEngine,
                         message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"),
                         pieceSize,
-                        pieceWorkers);
+                        pieceWorkers,
+                        prepareDownloadedFile is null
+                            ? null
+                            : (path, ct) => prepareDownloadedFile(path, task.SourceEpisodeNumber, ct));
                 }
                 finally
                 {
@@ -1093,7 +1100,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string transcodeEngine,
         Action<string>? report,
         int pieceSize = 0,
-        int pieceWorkers = 0)
+        int pieceWorkers = 0,
+        Func<string, CancellationToken, Task>? prepareDownloadedFile = null)
     {
         var hasPikachuDecryptKey = !string.IsNullOrWhiteSpace(pikachuDecryptKey);
         var encryptedTempPath = hasPikachuDecryptKey ? BuildEncryptedTempPath(tempPath) : null;
@@ -1175,6 +1183,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             if (LooksLikeMp4(tempPath) && !HasCompleteMp4Structure(tempPath))
             {
                 throw new InvalidDataException("下载的 MP4 结构不完整。");
+            }
+
+            if (prepareDownloadedFile is not null &&
+                LooksLikeMp4(tempPath) &&
+                DramaBoxPrivateMp4Decryptor.ContainsPrivateKey(tempPath))
+            {
+                report?.Invoke("正在解密 DramaBox 私有视频");
+                await prepareDownloadedFile(tempPath, cancellationToken);
             }
 
             if (!usedHongguoCdn && ContainsEncryptedMp4SampleEntry(tempPath))

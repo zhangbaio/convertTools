@@ -46,6 +46,7 @@ public sealed record DramaSourceSettings
     public string ForeignSearchSource { get; init; } = "reelshort";
     public string ForeignLanguage { get; init; } = "en";
     public string DramaBoxApiBaseUrl { get; init; } = "http://127.0.0.1:17865";
+    public string DramaBoxDeviceId { get; init; } = "d001277c5c31829ceba9d49c";
 
     public DramaSourceSettings WithPikachuDeviceId(string deviceId) =>
         this with { PikachuDeviceId = deviceId.Trim() };

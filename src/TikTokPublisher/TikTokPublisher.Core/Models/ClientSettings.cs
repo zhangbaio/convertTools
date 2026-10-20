@@ -51,6 +51,7 @@ public sealed class ClientSettings
     public string ForeignSearchSource { get; set; } = "reelshort";
     public string ForeignLanguage { get; set; } = "en";
     public string DramaBoxApiBaseUrl { get; set; } = "http://127.0.0.1:17865";
+    public string DramaBoxDeviceId { get; set; } = "d001277c5c31829ceba9d49c";
 
     public string TiktokAsrLocalModelDir { get; set; } = "";
     public string TiktokAsrLocalVadPath { get; set; } = "";
@@ -231,6 +232,7 @@ public sealed class ClientSettings
         ForeignSearchSource = ForeignSearchSource,
         ForeignLanguage = ForeignLanguage,
         DramaBoxApiBaseUrl = DramaBoxApiBaseUrl,
+        DramaBoxDeviceId = DramaBoxDeviceId,
         TiktokAsrLocalModelDir = TiktokAsrLocalModelDir,
         TiktokAsrLocalVadPath = TiktokAsrLocalVadPath,
         TiktokAsrAppId = TiktokAsrAppId,

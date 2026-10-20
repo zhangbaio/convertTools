@@ -36,7 +36,7 @@ public static class DramaSourceConfigurationValidator
             "pikachu" => Missing((settings.PikachuServerUrl, "服务器地址")),
             "playlet" => Missing((settings.PlayletServerUrl, "服务器地址"), (settings.PlayletDeviceId, "设备号")),
             "foreign" => Missing((settings.ForeignServerUrl, "服务器地址"), (settings.ForeignDeviceId, "设备号")),
-            "dramabox" => Missing((settings.DramaBoxApiBaseUrl, "本机接口地址")),
+            "dramabox" => Missing((settings.DramaBoxDeviceId, "设备ID")),
             "downloader" => Missing((settings.DownloaderApiBaseUrl, "下载器地址")),
             _ => ["有效的数据链路"],
         };

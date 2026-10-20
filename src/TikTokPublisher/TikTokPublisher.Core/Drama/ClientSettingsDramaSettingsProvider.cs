@@ -57,6 +57,9 @@ public static class DramaSourceSettingsMapping
         DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(settings.DramaBoxApiBaseUrl)
             ? DramaBoxApiService.DefaultBaseUrl
             : settings.DramaBoxApiBaseUrl.Trim().TrimEnd('/'),
+        DramaBoxDeviceId = string.IsNullOrWhiteSpace(settings.DramaBoxDeviceId)
+            ? DramaBoxApiService.DefaultDeviceId
+            : settings.DramaBoxDeviceId.Trim(),
     };
 
     private static string NormalizeChain(string? chain) => VisibleDramaSource.Normalize(chain);

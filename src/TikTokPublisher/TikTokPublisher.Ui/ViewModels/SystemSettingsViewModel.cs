@@ -132,6 +132,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _playletServerUrl = PlayletDramaClient.DefaultServerUrl;
     [ObservableProperty] private string _playletDeviceId = "";
     [ObservableProperty] private string _dramaBoxApiBaseUrl = DramaBoxApiService.DefaultBaseUrl;
+    [ObservableProperty] private string _dramaBoxDeviceId = DramaBoxApiService.DefaultDeviceId;
+    [ObservableProperty] private string _dramaBoxProbeStatus = "";
+    [ObservableProperty] private bool _isDramaBoxBusy;
     [ObservableProperty] private string _playletProbeStatus = "";
     [ObservableProperty] private bool _isPlayletBusy;
     [ObservableProperty] private string _foreignServerUrl = ForeignPlayletClient.DefaultServerUrl;
@@ -307,6 +310,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ForeignSearchSource = ForeignPlayletClient.NormalizeSource(ForeignSearchSource),
         ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(ForeignLanguage),
         DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(DramaBoxApiBaseUrl) ? DramaBoxApiService.DefaultBaseUrl : DramaBoxApiBaseUrl.Trim().TrimEnd('/'),
+        DramaBoxDeviceId = string.IsNullOrWhiteSpace(DramaBoxDeviceId) ? DramaBoxApiService.DefaultDeviceId : DramaBoxDeviceId.Trim(),
         TiktokAsrLocalModelDir = TiktokAsrLocalModelDir.Trim(),
         TiktokAsrLocalVadPath = TiktokAsrLocalVadPath.Trim(),
         TiktokAsrAppId = TiktokAsrAppId.Trim(),
@@ -469,6 +473,38 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         finally
         {
             IsPikachuBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ProbeDramaBoxConnectivityAsync()
+    {
+        if (IsDramaBoxBusy)
+            return;
+
+        IsDramaBoxBusy = true;
+        DramaBoxProbeStatus = "测试中...";
+        try
+        {
+            var result = await new DramaBoxApiService(ProbeHttp).TestConnectivityAsync(DramaBoxDeviceId, CancellationToken.None);
+            DramaBoxProbeStatus = string.Join(Environment.NewLine, new[]
+            {
+                $"授权：{result.LicenseMessage}",
+                $"搜索：{result.SearchMessage}",
+                $"下载：{result.DownloadMessage}",
+            });
+            StatusRequested?.Invoke(result.LicenseOk && result.SearchOk && result.DownloadOk
+                ? "DramaBox 测试成功"
+                : "DramaBox 测试完成（部分失败）");
+        }
+        catch (Exception ex)
+        {
+            DramaBoxProbeStatus = $"测试失败：{ex.Message}";
+            StatusRequested?.Invoke(DramaBoxProbeStatus);
+        }
+        finally
+        {
+            IsDramaBoxBusy = false;
         }
     }
 
@@ -1179,6 +1215,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(settings.DramaBoxApiBaseUrl)
             ? DramaBoxApiService.DefaultBaseUrl
             : settings.DramaBoxApiBaseUrl;
+        DramaBoxDeviceId = string.IsNullOrWhiteSpace(settings.DramaBoxDeviceId)
+            ? DramaBoxApiService.DefaultDeviceId
+            : settings.DramaBoxDeviceId;
         TiktokAsrLocalModelDir = settings.TiktokAsrLocalModelDir;
         TiktokAsrLocalVadPath = settings.TiktokAsrLocalVadPath;
         TiktokAsrAppId = settings.TiktokAsrAppId;
