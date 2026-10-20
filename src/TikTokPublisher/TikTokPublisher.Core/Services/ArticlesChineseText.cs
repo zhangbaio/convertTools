@@ -64,8 +64,6 @@ public static partial class ArticlesChineseText
         var text = (english ?? string.Empty).Trim();
         if (text.Length == 0)
             return string.Empty;
-        if (CompanyNameCatalog.TryMississippiChinese(text, out var known))
-            return known;
 
         if (text.EndsWith("公司"))
             return text;
@@ -84,8 +82,6 @@ public static partial class ArticlesChineseText
         var text = (english ?? string.Empty).Trim();
         if (text.Length == 0)
             return string.Empty;
-        if (CompanyNameCatalog.TryKentuckyChinese(text, out var known))
-            return known;
 
         foreach (var suffix in new[] { " INC.", " INC", " Inc.", " Inc" })
         {

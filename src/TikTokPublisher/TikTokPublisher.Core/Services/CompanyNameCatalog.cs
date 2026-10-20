@@ -1,13 +1,12 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace TikTokPublisher.Core.Services;
 
-internal readonly record struct CompanyName(string English, string Chinese);
+internal readonly record struct CompanyName(string English);
 
 internal readonly record struct CompanyLibrary(CompanyName[] Names, string? Notice);
 
-public readonly record struct CompanyNameChoice(bool Exhausted, string English, string Chinese);
+public readonly record struct CompanyNameChoice(bool Exhausted, string English);
 
 public static class CompanyNameLibraries
 {
@@ -42,8 +41,6 @@ internal static class CompanyNameCatalog
 
     private static readonly CompanyLibrary MississippiLibrary = Open(Template1FileName);
     private static readonly CompanyLibrary KentuckyLibrary = Open(Template2FileName);
-    private static readonly Dictionary<string, string> MississippiByEnglish = Build(MississippiLibrary.Names);
-    private static readonly Dictionary<string, string> KentuckyByEnglish = Build(KentuckyLibrary.Names);
 
     internal static CompanyName[] Mississippi => MississippiLibrary.Names;
 
@@ -67,21 +64,15 @@ internal static class CompanyNameCatalog
         if (available.Length == 0)
         {
             var previous = LastInCatalog(usedOrder, catalog);
-            return new CompanyNameChoice(true, previous.English ?? string.Empty, previous.Chinese ?? string.Empty);
+            return new CompanyNameChoice(true, previous.English ?? string.Empty);
         }
 
         var picked = available[random.Next(available.Length)];
         if (!used.Contains(Normalize(picked.English)))
             usedOrder.Add(picked.English);
         SaveUsedNames(path, state);
-        return new CompanyNameChoice(false, picked.English, picked.Chinese);
+        return new CompanyNameChoice(false, picked.English);
     }
-
-    internal static bool TryMississippiChinese(string? english, out string chinese) =>
-        Try(MississippiByEnglish, english, out chinese);
-
-    internal static bool TryKentuckyChinese(string? english, out string chinese) =>
-        Try(KentuckyByEnglish, english, out chinese);
 
     internal static CompanyLibrary Open(string fileName, string? shippedDirectory = null, string? userDirectory = null)
     {
@@ -114,20 +105,19 @@ internal static class CompanyNameCatalog
         names = [];
         try
         {
-            var entries = JsonSerializer.Deserialize<List<CompanyNameEntry>>(File.ReadAllText(path), JsonOptions);
-            if (entries is null || entries.Count == 0)
+            using var document = JsonDocument.Parse(File.ReadAllText(path), JsonDocumentOptions);
+            if (document.RootElement.ValueKind != JsonValueKind.Array || document.RootElement.GetArrayLength() == 0)
             {
                 reason = "没有公司名称";
                 return false;
             }
 
-            var list = new List<CompanyName>(entries.Count);
+            var list = new List<CompanyName>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var entry in entries)
+            foreach (var entry in document.RootElement.EnumerateArray())
             {
-                var english = (entry.English ?? string.Empty).Trim();
-                var chinese = (entry.Chinese ?? string.Empty).Trim();
-                if (english.Length == 0 || chinese.Length == 0)
+                var english = ReadEnglish(entry);
+                if (english.Length == 0)
                 {
                     reason = "存在空的公司名称";
                     return false;
@@ -139,7 +129,7 @@ internal static class CompanyNameCatalog
                     return false;
                 }
 
-                list.Add(new CompanyName(english, chinese));
+                list.Add(new CompanyName(english));
             }
 
             names = list.ToArray();
@@ -158,25 +148,22 @@ internal static class CompanyNameCatalog
         }
     }
 
-    private static bool Try(Dictionary<string, string> map, string? english, out string chinese)
+    private static string ReadEnglish(JsonElement entry)
     {
-        var key = (english ?? string.Empty).Trim();
-        if (key.Length > 0 && map.TryGetValue(key, out var found))
+        if (entry.ValueKind == JsonValueKind.String)
+            return (entry.GetString() ?? string.Empty).Trim();
+
+        if (entry.ValueKind != JsonValueKind.Object)
+            return string.Empty;
+
+        foreach (var property in entry.EnumerateObject())
         {
-            chinese = found;
-            return true;
+            if (property.Name.Equals("english", StringComparison.OrdinalIgnoreCase)
+                && property.Value.ValueKind == JsonValueKind.String)
+                return (property.Value.GetString() ?? string.Empty).Trim();
         }
 
-        chinese = string.Empty;
-        return false;
-    }
-
-    private static Dictionary<string, string> Build(CompanyName[] names)
-    {
-        var map = new Dictionary<string, string>(names.Length, StringComparer.OrdinalIgnoreCase);
-        foreach (var name in names)
-            map[name.English] = name.Chinese;
-        return map;
+        return string.Empty;
     }
 
     private static string UserDirectory => Path.Combine(
@@ -241,9 +228,11 @@ internal static class CompanyNameCatalog
         AllowTrailingCommas = true,
     };
 
-    private sealed record CompanyNameEntry(
-        [property: JsonPropertyName("english")] string? English,
-        [property: JsonPropertyName("chinese")] string? Chinese);
+    private static readonly JsonDocumentOptions JsonDocumentOptions = new()
+    {
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+    };
 
     private sealed class UsedNameFile
     {

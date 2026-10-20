@@ -33,7 +33,7 @@ public static class KentuckyArticlesPdfService
             DrawFitted(graphics, address, "Arial", 11.24, XFontStyleEx.Bold, 306.15, 420.1, 360, center: true);
             DrawFitted(graphics, address, "Arial", 11.24, XFontStyleEx.Regular, 309.0, 464.7, 250, center: false);
             Draw(graphics, fields.EffectiveOn, body, 194.3, 499.9);
-            DrawFitted(graphics, fields.EffectiveOn, "Arial", 11.24, XFontStyleEx.Regular, 444, 624.4, 115, center: false);
+            DrawRegistrant(graphics, fields.RegistrantName, fields.EffectiveOn);
         }
 
         document.Save(outputPath);
@@ -91,13 +91,15 @@ public static class KentuckyArticlesPdfService
         string? companyName = null)
     {
         var earliest = new DateOnly(2025, 1, 1);
+        var latest = new DateOnly(2026, 5, 31);
         if (today < earliest)
             throw new ArgumentOutOfRangeException(nameof(today), "当前日期早于 2025 年，无法生成备案日期。");
 
         var rng = random ?? Random.Shared;
-        KentuckyArticlesFields fields = CreateRandomOnce(today, earliest, rng, companyName);
+        var end = today < latest ? today : latest;
+        KentuckyArticlesFields fields = CreateRandomOnce(end, earliest, rng, companyName);
         for (var attempt = 0; attempt < 40 && ConflictsWithPrevious(fields, previous); attempt++)
-            fields = CreateRandomOnce(today, earliest, rng, companyName);
+            fields = CreateRandomOnce(end, earliest, rng, companyName);
         return fields;
     }
 
@@ -142,6 +144,147 @@ public static class KentuckyArticlesPdfService
         if (city.Length == 0)
             return road;
         return $"{road}, {city}";
+    }
+
+    private static void DrawRegistrant(XGraphics graphics, string? registrantName, string? effectiveOn)
+    {
+        var name = (registrantName ?? string.Empty).Trim();
+        if (name.Length == 0)
+            return;
+
+        DrawFitted(graphics, name, "Arial", 11.24, XFontStyleEx.Bold, 306.4, 331.57, 360, center: true);
+        DrawFlow(
+            graphics,
+            [new TextRun(name, false)],
+            11.24,
+            175.5,
+            175.5,
+            464.7,
+            120,
+            120,
+            12.8);
+        DrawFlow(
+            graphics,
+            [
+                new TextRun("Signature of individual signing on behalf of ", false),
+                new TextRun("Incorporator: " + name, true),
+            ],
+            11.24,
+            234,
+            234,
+            565.95,
+            324,
+            324,
+            13.5);
+        var date = (effectiveOn ?? string.Empty).Trim().TrimEnd('.');
+        DrawFlow(
+            graphics,
+            [
+                new TextRun("I, ", false),
+                new TextRun(name, true),
+                new TextRun(", consent to serve as the Registered Agent on behalf of this entity on ", false),
+                new TextRun(date.Length == 0 ? "." : date + ".", false),
+            ],
+            11.24,
+            234,
+            234,
+            610.95,
+            324,
+            324,
+            13.5);
+    }
+
+    private readonly record struct TextRun(string Text, bool Bold);
+
+    private static void DrawFlow(
+        XGraphics graphics,
+        IReadOnlyList<TextRun> runs,
+        double size,
+        double firstX,
+        double nextX,
+        double baseline,
+        double firstWidth,
+        double nextWidth,
+        double lineHeight)
+    {
+        var tokens = new List<(string Text, bool Bold, bool Stick)>();
+        foreach (var run in runs)
+        {
+            var parts = run.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            for (var index = 0; index < parts.Length; index++)
+            {
+                var stick = parts[index].StartsWith(',') || parts[index].StartsWith('.');
+                tokens.Add((parts[index], run.Bold, stick && index == 0));
+            }
+        }
+
+        if (tokens.Count == 0)
+            return;
+
+        var widest = Math.Max(firstWidth, nextWidth);
+        while (size > 8)
+        {
+            var tooWide = false;
+            foreach (var token in tokens)
+            {
+                var font = new XFont("Arial", size, token.Bold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
+                if (graphics.MeasureString(token.Text, font).Width > widest)
+                {
+                    tooWide = true;
+                    break;
+                }
+            }
+
+            if (!tooWide)
+                break;
+            size -= 0.5;
+        }
+
+        var line = new List<(string Text, bool Bold, bool Stick)>();
+        var lineWidth = 0d;
+        var x = firstX;
+        var y = baseline;
+        var maxWidth = firstWidth;
+        foreach (var token in tokens)
+        {
+            var font = new XFont("Arial", size, token.Bold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
+            var gap = line.Count == 0 || token.Stick ? 0 : graphics.MeasureString(" ", font).Width;
+            var width = graphics.MeasureString(token.Text, font).Width;
+            if (line.Count > 0 && lineWidth + gap + width > maxWidth)
+            {
+                DrawLine(graphics, line, size, x, y);
+                line.Clear();
+                lineWidth = 0;
+                x = nextX;
+                y += lineHeight;
+                maxWidth = nextWidth;
+                gap = 0;
+            }
+
+            line.Add(token);
+            lineWidth += gap + width;
+        }
+
+        DrawLine(graphics, line, size, x, y);
+    }
+
+    private static void DrawLine(
+        XGraphics graphics,
+        List<(string Text, bool Bold, bool Stick)> line,
+        double size,
+        double x,
+        double y)
+    {
+        var cursor = x;
+        for (var index = 0; index < line.Count; index++)
+        {
+            var token = line[index];
+            var font = new XFont("Arial", size, token.Bold ? XFontStyleEx.Bold : XFontStyleEx.Regular);
+            if (index > 0 && !token.Stick)
+                cursor += graphics.MeasureString(" ", font).Width;
+            graphics.DrawString(token.Text, font, XBrushes.Black, new XPoint(cursor, y));
+            cursor += graphics.MeasureString(token.Text, font).Width;
+        }
     }
 
     private static void Draw(XGraphics graphics, string value, XFont font, double x, double baseline)
@@ -200,12 +343,13 @@ public sealed record KentuckyArticlesFields(
     string Street,
     string CityLine,
     string EffectiveOn,
-    string? ChineseCompanyName = null)
+    string? ChineseCompanyName = null,
+    string RegistrantName = "")
 {
     public string ResolvedChineseCompanyName() =>
         ChineseCompanyName ?? ArticlesChineseText.TranslateKentuckyCompany(CompanyName);
 
     public bool HasAnyValue() =>
-        new[] { FilingNumber, FiledAt, CompanyName, Street, CityLine, EffectiveOn, ChineseCompanyName }
+        new[] { FilingNumber, FiledAt, CompanyName, Street, CityLine, EffectiveOn, ChineseCompanyName, RegistrantName }
             .Any(value => !string.IsNullOrWhiteSpace(value));
 }

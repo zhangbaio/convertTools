@@ -11,7 +11,6 @@ namespace TikTokPublisher.Ui.Views;
 public sealed class ArticlesOfIncorporationDialog : Window
 {
     private readonly TextBox _companyName = Box();
-    private readonly TextBox _companyNameChinese = Box();
     private readonly TextBox _email = Box();
     private readonly TextBox _filingNumber = Box();
     private readonly TextBox _businessId = Box();
@@ -24,24 +23,14 @@ public sealed class ArticlesOfIncorporationDialog : Window
     private readonly TextBox _kyFilingNumber = Box();
     private readonly TextBox _kyFiledAt = Box();
     private readonly TextBox _kyCompanyName = Box();
-    private readonly TextBox _kyCompanyNameChinese = Box();
     private readonly TextBox _kyStreet = Box();
     private readonly TextBox _kyCity = Box();
     private readonly TextBox _kyEffectiveOn = Box();
+    private readonly TextBox _kyRegistrantName = Box();
     private readonly TabControl _tabs = new();
-    private readonly CheckBox _alsoChinese = new()
-    {
-        Content = "同步生成中文PDF",
-        IsChecked = true,
-        VerticalAlignment = VerticalAlignment.Center,
-    };
     private readonly TextBlock _status = new() { Foreground = Brushes.DimGray, TextWrapping = TextWrapping.Wrap };
     private readonly string? _suggestedDirectory;
     private bool _syncingShortName;
-    private bool _syncingCompanyChinese;
-    private bool _companyChineseEdited;
-    private bool _syncingKentuckyChinese;
-    private bool _kentuckyChineseEdited;
 
     private ArticlesOfIncorporationDialog(string? suggestedDirectory)
     {
@@ -65,26 +54,8 @@ public sealed class ArticlesOfIncorporationDialog : Window
                 return;
             RegistrantNameStore.Save(_agentName.Text, _incorporatorName.Text);
         };
-        _companyName.TextChanged += (_, _) =>
-        {
-            if (!_companyChineseEdited)
-                ApplyCompanyChinese(ArticlesChineseText.TranslateCompany(_companyName.Text));
-        };
-        _companyNameChinese.TextChanged += (_, _) =>
-        {
-            if (!_syncingCompanyChinese)
-                _companyChineseEdited = true;
-        };
-        _kyCompanyName.TextChanged += (_, _) =>
-        {
-            if (!_kentuckyChineseEdited)
-                ApplyKentuckyChinese(ArticlesChineseText.TranslateKentuckyCompany(_kyCompanyName.Text));
-        };
-        _kyCompanyNameChinese.TextChanged += (_, _) =>
-        {
-            if (!_syncingKentuckyChinese)
-                _kentuckyChineseEdited = true;
-        };
+        _kyRegistrantName.Text = KentuckyRegistrantStore.Load();
+        _kyRegistrantName.TextChanged += (_, _) => KentuckyRegistrantStore.Save(_kyRegistrantName.Text);
         RandomizeKentucky();
         RandomizeFilingStamp();
 
@@ -123,15 +94,8 @@ public sealed class ArticlesOfIncorporationDialog : Window
         cancel.Click += (_, _) => Close();
         buttons.Children.Add(generate);
         buttons.Children.Add(cancel);
-        var actions = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-        };
-        actions.Children.Add(_alsoChinese);
-        Grid.SetColumn(buttons, 1);
-        actions.Children.Add(buttons);
-        Grid.SetRow(actions, 2);
-        root.Children.Add(actions);
+        Grid.SetRow(buttons, 2);
+        root.Children.Add(buttons);
         Content = root;
     }
 
@@ -148,20 +112,19 @@ public sealed class ArticlesOfIncorporationDialog : Window
         var form = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("Auto,*,18,Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
             RowSpacing = 8,
         };
         Place(form, "企业名称", _companyName, 0, 0);
         Place(form, "企业邮箱", _email, 0, 1);
-        PlaceWide(form, "企业名称：中文", _companyNameChinese, 1);
-        Place(form, "备案号", _filingNumber, 2, 0);
-        Place(form, "Business ID", _businessId, 2, 1);
-        Place(form, "备案时间", _filedAt, 3, 0);
-        Place(form, "签署日期", _signedOn, 3, 1);
-        Place(form, "注册人名称", _agentName, 4, 0);
-        Place(form, "注册人简称", _incorporatorName, 4, 1);
-        Place(form, "注册人地址", _agentStreet, 5, 0);
-        Place(form, "城市", _agentCity, 5, 1);
+        Place(form, "备案号", _filingNumber, 1, 0);
+        Place(form, "Business ID", _businessId, 1, 1);
+        Place(form, "备案时间", _filedAt, 2, 0);
+        Place(form, "签署日期", _signedOn, 2, 1);
+        Place(form, "注册人名称", _agentName, 3, 0);
+        Place(form, "注册人简称", _incorporatorName, 3, 1);
+        Place(form, "注册人地址", _agentStreet, 4, 0);
+        Place(form, "城市", _agentCity, 4, 1);
         return form;
     }
 
@@ -178,7 +141,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         Place(form, "备案时间", _kyFiledAt, 0, 1);
         Place(form, "公司名称", _kyCompanyName, 1, 0);
         Place(form, "生效日期", _kyEffectiveOn, 1, 1);
-        PlaceWide(form, "公司名称：中文", _kyCompanyNameChinese, 2);
+        Place(form, "注册人名称", _kyRegistrantName, 2, 0);
         Place(form, "街道", _kyStreet, 3, 0);
         Place(form, "城市", _kyCity, 3, 1);
         return form;
@@ -197,23 +160,6 @@ public sealed class ArticlesOfIncorporationDialog : Window
         Grid.SetColumn(caption, column);
         Grid.SetRow(box, row);
         Grid.SetColumn(box, column + 1);
-        form.Children.Add(caption);
-        form.Children.Add(box);
-    }
-
-    private static void PlaceWide(Grid form, string label, TextBox box, int row)
-    {
-        var caption = new TextBlock
-        {
-            Text = label,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0),
-        };
-        Grid.SetRow(caption, row);
-        Grid.SetColumn(caption, 0);
-        Grid.SetRow(box, row);
-        Grid.SetColumn(box, 1);
-        Grid.SetColumnSpan(box, 4);
         form.Children.Add(caption);
         form.Children.Add(box);
     }
@@ -245,28 +191,13 @@ public sealed class ArticlesOfIncorporationDialog : Window
         _agentStreet.Text ?? string.Empty,
         _agentCity.Text ?? string.Empty,
         _companyName.Text ?? string.Empty,
-        _email.Text ?? string.Empty,
-        _companyNameChinese.Text ?? string.Empty);
+        _email.Text ?? string.Empty);
 
     private void SyncShortName()
     {
         _syncingShortName = true;
         _incorporatorName.Text = ArticlesOfIncorporationFields.ToShortName(_agentName.Text);
         _syncingShortName = false;
-    }
-
-    private void ApplyCompanyChinese(string value)
-    {
-        _syncingCompanyChinese = true;
-        _companyNameChinese.Text = value;
-        _syncingCompanyChinese = false;
-    }
-
-    private void ApplyKentuckyChinese(string value)
-    {
-        _syncingKentuckyChinese = true;
-        _kyCompanyNameChinese.Text = value;
-        _syncingKentuckyChinese = false;
     }
 
     private void RandomizeFilingStamp()
@@ -282,15 +213,13 @@ public sealed class ArticlesOfIncorporationDialog : Window
         var company = CompanyNameLibraries.TakeTemplate1();
         if (company.Exhausted)
         {
-            KeepCompanyName(company, _companyName, ApplyCompanyChinese, ref _companyChineseEdited);
+            KeepCompanyName(company, _companyName);
             _status.Text = WithLibraryNotice(CompanyNameLibraries.Template1ExhaustedMessage);
             return;
         }
 
-        _companyChineseEdited = false;
         _companyName.Text = company.English;
-        ApplyCompanyChinese(company.Chinese);
-        _status.Text = WithLibraryNotice("已随机生成备案信息、企业名称、中文名称、邮箱和地址。");
+        _status.Text = WithLibraryNotice("已随机生成备案信息、企业名称、邮箱和地址。");
     }
 
     private void RandomizeKentucky()
@@ -315,28 +244,20 @@ public sealed class ArticlesOfIncorporationDialog : Window
         KentuckyRandomHistory.Remember(fields);
         if (company.Exhausted)
         {
-            KeepCompanyName(company, _kyCompanyName, ApplyKentuckyChinese, ref _kentuckyChineseEdited);
+            KeepCompanyName(company, _kyCompanyName);
             _status.Text = WithLibraryNotice(CompanyNameLibraries.Template2ExhaustedMessage);
             return;
         }
 
-        _kentuckyChineseEdited = false;
         _kyCompanyName.Text = company.English;
-        ApplyKentuckyChinese(company.Chinese);
-        _status.Text = WithLibraryNotice("已随机生成肯塔基备案号、时间、公司名称、中文名称、地址和生效日期。");
+        _status.Text = WithLibraryNotice("已随机生成肯塔基备案号、时间、公司名称、地址和生效日期。");
     }
 
-    private static void KeepCompanyName(
-        CompanyNameChoice company,
-        TextBox box,
-        Action<string> applyChinese,
-        ref bool edited)
+    private static void KeepCompanyName(CompanyNameChoice company, TextBox box)
     {
         if (!string.IsNullOrWhiteSpace(box.Text) || company.English.Length == 0)
             return;
-        edited = false;
         box.Text = company.English;
-        applyChinese(company.Chinese);
     }
 
     private KentuckyArticlesFields ReadKentuckyFields() => new(
@@ -346,7 +267,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         _kyStreet.Text ?? string.Empty,
         _kyCity.Text ?? string.Empty,
         _kyEffectiveOn.Text ?? string.Empty,
-        _kyCompanyNameChinese.Text ?? string.Empty);
+        RegistrantName: _kyRegistrantName.Text ?? string.Empty);
 
     private async Task GenerateAsync()
     {
@@ -379,25 +300,14 @@ public sealed class ArticlesOfIncorporationDialog : Window
         try
         {
             var path = file.TryGetLocalPath();
-            string? chinesePath = null;
             if (!string.IsNullOrWhiteSpace(path))
             {
-                var writeChinese = _alsoChinese.IsChecked == true;
-                chinesePath = writeChinese ? ArticlesOfIncorporationPdfService.ChineseOutputPath(path) : null;
                 await Task.Run(() =>
                 {
                     if (kentucky)
-                    {
                         KentuckyArticlesPdfService.Render(path, kentuckyFields!);
-                        if (chinesePath is not null)
-                            KentuckyArticlesPdfService.RenderChinese(chinesePath, kentuckyFields);
-                    }
                     else
-                    {
                         ArticlesOfIncorporationPdfService.Render(path, fields!);
-                        if (chinesePath is not null)
-                            ArticlesOfIncorporationPdfService.RenderChinese(chinesePath, fields);
-                    }
                 });
             }
             else
@@ -425,15 +335,53 @@ public sealed class ArticlesOfIncorporationDialog : Window
 
             _status.Text = string.IsNullOrWhiteSpace(path)
                 ? "已生成 PDF。"
-                : chinesePath is null
-                    ? $"已生成：{path}"
-                    : $"已生成：{path}{Environment.NewLine}中文：{chinesePath}";
+                : $"已生成：{path}";
         }
         catch (Exception ex)
         {
             _status.Text = $"生成失败：{ex.Message}";
         }
     }
+}
+
+file static class KentuckyRegistrantStore
+{
+    private const string DefaultName = "HUGO MAGDIEL DOMINGUEZ";
+
+    private static string FilePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".registration_pdf",
+        "kentucky-registrant.json");
+
+    public static string Load()
+    {
+        try
+        {
+            if (!File.Exists(FilePath))
+                return DefaultName;
+            var saved = JsonSerializer.Deserialize<SavedKentuckyRegistrant>(File.ReadAllText(FilePath));
+            return string.IsNullOrWhiteSpace(saved?.Name) ? DefaultName : saved.Name.Trim();
+        }
+        catch
+        {
+            return DefaultName;
+        }
+    }
+
+    public static void Save(string? name)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(new SavedKentuckyRegistrant((name ?? string.Empty).Trim())));
+        }
+        catch
+        {
+            // A failed preference write should not block PDF generation.
+        }
+    }
+
+    private sealed record SavedKentuckyRegistrant(string Name);
 }
 
 file static class RegistrantNameStore

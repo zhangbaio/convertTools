@@ -307,11 +307,13 @@ public sealed record ArticlesOfIncorporationFields(
     public static ArticlesFilingStamp CreateRandomFilingStamp(DateOnly today, Random? random = null)
     {
         var earliest = new DateOnly(2025, 1, 1);
+        var latest = new DateOnly(2026, 5, 31);
         if (today < earliest)
             throw new ArgumentOutOfRangeException(nameof(today), "当前日期早于 2025 年，无法生成备案日期。");
 
         var rng = random ?? Random.Shared;
-        var day = DateOnly.FromDayNumber(earliest.DayNumber + rng.Next(today.DayNumber - earliest.DayNumber + 1));
+        var end = today < latest ? today : latest;
+        var day = DateOnly.FromDayNumber(earliest.DayNumber + rng.Next(end.DayNumber - earliest.DayNumber + 1));
         var hour = rng.Next(1, 13);
         var minute = rng.Next(0, 60);
         var meridiem = rng.Next(2) == 0 ? "AM" : "PM";

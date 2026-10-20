@@ -30,7 +30,7 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
             var signedOn = DateOnly.ParseExact(stamp.SignedOn, "MM/dd/yyyy");
             var filedAt = DateTime.ParseExact(stamp.FiledAt, "MM/dd/yyyy hh:mm tt", System.Globalization.CultureInfo.InvariantCulture);
 
-            signedOn.Should().BeOnOrAfter(new DateOnly(2025, 1, 1)).And.BeOnOrBefore(today);
+            signedOn.Should().BeOnOrAfter(new DateOnly(2025, 1, 1)).And.BeOnOrBefore(new DateOnly(2026, 5, 31));
             DateOnly.FromDateTime(filedAt).Should().Be(signedOn);
             stamp.FilingNumber.Should().HaveLength(10).And.StartWith(signedOn.Year.ToString());
             stamp.BusinessId.Should().HaveLength(7).And.StartWith("154");
@@ -46,6 +46,22 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
     }
 
     [Fact]
+    public void CreateRandomFilingDates_StayOnOrBeforeTodayInsideTheWindow()
+    {
+        var today = new DateOnly(2026, 3, 15);
+        var random = new Random(5);
+        for (var i = 0; i < 40; i++)
+        {
+            var stamp = ArticlesOfIncorporationFields.CreateRandomFilingStamp(today, random);
+            DateOnly.ParseExact(stamp.SignedOn, "MM/dd/yyyy").Should().BeOnOrBefore(today);
+
+            var kentucky = KentuckyArticlesPdfService.CreateRandom(today, random);
+            var filed = DateTime.ParseExact(kentucky.FiledAt, "M/d/yyyy h:mm:ss tt", System.Globalization.CultureInfo.InvariantCulture);
+            DateOnly.FromDateTime(filed).Should().BeOnOrBefore(today);
+        }
+    }
+
+    [Fact]
     public void CreateRandomFilingStamp_RejectsATodayBefore2025()
     {
         var act = () => ArticlesOfIncorporationFields.CreateRandomFilingStamp(new DateOnly(2024, 12, 31), new Random(1));
@@ -55,25 +71,19 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
     [Fact]
     public void CompanyNameCatalog_ContainsOneThousandCompleteNames()
     {
-        CompanyNameCatalog.Mississippi.Should().HaveCount(1000);
-        CompanyNameCatalog.Kentucky.Should().HaveCount(1000);
-        CompanyNameCatalog.Mississippi.Select(item => item.English).Should().OnlyHaveUniqueItems();
-        CompanyNameCatalog.Mississippi.Select(item => item.Chinese).Should().OnlyHaveUniqueItems();
-        CompanyNameCatalog.Kentucky.Select(item => item.English).Should().OnlyHaveUniqueItems();
-        CompanyNameCatalog.Kentucky.Select(item => item.Chinese).Should().OnlyHaveUniqueItems();
-        CompanyNameCatalog.Mississippi.Should().AllSatisfy(item =>
-        {
-            item.English.Should().MatchRegex(@"^[A-Z][a-z]+ [A-Z][a-z]+ INC$");
-            item.Chinese.Should().Be(item.English[..^4] + " 公司");
-            ArticlesChineseText.TranslateCompany(item.English).Should().Be(item.Chinese);
-        });
-        CompanyNameCatalog.Kentucky.Should().AllSatisfy(item =>
-        {
-            item.English.Should().MatchRegex(@"^[A-Z]+ \d{2}[A-Z]+ [A-Z]+ Inc\.$");
-            item.Chinese.Should().MatchRegex(@"^[\u4e00-\u9fff]{2}\d{2}[\u4e00-\u9fff]{2,3}公司$");
-            item.Chinese.Should().NotMatchRegex("[A-Za-z]");
-            ArticlesChineseText.TranslateKentuckyCompany(item.English).Should().Be(item.Chinese);
-        });
+        var shipped = Path.GetDirectoryName(ArticlesOfIncorporationPdfService.ResolveTemplatePath(CompanyNameCatalog.Template1FileName))!;
+        var user = Path.Combine(Path.GetTempPath(), $"company-names-empty-{Guid.NewGuid():N}");
+        var template1 = CompanyNameCatalog.Open(CompanyNameCatalog.Template1FileName, shipped, user);
+        var template2 = CompanyNameCatalog.Open(CompanyNameCatalog.Template2FileName, shipped, user);
+
+        template1.Names.Should().HaveCount(1000);
+        template2.Names.Should().HaveCount(1000);
+        template1.Names.Select(item => item.English).Should().OnlyHaveUniqueItems();
+        template2.Names.Select(item => item.English).Should().OnlyHaveUniqueItems();
+        template1.Names.Should().AllSatisfy(item =>
+            item.English.Should().MatchRegex(@"^[A-Z][a-z]+ [A-Z][a-z]+ INC$"));
+        template2.Names.Should().AllSatisfy(item =>
+            item.English.Should().MatchRegex(@"^[A-Z]+ \d{2}[A-Z]+ [A-Z]+ Inc\.$"));
     }
 
     [Fact]
@@ -86,9 +96,9 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         Directory.CreateDirectory(user);
         try
         {
-            WriteLibrary(Path.Combine(shipped, CompanyNameCatalog.Template1FileName), ("Harbor Peak INC", "Harbor Peak 公司"));
-            WriteLibrary(Path.Combine(shipped, CompanyNameCatalog.Template2FileName), ("HARBOR 10VALLEY HOLDING Inc.", "港湾10谷控股公司"));
-            WriteLibrary(Path.Combine(user, CompanyNameCatalog.Template1FileName), ("Silver Trade INC", "Silver Trade 公司"));
+            WriteLibrary(Path.Combine(shipped, CompanyNameCatalog.Template1FileName), "Harbor Peak INC");
+            WriteLibrary(Path.Combine(shipped, CompanyNameCatalog.Template2FileName), "HARBOR 10VALLEY HOLDING Inc.");
+            WriteLibrary(Path.Combine(user, CompanyNameCatalog.Template1FileName), "Silver Trade INC");
             File.WriteAllText(Path.Combine(user, CompanyNameCatalog.Template2FileName), "{");
 
             var template1 = CompanyNameCatalog.Open(CompanyNameCatalog.Template1FileName, shipped, user);
@@ -96,7 +106,7 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
 
             template1.Notice.Should().BeNull();
             template1.Names.Should().ContainSingle().Which.English.Should().Be("Silver Trade INC");
-            template2.Names.Should().ContainSingle().Which.Chinese.Should().Be("港湾10谷控股公司");
+            template2.Names.Should().ContainSingle().Which.English.Should().Be("HARBOR 10VALLEY HOLDING Inc.");
             template2.Notice.Should().Be("公司库 company-names-template2.json 无法使用（文件不是有效的 JSON），已改用程序自带库。");
         }
         finally
@@ -107,8 +117,8 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
     }
 
     [Theory]
-    [InlineData("""[{"english":"Harbor Peak INC","chinese":"Harbor Peak 公司"},{"english":"Harbor Peak INC","chinese":"另一公司"}]""", "英文名重复：Harbor Peak INC")]
-    [InlineData("""[{"english":"Harbor Peak INC","chinese":" "}]""", "存在空的公司名称")]
+    [InlineData("""["Harbor Peak INC","Harbor Peak INC"]""", "英文名重复：Harbor Peak INC")]
+    [InlineData("""["Harbor Peak INC"," "]""", "存在空的公司名称")]
     [InlineData("[]", "没有公司名称")]
     public void CompanyNameCatalog_RejectsAUserFileThatCannotBeUsed(string json, string reason)
     {
@@ -119,7 +129,7 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         Directory.CreateDirectory(user);
         try
         {
-            WriteLibrary(Path.Combine(shipped, CompanyNameCatalog.Template1FileName), ("Maple Stone INC", "Maple Stone 公司"));
+            WriteLibrary(Path.Combine(shipped, CompanyNameCatalog.Template1FileName), "Maple Stone INC");
             File.WriteAllText(Path.Combine(user, CompanyNameCatalog.Template1FileName), json);
 
             var library = CompanyNameCatalog.Open(CompanyNameCatalog.Template1FileName, shipped, user);
@@ -140,8 +150,8 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         var path = Path.Combine(Path.GetTempPath(), $"used-company-names-{Guid.NewGuid():N}.json");
         var catalog = new[]
         {
-            new CompanyName("Harbor Peak INC", "Harbor Peak 公司"),
-            new CompanyName("Silver Trade INC", "Silver Trade 公司"),
+            new CompanyName("Harbor Peak INC"),
+            new CompanyName("Silver Trade INC"),
         };
         var random = new Random(1);
         try
@@ -158,11 +168,10 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
             third.English.Should().BeOneOf(catalog.Select(item => item.English));
             otherTemplate.Exhausted.Should().BeFalse();
 
-            var expanded = catalog.Append(new CompanyName("Maple Stone INC", "Maple Stone 公司")).ToArray();
+            var expanded = catalog.Append(new CompanyName("Maple Stone INC")).ToArray();
             var fourth = CompanyNameCatalog.Take("template1", expanded, random, path);
             fourth.Exhausted.Should().BeFalse();
             fourth.English.Should().Be("Maple Stone INC");
-            fourth.Chinese.Should().Be("Maple Stone 公司");
         }
         finally
         {
@@ -183,7 +192,7 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
             var effective = DateTime.ParseExact(fields.EffectiveOn.TrimEnd('.'), "dddd, MMMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
 
             DateOnly.FromDateTime(filed).Should().Be(DateOnly.FromDateTime(effective));
-            DateOnly.FromDateTime(filed).Should().BeOnOrAfter(new DateOnly(2025, 1, 1)).And.BeOnOrBefore(today);
+            DateOnly.FromDateTime(filed).Should().BeOnOrAfter(new DateOnly(2025, 1, 1)).And.BeOnOrBefore(new DateOnly(2026, 5, 31));
             fields.FilingNumber.Should().MatchRegex(@"^157\d{4}\.\d{2}$");
             fields.CompanyName.Should().MatchRegex(@"^[A-Z]+ \d{2}[A-Z]+ [A-Z]+ Inc\.$");
             CompanyNameCatalog.Kentucky.Select(item => item.English).Should().Contain(fields.CompanyName);
@@ -204,6 +213,34 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         second.CompanyName.Should().NotBe(first.CompanyName);
         second.FilingNumber.Should().NotBe(first.FilingNumber);
         second.FiledAt.Should().NotBe(first.FiledAt);
+    }
+
+    [Theory]
+    [InlineData("ANN LEE")]
+    [InlineData("HUGO MAGDIEL DOMINGUEZ")]
+    [InlineData("CHRISTOPHER ALEXANDER MONTGOMERY")]
+    public void RenderKentucky_AcceptsShortAndLongRegistrantNames(string name)
+    {
+        var fields = new KentuckyArticlesFields(
+            "1570001.01",
+            "4/3/2026 4:24:54 PM",
+            "SILVER 17CREEK BUREAU Inc.",
+            "7919 Church Ct",
+            "Frankfort, KY 40601",
+            "Friday, April 3, 2026.",
+            RegistrantName: name);
+        var output = Path.Combine(Path.GetTempPath(), $"ky-name-{Guid.NewGuid():N}.pdf");
+        try
+        {
+            KentuckyArticlesPdfService.Render(output, fields);
+            using var pdf = PdfReader.Open(output, PdfDocumentOpenMode.Import);
+            pdf.PageCount.Should().Be(1);
+        }
+        finally
+        {
+            if (File.Exists(output))
+                File.Delete(output);
+        }
     }
 
     [Fact]
@@ -251,17 +288,17 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         ArticlesChineseText.TranslateCity("New Orleans, LA 70112").Should().Be("新奥尔良, 路易斯安那州 70112");
         ArticlesChineseText.TranslateFiledAt("02/24/2025 09:29 PM").Should().Be("2025年02月24日 下午09:29");
         ArticlesChineseText.TranslateSignedOn("02/24/2025").Should().Be("2025年2月24日");
-        var mississippi = CompanyNameCatalog.Mississippi[0];
-        var kentuckyName = CompanyNameCatalog.Kentucky.Single(item => item.English == "HARBOR 89RIDGE CAPITAL Inc.");
-        new ArticlesOfIncorporationFields("", "", "", "", "", "", "", "", "", "", mississippi.English)
-            .ResolvedChineseCompanyName().Should().Be(mississippi.Chinese);
-        new ArticlesOfIncorporationFields("", "", "", "", "", "", "", "", "", "", mississippi.English, "", "手改公司")
+        const string mississippiEnglish = "Harbor Peak INC";
+        const string kentuckyEnglish = "HARBOR 89RIDGE CAPITAL Inc.";
+        new ArticlesOfIncorporationFields("", "", "", "", "", "", "", "", "", "", mississippiEnglish)
+            .ResolvedChineseCompanyName().Should().Be(ArticlesChineseText.TranslateCompany(mississippiEnglish));
+        new ArticlesOfIncorporationFields("", "", "", "", "", "", "", "", "", "", mississippiEnglish, "", "手改公司")
             .ResolvedChineseCompanyName().Should().Be("手改公司");
-        new ArticlesOfIncorporationFields("", "", "", "", "", "", "", "", "", "", mississippi.English, "", "")
+        new ArticlesOfIncorporationFields("", "", "", "", "", "", "", "", "", "", mississippiEnglish, "", "")
             .ResolvedChineseCompanyName().Should().BeEmpty();
-        new KentuckyArticlesFields("", "", kentuckyName.English, "", "", "")
-            .ResolvedChineseCompanyName().Should().Be(kentuckyName.Chinese);
-        new KentuckyArticlesFields("", "", kentuckyName.English, "", "", "", "手改局公司")
+        new KentuckyArticlesFields("", "", kentuckyEnglish, "", "", "")
+            .ResolvedChineseCompanyName().Should().Be(ArticlesChineseText.TranslateKentuckyCompany(kentuckyEnglish));
+        new KentuckyArticlesFields("", "", kentuckyEnglish, "", "", "", "手改局公司")
             .ResolvedChineseCompanyName().Should().Be("手改局公司");
         ArticlesChineseText.TranslateCompany("Harbor Peak INC").Should().Be("Harbor Peak 公司");
         ArticlesChineseText.TranslateCompany("SOZepyqwu INC").Should().Be("SOZepyqwu 公司");
@@ -353,9 +390,6 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         return current?.FullName ?? throw new DirectoryNotFoundException("Repository root not found.");
     }
 
-    private static void WriteLibrary(string path, params (string English, string Chinese)[] names)
-    {
-        var payload = names.Select(item => new { english = item.English, chinese = item.Chinese });
-        File.WriteAllText(path, JsonSerializer.Serialize(payload));
-    }
+    private static void WriteLibrary(string path, params string[] names) =>
+        File.WriteAllText(path, JsonSerializer.Serialize(names));
 }
