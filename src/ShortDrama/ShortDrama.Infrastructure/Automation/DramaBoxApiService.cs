@@ -279,32 +279,47 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         DramaSourceSettings settings, string bookId, CancellationToken cancellationToken)
     {
         var chapters = new List<DramaChapter>();
-        string? pullCid = null;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var index = 1;
         var expected = 0;
-        for (var page = 0; page < 30; page++)
+        for (var page = 0; page < 40; page++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            object payload = pullCid is null
-                ? new { bookId, boundaryIndex = 0, loadDirection = 0, preLoad = false }
-                : new { bookId, pullCid, loadDirection = 1 };
             using var document = await PostSignedAsync(
-                settings, "/drama-box/chapterv2/batch/load", payload, cancellationToken);
+                settings,
+                "/drama-box/chapterv2/batch/load",
+                new { boundaryIndex = 0, index, preLoad = false, bookId },
+                cancellationToken);
             var data = DataObject(document.RootElement);
             if (expected <= 0)
                 expected = ReadInt(data, "chapterCount") ?? 0;
             var batch = ReadChapters(data);
-            var before = chapters.Count;
+            if (batch.Count == 0)
+                break;
+
+            var added = 0;
             foreach (var chapter in batch)
             {
-                if (chapters.All(item => item.ChapterId != chapter.ChapterId))
+                if (seen.Add(chapter.ChapterId))
+                {
                     chapters.Add(chapter);
+                    added++;
+                }
             }
 
-            if (batch.Count == 0 || chapters.Count == before)
+            if (added == 0 || (expected > 0 && chapters.Count >= expected))
                 break;
-            if (expected > 0 && chapters.Count >= expected)
+            var next = batch.Max(item => item.EpisodeNumber) + 1;
+            if (next <= index)
                 break;
-            pullCid = batch[^1].ChapterId;
+            index = next;
+        }
+
+        if (chapters.Count > 0 && chapters.Min(item => item.EpisodeNumber) == 0)
+        {
+            chapters = chapters
+                .Select(item => item with { EpisodeNumber = item.EpisodeNumber + 1 })
+                .ToList();
         }
 
         return chapters
@@ -589,13 +604,6 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
                 index.Value,
                 ReadString(item, "chapterName") ?? "",
                 ReadUrls(item)));
-        }
-
-        if (chapters.Count > 0 && chapters.Min(item => item.EpisodeNumber) == 0)
-        {
-            chapters = chapters
-                .Select(item => item with { EpisodeNumber = item.EpisodeNumber + 1 })
-                .ToList();
         }
 
         return chapters;
