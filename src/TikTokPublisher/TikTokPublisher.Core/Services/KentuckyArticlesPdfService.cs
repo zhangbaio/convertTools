@@ -61,7 +61,7 @@ public static class KentuckyArticlesPdfService
             Draw(graphics, "已接收并归档", smallRegular, 456.8, 77.1);
             DrawFitted(graphics, ArticlesChineseText.TranslateKentuckyFiledAt(fields.FiledAt), "SimSun", 8.24, XFontStyleEx.Bold, 456.8, 88.8, 100, center: false);
             Draw(graphics, "费用收据：$40", stamp, 456.8, 100.8);
-            DrawFitted(graphics, ArticlesChineseText.TranslateKentuckyCompany(fields.CompanyName), "SimSun", 11.24, XFontStyleEx.Bold, 306.05, 264.8, 340, center: true);
+            DrawFitted(graphics, fields.ResolvedChineseCompanyName(), "SimSun", 11.24, XFontStyleEx.Bold, 306.05, 264.8, 340, center: true);
             DrawFitted(graphics, address, "SimSun", 11.24, XFontStyleEx.Bold, 306.15, 375.8, 360, center: true);
             DrawFitted(graphics, address, "SimSun", 11.24, XFontStyleEx.Bold, 306.15, 420.1, 360, center: true);
             DrawFitted(graphics, address, "SimSun", 11.24, XFontStyleEx.Regular, 309.0, 464.7, 250, center: false);
@@ -87,20 +87,21 @@ public static class KentuckyArticlesPdfService
     public static KentuckyArticlesFields CreateRandom(
         DateOnly today,
         Random? random = null,
-        IReadOnlyCollection<KentuckyArticlesFields>? previous = null)
+        IReadOnlyCollection<KentuckyArticlesFields>? previous = null,
+        string? companyName = null)
     {
         var earliest = new DateOnly(2025, 1, 1);
         if (today < earliest)
             throw new ArgumentOutOfRangeException(nameof(today), "当前日期早于 2025 年，无法生成备案日期。");
 
         var rng = random ?? Random.Shared;
-        KentuckyArticlesFields fields = CreateRandomOnce(today, earliest, rng);
+        KentuckyArticlesFields fields = CreateRandomOnce(today, earliest, rng, companyName);
         for (var attempt = 0; attempt < 40 && ConflictsWithPrevious(fields, previous); attempt++)
-            fields = CreateRandomOnce(today, earliest, rng);
+            fields = CreateRandomOnce(today, earliest, rng, companyName);
         return fields;
     }
 
-    private static KentuckyArticlesFields CreateRandomOnce(DateOnly today, DateOnly earliest, Random rng)
+    private static KentuckyArticlesFields CreateRandomOnce(DateOnly today, DateOnly earliest, Random rng, string? companyName)
     {
         var day = DateOnly.FromDayNumber(earliest.DayNumber + rng.Next(today.DayNumber - earliest.DayNumber + 1));
         var hour12 = rng.Next(1, 13);
@@ -112,7 +113,7 @@ public static class KentuckyArticlesPdfService
         return new KentuckyArticlesFields(
             $"157{rng.Next(0, 10_000):0000}.{rng.Next(0, 100):00}",
             filed.ToString("M/d/yyyy h:mm:ss tt", CultureInfo.InvariantCulture),
-            $"{Pick(rng, CompanyLeads)} {rng.Next(10, 100)}{Pick(rng, CompanyMiddles)} {Pick(rng, CompanyTails)} Inc.",
+            string.IsNullOrWhiteSpace(companyName) ? CompanyNameCatalog.PickKentucky(rng).English : companyName.Trim(),
             $"{rng.Next(100, 10000)} {Pick(rng, StreetNames)} {Pick(rng, StreetSuffixes)}",
             $"{place.City}, KY {place.Zip}",
             filed.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture) + ".");
@@ -179,9 +180,6 @@ public static class KentuckyArticlesPdfService
 
     private static string Pick(Random random, string[] values) => values[random.Next(values.Length)];
 
-    private static readonly string[] CompanyLeads = ["SOGDOITE", "GRAYSON", "HARBOR", "SUMMIT", "SILVER", "PACIFIC", "TANGIBLE", "GOLDEN"];
-    private static readonly string[] CompanyMiddles = ["VALLEY", "ROAM", "RIDGE", "PEAK", "FIELD", "CREEK"];
-    private static readonly string[] CompanyTails = ["HOLDING", "BUREAU", "GROUP", "TRADE"];
     private static readonly string[] StreetNames = ["Reins", "Oak", "Maple", "Pine", "Cedar", "Highland", "Main", "Church"];
     private static readonly string[] StreetSuffixes = ["Rd", "St", "Ave", "Dr", "Ln", "Ct", "Way"];
     private static readonly (string City, string Zip)[] Places =
@@ -201,9 +199,13 @@ public sealed record KentuckyArticlesFields(
     string CompanyName,
     string Street,
     string CityLine,
-    string EffectiveOn)
+    string EffectiveOn,
+    string? ChineseCompanyName = null)
 {
+    public string ResolvedChineseCompanyName() =>
+        ChineseCompanyName ?? ArticlesChineseText.TranslateKentuckyCompany(CompanyName);
+
     public bool HasAnyValue() =>
-        new[] { FilingNumber, FiledAt, CompanyName, Street, CityLine, EffectiveOn }
+        new[] { FilingNumber, FiledAt, CompanyName, Street, CityLine, EffectiveOn, ChineseCompanyName }
             .Any(value => !string.IsNullOrWhiteSpace(value));
 }

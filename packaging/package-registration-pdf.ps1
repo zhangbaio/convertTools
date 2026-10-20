@@ -35,6 +35,13 @@ function Assert-RegistrationPdfPublished {
         }
     }
 
+    foreach ($file in @("company-names-template1.json", "company-names-template2.json")) {
+        $path = Join-Path $root $file
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Registration PDF company library was not published: $path"
+        }
+    }
+
     $fontDir = Join-Path $root "fonts"
     New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
     $windowsFonts = Join-Path $env:WINDIR "Fonts"

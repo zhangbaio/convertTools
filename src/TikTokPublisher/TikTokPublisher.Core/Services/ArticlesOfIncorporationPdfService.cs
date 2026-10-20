@@ -101,7 +101,7 @@ public static class ArticlesOfIncorporationPdfService
             DrawFittedCenter(graphics, Prefix(fields.BusinessId, "商业ID："), stamp, StampCenterX, 66, 145);
             DrawFittedCenter(graphics, TranslateFiledLine(fields.FiledAt), new XFont("SimSun", 8.5, XFontStyleEx.Regular), StampCenterX, 78, 145);
             var business = new XFont("SimSun", ChineseBusinessSize, XFontStyleEx.Regular);
-            Draw(graphics, ArticlesChineseText.TranslateCompany(fields.CompanyName), business, ChineseBusinessValueX, ChineseBusinessNameBaseline);
+            Draw(graphics, fields.ResolvedChineseCompanyName(), business, ChineseBusinessValueX, ChineseBusinessNameBaseline);
             Draw(graphics, fields.Email, business, ChineseBusinessValueX, ChineseBusinessEmailBaseline);
             Draw(graphics, ArticlesChineseText.TranslateName(fields.RegisteredAgentName), body, AgentX, AgentNameBaseline);
             Draw(graphics, ArticlesChineseText.TranslateStreet(fields.RegisteredAgentStreet), body, AgentX, AgentStreetBaseline);
@@ -284,8 +284,12 @@ public sealed record ArticlesOfIncorporationFields(
     string IncorporatorStreet,
     string IncorporatorCity,
     string CompanyName = "",
-    string Email = "")
+    string Email = "",
+    string? ChineseCompanyName = null)
 {
+    public string ResolvedChineseCompanyName() =>
+        ChineseCompanyName ?? ArticlesChineseText.TranslateCompany(CompanyName);
+
     public static ArticlesOfIncorporationFields Sample { get; } = new(
         "2026357992",
         "1543026",
@@ -313,8 +317,6 @@ public sealed record ArticlesOfIncorporationFields(
         var meridiem = rng.Next(2) == 0 ? "AM" : "PM";
         var fullName = $"{Pick(rng, GivenNames)} {Pick(rng, MiddleNames)} {Pick(rng, FamilyNames)}";
         var place = Places[rng.Next(Places.Length)];
-        var adjective = Pick(rng, CompanyAdjectives);
-        var noun = Pick(rng, CompanyNouns);
         return new ArticlesFilingStamp(
             $"{day.Year}{rng.Next(0, 1_000_000):000000}",
             $"154{rng.Next(0, 10_000):0000}",
@@ -324,7 +326,7 @@ public sealed record ArticlesOfIncorporationFields(
             ToShortName(fullName),
             $"{rng.Next(100, 10000)} {Pick(rng, StreetNames)} {Pick(rng, StreetSuffixes)}",
             $"{place.City}, {place.State} {place.Zip}",
-            $"{adjective} {noun} INC",
+            CompanyNameCatalog.PickMississippi(rng).English,
             CreateRandomEmail(rng));
     }
 
@@ -344,8 +346,6 @@ public sealed record ArticlesOfIncorporationFields(
     private static readonly string[] FamilyNames = ["CLUNIS", "HARRIS", "WALKER", "BROOKS", "REED", "COLEMAN", "HAYES", "FOSTER"];
     private static readonly string[] StreetNames = ["Oloh", "Oak", "Maple", "Pine", "Cedar", "Highland", "Lakeview", "River"];
     private static readonly string[] StreetSuffixes = ["Rd", "St", "Ave", "Dr", "Ln", "Blvd", "Ct", "Way"];
-    private static readonly string[] CompanyAdjectives = ["Tangible", "Harbor", "Silver", "North", "Maple", "Clear", "Summit", "River", "Golden", "Pacific"];
-    private static readonly string[] CompanyNouns = ["Group", "Peak", "Oak", "Line", "Ridge", "Goods", "Retail", "Stone", "Field", "Trade"];
     private static readonly string[] EmailLocals = ["tentative", "primary", "general", "direct", "formal", "current", "active", "pending"];
     private static readonly string[] EmailDomainWords = ["solutions", "results", "services", "partners", "holdings", "systems", "capital", "ventures", "markets", "products"];
     private static readonly (string City, string State, string Zip)[] Places =
@@ -379,6 +379,6 @@ public sealed record ArticlesOfIncorporationFields(
         new[]
         {
             FilingNumber, BusinessId, FiledAt, RegisteredAgentName, RegisteredAgentStreet, RegisteredAgentCity,
-            SignedOn, IncorporatorName, IncorporatorStreet, IncorporatorCity, CompanyName, Email,
+            SignedOn, IncorporatorName, IncorporatorStreet, IncorporatorCity, CompanyName, Email, ChineseCompanyName,
         }.Any(value => !string.IsNullOrWhiteSpace(value));
 }
