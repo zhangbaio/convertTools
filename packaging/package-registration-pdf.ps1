@@ -38,7 +38,7 @@ function Assert-RegistrationPdfPublished {
     $fontDir = Join-Path $root "fonts"
     New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
     $windowsFonts = Join-Path $env:WINDIR "Fonts"
-    foreach ($file in @("times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf", "arial.ttf", "arialbd.ttf", "simsun.ttc")) {
+    foreach ($file in @("times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf", "arial.ttf", "arialbd.ttf", "simsun.ttc", "simhei.ttf")) {
         $source = Join-Path $windowsFonts $file
         $destination = Join-Path $fontDir $file
         if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {

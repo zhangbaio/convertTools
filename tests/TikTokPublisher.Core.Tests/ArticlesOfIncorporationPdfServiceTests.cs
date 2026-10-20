@@ -64,6 +64,7 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
             DateOnly.FromDateTime(filed).Should().Be(DateOnly.FromDateTime(effective));
             DateOnly.FromDateTime(filed).Should().BeOnOrAfter(new DateOnly(2025, 1, 1)).And.BeOnOrBefore(today);
             fields.FilingNumber.Should().MatchRegex(@"^157\d{4}\.\d{2}$");
+            fields.CompanyName.Should().MatchRegex(@"^[A-Z]+ \d{2}[A-Z]+ [A-Z]+ Inc\.$");
             fields.CityLine.Should().Contain(", KY ");
             fields.Street.Should().MatchRegex(@"^\d{3,4} [A-Za-z]+ (Rd|St|Ave|Dr|Ln|Ct|Way)$");
         }
@@ -119,6 +120,7 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         ArticlesChineseText.TranslateCompany("").Should().BeEmpty();
         ArticlesChineseText.TranslateKentuckyCompany("GRAYSON 74ROAM BUREAU Inc.").Should().Be("格雷森74罗姆局公司");
         ArticlesChineseText.TranslateKentuckyCompany("Summit Ridge INC").Should().Be("顶峰岭公司");
+        ArticlesChineseText.TranslateKentuckyCompany("SOGDOITE 12VALLEY HOLDING Inc.").Should().Be("索格多伊特12瓦利控股公司");
         ArticlesChineseText.TranslateKentuckyAddress("27 Reins Ct", "Elizabethtown, KY 42701")
             .Should().Be("27 Reins Ct, 埃利萨伯敦, 肯塔基州 42701");
         ArticlesChineseText.TranslateKentuckyFiledAt("5/5/2026 8:10:52 AM").Should().Be("2026年5月5日 上午8:10:52");

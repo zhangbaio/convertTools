@@ -284,6 +284,7 @@ public static partial class ArticlesChineseText
         ["GULFPORT"] = "格尔夫波特", ["AUSTIN"] = "奥斯汀", ["DALLAS"] = "达拉斯",
         ["ATLANTA"] = "亚特兰大", ["MEMPHIS"] = "孟菲斯", ["BIRMINGHAM"] = "伯明翰",
         ["NEW ORLEANS"] = "新奥尔良", ["BATON ROUGE"] = "巴吞鲁日", ["NASHVILLE"] = "纳什维尔",
+        ["SOGDOITE"] = "索格多伊特", ["VALLEY"] = "瓦利", ["HOLDING"] = "控股", ["CREEK"] = "克里克",
         ["GRAYSON"] = "格雷森", ["ROAM"] = "罗姆", ["BUREAU"] = "局",
         ["TANGIBLE"] = "坦吉布尔", ["HARBOR"] = "港湾", ["SILVER"] = "银", ["NORTH"] = "北",
         ["CLEAR"] = "克利尔", ["SUMMIT"] = "顶峰", ["GOLDEN"] = "金", ["PACIFIC"] = "太平洋",

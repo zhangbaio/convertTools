@@ -50,19 +50,20 @@ public static class KentuckyArticlesPdfService
         var page = document.Pages[0];
         using (var graphics = XGraphics.FromPdfPage(page, XGraphicsPdfPageOptions.Append))
         {
-            var small = new XFont("SimSun", 8.24, XFontStyleEx.Regular);
-            var stamp = new XFont("SimSun", 9.74, XFontStyleEx.Regular);
+            var small = new XFont("SimSun", 8.24, XFontStyleEx.Bold);
+            var smallRegular = new XFont("SimSun", 8.24, XFontStyleEx.Regular);
+            var stamp = new XFont("SimSun", 9.74, XFontStyleEx.Bold);
             var address = ArticlesChineseText.TranslateKentuckyAddress(fields.Street, fields.CityLine);
 
             Draw(graphics, fields.FilingNumber, stamp, 456.8, 45.3);
             Draw(graphics, "迈克尔·G·亚当斯", small, 456.8, 56.1);
             Draw(graphics, "州务卿", small, 456.8, 66.6);
-            Draw(graphics, "已接收并归档", small, 456.8, 77.1);
-            DrawFitted(graphics, ArticlesChineseText.TranslateKentuckyFiledAt(fields.FiledAt), "SimSun", 8.24, XFontStyleEx.Regular, 456.8, 88.8, 100, center: false);
-            Draw(graphics, "费用收据：$40", small, 456.8, 100.8);
-            DrawFitted(graphics, ArticlesChineseText.TranslateKentuckyCompany(fields.CompanyName), "SimSun", 11.24, XFontStyleEx.Regular, 306.05, 264.8, 340, center: true);
-            DrawFitted(graphics, address, "SimSun", 11.24, XFontStyleEx.Regular, 306.15, 375.8, 360, center: true);
-            DrawFitted(graphics, address, "SimSun", 11.24, XFontStyleEx.Regular, 306.15, 420.1, 360, center: true);
+            Draw(graphics, "已接收并归档", smallRegular, 456.8, 77.1);
+            DrawFitted(graphics, ArticlesChineseText.TranslateKentuckyFiledAt(fields.FiledAt), "SimSun", 8.24, XFontStyleEx.Bold, 456.8, 88.8, 100, center: false);
+            Draw(graphics, "费用收据：$40", stamp, 456.8, 100.8);
+            DrawFitted(graphics, ArticlesChineseText.TranslateKentuckyCompany(fields.CompanyName), "SimSun", 11.24, XFontStyleEx.Bold, 306.05, 264.8, 340, center: true);
+            DrawFitted(graphics, address, "SimSun", 11.24, XFontStyleEx.Bold, 306.15, 375.8, 360, center: true);
+            DrawFitted(graphics, address, "SimSun", 11.24, XFontStyleEx.Bold, 306.15, 420.1, 360, center: true);
             DrawFitted(graphics, address, "SimSun", 11.24, XFontStyleEx.Regular, 309.0, 464.7, 250, center: false);
             DrawFitted(graphics, ArticlesChineseText.TranslateKentuckyEffectiveOn(fields.EffectiveOn), "SimSun", 11.24, XFontStyleEx.Regular, 116, 499.9, 190, center: false);
             graphics.DrawRectangle(XBrushes.White, new XRect(234, 598, 330, 16));
@@ -76,6 +77,8 @@ public static class KentuckyArticlesPdfService
                 610.9,
                 330,
                 center: false);
+            graphics.DrawRectangle(XBrushes.White, new XRect(200, 738, 220, 22));
+            DrawFitted(graphics, "第1页，共1页", "SimSun", 11.24, XFontStyleEx.Regular, 306.15, 753.4, 160, center: true);
         }
 
         document.Save(outputPath);
@@ -98,7 +101,7 @@ public static class KentuckyArticlesPdfService
         return new KentuckyArticlesFields(
             $"157{rng.Next(0, 10_000):0000}.{rng.Next(0, 100):00}",
             filed.ToString("M/d/yyyy h:mm:ss tt", CultureInfo.InvariantCulture),
-            $"{Pick(rng, CompanyAdjectives)} {Pick(rng, CompanyNouns)} INC",
+            $"{Pick(rng, CompanyLeads)} {rng.Next(10, 100)}{Pick(rng, CompanyMiddles)} {Pick(rng, CompanyTails)} Inc.",
             $"{rng.Next(100, 10000)} {Pick(rng, StreetNames)} {Pick(rng, StreetSuffixes)}",
             $"{place.City}, KY {place.Zip}",
             filed.ToString("dddd, MMMM d, yyyy", CultureInfo.InvariantCulture) + ".");
@@ -151,8 +154,9 @@ public static class KentuckyArticlesPdfService
 
     private static string Pick(Random random, string[] values) => values[random.Next(values.Length)];
 
-    private static readonly string[] CompanyAdjectives = ["Tangible", "Harbor", "Silver", "North", "Maple", "Clear", "Summit", "River", "Golden", "Pacific"];
-    private static readonly string[] CompanyNouns = ["Group", "Peak", "Oak", "Line", "Ridge", "Goods", "Retail", "Stone", "Field", "Trade"];
+    private static readonly string[] CompanyLeads = ["SOGDOITE", "GRAYSON", "HARBOR", "SUMMIT", "SILVER", "PACIFIC", "TANGIBLE", "GOLDEN"];
+    private static readonly string[] CompanyMiddles = ["VALLEY", "ROAM", "RIDGE", "PEAK", "FIELD", "CREEK"];
+    private static readonly string[] CompanyTails = ["HOLDING", "BUREAU", "GROUP", "TRADE"];
     private static readonly string[] StreetNames = ["Reins", "Oak", "Maple", "Pine", "Cedar", "Highland", "Main", "Church"];
     private static readonly string[] StreetSuffixes = ["Rd", "St", "Ave", "Dr", "Ln", "Ct", "Way"];
     private static readonly (string City, string Zip)[] Places =
