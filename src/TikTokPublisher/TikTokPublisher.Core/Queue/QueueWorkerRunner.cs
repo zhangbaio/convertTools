@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
@@ -658,23 +659,27 @@ public sealed class QueueWorkerRunner
                 catch (Exception ex)
                 {
                     var failedStep = ResolveFailedStep(ex, preItem, preUploadSteps);
+                    var failureMessage = DescribeQueueFailure(ex);
                     Mutate(() =>
                     {
-                        MarkFailed(preItem, failedStep, ex.Message);
+                        MarkFailed(preItem, failedStep, failureMessage);
                         failed++;
                     });
                     Report(
                         onProgress,
                         workspace,
                         preItem,
-                        $"{QueueStepRegistry.LabelOf(failedStep)} 失败：{ex.Message}",
+                        $"{QueueStepRegistry.LabelOf(failedStep)} 失败：{failureMessage}",
                         failedStep);
-                    Report(
-                        onProgress,
-                        workspace,
-                        preItem,
-                        BuildExceptionDiagnostics(ex, ct, failedStep),
-                        failedStep);
+                    if (!IsPosterSensitiveContent(ex))
+                    {
+                        Report(
+                            onProgress,
+                            workspace,
+                            preItem,
+                            BuildExceptionDiagnostics(ex, ct, failedStep),
+                            failedStep);
+                    }
                 }
 
                 continue;
@@ -1850,6 +1855,25 @@ public sealed class QueueWorkerRunner
             ? preUploadSteps.LastOrDefault() ?? QueueStepRegistry.UploadSeries
             : item.CurrentStep;
     }
+
+    internal static bool IsPosterSensitiveContent(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            var message = current.Message ?? "";
+            if (message.Contains(PosterRenamer.PosterSensitiveContentMessage, StringComparison.Ordinal) ||
+                message.Contains("InputImageSensitiveContentDetected", StringComparison.Ordinal) ||
+                message.Contains("OutputImageSensitiveContentDetected", StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string DescribeQueueFailure(Exception exception) =>
+        IsPosterSensitiveContent(exception)
+            ? PosterRenamer.PosterSensitiveContentMessage
+            : exception.Message;
 
     private static string BuildExceptionDiagnostics(
         Exception exception,

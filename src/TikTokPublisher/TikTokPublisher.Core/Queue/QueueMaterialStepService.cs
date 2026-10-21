@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.AI;
+using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
@@ -1789,6 +1790,10 @@ public static class QueueMaterialStepService
                         Overwrite: true,
                         Log: log),
                     cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (QueueWorkerRunner.IsPosterSensitiveContent(ex))
+            {
+                throw new InvalidOperationException(PosterRenamer.PosterSensitiveContentMessage);
             }
             catch (Exception ex)
             {

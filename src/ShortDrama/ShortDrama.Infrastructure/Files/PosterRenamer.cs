@@ -1206,7 +1206,8 @@ JSON 结构：
             var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
             if (!response.IsSuccessStatusCode)
             {
-                log?.Invoke("海报图片生成失败：" + attempt.Describe(watch.Elapsed, status, TruncateForLog(responseText, 400)));
+                if (!IsSensitiveContentBlocked(responseText))
+                    log?.Invoke("海报图片生成失败：" + attempt.Describe(watch.Elapsed, status, TruncateForLog(responseText, 400)));
                 if (attempt.Stream && ((int)response.StatusCode == 429 || (int)response.StatusCode >= 500))
                 {
                     throw new PosterLayoutHttpException(
@@ -1274,8 +1275,8 @@ JSON 结构：
                 var errorText = error.ToString();
                 if (IsSensitiveContentBlocked(errorText))
                 {
-                    throw new PosterSensitiveContentException(
-                        $"AI 海报图片生成命中内容审核拦截; url: {requestUrl}; event: {type}; error: {errorText}");
+                    LogSensitiveApiResponse(errorText);
+                    throw new PosterSensitiveContentException(PosterSensitiveContentMessage);
                 }
 
                 throw new InvalidOperationException(
@@ -1436,8 +1437,8 @@ JSON 结构：
     {
         if (IsSensitiveContentBlocked(responseText))
         {
-            throw new PosterSensitiveContentException(
-                $"{operation}命中内容审核拦截: {(int)response.StatusCode} {response.ReasonPhrase}; url: {requestUrl}; body: {responseText}");
+            LogSensitiveApiResponse(responseText);
+            throw new PosterSensitiveContentException(PosterSensitiveContentMessage);
         }
 
         throw new InvalidOperationException(AiApiErrorMessage.Create(
@@ -1447,6 +1448,9 @@ JSON 结构：
             responseText,
             "请检查 config.json 中的 ImageEditEndpoint / ImageEditPath / ImageEditModelId 配置。"));
     }
+
+    private static void LogSensitiveApiResponse(string responseText) =>
+        CurrentCall.Value?.Log?.Invoke("海报接口返回：" + TruncateForLog(responseText, 800));
 
     private static bool IsSensitiveContentBlocked(string responseText)
     {
@@ -1619,6 +1623,8 @@ JSON 结构：
 
         return sanitized.Length > 16 ? sanitized[..16] : sanitized;
     }
+
+    public const string PosterSensitiveContentMessage = "封面原图被内容审核拦截。";
 
     private sealed class PosterSensitiveContentException : InvalidOperationException
     {
