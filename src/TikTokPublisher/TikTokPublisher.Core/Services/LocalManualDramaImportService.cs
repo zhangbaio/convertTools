@@ -248,6 +248,7 @@ public static class LocalManualDramaImportService
         WriteMetadata(metadataPath, metadata);
         EnsureStandardPosterAlias(source);
         var sourceInfoPath = Path.Combine(source, "短剧信息.txt");
+        EnsureDramaBoxProjectInfo(sourceInfoPath, displayName, effectiveEpisodeCount, externalInfo.Intro);
         if (truncate && File.Exists(sourceInfoPath))
             ProjectWorkspaceService.UpdateProjectInfoField(sourceInfoPath, "集数", effectiveEpisodeCount.ToString());
         ProjectWorkspaceService.EnsureWorkflowInfo(source, effectiveEpisodeCount, log);
@@ -421,6 +422,26 @@ public static class LocalManualDramaImportService
         }
 
         return !Directory.EnumerateFileSystemEntries(workflowDir).Any();
+    }
+
+    private static void EnsureDramaBoxProjectInfo(
+        string infoPath,
+        string displayName,
+        int episodeCount,
+        string intro)
+    {
+        if (File.Exists(infoPath))
+            return;
+
+        var lines = new List<string>
+        {
+            $"原剧名: {displayName}",
+            $"新剧名: {displayName}",
+            $"集数: {Math.Max(1, episodeCount)}",
+        };
+        if (!string.IsNullOrWhiteSpace(intro))
+            lines.Add($"简介: {intro.Trim()}");
+        File.WriteAllText(infoPath, string.Join(Environment.NewLine, lines) + Environment.NewLine, Encoding.UTF8);
     }
 
     private static string? FindLocalIntroPath(string sourceProjectDir)

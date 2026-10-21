@@ -71,12 +71,13 @@ public sealed class DramaSourceConfigurationValidatorTests
     [InlineData("hgnew")]
     [InlineData("mapleleaf")]
     [InlineData("downloader")]
+    [InlineData("foreign")]
     [InlineData("unknown")]
     [InlineData(null)]
     public void RetiredAndUnknownChainsBecomePlaylet(string? chain)
     {
         Assert.Equal("playlet", VisibleDramaSource.Normalize(chain));
-        Assert.Equal(chain is "hgnew" or "mapleleaf" or "downloader", VisibleDramaSource.IsRetired(chain));
+        Assert.Equal(chain is "hgnew" or "mapleleaf" or "downloader" or "foreign", VisibleDramaSource.IsRetired(chain));
     }
 
     [Fact]
@@ -86,6 +87,28 @@ public sealed class DramaSourceConfigurationValidatorTests
         Assert.Equal("hglocal", VisibleDramaSource.Normalize("hglocal"));
         Assert.Equal("pikachu", VisibleDramaSource.Normalize("pikachu"));
         Assert.Equal("playlet", VisibleDramaSource.Normalize("playlet"));
+        Assert.Equal("dramabox", VisibleDramaSource.Normalize("dramabox"));
+    }
+
+    [Fact]
+    public void ForeignSourceRequiresServerAndDevice()
+    {
+        var missing = DramaSourceConfigurationValidator.Check(new ClientSettings
+        {
+            DramaSourceChain = "foreign",
+            ForeignServerUrl = "https://startvlog.cn/start-prod-api",
+        });
+        Assert.False(missing.IsConfigured);
+        Assert.Contains("设备号", missing.Message);
+
+        var configured = DramaSourceConfigurationValidator.Check(new ClientSettings
+        {
+            DramaSourceChain = "foreign",
+            ForeignServerUrl = "https://startvlog.cn/start-prod-api",
+            ForeignDeviceId = "DC8D94CB6E7122F92E",
+        });
+        Assert.True(configured.IsConfigured);
+        Assert.Contains("海外短剧下载器", configured.Message);
     }
 
     [Fact]

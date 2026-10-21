@@ -35,7 +35,7 @@ public sealed class KuaishouPersonalSessionService
         var config = KuaishouPersonalConfig.Load(job);
         var label = job.Platform.DisplayName();
         var timeout = Math.Clamp(config.LoginTimeoutSeconds, 30, 900) * 1000;
-        await RunBrowserAsync(config, config.Headless, async (page, _, ct) =>
+        await RunBrowserAsync(config, config.RevenueShareHeadless, async (page, _, ct) =>
         {
             progress?.Report($"{label}：正在打开经营者管理平台…");
             await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
@@ -49,18 +49,24 @@ public sealed class KuaishouPersonalSessionService
     public async Task ExecuteAuthenticatedAsync(
         PublishJob job,
         Func<IPage, KuaishouPersonalConfig, CancellationToken, Task> action,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool holdUntilClosed = false)
     {
         var config = KuaishouPersonalConfig.Load(job);
         var label = job.Platform.DisplayName();
         var timeout = Math.Clamp(config.LoginTimeoutSeconds, 30, 900) * 1000;
-        await RunBrowserAsync(config, config.Headless, async (page, _, ct) =>
+        await RunBrowserAsync(config, config.RevenueShareHeadless, async (page, context, ct) =>
         {
             await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
             await page.WaitForTimeoutAsync(1200);
             if (!await IsLoggedInAsync(page))
                 throw new InvalidOperationException($"{label}登录态无效，请先扫码登录。");
             await action(page, config, ct);
+            if (holdUntilClosed)
+            {
+                while (!ct.IsCancellationRequested && context.Pages.Count > 0)
+                    await Task.Delay(500, ct);
+            }
         }, cancellationToken);
     }
 
@@ -86,7 +92,17 @@ public sealed class KuaishouPersonalSessionService
         await using var context = await CreateContextAsync(browser, options, allowInvalidStateFallback);
         var page = await context.NewPageAsync();
         var succeeded = false;
-        try { await action(page, context, cancellationToken); succeeded = true; }
+        try
+        {
+            await action(page, context, cancellationToken);
+            succeeded = true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && config.KeepBrowserOpenOnFailure && !headless)
+        {
+            while (!cancellationToken.IsCancellationRequested && context.Pages.Count > 0)
+                await Task.Delay(500, cancellationToken);
+            throw;
+        }
         finally
         {
             try

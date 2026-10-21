@@ -118,7 +118,10 @@ public static class UploadTitleImportService
         }
 
         var state = DramaDownloadQueueStore.Load();
-        var authorExclude = SplitKeywords(state.AuthorExclude);
+        var applyAuthorExclusion = ShouldApplyAuthorExclusion(settings.DramaSourceChain);
+        var authorExclude = applyAuthorExclusion ? SplitKeywords(state.AuthorExclude) : Array.Empty<string>();
+        if (!applyAuthorExclusion && requests.Count > 0)
+            log?.Invoke("数据链路为 DramaBox，已跳过作者排除。");
         var episodeSelection = string.IsNullOrWhiteSpace(state.DownloadEpisodeNumberMode) ? "source" : state.DownloadEpisodeNumberMode;
         var quality = string.IsNullOrWhiteSpace(state.DefaultQuality) ? settings.DramaDownloadDefaultQuality : state.DefaultQuality;
         var concurrent = state.DownloadConcurrent > 0 ? state.DownloadConcurrent : settings.DramaDownloadConcurrent;
@@ -145,28 +148,31 @@ public static class UploadTitleImportService
                     continue;
                 }
 
-                var authorHit = authorExclude.FirstOrDefault(token => ContainsToken(matched.Author, token));
-                if (!string.IsNullOrWhiteSpace(authorHit))
+                if (ShouldApplyAuthorExclusion(matched.BookId))
                 {
-                    var author = string.IsNullOrWhiteSpace(matched.Author) ? authorHit : $"{matched.Author}（包含 {authorHit}）";
-                    var failure = $"{AuthorExcludedFailurePrefix}{author}";
-                    result.Failures.Add(new UploadTitleImportFailure(label, failure));
-                    log?.Invoke($"未加入：{label}，{failure}");
-                    continue;
-                }
+                    var authorHit = authorExclude.FirstOrDefault(token => ContainsToken(matched.Author, token));
+                    if (!string.IsNullOrWhiteSpace(authorHit))
+                    {
+                        var author = string.IsNullOrWhiteSpace(matched.Author) ? authorHit : $"{matched.Author}（包含 {authorHit}）";
+                        var failure = $"{AuthorExcludedFailurePrefix}{author}";
+                        result.Failures.Add(new UploadTitleImportFailure(label, failure));
+                        log?.Invoke($"未加入：{label}，{failure}");
+                        continue;
+                    }
 
-                if (!await ConfirmUnknownAuthorIfNeededAsync(
-                        matched,
-                        label,
-                        authorExclude,
-                        confirmUnknownAuthor,
-                        log,
-                        ct).ConfigureAwait(false))
-                {
-                    var failure = $"{UnknownAuthorFailurePrefix}{matched.Title}（未确认放行）";
-                    result.Failures.Add(new UploadTitleImportFailure(label, failure));
-                    log?.Invoke($"未加入：{label}，{failure}");
-                    continue;
+                    if (!await ConfirmUnknownAuthorIfNeededAsync(
+                            matched,
+                            label,
+                            authorExclude,
+                            confirmUnknownAuthor,
+                            log,
+                            ct).ConfigureAwait(false))
+                    {
+                        var failure = $"{UnknownAuthorFailurePrefix}{matched.Title}（未确认放行）";
+                        result.Failures.Add(new UploadTitleImportFailure(label, failure));
+                        log?.Invoke($"未加入：{label}，{failure}");
+                        continue;
+                    }
                 }
 
                 var episodeError = ResolveEpisodeLimitError(matched, settings, episodeMin, episodeMax);
@@ -239,6 +245,14 @@ public static class UploadTitleImportService
         }
 
         return (requests, failures);
+    }
+
+    public static bool ShouldApplyAuthorExclusion(string? dramaSourceChainOrBookId)
+    {
+        var value = (dramaSourceChainOrBookId ?? string.Empty).Trim();
+        return !value.Equals("dramabox", StringComparison.OrdinalIgnoreCase)
+            && !value.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase)
+            && !value.StartsWith("dramabox_ep:", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsAuthorExcludedFailure(UploadTitleImportFailure failure) =>

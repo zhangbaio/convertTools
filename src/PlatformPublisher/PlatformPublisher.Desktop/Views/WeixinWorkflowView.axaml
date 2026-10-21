@@ -31,6 +31,7 @@
                     <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="快手分账配置" Click="OnKuaishouConfigClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <TextBlock Text="ADX" VerticalAlignment="Center" Margin="4,0,4,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
@@ -56,7 +57,8 @@
                     <TextBlock Text="浏览器：" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0" />
                     <CheckBox Content="上传剧集" IsChecked="True" IsEnabled="False" Margin="0,0,12,0" />
                     <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,0" />
-                    <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                    <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0"
+                            ToolTip.Tip="对勾选的项目执行上方已勾选的步骤。已完成的步骤会跳过，除非勾选强制重跑。" />
                     <Button Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="secondaryAction compactAction" />
                 </WrapPanel>
                 <Grid Grid.Row="3" ColumnDefinitions="48,*,Auto" ColumnSpacing="8">
@@ -292,17 +294,21 @@
                                     <Grid ColumnDefinitions="52,52,220,220,70,110,90,100,100,110,90,100,80" ColumnSpacing="8" Margin="8,2">
                                         <TextBlock Text="{Binding QueueIndex}" VerticalAlignment="Center" />
                                         <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="3" Text="{Binding NewTitle}" Foreground="#0369A1" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <Button Grid.Column="2" Command="{Binding OpenSourceDirectoryCommand}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Cursor="Hand" ToolTip.Tip="打开原项目目录">
+                                            <TextBlock Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" TextDecorations="Underline" />
+                                        </Button>
+                                        <Button Grid.Column="3" Command="{Binding OpenWorkflowDirectoryCommand}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Cursor="Hand" ToolTip.Tip="打开 workflow 目录">
+                                            <TextBlock Text="{Binding NewTitle}" Foreground="#0369A1" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextDecorations="Underline" />
+                                        </Button>
                                         <TextBlock Grid.Column="4" Text="{Binding EpisodeCountText}" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="5" Text="{Binding CreatedAtText}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="6" Text="{Binding DownloadStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="7" Text="{Binding RewriteStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="8" Text="{Binding PosterStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="9" Text="{Binding ProjectImageStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="10" Text="{Binding AutoFillStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="11" Text="{Binding UploadStepStatus}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="12" Text="{Binding StatusText}" Foreground="#047857" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="6" Text="{Binding DownloadStepStatus}" Foreground="{Binding DownloadStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="7" Text="{Binding RewriteStepStatus}" Foreground="{Binding RewriteStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="8" Text="{Binding PosterStepStatus}" Foreground="{Binding PosterStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="9" Text="{Binding ProjectImageStepStatus}" Foreground="{Binding ProjectImageStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="10" Text="{Binding AutoFillStepStatus}" Foreground="{Binding AutoFillStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="11" Text="{Binding UploadStepStatus}" Foreground="{Binding UploadStepBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="12" Text="{Binding StatusText}" Foreground="{Binding StatusBrushValue}" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -342,8 +348,12 @@
                                     <Grid ColumnDefinitions="44,110,210,210,90,60,100,64,72,64,64,64,64,64,64,80,80,64,72,64,64,64,90,240" ColumnSpacing="8" Margin="8,2">
                                         <CheckBox IsChecked="{Binding IsChecked}" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="1" Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="2" Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="3" Text="{Binding NewTitle}" Foreground="#0369A1" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <Button Grid.Column="2" Command="{Binding OpenSourceDirectoryCommand}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Cursor="Hand" ToolTip.Tip="打开原项目目录">
+                                            <TextBlock Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" TextDecorations="Underline" />
+                                        </Button>
+                                        <Button Grid.Column="3" Command="{Binding OpenWorkflowDirectoryCommand}" Background="Transparent" BorderThickness="0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Cursor="Hand" ToolTip.Tip="打开 workflow 目录">
+                                            <TextBlock Text="{Binding NewTitle}" Foreground="#0369A1" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextDecorations="Underline" />
+                                        </Button>
                                         <TextBlock Grid.Column="4" Text="{Binding SourceText}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Grid.Column="5" Text="{Binding EpisodeCountText}" />
                                         <TextBlock Grid.Column="6" Text="{Binding CreatedAtText}" />

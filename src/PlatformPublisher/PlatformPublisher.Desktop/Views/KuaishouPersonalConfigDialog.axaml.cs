@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -5,6 +6,7 @@ using Avalonia.Platform.Storage;
 using ChannelsAccount = ChannelsPublisher.Core.Models.PublishAccount;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Kuaishou.Publishing;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Views;
 
 namespace PlatformPublisher.Desktop.Views;
@@ -17,16 +19,13 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private string _cleanJson = "";
     private bool _suspendDirty;
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
-    public IReadOnlyList<string> GenderOptions { get; } = ["男", "女"];
-    public IReadOnlyList<string> FirstPageActions { get; } = ["draft", "next"];
-    public IReadOnlyList<string> FinalActions { get; } = ["keep", "submit_review"];
-    public IReadOnlyList<string> RunModes { get; } = ["auto", "create", "edit"];
-    public IReadOnlyList<string> VideoStorageProviders { get; } = ["browser", "aliyun_oss"];
+    private readonly ObservableCollection<DistributorAccountEditorRow> _distributorAccounts = [];
 
     public KuaishouPersonalConfigDialog()
     {
         DataContext = this;
         InitializeComponent();
+        DistributorAccountList.ItemsSource = _distributorAccounts;
         LoadValues();
         CaptureClean();
         UpdateHeading();
@@ -61,123 +60,143 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void LoadValues()
     {
-        EntryUrlBox.Text = _config.EntryUrl;
         ApiBaseUrlBox.Text = _config.ApiBaseUrl;
+        AdvertiserIdBox.Text = FirstNonEmpty(_config.AdvertiserId, _config.KuaishouId);
+        NicknameBox.Text = _config.KuaishouNickname;
         AppNameBox.Text = _config.AppName;
         AppIdBox.Text = _config.AppId;
         AppSecretBox.Text = _config.AppSecret;
         AuthorizeBaseUrlBox.Text = _config.AuthorizeBaseUrl;
         AuthCodeBox.Text = _config.AuthCode;
+        RemoteTokenBox.IsChecked = _config.RemoteTokenEnabled;
         AccessTokenBox.Text = _config.AccessToken;
         AccessTokenExpiresAtBox.Text = _config.AccessTokenExpiresAt;
         RefreshTokenBox.Text = _config.RefreshToken;
         RefreshTokenExpiresAtBox.Text = _config.RefreshTokenExpiresAt;
         TokenHeaderBox.Text = _config.TokenHeader;
-        RemoteTokenBox.IsChecked = _config.RemoteTokenEnabled;
-        RealNameBox.Text = _config.RealName;
-        GenderBox.SelectedItem = _config.Gender;
-        NicknameBox.Text = _config.KuaishouNickname;
-        KuaishouIdBox.Text = _config.KuaishouId;
-        HeadlessBox.IsChecked = _config.Headless;
-        KeepBrowserBox.IsChecked = _config.KeepBrowserOpenOnFailure;
-        CommitmentPdfBox.Text = _config.CommitmentPdfPath;
-        CommitmentTemplateBox.Text = _config.CommitmentTemplateDocxPath;
-        CommitmentSealBox.Text = _config.CommitmentSealPath;
+
         CommitmentRecipientBox.Text = _config.CommitmentRecipientCompanyName;
-        CategoryBox.Text = _config.Category;
-        ContentTypeBox.Text = _config.ContentType;
-        ProductionMethodBox.Text = _config.ProductionMethod;
-        ProductionFormBox.Text = _config.ProductionForm;
+        CommitmentSealBox.Text = _config.CommitmentSealPath;
+        CommitmentTemplateBox.Text = _config.CommitmentTemplateDocxPath;
+
+        FillChoice(ContentTypeBox, KuaishouFormChoices.ContentTypes, _config.ContentType, "漫剧");
+        FillChoice(ComicMethodBox, KuaishouFormChoices.ComicMethods, _config.ProductionMethod, "3");
+        FillChoice(AuthorDeclarationBox, KuaishouFormChoices.AuthorDeclarations, _config.AuthorDeclaration, "1");
+        FillChoice(ProductionFormBox, KuaishouFormChoices.ProductionForms, _config.ProductionForm, "auto");
         ProductionYearBox.Text = _config.ProductionYear;
-        ProductionCostBox.Text = _config.ProductionCost;
         AverageDurationBox.Text = _config.AverageEpisodeMinutes;
-        BroadcastPlatformBox.Text = _config.BroadcastPlatform;
-        BroadcastChannelBox.Text = _config.BroadcastChannel;
-        BroadcastDateBox.Text = _config.BroadcastDate;
-        FinishedBox.IsChecked = _config.Finished;
-        HasRecordNumberBox.IsChecked = _config.HasRecordNumber;
-        ActorsBox.Text = _config.Actors;
-        PeopleActorsBox.Text = _config.Actors;
-        DirectorsBox.Text = _config.Directors;
-        ScreenwritersBox.Text = _config.Screenwriters;
-        ProductionOrganizationBox.Text = _config.ProductionOrganization;
-        AudienceGenderBox.Text = _config.AudienceGender;
-        PlotLabelsBox.Text = _config.PlotLabels;
-        TagLabelsBox.Text = _config.TagLabels;
-        AuthorDeclarationBox.Text = _config.AuthorDeclaration;
-        HasCopyrightProofBox.IsChecked = _config.HasCopyrightProof;
-        HasSubAuthorizationBox.IsChecked = _config.HasSubAuthorizationRight;
-        FullSceneDisplayBox.IsChecked = _config.FullSceneDisplay;
-        SaleTypeBox.Text = _config.SaleType;
-        EpisodePriceBox.Text = _config.EpisodePrice;
+        ProductionCostBox.Text = _config.ProductionCost;
+        FillChoice(SaleTypeBox, KuaishouFormChoices.SaleTypes, NormalizeSaleType(_config.SaleType), "3");
         FreeEpisodeCountBox.Text = _config.FreeEpisodeCount.ToString();
         UnlockEpisodeCountBox.Text = _config.UnlockEpisodeCount.ToString();
-        FirstPageActionBox.SelectedItem = _config.FirstPageAction;
-        FinalActionBox.SelectedItem = _config.FinalAction;
-        RunModeBox.SelectedItem = _config.RunMode;
-        UploadTimeoutBox.Text = _config.UploadTimeoutMinutes.ToString();
-        ForceRerunBox.IsChecked = _config.ForceRerun;
-        LoginTimeoutBox.Text = _config.LoginTimeoutSeconds.ToString();
+        SmallAmountUnlockBox.IsChecked = _config.SmallAmountUnlock;
+        EpisodePriceBox.Text = _config.EpisodePrice;
+        SeriesPriceBox.Text = _config.SeriesPrice;
+        HasCopyrightProofBox.IsChecked = _config.HasCopyrightProof;
+        FillChoice(CopyrightProofTypeBox, KuaishouFormChoices.CopyrightProofTypes, _config.CopyrightProofType, "1");
+        FinishedBox.IsChecked = _config.Finished;
+        FullSceneDisplayBox.IsChecked = _config.FullSceneDisplay;
+        HasRecordNumberBox.IsChecked = _config.HasRecordNumber;
+        SpecialThemeBox.IsChecked = IsTruthy(_config.SpecialTheme);
+        PlotLabelsBox.Text = _config.PlotLabels;
+        UpdateSaleTypeRows();
+
+        BroadcastPlatformBox.Text = _config.BroadcastPlatform;
+        FillChoice(BroadcastChannelBox, KuaishouFormChoices.BroadcastChannels, _config.BroadcastChannel, "小屏APP");
+        var broadcastMode = string.IsNullOrWhiteSpace(_config.BroadcastTimeMode) ? "today" : _config.BroadcastTimeMode.Trim();
+        var fixedDate = !string.Equals(broadcastMode, "today", StringComparison.OrdinalIgnoreCase);
+        FillChoice(BroadcastTimeModeBox, KuaishouFormChoices.BroadcastTimeModes, fixedDate ? "fixed" : "today", "today");
+        BroadcastDateBox.Text = fixedDate ? broadcastMode : _config.BroadcastDate;
+        BroadcastDateBox.IsVisible = fixedDate;
+        ActorLibraryBox.Text = _config.ActorLibraryText;
+        ActorInfoBox.Text = _config.ActorInfoJson;
+        DirectorInfoBox.Text = _config.DirectorInfoJson;
+        ScreenwriterInfoBox.Text = _config.ScreenwriterInfoJson;
+
+        NewTitleAliasEnabledBox.IsChecked = _config.NewTitleAliasEnabled;
+        FillChoice(NewTitleAliasPositionBox, KuaishouFormChoices.AliasPositions, _config.NewTitleAliasPosition, "suffix");
+        NewTitleAliasValueBox.Text = _config.NewTitleAliasValue;
         QueueParallelBox.Text = _config.QueueMaxParallelProjects.ToString();
-        SubmitPreCheckBox.Text = _config.SubmitPreCheckWaitSeconds.ToString();
-        SubmitReadyIntervalBox.Text = _config.SubmitReadyCheckIntervalSeconds.ToString();
+        MaterialUploadPathBox.Text = _config.MaterialUploadPath;
+        SeriesCreatePathBox.Text = _config.SeriesCreatePath;
+        SeriesBaseInfoPathBox.Text = _config.SeriesBaseInfoPath;
+        OnlineOfflinePathBox.Text = _config.OnlineOfflinePath;
+        EpisodeUploadPathBox.Text = _config.EpisodeUploadPath;
+        EpisodeCoverPathBox.Text = _config.EpisodeCoverUpdatePath;
+        SeriesSubmitPathBox.Text = _config.SeriesSubmitPath;
+        FillChoice(SubmitPreCheckBox, KuaishouFormChoices.SubmitPreWaits, _config.SubmitPreCheckWaitSeconds.ToString(), "0");
         SubmitReadyMaxBox.Text = _config.SubmitReadyCheckMax.ToString();
+        SubmitReadyIntervalBox.Text = _config.SubmitReadyCheckIntervalSeconds.ToString();
         SubmitRetryMaxBox.Text = _config.SubmitRetryMax.ToString();
         SubmitRetryIntervalBox.Text = _config.SubmitRetryIntervalSeconds.ToString();
-        VideoStorageProviderBox.SelectedItem = _config.VideoStorageProvider;
+
+        ProjectImageRootBox.Text = _config.ProjectImageTemplateRoot;
+        FillTemplate(UploadTemplateBox, FirstNonEmpty(_config.UploadProjectImageTemplateId, _config.ProjectImageTemplateId));
+        FillTemplate(PersonalTemplateBox, _platform == PublishPlatform.KuaishouPersonalRevenue
+            ? FirstNonEmpty(_config.PersonalProjectImageTemplateId, _config.ProjectImageTemplateId)
+            : _config.PersonalProjectImageTemplateId);
+        FillTemplate(EnterpriseTemplateBox, _platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? FirstNonEmpty(_config.EnterpriseProjectImageTemplateId, _config.ProjectImageTemplateId)
+            : _config.EnterpriseProjectImageTemplateId);
+
+        FillChoice(VideoStorageProviderBox, KuaishouFormChoices.VideoStorageProviders, _config.VideoStorageProvider, "aliyun_oss");
         StorageConcurrencyBox.Text = _config.PublicStorageUploadConcurrency.ToString();
         StorageRetryBox.Text = _config.PublicStorageUploadRetryCount.ToString();
         OssCleanupBox.IsChecked = _config.OssCleanupEnabled;
+        OssRetentionHoursBox.Text = _config.OssCleanupRetentionHours.ToString();
+        OssIntervalBox.Text = _config.OssCleanupIntervalMinutes.ToString();
+        OssMaxAttemptsBox.Text = _config.OssCleanupMaxAttempts.ToString();
         OssDeleteOnProjectDeleteBox.IsChecked = _config.OssCleanupDeleteOnProjectDelete;
-        ProjectImageRootBox.Text = _config.ProjectImageTemplateRoot;
-        ProjectImageTemplateIdBox.Text = _config.ProjectImageTemplateId;
-        PrepareDownloadBox.IsChecked = _config.PrepareDownload;
-        PrepareRewriteBox.IsChecked = _config.PrepareRewriteInfo;
-        PreparePosterBox.IsChecked = _config.PrepareGeneratePoster;
-        PrepareGuaranteeBox.IsChecked = _config.PrepareGenerateGuaranteeLetter;
-        PrepareProjectImagesBox.IsChecked = _config.PrepareGenerateProjectImages;
-        PrepareAutoFillBox.IsChecked = _config.PrepareAutoFillInfo;
-        PrepareForceRerunBox.IsChecked = _config.PrepareForceRerunCompletedSteps;
+
         AutoOnlineBox.IsChecked = _config.AutoOnlineEnabled;
         AutoOnlineIntervalBox.Text = _config.AutoOnlineIntervalMinutes.ToString();
         AutoOnlineMaxItemsBox.Text = _config.AutoOnlineMaxItemsPerRound.ToString();
         AutoOnlineMaxWaitBox.Text = _config.AutoOnlineMaxWaitDays.ToString();
-        OnlineCleanupBox.IsChecked = _config.OnlineCleanupEnabled;
+        AutoOnlineOnlyWhenIdleBox.IsChecked = _config.AutoOnlineOnlyWhenIdle;
         OnlineAutoDistributionBox.IsChecked = _config.OnlineAutoDistributionEnabled;
-        KeepOnlineDaysBox.Text = _config.OnlineKeepOnlineDays.ToString();
-        KeepRejectedDaysBox.Text = _config.OnlineKeepRejectedDays.ToString();
-        KeepInvalidDaysBox.Text = _config.OnlineKeepInvalidDays.ToString();
-        KeepManualDaysBox.Text = _config.OnlineKeepManualOnlineDays.ToString();
-        OnlineNotifyBox.IsChecked = _config.OnlineNotifyEnabled;
-        RejectedNotifyBox.IsChecked = _config.OnlineNotifyRejectedEnabled;
+        OnlineShowResultDialogBox.IsChecked = _config.OnlineShowResultDialog;
+        OnlineNotifyBox.IsChecked = _config.OnlineNotifyEnabled || NoticeContains("online_success");
+        RejectedNotifyBox.IsChecked = _config.OnlineNotifyRejectedEnabled || NoticeContains("audit_rejected");
         RejectedNotifyOnceBox.IsChecked = _config.OnlineNotifyRejectedOnce;
-        SeriesCreatePathBox.Text = _config.SeriesCreatePath;
-        SeriesBaseInfoPathBox.Text = _config.SeriesBaseInfoPath;
-        EpisodeUploadPathBox.Text = _config.EpisodeUploadPath;
-        EpisodeCoverPathBox.Text = _config.EpisodeCoverUpdatePath;
-        SeriesSubmitPathBox.Text = _config.SeriesSubmitPath;
-        EpisodeFileFieldBox.Text = _config.EpisodeFileFieldName;
-        StepCreateSeriesBox.IsChecked = _config.StepCreateSeries;
-        StepUploadImagesBox.IsChecked = _config.StepUploadImages;
-        StepUploadVideosBox.IsChecked = _config.StepUploadVideos;
-        StepSubmitSeriesBox.IsChecked = _config.StepSubmitSeries;
-        StepOnlineSeriesBox.IsChecked = _config.StepOnlineSeries;
-        StepDistributionSeriesBox.IsChecked = _config.StepDistributionSeries;
+        OnlineCleanupBox.IsChecked = _config.OnlineCleanupEnabled;
+        KeepOnlineDaysBox.Text = _config.OnlineKeepOnlineDays.ToString();
+        KeepManualDaysBox.Text = _config.OnlineKeepManualOnlineDays.ToString();
+        KeepRejectedDaysBox.Text = _config.OnlineKeepRejectedDays.ToString();
+
         DistributionEnabledBox.IsChecked = _config.DistributionEnabled;
+        FillChoice(DistributionModeBox, KuaishouFormChoices.DistributionModes, _config.DistributionMode, "browser");
         DistributionApiPathBox.Text = _config.DistributionApiPath;
-        DistributionModeBox.Text = _config.DistributionMode;
-        DistributionRateBox.Text = _config.DistributionDefaultRatePercent.ToString();
-        DistributorAccountsBox.Text = _config.DistributionDistributorAccountsJson;
-        DistributionSubmitBox.IsChecked = _config.DistributionSubmitEnabled;
+        DistributionOnlineTimeBox.Text = string.IsNullOrWhiteSpace(_config.DistributionAllowOnlineTimeText)
+            ? (_config.DistributionAllowOnlineTime ? "1" : "0")
+            : _config.DistributionAllowOnlineTimeText;
+        LoadDistributorAccounts(_config.DistributionDistributorAccountsJson);
         DistributionJuxingBox.IsChecked = _config.DistributionAllowJuxing;
-        DistributionOnlineTimeBox.IsChecked = _config.DistributionAllowOnlineTime;
+        DistributionSubmitBox.IsChecked = _config.DistributionSubmitEnabled;
+        DistributionHeadlessBox.IsChecked = _config.DistributionHeadlessEnabled;
+        DistributionManualBox.IsChecked = _config.DistributionManualInterventionEnabled;
+        DistributionFeishuBox.IsChecked = _config.DistributionFeishuNotifyEnabled;
+        DistributionLoginNotifyBox.IsChecked = _config.DistributionLoginNotifyEnabled;
+        DistributionLoginTimeoutBox.Text = _config.DistributionLoginTimeoutSeconds.ToString();
+        UpdateDistributionModeRows();
+
+        EntryUrlBox.Text = _config.EntryUrl;
+        UsernameBox.Text = FirstNonEmpty(_config.Username, _config.RealName);
+        FillChoice(GenderBox, KuaishouFormChoices.Genders, _config.Gender, "");
+        CommitmentPdfBox.Text = _config.CommitmentPdfPath;
+        LoginTimeoutBox.Text = _config.LoginTimeoutSeconds.ToString();
+        FillChoice(RevenueShareBrowserModeBox, KuaishouFormChoices.BrowserModes, _config.RevenueShareHeadless ? "true" : "false", "false");
+        RevenueShareFullSceneBox.IsChecked = _config.RevenueShareFullSceneDisplay;
+        KeepBrowserBox.IsChecked = _config.KeepBrowserOpenOnFailure;
+        FillChoice(FirstPageActionBox, KuaishouFormChoices.FirstPageActions, _config.FirstPageAction, "next");
+        FillChoice(FinalActionBox, KuaishouFormChoices.FinalActions, _config.FinalAction, "submit_review");
+
         AiComplianceBox.IsChecked = _config.AiComplianceReviewEnabled;
         SynopsisRewriteBox.IsChecked = _config.SynopsisAiRewriteEnabled;
         LoadContentPolicy();
-        CopyrightProofTypeBox.Text = _config.CopyrightProofType;
-        CopyrightStartBox.Text = _config.CopyrightValidStartTime;
-        CopyrightEndBox.Text = _config.CopyrightValidEndTime;
     }
+
+    private bool NoticeContains(string token) =>
+        (_config.OnlineNoticeConditions ?? string.Empty).Contains(token, StringComparison.OrdinalIgnoreCase);
 
     private void LoadContentPolicy()
     {
@@ -208,7 +227,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     {
         var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "选择快手分账个人版承诺函 PDF",
+            Title = "选择承诺函 PDF",
             AllowMultiple = false,
             FileTypeFilter = [new FilePickerFileType("PDF 文件") { Patterns = ["*.pdf"] }],
         });
@@ -235,6 +254,13 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             FileTypeFilter = [new FilePickerFileType("图片") { Patterns = ["*.png", "*.jpg", "*.jpeg"] }],
         });
         if (files.Count > 0) CommitmentSealBox.Text = files[0].Path.LocalPath;
+    }
+
+    private async void PickProjectImageRoot_Click(object? sender, RoutedEventArgs e)
+    {
+        var folders = await Files.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择快手工程图模板根目录", AllowMultiple = false });
+        if (folders.Count == 0) return;
+        ProjectImageRootBox.Text = folders[0].Path.LocalPath;
     }
 
     private async void ImportLegacy_Click(object? sender, RoutedEventArgs e)
@@ -271,10 +297,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private bool ApplyToConfig()
     {
         if (!int.TryParse(FreeEpisodeCountBox.Text, out var free) || free < 0 ||
-            !int.TryParse(UnlockEpisodeCountBox.Text, out var unlock) || unlock < 0 ||
-            !int.TryParse(UploadTimeoutBox.Text, out var timeout) || timeout is < 5 or > 240)
+            !int.TryParse(UnlockEpisodeCountBox.Text, out var unlock) || unlock < 0)
         {
-            ValidationText.Text = "免费集数、解锁集数必须为非负整数；上传超时必须为 5–240 分钟。";
+            ValidationText.Text = "免费集数和解锁集数必须为非负整数。";
             return false;
         }
         if (!string.IsNullOrWhiteSpace(CommitmentPdfBox.Text) &&
@@ -284,120 +309,139 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             return false;
         }
 
-        _config.EntryUrl = EntryUrlBox.Text?.Trim() ?? string.Empty;
         _config.ApiBaseUrl = ApiBaseUrlBox.Text?.Trim() ?? string.Empty;
+        _config.AdvertiserId = AdvertiserIdBox.Text?.Trim() ?? string.Empty;
+        _config.KuaishouId = _config.AdvertiserId;
+        _config.KuaishouNickname = NicknameBox.Text?.Trim() ?? string.Empty;
         _config.AppName = AppNameBox.Text?.Trim() ?? string.Empty;
         _config.AppId = AppIdBox.Text?.Trim() ?? string.Empty;
         _config.AppSecret = AppSecretBox.Text ?? string.Empty;
         _config.AuthorizeBaseUrl = AuthorizeBaseUrlBox.Text?.Trim() ?? string.Empty;
         _config.AuthCode = AuthCodeBox.Text ?? string.Empty;
+        _config.RemoteTokenEnabled = RemoteTokenBox.IsChecked == true;
         _config.AccessToken = AccessTokenBox.Text ?? string.Empty;
         _config.AccessTokenExpiresAt = AccessTokenExpiresAtBox.Text?.Trim() ?? string.Empty;
         _config.RefreshToken = RefreshTokenBox.Text ?? string.Empty;
         _config.RefreshTokenExpiresAt = RefreshTokenExpiresAtBox.Text?.Trim() ?? string.Empty;
         _config.TokenHeader = TokenHeaderBox.Text?.Trim() ?? "Access-Token";
-        _config.RemoteTokenEnabled = RemoteTokenBox.IsChecked == true;
-        _config.RealName = RealNameBox.Text?.Trim() ?? string.Empty;
-        _config.Gender = GenderBox.SelectedItem?.ToString() ?? "男";
-        _config.KuaishouNickname = NicknameBox.Text?.Trim() ?? string.Empty;
-        _config.KuaishouId = KuaishouIdBox.Text?.Trim() ?? string.Empty;
-        _config.Headless = HeadlessBox.IsChecked == true;
-        _config.KeepBrowserOpenOnFailure = KeepBrowserBox.IsChecked == true;
-        _config.CommitmentPdfPath = CommitmentPdfBox.Text?.Trim() ?? string.Empty;
-        _config.CommitmentTemplateDocxPath = CommitmentTemplateBox.Text?.Trim() ?? string.Empty;
-        _config.CommitmentSealPath = CommitmentSealBox.Text?.Trim() ?? string.Empty;
+
         _config.CommitmentRecipientCompanyName = CommitmentRecipientBox.Text?.Trim() ?? string.Empty;
-        _config.Category = CategoryBox.Text?.Trim() ?? string.Empty;
-        _config.ContentType = ContentTypeBox.Text?.Trim() ?? string.Empty;
-        _config.ProductionMethod = ProductionMethodBox.Text?.Trim() ?? string.Empty;
-        _config.ProductionForm = ProductionFormBox.Text?.Trim() ?? string.Empty;
+        _config.CommitmentSealPath = CommitmentSealBox.Text?.Trim() ?? string.Empty;
+        _config.CommitmentTemplateDocxPath = CommitmentTemplateBox.Text?.Trim() ?? string.Empty;
+
+        _config.ContentType = ChoiceValue(ContentTypeBox, "漫剧");
+        _config.ProductionMethod = ChoiceValue(ComicMethodBox, "3");
+        _config.AuthorDeclaration = ChoiceValue(AuthorDeclarationBox, "1");
+        _config.ProductionForm = ChoiceValue(ProductionFormBox, "auto");
         _config.ProductionYear = ProductionYearBox.Text?.Trim() ?? string.Empty;
-        _config.ProductionCost = ProductionCostBox.Text?.Trim() ?? string.Empty;
         _config.AverageEpisodeMinutes = AverageDurationBox.Text?.Trim() ?? string.Empty;
-        _config.BroadcastPlatform = BroadcastPlatformBox.Text?.Trim() ?? string.Empty;
-        _config.BroadcastChannel = BroadcastChannelBox.Text?.Trim() ?? string.Empty;
-        _config.BroadcastDate = BroadcastDateBox.Text?.Trim() ?? string.Empty;
-        _config.Finished = FinishedBox.IsChecked == true;
-        _config.HasRecordNumber = HasRecordNumberBox.IsChecked == true;
-        _config.Actors = FirstNonEmpty(PeopleActorsBox.Text, ActorsBox.Text);
-        _config.Directors = DirectorsBox.Text?.Trim() ?? string.Empty;
-        _config.Screenwriters = ScreenwritersBox.Text?.Trim() ?? string.Empty;
-        _config.ProductionOrganization = ProductionOrganizationBox.Text?.Trim() ?? string.Empty;
-        _config.AudienceGender = AudienceGenderBox.Text?.Trim() ?? string.Empty;
-        _config.PlotLabels = PlotLabelsBox.Text?.Trim() ?? string.Empty;
-        _config.TagLabels = TagLabelsBox.Text?.Trim() ?? string.Empty;
-        _config.AuthorDeclaration = AuthorDeclarationBox.Text?.Trim() ?? string.Empty;
-        _config.HasCopyrightProof = HasCopyrightProofBox.IsChecked == true;
-        _config.HasSubAuthorizationRight = HasSubAuthorizationBox.IsChecked == true;
-        _config.FullSceneDisplay = FullSceneDisplayBox.IsChecked == true;
-        _config.SaleType = SaleTypeBox.Text?.Trim() ?? string.Empty;
-        _config.EpisodePrice = EpisodePriceBox.Text?.Trim() ?? string.Empty;
+        _config.ProductionCost = ProductionCostBox.Text?.Trim() ?? string.Empty;
+        _config.SaleType = ChoiceValue(SaleTypeBox, "3");
         _config.FreeEpisodeCount = free;
         _config.UnlockEpisodeCount = unlock;
-        _config.FirstPageAction = FirstPageActionBox.SelectedItem?.ToString() ?? "draft";
-        _config.FinalAction = FinalActionBox.SelectedItem?.ToString() ?? "keep";
-        _config.RunMode = RunModeBox.SelectedItem?.ToString() ?? "auto";
-        _config.UploadTimeoutMinutes = timeout;
-        _config.ForceRerun = ForceRerunBox.IsChecked == true;
-        _config.LoginTimeoutSeconds = Positive(LoginTimeoutBox.Text, 180);
-        _config.QueueMaxParallelProjects = Positive(QueueParallelBox.Text, 1);
-        _config.SubmitPreCheckWaitSeconds = NonNegative(SubmitPreCheckBox.Text, 3);
-        _config.SubmitReadyCheckIntervalSeconds = Positive(SubmitReadyIntervalBox.Text, 5);
-        _config.SubmitReadyCheckMax = Positive(SubmitReadyMaxBox.Text, 60);
-        _config.SubmitRetryMax = NonNegative(SubmitRetryMaxBox.Text, 3);
-        _config.SubmitRetryIntervalSeconds = Positive(SubmitRetryIntervalBox.Text, 5);
-        _config.VideoStorageProvider = VideoStorageProviderBox.SelectedItem?.ToString() ?? "browser";
-        _config.PublicStorageUploadConcurrency = Positive(StorageConcurrencyBox.Text, 3);
-        _config.PublicStorageUploadRetryCount = NonNegative(StorageRetryBox.Text, 3);
-        _config.OssCleanupEnabled = OssCleanupBox.IsChecked == true;
-        _config.OssCleanupDeleteOnProjectDelete = OssDeleteOnProjectDeleteBox.IsChecked == true;
-        _config.ProjectImageTemplateRoot = ProjectImageRootBox.Text?.Trim() ?? string.Empty;
-        _config.ProjectImageTemplateId = ProjectImageTemplateIdBox.Text?.Trim() ?? string.Empty;
-        _config.PrepareDownload = PrepareDownloadBox.IsChecked == true;
-        _config.PrepareRewriteInfo = PrepareRewriteBox.IsChecked == true;
-        _config.PrepareGeneratePoster = PreparePosterBox.IsChecked == true;
-        _config.PrepareGenerateGuaranteeLetter = PrepareGuaranteeBox.IsChecked == true;
-        _config.PrepareGenerateProjectImages = PrepareProjectImagesBox.IsChecked == true;
-        _config.PrepareAutoFillInfo = PrepareAutoFillBox.IsChecked == true;
-        _config.PrepareForceRerunCompletedSteps = PrepareForceRerunBox.IsChecked == true;
-        _config.AutoOnlineEnabled = AutoOnlineBox.IsChecked == true;
-        _config.AutoOnlineIntervalMinutes = Positive(AutoOnlineIntervalBox.Text, 30);
-        _config.AutoOnlineMaxItemsPerRound = Positive(AutoOnlineMaxItemsBox.Text, 20);
-        _config.AutoOnlineMaxWaitDays = Positive(AutoOnlineMaxWaitBox.Text, 7);
-        _config.OnlineCleanupEnabled = OnlineCleanupBox.IsChecked == true;
-        _config.OnlineAutoDistributionEnabled = OnlineAutoDistributionBox.IsChecked == true;
-        _config.OnlineKeepOnlineDays = NonNegative(KeepOnlineDaysBox.Text, 30);
-        _config.OnlineKeepRejectedDays = NonNegative(KeepRejectedDaysBox.Text, 30);
-        _config.OnlineKeepInvalidDays = NonNegative(KeepInvalidDaysBox.Text, 30);
-        _config.OnlineKeepManualOnlineDays = NonNegative(KeepManualDaysBox.Text, 30);
-        _config.OnlineNotifyEnabled = OnlineNotifyBox.IsChecked == true;
-        _config.OnlineNotifyRejectedEnabled = RejectedNotifyBox.IsChecked == true;
-        _config.OnlineNotifyRejectedOnce = RejectedNotifyOnceBox.IsChecked == true;
+        _config.SmallAmountUnlock = SmallAmountUnlockBox.IsChecked == true;
+        _config.EpisodePrice = EpisodePriceBox.Text?.Trim() ?? string.Empty;
+        _config.SeriesPrice = SeriesPriceBox.Text?.Trim() ?? string.Empty;
+        _config.HasCopyrightProof = HasCopyrightProofBox.IsChecked == true;
+        _config.CopyrightProofType = ChoiceValue(CopyrightProofTypeBox, "1");
+        _config.Finished = FinishedBox.IsChecked == true;
+        _config.FullSceneDisplay = FullSceneDisplayBox.IsChecked == true;
+        _config.HasRecordNumber = HasRecordNumberBox.IsChecked == true;
+        _config.SpecialTheme = SpecialThemeBox.IsChecked == true ? "true" : "false";
+        _config.PlotLabels = PlotLabelsBox.Text?.Trim() ?? string.Empty;
+
+        _config.BroadcastPlatform = BroadcastPlatformBox.Text?.Trim() ?? string.Empty;
+        _config.BroadcastChannel = ChoiceValue(BroadcastChannelBox, "小屏APP");
+        var timeMode = ChoiceValue(BroadcastTimeModeBox, "today");
+        _config.BroadcastTimeMode = timeMode == "fixed"
+            ? (BroadcastDateBox.Text?.Trim() ?? string.Empty)
+            : "today";
+        if (timeMode == "fixed" && !string.IsNullOrWhiteSpace(BroadcastDateBox.Text))
+            _config.BroadcastDate = BroadcastDateBox.Text.Trim();
+        _config.ActorLibraryText = ActorLibraryBox.Text ?? string.Empty;
+        _config.ActorInfoJson = ActorInfoBox.Text ?? string.Empty;
+        _config.DirectorInfoJson = DirectorInfoBox.Text ?? string.Empty;
+        _config.ScreenwriterInfoJson = ScreenwriterInfoBox.Text ?? string.Empty;
+
+        _config.NewTitleAliasEnabled = NewTitleAliasEnabledBox.IsChecked == true;
+        _config.NewTitleAliasPosition = ChoiceValue(NewTitleAliasPositionBox, "suffix");
+        _config.NewTitleAliasValue = NewTitleAliasValueBox.Text?.Trim() ?? string.Empty;
+        _config.QueueMaxParallelProjects = Math.Clamp(Positive(QueueParallelBox.Text, 1), 1, 5);
+        _config.MaterialUploadPath = MaterialUploadPathBox.Text?.Trim() ?? string.Empty;
         _config.SeriesCreatePath = SeriesCreatePathBox.Text?.Trim() ?? string.Empty;
         _config.SeriesBaseInfoPath = SeriesBaseInfoPathBox.Text?.Trim() ?? string.Empty;
+        _config.OnlineOfflinePath = OnlineOfflinePathBox.Text?.Trim() ?? string.Empty;
         _config.EpisodeUploadPath = EpisodeUploadPathBox.Text?.Trim() ?? string.Empty;
         _config.EpisodeCoverUpdatePath = EpisodeCoverPathBox.Text?.Trim() ?? string.Empty;
         _config.SeriesSubmitPath = SeriesSubmitPathBox.Text?.Trim() ?? string.Empty;
-        _config.EpisodeFileFieldName = EpisodeFileFieldBox.Text?.Trim() ?? string.Empty;
-        _config.StepCreateSeries = StepCreateSeriesBox.IsChecked == true;
-        _config.StepUploadImages = StepUploadImagesBox.IsChecked == true;
-        _config.StepUploadVideos = StepUploadVideosBox.IsChecked == true;
-        _config.StepSubmitSeries = StepSubmitSeriesBox.IsChecked == true;
-        _config.StepOnlineSeries = StepOnlineSeriesBox.IsChecked == true;
-        _config.StepDistributionSeries = StepDistributionSeriesBox.IsChecked == true;
+        _config.SubmitPreCheckWaitSeconds = int.TryParse(ChoiceValue(SubmitPreCheckBox, "0"), out var preWait) ? preWait : 0;
+        _config.SubmitReadyCheckMax = Positive(SubmitReadyMaxBox.Text, 3);
+        _config.SubmitReadyCheckIntervalSeconds = Positive(SubmitReadyIntervalBox.Text, 30);
+        _config.SubmitRetryMax = NonNegative(SubmitRetryMaxBox.Text, 3);
+        _config.SubmitRetryIntervalSeconds = Positive(SubmitRetryIntervalBox.Text, 30);
+
+        _config.ProjectImageTemplateRoot = ProjectImageRootBox.Text?.Trim() ?? string.Empty;
+        _config.UploadProjectImageTemplateId = TemplateValue(UploadTemplateBox);
+        _config.PersonalProjectImageTemplateId = TemplateValue(PersonalTemplateBox);
+        _config.EnterpriseProjectImageTemplateId = TemplateValue(EnterpriseTemplateBox);
+        _config.ProjectImageTemplateId = _platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? _config.EnterpriseProjectImageTemplateId
+            : _config.PersonalProjectImageTemplateId;
+
+        _config.VideoStorageProvider = ChoiceValue(VideoStorageProviderBox, "aliyun_oss");
+        _config.PublicStorageUploadConcurrency = Math.Clamp(Positive(StorageConcurrencyBox.Text, 2), 1, 8);
+        _config.PublicStorageUploadRetryCount = Math.Clamp(NonNegative(StorageRetryBox.Text, 5), 0, 10);
+        _config.OssCleanupEnabled = OssCleanupBox.IsChecked == true;
+        _config.OssCleanupRetentionHours = NonNegative(OssRetentionHoursBox.Text, 24);
+        _config.OssCleanupIntervalMinutes = Positive(OssIntervalBox.Text, 60);
+        _config.OssCleanupMaxAttempts = Positive(OssMaxAttemptsBox.Text, 5);
+        _config.OssCleanupDeleteOnProjectDelete = OssDeleteOnProjectDeleteBox.IsChecked == true;
+
+        _config.AutoOnlineEnabled = AutoOnlineBox.IsChecked == true;
+        _config.AutoOnlineIntervalMinutes = Positive(AutoOnlineIntervalBox.Text, 30);
+        _config.AutoOnlineMaxItemsPerRound = Positive(AutoOnlineMaxItemsBox.Text, 30);
+        _config.AutoOnlineMaxWaitDays = Positive(AutoOnlineMaxWaitBox.Text, 14);
+        _config.AutoOnlineOnlyWhenIdle = AutoOnlineOnlyWhenIdleBox.IsChecked == true;
+        _config.OnlineAutoDistributionEnabled = OnlineAutoDistributionBox.IsChecked == true;
+        _config.OnlineShowResultDialog = OnlineShowResultDialogBox.IsChecked == true;
+        _config.OnlineNotifyEnabled = OnlineNotifyBox.IsChecked == true;
+        _config.OnlineNotifyRejectedEnabled = RejectedNotifyBox.IsChecked == true;
+        _config.OnlineNotifyRejectedOnce = RejectedNotifyOnceBox.IsChecked == true;
+        _config.OnlineNoticeConditions = JsonSerializer.Serialize(NoticeConditions());
+        _config.OnlineCleanupEnabled = OnlineCleanupBox.IsChecked == true;
+        _config.OnlineKeepOnlineDays = Positive(KeepOnlineDaysBox.Text, 7);
+        _config.OnlineKeepManualOnlineDays = Positive(KeepManualDaysBox.Text, 3);
+        _config.OnlineKeepRejectedDays = Positive(KeepRejectedDaysBox.Text, 30);
+
         _config.DistributionEnabled = DistributionEnabledBox.IsChecked == true;
+        _config.DistributionMode = ChoiceValue(DistributionModeBox, "browser");
         _config.DistributionApiPath = DistributionApiPathBox.Text?.Trim() ?? string.Empty;
-        _config.DistributionMode = DistributionModeBox.Text?.Trim() ?? "api";
-        _config.DistributionDefaultRatePercent = NonNegative(DistributionRateBox.Text, 0);
-        _config.DistributionDistributorAccountsJson = DistributorAccountsBox.Text?.Trim() ?? string.Empty;
-        _config.DistributionSubmitEnabled = DistributionSubmitBox.IsChecked == true;
+        _config.DistributionAllowOnlineTimeText = DistributionOnlineTimeBox.Text?.Trim() ?? "0";
+        _config.DistributionAllowOnlineTime = _config.DistributionAllowOnlineTimeText is not "" and not "0";
+        _config.DistributionDistributorAccountsJson = SerializeDistributorAccounts();
         _config.DistributionAllowJuxing = DistributionJuxingBox.IsChecked == true;
-        _config.DistributionAllowOnlineTime = DistributionOnlineTimeBox.IsChecked == true;
+        _config.DistributionSubmitEnabled = DistributionSubmitBox.IsChecked == true;
+        _config.DistributionHeadlessEnabled = DistributionHeadlessBox.IsChecked == true;
+        _config.DistributionManualInterventionEnabled = DistributionManualBox.IsChecked == true;
+        _config.DistributionFeishuNotifyEnabled = DistributionFeishuBox.IsChecked == true;
+        _config.DistributionLoginNotifyEnabled = DistributionLoginNotifyBox.IsChecked == true;
+        _config.DistributionLoginTimeoutSeconds = Positive(DistributionLoginTimeoutBox.Text, 300);
+
+        _config.EntryUrl = EntryUrlBox.Text?.Trim() ?? string.Empty;
+        _config.Username = UsernameBox.Text?.Trim() ?? string.Empty;
+        _config.RealName = _config.Username;
+        _config.Gender = ChoiceValue(GenderBox, "");
+        _config.CommitmentPdfPath = CommitmentPdfBox.Text?.Trim() ?? string.Empty;
+        _config.LoginTimeoutSeconds = Positive(LoginTimeoutBox.Text, 300);
+        _config.RevenueShareHeadless = ChoiceValue(RevenueShareBrowserModeBox, "false") == "true";
+        _config.Headless = _config.RevenueShareHeadless;
+        _config.RevenueShareFullSceneDisplay = RevenueShareFullSceneBox.IsChecked == true;
+        _config.KeepBrowserOpenOnFailure = KeepBrowserBox.IsChecked == true;
+        _config.FirstPageAction = ChoiceValue(FirstPageActionBox, "next");
+        _config.FinalAction = ChoiceValue(FinalActionBox, "submit_review");
+
         _config.AiComplianceReviewEnabled = AiComplianceBox.IsChecked == true;
         _config.SynopsisAiRewriteEnabled = SynopsisRewriteBox.IsChecked == true;
-        _config.CopyrightProofType = CopyrightProofTypeBox.Text?.Trim() ?? string.Empty;
-        _config.CopyrightValidStartTime = CopyrightStartBox.Text?.Trim() ?? string.Empty;
-        _config.CopyrightValidEndTime = CopyrightEndBox.Text?.Trim() ?? string.Empty;
         _config.DramaTitlePolicyJson = KuaishouContentPolicyText.BuildTitlePolicy(
             TitlePolicyBox.Text ?? string.Empty, KuaishouContentPolicyDefaults.TitlePolicyJson);
         _config.SynopsisPolicyJson = KuaishouContentPolicyText.BuildSynopsisPolicy(
@@ -405,6 +449,204 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             CombinationRulesBox.Text ?? string.Empty, KuaishouContentPolicyDefaults.SynopsisPolicyJson);
         _config.ContentPolicyMigrated = true;
         return true;
+    }
+
+    private void SaleTypeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateSaleTypeRows();
+
+    private void UpdateSaleTypeRows()
+    {
+        var code = KuaishouFormChoices.SaleTypeCode(ChoiceValue(SaleTypeBox, "3"));
+        var paidSeries = code is 0 or 2;
+        var singleEpisode = code == 2;
+        var adUnlock = code == 3;
+        SetRowVisible(UnlockCountLabel, UnlockEpisodeCountBox, adUnlock);
+        SmallAmountLabel.IsVisible = adUnlock;
+        SmallAmountUnlockBox.IsVisible = adUnlock;
+        SetRowVisible(EpisodePriceLabel, EpisodePriceBox, singleEpisode);
+        SetRowVisible(SeriesPriceLabel, SeriesPriceBox, paidSeries);
+    }
+
+    private void BroadcastTimeModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (BroadcastDateBox is null || BroadcastTimeModeBox is null) return;
+        BroadcastDateBox.IsVisible = ChoiceValue(BroadcastTimeModeBox, "today") == "fixed";
+    }
+
+    private void DistributionModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateDistributionModeRows();
+
+    private void UpdateDistributionModeRows()
+    {
+        if (DistributionModeBox is null) return;
+        var api = ChoiceValue(DistributionModeBox, "browser") == "api";
+        DistributionApiPathLabel.IsEnabled = api;
+        DistributionApiPathBox.IsEnabled = api;
+        DistributionOnlineTimeLabel.IsEnabled = api;
+        DistributionOnlineTimeBox.IsEnabled = api;
+        DistributionHeadlessLabel.IsEnabled = !api;
+        DistributionHeadlessBox.IsEnabled = !api;
+        DistributionManualLabel.IsEnabled = !api;
+        DistributionManualBox.IsEnabled = !api;
+        DistributionLoginNotifyLabel.IsEnabled = !api;
+        DistributionLoginNotifyBox.IsEnabled = !api;
+        DistributionLoginTimeoutLabel.IsEnabled = !api;
+        DistributionLoginTimeoutBox.IsEnabled = !api;
+        DistributionSubmitBox.Content = api ? "调用官方接口创建分销配置" : "点击创建分销短剧按钮";
+    }
+
+    private void AddDistributorAccount_Click(object? sender, RoutedEventArgs e) =>
+        _distributorAccounts.Add(new DistributorAccountEditorRow());
+
+    private void RemoveDistributorAccount_Click(object? sender, RoutedEventArgs e)
+    {
+        foreach (var row in DistributorAccountList.SelectedItems?.OfType<DistributorAccountEditorRow>().ToArray() ?? [])
+            _distributorAccounts.Remove(row);
+    }
+
+    private async void ImportDistributorAccounts_Click(object? sender, RoutedEventArgs e)
+    {
+        var dialog = new Window
+        {
+            Title = "批量导入分销商账号",
+            Width = 640,
+            Height = 420,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var editor = new TextBox { AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Watermark = "建幸苦酱,1743291153\n大西瓜漫剧（UID:1542483952）" };
+        var ok = new Button { Content = "导入", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        var panel = new StackPanel { Margin = new Avalonia.Thickness(16), Spacing = 10 };
+        panel.Children.Add(new TextBlock { Text = "每行一个账号，支持：名称,UID；名称 UID；名称（UID:123456）；名称,UID,分成比例。", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+        panel.Children.Add(editor);
+        panel.Children.Add(ok);
+        dialog.Content = panel;
+        ok.Click += (_, _) => dialog.Close(editor.Text);
+        var text = await dialog.ShowDialog<string?>(TopLevel.GetTopLevel(this) as Window ?? throw new InvalidOperationException("无法打开导入窗口。"));
+        if (string.IsNullOrWhiteSpace(text)) return;
+        foreach (var row in ParseDistributorLines(text)) _distributorAccounts.Add(row);
+    }
+
+    private void LoadDistributorAccounts(string? json)
+    {
+        _distributorAccounts.Clear();
+        if (string.IsNullOrWhiteSpace(json)) return;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return;
+            foreach (var item in document.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                _distributorAccounts.Add(new DistributorAccountEditorRow
+                {
+                    Enabled = !item.TryGetProperty("enabled", out var enabled) || enabled.ValueKind != JsonValueKind.False,
+                    Name = item.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
+                    Uid = item.TryGetProperty("uid", out var uid) ? uid.ToString() : "",
+                    Rate = item.TryGetProperty("rate_percent", out var rate) ? rate.ToString() : "",
+                });
+            }
+        }
+        catch
+        {
+            foreach (var row in ParseDistributorLines(json)) _distributorAccounts.Add(row);
+        }
+    }
+
+    private string SerializeDistributorAccounts()
+    {
+        var rows = _distributorAccounts
+            .Where(row => !string.IsNullOrWhiteSpace(row.Name) || !string.IsNullOrWhiteSpace(row.Uid))
+            .Select(row =>
+            {
+                var payload = new Dictionary<string, object?>
+                {
+                    ["enabled"] = row.Enabled,
+                    ["name"] = row.Name.Trim(),
+                    ["uid"] = row.Uid.Trim(),
+                };
+                if (double.TryParse(row.Rate, out var rate)) payload["rate_percent"] = rate;
+                return payload;
+            })
+            .ToArray();
+        return rows.Length == 0 ? string.Empty : JsonSerializer.Serialize(rows, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static IEnumerable<DistributorAccountEditorRow> ParseDistributorLines(string text)
+    {
+        foreach (var raw in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            string name;
+            string uid;
+            string rate = "";
+            var uidMatch = System.Text.RegularExpressions.Regex.Match(line, @"UID\s*[:：]\s*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (uidMatch.Success)
+            {
+                uid = uidMatch.Groups[1].Value;
+                name = line[..uidMatch.Index].Trim().Trim('（', '(', '，', ',', ' ');
+            }
+            else
+            {
+                var parts = line.Split([',', '，', ' ', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                name = parts.ElementAtOrDefault(0) ?? "";
+                uid = parts.ElementAtOrDefault(1) ?? "";
+                rate = parts.ElementAtOrDefault(2) ?? "";
+            }
+            yield return new DistributorAccountEditorRow { Name = name, Uid = uid, Rate = rate };
+        }
+    }
+
+    private IEnumerable<string> NoticeConditions()
+    {
+        if (OnlineNotifyBox.IsChecked == true) yield return "online_success";
+        if (RejectedNotifyBox.IsChecked == true) yield return "audit_rejected";
+    }
+
+    private static void FillChoice(ComboBox box, IReadOnlyList<KuaishouFormChoice> choices, string? raw, string fallback)
+    {
+        var value = KuaishouFormChoices.CanonicalValue(choices, raw, fallback);
+        var items = choices.ToList();
+        if (items.All(choice => !string.Equals(choice.Value, value, StringComparison.OrdinalIgnoreCase)))
+            items.Add(new KuaishouFormChoice(string.IsNullOrWhiteSpace(raw) ? value : raw!.Trim(), value));
+        box.ItemsSource = items;
+        box.SelectedItem = items.First(choice => string.Equals(choice.Value, value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string ChoiceValue(ComboBox box, string fallback) =>
+        box.SelectedItem is KuaishouFormChoice choice && !string.IsNullOrWhiteSpace(choice.Value)
+            ? choice.Value
+            : fallback;
+
+    private static void FillTemplate(ComboBox box, string? templateId)
+    {
+        var options = TikTokProjectImageTemplateCatalog.BuiltInOptions
+            .Select(option => new KuaishouFormChoice(option.SelectionLabel, option.Id))
+            .ToList();
+        var value = string.IsNullOrWhiteSpace(templateId) ? options[0].Value : templateId.Trim();
+        if (options.All(option => !string.Equals(option.Value, value, StringComparison.OrdinalIgnoreCase)))
+            options.Add(new KuaishouFormChoice($"已保存：{value}", value));
+        box.ItemsSource = options;
+        box.SelectedItem = options.First(option => string.Equals(option.Value, value, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string TemplateValue(ComboBox box) =>
+        box.SelectedItem is KuaishouFormChoice choice ? choice.Value : string.Empty;
+
+    private static string NormalizeSaleType(string? raw)
+    {
+        var text = raw?.Trim() ?? "";
+        if (text.Contains("广告", StringComparison.Ordinal)) return "3";
+        if (text.Contains("单集", StringComparison.Ordinal)) return "2";
+        if (text.Contains("全剧", StringComparison.Ordinal)) return "0";
+        return text;
+    }
+
+    private static bool IsTruthy(string? value) =>
+        value?.Trim().ToLowerInvariant() is "1" or "true" or "yes" or "是";
+
+    private static void SetRowVisible(TextBlock label, TextBox box, bool visible)
+    {
+        label.IsVisible = visible;
+        box.IsVisible = visible;
     }
 
     private static string FirstNonEmpty(params string?[] values) =>
@@ -501,4 +743,12 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private IStorageProvider Files =>
         TopLevel.GetTopLevel(this)?.StorageProvider
         ?? throw new InvalidOperationException("当前页面无法选择文件。");
+}
+
+public sealed class DistributorAccountEditorRow
+{
+    public bool Enabled { get; set; } = true;
+    public string Name { get; set; } = string.Empty;
+    public string Uid { get; set; } = string.Empty;
+    public string Rate { get; set; } = string.Empty;
 }

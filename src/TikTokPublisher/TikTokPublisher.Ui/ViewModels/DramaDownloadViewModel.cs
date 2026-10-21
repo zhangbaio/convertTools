@@ -109,7 +109,7 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     public string Author => string.IsNullOrWhiteSpace(Item.Author) ? "-" : Item.Author;
     public int EpisodeTotal => Item.EpisodeTotal;
     public string FavoriteText => FormatCount(Item.FavoriteCount);
-    public string PlayCountText => Item.PlayCount.ToString(CultureInfo.InvariantCulture);
+    public string PlayCountText => FormatCount(Item.PlayCount);
     public string Category => string.IsNullOrWhiteSpace(Item.Category) ? "-" : Item.Category;
     public string PublishTime => FormatPublishTime(Item.PublishTime);
     public string Intro => Item.Intro;
@@ -1758,7 +1758,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var skipped = new List<DramaSearchItem>();
         foreach (var item in selectedItems)
         {
-            if (excluded.Any(token => ContainsToken(item.Author, token)))
+            if (UploadTitleImportService.ShouldApplyAuthorExclusion(item.BookId)
+                && excluded.Any(token => ContainsToken(item.Author, token)))
                 skipped.Add(item);
             else
                 kept.Add(item);

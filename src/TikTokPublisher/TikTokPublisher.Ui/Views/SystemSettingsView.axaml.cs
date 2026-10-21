@@ -109,7 +109,18 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.Items.Add(CreateItem("统一下载器", "downloader"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
+        DramaSourceCombo.Items.Add(CreateItem("DramaBox", "dramabox"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
+
+        ForeignSourceCombo.Items.Clear();
+        foreach (var source in ForeignPlayletClient.Sources)
+            ForeignSourceCombo.Items.Add(CreateItem(source.Label, source.Id));
+        ForeignSourceCombo.SelectionChanged += OnForeignSourceChanged;
+
+        ForeignLanguageCombo.Items.Clear();
+        foreach (var language in ForeignPlayletClient.Languages)
+            ForeignLanguageCombo.Items.Add(CreateItem(language.Label, language.Id));
+        ForeignLanguageCombo.SelectionChanged += OnForeignLanguageChanged;
 
         HghighEditionCombo.Items.Clear();
         HghighEditionCombo.Items.Add(CreateItem("高码率版", HongguoClientProfile.HighEdition));
@@ -149,6 +160,7 @@ public partial class SystemSettingsView : UserControl
 
         PosterModeCombo.Items.Clear();
         PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
+        PosterModeCombo.Items.Add(CreateItem("AI清除原文字并固定字体写入", "erase_fixed_lower_title"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
 
         PosterLayoutRequestModeCombo.Items.Clear();
@@ -206,6 +218,8 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null) return;
         SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
+        SelectComboItem(ForeignSourceCombo, _vm.ForeignSearchSource);
+        SelectComboItem(ForeignLanguageCombo, _vm.ForeignLanguage);
         SelectComboItem(HghighEditionCombo, _vm.HghighEdition);
         SelectComboItem(HghighStandardPlaybackCombo, _vm.HghighStandardPlaybackMode);
         SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
@@ -213,8 +227,7 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(HongguoLocalTranscodeEngineCombo, _vm.HongguoLocalTranscodeEngine);
         SelectComboItem(RoleReferenceSelectionModeCombo, _vm.TiktokRoleReferenceSelectionMode);
         SelectComboItem(RoleVectorViewModeCombo, _vm.TiktokRoleVectorViewMode);
-        _vm.PosterMode = ClientSettingsDefaults.PosterMode;
-        SelectComboItem(PosterModeCombo, ClientSettingsDefaults.PosterMode);
+        SelectComboItem(PosterModeCombo, _vm.PosterMode);
         SelectComboItem(PosterLayoutRequestModeCombo, _vm.PosterLayoutRequestMode);
         SelectComboItem(NetworkAddressPreferenceCombo, _vm.NetworkAddressPreference);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
@@ -283,6 +296,18 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || DramaSourceCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.DramaSourceChain = item.Tag as string ?? VisibleDramaSource.DefaultChain;
+    }
+
+    private void OnForeignSourceChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ForeignSourceCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.ForeignSearchSource = item.Tag as string ?? ForeignPlayletClient.DefaultSource;
+    }
+
+    private void OnForeignLanguageChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ForeignLanguageCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.ForeignLanguage = item.Tag as string ?? ForeignPlayletClient.DefaultLanguage;
     }
 
     private void OnPikachuTypeChanged(object? sender, SelectionChangedEventArgs e)
@@ -383,7 +408,9 @@ public partial class SystemSettingsView : UserControl
                    ?? _vm?.PosterMode
                    ?? "original";
         FrameExtractSettingsPanel.IsVisible = string.Equals(mode, "video_frame", StringComparison.OrdinalIgnoreCase);
-        PosterModeHintText.Text = "替换原海报标题，清除人物名、作者说明等其他文字，并进行全图校验。";
+        PosterModeHintText.Text = string.Equals(mode, "erase_fixed_lower_title", StringComparison.OrdinalIgnoreCase)
+            ? "AI 只清除封面上的原文字，然后在下半部分用固定黄字黑边写入新剧名。不改变「原始海报AI改标题并校验」。"
+            : "替换原海报标题，清除人物名、作者说明等其他文字，并进行全图校验。";
     }
 
     private void OnImageProviderChanged(object? sender, SelectionChangedEventArgs e)

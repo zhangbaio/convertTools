@@ -242,6 +242,7 @@
                 </WrapPanel>
 
                 <WrapPanel Orientation="Horizontal">
+                    <Button Content="生成注册PDF" Click="OnGenerateArticlesPdfClick" Classes="fileAction compactAction" Margin="0,0,8,0" IsVisible="False" />
                     <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="查询原剧" Click="OnLookupOriginalDramaClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
@@ -434,11 +435,6 @@
                            Foreground="#FFB067"
                            IsVisible="{Binding ManualInterventionPending}"
                            TextWrapping="Wrap" Margin="0,-4,0,0" />
-
-                <WrapPanel Orientation="Horizontal">
-                    <TextBlock Classes="pageSummary" Text="{Binding WorkspaceBindingSummary}" Margin="0,0,12,0" />
-                    <TextBlock Classes="pageSummary" Text="{Binding QueueSummaryText}" />
-                </WrapPanel>
             </StackPanel>
         </Border>
 

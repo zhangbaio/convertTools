@@ -341,6 +341,9 @@
                                       IsVisible="False"
                                       IsKuaishouMode="True"
                                       DataContext="{Binding}" />
+            <views:KuaishouQueueLogView x:Name="KuaishouLogPage"
+                                        IsVisible="False"
+                                        DataContext="{Binding}" />
         </Grid>
         <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" />
         <Border x:Name="DramaDownloadPage" IsVisible="False" Padding="16,14" Background="#F3F6FA">

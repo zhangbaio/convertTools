@@ -67,6 +67,8 @@ public static class TikTokUploadManifestService
         string? workflowProjectDir = null)
     {
         var options = TikTokPublishOptionsBuilder.FromAccount(account, workflowProjectDir);
+        if (account is not null)
+            TikTokNewTitleLanguageService.ApplyKnown(options, account, workflowProjectDir);
         var settings = ClientSettingsStore.Load();
         var submitAction = NormalizeSubmitAction(account?.TiktokSubmitAction, account?.TiktokSubmitEnabled);
         var snapshot = new Dictionary<string, object?>

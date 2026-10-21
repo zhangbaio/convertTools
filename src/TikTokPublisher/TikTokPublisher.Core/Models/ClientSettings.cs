@@ -46,6 +46,12 @@ public sealed class ClientSettings
     public string PikachuClientVersion { get; set; } = "1.4.4";
     public string PlayletServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PlayletDeviceId { get; set; } = "";
+    public string ForeignServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
+    public string ForeignDeviceId { get; set; } = "";
+    public string ForeignSearchSource { get; set; } = "reelshort";
+    public string ForeignLanguage { get; set; } = "en";
+    public string DramaBoxApiBaseUrl { get; set; } = "http://127.0.0.1:17865";
+    public string DramaBoxDeviceId { get; set; } = "d001277c5c31829ceba9d49c";
 
     public string TiktokAsrLocalModelDir { get; set; } = "";
     public string TiktokAsrLocalVadPath { get; set; } = "";
@@ -221,6 +227,12 @@ public sealed class ClientSettings
         PikachuClientVersion = PikachuClientVersion,
         PlayletServerUrl = PlayletServerUrl,
         PlayletDeviceId = PlayletDeviceId,
+        ForeignServerUrl = ForeignServerUrl,
+        ForeignDeviceId = ForeignDeviceId,
+        ForeignSearchSource = ForeignSearchSource,
+        ForeignLanguage = ForeignLanguage,
+        DramaBoxApiBaseUrl = DramaBoxApiBaseUrl,
+        DramaBoxDeviceId = DramaBoxDeviceId,
         TiktokAsrLocalModelDir = TiktokAsrLocalModelDir,
         TiktokAsrLocalVadPath = TiktokAsrLocalVadPath,
         TiktokAsrAppId = TiktokAsrAppId,

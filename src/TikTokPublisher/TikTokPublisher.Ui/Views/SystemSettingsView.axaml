@@ -277,6 +277,27 @@
 
                         <Separator Margin="0,4" />
 
+                        <TextBlock Text="DramaBox 下载器（v1.5.7）" FontWeight="Bold" />
+                        <TextBlock Text="搜索、New 上新和下载都使用 DramaBox 下载器的设备授权。画质优先 1080P，分集按 01、02 这样的顺序保存。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="设备ID" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DramaBoxDeviceId}" Watermark="d001277c5c31829ceba9d49c" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="8">
+                                <Button Content="测试 DramaBox"
+                                        Command="{Binding ProbeDramaBoxConnectivityCommand}"
+                                        IsEnabled="{Binding !IsDramaBoxBusy}"
+                                        MinWidth="160"
+                                        HorizontalAlignment="Left" />
+                                <TextBlock Text="{Binding DramaBoxProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Separator Margin="0,4" />
+
                         <TextBlock Text="红果短剧下载器（v2.3.7）" FontWeight="Bold" />
                         <TextBlock Text="搜索和下载都不使用番茄 Cookie。视频解析使用下载器软件设置里的设备号，解析前会登记该设备；1080P 对应清晰度 1，红果线路一。"
                                    Classes="pageSummary"
@@ -298,6 +319,39 @@
                                         MinWidth="160"
                                         HorizontalAlignment="Left" />
                                 <TextBlock Text="{Binding PlayletProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Separator Margin="0,4" IsVisible="False" />
+
+                        <TextBlock Text="海外短剧下载器（v2.4.0）" FontWeight="Bold" IsVisible="False" />
+                        <TextBlock Text="认证与红果短剧下载器相同：使用软件设置里的设备号登记会员。搜索源决定去哪个平台找剧，下拉里的源都已接入搜索和下载。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap"
+                                   IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="服务地址" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ForeignServerUrl}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="设备号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1"
+                                     Text="{Binding ForeignDeviceId}"
+                                     Watermark="下载器软件设置中的设备信息" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="搜索源" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ForeignSourceCombo" HorizontalAlignment="Left" MinWidth="220" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="搜索语言" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ForeignLanguageCombo" HorizontalAlignment="Left" MinWidth="220" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="8">
+                                <Button Content="测试海外短剧下载器"
+                                        Command="{Binding ProbeForeignConnectivityCommand}"
+                                        IsEnabled="{Binding !IsForeignBusy}"
+                                        MinWidth="180"
+                                        HorizontalAlignment="Left" />
+                                <TextBlock Text="{Binding ForeignProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>

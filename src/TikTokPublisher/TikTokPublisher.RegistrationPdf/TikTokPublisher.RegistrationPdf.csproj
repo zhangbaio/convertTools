@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <RootNamespace>TikTokPublisher.RegistrationPdf</RootNamespace>
+    <AssemblyName>RegistrationPdf</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.12" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.12" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TikTokPublisher.Core\TikTokPublisher.Core.csproj" AdditionalProperties="ExcludeRegistrationPdfAssets=true;BaseOutputPath=obj\registration-pdf\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\TikTokPublisher.Ui\Views\ArticlesOfIncorporationDialog.cs" Link="Views\ArticlesOfIncorporationDialog.cs" />
+    <Compile Include="..\TikTokPublisher.Ui\Views\LicenseLoginDialog.cs" Link="Views\LicenseLoginDialog.cs" />
+  </ItemGroup>
+</Project>

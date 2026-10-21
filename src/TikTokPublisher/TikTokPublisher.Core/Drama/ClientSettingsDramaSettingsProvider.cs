@@ -48,6 +48,18 @@ public static class DramaSourceSettingsMapping
             ? PlayletDramaClient.DefaultServerUrl
             : settings.PlayletServerUrl.Trim(),
         PlayletDeviceId = settings.PlayletDeviceId ?? "",
+        ForeignServerUrl = string.IsNullOrWhiteSpace(settings.ForeignServerUrl)
+            ? ForeignPlayletClient.DefaultServerUrl
+            : settings.ForeignServerUrl.Trim(),
+        ForeignDeviceId = settings.ForeignDeviceId ?? "",
+        ForeignSearchSource = ForeignPlayletClient.NormalizeSource(settings.ForeignSearchSource),
+        ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(settings.ForeignLanguage),
+        DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(settings.DramaBoxApiBaseUrl)
+            ? DramaBoxApiService.DefaultBaseUrl
+            : settings.DramaBoxApiBaseUrl.Trim().TrimEnd('/'),
+        DramaBoxDeviceId = string.IsNullOrWhiteSpace(settings.DramaBoxDeviceId)
+            ? DramaBoxApiService.DefaultDeviceId
+            : settings.DramaBoxDeviceId.Trim(),
     };
 
     private static string NormalizeChain(string? chain) => VisibleDramaSource.Normalize(chain);

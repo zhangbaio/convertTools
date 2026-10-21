@@ -80,6 +80,37 @@ public sealed class QueueRunLogResetTests
     }
 
     [Fact]
+    public void Completed_project_without_current_failure_hides_old_error_history()
+    {
+        var logs = new LogService
+        {
+            LoadProjectHistory = _ =>
+            [
+                new TikTokExecutionHistoryService.TikTokProjectHistoryEvent(
+                    new DateTime(2026, 10, 20, 20, 37, 49),
+                    "หาบหกล้มที่ถูกซ่อนอยู่ในตำนาน",
+                    "海报 失败：未找到可用于生成海报的封面图片。",
+                    true),
+            ],
+        };
+        var item = new QueueProjectItem
+        {
+            ProjectDir = @"E:\7.7\7.7\demo",
+            OriginalTitle = "หาบหกล้มที่ถูกซ่อนอยู่ในตำนาน",
+            NewTitle = "หาบหกล้มที่ถูกซ่อนอยู่ในตำนาน",
+            StatusText = QueueStepStatus.Completed,
+        };
+        item.StepStates[QueueStepKeys.Download] = QueueStepStatus.Completed;
+        item.StepStates[QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed;
+        item.StepStates[QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed;
+        logs.UpdateSnapshot([new QueueProjectRowViewModel(item)], @"E:\7.7\7.7", false);
+        logs.SelectedProjectPath = item.ProjectDir;
+
+        logs.BuildCopyText().Should().NotContain("失败记录");
+        logs.BuildCopyText().Should().NotContain("未找到可用于生成海报的封面图片");
+    }
+
+    [Fact]
     public void Parallel_or_preparation_run_keeps_unrelated_visible_logs()
     {
         TikTokQueueView.ShouldClearAllLogsForNewRun(

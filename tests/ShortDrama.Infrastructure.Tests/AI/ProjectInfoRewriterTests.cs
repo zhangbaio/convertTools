@@ -13,6 +13,171 @@ namespace ShortDrama.Infrastructure.Tests.AI;
 public sealed class ProjectInfoRewriterTests
 {
     [Fact]
+    public void Detect_treats_an_english_import_title_as_english()
+    {
+        RewriteSourceLanguage.Detect("My CEO Mom Married a Security Guard", "A CEO discovers her mother married the building guard.")
+            .Should().Be(RewriteSourceLanguage.English);
+        RewriteSourceLanguage.Detect("亲戚别来我家", "极品亲戚登门。")
+            .Should().Be(RewriteSourceLanguage.Chinese);
+        RewriteSourceLanguage.Detect(
+                "MyCEOMomMarriedaSecurityGuard",
+                "五年前，隐退的顶级强者兰登意外结识遭人设计的萨曼莎，两人结缘后生下女儿。")
+            .Should().Be(RewriteSourceLanguage.English);
+    }
+
+    [Fact]
+    public async Task RewriteAsync_follows_the_english_source_language()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(projectDir.FullName, "config.json");
+        File.WriteAllText(configPath, """
+{
+  "AiTextEndpoint": "https://example.com/api/v3",
+  "AiTextApiKey": "test-key",
+  "AiTextModel": "test-model",
+  "AiRewriteSynopsis": false,
+  "AiRewriteFollowsSourceLanguage": true
+}
+""");
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(
+            projectDir.FullName,
+            "My CEO Mom Married a Security Guard",
+            "A powerful CEO learns that her mother quietly married the guard who protected their building.");
+
+        var handler = new RecordingHandler(
+        [
+            "en",
+            """
+            {"title":"The Guard Who Married Her Mother","tagline":"A family secret reaches the altar","synopsis":"unused"}
+            """
+        ]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var result = await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir.FullName, configPath, outputPath, Overwrite: true),
+            CancellationToken.None);
+
+        result.Title.Should().Be("The Guard Who Married Her Mother");
+        ExtractUserPrompt(handler.RequestBodies[0]).Should().Contain("只能返回：zh、en、id、pt、ja、th、es、ko、tr、hi");
+        ExtractUserPrompt(handler.RequestBodies[1]).Should().Contain("当前识别为英语");
+        File.ReadAllText(Path.Combine(projectDir.FullName, "shortdrama-project.json")).Should().Contain("\"rewriteSourceLanguage\": \"en\"");
+    }
+
+    [Fact]
+    public async Task RewriteAsync_asks_ai_for_portuguese_instead_of_treating_latin_text_as_english()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(projectDir.FullName, "config.json");
+        File.WriteAllText(configPath, """
+{
+  "AiTextEndpoint": "https://example.com/api/v3",
+  "AiTextApiKey": "test-key",
+  "AiTextModel": "test-model",
+  "AiRewriteSynopsis": false,
+  "AiRewriteFollowsSourceLanguage": true
+}
+""");
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(
+            projectDir.FullName,
+            "Não Mexa com Esse Mendigo!",
+            "Após três anos vivendo incógnito, Vince Astor esconde sua identidade.");
+
+        var handler = new RecordingHandler(
+        [
+            "pt",
+            """
+            {"title":"Não Provoque Este Homem","tagline":"A verdade dele vai aparecer","synopsis":"Vince vive escondido entre pessoas em situação de rua e só depois revela quem realmente é."}
+            """
+        ]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var result = await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir.FullName, configPath, outputPath, Overwrite: true),
+            CancellationToken.None);
+
+        result.Title.Should().Be("Não Provoque Este Homem");
+        ExtractUserPrompt(handler.RequestBodies[1]).Should().Contain("当前识别为葡语");
+        ExtractUserPrompt(handler.RequestBodies[1]).Should().NotContain("当前识别为英语");
+    }
+
+    [Fact]
+    public async Task RewriteAsync_fails_when_ai_language_is_outside_the_allowed_list()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(projectDir.FullName, "config.json");
+        File.WriteAllText(configPath, """
+{
+  "AiTextEndpoint": "https://example.com/api/v3",
+  "AiTextApiKey": "test-key",
+  "AiTextModel": "test-model",
+  "AiRewriteFollowsSourceLanguage": true
+}
+""");
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(projectDir.FullName, "Ne touchez pas à ce mendiant", "Il cache son identité depuis trois ans.");
+
+        var handler = new RecordingHandler(["fr"]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        var act = () => rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir.FullName, configPath, outputPath, Overwrite: true),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*不在允许范围*");
+        File.Exists(outputPath).Should().BeFalse();
+        File.Exists(Path.Combine(projectDir.FullName, "shortdrama-project.json")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RewriteAsync_reuses_the_saved_source_language()
+    {
+        var projectDir = Directory.CreateTempSubdirectory();
+        var configPath = Path.Combine(projectDir.FullName, "config.json");
+        File.WriteAllText(configPath, """
+{
+  "AiTextEndpoint": "https://example.com/api/v3",
+  "AiTextApiKey": "test-key",
+  "AiTextModel": "test-model",
+  "AiRewriteFollowsSourceLanguage": true
+}
+""");
+        File.WriteAllText(Path.Combine(projectDir.FullName, "shortdrama-project.json"), """
+{ "rewriteSourceLanguage": "es" }
+""");
+        var outputPath = Path.Combine(projectDir.FullName, "改写结果.txt");
+        await WriteProjectInfoAsync(projectDir.FullName, "No provoques a este hombre", "Esconde quién es.");
+
+        var handler = new RecordingHandler(
+        [
+            """
+            {"title":"No Desafies A Este Hombre","tagline":"Su verdad va a salir","synopsis":"unused"}
+            """
+        ]);
+        var rewriter = new ProjectInfoRewriter(
+            new TxtProjectInfoParser(),
+            new HttpClient(handler),
+            NullLogger<ProjectInfoRewriter>.Instance);
+
+        await rewriter.RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir.FullName, configPath, outputPath, Overwrite: true),
+            CancellationToken.None);
+
+        handler.RequestBodies.Should().HaveCount(1);
+        ExtractUserPrompt(handler.RequestBodies[0]).Should().Contain("当前识别为西语");
+    }
+
+    [Fact]
     public async Task RewriteAsync_Should_Send_UserPrompt_Only()
     {
         var projectDir = Directory.CreateTempSubdirectory();

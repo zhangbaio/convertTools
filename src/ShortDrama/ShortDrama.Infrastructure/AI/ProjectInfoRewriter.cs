@@ -145,6 +145,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         """;
     private const string SynopsisLengthFallbackText =
         "主角被迫跌入低谷，却在误解和危机中抓住转机，凭借智慧与韧劲一步步翻盘，揭开真相后重掌人生主动权。故事节奏紧凑，情绪反转不断，人物关系层层推进，她把每一次冷眼都变成站稳脚跟的理由，适合短剧平台连续追看。";
+    private const string EnglishSynopsisFallbackText =
+        "She steps into a family secret that was never meant to surface. Loyalty, money, and love turn against each other until she chooses her own side and takes the story back.";
 
     private readonly IProjectInfoParser _projectInfoParser;
     private readonly HttpClient _httpClient;
@@ -178,6 +180,20 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var titleTemperature = GetOptionalDouble(config, "AiNewTitleTemperature") ?? 0.75;
         var synopsisTemperature = GetOptionalDouble(config, "AiSynopsisTemperature") ?? 0.75;
         var rewriteSynopsis = GetOptionalBool(config, "AiRewriteSynopsis") ?? false;
+        var followSourceLanguage = GetOptionalBool(config, "AiRewriteFollowsSourceLanguage") ?? false;
+        if (followSourceLanguage)
+            (project, canonicalOriginalTitle) = ApplyImportedSource(project, canonicalOriginalTitle);
+        var outputLanguage = followSourceLanguage
+            ? await ResolveSourceLanguageAsync(
+                endpoint,
+                modelId,
+                apiKey,
+                timeoutSeconds,
+                project.ProjectDir,
+                canonicalOriginalTitle,
+                project.Synopsis,
+                cancellationToken)
+            : RewriteSourceLanguage.Chinese;
 
         if (File.Exists(request.OutputFilePath) && !request.Overwrite)
         {
@@ -203,6 +219,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             canonicalOriginalTitle,
             request,
             rewriteSynopsis: false,
+            outputLanguage,
             cancellationToken);
         if (rewriteSynopsis)
         {
@@ -216,6 +233,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 canonicalOriginalTitle,
                 normalized.Title,
                 request,
+                outputLanguage,
                 cancellationToken);
             normalized = normalized with { Synopsis = synopsis };
         }
@@ -231,11 +249,106 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return new ProjectInfoRewriteResult(request.OutputFilePath, normalized.Title, normalized.Tagline, normalized.Synopsis, string.Empty, string.Empty);
     }
 
+    private static (ProjectInfo Project, string OriginalTitle) ApplyImportedSource(
+        ProjectInfo project,
+        string canonicalOriginalTitle)
+    {
+        var imported = RewriteSourceLanguage.ReadImported(project.ProjectDir);
+        var title = FirstNonEmpty(imported.Title, canonicalOriginalTitle, project.OriginalTitle) ?? canonicalOriginalTitle;
+        var synopsis = FirstNonEmpty(imported.Synopsis, project.Synopsis) ?? "";
+        if (RewriteSourceLanguage.IsChinese(RewriteSourceLanguage.Detect(title, synopsis)))
+            return (project, canonicalOriginalTitle);
+
+        return (project with
+        {
+            OriginalTitle = title,
+            Title = title,
+            Synopsis = synopsis,
+        }, title);
+    }
+
+    private async Task<string> ResolveSourceLanguageAsync(
+        string endpoint,
+        string modelId,
+        string apiKey,
+        int timeoutSeconds,
+        string projectDir,
+        string title,
+        string? synopsis,
+        CancellationToken cancellationToken)
+    {
+        var cached = RewriteSourceLanguage.ReadCached(projectDir);
+        if (cached is not null)
+        {
+            _logger.LogInformation("源语言使用已保存的识别结果：{Language}", RewriteSourceLanguage.DisplayName(cached));
+            return cached;
+        }
+
+        var content = await RequestChatTextAsync(
+            endpoint,
+            modelId,
+            apiKey,
+            RewriteSourceLanguage.BuildDetectionPrompt(title, synopsis),
+            timeoutSeconds,
+            temperature: 0,
+            cancellationToken);
+        if (!RewriteSourceLanguage.TryParseDetectedLanguage(content, out var code, out var failure))
+            throw new InvalidOperationException(failure);
+
+        RewriteSourceLanguage.SaveCached(projectDir, code);
+        _logger.LogInformation("源语言识别为{Language}", RewriteSourceLanguage.DisplayName(code));
+        return code;
+    }
+
+    private async Task<string> RequestChatTextAsync(
+        string endpoint,
+        string modelId,
+        string apiKey,
+        string prompt,
+        int timeoutSeconds,
+        double temperature,
+        CancellationToken cancellationToken)
+    {
+        var payload = new
+        {
+            model = modelId,
+            temperature = Math.Clamp(temperature, 0, 2),
+            messages = new object[]
+            {
+                new { role = "user", content = prompt }
+            }
+        };
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions");
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        httpRequest.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 10, 600)));
+
+        using var response = await _httpClient.SendAsync(httpRequest, timeoutCts.Token);
+        var responseText = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                "改写失败：源语言识别请求失败。" +
+                AiApiErrorMessage.Create("AI 语种识别", response.StatusCode, response.ReasonPhrase, responseText));
+        }
+
+        var parsed = JsonSerializer.Deserialize<ChatCompletionResponse>(responseText, JsonOptions)
+            ?? throw new InvalidOperationException("改写失败：源语言识别没有返回内容。");
+        var content = parsed.Choices?.FirstOrDefault()?.Message?.Content;
+        if (string.IsNullOrWhiteSpace(content))
+            throw new InvalidOperationException("改写失败：源语言识别没有返回内容。");
+        return content;
+    }
+
     private static string BuildPrompt(
         ProjectInfo project,
         string batchPrompt,
         ProjectInfoRewriteRequest request,
-        bool rewriteSynopsis)
+        bool rewriteSynopsis,
+        string outputLanguage)
     {
         var canonicalOriginalTitle = ResolveCanonicalOriginalTitle(project);
         var forbiddenTitles = UniqueTexts(request.ForbiddenTitles);
@@ -290,6 +403,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 当前流程不再使用 short_title/短标题 和 tags/标签。请不要生成这两个字段。
 最终 JSON 只需要 title/new_title 和 tagline；如果返回 items 数组，每个 item 也只需要这些字段。
 """;
+
+        template += RewriteSourceLanguage.Instruction(outputLanguage);
 
         if (occupiedExactTitles.Count > 0)
         {
@@ -351,6 +466,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string canonicalOriginalTitle,
         ProjectInfoRewriteRequest request,
         bool rewriteSynopsis,
+        string outputLanguage,
         CancellationToken cancellationToken)
     {
         string? previousBadTitle = null;
@@ -360,8 +476,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
         {
             var prompt = attempt == 1
-                ? BuildPrompt(project, batchPrompt, request, rewriteSynopsis)
-                : BuildRetryPrompt(project, batchPrompt, retryPromptTemplate, request, previousBadTitle, rewriteSynopsis);
+                ? BuildPrompt(project, batchPrompt, request, rewriteSynopsis, outputLanguage)
+                : BuildRetryPrompt(project, batchPrompt, retryPromptTemplate, request, previousBadTitle, rewriteSynopsis, outputLanguage);
 
             var rewrite = await RequestRewritePayloadAsync(
                 endpoint,
@@ -385,7 +501,12 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
                 continue;
             }
 
-            var qualityIssues = GetRewriteQualityIssues(canonicalOriginalTitle, normalized, request, rewriteSynopsis);
+            var qualityIssues = GetRewriteQualityIssues(
+                canonicalOriginalTitle,
+                normalized,
+                request,
+                rewriteSynopsis,
+                outputLanguage);
             if (qualityIssues.Count == 0)
             {
                 return normalized;
@@ -396,7 +517,14 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             lastFailureMessage = string.Join("；", qualityIssues);
         }
 
-        var fallback = TryBuildRecentTitleFallback(project, canonicalOriginalTitle, request, lastNormalized, previousBadTitle, rewriteSynopsis);
+        var fallback = TryBuildRecentTitleFallback(
+            project,
+            canonicalOriginalTitle,
+            request,
+            lastNormalized,
+            previousBadTitle,
+            rewriteSynopsis,
+            outputLanguage);
         if (fallback is not null)
         {
             _logger.LogWarning(
@@ -421,25 +549,30 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string canonicalOriginalTitle,
         string newTitle,
         ProjectInfoRewriteRequest request,
+        string outputLanguage,
         CancellationToken cancellationToken)
     {
+        var limits = RewriteSourceLanguage.GetLimits(outputLanguage);
         string? lastFailure = null;
         string? fallbackSynopsis = null;
+        var systemPrompt = RewriteSourceLanguage.IsChinese(outputLanguage)
+            ? SynopsisSystemPrompt
+            : SynopsisSystemPrompt + RewriteSourceLanguage.Instruction(outputLanguage);
         for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
         {
             var rewrite = await RequestRewritePayloadAsync(
                 endpoint,
                 modelId,
                 apiKey,
-                SynopsisSystemPrompt,
-                BuildSynopsisPrompt(project, canonicalOriginalTitle, newTitle, request, lastFailure),
+                systemPrompt,
+                BuildSynopsisPrompt(project, canonicalOriginalTitle, newTitle, request, lastFailure, outputLanguage),
                 timeoutSeconds,
                 synopsisTemperature,
                 cancellationToken);
             var rawSynopsis = FirstNonEmpty(rewrite.Synopsis, rewrite.Description, rewrite.简介);
             if (string.IsNullOrWhiteSpace(rawSynopsis))
             {
-                lastFailure = "改写结果缺少简介。请写成 100 到 300 字。";
+                lastFailure = $"改写结果缺少简介。请写成 {limits.SynopsisMin} 到 {limits.SynopsisMax} 个字符。";
                 continue;
             }
 
@@ -452,21 +585,27 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             var length = synopsis.Length;
             if (HasForbiddenSynopsis(synopsis, request.ForbiddenSynopses))
             {
-                lastFailure = $"上一版 {length} 字，但与历史或原简介过于相似。请换一种叙述，并写成 100 到 300 字。";
+                lastFailure = RewriteSourceLanguage.IsChinese(outputLanguage)
+                    ? $"上一版 {length} 字，但与历史或原简介过于相似。请换一种叙述，并写成 100 到 300 字。"
+                    : $"上一版 {length} 个字符，但与历史或原简介过于相似。请换一种叙述，并写成 {limits.SynopsisMin} 到 {limits.SynopsisMax} 个字符。";
                 continue;
             }
 
-            if (length >= SynopsisPreferredMinLength && length <= SynopsisPreferredMaxLength)
+            if (length >= limits.SynopsisMin && length <= limits.SynopsisMax)
                 return synopsis;
 
-            if (length > SynopsisPreferredMaxLength)
+            if (length > limits.SynopsisMax)
             {
                 fallbackSynopsis = synopsis;
-                lastFailure = $"上一版 {length} 字，请删到 300 字以内。";
+                lastFailure = RewriteSourceLanguage.IsChinese(outputLanguage)
+                    ? $"上一版 {length} 字，请删到 300 字以内。"
+                    : $"上一版 {length} 个字符，请删到 {limits.SynopsisMax} 个字符以内。";
                 continue;
             }
 
-            lastFailure = $"上一版 {length} 字，请补到 100 字以上，并写成 100 到 300 字。";
+            lastFailure = RewriteSourceLanguage.IsChinese(outputLanguage)
+                ? $"上一版 {length} 字，请补到 100 字以上，并写成 100 到 300 字。"
+                : $"上一版 {length} 个字符，请补到 {limits.SynopsisMin} 个字符以上。";
         }
 
         if (!string.IsNullOrWhiteSpace(fallbackSynopsis))
@@ -477,7 +616,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             return fallbackSynopsis;
         }
 
-        var recovered = ResolveShortSynopsisFallback(project);
+        var recovered = ResolveShortSynopsisFallback(project, outputLanguage);
         _logger.LogWarning(
             "AI synopsis stayed under 100 characters. Kept the new title and restored a usable synopsis of {Length} characters.",
             recovered.Length);
@@ -489,8 +628,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string canonicalOriginalTitle,
         string newTitle,
         ProjectInfoRewriteRequest request,
-        string? previousFailure)
+        string? previousFailure,
+        string outputLanguage)
     {
+        var limits = RewriteSourceLanguage.GetLimits(outputLanguage);
         var sourceSynopsis = FirstNonEmpty(project.Synopsis, "待补充简介。") ?? "待补充简介。";
         var forbidden = UniqueTexts(request.ForbiddenSynopses);
         var forbiddenHint = forbidden.Count == 0
@@ -504,8 +645,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             新剧名：{newTitle}
             原剧名：{canonicalOriginalTitle}
             原简介：{sourceSynopsis}
-            写成 100 到 300 字。
-            简介要贴合新剧名，保留原故事核心，换一种叙述。{forbiddenHint}{retryHint}
+            {(RewriteSourceLanguage.IsChinese(outputLanguage) ? "写成 100 到 300 字。" : $"写成 {limits.SynopsisMin} 到 {limits.SynopsisMax} 个字符。")}
+            简介要贴合新剧名，保留原故事核心，换一种叙述。{RewriteSourceLanguage.Instruction(outputLanguage)}{forbiddenHint}{retryHint}
             只返回一个 JSON 对象，字段名为 synopsis，内容是改写后的简介。
             """;
     }
@@ -523,12 +664,15 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return slice.Trim();
     }
 
-    private static string ResolveShortSynopsisFallback(ProjectInfo project)
+    private static string ResolveShortSynopsisFallback(ProjectInfo project, string outputLanguage)
     {
+        var limits = RewriteSourceLanguage.GetLimits(outputLanguage);
         var original = FitSynopsisToAbsoluteMax(PreserveSourceSynopsis(project));
-        return original.Length >= SynopsisPreferredMinLength
-            ? original
-            : SynopsisLengthFallbackText;
+        if (original.Length >= limits.SynopsisMin)
+            return original;
+        return RewriteSourceLanguage.IsChinese(outputLanguage)
+            ? SynopsisLengthFallbackText
+            : EnglishSynopsisFallbackText;
     }
 
     private async Task<RewritePayload> RequestRewritePayloadAsync(
@@ -647,20 +791,23 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string retryPromptTemplate,
         ProjectInfoRewriteRequest request,
         string? previousBadTitle,
-        bool rewriteSynopsis)
+        bool rewriteSynopsis,
+        string outputLanguage)
     {
         var retryTemplate = (string.IsNullOrWhiteSpace(retryPromptTemplate) ? DefaultAiTextRetryPrompt : retryPromptTemplate)
             .Replace("{previous_bad_title}", previousBadTitle ?? "无", StringComparison.Ordinal)
             .Replace("{previous_bad_short_title}", "无", StringComparison.Ordinal);
-        return BuildPrompt(project, retryTemplate, request, rewriteSynopsis);
+        return BuildPrompt(project, retryTemplate, request, rewriteSynopsis, outputLanguage);
     }
 
     private static IReadOnlyList<string> GetRewriteQualityIssues(
         string canonicalOriginalTitle,
         NormalizedRewrite rewrite,
         ProjectInfoRewriteRequest request,
-        bool rewriteSynopsis)
+        bool rewriteSynopsis,
+        string outputLanguage)
     {
+        var limits = RewriteSourceLanguage.GetLimits(outputLanguage);
         var issues = new List<string>();
         if (TitlesEqual(rewrite.Title, canonicalOriginalTitle) ||
             TitlesTooSimilar(rewrite.Title, canonicalOriginalTitle))
@@ -672,9 +819,9 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             issues.Add("新剧名疑似只是原标题加宣传后缀");
         }
 
-        if (!IsReasonableTitleLength(rewrite.Title))
+        if (!IsReasonableTitleLength(rewrite.Title, outputLanguage))
         {
-            issues.Add("新剧名字数不在 6-15 字范围内");
+            issues.Add($"新剧名字数不在 {limits.TitleMin}-{limits.TitleMax} 个字符范围内");
         }
 
         var titleSafetyIssue = ValidateTitleSafety(rewrite.Title);
@@ -693,9 +840,9 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             issues.Add("新剧名与已占用剧名完全相同");
         }
 
-        if (!IsReasonableTaglineLength(rewrite.Tagline))
+        if (!IsReasonableTaglineLength(rewrite.Tagline, outputLanguage))
         {
-            issues.Add("推荐语字数不在 8-20 字范围内");
+            issues.Add($"推荐语字数不在 {limits.TaglineMin}-{limits.TaglineMax} 个字符范围内");
         }
 
         var taglineSafetyIssue = ValidateTaglineSafety(rewrite.Tagline);
@@ -706,7 +853,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
 
         if (rewriteSynopsis)
         {
-            issues.AddRange(GetSynopsisIssues(rewrite.Synopsis));
+            issues.AddRange(GetSynopsisIssues(rewrite.Synopsis, outputLanguage));
 
             if (HasForbiddenSynopsis(rewrite.Synopsis, request.ForbiddenSynopses))
             {
@@ -723,7 +870,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         ProjectInfoRewriteRequest request,
         NormalizedRewrite? lastNormalized,
         string? previousBadTitle,
-        bool rewriteSynopsis)
+        bool rewriteSynopsis,
+        string outputLanguage)
     {
         var title = FirstNonEmpty(lastNormalized?.Title, previousBadTitle);
         if (string.IsNullOrWhiteSpace(title))
@@ -732,15 +880,15 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         }
 
         title = NormalizeRewrittenTitle(title);
-        if (!IsFallbackTitleUsable(title, canonicalOriginalTitle, request))
+        if (!IsFallbackTitleUsable(title, canonicalOriginalTitle, request, outputLanguage))
         {
             return null;
         }
 
         var synopsis = rewriteSynopsis
-            ? BuildFallbackSynopsis(project, canonicalOriginalTitle, title, request, lastNormalized?.Synopsis)
+            ? BuildFallbackSynopsis(project, canonicalOriginalTitle, title, request, lastNormalized?.Synopsis, outputLanguage)
             : PreserveSourceSynopsis(project);
-        var tagline = BuildFallbackTagline(project, canonicalOriginalTitle, title, synopsis, lastNormalized?.Tagline);
+        var tagline = BuildFallbackTagline(project, canonicalOriginalTitle, title, synopsis, lastNormalized?.Tagline, outputLanguage);
 
         return new NormalizedRewrite(title, tagline, synopsis, string.Empty, string.Empty);
     }
@@ -748,12 +896,13 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
     private static bool IsFallbackTitleUsable(
         string title,
         string canonicalOriginalTitle,
-        ProjectInfoRewriteRequest request)
+        ProjectInfoRewriteRequest request,
+        string outputLanguage)
     {
         if (TitlesEqual(title, canonicalOriginalTitle) ||
             TitlesTooSimilar(title, canonicalOriginalTitle) ||
             IsLazyRetitle(title, canonicalOriginalTitle) ||
-            !IsReasonableTitleLength(title) ||
+            !IsReasonableTitleLength(title, outputLanguage) ||
             !string.IsNullOrWhiteSpace(ValidateTitleSafety(title)) ||
             HasForbiddenTitle(title, request.ForbiddenTitles) ||
             HasExactOccupiedTitle(title, request.OccupiedExactTitles))
@@ -775,20 +924,23 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string canonicalOriginalTitle,
         string title,
         ProjectInfoRewriteRequest request,
-        string? latestSynopsis)
+        string? latestSynopsis,
+        string outputLanguage)
     {
         var synopsis = FirstNonEmpty(latestSynopsis, project.Synopsis);
         if (!string.IsNullOrWhiteSpace(synopsis))
         {
             synopsis = NormalizeGeneratedText(project, canonicalOriginalTitle, title, title, synopsis);
-            if (GetSynopsisIssues(synopsis).Count == 0 &&
+            if (GetSynopsisIssues(synopsis, outputLanguage).Count == 0 &&
                 !HasForbiddenSynopsis(synopsis, request.ForbiddenSynopses))
             {
                 return synopsis;
             }
         }
 
-        return SynopsisLengthFallbackText;
+        return RewriteSourceLanguage.IsChinese(outputLanguage)
+            ? SynopsisLengthFallbackText
+            : EnglishSynopsisFallbackText;
     }
 
     private static string BuildFallbackTagline(
@@ -796,17 +948,34 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string canonicalOriginalTitle,
         string title,
         string synopsis,
-        string? latestTagline)
+        string? latestTagline,
+        string outputLanguage)
     {
+        var limits = RewriteSourceLanguage.GetLimits(outputLanguage);
         var tagline = FirstNonEmpty(latestTagline, project.Tagline);
         if (!string.IsNullOrWhiteSpace(tagline))
         {
             tagline = NormalizeGeneratedText(project, canonicalOriginalTitle, title, title, tagline);
-            if (IsReasonableTaglineLength(tagline) &&
+            if (IsReasonableTaglineLength(tagline, outputLanguage) &&
                 string.IsNullOrWhiteSpace(ValidateTaglineSafety(tagline)))
             {
                 return tagline;
             }
+        }
+
+        if (!RewriteSourceLanguage.IsChinese(outputLanguage))
+        {
+            var fromSynopsis = synopsis.Trim();
+            if (fromSynopsis.Length > limits.TaglineMax)
+                fromSynopsis = fromSynopsis[..limits.TaglineMax].Trim();
+            if (IsReasonableTaglineLength(fromSynopsis, outputLanguage) &&
+                !ContainsTitle(fromSynopsis, title) &&
+                !ContainsTitle(fromSynopsis, canonicalOriginalTitle))
+            {
+                return fromSynopsis;
+            }
+
+            return "A hidden bond rewrites the family";
         }
 
         foreach (var candidate in new[]
@@ -1258,19 +1427,23 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         return builder.ToString();
     }
 
-    private static bool IsReasonableTitleLength(string value)
+    private static bool IsReasonableTitleLength(string value, string outputLanguage)
     {
-        var length = NormalizeTitle(value).Length;
-        return length is >= 6 and <= 15;
+        var limits = RewriteSourceLanguage.GetLimits(outputLanguage);
+        var length = RewriteSourceLanguage.IsChinese(outputLanguage)
+            ? NormalizeTitle(value).Length
+            : (value ?? string.Empty).Trim().Length;
+        return length >= limits.TitleMin && length <= limits.TitleMax;
     }
 
-    private static bool IsReasonableTaglineLength(string value)
+    private static bool IsReasonableTaglineLength(string value, string outputLanguage)
     {
+        var limits = RewriteSourceLanguage.GetLimits(outputLanguage);
         var length = (value ?? string.Empty).Trim().Length;
-        return length is >= 8 and <= 20;
+        return length >= limits.TaglineMin && length <= limits.TaglineMax;
     }
 
-    private static IReadOnlyList<string> GetSynopsisIssues(string synopsis)
+    private static IReadOnlyList<string> GetSynopsisIssues(string synopsis, string outputLanguage)
     {
         var text = (synopsis ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(text))
@@ -1278,9 +1451,10 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             return ["缺少简介"];
         }
 
+        var minimum = RewriteSourceLanguage.GetLimits(outputLanguage).SynopsisMin;
         var fitted = FitSynopsisToAbsoluteMax(text);
-        if (fitted.Length < SynopsisPreferredMinLength)
-            return [$"简介不足 {SynopsisPreferredMinLength} 字，当前 {fitted.Length} 字"];
+        if (fitted.Length < minimum)
+            return [$"简介不足 {minimum} 个字符，当前 {fitted.Length} 个字符"];
         return [];
     }
 

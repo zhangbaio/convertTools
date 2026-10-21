@@ -129,6 +129,10 @@ public sealed class KuaishouPersonalConfig
     public int PublicStorageUploadRetryCount { get; set; } = 5;
     public string ProjectImageTemplateRoot { get; set; } = string.Empty;
     public string ProjectImageTemplateId { get; set; } = "image-template-project-image-3";
+    public string UploadProjectImageTemplateId { get; set; } = "image-template-project-image-3";
+    public string PersonalProjectImageTemplateId { get; set; } = "image-template-project-image-3";
+    public string EnterpriseProjectImageTemplateId { get; set; } = "image-template-project-image-3";
+    public string DistributionAllowOnlineTimeText { get; set; } = "0";
     public bool PrepareDownload { get; set; }
     public bool PrepareRewriteInfo { get; set; }
     public bool PrepareGeneratePoster { get; set; } = true;

@@ -74,6 +74,7 @@
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="源语言" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="5" Grid.Column="1" x:Name="SourceLanguageCombo" HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="auto">AI识别语言</ComboBoxItem>
                                 <ComboBoxItem Tag="zh">中文</ComboBoxItem>
                                 <ComboBoxItem Tag="en">英语 / English</ComboBoxItem>
                                 <ComboBoxItem Tag="id">印尼语 / Indonesian</ComboBoxItem>
@@ -105,7 +106,12 @@
                             <CheckBox Grid.Row="10" Grid.Column="1" x:Name="AiDramaBox" Content="是" IsChecked="True" />
 
                             <TextBlock Grid.Row="11" Grid.Column="0" Text="AI 改写简介" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="11" Grid.Column="1" x:Name="AiRewriteSynopsisBox" Content="启用" />
+                            <StackPanel Grid.Row="11" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                                <CheckBox x:Name="AiRewriteSynopsisBox" Content="启用" />
+                                <CheckBox x:Name="RewriteFollowsSourceLanguageBox"
+                                          Content="改写信息跟随源语言"
+                                          ToolTip.Tip="开启后，标题、推荐语和简介按导入短剧的语言生成。英文剧生成英文，不再固定写成中文。" />
+                            </StackPanel>
 
                             <TextBlock Grid.Row="12" Grid.Column="0" Text="新剧名随机度" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="12" Grid.Column="1" x:Name="AiNewTitleRandomnessCombo" Width="160" HorizontalAlignment="Left">

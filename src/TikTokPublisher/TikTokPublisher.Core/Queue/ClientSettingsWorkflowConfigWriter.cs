@@ -25,6 +25,7 @@ public static class ClientSettingsWorkflowConfigWriter
             ["AiTextBatchPrompt"] = settings.AiFullInfoBatchPrompt,
             ["AiTextRetryPrompt"] = settings.AiFullInfoRetryPrompt,
             ["AiRewriteSynopsis"] = account?.TiktokAiRewriteSynopsis == true,
+            ["AiRewriteFollowsSourceLanguage"] = account?.TiktokRewriteFollowsSourceLanguage == true,
             ["AiTextTimeoutSeconds"] = settings.AiTextTimeoutSeconds,
             ["AiNewTitleTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiNewTitleRandomness),
             ["AiSynopsisTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiSynopsisRandomness),

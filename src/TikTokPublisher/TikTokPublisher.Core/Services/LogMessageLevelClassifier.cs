@@ -15,6 +15,12 @@ public static partial class LogMessageLevelClassifier
         }
 
         var errorScanMessage = ZeroFailureCountRegex().Replace(message, "");
+        if (PosterVerificationContinuationRegex().IsMatch(errorScanMessage)
+            && !ContainsAny(errorScanMessage, "仍未通过", "已停止", "阻断"))
+        {
+            errorScanMessage = "";
+        }
+
         if (ContainsAny(
                 errorScanMessage,
                 "失败", "错误", "异常", "无法", "终止", "崩溃", "未成功", "未通过",
@@ -70,4 +76,7 @@ public static partial class LogMessageLevelClassifier
 
     [GeneratedRegex(@"(?i)^\s*\[?(ERROR|WARN|WARNING|SUCCESS|INFO)\]?\s*[:：-]?\s+")]
     private static partial Regex ExplicitLevelRegex();
+
+    [GeneratedRegex(@"开始全图复核|改为去字后重绘|继续去字后重绘")]
+    private static partial Regex PosterVerificationContinuationRegex();
 }

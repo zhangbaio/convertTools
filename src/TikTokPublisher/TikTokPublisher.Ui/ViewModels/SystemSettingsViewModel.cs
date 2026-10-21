@@ -131,8 +131,18 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _isPikachuBusy;
     [ObservableProperty] private string _playletServerUrl = PlayletDramaClient.DefaultServerUrl;
     [ObservableProperty] private string _playletDeviceId = "";
+    [ObservableProperty] private string _dramaBoxApiBaseUrl = DramaBoxApiService.DefaultBaseUrl;
+    [ObservableProperty] private string _dramaBoxDeviceId = DramaBoxApiService.DefaultDeviceId;
+    [ObservableProperty] private string _dramaBoxProbeStatus = "";
+    [ObservableProperty] private bool _isDramaBoxBusy;
     [ObservableProperty] private string _playletProbeStatus = "";
     [ObservableProperty] private bool _isPlayletBusy;
+    [ObservableProperty] private string _foreignServerUrl = ForeignPlayletClient.DefaultServerUrl;
+    [ObservableProperty] private string _foreignDeviceId = "";
+    [ObservableProperty] private string _foreignSearchSource = ForeignPlayletClient.DefaultSource;
+    [ObservableProperty] private string _foreignLanguage = ForeignPlayletClient.DefaultLanguage;
+    [ObservableProperty] private string _foreignProbeStatus = "";
+    [ObservableProperty] private bool _isForeignBusy;
     [ObservableProperty] private string _hongguoLocalProbeStatus = "";
     [ObservableProperty] private string _aiTextProbeStatus = "";
 
@@ -223,7 +233,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         "hghigh",
         "hglocal",
         "pikachu",
-        "playlet"
+        "playlet",
+        "dramabox"
     ];
 
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
@@ -293,6 +304,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim(),
         PlayletServerUrl = string.IsNullOrWhiteSpace(PlayletServerUrl) ? PlayletDramaClient.DefaultServerUrl : PlayletServerUrl.Trim(),
         PlayletDeviceId = PlayletDeviceId.Trim().ToUpperInvariant(),
+        ForeignServerUrl = string.IsNullOrWhiteSpace(ForeignServerUrl) ? ForeignPlayletClient.DefaultServerUrl : ForeignServerUrl.Trim(),
+        ForeignDeviceId = ForeignDeviceId.Trim().ToUpperInvariant(),
+        ForeignSearchSource = ForeignPlayletClient.NormalizeSource(ForeignSearchSource),
+        ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(ForeignLanguage),
+        DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(DramaBoxApiBaseUrl) ? DramaBoxApiService.DefaultBaseUrl : DramaBoxApiBaseUrl.Trim().TrimEnd('/'),
+        DramaBoxDeviceId = string.IsNullOrWhiteSpace(DramaBoxDeviceId) ? DramaBoxApiService.DefaultDeviceId : DramaBoxDeviceId.Trim(),
         TiktokAsrLocalModelDir = TiktokAsrLocalModelDir.Trim(),
         TiktokAsrLocalVadPath = TiktokAsrLocalVadPath.Trim(),
         TiktokAsrAppId = TiktokAsrAppId.Trim(),
@@ -459,6 +476,38 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task ProbeDramaBoxConnectivityAsync()
+    {
+        if (IsDramaBoxBusy)
+            return;
+
+        IsDramaBoxBusy = true;
+        DramaBoxProbeStatus = "测试中...";
+        try
+        {
+            var result = await new DramaBoxApiService(ProbeHttp).TestConnectivityAsync(DramaBoxDeviceId, CancellationToken.None);
+            DramaBoxProbeStatus = string.Join(Environment.NewLine, new[]
+            {
+                $"授权：{result.LicenseMessage}",
+                $"搜索：{result.SearchMessage}",
+                $"下载：{result.DownloadMessage}",
+            });
+            StatusRequested?.Invoke(result.LicenseOk && result.SearchOk && result.DownloadOk
+                ? "DramaBox 测试成功"
+                : "DramaBox 测试完成（部分失败）");
+        }
+        catch (Exception ex)
+        {
+            DramaBoxProbeStatus = $"测试失败：{ex.Message}";
+            StatusRequested?.Invoke(DramaBoxProbeStatus);
+        }
+        finally
+        {
+            IsDramaBoxBusy = false;
+        }
+    }
+
+    [RelayCommand]
     private async Task ProbePlayletConnectivityAsync()
     {
         if (IsPlayletBusy)
@@ -489,6 +538,39 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         finally
         {
             IsPlayletBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ProbeForeignConnectivityAsync()
+    {
+        if (IsForeignBusy)
+            return;
+
+        IsForeignBusy = true;
+        ForeignProbeStatus = "测试中...";
+        try
+        {
+            var result = await ForeignPlayletClient.TestConnectivityAsync(
+                ProbeHttp,
+                ForeignServerUrl,
+                ForeignDeviceId,
+                ForeignSearchSource,
+                ForeignLanguage,
+                CancellationToken.None);
+            ForeignProbeStatus = $"会员：{result.MemberMessage}{Environment.NewLine}搜索：{result.SearchMessage}{Environment.NewLine}下载：{result.VideoMessage}";
+            StatusRequested?.Invoke(result.MemberOk && result.SearchOk && result.VideoOk
+                ? "海外短剧下载器测试成功"
+                : "海外短剧下载器测试完成（部分失败）");
+        }
+        catch (Exception ex)
+        {
+            ForeignProbeStatus = $"测试失败：{ex.Message}";
+            StatusRequested?.Invoke(ForeignProbeStatus);
+        }
+        finally
+        {
+            IsForeignBusy = false;
         }
     }
 
@@ -1123,6 +1205,18 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             ? PlayletDramaClient.DefaultServerUrl
             : settings.PlayletServerUrl;
         PlayletDeviceId = settings.PlayletDeviceId;
+        ForeignServerUrl = string.IsNullOrWhiteSpace(settings.ForeignServerUrl)
+            ? ForeignPlayletClient.DefaultServerUrl
+            : settings.ForeignServerUrl;
+        ForeignDeviceId = settings.ForeignDeviceId;
+        ForeignSearchSource = ForeignPlayletClient.NormalizeSource(settings.ForeignSearchSource);
+        ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(settings.ForeignLanguage);
+        DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(settings.DramaBoxApiBaseUrl)
+            ? DramaBoxApiService.DefaultBaseUrl
+            : settings.DramaBoxApiBaseUrl;
+        DramaBoxDeviceId = string.IsNullOrWhiteSpace(settings.DramaBoxDeviceId)
+            ? DramaBoxApiService.DefaultDeviceId
+            : settings.DramaBoxDeviceId;
         TiktokAsrLocalModelDir = settings.TiktokAsrLocalModelDir;
         TiktokAsrLocalVadPath = settings.TiktokAsrLocalVadPath;
         TiktokAsrAppId = settings.TiktokAsrAppId;

@@ -160,6 +160,7 @@ public partial class AccountProfileEditor : UserControl
             2,
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
+        RewriteFollowsSourceLanguageBox.IsChecked = profile.TiktokRewriteFollowsSourceLanguage;
         SelectByTag(AiNewTitleRandomnessCombo, profile.TiktokAiNewTitleRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
         SelectByTag(AiSynopsisRandomnessCombo, profile.TiktokAiSynopsisRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
@@ -287,6 +288,7 @@ public partial class AccountProfileEditor : UserControl
                 profile.TiktokRoleVectorCharacterCount);
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
+            profile.TiktokRewriteFollowsSourceLanguage = RewriteFollowsSourceLanguageBox.IsChecked == true;
             profile.TiktokAiNewTitleRandomness = TagOf(AiNewTitleRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
             profile.TiktokAiSynopsisRandomness = TagOf(AiSynopsisRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;

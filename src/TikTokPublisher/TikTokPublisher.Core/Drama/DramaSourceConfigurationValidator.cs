@@ -9,13 +9,13 @@ public static class VisibleDramaSource
     public static string Normalize(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" ? chain : DefaultChain;
+        return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" or "dramabox" ? chain : DefaultChain;
     }
 
     public static bool IsRetired(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hgnew" or "mapleleaf" or "downloader";
+        return chain is "hgnew" or "mapleleaf" or "downloader" or "foreign";
     }
 }
 
@@ -35,6 +35,8 @@ public static class DramaSourceConfigurationValidator
             "hglocal" => Missing((settings.HongguoLocalBaseUrl, "本地服务地址")),
             "pikachu" => Missing((settings.PikachuServerUrl, "服务器地址")),
             "playlet" => Missing((settings.PlayletServerUrl, "服务器地址"), (settings.PlayletDeviceId, "设备号")),
+            "foreign" => Missing((settings.ForeignServerUrl, "服务器地址"), (settings.ForeignDeviceId, "设备号")),
+            "dramabox" => Missing((settings.DramaBoxDeviceId, "设备ID")),
             "downloader" => Missing((settings.DownloaderApiBaseUrl, "下载器地址")),
             _ => ["有效的数据链路"],
         };
@@ -58,6 +60,8 @@ public static class DramaSourceConfigurationValidator
         "hglocal" => "本地直连",
         "pikachu" => "皮卡丘",
         "playlet" => "红果短剧下载器",
+        "foreign" => "海外短剧下载器",
+        "dramabox" => "DramaBox",
         "downloader" => "统一下载器",
         _ => source,
     };

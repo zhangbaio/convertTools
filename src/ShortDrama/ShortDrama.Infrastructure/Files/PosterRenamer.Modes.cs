@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
+using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
@@ -257,6 +258,88 @@ public sealed partial class PosterRenamer
             if (!string.Equals(renderInputPath, inputPath, StringComparison.Ordinal) && File.Exists(renderInputPath))
                 File.Delete(renderInputPath);
         }
+    }
+
+    private async Task GenerateEraseFixedLowerTitlePosterAsync(
+        PosterRenameRequest request,
+        string inputPath,
+        string outputPath,
+        string title,
+        string configFile,
+        CancellationToken cancellationToken)
+    {
+        Log(request, "使用 AI清除原文字并固定字体写入 模式生成海报…");
+        var renderInputPath = await PrepareRenderableInputAsync(inputPath, cancellationToken);
+        try
+        {
+            var outputDirectory = Path.GetDirectoryName(outputPath)!;
+            Directory.CreateDirectory(outputDirectory);
+            var erasedPath = Path.Combine(outputDirectory, "海报处理_已清除标题.png");
+            await WriteGeneratedPosterCandidateAsync(
+                renderInputPath,
+                await File.ReadAllBytesAsync(renderInputPath, cancellationToken),
+                outputPath,
+                cancellationToken);
+            var config = KeyValueConfigReader.Read(configFile);
+            var layout = new PosterLayout(0, 0, 1, 1, 0.08f, new Rgba32(255, 214, 0), new Rgba32(0, 0, 0), 0, HorizontalAlignment.Center);
+            var erasedBytes = await GenerateTitleErasedPosterBytesAsync(
+                config,
+                outputPath,
+                layout,
+                DefaultPosterAllTextErasePrompt,
+                eraseAllText: true,
+                cancellationToken);
+            await WriteGeneratedPosterCandidateAsync(outputPath, erasedBytes, erasedPath, cancellationToken);
+            Log(request, $"已生成AI去字底图：{Path.GetFileName(erasedPath)}");
+
+            if (IsPosterTitleVerifyEnabled(config))
+            {
+                var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
+                var leftover = await DetectErasedPosterLeftoverAsync(config, erasedPath, title, layout, cancellationToken);
+                if (leftover)
+                {
+                    Log(request, "去字底图仍有可读文字，再清除一次。");
+                    var retryBytes = await GenerateTitleErasedPosterBytesAsync(
+                        config,
+                        erasedPath,
+                        layout,
+                        DefaultPosterAllTextErasePrompt,
+                        eraseAllText: true,
+                        cancellationToken);
+                    await WriteGeneratedPosterCandidateAsync(outputPath, retryBytes, erasedPath, cancellationToken);
+                    leftover = await DetectErasedPosterLeftoverAsync(config, erasedPath, title, layout, cancellationToken);
+                }
+
+                if (leftover && verifyMode == "blocking")
+                    throw new InvalidOperationException("海报原文字清除后仍有可读文字。");
+                if (leftover)
+                    Log(request, "去字底图仍有可读文字，已按当前校验配置继续写入固定标题。");
+            }
+
+            PosterTitleProgrammaticRenderer.RenderLowerHalf(erasedPath, outputPath, title);
+            Log(request, $"已在下半部分用固定字体写入标题：{Path.GetFileName(outputPath)}");
+        }
+        finally
+        {
+            if (!string.Equals(renderInputPath, inputPath, StringComparison.Ordinal) && File.Exists(renderInputPath))
+                File.Delete(renderInputPath);
+        }
+    }
+
+    private async Task<bool> DetectErasedPosterLeftoverAsync(
+        IReadOnlyDictionary<string, string> config,
+        string imagePath,
+        string title,
+        PosterLayout layout,
+        CancellationToken cancellationToken)
+    {
+        var result = await _titleVerifier.VerifyAsync(
+            config,
+            imagePath,
+            title,
+            ToTitleLayout(layout),
+            cancellationToken).ConfigureAwait(false);
+        return result.HasResidualText || (result.DetectedTitle?.Trim().Length ?? 0) >= 2;
     }
 
     private async Task GenerateCoverFromPosterAsync(

@@ -187,6 +187,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<PublishJobRowViewModel> PagedJobs { get; } = [];
     public ObservableCollection<PublishAccountItemViewModel> VisibleAccounts { get; } = [];
     public ObservableCollection<string> ActivityLogs { get; } = [];
+    public ObservableCollection<ActivityLogRecord> ActivityLogRecords { get; } = [];
+    private string _activityLogProject = "";
     public ObservableCollection<string> FilteredActivityLogs { get; } = [];
     public ObservableCollection<EpisodeRowViewModel> SelectedProjectEpisodes { get; } = [];
     public ObservableCollection<ArchivedProjectRowViewModel> ArchivedProjects { get; } = [];
@@ -456,20 +458,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (!IsKuaishouPlatform || !CanScanWorkspace() || _activeGlobalAccount is null)
             return;
-        var root = Path.GetFullPath(DraftProjectDirectory);
-        var prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                     + Path.DirectorySeparatorChar;
-        var hasProjects = _jobs.Any(job =>
-            job.Platform == SelectedPlatform.Value &&
-            job.Kind == PublishJobKind.Series &&
-            string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase) &&
-            !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
-            Path.GetFullPath(job.ProjectDirectory).StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-        if (hasProjects)
-        {
-            RefreshVisibleJobs();
-            return;
-        }
+        // 快手个人版和企业版共用同一工作目录。短剧助手每次进入都会按磁盘重扫；
+        // 这里不能因为已有旧任务就跳过，否则后加入的项目只会出现在后扫描的那一版。
         await ScanWorkspaceAsync();
     }
 
@@ -956,12 +946,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 StatusMessage = $"正在扫描{platform.DisplayName()}工作目录：{rootDirectory}";
                 AppendActivityLog(StatusMessage);
                 var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
+                var projects = result.Projects;
+                if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+                {
+                    projects = projects
+                        .Where(project => KuaishouWorkspaceProjects.IsListed(rootDirectory, project.SourceProjectDir))
+                        .ToList();
+                }
+
                 var existing = _jobs
                     .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
                     .Select(job => Path.GetFullPath(job.ProjectDirectory))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var added = 0;
-                foreach (var project in result.Projects)
+                foreach (var project in projects)
                 {
                     var sourceDirectory = Path.GetFullPath(project.SourceProjectDir);
                     if (!existing.Add(sourceDirectory)) continue;
@@ -988,7 +986,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 await PersistAsync(cancellationToken);
                 RefreshVisibleJobs();
-                StatusMessage = $"扫描完成：发现 {result.TotalProjects} 个项目，新增 {added} 个任务。";
+                StatusMessage = $"扫描完成：发现 {projects.Count} 个项目，新增 {added} 个任务。";
                 AppendActivityLog(StatusMessage);
             }
             catch (OperationCanceledException)
@@ -1082,12 +1080,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RunSharedPipelineAsync()
     {
-        var projectDirectory = Path.GetFullPath(DraftProjectDirectory);
-        var trackedJob = _jobs.FirstOrDefault(job =>
-            !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
-            string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
-        if (trackedJob is not null) EnsureStepStates(trackedJob);
-        var trackedRow = trackedJob is null ? null : VisibleJobs.FirstOrDefault(row => row.Id == trackedJob.Id);
+        var targets = ResolveSharedPipelineTargets();
+        if (targets.Count == 0)
+        {
+            StatusMessage = IsKuaishouPlatform
+                ? "请先勾选要执行的项目。"
+                : "请先勾选或选择要执行的项目。";
+            AppendActivityLog(StatusMessage);
+            return;
+        }
+
         var steps = new List<(string Key, string Label)>();
         if (PipelineDownloadEnabled) steps.Add(("download", "下载剧集"));
         if (PipelineSmartRecutEnabled) steps.Add(("smart-recut", "智能重剪"));
@@ -1100,19 +1102,30 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
 
         var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-        var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, projectDirectory, ActiveWeixinAccountName);
-
-        try
+        await RunBusyAsync(async cancellationToken =>
         {
-            await RunBusyAsync(async cancellationToken =>
+            var progress = new Progress<WorkRunEvent>(item =>
             {
-                var progress = new Progress<WorkRunEvent>(item =>
-                {
-                    if (string.IsNullOrWhiteSpace(item.Message)) return;
-                    StatusMessage = $"[{item.DisplayName}] {item.Message}";
-                    AppendActivityLog(StatusMessage);
-                });
-
+                if (string.IsNullOrWhiteSpace(item.Message)) return;
+                StatusMessage = $"[{item.DisplayName}] {item.Message}";
+                AppendActivityLog(StatusMessage);
+            });
+            var succeeded = 0;
+            var failed = 0;
+            var stepNames = steps.Select(step => step.Label).ToList();
+            if (PipelineAutoRepairEnabled) stepNames.Add("一键修复");
+            if (PipelineAutoFillEnabled) stepNames.Add("补齐字段");
+            if (PipelineRemuxEnabled) stepNames.Add("无损重封装");
+            AppendActivityLog($"执行勾选步骤：{targets.Count} 个项目，步骤：{(stepNames.Count == 0 ? "无" : string.Join("、", stepNames))}。已完成的步骤会跳过。");
+            foreach (var projectDirectory in targets)
+            {
+                var trackedJob = _jobs.FirstOrDefault(job =>
+                    !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
+                    string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
+                if (trackedJob is not null) EnsureStepStates(trackedJob);
+                var trackedRow = trackedJob is null ? null : VisibleJobs.FirstOrDefault(row => row.Id == trackedJob.Id);
+                var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, projectDirectory, ActiveWeixinAccountName);
+                _activityLogProject = trackedJob?.ProjectName ?? Path.GetFileName(projectDirectory);
                 try
                 {
                     foreach (var (key, label) in steps)
@@ -1187,7 +1200,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         });
                     }
 
-                    if (IsKuaishouPlatform)
+                    if (IsKuaishouPlatform && (PipelinePosterEnabled || PipelineProjectImageEnabled || PipelineAutoFillEnabled))
                     {
                         var kuaishouPlatform = SelectedPlatform.Value;
                         await RunTrackedStepAsync(trackedJob, trackedRow, "kuaishou-personal-artifacts", "快手分账产物", PipelineForceRerun, async () =>
@@ -1235,31 +1248,69 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                     StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
                     AppendActivityLog(StatusMessage);
+                    succeeded++;
                 }
                 catch (OperationCanceledException)
                 {
                     StatusMessage = "共享项目流水线已停止。";
                     AppendActivityLog(StatusMessage);
+                    return;
                 }
                 catch (Exception ex)
                 {
+                    failed++;
                     StatusMessage = $"共享项目流水线失败：{ex.Message}";
                     AppendActivityLog(StatusMessage);
                 }
-            });
-        }
-        finally
-        {
-            try
-            {
-                var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
-                if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
-                    Directory.Delete(runtimeDir, true);
-                else
-                    File.Delete(runtimeConfigPath);
+                finally
+                {
+                    _activityLogProject = "";
+                    try
+                    {
+                        var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
+                        if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
+                            Directory.Delete(runtimeDir, true);
+                        else
+                            File.Delete(runtimeConfigPath);
+                    }
+                    catch { /* 临时配置清理由下次系统临时目录维护。 */ }
+                }
             }
-            catch { /* 临时配置清理由下次系统临时目录维护。 */ }
-        }
+
+            if (targets.Count > 1)
+            {
+                StatusMessage = $"勾选步骤结束：成功 {succeeded}，失败 {failed}。";
+                AppendActivityLog(StatusMessage);
+            }
+        });
+    }
+
+    private IReadOnlyList<string> ResolveSharedPipelineTargets()
+    {
+        var checkedDirectories = VisibleJobs
+            .Where(row => row.IsChecked && Directory.Exists(row.Model.ProjectDirectory))
+            .Select(row => Path.GetFullPath(row.Model.ProjectDirectory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (checkedDirectories.Length > 0 || IsKuaishouPlatform)
+            return checkedDirectories;
+        if (SelectedJob is not null && Directory.Exists(SelectedJob.Model.ProjectDirectory))
+            return [Path.GetFullPath(SelectedJob.Model.ProjectDirectory)];
+        var draft = string.IsNullOrWhiteSpace(DraftProjectDirectory) ? "" : Path.GetFullPath(DraftProjectDirectory);
+        return IsSingleProjectDirectory(draft) ? [draft] : [];
+    }
+
+    private static bool IsSingleProjectDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return false;
+        if (File.Exists(Path.Combine(path, "shortdrama-project.json")) ||
+            File.Exists(Path.Combine(path, "短剧信息.txt")))
+            return true;
+        return Directory.EnumerateFiles(path).Any(file =>
+            file.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+            file.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
+            file.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase));
     }
 
     private static string PrepareWeixinRuntimeConfig(
@@ -1761,6 +1812,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         job.UpdatedAt = DateTimeOffset.Now;
         row.Refresh();
         await PersistAsync(cancellationToken);
+        _activityLogProject = job.ProjectName;
 
         var progress = new Progress<string>(message =>
         {
@@ -1803,6 +1855,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         finally
         {
+            _activityLogProject = "";
             job.UpdatedAt = DateTimeOffset.Now;
             job.LastCompletedAt = DateTimeOffset.Now;
             row.Refresh();
@@ -2108,7 +2161,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private void ClearActivityLogs()
     {
         ActivityLogs.Clear();
+        ActivityLogRecords.Clear();
         FilteredActivityLogs.Clear();
+    }
+
+    private static string ExtractLeadingProject(string message)
+    {
+        var text = (message ?? "").Trim();
+        if (!text.StartsWith('['))
+            return "";
+        var end = text.IndexOf(']');
+        return end > 1 ? text[1..end].Trim() : "";
     }
 
     private void RefreshFilteredActivityLogs()
@@ -2147,11 +2210,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void AppendActivityLog(string message)
     {
+        var project = _activityLogProject;
+        if (string.IsNullOrWhiteSpace(project))
+            project = ExtractLeadingProject(message);
+        var record = new ActivityLogRecord
+        {
+            Text = $"[{DateTime.Now:HH:mm:ss}] {message}",
+            ProjectName = project,
+            Platform = SelectedPlatform.Value,
+        };
         void Append()
         {
-            ActivityLogs.Add($"[{DateTime.Now:HH:mm:ss}] {message}");
+            ActivityLogs.Add(record.Text);
+            ActivityLogRecords.Add(record);
             while (ActivityLogs.Count > 500)
                 ActivityLogs.RemoveAt(0);
+            while (ActivityLogRecords.Count > 500)
+                ActivityLogRecords.RemoveAt(0);
             RefreshFilteredActivityLogs();
         }
 
@@ -2240,6 +2315,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             VisibleJobs.Clear();
             foreach (var job in _jobs
                          .Where(job => job.Platform == SelectedPlatform.Value)
+                         .Where(job => !IsKuaishouPlatform ||
+                                       KuaishouWorkspaceProjects.IsListed(DraftProjectDirectory, job.ProjectDirectory))
                          .Where(job => _activeGlobalAccount is null ||
                                        string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase))
                          .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||

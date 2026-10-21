@@ -191,7 +191,7 @@ public static class TikTokTimestampCertificateService
             values.GetValueOrDefault("报审机构"), "未填写报审机构");
     }
 
-    private static string ResolveAssetsDirectory()
+    private static string? FindAssetsDirectory()
     {
         var candidates = new[]
         {
@@ -199,9 +199,15 @@ public static class TikTokTimestampCertificateService
             Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "TikTokPublisher.Core", "Resources", "TimestampCertificate")),
             Path.Combine(Directory.GetCurrentDirectory(), "src", "TikTokPublisher", "TikTokPublisher.Core", "Resources", "TimestampCertificate"),
         };
-        return candidates.FirstOrDefault(path => File.Exists(Path.Combine(path, "tsa_certificate_template.pdf")))
-               ?? throw new DirectoryNotFoundException("未找到随程序附带的可信时间戳模板资源。");
+        return candidates.FirstOrDefault(path => File.Exists(Path.Combine(path, "tsa_certificate_template.pdf")));
     }
+
+    private static string ResolveAssetsDirectory() =>
+        FindAssetsDirectory()
+        ?? throw new DirectoryNotFoundException("未找到随程序附带的可信时间戳模板资源。");
+
+    internal static void EnsureSharedFontResolver() =>
+        EnsureFontResolver(FindAssetsDirectory() ?? AppContext.BaseDirectory);
 
     private static void EnsureFontResolver(string assets)
     {
@@ -240,13 +246,114 @@ public static class TikTokTimestampCertificateService
 
     private sealed class TimestampFontResolver(string assets) : IFontResolver
     {
+        private readonly Dictionary<string, byte[]> _faces = new(StringComparer.Ordinal);
+
         public const string SerifFamily = "TimestampNotoSerif";
         public const string SansFamily = "TimestampNotoSans";
-        public FontResolverInfo? ResolveTypeface(string familyName, bool isBold, bool isItalic) =>
-            familyName == SansFamily ? new FontResolverInfo("timestamp-sans") : new FontResolverInfo("timestamp-serif");
+
+        public FontResolverInfo? ResolveTypeface(string familyName, bool isBold, bool isItalic)
+        {
+            if (familyName.Equals("SimSun", StringComparison.OrdinalIgnoreCase))
+                return new FontResolverInfo(isBold ? "simsun-bold" : "simsun");
+
+            if (familyName.Equals("Arial", StringComparison.OrdinalIgnoreCase))
+                return new FontResolverInfo(isBold ? "arial-bold" : "arial");
+
+            if (familyName.Equals("Times New Roman", StringComparison.OrdinalIgnoreCase))
+            {
+                var face = (isBold, isItalic) switch
+                {
+                    (true, true) => "times-bolditalic",
+                    (true, false) => "times-bold",
+                    (false, true) => "times-italic",
+                    _ => "times-regular",
+                };
+                return new FontResolverInfo(face);
+            }
+
+            return familyName == SansFamily
+                ? new FontResolverInfo("timestamp-sans")
+                : new FontResolverInfo("timestamp-serif");
+        }
+
         // PDFsharp cannot embed the CFF outlines in the reference OTF reliably. The bundled
         // Noto Serif TTF covers the same full Chinese/Latin charset and keeps every field vector.
-        public byte[]? GetFont(string faceName) =>
-            File.ReadAllBytes(Path.Combine(assets, "NotoSerifSC-Light.ttf"));
+        public byte[]? GetFont(string faceName)
+        {
+            if (_faces.TryGetValue(faceName, out var cached))
+                return cached;
+
+            var bytes = faceName switch
+            {
+                "times-regular" => ReadTimes("times.ttf"),
+                "times-bold" => ReadTimes("timesbd.ttf"),
+                "times-italic" => ReadTimes("timesi.ttf"),
+                "times-bolditalic" => ReadTimes("timesbi.ttf"),
+                "simsun" => ReadSimSun(),
+                "simsun-bold" => ReadBundledFont("simhei.ttf"),
+                "arial" => ReadBundledFont("arial.ttf"),
+                "arial-bold" => ReadBundledFont("arialbd.ttf"),
+                _ => File.ReadAllBytes(Path.Combine(assets, "NotoSerifSC-Light.ttf")),
+            };
+            _faces[faceName] = bytes;
+            return bytes;
+        }
+
+        private static byte[] ReadTimes(string fileName) => ReadBundledFont(fileName);
+
+        private static byte[] ReadBundledFont(string fileName) => File.ReadAllBytes(ResolveBundledOrSystemFont(fileName));
+
+        private static byte[] ReadSimSun() =>
+            ExtractFirstTtcFont(File.ReadAllBytes(ResolveBundledOrSystemFont("simsun.ttc")));
+
+        private static string ResolveBundledOrSystemFont(string fileName)
+        {
+            var candidates = new[]
+            {
+                Path.Combine(AppContext.BaseDirectory, "articles-of-incorporation", "fonts", fileName),
+                Path.Combine(AppContext.BaseDirectory, "tools", "fonts", fileName),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), fileName),
+            };
+            return candidates.FirstOrDefault(File.Exists)
+                ?? throw new FileNotFoundException(
+                    $"未找到字体文件 {fileName}。安装包应包含 articles-of-incorporation\\fonts\\{fileName}。",
+                    candidates[0]);
+        }
+
+        private static byte[] ExtractFirstTtcFont(byte[] ttc)
+        {
+            var fontStart = ReadU32(ttc, 12);
+            var numTables = ReadU16(ttc, fontStart + 4);
+            var end = fontStart + 12 + numTables * 16;
+            for (var i = 0; i < numTables; i++)
+            {
+                var rec = fontStart + 12 + i * 16;
+                end = Math.Max(end, ReadU32(ttc, rec + 8) + ReadU32(ttc, rec + 12));
+            }
+
+            end = (end + 3) & ~3;
+            var font = new byte[end - fontStart];
+            Buffer.BlockCopy(ttc, fontStart, font, 0, font.Length);
+            for (var i = 0; i < numTables; i++)
+            {
+                var rec = 12 + i * 16;
+                WriteU32(font, rec + 8, ReadU32(font, rec + 8) - fontStart);
+            }
+
+            return font;
+        }
+
+        private static int ReadU16(byte[] data, int offset) => (data[offset] << 8) | data[offset + 1];
+
+        private static int ReadU32(byte[] data, int offset) =>
+            (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+
+        private static void WriteU32(byte[] data, int offset, int value)
+        {
+            data[offset] = (byte)(value >> 24);
+            data[offset + 1] = (byte)(value >> 16);
+            data[offset + 2] = (byte)(value >> 8);
+            data[offset + 3] = (byte)value;
+        }
     }
 }

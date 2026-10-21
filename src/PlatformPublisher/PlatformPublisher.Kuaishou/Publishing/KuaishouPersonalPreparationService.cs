@@ -30,7 +30,7 @@ public sealed class KuaishouPersonalPreparationService
     {
         Directory.CreateDirectory(data.WorkflowDirectory);
         RestoreOriginalTitle(data.SourceDirectory, data.WorkflowDirectory);
-        if (TryRebuildWithAssistant(data.WorkflowDirectory, out var assistant))
+        if (TryRebuildWithAssistant(data.WorkflowDirectory, config, out var assistant))
             return assistant;
         var poster = FindPoster(data.WorkflowDirectory);
         var horizontal = Path.Combine(data.WorkflowDirectory, "快手横屏封面.jpg");
@@ -39,7 +39,7 @@ public sealed class KuaishouPersonalPreparationService
         await EnsureCoverAsync(poster, vertical, 1400, 2000, overwrite, cancellationToken);
 
         var info = ParseInfo(Path.Combine(data.WorkflowDirectory, "短剧信息.txt"));
-        var autoFill = BuildAutoFill(data, config, info);
+        var autoFill = BuildAutoFill(data, config);
         var autoFillPath = Path.Combine(data.WorkflowDirectory, "kuaishou-auto-fill.json");
         await WriteJsonAsync(autoFillPath, autoFill, cancellationToken);
 
@@ -85,17 +85,13 @@ public sealed class KuaishouPersonalPreparationService
 
     private static JsonObject BuildAutoFill(
         KuaishouPersonalProjectData data,
-        KuaishouPersonalConfig config,
-        IReadOnlyDictionary<string, string> info)
+        KuaishouPersonalConfig config)
     {
         var tags = Split(config.TagLabels).Concat(data.Tags.Select(value => value.TrimStart('#')))
             .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().Take(3).ToArray();
         var plots = Split(config.PlotLabels).DefaultIfEmpty("都市生活").Take(3).ToArray();
-        var actors = new JsonArray(data.Actors.Select(actor => (JsonNode)new JsonObject
-        {
-            ["name"] = actor.Name, ["gender"] = actor.Gender, ["role"] = actor.Role,
-        }).ToArray());
-        var characters = new JsonArray(data.Actors.Select(actor => (JsonNode)new JsonObject
+        var form = KuaishouPersonalFormResolver.Resolve(config);
+        var characters = new JsonArray(form.Actors.Select(actor => (JsonNode)new JsonObject
         {
             ["name"] = actor.Role, ["gender"] = actor.Gender,
         }).ToArray());
@@ -114,31 +110,43 @@ public sealed class KuaishouPersonalPreparationService
             ["character_info_list"] = characters,
             ["tag_list"] = new JsonArray(tags.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
             ["tag_label_list"] = new JsonArray(tags.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray()),
-            ["content_type"] = config.ContentType,
-            ["comic_product_method"] = ProductionMethodValue(config.ProductionMethod),
-            ["is_finished"] = config.Finished,
-            ["full_scene_display"] = config.FullSceneDisplay,
-            ["copyright_proof_type"] = First(config.CopyrightProofType, "1"),
-            ["has_record_number"] = config.HasRecordNumber,
-            ["production_form"] = config.ProductionForm,
-            ["production_year"] = ParseInt(config.ProductionYear, DateTime.Now.Year),
-            ["episode_average_duration_minutes"] = ParseInt(config.AverageEpisodeMinutes, 1),
+            ["content_type"] = form.ContentTypeLabel,
+            ["comic_product_method"] = form.ComicMethodLabel switch
+            {
+                "简笔动画" => 1,
+                "小说剧" => 2,
+                "沙雕动画" => 4,
+                "3D动画" => 5,
+                "2D动画" => 6,
+                _ => 3,
+            },
+            ["is_finished"] = form.Finished,
+            ["full_scene_display"] = form.FullSceneDisplay,
+            ["copyright_proof_type"] = form.CopyrightProofTypeLabel,
+            ["has_record_number"] = form.HasRecordNumber,
+            ["production_form"] = form.ProductionForm,
+            ["production_year"] = form.ProductionYear,
+            ["episode_average_duration_minutes"] = form.AverageDurationMinutes,
             ["broadcast_info"] = new JsonObject
             {
-                ["platform"] = config.BroadcastPlatform,
-                ["channel"] = config.BroadcastChannel,
-                ["time_mode"] = "today",
+                ["platform"] = form.BroadcastPlatform,
+                ["channel"] = form.BroadcastChannel,
+                ["time_mode"] = string.IsNullOrWhiteSpace(config.BroadcastTimeMode) ? "today" : config.BroadcastTimeMode,
+                ["date"] = form.BroadcastDate,
             },
-            ["actor_info_list"] = actors,
-            ["director_info_list"] = BuildPeople(config.Directors),
-            ["screenwriter_info_list"] = BuildPeople(config.Screenwriters),
-            ["production_org"] = First(config.ProductionOrganization, info.GetValueOrDefault("制作公司")),
-            ["special_theme"] = false,
-            ["sale_type"] = SaleTypeValue(config.SaleType),
-            ["free_episode_count"] = config.FreeEpisodeCount,
-            ["unlock_count"] = Math.Max(1, config.UnlockEpisodeCount),
-            ["small_amount_unlock"] = false,
-            ["series_price_yuan"] = ParseDouble(config.EpisodePrice, 1.0),
+            ["actor_info_list"] = new JsonArray(form.Actors.Select(actor => (JsonNode)new JsonObject
+            {
+                ["name"] = actor.Name, ["gender"] = actor.Gender, ["role"] = actor.Role,
+            }).ToArray()),
+            ["director_info_list"] = new JsonArray(new JsonObject { ["name"] = form.CreditName, ["gender"] = form.Gender }),
+            ["screenwriter_info_list"] = new JsonArray(new JsonObject { ["name"] = form.CreditName, ["gender"] = form.Gender }),
+            ["production_org"] = form.ProductionOrg,
+            ["special_theme"] = form.SpecialTheme,
+            ["sale_type"] = form.SaleTypeCode,
+            ["free_episode_count"] = form.FreeEpisodeCount,
+            ["unlock_count"] = form.UnlockCount,
+            ["small_amount_unlock"] = form.SmallAmountUnlock,
+            ["series_price_yuan"] = ParseDouble(form.EpisodePrice, 0.11),
         };
     }
 
@@ -198,7 +206,7 @@ public sealed class KuaishouPersonalPreparationService
             ["tag_label_list"] = autoFill["tag_label_list"]?.DeepClone(),
             ["content_type"] = autoFill["content_type"]?.DeepClone(),
             ["product_method"] = autoFill["comic_product_method"]?.DeepClone(),
-            ["product_method_label"] = config.ProductionMethod,
+            ["product_method_label"] = KuaishouFormChoices.LabelOf(KuaishouFormChoices.ComicMethods, config.ProductionMethod, "3"),
             ["sync_profile"] = false,
             ["has_copyright_proof"] = config.HasCopyrightProof,
             ["copyright_proof_type"] = ParseInt(config.CopyrightProofType, 1),
@@ -248,7 +256,7 @@ public sealed class KuaishouPersonalPreparationService
         };
     }
 
-    private static bool TryRebuildWithAssistant(string workflowDirectory, out KuaishouPersonalPreparationResult result)
+    private static bool TryRebuildWithAssistant(string workflowDirectory, KuaishouPersonalConfig config, out KuaishouPersonalPreparationResult result)
     {
         result = null!;
         var script = ResolveBridgeScript();
@@ -277,6 +285,11 @@ public sealed class KuaishouPersonalPreparationService
             start.ArgumentList.Add("--workspace");
             start.ArgumentList.Add(workspace);
         }
+        var overlay = Path.Combine(Path.GetTempPath(), "ks-config-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(overlay, System.Text.Json.JsonSerializer.Serialize(
+            KuaishouPersonalFormResolver.SettingsOverlay(config, config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)));
+        start.ArgumentList.Add("--overrides");
+        start.ArgumentList.Add(overlay);
         using var process = Process.Start(start);
         if (process is null) return false;
         var stdout = process.StandardOutput.ReadToEnd();
@@ -288,6 +301,7 @@ public sealed class KuaishouPersonalPreparationService
         }
         if (process.ExitCode != 0)
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr) ? "短剧助手快手填报生成失败。" : stderr.Trim());
+        try { File.Delete(overlay); } catch { /* 临时覆盖文件删除失败不影响结果。 */ }
         var preview = Path.Combine(workflowDirectory, "kuaishou-payload-preview.json");
         var autoFill = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
         var episodeCount = 0;
@@ -444,7 +458,5 @@ public sealed class KuaishouPersonalPreparationService
         DateTimeOffset.TryParse(value, out var result) ? result : fallback;
     private static int AuthorDeclarationValue(string? value) =>
         string.IsNullOrWhiteSpace(value) || value.Contains('无') ? 0 : int.TryParse(value, out var result) ? result : 1;
-    private static int ProductionMethodValue(string value) => value.Contains("AIGC", StringComparison.OrdinalIgnoreCase) ? 3 : 1;
-    private static int SaleTypeValue(string value) => value.Contains("广告", StringComparison.Ordinal) ? 3 : value.Contains("单集", StringComparison.Ordinal) ? 2 : 0;
     private static string First(params string?[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 }

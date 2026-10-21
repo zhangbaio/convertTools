@@ -17,9 +17,6 @@ public static class TikTokUploadEpisodeConsistencyService
     private const string MetadataFileName = "shortdrama-project.json";
     private const string DramaInfoFileName = "短剧信息.txt";
 
-    private static readonly Regex EpisodeNumberPattern =
-        new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
-
     private static readonly string[] MetadataEpisodeCountKeys =
     [
         "effectiveEpisodeCount",
@@ -218,9 +215,7 @@ public static class TikTokUploadEpisodeConsistencyService
         var indexes = new HashSet<int>();
         foreach (var path in paths)
         {
-            var match = EpisodeNumberPattern.Match(Path.GetFileName(path));
-            if (match.Success &&
-                int.TryParse(match.Groups[1].Value, out var episode) &&
+            if (QueueMaterialStepService.TryReadEpisodeNumberFromFileName(path, out var episode) &&
                 episode > 0)
             {
                 indexes.Add(episode);

@@ -213,6 +213,45 @@ function Assert-ProjectImageTemplatesPublished {
     }
 }
 
+function Assert-ArticlesOfIncorporationPublished {
+    param(
+        [Parameter(Mandatory = $true)][string]$PublishDirectory
+    )
+
+    $root = Join-Path $PublishDirectory "articles-of-incorporation"
+    foreach ($file in @("template.pdf", "template-zh.pdf")) {
+        $path = Join-Path $root $file
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Registration PDF template was not published: $path"
+        }
+        if ((Get-Item -LiteralPath $path).Length -lt 10000) {
+            throw "Registration PDF template looks invalid: $path"
+        }
+    }
+
+    foreach ($file in @("company-names-template1.json", "company-names-template2.json")) {
+        $path = Join-Path $root $file
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Registration PDF company library was not published: $path"
+        }
+    }
+
+    $fontDir = Join-Path $root "fonts"
+    New-Item -ItemType Directory -Force -Path $fontDir | Out-Null
+    $windowsFonts = Join-Path $env:WINDIR "Fonts"
+    foreach ($file in @("times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf", "arial.ttf", "arialbd.ttf", "simsun.ttc", "simhei.ttf")) {
+        $source = Join-Path $windowsFonts $file
+        $destination = Join-Path $fontDir $file
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Cannot bundle registration PDF font '$file'. Install it at $source and re-run packaging."
+        }
+        Copy-Item -LiteralPath $source -Destination $destination -Force
+        if ((Get-Item -LiteralPath $destination).Length -lt 10000) {
+            throw "Bundled registration PDF font looks invalid: $destination"
+        }
+    }
+}
+
 function Invoke-DownloadFile {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
@@ -793,6 +832,7 @@ foreach ($relativePath in $fableCutRequiredFiles) {
 }
 
 Assert-ProjectImageTemplatesPublished -PublishDirectory $PublishDir -TemplateNumbers (3..11)
+Assert-ArticlesOfIncorporationPublished -PublishDirectory $PublishDir
 
 $publishTools = Join-Path $PublishDir "tools"
 $repoFonts = Join-Path $Root "src\ShortDrama\tools\fonts"

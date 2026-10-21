@@ -183,7 +183,7 @@ JSON 格式：
         if (containsTraditional)
             reasons.Add("检测到繁体字");
         if (containsVariant)
-            reasons.Add("检测到异体字或异常字符");
+            reasons.Add("检测到异体字或非标准字符");
         if (usesArtisticStyle && !exactTitleMatch)
             reasons.Add("检测到艺术字或变形字");
         if (usesAggressiveDecorations && !exactTitleMatch)

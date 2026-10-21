@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.AI;
+using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
@@ -1053,7 +1055,7 @@ public static class QueueMaterialStepService
     internal static string NormalizeDramaSource(string? source)
     {
         var value = (source ?? string.Empty).Trim().ToLowerInvariant();
-        return value is "hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader"
+        return value is "hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader" or "dramabox" or "foreign"
             ? value
             : "hgnew";
     }
@@ -1072,6 +1074,10 @@ public static class QueueMaterialStepService
         if (id.StartsWith("pikachu:", StringComparison.OrdinalIgnoreCase)) return "pikachu";
         if (id.StartsWith("playlet:", StringComparison.OrdinalIgnoreCase) ||
             id.StartsWith("playlet_ep:", StringComparison.OrdinalIgnoreCase)) return "playlet";
+        if (id.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("dramabox_ep:", StringComparison.OrdinalIgnoreCase)) return "dramabox";
+        if (id.StartsWith("foreign:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("foreign_ep:", StringComparison.OrdinalIgnoreCase)) return "foreign";
         return "hgnew";
     }
 
@@ -1093,6 +1099,8 @@ public static class QueueMaterialStepService
             "hglocal" => "本地直连",
             "pikachu" => "皮卡丘",
             "playlet" => "红果短剧下载器",
+            "dramabox" => "DramaBox",
+            "foreign" => "海外短剧下载器",
             _ => "红果新接口",
         };
 
@@ -1453,6 +1461,11 @@ public static class QueueMaterialStepService
         }
 
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
+        if (account?.TiktokRewriteFollowsSourceLanguage == true)
+        {
+            log("改写信息跟随源语言：将用 AI 判断原剧名和原简介的语言。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。");
+        }
+
         var rewriteVariantKey = BuildRewriteVariantKey(context, account);
         var configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings, account);
         ProjectInfoRewriteResult? generatedResult = null;
@@ -1585,7 +1598,15 @@ public static class QueueMaterialStepService
 
         PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis, rewriteVariantKey);
         if (generatedResult is not null)
+        {
+            if (account?.TiktokRewriteFollowsSourceLanguage == true)
+            {
+                var detected = RewriteSourceLanguage.ReadCached(workflowDir);
+                if (detected is not null)
+                    log($"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题、推荐语和简介使用该语言。");
+            }
             log($"改写完成：{generatedResult.Title}");
+        }
 
         var newTitle = ResolveNewTitle(infoPath, item, context);
         if (!string.IsNullOrWhiteSpace(newTitle))
@@ -1745,6 +1766,9 @@ public static class QueueMaterialStepService
                 case "poster_ai_erase_pil_title":
                     log("开始使用 AI 去字并程序绘制标题…");
                     break;
+                case "erase_fixed_lower_title":
+                    log("开始清除封面原文字，并在下半部分用固定字体写入新剧名…");
+                    break;
                 default:
                     log("开始 AI 海报改标题…");
                     log("正在检测海报标题区域…");
@@ -1766,6 +1790,10 @@ public static class QueueMaterialStepService
                         Overwrite: true,
                         Log: log),
                     cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (QueueWorkerRunner.IsPosterSensitiveContent(ex))
+            {
+                throw new InvalidOperationException(PosterRenamer.PosterSensitiveContentMessage);
             }
             catch (Exception ex)
             {
@@ -2350,7 +2378,8 @@ public static class QueueMaterialStepService
     {
         var accountKey = FirstNonEmpty(account?.Id, account?.DisplayName, "default");
         var synopsisMode = account?.TiktokAiRewriteSynopsis == true ? "1" : "0";
-        return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}#synopsis={synopsisMode}";
+        var followSource = account?.TiktokRewriteFollowsSourceLanguage == true ? "#follow=source" : "";
+        return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}{followSource}#synopsis={synopsisMode}";
     }
 
     private static bool RewriteVariantKeysEqual(string? left, string? right) =>
@@ -2761,7 +2790,7 @@ public static class QueueMaterialStepService
     private static bool IsAiPosterMode(string? posterMode)
     {
         var mode = (posterMode ?? "original").Trim().ToLowerInvariant();
-        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "video_frame" or "poster_ai_edit";
+        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "erase_fixed_lower_title" or "video_frame" or "poster_ai_edit";
     }
 
     private static bool IsHeicLike(string path)

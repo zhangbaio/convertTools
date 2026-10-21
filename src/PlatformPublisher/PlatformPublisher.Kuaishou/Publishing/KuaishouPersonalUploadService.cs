@@ -87,12 +87,16 @@ public sealed class KuaishouPersonalUploadService
                     await _firstPageService.FillAndSaveDraftAsync(page, data, effectiveConfig, progress, ct);
                 }
 
-                if (!string.Equals(effectiveConfig.FirstPageAction, "next", StringComparison.OrdinalIgnoreCase))
+                var firstPageAction = (effectiveConfig.FirstPageAction ?? "next").Trim().ToLowerInvariant();
+                if (firstPageAction is "draft" or "keep")
                 {
                     CaptureMiniSeriesId(page, state);
-                    state.Status = "draft_saved";
-                    state.CurrentStage = "draft_saved";
+                    state.Status = firstPageAction == "keep" ? "manual_hold" : "draft_saved";
+                    state.CurrentStage = state.Status;
                     await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
+                    progress?.Report(firstPageAction == "keep"
+                        ? $"{label}：第一页已按配置保持，关闭浏览器后结束。"
+                        : $"{label}：第一页草稿已保存。");
                     return;
                 }
 
@@ -124,7 +128,7 @@ public sealed class KuaishouPersonalUploadService
                     progress?.Report($"{label}：分销已设置为上架成功后执行。 ");
                 else
                     await _distributionService.ApplyAsync(state.MiniSeriesId, effectiveConfig, progress, ct);
-            }, cancellationToken);
+            }, cancellationToken, holdUntilClosed: string.Equals(config.FirstPageAction, "keep", StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -378,6 +378,8 @@ public sealed class LogService
     private List<LogEntry> BuildFallback(string projectPath, string failureNote)
     {
         var entries = new List<LogEntry>();
+        if (string.IsNullOrWhiteSpace(failureNote))
+            return entries;
         IReadOnlyList<TikTokExecutionHistoryService.TikTokProjectHistoryEvent> history = [];
         try
         {

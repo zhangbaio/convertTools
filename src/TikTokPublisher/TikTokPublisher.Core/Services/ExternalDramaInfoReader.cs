@@ -111,7 +111,7 @@ internal static partial class ExternalDramaInfoReader
 
         if (string.IsNullOrWhiteSpace(intro))
         {
-            var fallback = SingleFallbackTextFile(root);
+            var fallback = DramaBoxSynopsisFile(root) ?? SingleFallbackTextFile(root);
             var fallbackIntro = ExtractIntro(ReadTextFile(fallback));
             if (!string.IsNullOrWhiteSpace(fallbackIntro))
             {
@@ -285,6 +285,15 @@ internal static partial class ExternalDramaInfoReader
             if (File.Exists(path) && !string.IsNullOrWhiteSpace(ReadTextFile(path))) return path;
         }
         return null;
+    }
+
+    private static string? DramaBoxSynopsisFile(string projectDirectory)
+    {
+        var folderName = Path.GetFileName(projectDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (string.IsNullOrWhiteSpace(folderName))
+            return null;
+        var path = Path.Combine(projectDirectory, folderName + ".txt");
+        return File.Exists(path) && !string.IsNullOrWhiteSpace(ReadTextFile(path)) ? path : null;
     }
 
     private static string? SingleFallbackTextFile(string projectDirectory)

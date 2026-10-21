@@ -13,6 +13,7 @@ public partial class WeixinWorkflowView : UserControl
     private Func<PublishAccount?>? _accountProvider;
     private bool _isKuaishouMode;
     public event EventHandler? SettingsRequested;
+    public event EventHandler? ViewLogsRequested;
     public event EventHandler? KuaishouConfigRequested;
     public event EventHandler<KuaishouAdxRequestedEventArgs>? KuaishouAdxRequested;
 
@@ -151,6 +152,9 @@ public partial class WeixinWorkflowView : UserControl
 
     private void OnKuaishouConfigClick(object? sender, RoutedEventArgs e) =>
         KuaishouConfigRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnViewKuaishouLogsClick(object? sender, RoutedEventArgs e) =>
+        ViewLogsRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnKuaishouAdxDownloadClick(object? sender, RoutedEventArgs e) =>
         KuaishouAdxRequested?.Invoke(this, new KuaishouAdxRequestedEventArgs(false, (int)(KuaishouAdxCount.Value ?? 8)));

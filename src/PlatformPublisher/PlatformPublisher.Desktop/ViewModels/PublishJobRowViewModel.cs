@@ -1,5 +1,9 @@
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using PlatformPublisher.Common.Models;
+using PlatformPublisher.Kuaishou.Publishing;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -12,32 +16,51 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         Model = model;
         _isChecked = model.IsChecked;
         _tableInfo = ResolveTableInfo(model);
+        ReloadKuaishouArtifacts();
+        OpenSourceDirectoryCommand = new RelayCommand(() => OpenDirectory(SourceDirectory));
+        OpenWorkflowDirectoryCommand = new RelayCommand(() => OpenDirectory(WorkflowDirectory));
     }
 
     public PublishJob Model { get; }
     private readonly ProjectTableInfo _tableInfo;
+    private KuaishouArtifactColumnStatus? _kuaishou;
     public string Id => Model.Id;
     public PublishPlatform Platform => Model.Platform;
     public string PlatformName => Model.Platform.DisplayName();
     public string KindName => Model.Kind.DisplayName();
     public string ProjectName => Model.ProjectName;
     public string ProjectDirectory => Model.ProjectDirectory;
-    public string OriginalTitle => _tableInfo.OriginalTitle;
-    public string NewTitle => _tableInfo.NewTitle;
+    public string OriginalTitle => FirstNonEmpty(_kuaishou?.OriginalTitle, _tableInfo.OriginalTitle);
+    public string NewTitle => FirstNonEmpty(_kuaishou?.NewTitle, _tableInfo.NewTitle);
+    public string SourceDirectory => _tableInfo.SourceDirectory;
+    public string WorkflowDirectory => _tableInfo.WorkflowDirectory;
+    public IRelayCommand OpenSourceDirectoryCommand { get; }
+    public IRelayCommand OpenWorkflowDirectoryCommand { get; }
     public string SourceText => _tableInfo.Source;
-    public string EpisodeCountText => _tableInfo.EpisodeCount > 0 ? _tableInfo.EpisodeCount.ToString() : "-";
+    public string EpisodeCountText
+    {
+        get
+        {
+            var count = _kuaishou?.EpisodeCount ?? _tableInfo.EpisodeCount;
+            return count > 0 ? count.ToString() : "-";
+        }
+    }
     public string CreatedAtText => Model.CreatedAt.ToLocalTime().ToString("MM-dd HH:mm");
     [ObservableProperty] private int _queueIndex;
     public string AccountName => string.IsNullOrWhiteSpace(Model.AccountName) ? "默认账号" : Model.AccountName;
-    public string StatusText => Model.Status switch
+    public string StatusText
     {
-        PublishJobStatus.Pending => "等待执行",
-        PublishJobStatus.Running => "执行中",
-        PublishJobStatus.Succeeded => "已完成",
-        PublishJobStatus.Failed => "失败",
-        PublishJobStatus.Blocked => "待接入",
-        _ => Model.Status.ToString(),
-    };
+        get
+        {
+            if (_kuaishou is null) return ModelStatusText();
+            if (Model.Status == PublishJobStatus.Running) return "执行中";
+            if (Model.Status == PublishJobStatus.Failed) return "失败";
+            if (!string.IsNullOrWhiteSpace(_kuaishou.OverallStatus) && _kuaishou.OverallStatus != "待执行")
+                return _kuaishou.OverallStatus;
+            if (Model.Status == PublishJobStatus.Succeeded) return "已完成";
+            return string.IsNullOrWhiteSpace(_kuaishou.OverallStatus) ? "待执行" : _kuaishou.OverallStatus;
+        }
+    }
     public string StatusMessage => Model.StatusMessage;
     public string ScheduleText => Model.ScheduledAt is { } value
         ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
@@ -45,19 +68,26 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string AttemptSummary => Model.AttemptCount == 0
         ? "未执行"
         : $"{Model.AttemptCount} 次";
-    public string DownloadStepStatus => StepStatus("download");
+    public string DownloadStepStatus => KuaishouStep(_kuaishou?.DownloadStatus, "download");
     public string SmartRecutStepStatus => StepStatus("smart-recut");
-    public string RewriteStepStatus => StepStatus("rewrite");
-    public string PosterStepStatus => StepStatus("poster-rename");
+    public string RewriteStepStatus => KuaishouStep(_kuaishou?.RewriteStatus, "rewrite");
+    public string PosterStepStatus => KuaishouStep(_kuaishou?.PosterStatus, "poster-rename");
     public string TranscodeStepStatus => StepStatus("transcode");
     public string RepairStepStatus => StepStatus("material-auto-repair");
-    public string AutoFillStepStatus => StepStatus("auto-fill-info");
+    public string AutoFillStepStatus => KuaishouStep(_kuaishou?.AutoFillStatus, "auto-fill-info");
     public string CostReportStepStatus => StepStatus("cost-report");
-    public string ProjectImageStepStatus => StepStatus("project-image");
+    public string ProjectImageStepStatus => KuaishouStep(_kuaishou?.ProjectImageStatus, "project-image");
     public string ValidateStepStatus => StepStatus("material-validate");
     public string AiProofStepStatus => StepStatus("ai-proof");
     public string TimestampStepStatus => StepStatus("timestamp-certificate");
-    public string UploadStepStatus => StepStatus("weixin-upload");
+    public string UploadStepStatus => KuaishouStep(_kuaishou?.UploadStatus, "weixin-upload");
+    public IBrush DownloadStepBrush => StatusBrush(DownloadStepStatus);
+    public IBrush RewriteStepBrush => StatusBrush(RewriteStepStatus);
+    public IBrush PosterStepBrush => StatusBrush(PosterStepStatus);
+    public IBrush ProjectImageStepBrush => StatusBrush(ProjectImageStepStatus);
+    public IBrush AutoFillStepBrush => StatusBrush(AutoFillStepStatus);
+    public IBrush UploadStepBrush => StatusBrush(UploadStepStatus);
+    public IBrush StatusBrushValue => StatusBrush(StatusText);
     public string ShelfStepStatus => StepStatus("shelf");
     public string ManagementSyncStepStatus => StepStatus("management-sync");
     public string StepProgressSummary
@@ -78,6 +108,66 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
 
     partial void OnIsCheckedChanged(bool value) => Model.IsChecked = value;
 
+    private string ModelStatusText() => Model.Status switch
+    {
+        PublishJobStatus.Pending => "等待执行",
+        PublishJobStatus.Running => "执行中",
+        PublishJobStatus.Succeeded => "已完成",
+        PublishJobStatus.Failed => "失败",
+        PublishJobStatus.Blocked => "待接入",
+        _ => Model.Status.ToString(),
+    };
+
+    private void ReloadKuaishouArtifacts()
+    {
+        if (Model.Platform is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+            || string.IsNullOrWhiteSpace(Model.ProjectDirectory)
+            || !Directory.Exists(Model.ProjectDirectory))
+        {
+            _kuaishou = null;
+            return;
+        }
+
+        try
+        {
+            _kuaishou = KuaishouArtifactColumnStatusReader.Read(
+                Model.ProjectDirectory,
+                Model.Platform == PublishPlatform.KuaishouEnterpriseRevenue);
+        }
+        catch
+        {
+            _kuaishou = null;
+        }
+    }
+
+    private string KuaishouStep(string? artifactStatus, string key)
+    {
+        if (_kuaishou is null) return StepStatus(key);
+        if (Model.StepStates.TryGetValue(key, out var running) && running.Status == PublishJobStepStatus.Running)
+            return "进行中";
+        if (!string.IsNullOrWhiteSpace(artifactStatus) && artifactStatus != "未执行")
+            return artifactStatus;
+        if (!Model.StepStates.TryGetValue(key, out var state)) return artifactStatus ?? "未执行";
+        return state.Status switch
+        {
+            PublishJobStepStatus.Succeeded => "已完成",
+            PublishJobStepStatus.Failed => "失败",
+            PublishJobStepStatus.Skipped => "已跳过",
+            PublishJobStepStatus.Running => "进行中",
+            _ => artifactStatus ?? "未执行",
+        };
+    }
+
+    private static IBrush StatusBrush(string status)
+    {
+        var text = status.Trim();
+        if (text.StartsWith("已完成") || text is "完成" or "成功") return SuccessBrush;
+        if (text.StartsWith("进行中") || text is "执行中" or "上传中" or "发布中") return RunningBrush;
+        if (text is "失败" or "异常" or "错误" || text.Contains("失败")) return FailedBrush;
+        if (text is "已停止" or "停止中" or "手工介入" || text.StartsWith("部分完成")) return PartialBrush;
+        return MutedBrush;
+    }
+
     private string StepStatus(string key)
     {
         if (!Model.StepStates.TryGetValue(key, out var state)) return "待执行";
@@ -91,15 +181,46 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         };
     }
 
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+        }
+        return "";
+    }
+
+    private static void OpenDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            return;
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = $"\"{path}\"",
+            UseShellExecute = true,
+        });
+    }
+
     private static ProjectTableInfo ResolveTableInfo(PublishJob model)
     {
         var original = model.ProjectName;
         var renamed = model.ProjectName;
         var source = model.Kind == PublishJobKind.Series ? "本地" : model.Kind.DisplayName();
         var episodeCount = 0;
+        var sourceDirectory = model.ProjectDirectory;
+        var workflowDirectory = model.ProjectDirectory;
         try
         {
-            var selected = model.ProjectDirectory;
+            if (model.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue
+                && Directory.Exists(model.ProjectDirectory))
+            {
+                var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(model.ProjectDirectory);
+                sourceDirectory = directories.SourceDirectory;
+                workflowDirectory = directories.WorkflowDirectory;
+            }
+
+            var selected = sourceDirectory;
             var metadataPath = Path.Combine(selected, "shortdrama-project.json");
             if (File.Exists(metadataPath))
             {
@@ -109,7 +230,11 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
                 source = JsonText(root, "sourceType", "queueEntrySource") ?? source;
                 if (root.TryGetProperty("episodeCount", out var count) && count.TryGetInt32(out var parsed)) episodeCount = parsed;
                 var workflow = JsonText(root, "workflowProjectDir");
-                if (!string.IsNullOrWhiteSpace(workflow) && Directory.Exists(workflow)) selected = workflow;
+                if (!string.IsNullOrWhiteSpace(workflow) && Directory.Exists(workflow))
+                {
+                    workflowDirectory = Path.GetFullPath(workflow);
+                    selected = workflowDirectory;
+                }
             }
             var infoPath = Path.Combine(selected, "短剧信息.txt");
             if (File.Exists(infoPath))
@@ -134,7 +259,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         {
             // 表格摘要读取失败时使用任务自身字段，不影响队列执行。
         }
-        return new ProjectTableInfo(original, renamed, source, episodeCount);
+        return new ProjectTableInfo(original, renamed, source, episodeCount, sourceDirectory, workflowDirectory);
     }
 
     private static string? JsonText(JsonElement root, params string[] names)
@@ -147,11 +272,22 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
 
     public void Refresh()
     {
+        ReloadKuaishouArtifacts();
+        OnPropertyChanged(nameof(OriginalTitle));
+        OnPropertyChanged(nameof(NewTitle));
+        OnPropertyChanged(nameof(EpisodeCountText));
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusMessage));
         OnPropertyChanged(nameof(ScheduleText));
         OnPropertyChanged(nameof(AttemptSummary));
         OnPropertyChanged(nameof(DownloadStepStatus));
+        OnPropertyChanged(nameof(DownloadStepBrush));
+        OnPropertyChanged(nameof(RewriteStepBrush));
+        OnPropertyChanged(nameof(PosterStepBrush));
+        OnPropertyChanged(nameof(ProjectImageStepBrush));
+        OnPropertyChanged(nameof(AutoFillStepBrush));
+        OnPropertyChanged(nameof(UploadStepBrush));
+        OnPropertyChanged(nameof(StatusBrushValue));
         OnPropertyChanged(nameof(SmartRecutStepStatus));
         OnPropertyChanged(nameof(RewriteStepStatus));
         OnPropertyChanged(nameof(PosterStepStatus));
@@ -169,5 +305,17 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(StepProgressSummary));
     }
 
-    private sealed record ProjectTableInfo(string OriginalTitle, string NewTitle, string Source, int EpisodeCount);
+    private sealed record ProjectTableInfo(
+        string OriginalTitle,
+        string NewTitle,
+        string Source,
+        int EpisodeCount,
+        string SourceDirectory,
+        string WorkflowDirectory);
+
+    private static readonly IBrush SuccessBrush = new SolidColorBrush(Color.Parse("#1F7A42"));
+    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#0F63C7"));
+    private static readonly IBrush FailedBrush = new SolidColorBrush(Color.Parse("#B42318"));
+    private static readonly IBrush PartialBrush = new SolidColorBrush(Color.Parse("#9A6700"));
+    private static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#667085"));
 }
