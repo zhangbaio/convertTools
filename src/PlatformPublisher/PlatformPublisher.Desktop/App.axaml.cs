@@ -11,6 +11,7 @@ using PlatformPublisher.Weixin.Publishing;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Desktop.Views;
+using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.DependencyInjection;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Infrastructure.Rendering;
@@ -100,6 +101,16 @@ public partial class App : Application
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information));
         services.AddShortDramaServices();
+        // 默认下载器是旧红果 hgm.php，不认识 hghigh: 书号。共享流水线改用和 TikTok 助手相同的多链路下载器。
+        services.AddSingleton<HongguoLocalApiService>();
+        services.AddSingleton<HongguoNewApiService>();
+        services.AddSingleton<HongguoHighApiService>();
+        services.AddSingleton<MapleleafApiService>();
+        services.AddSingleton<HongguoMemoryReaderService>();
+        services.AddSingleton<IDramaSettingsProvider, YunfanDramaSettingsProvider>();
+        services.AddSingleton<DramaSourceRouter>();
+        services.AddSingleton<IDramaSearchService>(provider => provider.GetRequiredService<DramaSourceRouter>());
+        services.AddSingleton<IDramaDownloader>(provider => provider.GetRequiredService<DramaSourceRouter>());
         services.AddSingleton<IDocumentRenderService, LibreOfficeDocumentRenderService>();
         services.AddSingleton(_ =>
         {
