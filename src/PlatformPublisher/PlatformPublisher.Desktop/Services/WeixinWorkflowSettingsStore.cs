@@ -78,6 +78,7 @@ public sealed class WeixinWorkflowSettings
     public bool ProjectImageEnabled { get; set; } = true;
     public bool MaterialValidateEnabled { get; set; } = true;
     public bool RemuxEnabled { get; set; }
+    public bool UploadEpisodesEnabled { get; set; } = true;
     public bool ForceRerun { get; set; }
     public bool AutoArchiveAfterUpload { get; set; }
     public bool PreferUploadWhenReady { get; set; } = true;

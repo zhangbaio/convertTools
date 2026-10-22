@@ -49,6 +49,8 @@ public partial class KuaishouQueueLogView : UserControl
         Refresh();
     }
 
+    private bool _refreshPosted;
+
     private void OnLogsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (!IsVisible) return;
@@ -58,7 +60,13 @@ public partial class KuaishouQueueLogView : UserControl
             _selectedProject = project;
         }
 
-        Refresh();
+        if (_refreshPosted) return;
+        _refreshPosted = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _refreshPosted = false;
+            if (IsVisible) Refresh();
+        }, Avalonia.Threading.DispatcherPriority.Background);
     }
 
     public void Refresh()

@@ -329,6 +329,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _pipelineProjectImageEnabled = true;
     [ObservableProperty] private bool _pipelineMaterialValidateEnabled = true;
     [ObservableProperty] private bool _pipelineRemuxEnabled;
+    [ObservableProperty] private bool _pipelineUploadEpisodesEnabled = true;
     [ObservableProperty] private bool _pipelineForceRerun;
     [ObservableProperty] private bool _pipelineAutoArchiveAfterUpload;
     [ObservableProperty] private bool _pipelinePreferUploadWhenReady = true;
@@ -488,6 +489,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public void ActivateSeriesWorkflow()
     {
+        if (!_materialWorkflowActive && SelectedJobKindValue == PublishJobKind.Series)
+            return;
         _materialWorkflowActive = false;
         SelectedJobKind = JobKinds.First(item => item.Value == PublishJobKind.Series);
         RefreshVisibleJobs();
@@ -634,6 +637,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnPipelineGenerateTimestampCertificateEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineMaterialValidateEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
     partial void OnPipelineRemuxEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnPipelineUploadEpisodesEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
 
     private async Task LoadAsync()
     {
@@ -929,7 +933,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
          PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineGenerateAiProofEnabled ||
          PipelineGenerateTimestampCertificateEnabled || PipelineMaterialValidateEnabled ||
-         PipelineRemuxEnabled);
+         PipelineRemuxEnabled || PipelineUploadEpisodesEnabled);
 
     private bool CanScanWorkspace() =>
         !IsBusy && _activeGlobalAccount is not null && Directory.Exists(DraftProjectDirectory);
@@ -1020,6 +1024,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PipelineProjectImageEnabled = settings.ProjectImageEnabled;
         PipelineMaterialValidateEnabled = settings.MaterialValidateEnabled;
         PipelineRemuxEnabled = settings.RemuxEnabled;
+        PipelineUploadEpisodesEnabled = settings.UploadEpisodesEnabled;
         PipelineForceRerun = settings.ForceRerun;
         PipelineAutoArchiveAfterUpload = settings.AutoArchiveAfterUpload;
         PipelinePreferUploadWhenReady = settings.PreferUploadWhenReady;
@@ -1052,6 +1057,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ProjectImageEnabled = PipelineProjectImageEnabled,
             MaterialValidateEnabled = PipelineMaterialValidateEnabled,
             RemuxEnabled = PipelineRemuxEnabled,
+            UploadEpisodesEnabled = PipelineUploadEpisodesEnabled,
             ForceRerun = PipelineForceRerun,
             AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
             PreferUploadWhenReady = PipelinePreferUploadWhenReady,
@@ -1092,14 +1098,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var steps = new List<(string Key, string Label)>();
         if (PipelineDownloadEnabled) steps.Add(("download", "下载剧集"));
-        if (PipelineSmartRecutEnabled) steps.Add(("smart-recut", "智能重剪"));
+        if (!IsKuaishouPlatform && PipelineSmartRecutEnabled) steps.Add(("smart-recut", "智能重剪"));
         if (PipelineRewriteEnabled) steps.Add(("rewrite", "改写信息"));
         if (PipelinePosterEnabled) steps.Add(("poster-rename", "生成海报"));
-        if (PipelineTranscodeEnabled && !PipelineSmartRecutEnabled) steps.Add(("transcode", "素材转码"));
-        if (PipelineCostReportEnabled) steps.Add(("cost-report", "生成成本报表"));
+        if (!IsKuaishouPlatform && PipelineTranscodeEnabled && !PipelineSmartRecutEnabled) steps.Add(("transcode", "素材转码"));
+        if (!IsKuaishouPlatform && PipelineCostReportEnabled) steps.Add(("cost-report", "生成成本报表"));
         if (PipelineProjectImageEnabled) steps.Add(("project-image", "生成工程图"));
-        if (PipelineGenerateAiProofEnabled) steps.Add(("ai-proof", "生成AI制作证明"));
-        if (PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
+        if (!IsKuaishouPlatform && PipelineGenerateAiProofEnabled) steps.Add(("ai-proof", "生成AI制作证明"));
+        if (!IsKuaishouPlatform && PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
 
         var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
         await RunBusyAsync(async cancellationToken =>
@@ -1107,15 +1113,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var progress = new Progress<WorkRunEvent>(item =>
             {
                 if (string.IsNullOrWhiteSpace(item.Message)) return;
-                StatusMessage = $"[{item.DisplayName}] {item.Message}";
-                AppendActivityLog(StatusMessage);
+                var line = string.Equals(item.StepType, "download", StringComparison.Ordinal)
+                    ? item.Message
+                    : $"[{item.DisplayName}] {item.Message}";
+                StatusMessage = line;
+                AppendActivityLog(line);
             });
             var succeeded = 0;
             var failed = 0;
             var stepNames = steps.Select(step => step.Label).ToList();
-            if (PipelineAutoRepairEnabled) stepNames.Add("一键修复");
+            if (!IsKuaishouPlatform && PipelineAutoRepairEnabled) stepNames.Add("一键修复");
             if (PipelineAutoFillEnabled) stepNames.Add("补齐字段");
-            if (PipelineRemuxEnabled) stepNames.Add("无损重封装");
+            if (!IsKuaishouPlatform && PipelineRemuxEnabled) stepNames.Add("无损重封装");
+            if (IsKuaishouPlatform && PipelineUploadEpisodesEnabled) stepNames.Add("上传剧集");
             AppendActivityLog($"执行勾选步骤：{targets.Count} 个项目，步骤：{(stepNames.Count == 0 ? "无" : string.Join("、", stepNames))}。已完成的步骤会跳过。");
             foreach (var projectDirectory in targets)
             {
@@ -1133,6 +1143,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         cancellationToken.ThrowIfCancellationRequested();
                         await RunTrackedStepAsync(trackedJob, trackedRow, key, label, PipelineForceRerun, async () =>
                         {
+                            if (key == "download")
+                            {
+                                var concurrent = Math.Clamp(runtimeSettings.DramaDownloadConcurrent, 1, 10);
+                                var segments = Math.Clamp(runtimeSettings.DownloadFileSegments <= 0 ? 4 : runtimeSettings.DownloadFileSegments, 1, 8);
+                                var parallel = Math.Clamp(
+                                    runtimeSettings.DramaDownloadMaxParallelProjects <= 0 ? 1 : runtimeSettings.DramaDownloadMaxParallelProjects,
+                                    1,
+                                    4);
+                                var timeoutSeconds = Math.Clamp(runtimeSettings.HongguoDownloadTimeoutSeconds, 10, 600);
+                                var attempts = Math.Clamp(runtimeSettings.HongguoEpisodeDownloadAttempts, 1, 20);
+                                AppendActivityLog($"分集下载并发: {concurrent}，单集分块连接数: {segments}，同时下载剧数: {parallel}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
+                            }
                             if (key == "smart-recut")
                             {
                                 await _smartRecutService.RunAsync(
@@ -1172,6 +1194,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                                         cancellationToken);
                                 return;
                             }
+                            if (key == "project-image" && IsKuaishouPlatform)
+                            {
+                                await GenerateKuaishouProjectImagesAsync(projectDirectory, trackedJob, cancellationToken);
+                                return;
+                            }
                             var result = await _workService.RunProjectStepAsync(
                                 projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken, runtimeConfigPath);
                             if (!result.Ok)
@@ -1179,7 +1206,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         });
                     }
 
-                    if (PipelineAutoRepairEnabled)
+                    if (!IsKuaishouPlatform && PipelineAutoRepairEnabled)
                     {
                         await RunTrackedStepAsync(trackedJob, trackedRow, "material-auto-repair", "一键修复", PipelineForceRerun,
                             () => RunMaterialAutoRepairAsync(projectDirectory, runtimeConfigPath, progress, cancellationToken));
@@ -1191,7 +1218,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             async () => await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken));
                     }
 
-                    if (PipelineRemuxEnabled)
+                    if (!IsKuaishouPlatform && PipelineRemuxEnabled)
                     {
                         await RunTrackedStepAsync(trackedJob, trackedRow, "upload-remux", "无损重封装", PipelineForceRerun, async () =>
                         {
@@ -1244,6 +1271,32 @@ public sealed partial class MainWindowViewModel : ObservableObject
                                 AppendActivityLog($"素材校验[{issue.Severity}]：{issue.Message}");
                         });
                         }
+                    }
+
+                    if (IsKuaishouPlatform && PipelineUploadEpisodesEnabled)
+                    {
+                        if (trackedJob is null || trackedRow is null)
+                            throw new InvalidOperationException("上传剧集需要先把项目加入队列。");
+                        await RunTrackedStepAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PipelineForceRerun, async () =>
+                        {
+                            var adapter = _coordinator.GetAdapter(trackedJob.Platform);
+                            if (!adapter.IsAvailable)
+                                throw new InvalidOperationException(adapter.AvailabilityMessage);
+                            trackedJob.AttemptCount++;
+                            trackedJob.LastStartedAt = DateTimeOffset.Now;
+                            trackedJob.Status = PublishJobStatus.Running;
+                            var uploadProgress = new Progress<string>(message =>
+                            {
+                                trackedJob.StatusMessage = message;
+                                trackedRow.Refresh();
+                                StatusMessage = $"[{trackedJob.ProjectName}] {message}";
+                                AppendActivityLog(StatusMessage);
+                            });
+                            await adapter.RunAsync(trackedJob, uploadProgress, cancellationToken);
+                            trackedJob.Status = PublishJobStatus.Succeeded;
+                            trackedJob.StatusMessage = "发布流程执行完成";
+                            trackedJob.LastCompletedAt = DateTimeOffset.Now;
+                        });
                     }
 
                     StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
@@ -1391,6 +1444,59 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         var source = profile[key]?.ToString();
         if (!string.IsNullOrWhiteSpace(source) && File.Exists(source)) File.Copy(source, target, true);
+    }
+
+    private async Task GenerateKuaishouProjectImagesAsync(
+        string projectDirectory,
+        PublishJob? job,
+        CancellationToken cancellationToken)
+    {
+        var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath).Clone();
+        var config = KuaishouPersonalConfig.Load(new PublishJob
+        {
+            Platform = SelectedPlatform.Value,
+            AccountId = SelectedAccount?.Model.Id ?? string.Empty,
+            ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
+            ProjectDirectory = projectDirectory,
+        });
+        if (!string.IsNullOrWhiteSpace(config.ProjectImageTemplateRoot))
+            settings.TiktokProjectImageTemplateRoot = config.ProjectImageTemplateRoot.Trim();
+        var templateId = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
+            ? config.EnterpriseProjectImageTemplateId
+            : config.PersonalProjectImageTemplateId;
+        if (string.IsNullOrWhiteSpace(templateId))
+            templateId = config.ProjectImageTemplateId;
+        if (!string.IsNullOrWhiteSpace(templateId))
+            settings.TiktokProjectImageTemplateId = templateId.Trim();
+
+        var title = string.IsNullOrWhiteSpace(job?.ProjectName)
+            ? Path.GetFileName(projectDirectory)
+            : job.ProjectName;
+        await TikTokProjectImageService.GenerateAsync(
+            new QueueProjectItem
+            {
+                ProjectDir = projectDirectory,
+                OriginalTitle = title,
+                EpisodeCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(projectDirectory),
+            },
+            settings,
+            PipelineForceRerun,
+            AppendActivityLog,
+            cancellationToken);
+
+        var context = ProjectWorkspaceService.LoadContext(projectDirectory);
+        var generatedDir = TikTokProjectImageService.GetOutputDirectory(context.WorkflowProjectDir);
+        if (!Directory.Exists(generatedDir))
+            return;
+
+        var copied = 0;
+        foreach (var file in Directory.EnumerateFiles(generatedDir, "工程图_*.png"))
+        {
+            File.Copy(file, Path.Combine(context.WorkflowProjectDir, Path.GetFileName(file)), overwrite: true);
+            copied++;
+        }
+
+        AppendActivityLog($"快手工程图已同步到工作目录：{copied} 张。");
     }
 
     private async Task RunTrackedStepAsync(
@@ -2071,6 +2177,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         IsEpisodeListLoading = true;
         EpisodeListSummary = $"正在读取《{row.ProjectName}》剧集…";
+        if (IsBusy)
+        {
+            IsEpisodeListLoading = false;
+            EpisodeListSummary = "任务执行中，返回队列后暂不读取剧集信息";
+            return;
+        }
         try
         {
             var paths = await Task.Run(() => ResolveEpisodeVideoPaths(row.ProjectDirectory), cancellationToken);

@@ -52,11 +52,7 @@ public partial class MainWindow : Window
                 : PublishPlatform.KuaishouPersonalRevenue);
         KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
         KuaishouWorkflowPage.ViewLogsRequested += (_, _) => ShowKuaishouLogs();
-        KuaishouLogPage.ReturnRequested += (_, _) =>
-        {
-            if (ViewModel?.IsKuaishouPlatform == true)
-                ShowKuaishouPage(ViewModel.SelectedPlatform.Value);
-        };
+        KuaishouLogPage.ReturnRequested += (_, _) => ReturnToKuaishouQueue();
         Opened += (_, _) =>
         {
             if (!_startupLayoutApplied)
@@ -426,6 +422,25 @@ public partial class MainWindow : Window
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = true;
         KuaishouWorkflowPage.IsKuaishouMode = true;
+        KuaishouLogPage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
+            ? KuaishouPersonalNavButton
+            : KuaishouEnterpriseNavButton);
+    }
+
+    private void ReturnToKuaishouQueue()
+    {
+        if (ViewModel?.IsKuaishouPlatform != true)
+            return;
+        var platform = ViewModel.SelectedPlatform.Value;
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = true;
         KuaishouLogPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;

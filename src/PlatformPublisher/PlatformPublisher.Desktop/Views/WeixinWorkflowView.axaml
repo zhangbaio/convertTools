@@ -55,7 +55,7 @@
                     <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,12,0" />
                     <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,16,0" />
                     <TextBlock Text="浏览器：" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0" />
-                    <CheckBox Content="上传剧集" IsChecked="True" IsEnabled="False" Margin="0,0,12,0" />
+                    <CheckBox Content="上传剧集" IsChecked="{Binding PipelineUploadEpisodesEnabled}" Margin="0,0,12,0" />
                     <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,0" />
                     <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0"
                             ToolTip.Tip="对勾选的项目执行上方已勾选的步骤。已完成的步骤会跳过，除非勾选强制重跑。" />

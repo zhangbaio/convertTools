@@ -107,6 +107,8 @@ public partial class App : Application
         services.AddSingleton<HongguoHighApiService>();
         services.AddSingleton<MapleleafApiService>();
         services.AddSingleton<HongguoMemoryReaderService>();
+        services.AddSingleton<HongguoDramaSearchService>();
+        services.AddSingleton<HongguoDramaDownloader>();
         services.AddSingleton<IDramaSettingsProvider, YunfanDramaSettingsProvider>();
         services.AddSingleton<DramaSourceRouter>();
         services.AddSingleton<IDramaSearchService>(provider => provider.GetRequiredService<DramaSourceRouter>());

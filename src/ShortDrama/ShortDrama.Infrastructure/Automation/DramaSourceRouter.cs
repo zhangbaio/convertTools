@@ -849,14 +849,19 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             prepareDownloadedFile));
         await Task.WhenAll(downloads);
 
-        var posterUrl = ReadPosterUrlFromProject(request.ProjectDir);
-        if (string.IsNullOrWhiteSpace(posterUrl))
-        {
-            posterUrl = tasks.Select(item => item.PosterUrl).FirstOrDefault(url => !string.IsNullOrWhiteSpace(url)) ?? string.Empty;
-        }
+        var posterUrl = ReadPosterUrlFromProject(request.OutputDir);
+        if (!LooksLikeHttpUrl(posterUrl))
+            posterUrl = ReadPosterUrlFromProject(request.ProjectDir);
+        if (!LooksLikeHttpUrl(posterUrl))
+            posterUrl = tasks.Select(item => item.PosterUrl).FirstOrDefault(url => LooksLikeHttpUrl(url)) ?? string.Empty;
 
-        if (!string.IsNullOrWhiteSpace(posterUrl))
+        if (!LooksLikeHttpUrl(posterUrl))
         {
+            progress?.Report("未找到海报 URL，跳过海报下载。");
+        }
+        else
+        {
+            RememberPosterUrl(request.OutputDir, posterUrl);
             RememberPosterUrl(request.ProjectDir, posterUrl);
             await EnsurePosterAsync(request.OutputDir, request.DisplayName, posterUrl, progress, cancellationToken);
         }
@@ -2825,11 +2830,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         var extension = ResolveImageExtensionFromUrl(posterUrl);
         var targetPath = Path.Combine(outputDir, $"{SanitizeFileStem(displayName)}{extension}");
-        if (File.Exists(targetPath))
+        if (File.Exists(targetPath) && new FileInfo(targetPath).Length > 0)
         {
+            progress?.Report($"海报已存在，跳过: {Path.GetFileName(targetPath)}");
             return;
         }
 
+        progress?.Report("开始下载海报...");
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, posterUrl);
