@@ -112,7 +112,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         var form = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("Auto,*,18,Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto"),
             RowSpacing = 8,
         };
         Place(form, "企业名称", _companyName, 0, 0);
@@ -125,6 +125,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         Place(form, "注册人简称", _incorporatorName, 3, 1);
         Place(form, "注册人地址", _agentStreet, 4, 0);
         Place(form, "城市", _agentCity, 4, 1);
+        PlaceImport(form, false, 5);
         return form;
     }
 
@@ -133,7 +134,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         var form = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("Auto,*,18,Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
             RowSpacing = 8,
             Margin = new Thickness(0, 8, 0, 0),
         };
@@ -144,6 +145,7 @@ public sealed class ArticlesOfIncorporationDialog : Window
         Place(form, "注册人名称", _kyRegistrantName, 2, 0);
         Place(form, "街道", _kyStreet, 3, 0);
         Place(form, "城市", _kyCity, 3, 1);
+        PlaceImport(form, true, 4);
         return form;
     }
 
@@ -162,6 +164,41 @@ public sealed class ArticlesOfIncorporationDialog : Window
         Grid.SetColumn(box, column + 1);
         form.Children.Add(caption);
         form.Children.Add(box);
+    }
+
+    private void PlaceImport(Grid form, bool kentucky, int row)
+    {
+        var import = new Button
+        {
+            Content = "导入公司名称 JSON",
+            MinWidth = 160,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        import.Click += async (_, _) => await ImportCompanyLibraryAsync(kentucky);
+        Grid.SetRow(import, row);
+        Grid.SetColumnSpan(import, 5);
+        form.Children.Add(import);
+    }
+
+    private async Task ImportCompanyLibraryAsync(bool kentucky)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = kentucky ? "导入模板2公司名称" : "导入模板1公司名称",
+            AllowMultiple = false,
+            FileTypeFilter = [new FilePickerFileType("JSON") { Patterns = ["*.json"] }],
+        });
+        var path = files.FirstOrDefault()?.TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            _status.Text = "已取消导入。";
+            return;
+        }
+
+        _ = kentucky
+            ? CompanyNameLibraries.TryImportTemplate2(path, out var message)
+            : CompanyNameLibraries.TryImportTemplate1(path, out message);
+        _status.Text = message;
     }
 
     private static TextBox Box() => new() { MinWidth = 240, Watermark = "留空则不写入" };

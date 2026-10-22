@@ -116,8 +116,68 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
         }
     }
 
+    [Fact]
+    public void CompanyNameCatalog_SkipsDuplicateEnglishNames()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"company-names-{Guid.NewGuid():N}");
+        var shipped = Path.Combine(root, "shipped");
+        var user = Path.Combine(root, "user");
+        Directory.CreateDirectory(shipped);
+        Directory.CreateDirectory(user);
+        try
+        {
+            WriteLibrary(Path.Combine(shipped, CompanyNameCatalog.Template1FileName), "Maple Stone INC");
+            File.WriteAllText(
+                Path.Combine(user, CompanyNameCatalog.Template1FileName),
+                """["Ridge Hunt INC","Hunt Basin INC","ridge hunt inc","Hunt Basin INC"]""");
+
+            var library = CompanyNameCatalog.Open(CompanyNameCatalog.Template1FileName, shipped, user);
+
+            library.Notice.Should().BeNull();
+            library.Names.Select(item => item.English).Should().Equal("Ridge Hunt INC", "Hunt Basin INC");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompanyNameCatalog_ImportsALibraryAndSkipsDuplicates()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"company-names-{Guid.NewGuid():N}");
+        var user = Path.Combine(root, "user");
+        var source = Path.Combine(root, "source.json");
+        Directory.CreateDirectory(root);
+        var previous = new CompanyLibrary(CompanyNameCatalog.Mississippi, CompanyNameCatalog.MississippiNotice);
+        try
+        {
+            File.WriteAllText(source, """["Cedar Brook INC","Aspen Cove INC","cedar brook inc"," "]""");
+            var invalid = CompanyNameCatalog.TryImport("template1", source, user, true, false, out var invalidMessage);
+            invalid.Should().BeFalse();
+            invalidMessage.Should().Be("公司库无法使用（存在空的公司名称）。");
+            CompanyNameCatalog.Mississippi.Should().Equal(previous.Names);
+
+            File.WriteAllText(source, """["Cedar Brook INC","Aspen Cove INC","cedar brook inc"]""");
+            var imported = CompanyNameCatalog.TryImport("template1", source, user, true, false, out var message);
+            imported.Should().BeTrue();
+            message.Should().Be("已导入模板1公司库，共 2 个名称。");
+            CompanyNameCatalog.Mississippi.Select(item => item.English).Should().Equal("Cedar Brook INC", "Aspen Cove INC");
+            File.ReadAllText(Path.Combine(user, CompanyNameCatalog.Template1FileName))
+                .Should().Contain("Cedar Brook INC")
+                .And.Contain("Aspen Cove INC")
+                .And.NotContain("cedar brook inc");
+        }
+        finally
+        {
+            CompanyNameCatalog.SetMississippi(previous);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Theory]
-    [InlineData("""["Harbor Peak INC","Harbor Peak INC"]""", "英文名重复：Harbor Peak INC")]
     [InlineData("""["Harbor Peak INC"," "]""", "存在空的公司名称")]
     [InlineData("[]", "没有公司名称")]
     public void CompanyNameCatalog_RejectsAUserFileThatCannotBeUsed(string json, string reason)
