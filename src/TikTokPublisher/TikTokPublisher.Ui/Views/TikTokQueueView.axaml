@@ -350,7 +350,7 @@
                                         </ToolTip>
                                     </ToolTip.Tip>
                                 </CheckBox>
-                                <CheckBox Content="证明材料"
+                                <CheckBox Content="证明"
                                           IsChecked="{Binding QueueGenerateProofMaterialEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Placement="Bottom"
@@ -388,32 +388,32 @@
                                         </ToolTip>
                                     </ToolTip.Tip>
                                 </CheckBox>
-                                <CheckBox Content="小文件修复"
+                                <CheckBox Content="修复"
                                           IsChecked="{Binding QueueSmallVideoRepairEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Tip="检查并修复过小的上传视频。" />
                                 <CheckBox Content="视频翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
-                                <CheckBox Content="成片检查" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="清理原片"
+                                <CheckBox Content="校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="删源"
                                           IsChecked="{Binding QueueDeleteSourceVideosEnabled}"
                                           Margin="0,0,12,2"
                                           ToolTip.Tip="上传副本就绪后删除源视频。" />
-                                <CheckBox Content="发布剧集" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
+                                <CheckBox Content="上传" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
                             </WrapPanel>
                             <WrapPanel Orientation="Horizontal">
-                                <CheckBox Content="同步管理"
+                                <CheckBox Content="同步"
                                           IsChecked="{Binding SyncManagementAfterUpload}"
                                           Margin="0,0,16,0"
                                           ToolTip.Tip="上传完成后把项目同步到管理系统。" />
-                                <CheckBox Content="传后归档"
+                                <CheckBox Content="归档"
                                           IsChecked="{Binding AutoArchiveAfterUpload}"
                                           Margin="0,0,16,0"
                                           ToolTip.Tip="上传成功后自动把项目移入归档。" />
-                                <CheckBox Content="强制重跑"
+                                <CheckBox Content="重跑"
                                           IsChecked="{Binding ForceRerunCompletedSteps}"
                                           Margin="0,0,16,0"
                                           ToolTip.Tip="已完成步骤会重新执行。" />
-                                <CheckBox Content="优先上传"
+                                <CheckBox Content="先传"
                                           IsChecked="{Binding PreferUploadWhenReady}"
                                           Margin="0,0,16,0"
                                           ToolTip.Tip="队列里有待上传项目时，先跑上传。" />

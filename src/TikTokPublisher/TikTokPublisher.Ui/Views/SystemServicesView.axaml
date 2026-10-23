@@ -238,7 +238,7 @@
                             <CheckBox Content="下载" IsChecked="{Binding RemoteDownloadEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="改写" IsChecked="{Binding RemoteRewriteEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="海报" IsChecked="{Binding RemoteGeneratePosterEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="证明材料" IsChecked="{Binding RemoteGenerateProofMaterialEnabled}" Margin="0,0,16,10" />
+                            <CheckBox Content="证明" IsChecked="{Binding RemoteGenerateProofMaterialEnabled}" Margin="0,0,16,10" />
                             <CheckBox Content="修复" IsChecked="{Binding RemoteSmallVideoRepairEnabled}" Margin="0,0,16,10" ToolTip.Tip="检查并修复过小的上传视频。" />
                             <CheckBox Content="翻译" IsChecked="{Binding RemoteVideoTranslateEnabled}" Margin="0,0,16,10" IsVisible="False" />
                             <CheckBox Content="校验" IsChecked="{Binding RemoteMaterialValidateEnabled}" Margin="0,0,16,10" />
@@ -247,9 +247,9 @@
                         </WrapPanel>
 
                         <WrapPanel>
-                            <CheckBox Content="传后归档" IsChecked="{Binding RemoteAutoArchiveAfterUpload}" Margin="0,0,18,10" ToolTip.Tip="上传成功后自动把项目移入归档。" />
-                            <CheckBox Content="强制重跑" IsChecked="{Binding RemoteForceRerunCompletedSteps}" Margin="0,0,18,10" ToolTip.Tip="已完成步骤会重新执行。" />
-                            <CheckBox Content="优先上传" IsChecked="{Binding RemotePreferUploadWhenReady}" Margin="0,0,18,10" ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
+                            <CheckBox Content="归档" IsChecked="{Binding RemoteAutoArchiveAfterUpload}" Margin="0,0,18,10" ToolTip.Tip="上传成功后自动把项目移入归档。" />
+                            <CheckBox Content="重跑" IsChecked="{Binding RemoteForceRerunCompletedSteps}" Margin="0,0,18,10" ToolTip.Tip="已完成步骤会重新执行。" />
+                            <CheckBox Content="先传" IsChecked="{Binding RemotePreferUploadWhenReady}" Margin="0,0,18,10" ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
                         </WrapPanel>
 
                         <TextBlock Text="这组配置仅用于飞书远程命令里的“上传 TikTok 剧集”。本地 TikTok 上传页上的勾选步骤不会被这里覆盖。"
