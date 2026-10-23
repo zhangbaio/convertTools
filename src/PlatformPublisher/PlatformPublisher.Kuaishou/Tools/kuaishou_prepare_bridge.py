@@ -75,45 +75,102 @@ def _coerce_setting(annotation, value):
     return value
 
 
-def rebuild(workflow: Path, tool_root: Path, settings_path: Path, workspace: Path | None = None, overrides: Path | None = None) -> dict:
-    workflow = workflow.resolve()
+def prepare(project: Path, tool_root: Path, settings_path: Path, workspace: Path | None, overrides: Path | None, args) -> dict:
+    project = project.resolve()
     settings = _apply_overrides(
-        _settings_for_workspace(tool_root, settings_path, workspace or _workspace_for(workflow)),
+        _settings_for_workspace(tool_root, settings_path, workspace or _workspace_for(project)),
         overrides,
     )
-    from modules.kuaishou.auto_fill_service import generate_kuaishou_auto_fill
-    from modules.kuaishou.upload_service import _build_local_proof_items, build_kuaishou_form_payload
-    from project_info_text import parse_project_info_file
-    from runtime_paths import atomic_write_text
-
-    generate_kuaishou_auto_fill(workflow, settings, overwrite_existing=False)
-    info = parse_project_info_file(workflow / "短剧信息.txt")
-    horizontal = workflow / "快手横屏封面.jpg"
-    vertical = workflow / "快手竖屏海报.jpg"
-    payload = build_kuaishou_form_payload(
-        workflow,
-        info,
-        settings,
-        cover_material_id=str(horizontal),
-        poster_material_id=str(vertical),
-        proof_items=_build_local_proof_items(workflow, str(workflow / "承诺函.pdf") if (workflow / "承诺函.pdf").exists() else ""),
+    from modules.kuaishou.settlement_project_info_service import (
+        KUAISHOU_SETTLEMENT_REWRITE_INFO_VERSION,
+        kuaishou_settlement_rewrite_project_info,
     )
-    preview_path = workflow / "kuaishou-payload-preview.json"
-    atomic_write_text(preview_path, json.dumps(payload, ensure_ascii=False, indent=2))
-    return {"preview": str(preview_path), "episode_count": payload.get("episode_count"), "title": payload.get("name")}
+    from modules.kuaishou.upload_service import KuaishouPrepareOptions, prepare_kuaishou_project
+
+    if args.edition == "enterprise":
+        from modules.kuaishou_enterprise.state_service import (
+            KUAISHOU_ENTERPRISE_AUTO_FILL_NAME,
+            KUAISHOU_ENTERPRISE_PAYLOAD_PREVIEW_NAME,
+            load_kuaishou_enterprise_prepare_state,
+            save_kuaishou_enterprise_prepare_state,
+        )
+        state_loader = load_kuaishou_enterprise_prepare_state
+        state_saver = save_kuaishou_enterprise_prepare_state
+        auto_fill_name = KUAISHOU_ENTERPRISE_AUTO_FILL_NAME
+        preview_name = KUAISHOU_ENTERPRISE_PAYLOAD_PREVIEW_NAME
+    else:
+        from modules.kuaishou_personal.state_service import (
+            load_kuaishou_personal_prepare_state,
+            save_kuaishou_personal_prepare_state,
+        )
+        state_loader = load_kuaishou_personal_prepare_state
+        state_saver = save_kuaishou_personal_prepare_state
+        auto_fill_name = "kuaishou-auto-fill.json"
+        preview_name = "kuaishou-payload-preview.json"
+
+    def log(message: str) -> None:
+        print(f"LOG\t{message}", flush=True)
+
+    def step(step_key: str, _phase: str, status: str, _elapsed, error: str) -> None:
+        print(f"STEP\t{step_key}\t{status}\t{error or ''}", flush=True)
+
+    state = prepare_kuaishou_project(
+        project,
+        settings,
+        options=KuaishouPrepareOptions(
+            download=args.download,
+            rewrite_info=args.rewrite,
+            generate_poster=args.poster,
+            auto_fill_info=args.auto_fill,
+            generate_project_images=args.project_images,
+            project_image_template_id=args.template_id or "",
+            project_image_template_root=args.template_root or None,
+            generate_guarantee_letter=False,
+            force_rerun_completed_steps=args.force,
+            auto_fill_file_name=auto_fill_name,
+            payload_preview_file_name=preview_name,
+            rewrite_project_info_fn=kuaishou_settlement_rewrite_project_info,
+            rewrite_existing_info=True,
+            rewrite_info_version=KUAISHOU_SETTLEMENT_REWRITE_INFO_VERSION,
+        ),
+        log_fn=log,
+        step_event_fn=step,
+        state_loader=state_loader,
+        state_saver=state_saver,
+    )
+    completed = state.get("completed_prepare_steps") if isinstance(state, dict) else []
+    return {
+        "episode_count": int((state or {}).get("episode_count") or 0),
+        "completed_prepare_steps": completed if isinstance(completed, list) else [],
+        "workflow_dir": str((state or {}).get("workflow_dir") or ""),
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--workflow", required=True)
+    parser.add_argument("--project", required=True)
     parser.add_argument("--tool-root", required=True)
+    parser.add_argument("--edition", choices=["personal", "enterprise"], default="personal")
     parser.add_argument("--settings", default=str(Path.home() / ".weixin_channel_tool" / "settings.json"))
     parser.add_argument("--workspace", default="")
     parser.add_argument("--overrides", default="")
+    parser.add_argument("--template-id", default="")
+    parser.add_argument("--template-root", default="")
+    parser.add_argument("--download", action="store_true")
+    parser.add_argument("--rewrite", action="store_true")
+    parser.add_argument("--poster", action="store_true")
+    parser.add_argument("--project-images", action="store_true")
+    parser.add_argument("--auto-fill", action="store_true")
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
     workspace = Path(args.workspace) if args.workspace else None
-    result = rebuild(Path(args.workflow), Path(args.tool_root), Path(args.settings), workspace, Path(args.overrides) if args.overrides else None)
-    print(json.dumps(result, ensure_ascii=False))
+    overrides = Path(args.overrides) if args.overrides else None
+    try:
+        result = prepare(Path(args.project), Path(args.tool_root), Path(args.settings), workspace, overrides, args)
+    except Exception as exc:
+        print(f"ERROR\t{exc}", flush=True)
+        raise
+    print("RESULT\t" + json.dumps(result, ensure_ascii=False), flush=True)
     return 0
 
 

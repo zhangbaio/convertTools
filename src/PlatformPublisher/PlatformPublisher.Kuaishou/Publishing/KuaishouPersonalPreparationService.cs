@@ -18,6 +18,20 @@ public sealed record KuaishouPersonalPreparationResult(
 
 public sealed record KuaishouPersonalPreparationIssue(string Code, string Message);
 
+public sealed record KuaishouSettlementPrepareOptions(
+    bool Download,
+    bool Rewrite,
+    bool Poster,
+    bool ProjectImages,
+    bool AutoFill,
+    bool Force,
+    string TemplateId,
+    string TemplateRoot);
+
+public sealed record KuaishouSettlementPrepareResult(
+    IReadOnlyList<string> CompletedSteps,
+    int EpisodeCount);
+
 public sealed class KuaishouPersonalPreparationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -28,26 +42,19 @@ public sealed class KuaishouPersonalPreparationService
         bool overwrite,
         CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(data.WorkflowDirectory);
-        RestoreOriginalTitle(data.SourceDirectory, data.WorkflowDirectory);
-        if (TryRebuildWithAssistant(data.WorkflowDirectory, config, out var assistant))
-            return assistant;
-        var poster = FindPoster(data.WorkflowDirectory);
-        var horizontal = Path.Combine(data.WorkflowDirectory, "快手横屏封面.jpg");
-        var vertical = Path.Combine(data.WorkflowDirectory, "快手竖屏海报.jpg");
-        await EnsureCoverAsync(poster, horizontal, 1600, 1000, overwrite, cancellationToken);
-        await EnsureCoverAsync(poster, vertical, 1400, 2000, overwrite, cancellationToken);
-
-        var info = ParseInfo(Path.Combine(data.WorkflowDirectory, "短剧信息.txt"));
-        var autoFill = BuildAutoFill(data, config);
-        var autoFillPath = Path.Combine(data.WorkflowDirectory, "kuaishou-auto-fill.json");
-        await WriteJsonAsync(autoFillPath, autoFill, cancellationToken);
-
-        var preview = BuildPayloadPreview(data, config, autoFill, horizontal, vertical);
-        var previewPath = Path.Combine(data.WorkflowDirectory, "kuaishou-payload-preview.json");
-        await WriteJsonAsync(previewPath, preview, cancellationToken);
-
-        return new(data.WorkflowDirectory, horizontal, vertical, autoFillPath, previewPath, data.VideoPaths.Count);
+        var prepared = await KuaishouSettlementPrepareRunner.RunAsync(
+            string.IsNullOrWhiteSpace(data.SourceDirectory) ? data.WorkflowDirectory : data.SourceDirectory,
+            config,
+            new KuaishouSettlementPrepareOptions(false, false, true, true, true, overwrite, "", ""),
+            null,
+            cancellationToken);
+        return new(
+            data.WorkflowDirectory,
+            Path.Combine(data.WorkflowDirectory, "快手横屏封面.jpg"),
+            Path.Combine(data.WorkflowDirectory, "快手竖屏海报.jpg"),
+            Path.Combine(data.WorkflowDirectory, "kuaishou-auto-fill.json"),
+            Path.Combine(data.WorkflowDirectory, "kuaishou-payload-preview.json"),
+            prepared.EpisodeCount);
     }
 
     public async Task<IReadOnlyList<KuaishouPersonalPreparationIssue>> ValidateAsync(
@@ -57,8 +64,8 @@ public sealed class KuaishouPersonalPreparationService
         var issues = new List<KuaishouPersonalPreparationIssue>();
         var horizontal = Path.Combine(workflowDirectory, "快手横屏封面.jpg");
         var vertical = Path.Combine(workflowDirectory, "快手竖屏海报.jpg");
-        await ValidateImageAsync(horizontal, 1600, 1000, "horizontal-cover", issues, cancellationToken);
-        await ValidateImageAsync(vertical, 1400, 2000, "vertical-poster", issues, cancellationToken);
+        if (!File.Exists(horizontal)) issues.Add(new("horizontal-cover", "缺少快手横屏封面.jpg。"));
+        if (!File.Exists(vertical)) issues.Add(new("vertical-poster", "缺少快手竖屏海报.jpg。"));
 
         var images = Directory.Exists(workflowDirectory)
             ? Directory.EnumerateFiles(workflowDirectory, "工程图_*.png").ToArray()
