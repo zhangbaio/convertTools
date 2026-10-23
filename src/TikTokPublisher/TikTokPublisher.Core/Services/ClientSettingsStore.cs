@@ -105,6 +105,7 @@ public static class ClientSettingsStore
 
         MigrateSharedAsrSettings(raw);
         MigrateProjectImageRenderEpisodeLimitDefault(raw);
+        MigrateImageModelDefault(raw);
         MigrateHghighStandardClientVersionDefault(raw);
         var json = raw.ToJsonString();
         var settings = JsonSerializer.Deserialize<ClientSettings>(json, JsonOptions) ?? new ClientSettings();
@@ -244,6 +245,33 @@ public static class ClientSettingsStore
 
         if (configured == legacyDefault)
             settings[valueKey] = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
+        settings[markerKey] = true;
+    }
+
+    private static void MigrateImageModelDefault(JsonObject settings)
+    {
+        const string valueKey = "image_model_id";
+        const string markerKey = "image_model_default_migrated";
+        if (settings[markerKey] is JsonValue marker &&
+            marker.TryGetValue<bool>(out var migrated) &&
+            migrated)
+        {
+            return;
+        }
+
+        var current = "";
+        if (settings[valueKey] is JsonValue value &&
+            value.TryGetValue<string>(out var text) &&
+            text is not null)
+        {
+            current = text.Trim();
+        }
+        if (string.IsNullOrWhiteSpace(current) ||
+            current is "doubao-seedream-5-0-lite-260128" or "doubao-seedream-5-0-pro-260628")
+        {
+            settings[valueKey] = ClientSettingsDefaults.ImageModelId;
+        }
+
         settings[markerKey] = true;
     }
 
@@ -390,13 +418,10 @@ public static class ClientSettingsStore
         var networkPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
         settings.NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.ToValue(networkPreference);
         settings.ImageProvider = NormalizeImageProvider(settings.ImageProvider);
-        settings.ImageModelId = UpgradeBuiltInPrompt(
-            settings.ImageModelId,
-            ClientSettingsDefaults.RetiredImageModelId,
-            ClientSettingsDefaults.ImageModelId);
+        settings.ImageModelId = ClientSettingsDefaults.NormalizeImageModelId(settings.ImageModelId);
         settings.ImageModelApiKey ??= "";
         settings.ImageModelEndpoint = DefaultIfBlank(settings.ImageModelEndpoint, ClientSettingsDefaults.ImageModelEndpoint);
-        settings.DoubaoImageResolution = DefaultIfBlank(settings.DoubaoImageResolution, ClientSettingsDefaults.DoubaoImageResolution);
+        settings.DoubaoImageResolution = PosterImageConfigHelper.NormalizeDoubaoImageResolution(settings.DoubaoImageResolution);
         settings.DoubaoImageRatio = NormalizeDoubaoImageRatio(settings.DoubaoImageRatio);
         settings.OfoxImage2ModelId = DefaultIfBlank(settings.OfoxImage2ModelId, ClientSettingsDefaults.OfoxImage2ModelId);
         settings.OfoxImage2ApiKey ??= "";
@@ -569,9 +594,7 @@ public static class ClientSettingsStore
     }
 
     private static string NormalizePosterLayoutRequestMode(string? value) =>
-        string.Equals(value?.Trim(), ClientSettingsDefaults.PosterLayoutRequestModeFast, StringComparison.OrdinalIgnoreCase)
-            ? ClientSettingsDefaults.PosterLayoutRequestModeFast
-            : ClientSettingsDefaults.PosterLayoutRequestMode;
+        ClientSettingsDefaults.PosterLayoutRequestMode;
 
     private static string NormalizePosterMode(string? value) =>
         (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch

@@ -737,6 +737,22 @@ public sealed class TikTokReferenceSourcePackageServiceTests
         payload["sequential_image_generation"].Should().Be("disabled");
     }
 
+    [Theory]
+    [InlineData("doubao-seedream-5-0-flash-260915")]
+    [InlineData("doubao-seedream-5-0-pro-260628")]
+    public void Seedream_50_flash_and_pro_omit_group_generation(string modelId)
+    {
+        var payload = TikTokReferenceSourcePackageService.BuildDoubaoReferenceImagePayload(
+            modelId,
+            "保持人物身份一致",
+            "data:image/jpeg;base64,AAAA",
+            "1776x2368");
+
+        payload.Should().NotContainKey("sequential_image_generation");
+        payload["watermark"].Should().Be(false);
+        payload["response_format"].Should().Be("b64_json");
+    }
+
     [Fact]
     public void Character_source_selection_prefers_single_person_extracted_frames()
     {

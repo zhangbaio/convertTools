@@ -501,6 +501,7 @@ JSON 结构：
             {
                 model = attempt.ModelId,
                 temperature = 0.2,
+                thinking = new { type = "disabled" },
                 stream = true,
                 messages = new object[]
                 {
@@ -532,6 +533,7 @@ JSON 结构：
             {
                 model = attempt.ModelId,
                 temperature = 0.2,
+                thinking = new { type = "disabled" },
                 messages = new object[]
                 {
                     new
@@ -1109,7 +1111,7 @@ JSON 结构：
     {
         var imageBytes = await File.ReadAllBytesAsync(inputPath, cancellationToken);
         var call = CurrentCall.Value;
-        var stream = call?.Fast == true && !IsOpenAiImageProvider(provider);
+        var stream = call?.Fast == true && !IsOpenAiImageProvider(provider) && SupportsImageStreaming(modelId);
         if (stream && imageBytes.LongLength > FastUploadJpegThresholdBytes &&
             !string.Equals(mediaType, "image/jpeg", StringComparison.OrdinalIgnoreCase))
         {
@@ -1564,6 +1566,13 @@ JSON 结构：
     private static bool IsOpenAiImageProvider(string provider) =>
         NormalizeImageProvider(provider) == "ofox_image2";
 
+    private static bool SupportsImageStreaming(string? modelId)
+    {
+        var model = modelId ?? "";
+        return !model.Contains("seedream-5-0-flash", StringComparison.OrdinalIgnoreCase)
+            && !model.Contains("seedream-5-0-pro", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string NormalizeImageQuality(string? value)
     {
         var quality = (value ?? "").Trim().ToLowerInvariant();
@@ -1577,7 +1586,11 @@ JSON 结构：
             return string.IsNullOrWhiteSpace(size) ? "auto" : size.ToLowerInvariant();
 
         var normalized = size.ToUpperInvariant();
-        return normalized is "2K" or "4K" ? normalized : size;
+        if (normalized is "1K" or "1.5K" or "2K")
+            return normalized;
+        if (normalized == "4K")
+            return "2K";
+        return size;
     }
 
     private static string SanitizePosterTitleForSafety(string title)
@@ -1715,6 +1728,7 @@ JSON 结构：
         {
             model = modelId,
             temperature = 0.9,
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new

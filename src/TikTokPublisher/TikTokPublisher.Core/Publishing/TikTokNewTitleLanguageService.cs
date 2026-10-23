@@ -288,6 +288,7 @@ public static class TikTokNewTitleLanguageService
             {
                 model,
                 temperature = 0,
+                thinking = new { type = "disabled" },
                 messages = new object[]
                 {
                     new { role = "system", content = "你只输出一个 JSON 对象，language 必须是给定代码之一。" },

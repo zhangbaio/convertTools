@@ -107,6 +107,7 @@ public sealed class CommentaryScripter
         {
             model = opts.AiModel,
             temperature = 0.55,
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new { role = "system", content = "你是资深短剧解说口播作者，只输出 JSON。语言口语、短句、有停顿感、开头抓人、结尾留悬念。" },

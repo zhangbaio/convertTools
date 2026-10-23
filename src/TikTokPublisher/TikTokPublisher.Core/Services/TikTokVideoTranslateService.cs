@@ -97,7 +97,7 @@ public static class TikTokVideoTranslateService
     private static async Task<List<string>> TranslateLlmAsync(string[] texts, ClientSettings s, CancellationToken ct)
     {
         var numbered = string.Join('\n', texts.Select((x, i) => $"{i + 1}|{x}"));
-        var payload = JsonSerializer.Serialize(new { model=s.VideoTranslateLlmModel, temperature=0.3, stream=false, messages=new[] { new { role="system", content=$"你是专业短剧字幕翻译。将每行翻译成自然简洁的{s.VideoTranslateTargetLanguage}字幕。严格按 序号|译文 逐行输出，不增删。" }, new { role="user", content=numbered } } });
+        var payload = JsonSerializer.Serialize(new { model=s.VideoTranslateLlmModel, temperature=0.3, thinking = new { type = "disabled" }, stream=false, messages=new[] { new { role="system", content=$"你是专业短剧字幕翻译。将每行翻译成自然简洁的{s.VideoTranslateTargetLanguage}字幕。严格按 序号|译文 逐行输出，不增删。" }, new { role="user", content=numbered } } });
         using var req = new HttpRequestMessage(HttpMethod.Post, s.VideoTranslateLlmBaseUrl.TrimEnd('/') + "/chat/completions");
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", s.VideoTranslateLlmApiKey); req.Content = new StringContent(payload, Encoding.UTF8, "application/json");
         using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false); var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);

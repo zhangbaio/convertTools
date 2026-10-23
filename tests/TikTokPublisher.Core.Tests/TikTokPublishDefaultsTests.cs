@@ -329,24 +329,35 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
-    public void Client_settings_store_replaces_retired_image_model_and_keeps_custom_models()
+    public void Client_settings_store_keeps_seedream_pro_and_replaces_other_image_models()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-image-{Guid.NewGuid():N}.db");
         try
         {
             ClientSettingsStore.Save(new ClientSettings
             {
-                ImageModelId = ClientSettingsDefaults.RetiredImageModelId,
+                ImageModelId = "doubao-seedream-5-0-lite-260128",
+                ImageModelDefaultMigrated = false,
             }, databasePath);
-            ClientSettingsStore.Load(databasePath).ImageModelId.Should().Be(ClientSettingsDefaults.ImageModelId);
+            var migrated = ClientSettingsStore.Load(databasePath);
+            migrated.ImageModelId.Should().Be(ClientSettingsDefaults.ImageModelId);
+            migrated.ImageModelDefaultMigrated.Should().BeTrue();
+
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                ImageModelId = "doubao-seedream-5-0-pro-260628",
+                ImageModelDefaultMigrated = true,
+            }, databasePath);
+            ClientSettingsStore.Load(databasePath).ImageModelId.Should().Be("doubao-seedream-5-0-pro-260628");
 
             ClientSettingsStore.Save(new ClientSettings
             {
                 ImageModelId = "custom-image-model",
                 ImageModelEndpoint = "https://example.test/v1",
+                ImageModelDefaultMigrated = true,
             }, databasePath);
             var custom = ClientSettingsStore.Load(databasePath);
-            custom.ImageModelId.Should().Be("custom-image-model");
+            custom.ImageModelId.Should().Be(ClientSettingsDefaults.ImageModelId);
             custom.ImageModelEndpoint.Should().Be("https://example.test/v1");
         }
         finally

@@ -838,6 +838,7 @@ public static class TikTokAiGenerationScreenshotService
         {
             model,
             temperature = 0.2,
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new

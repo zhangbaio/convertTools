@@ -96,8 +96,8 @@ JSON 格式：
                     },
                 };
                 var body = fast
-                    ? JsonSerializer.Serialize(new { model = modelId, temperature = 0.0, stream = true, messages })
-                    : JsonSerializer.Serialize(new { model = modelId, temperature = 0.0, messages });
+                    ? JsonSerializer.Serialize(new { model = modelId, temperature = 0.0, thinking = new { type = "disabled" }, stream = true, messages })
+                    : JsonSerializer.Serialize(new { model = modelId, temperature = 0.0, thinking = new { type = "disabled" }, messages });
 
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions");
                 if (fast)

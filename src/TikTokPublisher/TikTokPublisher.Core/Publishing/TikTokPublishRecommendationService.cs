@@ -183,6 +183,7 @@ public static class TikTokPublishRecommendationService
             {
                 model,
                 temperature = 0.2,
+                thinking = new { type = "disabled" },
                 messages = new object[]
                 {
                     new { role = "system", content = "你是短剧发行表单助手，必须严格按候选项输出 JSON。" },

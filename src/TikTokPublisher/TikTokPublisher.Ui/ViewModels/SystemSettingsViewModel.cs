@@ -342,10 +342,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PosterLayoutRequestMode = PosterLayoutRequestMode,
         NetworkAddressPreference = NetworkAddressPreference,
         ImageProvider = ImageProvider,
-        ImageModelId = ImageModelId.Trim(),
+        ImageModelId = ClientSettingsDefaults.NormalizeImageModelId(ImageModelId),
         ImageModelApiKey = ImageModelApiKey,
         ImageModelEndpoint = ImageModelEndpoint.Trim(),
-        DoubaoImageResolution = DoubaoImageResolution,
+        DoubaoImageResolution = PosterImageConfigHelper.NormalizeDoubaoImageResolution(DoubaoImageResolution),
         DoubaoImageRatio = DoubaoImageRatio,
         OfoxImage2ModelId = OfoxImage2ModelId.Trim(),
         OfoxImage2ApiKey = OfoxImage2ApiKey,
@@ -1007,6 +1007,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             request.Content = JsonContent.Create(new
             {
                 model = AiTextModel,
+                thinking = new { type = "disabled" },
                 messages = new object[]
                 {
                     new { role = "user", content = "回复 OK" }

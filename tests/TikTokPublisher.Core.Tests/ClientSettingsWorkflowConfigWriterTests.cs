@@ -81,7 +81,7 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
     }
 
     [Fact]
-    public void WriteTempConfig_keeps_fast_poster_layout_mode()
+    public void WriteTempConfig_forces_standard_poster_layout_mode()
     {
         var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings
         {
@@ -91,7 +91,7 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
         {
             using var document = JsonDocument.Parse(File.ReadAllText(path));
             document.RootElement.GetProperty("PosterLayoutRequestMode").GetString()
-                .Should().Be(ClientSettingsDefaults.PosterLayoutRequestModeFast);
+                .Should().Be(ClientSettingsDefaults.PosterLayoutRequestMode);
         }
         finally
         {

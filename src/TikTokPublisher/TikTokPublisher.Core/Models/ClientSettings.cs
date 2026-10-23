@@ -106,6 +106,7 @@ public sealed class ClientSettings
     public string NetworkAddressPreference { get; set; } = ClientSettingsDefaults.NetworkAddressPreference;
     public string ImageProvider { get; set; } = ClientSettingsDefaults.ImageProvider;
     public string ImageModelId { get; set; } = ClientSettingsDefaults.ImageModelId;
+    public bool ImageModelDefaultMigrated { get; set; } = true;
     public string ImageModelApiKey { get; set; } = "";
     public string ImageModelEndpoint { get; set; } = ClientSettingsDefaults.ImageModelEndpoint;
     public string DoubaoImageResolution { get; set; } = ClientSettingsDefaults.DoubaoImageResolution;
@@ -283,6 +284,7 @@ public sealed class ClientSettings
         NetworkAddressPreference = NetworkAddressPreference,
         ImageProvider = ImageProvider,
         ImageModelId = ImageModelId,
+        ImageModelDefaultMigrated = ImageModelDefaultMigrated,
         ImageModelApiKey = ImageModelApiKey,
         ImageModelEndpoint = ImageModelEndpoint,
         DoubaoImageResolution = DoubaoImageResolution,

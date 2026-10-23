@@ -138,6 +138,7 @@ public sealed class WeixinMaterialPublishDescriptionService
         {
             model = options.AiTextModel,
             temperature = 0.7,
+            thinking = new { type = "disabled" },
             response_format = new { type = "json_object" },
             messages = new object[]
             {

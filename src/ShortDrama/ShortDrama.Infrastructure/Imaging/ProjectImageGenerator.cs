@@ -1615,6 +1615,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         {
             model = modelId,
             temperature = string.Equals(mode, "accurate", StringComparison.OrdinalIgnoreCase) ? 0.0 : 0.2,
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new

@@ -393,6 +393,7 @@ public static class TikTokEpisodeScriptService
         {
             model = settings.AiTextModel.Trim(),
             temperature = 0.2,
+            thinking = new { type = "disabled" },
             max_tokens = Math.Clamp(maxOutputTokens, 1024, 32768),
             messages = new object[]
             {
