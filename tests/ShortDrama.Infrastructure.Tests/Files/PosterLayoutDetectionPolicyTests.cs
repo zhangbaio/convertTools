@@ -50,4 +50,25 @@ public sealed class PosterLayoutDetectionPolicyTests
         PosterLayoutDetectionPolicy.TryValidateCoordinates(x, y, width, height, out _)
             .Should().BeFalse();
     }
+
+    [Fact]
+    public void TryNormalizeCoordinates_Converts_Pixel_Box_And_Clamps_Overflow()
+    {
+        PosterLayoutDetectionPolicy.TryNormalizeCoordinates(
+                40, 400, 400, 80, 480, 572,
+                out var x, out var y, out var width, out var height, out var description)
+            .Should().BeTrue();
+        x.Should().BeApproximately(40f / 480f, 0.0001f);
+        y.Should().BeApproximately(400f / 572f, 0.0001f);
+        width.Should().BeApproximately(400f / 480f, 0.0001f);
+        height.Should().BeApproximately(80f / 572f, 0.0001f);
+        description.Should().Contain("原始");
+
+        PosterLayoutDetectionPolicy.TryNormalizeCoordinates(
+                0.9f, 0.8f, 0.2f, 0.3f, 480, 572,
+                out x, out y, out width, out height, out _)
+            .Should().BeTrue();
+        width.Should().BeApproximately(0.1f, 0.0001f);
+        height.Should().BeApproximately(0.2f, 0.0001f);
+    }
 }
