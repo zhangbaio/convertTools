@@ -16,7 +16,6 @@ public sealed class KuaishouPersonalEpisodeUploadService
     {
         if (!resumeAtVideoPage)
         {
-            await ConfigureEpisodeInfoAsync(page, data, config, cancellationToken);
             if (stageChanged is not null) await stageChanged("episode_info_completed");
             if (!await ClickVisibleAsync(page, ["下一步"], 10_000))
                 throw new InvalidOperationException("快手个人版第一页未找到“下一步”按钮。");
@@ -57,42 +56,159 @@ public sealed class KuaishouPersonalEpisodeUploadService
         }
     }
 
-    private static async Task ConfigureEpisodeInfoAsync(
+    public async Task ConfigureEpisodeInfoAsync(
         IPage page,
         KuaishouPersonalProjectData data,
         KuaishouPersonalConfig config,
         CancellationToken cancellationToken)
     {
-        if (!await ClickVisibleAsync(page, ["添加单集信息"], 8_000))
-            throw new InvalidOperationException("未找到“添加单集信息”按钮。");
-        var dialog = await VisibleDialogAsync(page, 8_000);
-        var input = dialog.Locator("input").First;
-        if (await input.CountAsync() > 0) await input.FillAsync(Math.Max(0, data.VideoPaths.Count - 1).ToString());
-        await ClickDialogConfirmAsync(dialog);
+        var episodeCount = data.VideoPaths.Count;
+        if (episodeCount < 1) throw new InvalidOperationException("没有可设置的剧集视频，无法确定开始集和结束集。");
+        var additional = Math.Max(0, episodeCount - 1);
+        if (additional > 0)
+        {
+            if (!await ClickVisibleAsync(page, ["添加单集信息"], 8_000))
+                throw new InvalidOperationException("未找到“添加单集信息”按钮。");
+            var addDialog = await VisibleDialogAsync(page, 8_000);
+            var input = addDialog.Locator("input").First;
+            if (await input.CountAsync() > 0) await input.FillAsync(additional.ToString());
+            await ClickDialogConfirmAsync(addDialog);
+            await page.WaitForTimeoutAsync(1000);
+        }
 
         if (!await ClickVisibleAsync(page, ["批量设置"], 8_000))
             throw new InvalidOperationException("未找到单集信息“批量设置”按钮。");
-        dialog = await VisibleDialogAsync(page, 8_000);
-        var inputs = dialog.Locator("input:not([type=file])");
-        var count = await inputs.CountAsync();
-        if (count >= 2)
-        {
-            await inputs.Nth(0).FillAsync("1");
-            await inputs.Nth(1).FillAsync(data.VideoPaths.Count.ToString());
-        }
+        var dialog = await MarkOverlayAsync(page, "选择集数", 8_000);
+        var queries = dialog.Locator("input[placeholder*='输入查询']");
+        var queryCount = await queries.CountAsync();
+        if (queryCount < 2) throw new InvalidOperationException("批量设置弹窗未找到集数选择器。");
+        await SelectQueryOptionAsync(page, queries.Nth(0), "第1集");
+        await SelectQueryOptionAsync(page, queries.Nth(queryCount - 1), $"第{episodeCount}集");
+        await page.WaitForTimeoutAsync(400);
         var titleInput = dialog.Locator("input[placeholder*=标题], input[placeholder*=单集]").Last;
         if (await titleInput.CountAsync() > 0) await titleInput.FillAsync(data.Title);
         if (config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)
             await ConfigureEnterpriseEpisodePriceAsync(dialog, config);
         if (string.IsNullOrWhiteSpace(data.VerticalCoverPath) || !File.Exists(data.VerticalCoverPath))
             throw new FileNotFoundException("缺少快手个人版竖屏单集封面。", data.VerticalCoverPath);
-        var fileInput = dialog.Locator("input[type=file]").Last;
-        if (await fileInput.CountAsync() == 0) throw new InvalidOperationException("批量设置弹窗未找到单集封面上传入口。");
-        await fileInput.SetInputFilesAsync(data.VerticalCoverPath);
+        var markedCover = await dialog.EvaluateAsync<bool>(
+            """
+            (el) => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const blocks = Array.from(el.querySelectorAll('div, section, label'))
+                .filter(element => compact(element.innerText).startsWith('单集封面') || compact(element.innerText).includes('上传图片'))
+                .sort((left, right) => {
+                  const leftBox = left.getBoundingClientRect();
+                  const rightBox = right.getBoundingClientRect();
+                  return leftBox.width * leftBox.height - rightBox.width * rightBox.height;
+                });
+              for (const block of blocks) {
+                let node = block;
+                for (let depth = 0; node && depth < 5; depth += 1, node = node.parentElement) {
+                  const input = node.querySelector('input[type=file]');
+                  if (!input) continue;
+                  input.setAttribute('data-kuaishou-batch-cover', '1');
+                  return true;
+                }
+              }
+              const fallback = el.querySelector('input[type=file]');
+              if (!fallback) return false;
+              fallback.setAttribute('data-kuaishou-batch-cover', '1');
+              return true;
+            }
+            """);
+        if (!markedCover) throw new InvalidOperationException("批量设置弹窗未找到单集封面上传入口。");
+        await page.Locator("input[type=file][data-kuaishou-batch-cover='1']").First.SetInputFilesAsync(data.VerticalCoverPath);
         await HandleCropDialogAsync(page, 18, cancellationToken);
         await ClickDialogConfirmAsync(dialog);
+        var closed = false;
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            await page.WaitForTimeoutAsync(300);
+            closed = !await page.EvaluateAsync<bool>(
+                """
+                () => Array.from(document.querySelectorAll('div, span, label'))
+                  .some(element => {
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden'
+                      && (element.innerText || '').replace(/\s+/g, '') === '选择集数';
+                  });
+                """);
+            if (closed) break;
+        }
+        if (!closed) throw new InvalidOperationException("批量设置弹窗确认后仍未关闭。");
         if (config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)
             await ConfirmEnterpriseFreeEpisodeWarningAsync(page);
+    }
+
+    private static async Task SelectQueryOptionAsync(IPage page, ILocator input, string option)
+    {
+        try { await input.ScrollIntoViewIfNeededAsync(); } catch (PlaywrightException) { /* 输入框已经在视野内。 */ }
+        try { await input.ClickAsync(new LocatorClickOptions { Timeout = 3_000 }); }
+        catch (PlaywrightException) { await input.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 3_000 }); }
+        await page.WaitForTimeoutAsync(200);
+        try { await input.FillAsync(option); } catch (PlaywrightException) { /* 只读查询框改为直接点选项。 */ }
+        await page.WaitForTimeoutAsync(200);
+        var popperId = await input.EvaluateAsync<string>(
+            """
+            element => {
+              const nodes = [element, element.closest('.select-trigger'), element.closest('.ks-select,.ant-select,.el-select')].filter(Boolean);
+              for (const node of nodes) {
+                const id = node.getAttribute('aria-describedby') || node.getAttribute('aria-controls');
+                if (id) return id;
+              }
+              return '';
+            }
+            """);
+        var point = await page.EvaluateAsync<double[]?>(
+            """
+            ({ optionText, popperId }) => {
+              const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+              const compact = value => normalize(value).replace(/\s+/g, '');
+              const target = normalize(optionText);
+              const compactTarget = compact(optionText);
+              const visible = element => {
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && rect.bottom >= 0 && rect.right >= 0
+                  && rect.top <= window.innerHeight && rect.left <= window.innerWidth
+                  && style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+              };
+              const matches = element => {
+                const text = normalize(element.innerText || element.textContent || '');
+                if (!text) return false;
+                if (text === target || compact(text) === compactTarget) return true;
+                return text.includes(target) && text.length <= target.length + 12;
+              };
+              const popups = Array.from(document.querySelectorAll('.ks-select__popper,.ks-popper,.ant-select-dropdown,.el-select-dropdown,[role="listbox"]')).filter(popup => {
+                if (!visible(popup)) return false;
+                const text = compact(popup.innerText || '');
+                return !text.includes('承诺函') && !text.includes('现场拍摄图') && !text.includes('版权证明');
+              });
+              const preferred = popups.filter(popup => popperId && (popup.id === popperId || popup.getAttribute('aria-describedby') === popperId));
+              for (const popup of preferred.concat(popups)) {
+                const options = Array.from(popup.querySelectorAll('li.ks-select-dropdown__item,.ks-select-dropdown__item,[role="option"],li,div,span'))
+                  .filter(element => visible(element) && matches(element) && element.getBoundingClientRect().height < 56);
+                options.sort((left, right) => left.getBoundingClientRect().width - right.getBoundingClientRect().width);
+                const option = options[0];
+                if (!option) continue;
+                const rect = option.getBoundingClientRect();
+                return [rect.left + rect.width / 2, rect.top + rect.height / 2];
+              }
+              return null;
+            }
+            """,
+            new { optionText = option, popperId });
+        if (point is { Length: 2 })
+            await page.Mouse.ClickAsync((float)point[0], (float)point[1]);
+        else
+        {
+            await input.PressAsync("ArrowDown");
+            await page.WaitForTimeoutAsync(100);
+            await input.PressAsync("Enter");
+        }
+        await page.WaitForTimeoutAsync(250);
     }
 
     private static async Task ConfigureEnterpriseEpisodePriceAsync(ILocator dialog, KuaishouPersonalConfig config)
@@ -224,23 +340,108 @@ public sealed class KuaishouPersonalEpisodeUploadService
         throw new TimeoutException("点击下一步后未进入视频上传步骤。");
     }
 
+    private static async Task<ILocator> MarkOverlayAsync(IPage page, string marker, float timeout)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeout);
+        while (DateTime.UtcNow < deadline)
+        {
+            var marked = await page.EvaluateAsync<bool>(
+                """
+                (marker) => {
+                  const visible = element => {
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                  };
+                  const overlays = Array.from(document.querySelectorAll('.ks-overlay, .ks-dialog, [role="dialog"]'))
+                    .filter(element => visible(element) && (element.innerText || '').includes(marker))
+                    .sort((left, right) => {
+                      const leftBox = left.getBoundingClientRect();
+                      const rightBox = right.getBoundingClientRect();
+                      return leftBox.width * leftBox.height - rightBox.width * rightBox.height;
+                    });
+                  document.querySelectorAll('[data-kuaishou-batch]').forEach(element => element.removeAttribute('data-kuaishou-batch'));
+                  const overlay = overlays[0];
+                  if (!overlay) return false;
+                  overlay.setAttribute('data-kuaishou-batch', '1');
+                  return true;
+                }
+                """,
+                marker);
+            if (marked) return page.Locator("[data-kuaishou-batch='1']").First;
+            await page.WaitForTimeoutAsync(300);
+        }
+
+        throw new TimeoutException("未找到批量设置弹窗。");
+    }
+
     private static async Task<ILocator> VisibleDialogAsync(IPage page, float timeout)
     {
-        var dialog = page.Locator("[role=dialog]:visible, .ks-dialog:visible, .ant-modal:visible").Last;
-        await dialog.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible, Timeout = timeout });
-        return dialog;
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeout);
+        while (DateTime.UtcNow < deadline)
+        {
+            var marked = await page.EvaluateAsync<bool>(
+                """
+                () => {
+                  const visible = element => {
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                  };
+                  const ownText = element => Array.from(element.childNodes)
+                    .filter(node => node.nodeType === Node.TEXT_NODE)
+                    .map(node => node.textContent || '')
+                    .join('')
+                    .replace(/\s+/g, '');
+                  const titles = Array.from(document.querySelectorAll('div, span, p, h1, h2, h3, label'))
+                    .filter(element => visible(element) && ['添加单集信息', '批量设置'].includes(ownText(element)));
+                  let dialog = null;
+                  let dialogArea = Number.POSITIVE_INFINITY;
+                  for (const title of titles) {
+                    let node = title;
+                    for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+                      const text = node.innerText || '';
+                      if (!node.querySelector('button, input') || !/确定|确认|取消/.test(text)) continue;
+                      const rect = node.getBoundingClientRect();
+                      const area = rect.width * rect.height;
+                      if (area <= 0 || area >= dialogArea) continue;
+                      dialog = node;
+                      dialogArea = area;
+                    }
+                  }
+                  document.querySelectorAll('[data-kuaishou-dialog]').forEach(element => element.removeAttribute('data-kuaishou-dialog'));
+                  if (!dialog) return false;
+                  dialog.setAttribute('data-kuaishou-dialog', '1');
+                  return true;
+                }
+                """);
+            if (marked) return page.Locator("[data-kuaishou-dialog='1']").First;
+            await page.WaitForTimeoutAsync(300);
+        }
+
+        throw new TimeoutException("未找到单集信息弹窗。");
     }
 
     private static async Task ClickDialogConfirmAsync(ILocator dialog)
     {
-        foreach (var text in new[] { "确认", "确定" })
-        {
-            var button = dialog.GetByRole(AriaRole.Button, new LocatorGetByRoleOptions { Name = text, Exact = false }).Last;
-            if (await button.CountAsync() == 0) continue;
-            await button.ClickAsync();
-            return;
-        }
-        throw new InvalidOperationException("弹窗未找到确认按钮。");
+        var clicked = await dialog.EvaluateAsync<bool>(
+            """
+            (el) => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const visible = element => {
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+              };
+              const buttons = Array.from(el.querySelectorAll('button, [role="button"], a, span, div'))
+                .filter(element => visible(element) && ['确定', '确认'].includes(compact(element.innerText)));
+              const button = buttons[buttons.length - 1];
+              if (!button) return false;
+              button.click();
+              return true;
+            }
+            """);
+        if (!clicked) throw new InvalidOperationException("弹窗未找到确认按钮。");
     }
 
     private static async Task ConfirmDialogAsync(IPage page)
@@ -332,20 +533,8 @@ public sealed class KuaishouPersonalEpisodeUploadService
         return Normalize(string.Join(' ', parts));
     }
 
-    private static async Task HandleCropDialogAsync(IPage page, int shrinkClicks, CancellationToken cancellationToken)
-    {
-        ILocator dialog;
-        try { dialog = await VisibleDialogAsync(page, 5_000); }
-        catch { return; }
-        if (!Normalize(await dialog.InnerTextAsync()).Contains("图片裁剪", StringComparison.Ordinal)) return;
-        var minus = dialog.Locator("button[aria-label*=缩小], button[title*=缩小], button:has-text('-')").First;
-        for (var index = 0; index < shrinkClicks && await minus.CountAsync() > 0; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            await minus.ClickAsync();
-        }
-        await ClickDialogConfirmAsync(dialog);
-    }
+    private static Task HandleCropDialogAsync(IPage page, int shrinkClicks, CancellationToken cancellationToken) =>
+        KuaishouCropDialog.ConfirmAsync(page, shrinkClicks, cancellationToken);
 
     private static async Task<bool> ClickVisibleAsync(IPage page, IReadOnlyList<string> texts, float timeout)
     {
