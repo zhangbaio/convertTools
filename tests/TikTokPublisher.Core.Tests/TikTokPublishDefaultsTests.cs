@@ -1204,6 +1204,38 @@ public sealed class TikTokPublishDefaultsTests
         }
     }
 
+    [Fact]
+    public void Genre_catalog_matches_theme_tag_option_values_and_english_fallback_labels()
+    {
+        TikTokPublishConstants.GenreCatalog.Should().HaveCount(49);
+        TikTokPublishConstants.GenreOptions.Should().Equal(
+            TikTokPublishConstants.GenreCatalog.Select(option => option.Canonical));
+        TikTokPublishConstants.GenreCatalog.Select(option => option.Value).Should().OnlyHaveUniqueItems();
+        TikTokPublishConstants.GenreCatalog.Select(option => option.Canonical).Should().OnlyHaveUniqueItems();
+        TikTokPublishConstants.GenreCatalog.Select(option => option.EnglishLabel).Should().OnlyHaveUniqueItems();
+
+        TikTokPublishConstants.TryResolveGenre("Decade", out var decade).Should().BeTrue();
+        decade.Canonical.Should().Be("年代");
+        decade.Value.Should().Be("7475195626620436486");
+
+        TikTokPublishConstants.TryResolveGenre("Underdog Story", out var comeback).Should().BeTrue();
+        comeback.Canonical.Should().Be("逆袭");
+        comeback.Value.Should().Be("7480116663103291447");
+
+        TikTokPublishConstants.TryResolveGenre("Second Chance", out var rebirth).Should().BeTrue();
+        rebirth.Canonical.Should().Be("重生");
+        rebirth.Value.Should().Be("7480116663103389751");
+
+        TikTokPublishConstants.TryResolveGenre("\"7480113204073349175\"", out var ageGap).Should().BeTrue();
+        ageGap.Canonical.Should().Be("年龄差");
+        ageGap.EnglishLabel.Should().Be("AgeGap");
+
+        TikTokPublishConstants.GenreOptionMatches("Decade", "\"7475195626620436486\"", "年代").Should().BeTrue();
+        TikTokPublishConstants.GenreOptionMatches("Family Feud", "\"7475195943084621879\"", "亲情").Should().BeFalse();
+        TikTokPublishConstants.GenreOptionMatches("Family", "\"7480116475617935415\"", "亲情").Should().BeTrue();
+        TikTokPublishConstants.GenreOptionMatches("Presient", "\"7480129001525313541\"", "总统").Should().BeTrue();
+    }
+
     [Theory]
     [InlineData("save")]
     [InlineData("draft")]

@@ -142,31 +142,62 @@ public static class TikTokProjectPayloadFactory
 
     public static List<string> ParseGenreTokens(string rawValue)
     {
-        var rawItems = Regex.Split(rawValue, @"[#,\uFF0C\u3001/\\\s;；]+");
-        var allowed = TikTokPublishConstants.GenreOptions
-            .Where(item => !string.IsNullOrWhiteSpace(item))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(item => item.ToLowerInvariant(), item => item, StringComparer.Ordinal);
+        var text = rawValue ?? "";
+        var matches = new List<(int Index, string Canonical)>();
+        var occupied = new bool[text.Length];
+        foreach (var alias in GenreAliasesByLength())
+        {
+            var index = 0;
+            while (index < text.Length)
+            {
+                var found = text.IndexOf(alias.Alias, index, StringComparison.OrdinalIgnoreCase);
+                if (found < 0)
+                    break;
+
+                var end = found + alias.Alias.Length;
+                var overlaps = false;
+                for (var i = found; i < end; i++)
+                {
+                    if (!occupied[i])
+                        continue;
+                    overlaps = true;
+                    break;
+                }
+
+                if (!overlaps)
+                {
+                    for (var i = found; i < end; i++)
+                        occupied[i] = true;
+                    matches.Add((found, alias.Canonical));
+                }
+
+                index = Math.Max(found + 1, end);
+            }
+        }
 
         var selected = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in rawItems)
+        foreach (var match in matches.OrderBy(item => item.Index))
         {
-            var text = item.Trim().Trim('#').Trim();
-            if (string.IsNullOrWhiteSpace(text)) continue;
-
-            if (!allowed.TryGetValue(text.ToLowerInvariant(), out var normalized) && text.Length >= 2)
-            {
-                normalized = TikTokPublishConstants.GenreOptions.FirstOrDefault(genre =>
-                    text.Contains(genre, StringComparison.Ordinal) ||
-                    genre.Contains(text, StringComparison.Ordinal)) ?? "";
-            }
-
-            if (string.IsNullOrWhiteSpace(normalized) || !seen.Add(normalized)) continue;
-            selected.Add(normalized);
+            if (seen.Add(match.Canonical))
+                selected.Add(match.Canonical);
         }
 
         return selected;
+    }
+
+    private static IEnumerable<(string Alias, string Canonical)> GenreAliasesByLength()
+    {
+        return TikTokPublishConstants.GenreCatalog
+            .SelectMany(option => new[]
+            {
+                (Alias: option.Canonical, option.Canonical),
+                (Alias: option.EnglishLabel, option.Canonical),
+            })
+            .GroupBy(item => item.Alias, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderByDescending(item => item.Alias.Length)
+            .ThenBy(item => item.Alias, StringComparer.Ordinal);
     }
 
     private static string FirstProjectInfoValue(IReadOnlyDictionary<string, string> merged, string[] keys)
