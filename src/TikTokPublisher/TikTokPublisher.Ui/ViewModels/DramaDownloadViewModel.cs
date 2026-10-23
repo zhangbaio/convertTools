@@ -1412,8 +1412,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 SourceMode = item.SourceMode,
                 Author = item.Author,
                 Category = item.Category,
-                EpisodeTotal = OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, overLimitSettings)
-                    ? OverLimitEpisodePolicy.ResolveKeepCount(overLimitSettings)
+                EpisodeTotal = OverLimitEpisodePolicy.ShouldTruncate(
+                        item.EpisodeTotal,
+                        overLimitSettings,
+                        OverLimitEpisodePolicy.TryReadActiveAccountMaximumEpisodeCount())
+                    ? OverLimitEpisodePolicy.ResolveKeepCount(
+                        overLimitSettings,
+                        OverLimitEpisodePolicy.TryReadActiveAccountMaximumEpisodeCount())
                     : item.EpisodeTotal,
                 FavoriteCount = item.FavoriteCount,
                 PlayCount = item.PlayCount,
@@ -1779,12 +1784,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private string ResolveOverLimitEpisodes(DramaSearchItem item, string selection, ClientSettings settings)
     {
-        var resolved = OverLimitEpisodePolicy.ResolveDownloadSelection(selection, item.EpisodeTotal, settings);
+        var accountMaximum = OverLimitEpisodePolicy.TryReadActiveAccountMaximumEpisodeCount();
+        var resolved = OverLimitEpisodePolicy.ResolveDownloadSelection(selection, item.EpisodeTotal, settings, accountMaximum);
         if (!string.Equals(resolved, selection, StringComparison.OrdinalIgnoreCase) &&
-            OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings))
+            OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings, accountMaximum))
         {
             LogRequested?.Invoke(
-                $"超长剧只取前 {OverLimitEpisodePolicy.ResolveKeepCount(settings)} 集：{item.Title} 原 {item.EpisodeTotal} 集");
+                $"超长剧只取前 {OverLimitEpisodePolicy.ResolveKeepCount(settings, accountMaximum)} 集：{item.Title} 原 {item.EpisodeTotal} 集");
         }
 
         return resolved;
@@ -1792,9 +1798,10 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private static void MarkOverLimitProject(string projectDir, DramaSearchItem item, ClientSettings settings)
     {
-        if (!OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings))
+        var accountMaximum = OverLimitEpisodePolicy.TryReadActiveAccountMaximumEpisodeCount();
+        if (!OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings, accountMaximum))
             return;
-        OverLimitEpisodePolicy.MarkTruncated(projectDir, item.EpisodeTotal, settings);
+        OverLimitEpisodePolicy.MarkTruncated(projectDir, item.EpisodeTotal, settings, accountMaximumEpisodeCount: accountMaximum);
     }
 
     private string ResolveEpisodeSelection()

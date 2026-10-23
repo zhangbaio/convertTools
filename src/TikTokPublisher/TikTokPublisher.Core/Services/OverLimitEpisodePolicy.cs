@@ -9,28 +9,62 @@ namespace TikTokPublisher.Core.Services;
 /// </summary>
 public static class OverLimitEpisodePolicy
 {
-    public static int ResolveKeepCount(ClientSettings settings)
+    public static int ResolveKeepCount(ClientSettings settings, int? accountMaximumEpisodeCount = null)
     {
-        var configured = settings.TiktokOverLimitDownloadEpisodeCount <= 0
-            ? ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount
-            : settings.TiktokOverLimitDownloadEpisodeCount;
-        return Math.Clamp(configured, 1, ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
+        var configured = accountMaximumEpisodeCount is > 0
+            ? accountMaximumEpisodeCount.Value
+            : settings.TiktokOverLimitDownloadEpisodeCount <= 0
+                ? TikTokAccountProfile.DefaultMaximumEpisodeCount
+                : settings.TiktokOverLimitDownloadEpisodeCount;
+        return TikTokAccountProfile.NormalizeMaximumEpisodeCount(configured);
     }
 
-    public static bool ShouldTruncate(int episodeCount, ClientSettings? settings)
+    public static int? TryReadAccountMaximumEpisodeCount(string? accountProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(accountProfileId))
+            return null;
+        try
+        {
+            var store = new AccountStore();
+            store.Load();
+            var maximum = store.FindByNameOrId(accountProfileId)?.TiktokMaximumEpisodeCount ?? 0;
+            return maximum > 0 ? maximum : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static int? TryReadActiveAccountMaximumEpisodeCount()
+    {
+        try
+        {
+            var store = new AccountStore();
+            store.Load();
+            var maximum = store.ActiveAccount?.TiktokMaximumEpisodeCount ?? 0;
+            return maximum > 0 ? maximum : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public static bool ShouldTruncate(int episodeCount, ClientSettings? settings, int? accountMaximumEpisodeCount = null)
     {
         if (settings is null || !settings.TiktokAllowOverLimitUploadImport || episodeCount <= 0)
             return false;
-        return episodeCount > ResolveKeepCount(settings);
+        return episodeCount > ResolveKeepCount(settings, accountMaximumEpisodeCount);
     }
 
-    public static string ResolveDownloadSelection(string? selection, int episodeTotal, ClientSettings? settings)
+    public static string ResolveDownloadSelection(string? selection, int episodeTotal, ClientSettings? settings, int? accountMaximumEpisodeCount = null)
     {
         var text = string.IsNullOrWhiteSpace(selection) ? "all" : selection.Trim();
-        if (!ShouldTruncate(episodeTotal, settings))
+        if (!ShouldTruncate(episodeTotal, settings, accountMaximumEpisodeCount))
             return text;
 
-        var keep = ResolveKeepCount(settings!);
+        var keep = ResolveKeepCount(settings!, accountMaximumEpisodeCount);
         if (text.Equals("all", StringComparison.OrdinalIgnoreCase) || SelectionExceeds(text, keep))
             return $"1-{keep}";
         return text;
@@ -94,11 +128,14 @@ public static class OverLimitEpisodePolicy
         return false;
     }
 
-    public static void MarkTruncated(string projectDir, int originalEpisodeCount, ClientSettings settings, Action<string>? log = null)
+    public static void MarkTruncated(string projectDir, int originalEpisodeCount, ClientSettings settings, Action<string>? log = null, int? accountMaximumEpisodeCount = null)
     {
-        var keep = ResolveKeepCount(settings);
+        var keep = ResolveKeepCount(settings, accountMaximumEpisodeCount);
         if (originalEpisodeCount <= keep)
+        {
+            ClearTruncation(projectDir, originalEpisodeCount);
             return;
+        }
 
         var source = ResolveSourceDir(projectDir);
         var path = Path.Combine(source, "shortdrama-project.json");
@@ -131,7 +168,41 @@ public static class OverLimitEpisodePolicy
         log?.Invoke($"超长剧只使用前 {keep} 集：原 {originalEpisodeCount} 集");
     }
 
-    public static void EnsureTruncated(string projectDir, ClientSettings? settings = null, Action<string>? log = null)
+    private static void ClearTruncation(string projectDir, int originalEpisodeCount)
+    {
+        if (!TryReadKeepCount(projectDir, out _))
+            return;
+
+        var source = ResolveSourceDir(projectDir);
+        var path = Path.Combine(source, "shortdrama-project.json");
+        if (!File.Exists(path))
+            return;
+        var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+        if (root is null)
+            return;
+
+        root["episodeCount"] = originalEpisodeCount;
+        root["episode_count"] = originalEpisodeCount;
+        root["effectiveEpisodeCount"] = originalEpisodeCount;
+        root["effective_episode_count"] = originalEpisodeCount;
+        root["episodes"] = "all";
+        root["truncatedForTikTokUpload"] = false;
+        root["truncated_for_tiktok_upload"] = false;
+        root.Remove("downloadEpisodeLimit");
+        root.Remove("download_episode_limit");
+        File.WriteAllText(path, root.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+
+        foreach (var infoDir in new[] { source, ProjectWorkspaceService.ResolveWorkflowProjectDir(source) })
+        {
+            if (string.IsNullOrWhiteSpace(infoDir))
+                continue;
+            var infoPath = Path.Combine(infoDir, "短剧信息.txt");
+            if (File.Exists(infoPath))
+                ProjectWorkspaceService.UpdateProjectInfoField(infoPath, "集数", originalEpisodeCount.ToString());
+        }
+    }
+
+    public static void EnsureTruncated(string projectDir, ClientSettings? settings = null, Action<string>? log = null, int? accountMaximumEpisodeCount = null)
     {
         settings ??= ClientSettingsStore.Load();
         if (!settings.TiktokAllowOverLimitUploadImport)
@@ -143,10 +214,10 @@ public static class OverLimitEpisodePolicy
         var fileCount = ProjectVideoResolver.ResolveSourceVideos(source, allowStagedFallback: false, applyOverLimitSlice: false).Count;
         var declared = ReadDeclaredEpisodeCount(source);
         var original = Math.Max(fileCount, declared);
-        if (!ShouldTruncate(original, settings))
+        if (!ShouldTruncate(original, settings, accountMaximumEpisodeCount))
             return;
 
-        MarkTruncated(source, original, settings, log);
+        MarkTruncated(source, original, settings, log, accountMaximumEpisodeCount);
     }
 
     private static bool SelectionExceeds(string selection, int keep)

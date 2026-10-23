@@ -175,7 +175,10 @@ public static class UploadTitleImportService
                     }
                 }
 
-                var episodeError = ResolveEpisodeLimitError(matched, settings, episodeMin, episodeMax);
+                var configuredMaximum = account?.TiktokMaximumEpisodeCount > 0
+                    ? account.TiktokMaximumEpisodeCount
+                    : episodeMax;
+                var episodeError = ResolveEpisodeLimitError(matched, settings, episodeMin, configuredMaximum);
                 if (!string.IsNullOrWhiteSpace(episodeError))
                 {
                     result.Failures.Add(new UploadTitleImportFailure(label, episodeError));
@@ -183,7 +186,7 @@ public static class UploadTitleImportService
                     continue;
                 }
 
-                var downloadPlan = ResolveDownloadPlan(matched, settings, episodeMax);
+                var downloadPlan = ResolveDownloadPlan(matched, settings, configuredMaximum, account?.TiktokMaximumEpisodeCount);
                 var projectDir = await ShortDramaDramaServices.BootstrapAsync(
                     workspace,
                     matched,
@@ -353,13 +356,14 @@ public static class UploadTitleImportService
     public static UploadTitleImportDownloadPlan ResolveDownloadPlan(
         DramaSearchItem item,
         ClientSettings settings,
-        int episodeMax = DefaultEpisodeMax)
+        int episodeMax = DefaultEpisodeMax,
+        int? accountMaximumEpisodeCount = null)
     {
         _ = episodeMax;
-        if (!OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings))
+        if (!OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings, accountMaximumEpisodeCount))
             return new UploadTitleImportDownloadPlan("all", Math.Max(1, item.EpisodeTotal), Truncated: false);
 
-        var limit = OverLimitEpisodePolicy.ResolveKeepCount(settings);
+        var limit = OverLimitEpisodePolicy.ResolveKeepCount(settings, accountMaximumEpisodeCount);
         return new UploadTitleImportDownloadPlan($"1-{limit}", limit, Truncated: true);
     }
 

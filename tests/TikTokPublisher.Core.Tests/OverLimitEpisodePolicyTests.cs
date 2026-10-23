@@ -28,6 +28,15 @@ public sealed class OverLimitEpisodePolicyTests
     }
 
     [Fact]
+    public void Download_selection_uses_the_account_maximum_episode_count()
+    {
+        var settings = Settings(keep: 120);
+        OverLimitEpisodePolicy.ResolveDownloadSelection("all", 180, settings, accountMaximumEpisodeCount: 150)
+            .Should().Be("1-150");
+        OverLimitEpisodePolicy.ResolveKeepCount(settings, 150).Should().Be(150);
+    }
+
+    [Fact]
     public void Existing_project_with_more_than_the_keep_count_is_marked_as_the_first_episodes()
     {
         var projectDir = Path.Combine(Path.GetTempPath(), "over-limit-" + Guid.NewGuid().ToString("N"));
