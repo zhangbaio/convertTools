@@ -53,6 +53,12 @@ public sealed class KuaishouPersonalProjectDataService
         var intro = First(info.GetValueOrDefault("简介"), info.GetValueOrDefault("剧情简介"), info.GetValueOrDefault("剧情"), info.GetValueOrDefault("介绍"));
         if (string.IsNullOrWhiteSpace(intro)) intro = $"《{title}》精彩剧情，人物关系与故事冲突逐步展开。";
         var videos = EnumerateVideos(Path.Combine(workflow, "videos"));
+        if (videos.Count == 0)
+        {
+            var preparedSource = ReadPreparedSourceDirectory(workflow);
+            if (!string.IsNullOrWhiteSpace(preparedSource))
+                videos = EnumerateVideos(preparedSource);
+        }
         if (videos.Count == 0) videos = EnumerateVideos(source);
         var horizontalCover = FindFirst(workflow, "快手横屏封面.*", "横屏封面.*", "海报图片.*");
         var verticalCover = FindFirst(workflow, "快手竖屏海报.*", "竖屏封面.*", "海报图片.*");
@@ -73,6 +79,23 @@ public sealed class KuaishouPersonalProjectDataService
             projectImages,
             videos,
             KuaishouPersonalFormResolver.ResolveActors(config.ActorInfoJson));
+    }
+
+    private static string ReadPreparedSourceDirectory(string workflowDirectory)
+    {
+        var path = Path.Combine(workflowDirectory, ".kuaishou-personal-prepare-state.json");
+        if (!File.Exists(path)) return string.Empty;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            if (!document.RootElement.TryGetProperty("source_project_dir", out var source)) return string.Empty;
+            var value = source.GetString()?.Trim() ?? string.Empty;
+            return Directory.Exists(value) ? value : string.Empty;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return string.Empty;
+        }
     }
 
     private static Dictionary<string, string> ParseInfo(string path)
