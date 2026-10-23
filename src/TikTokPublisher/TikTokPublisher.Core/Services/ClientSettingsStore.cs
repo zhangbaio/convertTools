@@ -361,7 +361,10 @@ public static class ClientSettingsStore
         settings.VideoTranslateMarginV = Math.Clamp(settings.VideoTranslateMarginV, 0, 600);
         settings.AiTextEndpoint = DefaultIfBlank(settings.AiTextEndpoint, ClientSettingsDefaults.AiTextEndpoint);
         settings.AiTextApiKey ??= "";
-        settings.AiTextModel = DefaultIfBlank(settings.AiTextModel, ClientSettingsDefaults.AiTextModel);
+        settings.AiTextModel = UpgradeBuiltInPrompt(
+            settings.AiTextModel,
+            ClientSettingsDefaults.RetiredAiTextModel,
+            ClientSettingsDefaults.AiTextModel);
         settings.AiTextTimeoutSeconds = Math.Clamp(
             settings.AiTextTimeoutSeconds <= 0
                 ? ClientSettingsDefaults.AiTextTimeoutSeconds

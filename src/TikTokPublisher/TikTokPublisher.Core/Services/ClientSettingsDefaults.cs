@@ -3,7 +3,8 @@ namespace TikTokPublisher.Core.Models;
 public static class ClientSettingsDefaults
 {
     public const string AiTextEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
-    public const string AiTextModel = "doubao-seed-2-0-lite-260215";
+    public const string AiTextModel = "doubao-seed-2-1-lite-260915";
+    public const string RetiredAiTextModel = "doubao-seed-2-0-lite-260215";
     public const int AiTextTimeoutSeconds = 120;
     public const int AiTextMaxBatchSize = 10;
     public const string AiNewTitleRandomness = "medium";
