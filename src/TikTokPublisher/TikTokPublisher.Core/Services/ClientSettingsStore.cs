@@ -487,7 +487,7 @@ public static class ClientSettingsStore
                 ? ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount
                 : settings.TiktokOverLimitDownloadEpisodeCount,
             1,
-            ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount);
+            TikTokAccountProfile.MaxMaximumEpisodeCount);
         settings.FeishuCommandAppId = (settings.FeishuCommandAppId ?? "").Trim();
         settings.FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";
         settings.FeishuCommandBotName = (settings.FeishuCommandBotName ?? "").Trim();

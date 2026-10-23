@@ -164,7 +164,8 @@ public static class LocalManualDramaImportService
         string workspaceRoot,
         string sourceProjectDir,
         Action<string>? log = null,
-        ClientSettings? settings = null)
+        ClientSettings? settings = null,
+        int? accountMaximumEpisodeCount = null)
     {
         var workspace = NormalizeFullPath(workspaceRoot);
         if (string.IsNullOrWhiteSpace(workspace))
@@ -189,9 +190,9 @@ public static class LocalManualDramaImportService
         Directory.CreateDirectory(workflowDir);
 
         var sourceEpisodeCount = videos.Count;
-        var truncate = OverLimitEpisodePolicy.ShouldTruncate(sourceEpisodeCount, settings);
+        var truncate = OverLimitEpisodePolicy.ShouldTruncate(sourceEpisodeCount, settings, accountMaximumEpisodeCount);
         var effectiveEpisodeCount = truncate
-            ? OverLimitEpisodePolicy.ResolveKeepCount(settings!)
+            ? OverLimitEpisodePolicy.ResolveKeepCount(settings!, accountMaximumEpisodeCount)
             : sourceEpisodeCount;
         var declaredEpisodeCount = truncate
             ? sourceEpisodeCount
