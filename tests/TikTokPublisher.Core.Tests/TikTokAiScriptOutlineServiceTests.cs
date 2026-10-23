@@ -32,6 +32,62 @@ public sealed class TikTokAiScriptOutlineServiceTests
     }
 
     [Fact]
+    public void ParseOutline_repairs_greater_than_used_as_property_colon()
+    {
+        var model = CreateValidOutline();
+        model.Theme = "线索写成 a > b，不能被改掉。";
+        model.Characters =
+        [
+            model.Characters[0],
+            new AiOutlineCharacter { Name = "配角甲", Role = "配角", Identity = "证人" },
+            new AiOutlineCharacter { Name = "配角乙", Role = "配角", Identity = "助手" },
+            new AiOutlineCharacter { Name = "反派", Role = "反派", Identity = "尸傀" },
+        ];
+        var json = JsonSerializer.Serialize(model);
+        var malformed = json.Replace(
+            "\"Identity\":\"尸傀\"",
+            "\"Identity\">\"尸傀\"",
+            StringComparison.Ordinal);
+
+        var outline = TikTokAiScriptOutlineService.ParseOutline(malformed, 1);
+
+        Assert.Equal("尸傀", outline.Characters[3].Identity);
+        Assert.Equal("线索写成 a > b，不能被改掉。", outline.Theme);
+    }
+
+    [Fact]
+    public void ParseOutline_repairs_greater_than_colon_and_unquoted_value()
+    {
+        var json = JsonSerializer.Serialize(CreateValidOutline());
+        var malformed = json.Replace(
+            "\"Genre\":\"都市短剧\"",
+            "\"Genre\">都市短剧",
+            StringComparison.Ordinal);
+
+        var outline = TikTokAiScriptOutlineService.ParseOutline(malformed, 1);
+
+        Assert.Equal("都市短剧", outline.Genre);
+    }
+
+    [Fact]
+    public void RepairMisplacedPropertyColons_replaces_only_property_separator()
+    {
+        const string broken = "{\"name\"> \"甲\", \"note\": \"a > b\"}";
+        const string spaced = "{\"name\" > \"甲\"}";
+        const string afterValue = "{\"note\": \"done\"> \"extra\"}";
+
+        Assert.Equal(
+            "{\"name\": \"甲\", \"note\": \"a > b\"}",
+            TikTokAiScriptOutlineService.RepairMisplacedPropertyColons(broken));
+        Assert.Equal(
+            "{\"name\" : \"甲\"}",
+            TikTokAiScriptOutlineService.RepairMisplacedPropertyColons(spaced));
+        Assert.Equal(
+            afterValue,
+            TikTokAiScriptOutlineService.RepairMisplacedPropertyColons(afterValue));
+    }
+
+    [Fact]
     public void ParseOutline_repairs_unquoted_chinese_scalar_value()
     {
         var json = JsonSerializer.Serialize(CreateValidOutline());

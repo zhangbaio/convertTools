@@ -106,11 +106,12 @@ public static class TikTokAiScriptOutlineService
         }
         catch (InvalidOperationException ex) when (!ct.IsCancellationRequested)
         {
-            log?.Invoke($"WARN AI 剧本大纲首次返回不完整，正在自动重试：{ex.Message}");
+            log?.Invoke($"WARN AI 剧本大纲首次返回无法解析，正在自动重试：{ex.Message}");
             response = await QueueWorkloadResourceScheduler.RunAsync(
                 QueueWorkloadResource.AiText,
                 () => TikTokEpisodeScriptService.RequestTextAsync(
-                    prompt + "\n上一次输出被截断或不是完整 JSON。本次必须从头重新输出完整 JSON，并确保最后一个字符为 }。",
+                    prompt + "\n上一次输出的 JSON 无法解析：" + ex.Message +
+                    "\n本次必须从头重新输出完整 JSON。每个属性名后面必须是英文冒号 :，不能写成 >。最后一个字符必须是 }。",
                     settings,
                     ct,
                     maxOutputTokens: 24576),
@@ -337,7 +338,7 @@ public static class TikTokAiScriptOutlineService
         }
         catch (JsonException firstError)
         {
-            var repaired = RepairBareStringPropertyValues(text);
+            var repaired = RepairBareStringPropertyValues(RepairMisplacedPropertyColons(text));
             try
             {
                 outline = JsonSerializer.Deserialize<AiScriptOutline>(repaired, new JsonSerializerOptions
@@ -422,6 +423,106 @@ public static class TikTokAiScriptOutlineService
         return text[start..].Trim();
     }
 
+    internal static string RepairMisplacedPropertyColons(string value)
+    {
+        var text = value ?? string.Empty;
+        var output = new StringBuilder(text.Length);
+        var inString = false;
+        var escaped = false;
+        var stringIsKey = false;
+        var state = JsonRepairScanState.ExpectValue;
+        var containers = new Stack<bool>();
+
+        for (var index = 0; index < text.Length; index++)
+        {
+            var ch = text[index];
+            if (inString)
+            {
+                output.Append(ch);
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (ch == '\\')
+                {
+                    escaped = true;
+                }
+                else if (ch == '"')
+                {
+                    inString = false;
+                    state = stringIsKey
+                        ? JsonRepairScanState.ExpectColon
+                        : JsonRepairScanState.ExpectSeparator;
+                }
+                continue;
+            }
+
+            if (char.IsWhiteSpace(ch))
+            {
+                output.Append(ch);
+                continue;
+            }
+
+            switch (ch)
+            {
+                case '"':
+                    inString = true;
+                    stringIsKey = state == JsonRepairScanState.ExpectKey;
+                    output.Append(ch);
+                    break;
+                case '{':
+                    containers.Push(true);
+                    state = JsonRepairScanState.ExpectKey;
+                    output.Append(ch);
+                    break;
+                case '[':
+                    containers.Push(false);
+                    state = JsonRepairScanState.ExpectValue;
+                    output.Append(ch);
+                    break;
+                case '}' or ']':
+                    if (containers.Count > 0)
+                        containers.Pop();
+                    state = JsonRepairScanState.ExpectSeparator;
+                    output.Append(ch);
+                    break;
+                case ',':
+                    var inObject = containers.Count > 0 && containers.Peek();
+                    state = inObject
+                        ? JsonRepairScanState.ExpectKey
+                        : JsonRepairScanState.ExpectValue;
+                    output.Append(ch);
+                    break;
+                case ':':
+                    state = state == JsonRepairScanState.ExpectColon
+                        ? JsonRepairScanState.ExpectValue
+                        : JsonRepairScanState.ExpectSeparator;
+                    output.Append(ch);
+                    break;
+                case '>':
+                    if (state == JsonRepairScanState.ExpectColon)
+                    {
+                        output.Append(':');
+                        state = JsonRepairScanState.ExpectValue;
+                    }
+                    else
+                    {
+                        output.Append(ch);
+                        if (state is JsonRepairScanState.ExpectValue or JsonRepairScanState.ExpectKey)
+                            state = JsonRepairScanState.ExpectSeparator;
+                    }
+                    break;
+                default:
+                    output.Append(ch);
+                    if (state is JsonRepairScanState.ExpectValue or JsonRepairScanState.ExpectKey)
+                        state = JsonRepairScanState.ExpectSeparator;
+                    break;
+            }
+        }
+
+        return output.ToString();
+    }
+
     internal static string RepairBareStringPropertyValues(string value)
     {
         var text = value ?? string.Empty;
@@ -486,6 +587,14 @@ public static class TikTokAiScriptOutlineService
             index = valueEnd - 1;
         }
         return output.ToString();
+    }
+
+    private enum JsonRepairScanState
+    {
+        ExpectValue,
+        ExpectKey,
+        ExpectColon,
+        ExpectSeparator,
     }
 
     private static bool IsValidJsonValueStart(char value) =>
