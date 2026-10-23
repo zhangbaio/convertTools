@@ -127,7 +127,8 @@ public sealed class TikTokRoleRecoveryOptimizationTests
     }
 
     [Theory]
-    [InlineData(4, 5, 3, 2, false, false)]
+    [InlineData(4, 5, 3, 1, false, false)]
+    [InlineData(4, 5, 3, 2, false, true)]
     [InlineData(4, 5, 3, 3, false, true)]
     [InlineData(4, 5, 3, 0, true, true)]
     [InlineData(2, 5, 3, 9, true, false)]
@@ -147,6 +148,36 @@ public sealed class TikTokRoleRecoveryOptimizationTests
                 noGrowthBatches,
                 allEpisodesChecked)
             .Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(1, 1, false)]
+    [InlineData(2, 2, true)]
+    [InlineData(3, 1, false)]
+    [InlineData(4, 0, true)]
+    public void Role_recovery_stops_after_two_failures_or_four_batches(
+        int batchesRun,
+        int noGrowthBatches,
+        bool expected)
+    {
+        TikTokReferenceSourcePackageService.ShouldStopRoleRecovery(batchesRun, noGrowthBatches)
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void Generic_lead_is_not_forced_female_by_synopsis_mentions()
+    {
+        TikTokReferenceSourcePackageService.InferExpectedGender(
+                new TikTokReferenceSourcePackageService.CharacterProfile(
+                    "主角",
+                    "主要短剧角色。剧情参考：妻子把弟弟安排进基地。"))
+            .Should().Be("unknown");
+        TikTokReferenceSourcePackageService.InferExpectedGender(
+                new TikTokReferenceSourcePackageService.CharacterProfile("女主", "成年女性主角"))
+            .Should().Be("female");
+        TikTokReferenceSourcePackageService.InferExpectedGender(
+                new TikTokReferenceSourcePackageService.CharacterProfile("男主", "成年男性主角"))
+            .Should().Be("male");
     }
 
     [Fact]
