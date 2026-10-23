@@ -482,12 +482,17 @@ public static class ClientSettingsStore
         settings.AuthLastUsername = (settings.AuthLastUsername ?? "").Trim();
         settings.AuthLastLoginAt = (settings.AuthLastLoginAt ?? "").Trim();
         settings.ManagementDedupScope = NormalizeManagementDedupScope(settings.ManagementDedupScope);
-        settings.TiktokOverLimitDownloadEpisodeCount = Math.Clamp(
-            settings.TiktokOverLimitDownloadEpisodeCount <= 0
-                ? ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount
-                : settings.TiktokOverLimitDownloadEpisodeCount,
-            1,
-            TikTokAccountProfile.MaxMaximumEpisodeCount);
+        if (settings.TiktokMinimumEpisodeCount <= 0)
+            settings.TiktokMinimumEpisodeCount = ClientSettingsDefaults.TiktokMinimumEpisodeCount;
+        if (settings.TiktokMaximumEpisodeCount <= 0)
+            settings.TiktokMaximumEpisodeCount = settings.TiktokOverLimitDownloadEpisodeCount > 0
+                ? settings.TiktokOverLimitDownloadEpisodeCount
+                : ClientSettingsDefaults.TiktokMaximumEpisodeCount;
+        (settings.TiktokMinimumEpisodeCount, settings.TiktokMaximumEpisodeCount) =
+            TikTokAccountProfile.NormalizeEpisodeCountBounds(
+                settings.TiktokMinimumEpisodeCount,
+                settings.TiktokMaximumEpisodeCount);
+        settings.TiktokOverLimitDownloadEpisodeCount = settings.TiktokMaximumEpisodeCount;
         settings.FeishuCommandAppId = (settings.FeishuCommandAppId ?? "").Trim();
         settings.FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";
         settings.FeishuCommandBotName = (settings.FeishuCommandBotName ?? "").Trim();

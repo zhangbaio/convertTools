@@ -115,6 +115,7 @@ public sealed class UploadTitleImportServiceTests
         var settings = new ClientSettings
         {
             TiktokAllowOverLimitUploadImport = true,
+            TiktokMaximumEpisodeCount = 80,
             TiktokOverLimitDownloadEpisodeCount = 80,
         };
 

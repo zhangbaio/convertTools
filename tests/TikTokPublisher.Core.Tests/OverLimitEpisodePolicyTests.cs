@@ -11,6 +11,7 @@ public sealed class OverLimitEpisodePolicyTests
     private static ClientSettings Settings(bool enabled = true, int keep = 120) => new()
     {
         TiktokAllowOverLimitUploadImport = enabled,
+        TiktokMaximumEpisodeCount = keep,
         TiktokOverLimitDownloadEpisodeCount = keep,
     };
 
@@ -28,12 +29,12 @@ public sealed class OverLimitEpisodePolicyTests
     }
 
     [Fact]
-    public void Download_selection_uses_the_account_maximum_episode_count()
+    public void Download_selection_uses_the_global_maximum_episode_count()
     {
-        var settings = Settings(keep: 120);
-        OverLimitEpisodePolicy.ResolveDownloadSelection("all", 180, settings, accountMaximumEpisodeCount: 150)
+        var settings = Settings(keep: 150);
+        OverLimitEpisodePolicy.ResolveDownloadSelection("all", 180, settings)
             .Should().Be("1-150");
-        OverLimitEpisodePolicy.ResolveKeepCount(settings, 150).Should().Be(150);
+        OverLimitEpisodePolicy.ResolveKeepCount(settings).Should().Be(150);
     }
 
     [Fact]

@@ -226,7 +226,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _managementDedupEnabled;
     [ObservableProperty] private string _managementDedupScope = "tiktok_username";
     [ObservableProperty] private bool _tiktokAllowOverLimitUploadImport = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
-    [ObservableProperty] private int _tiktokOverLimitDownloadEpisodeCount = ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount;
+    [ObservableProperty] private int _tiktokMinimumEpisodeCount = ClientSettingsDefaults.TiktokMinimumEpisodeCount;
+    [ObservableProperty] private int _tiktokMaximumEpisodeCount = ClientSettingsDefaults.TiktokMaximumEpisodeCount;
 
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
@@ -385,7 +386,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
         TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport,
-        TiktokOverLimitDownloadEpisodeCount = TiktokOverLimitDownloadEpisodeCount,
+        TiktokMinimumEpisodeCount = TiktokMinimumEpisodeCount,
+        TiktokMaximumEpisodeCount = TiktokMaximumEpisodeCount,
+        TiktokOverLimitDownloadEpisodeCount = TiktokMaximumEpisodeCount,
     };
 
     [RelayCommand]
@@ -1292,7 +1295,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ManagementDedupEnabled = settings.ManagementDedupEnabled;
         ManagementDedupScope = settings.ManagementDedupScope;
         TiktokAllowOverLimitUploadImport = settings.TiktokAllowOverLimitUploadImport;
-        TiktokOverLimitDownloadEpisodeCount = settings.TiktokOverLimitDownloadEpisodeCount;
+        TiktokMinimumEpisodeCount = settings.TiktokMinimumEpisodeCount;
+        TiktokMaximumEpisodeCount = settings.TiktokMaximumEpisodeCount;
     }
 
     private static void AppendDatabaseStats(List<string> lines, string label, string path)

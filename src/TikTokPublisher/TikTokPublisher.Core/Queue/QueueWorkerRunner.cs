@@ -973,10 +973,11 @@ public sealed class QueueWorkerRunner
         {
             try
             {
+                var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load());
                 TikTokMaterialValidationService.EnsureEpisodeCountBounds(
                     item.ProjectDir,
-                    account.TiktokMinimumEpisodeCount,
-                    account.TiktokMaximumEpisodeCount);
+                    episodeBounds.Minimum,
+                    episodeBounds.Maximum);
             }
             catch (InvalidOperationException ex)
             {
@@ -1787,9 +1788,7 @@ public sealed class QueueWorkerRunner
                 validationSettings,
                 options,
                 allowMissingUploadVideos: item.IsUploadCompleted);
-            var episodeBounds = TikTokAccountProfile.NormalizeEpisodeCountBounds(
-                account?.TiktokMinimumEpisodeCount ?? 0,
-                account?.TiktokMaximumEpisodeCount ?? 0);
+            var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(validationSettings);
             if (!TikTokMaterialValidationService.HasCurrentValidationState(
                     item.ProjectDir,
                     episodeBounds.Minimum,
