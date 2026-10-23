@@ -53,7 +53,8 @@ public static partial class TikTokReferenceSourcePackageService
     private const int MaxVisionDiscoveryCandidates = 96;
     private const int VisionMergeCandidateLimit = 16;
     private const int VisionTimeoutRetryCandidateLimit = 12;
-    internal const int RoleRecoveryNoGrowthBatchLimit = 3;
+    internal const int RoleRecoveryNoGrowthBatchLimit = 2;
+    internal const int RoleRecoveryMaxBatches = 4;
     internal const int RoleRecoveryEpisodeBatchSize = 3;
     internal const int RoleRecoveryModelFramesPerEpisode = 6;
     internal const string LocalRoleReferenceSelectionMode = "local";
@@ -1296,13 +1297,16 @@ public static partial class TikTokReferenceSourcePackageService
         var selectionMode = ResolveRoleReferenceSelectionMode(settings);
         var useAiFullReview = selectionMode == AiFullReviewRoleReferenceSelectionMode;
         var consecutiveNoGrowthBatches = 0;
+        var batchesRun = 0;
+        string? lastFailure = null;
+        var reviewedEpisodes = new List<int>();
         log?.Invoke(
             $"角色补源：筛选模式={DescribeRoleReferenceSelectionMode(selectionMode)}；" +
             $"目标 {profiles.Count} 人，最低 {minimumCharacterCount} 人，当前匹配 {best.Length} 人；" +
             $"将从第 {episodes[0]} 集开始按每批 {RoleRecoveryEpisodeBatchSize} 集并行下载、抽帧，" +
-            "达到配置人数后立即停止后续批次。");
+            $"最多 {RoleRecoveryMaxBatches} 批；同一失败连续 {RoleRecoveryNoGrowthBatchLimit} 批即停止。");
         var batches = ResolveRoleReferenceRecoveryBatches(episodes);
-        for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
+        for (var batchIndex = 0; batchIndex < batches.Count && batchesRun < RoleRecoveryMaxBatches; batchIndex++)
         {
             ct.ThrowIfCancellationRequested();
             var batch = batches[batchIndex];
@@ -1371,9 +1375,23 @@ public static partial class TikTokReferenceSourcePackageService
             if (modelCandidates.Count == 0)
             {
                 progressTracker?.MarkVisionBatch(batch, best);
+                batchesRun++;
+                reviewedEpisodes.AddRange(batch);
+                consecutiveNoGrowthBatches++;
                 log?.Invoke(
                     $"角色补源批次 {batchIndex + 1}/{batches.Count}：没有取得有效候选帧，" +
-                    $"耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒，继续下一批。");
+                    $"耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒。");
+                var stopped = StopRoleRecovery(
+                    batchesRun,
+                    consecutiveNoGrowthBatches,
+                    best,
+                    minimumCharacterCount,
+                    profiles.Count,
+                    reviewedEpisodes,
+                    "没有取得有效候选帧。",
+                    log);
+                if (stopped is not null)
+                    return stopped;
                 continue;
             }
 
@@ -1427,22 +1445,21 @@ public static partial class TikTokReferenceSourcePackageService
                 catch (InvalidOperationException fallbackEx)
                 {
                     progressTracker?.MarkVisionBatch(batch, best);
-                    if (best.Length >= minimumCharacterCount)
-                    {
-                        consecutiveNoGrowthBatches++;
-                        if (ShouldUseMinimumRoleFallback(
-                                best.Length,
-                                profiles.Count,
-                                minimumCharacterCount,
-                                consecutiveNoGrowthBatches,
-                                allEpisodesChecked: false))
-                        {
-                            log?.Invoke(
-                                $"角色补源：连续 {consecutiveNoGrowthBatches} 个批次没有新增人物，" +
-                                $"已满足最低 {minimumCharacterCount} 人，按实际 {best.Length} 人兜底完成。");
-                            return best;
-                        }
-                    }
+                    batchesRun++;
+                    reviewedEpisodes.AddRange(batch);
+                    consecutiveNoGrowthBatches++;
+                    lastFailure = fallbackEx.Message;
+                    var stopped = StopRoleRecovery(
+                        batchesRun,
+                        consecutiveNoGrowthBatches,
+                        best,
+                        minimumCharacterCount,
+                        profiles.Count,
+                        reviewedEpisodes,
+                        fallbackEx.Message,
+                        log);
+                    if (stopped is not null)
+                        return stopped;
                     log?.Invoke(
                         $"角色补源批次 {batchIndex + 1}/{batches.Count}：回退本地链路后仍未匹配到足够人物；" +
                         $"批次总耗时 {batchTimer.Elapsed.TotalSeconds:F1} 秒。{fallbackEx.Message}");
@@ -1452,22 +1469,21 @@ public static partial class TikTokReferenceSourcePackageService
             catch (InvalidOperationException ex)
             {
                 progressTracker?.MarkVisionBatch(batch, best);
-                if (best.Length >= minimumCharacterCount)
-                {
-                    consecutiveNoGrowthBatches++;
-                    if (ShouldUseMinimumRoleFallback(
-                            best.Length,
-                            profiles.Count,
-                            minimumCharacterCount,
-                            consecutiveNoGrowthBatches,
-                            allEpisodesChecked: false))
-                    {
-                        log?.Invoke(
-                            $"角色补源：连续 {consecutiveNoGrowthBatches} 个批次没有新增人物，" +
-                            $"已满足最低 {minimumCharacterCount} 人，按实际 {best.Length} 人兜底完成。");
-                        return best;
-                    }
-                }
+                batchesRun++;
+                reviewedEpisodes.AddRange(batch);
+                consecutiveNoGrowthBatches++;
+                lastFailure = ex.Message;
+                var stopped = StopRoleRecovery(
+                    batchesRun,
+                    consecutiveNoGrowthBatches,
+                    best,
+                    minimumCharacterCount,
+                    profiles.Count,
+                    reviewedEpisodes,
+                    ex.Message,
+                    log);
+                if (stopped is not null)
+                    return stopped;
                 log?.Invoke(
                     $"角色补源批次 {batchIndex + 1}/{batches.Count}：第 {FormatEpisodeRange(batch)} 集" +
                     $"仍未匹配到足够人物；视觉审核 {visionTimer.Elapsed.TotalSeconds:F1} 秒，" +
@@ -1477,9 +1493,13 @@ public static partial class TikTokReferenceSourcePackageService
             var previousBestLength = best.Length;
             if (selected.Length >= best.Length) best = selected;
             progressTracker?.MarkVisionBatch(batch, best);
+            batchesRun++;
+            reviewedEpisodes.AddRange(batch);
             consecutiveNoGrowthBatches = best.Length > previousBestLength
                 ? 0
                 : consecutiveNoGrowthBatches + 1;
+            if (best.Length > previousBestLength)
+                lastFailure = null;
             log?.Invoke(
                 $"角色补源批次 {batchIndex + 1}/{batches.Count} 完成：第 {FormatEpisodeRange(batch)} 集" +
                 $"共抽取 {extracted.Sum(result => result.Frames.Count)} 张，预筛后送审 {modelCandidates.Count} 张；" +
@@ -1492,19 +1512,17 @@ public static partial class TikTokReferenceSourcePackageService
                     $"{profiles.Count} 人，停止后续批次下载。");
                 return best;
             }
-            if (ShouldUseMinimumRoleFallback(
-                    best.Length,
-                    profiles.Count,
-                    minimumCharacterCount,
-                    consecutiveNoGrowthBatches,
-                    allEpisodesChecked: false))
-            {
-                log?.Invoke(
-                    $"角色补源：连续 {consecutiveNoGrowthBatches} 个批次没有新增人物，" +
-                    $"目标 {profiles.Count} 人未达成，但已满足最低 {minimumCharacterCount} 人，" +
-                    $"按实际 {best.Length} 人兜底完成。");
-                return best;
-            }
+            var stalled = StopRoleRecovery(
+                batchesRun,
+                consecutiveNoGrowthBatches,
+                best,
+                minimumCharacterCount,
+                profiles.Count,
+                reviewedEpisodes,
+                lastFailure ?? "连续没有新增人物。",
+                log);
+            if (stalled is not null)
+                return stalled;
         }
 
         if (ShouldUseMinimumRoleFallback(
@@ -1559,6 +1577,35 @@ public static partial class TikTokReferenceSourcePackageService
         return actualCount >= minimumCharacterCount &&
                actualCount < configuredCharacterCount &&
                (allEpisodesChecked || consecutiveNoGrowthBatches >= RoleRecoveryNoGrowthBatchLimit);
+    }
+
+    internal static bool ShouldStopRoleRecovery(int batchesRun, int consecutiveNoGrowthBatches) =>
+        batchesRun >= RoleRecoveryMaxBatches ||
+        consecutiveNoGrowthBatches >= RoleRecoveryNoGrowthBatchLimit;
+
+    private static string[]? StopRoleRecovery(
+        int batchesRun,
+        int consecutiveNoGrowthBatches,
+        string[] best,
+        int minimumCharacterCount,
+        int configuredCharacterCount,
+        IReadOnlyList<int> checkedEpisodes,
+        string reason,
+        Action<string>? log)
+    {
+        if (!ShouldStopRoleRecovery(batchesRun, consecutiveNoGrowthBatches))
+            return null;
+        var range = FormatEpisodeRange(checkedEpisodes);
+        if (best.Length >= minimumCharacterCount)
+        {
+            log?.Invoke(
+                $"角色补源：已检查第 {range} 集，匹配 {best.Length}/{configuredCharacterCount} 人，停止继续补源。{reason}");
+            return best;
+        }
+
+        throw new InvalidOperationException(
+            $"角色补源已检查第 {range} 集，匹配 {best.Length} 人，" +
+            $"未达到最低 {minimumCharacterCount} 人，停止继续补源。{reason}");
     }
 
     internal static IReadOnlyList<int[]> ResolveRoleReferenceRecoveryBatches(
@@ -2259,17 +2306,30 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
 
     internal static string InferExpectedGender(CharacterProfile profile)
     {
-        // Numbered lead names are generated placeholders rather than reliable cast
-        // metadata. Do not reject every real candidate merely because a placeholder
-        // happens to contain 男/女; identity and clear-face checks remain mandatory.
-        if (Regex.IsMatch(profile.Name, @"^[男女]主角\d+$", RegexOptions.CultureInvariant))
+        // 主角、主角1 这类占位名不代表性别。男主、女主仍按角色名判断。
+        if (profile.Name is "主角" || Regex.IsMatch(profile.Name, @"^主角\d+$", RegexOptions.CultureInvariant))
             return "unknown";
-        var text = profile.Name + " " + profile.Description;
+        if (Regex.IsMatch(profile.Name, @"^[男女]主角\d*$", RegexOptions.CultureInvariant))
+            return "unknown";
+        var description = StripAppendedPlotSynopsis(profile.Description);
+        var text = profile.Name + " " + description;
         if (Regex.IsMatch(text, "男主|男性|男人|男子|父亲|爸爸|爷爷|老爷|少爷|皇帝|王爷|公子|丈夫|老公"))
             return "male";
         if (Regex.IsMatch(text, "女主|女性|女人|女子|母亲|妈妈|奶奶|夫人|小姐|皇后|妃子|妻子|老婆"))
             return "female";
         return "unknown";
+    }
+
+    private static string StripAppendedPlotSynopsis(string? description)
+    {
+        var text = description ?? string.Empty;
+        foreach (var marker in new[] { "剧情参考：", "根据剧情简介塑造：", "必须符合以下剧情：" })
+        {
+            var index = text.IndexOf(marker, StringComparison.Ordinal);
+            if (index >= 0)
+                text = text[..index];
+        }
+        return text;
     }
 
     private static string NormalizeGender(string? value) => (value ?? string.Empty).Trim().ToLowerInvariant() switch
