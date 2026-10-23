@@ -299,6 +299,36 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Client_settings_store_replaces_retired_ai_text_model_and_keeps_custom_models()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-model-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                AiTextModel = ClientSettingsDefaults.RetiredAiTextModel,
+            }, databasePath);
+            ClientSettingsStore.Load(databasePath).AiTextModel.Should().Be(ClientSettingsDefaults.AiTextModel);
+
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                AiTextModel = "custom-model",
+            }, databasePath);
+            ClientSettingsStore.Load(databasePath).AiTextModel.Should().Be("custom-model");
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void Client_settings_store_migrates_removed_poster_mode_and_normalizes_frame_extract_values()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-video-frame-{Guid.NewGuid():N}.db");

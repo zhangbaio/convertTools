@@ -455,13 +455,13 @@
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="接口地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" IsReadOnly="True" />
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding AiTextApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型名称" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" IsReadOnly="True" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="请求超时" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding AiTextTimeoutSeconds}" Minimum="10" Maximum="600" Width="120" HorizontalAlignment="Left" />
