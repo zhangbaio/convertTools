@@ -176,6 +176,7 @@ public sealed class LocalManualDramaImportServiceTests
             var settings = new ClientSettings
             {
                 TiktokAllowOverLimitUploadImport = true,
+                TiktokMaximumEpisodeCount = 2,
                 TiktokOverLimitDownloadEpisodeCount = 2,
             };
 

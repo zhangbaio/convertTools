@@ -160,6 +160,8 @@ public sealed class ClientSettings
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
     public bool TiktokAllowOverLimitUploadImport { get; set; } = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
+    public int TiktokMinimumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMinimumEpisodeCount;
+    public int TiktokMaximumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMaximumEpisodeCount;
     public int TiktokOverLimitDownloadEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount;
     public bool FeishuCommandEnabled { get; set; }
     public string FeishuCommandAppId { get; set; } = "";
@@ -332,6 +334,8 @@ public sealed class ClientSettings
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
         TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport,
+        TiktokMinimumEpisodeCount = TiktokMinimumEpisodeCount,
+        TiktokMaximumEpisodeCount = TiktokMaximumEpisodeCount,
         TiktokOverLimitDownloadEpisodeCount = TiktokOverLimitDownloadEpisodeCount,
         FeishuCommandEnabled = FeishuCommandEnabled,
         FeishuCommandAppId = FeishuCommandAppId,

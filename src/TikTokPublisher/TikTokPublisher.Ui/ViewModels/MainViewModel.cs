@@ -3853,13 +3853,11 @@ public sealed partial class MainViewModel : ViewModelBase
         LocalManualDramaImportResult result;
         try
         {
-            var accountMaximum = SelectedAccount?.Model.TiktokMaximumEpisodeCount;
             result = await Task.Run(() => LocalManualDramaImportService.Import(
                     root,
                     sourceProjectDir,
                     AppendLog,
-                    ClientSettingsStore.Load(),
-                    accountMaximum))
+                    ClientSettingsStore.Load()))
                 .ConfigureAwait(true);
         }
         catch (Exception ex)
@@ -3997,13 +3995,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
             try
             {
-                var accountMaximum = SelectedAccount?.Model.TiktokMaximumEpisodeCount;
                 var result = await Task.Run(() => LocalManualDramaImportService.Import(
                         root,
                         sourceProjectDir,
                         AppendLog,
-                        overLimitSettings,
-                        accountMaximum))
+                        overLimitSettings))
                     .ConfigureAwait(true);
                 results.Add(result);
                 AppendLog($"已导入本地剧集：{result.DisplayName}（{result.EpisodeCount} 集）");

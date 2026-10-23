@@ -52,7 +52,9 @@ public static class ClientSettingsDefaults
     public const string FrameExtractFallbackPercents = "10,25,50,75";
     public const bool TiktokAccountAnalyticsEnabled = false;
     public const bool TiktokAllowOverLimitUploadImport = true;
-    public const int TiktokOverLimitDownloadEpisodeCount = 120;
+    public const int TiktokMinimumEpisodeCount = 30;
+    public const int TiktokMaximumEpisodeCount = 120;
+    public const int TiktokOverLimitDownloadEpisodeCount = TiktokMaximumEpisodeCount;
     public const string TiktokProjectImageGenerationMode = "image_template";
     public const string TiktokProjectImageTemplateId = "image-template-project-image-3";
     public const string TiktokProjectImageTemplateName = "图片模板工程图3";

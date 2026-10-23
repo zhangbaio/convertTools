@@ -1284,7 +1284,7 @@ public partial class TikTokQueueView : UserControl
         return await dialog.ShowDialog<AccountItemViewModel?>(owner);
     }
 
-    private static async Task<UploadTitlesDialogResult?> ShowUploadTitlesDialogAsync(Window owner, int? accountMaximumEpisodeCount = null)
+    private static async Task<UploadTitlesDialogResult?> ShowUploadTitlesDialogAsync(Window owner)
     {
         var dialog = new Window
         {
@@ -1328,10 +1328,10 @@ public partial class TikTokQueueView : UserControl
             dialog.Close(new UploadTitlesDialogResult(titleBox.Text ?? "", mode));
         }, primary: true);
         var settings = ClientSettingsStore.Load();
-        var keepCount = OverLimitEpisodePolicy.ResolveKeepCount(settings, accountMaximumEpisodeCount);
+        var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
         var episodeLimitText = settings.TiktokAllowOverLimitUploadImport
-            ? $"当前导入集数限制：最小 {UploadTitleImportService.DefaultEpisodeMin} 集。超过设定的 {keepCount} 集仍会加入队列，下载和本地导入都只使用前 {keepCount} 集。"
-            : $"当前导入集数限制：最小 {UploadTitleImportService.DefaultEpisodeMin} 集，最大 {UploadTitleImportService.DefaultEpisodeMax} 集。超出范围的短剧会自动过滤，不加入队列。";
+            ? $"当前导入集数限制：最小 {episodeBounds.Minimum} 集。超过设定的 {episodeBounds.Maximum} 集仍会加入队列，下载和本地导入都只使用前 {episodeBounds.Maximum} 集。"
+            : $"当前导入集数限制：最小 {episodeBounds.Minimum} 集，最大 {episodeBounds.Maximum} 集。超出范围的短剧会自动过滤，不加入队列。";
 
         dialog.Content = new StackPanel
         {
@@ -2029,7 +2029,7 @@ public partial class TikTokQueueView : UserControl
         var importGeneration = BeginUploadTitleImport(importTarget.WorkspaceRoot);
         try
         {
-            var request = await ShowUploadTitlesDialogAsync(owner, vm.SelectedAccount?.Model.TiktokMaximumEpisodeCount);
+            var request = await ShowUploadTitlesDialogAsync(owner);
             if (request is null) return;
             if (string.IsNullOrWhiteSpace(request.RawText))
             {

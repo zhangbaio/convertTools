@@ -25,9 +25,8 @@ public static class TikTokMaterialValidationService
             QueueRunOptions? runOptions = null,
             bool allowMissingUploadVideos = false)
         {
-            var (minimum, maximum) = TikTokAccountProfile.NormalizeEpisodeCountBounds(
-                account?.TiktokMinimumEpisodeCount ?? 0,
-                account?.TiktokMaximumEpisodeCount ?? 0);
+            var (minimum, maximum) = OverLimitEpisodePolicy.ResolveEpisodeBounds(
+                settings ?? ClientSettingsStore.Load());
             return new Options
             {
                 Concurrency = Math.Clamp(settings?.TiktokMaterialValidateConcurrency ?? 4, 1, 16),
@@ -52,11 +51,11 @@ public static class TikTokMaterialValidationService
         return ProjectVideoResolver.ResolveStagedUploadVideos(sourceProjectDir).Count;
     }
 
-    public static string BuildMinimumEpisodeRejection(int actualCount, int minimumEpisodeCount) =>
-        $"实际视频 {actualCount} 集，低于发布配置的最小集数 {minimumEpisodeCount}，已拒绝上传";
+        public static string BuildMinimumEpisodeRejection(int actualCount, int minimumEpisodeCount) =>
+        $"实际视频 {actualCount} 集，低于系统设置的最小集数 {minimumEpisodeCount}，已拒绝上传";
 
     public static string BuildMaximumEpisodeRejection(int actualCount, int maximumEpisodeCount) =>
-        $"实际视频 {actualCount} 集，高于发布配置的最大集数 {maximumEpisodeCount}，已拒绝上传";
+        $"实际视频 {actualCount} 集，高于系统设置的最大集数 {maximumEpisodeCount}，已拒绝上传";
 
     public static void EnsureEpisodeCountBounds(
         string sourceProjectDir,

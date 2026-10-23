@@ -77,8 +77,7 @@ public static class QueueMaterialStepService
                 context.SourceProjectDir,
                 originalEpisodeCount,
                 settings,
-                log,
-                OverLimitEpisodePolicy.TryReadAccountMaximumEpisodeCount(item.AccountProfileId));
+                log);
 
         var request = BuildDownloadRequest(
             context,
@@ -974,9 +973,8 @@ public static class QueueMaterialStepService
             $"检测到数据链路切换：{DramaSourceLabel(metadataSource)} → {selectedLabel}；" +
             $"正在按原剧名《{lookupTitle}》重新匹配 book_id。");
         var expectedEpisodes = ResolveRematchEpisodeTotal(sourceProjectDir, item);
-        var accountMaximum = OverLimitEpisodePolicy.TryReadAccountMaximumEpisodeCount(item.AccountProfileId);
         var keep = settings.TiktokAllowOverLimitUploadImport
-            ? OverLimitEpisodePolicy.ResolveKeepCount(settings, accountMaximum)
+            ? OverLimitEpisodePolicy.ResolveKeepCount(settings)
             : 0;
         var truncatedKeep = expectedEpisodes == item.EpisodeCount && keep > 0 && item.EpisodeCount == keep
             ? keep
@@ -1041,12 +1039,11 @@ public static class QueueMaterialStepService
         if (!settings.TiktokAllowOverLimitUploadImport || item.EpisodeCount <= 0)
             return selection;
 
-        var accountMaximum = OverLimitEpisodePolicy.TryReadAccountMaximumEpisodeCount(item.AccountProfileId);
-        var keep = OverLimitEpisodePolicy.ResolveKeepCount(settings, accountMaximum);
+        var keep = OverLimitEpisodePolicy.ResolveKeepCount(settings);
         if (OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(projectDir, out var storedOriginal) &&
             OverLimitEpisodePolicy.TryReadKeepCount(projectDir, out var storedKeep) &&
             storedKeep != keep)
-            return OverLimitEpisodePolicy.ResolveDownloadSelection("all", storedOriginal, settings, accountMaximum);
+            return OverLimitEpisodePolicy.ResolveDownloadSelection("all", storedOriginal, settings);
 
         var truncated = item.EpisodeCount == keep &&
                         (item.SourceEpisodeCount > item.EpisodeCount ||
@@ -1056,7 +1053,7 @@ public static class QueueMaterialStepService
         if (!truncated)
             return selection;
 
-        return OverLimitEpisodePolicy.ResolveDownloadSelection(selection, keep + 1, settings, accountMaximum);
+        return OverLimitEpisodePolicy.ResolveDownloadSelection(selection, keep + 1, settings);
     }
 
     internal static bool ShouldKeepRetiredBookId(string? selectedSource, string? bookId)

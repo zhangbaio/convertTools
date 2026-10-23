@@ -175,10 +175,8 @@ public static class UploadTitleImportService
                     }
                 }
 
-                var configuredMaximum = account?.TiktokMaximumEpisodeCount > 0
-                    ? account.TiktokMaximumEpisodeCount
-                    : episodeMax;
-                var episodeError = ResolveEpisodeLimitError(matched, settings, episodeMin, configuredMaximum);
+                var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
+                var episodeError = ResolveEpisodeLimitError(matched, settings, episodeBounds.Minimum, episodeBounds.Maximum);
                 if (!string.IsNullOrWhiteSpace(episodeError))
                 {
                     result.Failures.Add(new UploadTitleImportFailure(label, episodeError));
@@ -186,7 +184,7 @@ public static class UploadTitleImportService
                     continue;
                 }
 
-                var downloadPlan = ResolveDownloadPlan(matched, settings, configuredMaximum, account?.TiktokMaximumEpisodeCount);
+                var downloadPlan = ResolveDownloadPlan(matched, settings);
                 var projectDir = await ShortDramaDramaServices.BootstrapAsync(
                     workspace,
                     matched,
@@ -356,14 +354,13 @@ public static class UploadTitleImportService
     public static UploadTitleImportDownloadPlan ResolveDownloadPlan(
         DramaSearchItem item,
         ClientSettings settings,
-        int episodeMax = DefaultEpisodeMax,
-        int? accountMaximumEpisodeCount = null)
+        int episodeMax = DefaultEpisodeMax)
     {
         _ = episodeMax;
-        if (!OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings, accountMaximumEpisodeCount))
+        if (!OverLimitEpisodePolicy.ShouldTruncate(item.EpisodeTotal, settings))
             return new UploadTitleImportDownloadPlan("all", Math.Max(1, item.EpisodeTotal), Truncated: false);
 
-        var limit = OverLimitEpisodePolicy.ResolveKeepCount(settings, accountMaximumEpisodeCount);
+        var limit = OverLimitEpisodePolicy.ResolveKeepCount(settings);
         return new UploadTitleImportDownloadPlan($"1-{limit}", limit, Truncated: true);
     }
 
