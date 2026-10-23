@@ -14,15 +14,23 @@
         </Style>
 
         <Style Selector="Border.accountActionBar">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#E5E7EB" />
+            <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
             <Setter Property="BorderThickness" Value="1,1,1,0" />
             <Setter Property="CornerRadius" Value="8,8,0,0" />
             <Setter Property="Padding" Value="14,10" />
         </Style>
 
+        <Style Selector="TabControl.accountTabs TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource PythonTextBrush}" />
+        </Style>
+
+        <Style Selector="TabControl.accountTabs TextBlock.pageSummary">
+            <Setter Property="Foreground" Value="{StaticResource PythonMutedBrush}" />
+        </Style>
+
         <Style Selector="Grid.profileForm TextBlock.formLabel">
-            <Setter Property="Foreground" Value="#1F2937" />
+            <Setter Property="Foreground" Value="{StaticResource PythonTextBrush}" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
@@ -48,7 +56,7 @@
         <Style Selector="TabControl.accountTabs TabItem">
             <Setter Property="FontSize" Value="18" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="#6B7280" />
+            <Setter Property="Foreground" Value="{StaticResource PythonMutedBrush}" />
             <Setter Property="Padding" Value="0,0,0,6" />
             <Setter Property="Margin" Value="0,0,22,8" />
         </Style>
@@ -149,7 +157,7 @@
                         <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="IP 检测" VerticalAlignment="Top" Margin="0,6,0,0" />
                         <StackPanel Grid.Row="10" Grid.Column="1" Orientation="Vertical" Spacing="6">
                             <Button x:Name="TestProxyButton" Content="测试IP" Click="OnTestProxyClick" HorizontalAlignment="Left" />
-                            <TextBlock x:Name="ProxyTestResultText" TextWrapping="Wrap" Foreground="#666" Text="点击「测试IP」检测当前代理的实际出口 IP 与归属地。" />
+                            <TextBlock x:Name="ProxyTestResultText" TextWrapping="Wrap" Classes="pageSummary" Text="点击「测试IP」检测当前代理的实际出口 IP 与归属地。" />
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>
@@ -437,7 +445,7 @@
                         <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="归档视频文件" VerticalAlignment="Center" />
                         <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <CheckBox x:Name="DeleteVideosOnArchiveBox" Content="归档时删除视频文件" />
-                            <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Foreground="#6B7280" VerticalAlignment="Center" />
+                            <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Classes="pageSummary" VerticalAlignment="Center" />
                         </StackPanel>
 
                     </Grid>
