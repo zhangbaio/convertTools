@@ -63,4 +63,14 @@ public sealed class TikTokPublishedSeriesVideoDownloadServiceTests
 
         episodes.Should().Equal(1, 2, 3);
     }
+
+    [Fact]
+    public void Download_tooltip_blocker_keeps_the_wrapped_action_button_visible()
+    {
+        var script = TikTokPublishedSeriesVideoDownloadService.DownloadTooltipBlockerScript;
+
+        script.Should().NotContain(".Tooltip__root{display:none");
+        script.Should().Contain("node.querySelector('button, [role=\"button\"]')");
+        script.Should().Contain("hide(node)");
+    }
 }

@@ -29,6 +29,47 @@ internal sealed record TikTokWebVideoBrowserLaunchPlan(
 public static class TikTokPublishedSeriesVideoDownloadService
 {
     internal const bool DefaultHeadless = true;
+
+    /// <summary>
+    /// 只隐藏会挡住点击的提示浮层。下载按钮本身包在 <c>.Tooltip__root</c> 里，
+    /// 不能把这个根节点设成 <c>display:none</c>。
+    /// </summary>
+    internal const string DownloadTooltipBlockerScript =
+        """
+        () => {
+          const styleId = 'tiktok-download-tooltip-blocker';
+          const popupSelector = '[role="tooltip"], .Tooltip__content, .Tooltip__popup, .Tooltip__overlay';
+          if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = popupSelector + '{display:none!important;pointer-events:none!important;}';
+            document.head.appendChild(style);
+          }
+          const hide = node => {
+            node.style.pointerEvents = 'none';
+            node.style.display = 'none';
+          };
+          for (const node of document.querySelectorAll('.Tooltip__root')) {
+            const containsButton = !!node.querySelector('button, [role="button"]');
+            const popups = [];
+            if (!containsButton && node.matches(popupSelector)) popups.push(node);
+            popups.push(...node.querySelectorAll(popupSelector));
+            for (const popup of popups) {
+              if (popup.querySelector('button, [role="button"]')) continue;
+              hide(popup);
+            }
+            if (containsButton) {
+              for (const child of node.querySelectorAll(':scope > *')) {
+                if (child.matches('button, [role="button"]') || child.querySelector('button, [role="button"]'))
+                  continue;
+                child.style.pointerEvents = 'none';
+              }
+              continue;
+            }
+            hide(node);
+          }
+        }
+        """;
     private const int DownloadAttempts = 3;
     private const long MinimumVideoBytes = 64 * 1024;
     private static readonly TimeSpan EpisodeLookupTimeout = TimeSpan.FromSeconds(35);
@@ -420,23 +461,18 @@ public static class TikTokPublishedSeriesVideoDownloadService
 
     private static async Task ClickDownloadButtonAsync(IPage page, ILocator button)
     {
-        await page.EvaluateAsync(
-                """
-                () => {
-                  const styleId = 'tiktok-download-tooltip-blocker';
-                  if (!document.getElementById(styleId)) {
-                    const style = document.createElement('style');
-                    style.id = styleId;
-                    style.textContent = '.Tooltip__root{display:none!important;pointer-events:none!important;}';
-                    document.head.appendChild(style);
-                  }
-                  for (const node of document.querySelectorAll('.Tooltip__root')) {
-                    node.style.pointerEvents = 'none';
-                    node.style.display = 'none';
-                  }
-                }
-                """)
-            .ConfigureAwait(false);
+        await page.EvaluateAsync(DownloadTooltipBlockerScript).ConfigureAwait(false);
+        try
+        {
+            await button.ScrollIntoViewIfNeededAsync(
+                    new LocatorScrollIntoViewIfNeededOptions { Timeout = 5000 })
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            // 按钮暂时不在视口内时，后续点击仍会滚动。
+        }
+
         await button.ClickAsync(new LocatorClickOptions { Timeout = 15000 }).ConfigureAwait(false);
     }
 
