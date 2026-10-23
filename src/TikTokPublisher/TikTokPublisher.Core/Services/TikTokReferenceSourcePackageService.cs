@@ -1702,41 +1702,49 @@ public static partial class TikTokReferenceSourcePackageService
             : selectionMode == LocalRoleReferenceSelectionMode
                 ? VisionIdentityBatchSize
                 : ResolveVisionCandidateMaximum(profiles.Count);
-        var (candidates, analyses) = await AnalyzeRoleCandidatePoolAsync(
-            profiles,
-            reviewSources,
-            settings,
-            maximum,
-            log,
-            ct).ConfigureAwait(false);
-        IReadOnlyList<int>? selectedIndices = null;
-        var matchedProfileCount = profiles.Count;
-        InvalidOperationException? lastMatchError = null;
-        while (matchedProfileCount >= MinCharacterCount)
+        try
         {
-            try
+            var (candidates, analyses) = await AnalyzeRoleCandidatePoolAsync(
+                profiles,
+                reviewSources,
+                settings,
+                maximum,
+                log,
+                ct).ConfigureAwait(false);
+            IReadOnlyList<int>? selectedIndices = null;
+            var matchedProfileCount = profiles.Count;
+            InvalidOperationException? lastMatchError = null;
+            while (matchedProfileCount >= MinCharacterCount)
             {
-                selectedIndices = AssignRoleReferenceCandidates(
-                    profiles.Take(matchedProfileCount).ToArray(), analyses);
-                break;
+                try
+                {
+                    selectedIndices = AssignRoleReferenceCandidates(
+                        profiles.Take(matchedProfileCount).ToArray(), analyses);
+                    break;
+                }
+                catch (InvalidOperationException ex)
+                {
+                    lastMatchError = ex;
+                    matchedProfileCount--;
+                }
             }
-            catch (InvalidOperationException ex)
-            {
-                lastMatchError = ex;
-                matchedProfileCount--;
-            }
-        }
-        if (selectedIndices is null)
-            throw lastMatchError ?? new InvalidOperationException("未找到足够的清晰角色参考帧。");
-        var selected = selectedIndices.Select(index => candidates[index - 1]).ToArray();
-        log?.Invoke(
-            "角色参考图匹配完成：" + string.Join("；", profiles.Take(matchedProfileCount).Select((profile, index) =>
-                $"{profile.Name}={Path.GetFileName(selected[index])}")));
-        if (matchedProfileCount < profiles.Count)
+            if (selectedIndices is null)
+                throw lastMatchError ?? new InvalidOperationException("未找到足够的清晰角色参考帧。");
+            var selected = selectedIndices.Select(index => candidates[index - 1]).ToArray();
             log?.Invoke(
-                $"角色参考图：账号配置 {profiles.Count} 人，真实画面只匹配到 {matchedProfileCount} 个不同人物；" +
-                $"其余 {profiles.Count - matchedProfileCount} 人尚未匹配，将继续检查补充剧集。");
-        return selected;
+                "角色参考图匹配完成：" + string.Join("；", profiles.Take(matchedProfileCount).Select((profile, index) =>
+                    $"{profile.Name}={Path.GetFileName(selected[index])}")));
+            if (matchedProfileCount < profiles.Count)
+                log?.Invoke(
+                    $"角色参考图：账号配置 {profiles.Count} 人，真实画面只匹配到 {matchedProfileCount} 个不同人物；" +
+                    $"其余 {profiles.Count - matchedProfileCount} 人尚未匹配，将继续检查补充剧集。");
+            return selected;
+        }
+        catch (Exception ex) when (IsRoleMatchJsonFailure(ex))
+        {
+            log?.Invoke($"角色参考图：视觉匹配 JSON 无效，沿用本地预筛结果：{ex.Message}");
+            return orderedSources.Take(profiles.Count).ToArray();
+        }
     }
 
     internal static string[] SelectVisionCandidatePaths(IReadOnlyList<string> orderedSources, int maximum)
@@ -1783,7 +1791,7 @@ public static partial class TikTokReferenceSourcePackageService
             try
             {
                 analyses = await AnalyzeReferenceCandidatesAsync(
-                    profiles, candidates, settings, ct).ConfigureAwait(false);
+                    profiles, candidates, settings, ct, log).ConfigureAwait(false);
             }
             catch (TimeoutException) when (candidates.Length > VisionTimeoutRetryCandidateLimit)
             {
@@ -1792,7 +1800,7 @@ public static partial class TikTokReferenceSourcePackageService
                     $"角色参考图：{orderedSources.Count} 张候选审核超时，自动缩减为 " +
                     $"{candidates.Length} 张代表图重试。");
                 analyses = await AnalyzeReferenceCandidatesAsync(
-                    profiles, candidates, settings, ct).ConfigureAwait(false);
+                    profiles, candidates, settings, ct, log).ConfigureAwait(false);
             }
             return (candidates, analyses);
         }
@@ -1854,7 +1862,7 @@ public static partial class TikTokReferenceSourcePackageService
         try
         {
             finalAnalyses = await AnalyzeReferenceCandidatesAsync(
-                profiles, finalCandidates, settings, ct).ConfigureAwait(false);
+                profiles, finalCandidates, settings, ct, log).ConfigureAwait(false);
         }
         catch (TimeoutException) when (finalCandidates.Length > VisionTimeoutRetryCandidateLimit)
         {
@@ -1864,7 +1872,7 @@ public static partial class TikTokReferenceSourcePackageService
             log?.Invoke(
                 $"角色参考图：跨批次身份合并超时，自动缩减为 {finalCandidates.Length} 张代表图重试。");
             finalAnalyses = await AnalyzeReferenceCandidatesAsync(
-                profiles, finalCandidates, settings, ct).ConfigureAwait(false);
+                profiles, finalCandidates, settings, ct, log).ConfigureAwait(false);
         }
         return (finalCandidates, finalAnalyses);
     }
@@ -1900,7 +1908,7 @@ public static partial class TikTokReferenceSourcePackageService
         try
         {
             var localAnalyses = await AnalyzeReferenceCandidatesAsync(
-                profiles, batch, settings, ct).ConfigureAwait(false);
+                profiles, batch, settings, ct, log).ConfigureAwait(false);
             var representatives = SelectBatchIdentityRepresentatives(batch, localAnalyses);
             log?.Invoke(
                 $"角色参考图：人物发现批次 {batchIndex + 1}/{batchCount} 完成，" +
@@ -1916,11 +1924,25 @@ public static partial class TikTokReferenceSourcePackageService
             var representatives = new List<string>();
             foreach (var subBatch in subBatches)
             {
-                var subAnalyses = await AnalyzeReferenceCandidatesAsync(
-                    profiles, subBatch, settings, ct).ConfigureAwait(false);
-                representatives.AddRange(SelectBatchIdentityRepresentatives(subBatch, subAnalyses));
+                try
+                {
+                    var subAnalyses = await AnalyzeReferenceCandidatesAsync(
+                        profiles, subBatch, settings, ct, log).ConfigureAwait(false);
+                    representatives.AddRange(SelectBatchIdentityRepresentatives(subBatch, subAnalyses));
+                }
+                catch (Exception ex) when (IsRoleMatchJsonFailure(ex))
+                {
+                    log?.Invoke(
+                        $"角色参考图：人物发现批次 {batchIndex + 1} 的小批视觉结果无法解析，跳过该小批：{ex.Message}");
+                }
             }
             return representatives.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+        catch (Exception ex) when (IsRoleMatchJsonFailure(ex))
+        {
+            log?.Invoke(
+                $"角色参考图：人物发现批次 {batchIndex + 1}/{batchCount} 的视觉结果无法解析，跳过该批：{ex.Message}");
+            return [];
         }
     }
 
@@ -1968,6 +1990,31 @@ public static partial class TikTokReferenceSourcePackageService
         IReadOnlyList<CharacterProfile> profiles,
         IReadOnlyList<string> candidates,
         ClientSettings settings,
+        CancellationToken ct,
+        Action<string>? log = null)
+    {
+        Exception? last = null;
+        for (var attempt = 1; attempt <= 2; attempt++)
+        {
+            try
+            {
+                return await RequestRoleReferenceAnalysesAsync(profiles, candidates, settings, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (attempt == 1 && IsRoleMatchJsonFailure(ex))
+            {
+                last = ex;
+                log?.Invoke($"角色参考图视觉匹配 JSON 无效，准备重试一次：{ex.Message}");
+            }
+        }
+
+        throw last ?? new InvalidOperationException("角色参考图视觉匹配返回的 JSON 不完整或无法解析。");
+    }
+
+    private static async Task<IReadOnlyList<ReferenceCandidateAnalysis>> RequestRoleReferenceAnalysesAsync(
+        IReadOnlyList<CharacterProfile> profiles,
+        IReadOnlyList<string> candidates,
+        ClientSettings settings,
         CancellationToken ct)
     {
         var content = new List<object>
@@ -1993,6 +2040,7 @@ public static partial class TikTokReferenceSourcePackageService
             model = settings.AiTextModel.Trim(),
             temperature = 0,
             thinking = new { type = "disabled" },
+            max_tokens = Math.Clamp(512 + candidates.Count * 160, 1024, 8192),
             messages = new object[]
             {
                 new { role = "user", content = content.ToArray() },
@@ -2042,46 +2090,86 @@ public static partial class TikTokReferenceSourcePackageService
                 .GetProperty("message")
                 .GetProperty("content")
                 .GetString() ?? string.Empty;
-            var start = responseText.IndexOf('{');
-            var end = responseText.LastIndexOf('}');
-            if (start < 0 || end <= start)
-                throw new InvalidOperationException("角色参考图视觉匹配返回内容中没有 JSON。");
-            using var result = JsonDocument.Parse(responseText[start..(end + 1)]);
-            if (!result.RootElement.TryGetProperty("candidates", out var entries) ||
-                entries.ValueKind != JsonValueKind.Array)
-                throw new InvalidOperationException("角色参考图视觉匹配返回内容缺少 candidates 数组。");
-
-            var analyses = new List<ReferenceCandidateAnalysis>();
-            foreach (var entry in entries.EnumerateArray())
-            {
-                if (!entry.TryGetProperty("index", out var indexElement) || !indexElement.TryGetInt32(out var index) ||
-                    index < 1 || index > candidates.Count)
-                    continue;
-                analyses.Add(new ReferenceCandidateAnalysis(
-                    index,
-                    NormalizeGender(entry.TryGetProperty("gender", out var gender) ? gender.GetString() : null),
-                    entry.TryGetProperty("person_id", out var personId)
-                        ? FirstNonEmpty(personId.GetString(), $"candidate-{index}")
-                        : $"candidate-{index}",
-                    entry.TryGetProperty("single", out var single) && single.ValueKind is JsonValueKind.True,
-                    entry.TryGetProperty("clarity", out var clarity) && clarity.TryGetInt32(out var clarityValue)
-                        ? Math.Clamp(clarityValue, 0, 100)
-                        : 0,
-                    entry.TryGetProperty("face_visible", out var faceVisible) &&
-                    faceVisible.ValueKind is JsonValueKind.True,
-                    entry.TryGetProperty("clothing_visible", out var clothingVisible) &&
-                    clothingVisible.ValueKind is JsonValueKind.True,
-                    entry.TryGetProperty("clothing_clarity", out var clothingClarity) &&
-                    clothingClarity.TryGetInt32(out var clothingClarityValue)
-                        ? Math.Clamp(clothingClarityValue, 0, 100)
-                        : 0,
-                    entry.TryGetProperty("framing", out var framing)
-                        ? NormalizeFraming(framing.GetString())
-                        : "unknown"));
-            }
-            return analyses;
+            return ReadRoleReferenceAnalyses(responseText, candidates.Count);
         }
     }
+
+    internal static IReadOnlyList<ReferenceCandidateAnalysis> ReadRoleReferenceAnalyses(
+        string responseText,
+        int candidateCount)
+    {
+        var extracted = TikTokAiScriptOutlineService.ExtractFirstBalancedJsonObject(responseText);
+        if (!extracted.Contains('{'))
+            throw new InvalidOperationException("角色参考图视觉匹配返回内容中没有 JSON。");
+
+        JsonException? last = null;
+        foreach (var candidate in new[]
+                 {
+                     extracted,
+                     TikTokAiScriptOutlineService.RepairBareStringPropertyValues(extracted),
+                 })
+        {
+            try
+            {
+                return ParseRoleReferenceAnalyses(candidate, candidateCount);
+            }
+            catch (JsonException ex)
+            {
+                last = ex;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "角色参考图视觉匹配返回的 JSON 不完整或无法解析：" + last?.Message);
+    }
+
+    private static IReadOnlyList<ReferenceCandidateAnalysis> ParseRoleReferenceAnalyses(
+        string json,
+        int candidateCount)
+    {
+        using var result = JsonDocument.Parse(json);
+        if (!result.RootElement.TryGetProperty("candidates", out var entries) ||
+            entries.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("角色参考图视觉匹配返回内容缺少 candidates 数组。");
+
+        var analyses = new List<ReferenceCandidateAnalysis>();
+        foreach (var entry in entries.EnumerateArray())
+        {
+            if (!entry.TryGetProperty("index", out var indexElement) || !indexElement.TryGetInt32(out var index) ||
+                index < 1 || index > candidateCount)
+                continue;
+            analyses.Add(new ReferenceCandidateAnalysis(
+                index,
+                NormalizeGender(entry.TryGetProperty("gender", out var gender) ? gender.GetString() : null),
+                entry.TryGetProperty("person_id", out var personId)
+                    ? FirstNonEmpty(personId.GetString(), $"candidate-{index}")
+                    : $"candidate-{index}",
+                entry.TryGetProperty("single", out var single) && single.ValueKind is JsonValueKind.True,
+                entry.TryGetProperty("clarity", out var clarity) && clarity.TryGetInt32(out var clarityValue)
+                    ? Math.Clamp(clarityValue, 0, 100)
+                    : 0,
+                entry.TryGetProperty("face_visible", out var faceVisible) &&
+                faceVisible.ValueKind is JsonValueKind.True,
+                entry.TryGetProperty("clothing_visible", out var clothingVisible) &&
+                clothingVisible.ValueKind is JsonValueKind.True,
+                entry.TryGetProperty("clothing_clarity", out var clothingClarity) &&
+                clothingClarity.TryGetInt32(out var clothingClarityValue)
+                    ? Math.Clamp(clothingClarityValue, 0, 100)
+                    : 0,
+                entry.TryGetProperty("framing", out var framing)
+                    ? NormalizeFraming(framing.GetString())
+                    : "unknown"));
+        }
+
+        return analyses;
+    }
+
+    private static bool IsRoleMatchJsonFailure(Exception ex) =>
+        ex is JsonException ||
+        ex.Message.Contains("没有 JSON", StringComparison.Ordinal) ||
+        ex.Message.Contains("缺少 candidates", StringComparison.Ordinal) ||
+        ex.Message.Contains("JSON 不完整", StringComparison.Ordinal) ||
+        ex.Message.Contains("无法解析", StringComparison.Ordinal);
 
     internal static string BuildRoleReferenceSelectionPrompt(
         IReadOnlyList<CharacterProfile> profiles,

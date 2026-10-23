@@ -12,6 +12,31 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokReferenceSourcePackageServiceTests
 {
     [Fact]
+    public void ReadRoleReferenceAnalyses_repairs_bare_value_and_ignores_trailing_text()
+    {
+        var analyses = TikTokReferenceSourcePackageService.ReadRoleReferenceAnalyses(
+            """
+            说明
+            {"candidates":[{"index":1,"gender": male,"person_id":"P1","single":true,"clarity":90,"face_visible":true,"framing":"half_body","clothing_visible":true,"clothing_clarity":80}]}
+            多余
+            """,
+            1);
+
+        analyses.Should().ContainSingle();
+        analyses[0].Gender.Should().Be("male");
+        analyses[0].Index.Should().Be(1);
+    }
+
+    [Fact]
+    public void ReadRoleReferenceAnalyses_rejects_truncated_json()
+    {
+        var act = () => TikTokReferenceSourcePackageService.ReadRoleReferenceAnalyses(
+            "{\"candidates\":[{\"index\":1",
+            1);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*JSON*");
+    }
+
+    [Fact]
     public void RefreshMaterialVideoLinks_adds_published_cache_to_reference_package_only()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"reference-web-video-{Guid.NewGuid():N}");

@@ -438,12 +438,15 @@ JSON 结构：
             ?? DefaultPosterLayoutDetectPrompt;
         var promptVariables = CreatePosterPromptVariables(title, title, null, null);
         var useDefaultPrompt = false;
+        string? retryReason = null;
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var promptTemplate = useDefaultPrompt
                 ? DefaultPosterLayoutDetectPrompt
                 : configuredPromptTemplate;
             var prompt = $"{RenderPromptTemplate(promptTemplate, promptVariables).Trim()}\n\n{PosterLayoutJsonContract.Trim()}";
+            if (!string.IsNullOrWhiteSpace(retryReason))
+                prompt += $"\n\n上次结果无效：{retryReason}。请按 0 到 1 的比例重新测量标题框，保证 x+width 和 y+height 不超过 1，并且只返回 JSON。";
             var call = new PosterLayoutAttempt(
                 fast,
                 attempt + 1,
@@ -463,11 +466,12 @@ JSON 结构：
                     imageBase64,
                     prompt,
                     cancellationToken).ConfigureAwait(false);
-                return CreateValidatedPosterLayout(aiLayout);
+                return CreateValidatedPosterLayout(aiLayout, width, height, log);
             }
             catch (PosterLayoutResponseException ex) when (attempt == 0)
             {
                 useDefaultPrompt = true;
+                retryReason = ex.Message;
                 _logger.LogWarning(
                     ex,
                     "AI海报布局响应缺失或不合理，使用内置完整布局提示重试。 image={Image}",
@@ -871,22 +875,30 @@ JSON 结构：
         public HttpStatusCode StatusCode { get; }
     }
 
-    private static PosterLayout CreateValidatedPosterLayout(PosterLayoutResponse aiLayout)
+    private static PosterLayout CreateValidatedPosterLayout(
+        PosterLayoutResponse aiLayout,
+        int? imageWidth,
+        int? imageHeight,
+        Action<string>? log)
     {
-        if (!PosterLayoutDetectionPolicy.TryValidateCoordinates(
+        if (!PosterLayoutDetectionPolicy.TryNormalizeCoordinates(
                 aiLayout.X,
                 aiLayout.Y,
                 aiLayout.Width,
                 aiLayout.Height,
-                out var invalidReason))
+                imageWidth,
+                imageHeight,
+                out var x,
+                out var y,
+                out var width,
+                out var height,
+                out var normalizedReason))
         {
-            throw new PosterLayoutResponseException($"AI 海报布局坐标无效：{invalidReason}");
+            throw new PosterLayoutResponseException($"AI 海报布局坐标无效：{normalizedReason}");
         }
 
-        var x = aiLayout.X!.Value;
-        var y = aiLayout.Y!.Value;
-        var width = aiLayout.Width!.Value;
-        var height = aiLayout.Height!.Value;
+        if (!string.IsNullOrWhiteSpace(normalizedReason))
+            log?.Invoke("海报布局坐标已收正：" + normalizedReason);
         var fontScale = aiLayout.FontScale is { } rawFontScale && float.IsFinite(rawFontScale)
             ? Clamp(rawFontScale, 0.05f, 0.14f)
             : 0.08f;
@@ -1902,4 +1914,71 @@ internal static class PosterLayoutDetectionPolicy
         reason = string.Empty;
         return true;
     }
+
+    internal static bool TryNormalizeCoordinates(
+        float? x,
+        float? y,
+        float? width,
+        float? height,
+        int? imageWidth,
+        int? imageHeight,
+        out float normalizedX,
+        out float normalizedY,
+        out float normalizedWidth,
+        out float normalizedHeight,
+        out string description)
+    {
+        normalizedX = normalizedY = normalizedWidth = normalizedHeight = 0;
+        if (x is null || y is null || width is null || height is null ||
+            !float.IsFinite(x.Value) || !float.IsFinite(y.Value) ||
+            !float.IsFinite(width.Value) || !float.IsFinite(height.Value))
+        {
+            description = "x、y、width、height 必须全部存在且为有限数字";
+            return false;
+        }
+
+        var rawX = x.Value;
+        var rawY = y.Value;
+        var rawWidth = width.Value;
+        var rawHeight = height.Value;
+        normalizedX = ToImageRatio(rawX, imageWidth);
+        normalizedY = ToImageRatio(rawY, imageHeight);
+        normalizedWidth = ToImageRatio(rawWidth, imageWidth);
+        normalizedHeight = ToImageRatio(rawHeight, imageHeight);
+        if (normalizedX < 0) normalizedX = 0;
+        if (normalizedY < 0) normalizedY = 0;
+        if (normalizedWidth > 1) normalizedWidth = 1;
+        if (normalizedHeight > 1) normalizedHeight = 1;
+        if (normalizedX >= 1)
+            normalizedX = Math.Max(0, 1 - Math.Min(normalizedWidth, 1));
+        if (normalizedY >= 1)
+            normalizedY = Math.Max(0, 1 - Math.Min(normalizedHeight, 1));
+        if (normalizedX + normalizedWidth > 1)
+            normalizedWidth = 1 - normalizedX;
+        if (normalizedY + normalizedHeight > 1)
+            normalizedHeight = 1 - normalizedY;
+
+        if (!TryValidateCoordinates(
+                normalizedX,
+                normalizedY,
+                normalizedWidth,
+                normalizedHeight,
+                out description))
+        {
+            description =
+                $"原始 x={rawX:0.####} y={rawY:0.####} width={rawWidth:0.####} height={rawHeight:0.####}；{description}";
+            return false;
+        }
+
+        var changed = rawX != normalizedX || rawY != normalizedY ||
+                      rawWidth != normalizedWidth || rawHeight != normalizedHeight;
+        description = changed
+            ? $"原始 x={rawX:0.####} y={rawY:0.####} width={rawWidth:0.####} height={rawHeight:0.####} -> " +
+              $"x={normalizedX:0.####} y={normalizedY:0.####} width={normalizedWidth:0.####} height={normalizedHeight:0.####}"
+            : string.Empty;
+        return true;
+    }
+
+    private static float ToImageRatio(float value, int? pixels) =>
+        value > 1.5f && pixels is > 1 ? value / pixels.Value : value;
 }
