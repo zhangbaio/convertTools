@@ -69,6 +69,25 @@ public partial class WeixinWorkflowView : UserControl
 
     private MainWindowViewModel? ViewModel => DataContext as MainWindowViewModel;
 
+    private void OnOpenSourceDirectoryClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        OpenRowDirectory(sender, workflow: false);
+    }
+
+    private void OnOpenWorkflowDirectoryClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        OpenRowDirectory(sender, workflow: true);
+    }
+
+    private void OpenRowDirectory(object? sender, bool workflow)
+    {
+        if ((sender as Control)?.DataContext is not PublishJobRowViewModel row || ViewModel is null)
+            return;
+        ViewModel.StatusMessage = workflow ? row.OpenWorkflowDirectory() : row.OpenSourceDirectory();
+    }
+
     public void Bind(Func<PublishAccount?> accountProvider)
     {
         _accountProvider = accountProvider;

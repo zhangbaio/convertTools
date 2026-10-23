@@ -17,12 +17,12 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         _isChecked = model.IsChecked;
         _tableInfo = ResolveTableInfo(model);
         ReloadKuaishouArtifacts();
-        OpenSourceDirectoryCommand = new RelayCommand(() => OpenDirectory(SourceDirectory));
-        OpenWorkflowDirectoryCommand = new RelayCommand(() => OpenDirectory(WorkflowDirectory));
+        OpenSourceDirectoryCommand = new RelayCommand(() => OpenSourceDirectory());
+        OpenWorkflowDirectoryCommand = new RelayCommand(() => OpenWorkflowDirectory());
     }
 
     public PublishJob Model { get; }
-    private readonly ProjectTableInfo _tableInfo;
+    private ProjectTableInfo _tableInfo;
     private KuaishouArtifactColumnStatus? _kuaishou;
     public string Id => Model.Id;
     public PublishPlatform Platform => Model.Platform;
@@ -190,16 +190,43 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         return "";
     }
 
-    private static void OpenDirectory(string? path)
+    public string OpenSourceDirectory() => OpenResolvedDirectory(workflow: false);
+
+    public string OpenWorkflowDirectory() => OpenResolvedDirectory(workflow: true);
+
+    private string OpenResolvedDirectory(bool workflow)
+    {
+        _tableInfo = ResolveTableInfo(Model);
+        OnPropertyChanged(nameof(SourceDirectory));
+        OnPropertyChanged(nameof(WorkflowDirectory));
+        if (workflow &&
+            (string.IsNullOrWhiteSpace(WorkflowDirectory) ||
+             (!string.IsNullOrWhiteSpace(SourceDirectory) &&
+              string.Equals(
+                  Path.GetFullPath(WorkflowDirectory),
+                  Path.GetFullPath(SourceDirectory),
+                  StringComparison.OrdinalIgnoreCase))))
+            return $"未找到新剧名目录：{NewTitle}";
+        return OpenDirectory(workflow ? WorkflowDirectory : SourceDirectory, workflow ? "新剧名" : "原剧名");
+    }
+
+    private static string OpenDirectory(string? path, string label)
     {
         if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
-            return;
-        Process.Start(new ProcessStartInfo
+            return string.IsNullOrWhiteSpace(path) ? $"未找到{label}目录" : $"未找到{label}目录：{path}";
+        try
         {
-            FileName = "explorer.exe",
-            Arguments = $"\"{path}\"",
-            UseShellExecute = true,
-        });
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = path,
+                UseShellExecute = true,
+            });
+            return $"已打开{label}目录：{path}";
+        }
+        catch (Exception ex)
+        {
+            return $"打开{label}目录失败：{ex.Message}";
+        }
     }
 
     private static ProjectTableInfo ResolveTableInfo(PublishJob model)
@@ -272,9 +299,12 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
 
     public void Refresh()
     {
+        _tableInfo = ResolveTableInfo(Model);
         ReloadKuaishouArtifacts();
         OnPropertyChanged(nameof(OriginalTitle));
         OnPropertyChanged(nameof(NewTitle));
+        OnPropertyChanged(nameof(SourceDirectory));
+        OnPropertyChanged(nameof(WorkflowDirectory));
         OnPropertyChanged(nameof(EpisodeCountText));
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(StatusMessage));
