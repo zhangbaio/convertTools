@@ -404,25 +404,34 @@ public static partial class TikTokBrowserActions
 
     private static async Task<ILocator?> FindGenreOptionAsync(IPage page, string genre)
     {
-        foreach (var selector in new[]
-                 {
-                     "[role=\"dialog\"] .Select__item",
-                     "[role=\"listbox\"] .Select__item",
-                     "[role=\"dialog\"] [role=\"option\"]",
-                     "[role=\"listbox\"] [role=\"option\"]",
-                     ".Select__item",
-                 })
+        var locator = page.Locator(
+            "[role='listbox'] [role='option'], [role='dialog'] [role='option'], .Select__item");
+        var count = await locator.CountAsync();
+        for (var i = 0; i < count; i++)
         {
-            var option = page.Locator(selector).Filter(new() { HasText = genre }).First;
-            if (await option.CountAsync() == 0) continue;
+            var option = locator.Nth(i);
+            string text;
+            string value;
             try
             {
-                var text = NormalizeWhitespace(await option.InnerTextAsync(new() { Timeout = 3000 }));
-                if (!string.Equals(text, genre, StringComparison.Ordinal)) continue;
+                text = NormalizeWhitespace(await option.InnerTextAsync(new() { Timeout = 2000 }));
+                value = await option.GetAttributeAsync("data-value") ?? "";
             }
             catch
             {
                 continue;
+            }
+
+            if (!TikTokPublishConstants.GenreOptionMatches(text, value, genre))
+                continue;
+
+            try
+            {
+                await option.ScrollIntoViewIfNeededAsync(new() { Timeout = 5000 });
+            }
+            catch
+            {
+                // 选项在滚动列表外时，后续点击仍会把它滚进视口。
             }
 
             return option;
@@ -451,9 +460,14 @@ public static partial class TikTokBrowserActions
             {
                 try
                 {
-                    var text = NormalizeWhitespace(await locator.Nth(i).InnerTextAsync(new() { Timeout = 3000 }));
-                    if (string.IsNullOrWhiteSpace(text) || !seen.Add(text)) continue;
-                    result.Add(text);
+                    var node = locator.Nth(i);
+                    var text = NormalizeWhitespace(await node.InnerTextAsync(new() { Timeout = 3000 }));
+                    var value = await node.GetAttributeAsync("data-value") ?? "";
+                    var canonical = TikTokPublishConstants.TryResolveGenre(value, out var byValue)
+                        ? byValue.Canonical
+                        : TikTokPublishConstants.CanonicalGenreName(text);
+                    if (string.IsNullOrWhiteSpace(canonical) || !seen.Add(canonical)) continue;
+                    result.Add(canonical);
                 }
                 catch { /* ignore */ }
             }
@@ -471,7 +485,8 @@ public static partial class TikTokBrowserActions
                 var count = await tags.CountAsync();
                 for (var i = 0; i < count; i++)
                 {
-                    var text = NormalizeWhitespace(await tags.Nth(i).InnerTextAsync(new() { Timeout = 3000 }));
+                    var text = TikTokPublishConstants.CanonicalGenreName(
+                        NormalizeWhitespace(await tags.Nth(i).InnerTextAsync(new() { Timeout = 3000 })));
                     if (!string.IsNullOrWhiteSpace(text) && seen.Add(text))
                         result.Add(text);
                 }
@@ -479,7 +494,43 @@ public static partial class TikTokBrowserActions
         }
         catch { /* ignore */ }
 
+        if (result.Count == 0)
+            await AppendResolvedThemeTagTriggerGenresAsync(page, result, seen);
+
         return result;
+    }
+
+    private static async Task<string> ReadThemeTagTriggerTextAsync(IPage page)
+    {
+        try
+        {
+            var trigger = page.Locator("[x-field-id='themeTag'] [role='combobox']").First;
+            if (await trigger.CountAsync() == 0)
+                return "";
+            return NormalizeWhitespace(await trigger.InnerTextAsync(new() { Timeout = 2000 }));
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static async Task AppendResolvedThemeTagTriggerGenresAsync(
+        IPage page,
+        List<string> result,
+        HashSet<string> seen)
+    {
+        var text = await ReadThemeTagTriggerTextAsync(page);
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        foreach (var part in text.Split([',', '，', '、', '/', '|'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!TikTokPublishConstants.TryResolveGenre(part, out var option))
+                continue;
+            if (seen.Add(option.Canonical))
+                result.Add(option.Canonical);
+        }
     }
 
     private static async Task<List<string>> CollectVisiblePopupTextsAsync(IPage page)

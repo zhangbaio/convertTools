@@ -103,4 +103,17 @@ public sealed class TikTokProjectPayloadFactoryTests
             catch (IOException) { }
         }
     }
+
+    [Fact]
+    public void ParseGenreTokens_maps_english_theme_labels_without_splitting_them()
+    {
+        TikTokProjectPayloadFactory.ParseGenreTokens("年代 / 逆袭 / 重生")
+            .Should().Equal("年代", "逆袭", "重生");
+        TikTokProjectPayloadFactory.ParseGenreTokens("Decade, Underdog Story, Second Chance")
+            .Should().Equal("年代", "逆袭", "重生");
+        TikTokProjectPayloadFactory.ParseGenreTokens("Family Feud, Family")
+            .Should().Equal("豪门", "亲情");
+        TikTokProjectPayloadFactory.ParseGenreTokens("都市情感")
+            .Should().Equal("都市");
+    }
 }

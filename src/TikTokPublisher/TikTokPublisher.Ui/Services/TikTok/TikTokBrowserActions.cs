@@ -1089,17 +1089,25 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
-        var desired = genres.Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim()).Distinct().ToList();
+        var desired = genres
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .Select(g => TikTokPublishConstants.CanonicalGenreName(g.Trim()))
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (desired.Count == 0) return;
 
-        var combo = await FindComboboxByFieldLabelAsync(page, ["题材类型", "题材"]);
-        if (combo is null)
+        ILocator? combo = page.Locator("[x-field-id='themeTag'] [role='combobox']").First;
+        if (await combo.CountAsync() == 0)
+            combo = await FindComboboxByFieldLabelAsync(page, ["题材类型", "题材"]);
+        if (combo is null || await combo.CountAsync() == 0)
             throw new InvalidOperationException("未找到 TikTok「题材类型」下拉框，请确认已切换到剧集详情步骤。");
         await combo.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
         await OpenComboboxAsync(page, combo, ct);
 
+        var desiredSet = new HashSet<string>(desired, StringComparer.OrdinalIgnoreCase);
         var selected = await CollectSelectedGenreTextsAsync(page);
-        foreach (var genre in selected.Where(g => !desired.Contains(g)).ToList())
+        foreach (var genre in selected.Where(g => !desiredSet.Contains(g)).ToList())
         {
             var option = await FindGenreOptionAsync(page, genre);
             if (option is not null)
@@ -1111,7 +1119,7 @@ public static partial class TikTokBrowserActions
 
         selected = await CollectSelectedGenreTextsAsync(page);
         var unmatched = new List<string>();
-        foreach (var genre in desired.Where(g => !selected.Contains(g)))
+        foreach (var genre in desired.Where(g => !selected.Contains(g, StringComparer.OrdinalIgnoreCase)))
         {
             try
             {
@@ -1121,6 +1129,7 @@ public static partial class TikTokBrowserActions
                 if (option is null) { unmatched.Add(genre); continue; }
                 await ClickWithFallbackAsync(option, ct);
                 await page.WaitForTimeoutAsync(250);
+                selected = await CollectSelectedGenreTextsAsync(page);
             }
             catch (Exception ex)
             {
@@ -1130,14 +1139,21 @@ public static partial class TikTokBrowserActions
         }
 
         var finalSelected = await CollectSelectedGenreTextsAsync(page);
-        await ClosePopupIfOpenAsync(page);
         if (finalSelected.Count == 0)
         {
             var visible = await CollectVisiblePopupTextsAsync(page);
+            await ClosePopupIfOpenAsync(page);
             throw new InvalidOperationException(
                 $"TikTok 题材类型未匹配到任何推荐选项（要求：{string.Join(" / ", desired)}）。当前可见选项: {string.Join(" | ", visible.Take(20))}");
         }
+        var triggerText = await ReadThemeTagTriggerTextAsync(page);
+        await ClosePopupIfOpenAsync(page);
         Log(log, $"TikTok 题材类型已选择 {finalSelected.Count} 个：{string.Join(" / ", finalSelected)}");
+        if (!string.IsNullOrWhiteSpace(triggerText) &&
+            finalSelected.Any(genre => !triggerText.Contains(genre, StringComparison.Ordinal)))
+        {
+            Log(log, $"TikTok 题材类型页面当前显示：{triggerText}");
+        }
         if (unmatched.Count > 0)
             Log(log, $"TikTok 题材类型未匹配成功：{string.Join(" / ", unmatched.Distinct())}");
     }

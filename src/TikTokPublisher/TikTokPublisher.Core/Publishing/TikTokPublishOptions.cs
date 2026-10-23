@@ -247,16 +247,162 @@ public static class TikTokPublishConstants
         }
     }
 
-    /// <summary>对齐 Python <c>GENRE_OPTIONS</c>。</summary>
-    public static readonly IReadOnlyList<string> GenreOptions =
+    /// <summary>
+    /// 剧集详情「题材类型」(<c>themeTag</c>) 的真实选项。
+    /// <see cref="TikTokGenreOption.Value"/> 是选项 <c>data-value</c>，不随界面语言变化；
+    /// 翻译资源异常时页面会直接显示 <see cref="TikTokGenreOption.EnglishLabel"/>。
+    /// 顺序与 2026-10-23 账号 2 草稿页抓到的下拉一致。
+    /// </summary>
+    public static readonly IReadOnlyList<TikTokGenreOption> GenreCatalog =
     [
-        "年龄差", "Alpha", "古风", "虐恋", "出轨", "替身", "商战", "青春", "娱乐圈", "总裁",
-        "都市", "头目", "萌宝", "年代", "亲情", "豪门", "玄幻", "禁忌恋", "大女主", "闪婚",
-        "一见钟情", "将军", "团宠", "后宫", "千金", "超级英雄", "马甲", "神医", "伦理", "一夜情",
-        "扮猪吃虎", "怀孕", "总统", "破镜重圆", "重逢", "复仇", "心动拉扯", "重生", "暗恋", "赘婿",
-        "异能", "系统", "悬疑", "穿越", "三角恋", "逆袭", "吸血鬼", "阿尔法狼人", "职场",
+        new("年龄差", "AgeGap", "7480113204073349175"),
+        new("Alpha", "Alpha", "7480129235898695685"),
+        new("古风", "Ancient", "7475195943084703799"),
+        new("虐恋", "Angsty Love", "7480111504197664774"),
+        new("出轨", "BetrayLove", "7480116372064698374"),
+        new("替身", "Body Double", "7480116784972988422"),
+        new("商战", "Business Competition", "7475195414552150021"),
+        new("青春", "Campus", "7475195414552231941"),
+        new("娱乐圈", "Celebrity", "7475196057492652087"),
+        new("总裁", "CEO", "7480119548807315461"),
+        new("都市", "City", "7475195626620272646"),
+        new("头目", "Crime Lord", "7480129235898793989"),
+        new("萌宝", "Cute Kids", "7480117166257799174"),
+        new("年代", "Decade", "7475195626620436486"),
+        new("亲情", "Family", "7480116475617935415"),
+        new("豪门", "Family Feud", "7475195943084621879"),
+        new("玄幻", "Fantasy", "7475196057492734007"),
+        new("禁忌恋", "Fated Lovers", "7480115418862977079"),
+        new("大女主", "Female Lead", "7480120358620790789"),
+        new("闪婚", "Flash marriage", "7480116784973086726"),
+        new("一见钟情", "Flipped", "7480116475618033719"),
+        new("将军", "General", "7480120358620692485"),
+        new("团宠", "Group Favorite", "7480119548807217157"),
+        new("后宫", "Harem", "7475195414551986181"),
+        new("千金", "Heiress", "7480129235898597381"),
+        new("超级英雄", "Hero", "7480120358620889093"),
+        new("马甲", "Hidden Identity", "7480116784973185030"),
+        new("神医", "Miracle Doctor", "7480117166257897478"),
+        new("伦理", "Morality", "7480113204073562167"),
+        new("一夜情", "One-night stand", "7480116372064894982"),
+        new("扮猪吃虎", "Playing Dumb", "7480117007484977157"),
+        new("怀孕", "Pregnancy", "7480116372064796678"),
+        new("总统", "Presient", "7480129001525313541"),
+        new("破镜重圆", "Reconciliation", "7480113204073463863"),
+        new("重逢", "Reunion", "7480116475618132023"),
+        new("复仇", "Revenge", "7480117007485075461"),
+        new("心动拉扯", "Romance", "7480116372064993286"),
+        new("重生", "Second Chance", "7480116663103389751"),
+        new("暗恋", "Secret Love", "7475195626620190726"),
+        new("赘婿", "Son-in-Law", "7480117166257995782"),
+        new("异能", "Superpowers", "7475195943084785719"),
+        new("系统", "System", "7480117007485173765"),
+        new("悬疑", "Thriller", "7475195626620354566"),
+        new("穿越", "Time Travel", "7480116663103488055"),
+        new("三角恋", "Triangle-love", "7475195943084867639"),
+        new("逆袭", "Underdog Story", "7480116663103291447"),
+        new("吸血鬼", "Vampire", "7480129001525215237"),
+        new("阿尔法狼人", "Werewolf", "7480129001525116933"),
+        new("职场", "Workplace", "7475195414552068101"),
     ];
+
+    /// <summary>推荐和短剧信息仍使用中文题材名。</summary>
+    public static readonly IReadOnlyList<string> GenreOptions =
+        GenreCatalog.Select(static option => option.Canonical).ToArray();
+
+    private static readonly Lazy<Dictionary<string, TikTokGenreOption>> GenreByAlias =
+        new(BuildGenreAliasIndex);
+
+    private static readonly Lazy<Dictionary<string, TikTokGenreOption>> GenreByValue =
+        new(BuildGenreValueIndex);
+
+    public static string NormalizeGenreAlias(string? text) =>
+        string.Join(' ', (text ?? "").Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    public static string NormalizeGenreValue(string? value)
+    {
+        var text = (value ?? "").Trim();
+        if (text.Length >= 2 && text[0] == '"' && text[^1] == '"')
+            text = text[1..^1].Trim();
+        return text;
+    }
+
+    public static bool TryResolveGenre(string? text, out TikTokGenreOption option)
+    {
+        var alias = NormalizeGenreAlias(text);
+        if (alias.Length > 0 && GenreByAlias.Value.TryGetValue(alias, out option))
+            return true;
+
+        var value = NormalizeGenreValue(text);
+        if (value.Length > 0 && GenreByValue.Value.TryGetValue(value, out option))
+            return true;
+
+        option = default;
+        return false;
+    }
+
+    public static string CanonicalGenreName(string? text) =>
+        TryResolveGenre(text, out var option) ? option.Canonical : NormalizeGenreAlias(text);
+
+    public static bool GenreOptionMatches(string? visibleText, string? dataValue, string? desired)
+    {
+        if (!TryResolveGenre(desired, out var desiredOption))
+        {
+            var wanted = NormalizeGenreAlias(desired);
+            return wanted.Length > 0 &&
+                   string.Equals(NormalizeGenreAlias(visibleText), wanted, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (string.Equals(NormalizeGenreValue(dataValue), desiredOption.Value, StringComparison.Ordinal))
+            return true;
+
+        return TryResolveGenre(visibleText, out var visibleOption) &&
+               string.Equals(visibleOption.Canonical, desiredOption.Canonical, StringComparison.Ordinal);
+    }
+
+    private static Dictionary<string, TikTokGenreOption> BuildGenreAliasIndex()
+    {
+        var map = new Dictionary<string, TikTokGenreOption>(StringComparer.OrdinalIgnoreCase);
+        foreach (var option in GenreCatalog)
+        {
+            RegisterGenreAlias(map, option.Canonical, option);
+            RegisterGenreAlias(map, option.EnglishLabel, option);
+        }
+
+        return map;
+    }
+
+    private static Dictionary<string, TikTokGenreOption> BuildGenreValueIndex()
+    {
+        var map = new Dictionary<string, TikTokGenreOption>(StringComparer.Ordinal);
+        foreach (var option in GenreCatalog)
+        {
+            if (!map.TryAdd(option.Value, option))
+                throw new InvalidOperationException($"题材选项值重复：{option.Value}");
+        }
+
+        return map;
+    }
+
+    private static void RegisterGenreAlias(
+        Dictionary<string, TikTokGenreOption> map,
+        string alias,
+        TikTokGenreOption option)
+    {
+        var key = NormalizeGenreAlias(alias);
+        if (key.Length == 0)
+            throw new InvalidOperationException("题材别名为空。");
+        if (map.TryGetValue(key, out var existing) &&
+            !string.Equals(existing.Canonical, option.Canonical, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"题材别名冲突：{alias}");
+        }
+
+        map[key] = option;
+    }
 }
+
+public readonly record struct TikTokGenreOption(string Canonical, string EnglishLabel, string Value);
 
 public sealed class TikTokPublishRecommendation
 {
