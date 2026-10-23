@@ -329,6 +329,39 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Client_settings_store_replaces_retired_image_model_and_keeps_custom_models()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-image-{Guid.NewGuid():N}.db");
+        try
+        {
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                ImageModelId = ClientSettingsDefaults.RetiredImageModelId,
+            }, databasePath);
+            ClientSettingsStore.Load(databasePath).ImageModelId.Should().Be(ClientSettingsDefaults.ImageModelId);
+
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                ImageModelId = "custom-image-model",
+                ImageModelEndpoint = "https://example.test/v1",
+            }, databasePath);
+            var custom = ClientSettingsStore.Load(databasePath);
+            custom.ImageModelId.Should().Be("custom-image-model");
+            custom.ImageModelEndpoint.Should().Be("https://example.test/v1");
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(databasePath);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    [Fact]
     public void Client_settings_store_migrates_removed_poster_mode_and_normalizes_frame_extract_values()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-video-frame-{Guid.NewGuid():N}.db");

@@ -37,7 +37,8 @@ public static class ClientSettingsDefaults
     public const string NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.SystemValue;
     public const string ImageProvider = "doubao";
     public const string ImageModelEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
-    public const string ImageModelId = "doubao-seedream-5-0-lite-260128";
+    public const string ImageModelId = "doubao-seedream-5-0-pro-260628";
+    public const string RetiredImageModelId = "doubao-seedream-5-0-lite-260128";
     public const string DoubaoImageResolution = "2K";
     public const string DoubaoImageRatio = "3:4";
     public const string OfoxImage2ModelId = "openai/gpt-image-2";

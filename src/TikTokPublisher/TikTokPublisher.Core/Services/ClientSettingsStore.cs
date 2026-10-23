@@ -390,7 +390,10 @@ public static class ClientSettingsStore
         var networkPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
         settings.NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.ToValue(networkPreference);
         settings.ImageProvider = NormalizeImageProvider(settings.ImageProvider);
-        settings.ImageModelId = DefaultIfBlank(settings.ImageModelId, ClientSettingsDefaults.ImageModelId);
+        settings.ImageModelId = UpgradeBuiltInPrompt(
+            settings.ImageModelId,
+            ClientSettingsDefaults.RetiredImageModelId,
+            ClientSettingsDefaults.ImageModelId);
         settings.ImageModelApiKey ??= "";
         settings.ImageModelEndpoint = DefaultIfBlank(settings.ImageModelEndpoint, ClientSettingsDefaults.ImageModelEndpoint);
         settings.DoubaoImageResolution = DefaultIfBlank(settings.DoubaoImageResolution, ClientSettingsDefaults.DoubaoImageResolution);
