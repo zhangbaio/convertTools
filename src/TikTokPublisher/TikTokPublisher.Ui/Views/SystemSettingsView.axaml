@@ -498,13 +498,13 @@
                             <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ImageProviderCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ImageModelId}" IsReadOnly="True" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ImageModelId}" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="模型 API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ImageModelApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="模型 Endpoint" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ImageModelEndpoint}" IsReadOnly="True" />
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ImageModelEndpoint}" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="豆包分辨率" VerticalAlignment="Center" />
                             <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding DoubaoImageResolution}" />
