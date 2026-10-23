@@ -1128,6 +1128,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 _activityLogProject = trackedJob?.ProjectName ?? Path.GetFileName(projectDirectory);
                 try
                 {
+                    if (IsKuaishouPlatform)
+                    {
+                        await RunKuaishouSettlementPipelineAsync(projectDirectory, trackedJob, trackedRow, cancellationToken);
+                        StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
+                        AppendActivityLog(StatusMessage);
+                        succeeded++;
+                        continue;
+                    }
                     foreach (var (key, label) in steps)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -1197,27 +1205,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         {
                             var remux = await _workService.RemuxUploadVideosAsync(projectDirectory, null, progress, cancellationToken);
                             if (!remux.Ok) throw new InvalidOperationException(remux.Message);
-                        });
-                    }
-
-                    if (IsKuaishouPlatform && (PipelinePosterEnabled || PipelineProjectImageEnabled || PipelineAutoFillEnabled))
-                    {
-                        var kuaishouPlatform = SelectedPlatform.Value;
-                        await RunTrackedStepAsync(trackedJob, trackedRow, "kuaishou-personal-artifacts", "快手分账产物", PipelineForceRerun, async () =>
-                        {
-                            var config = KuaishouPersonalConfig.Load(new PublishJob
-                            {
-                                Platform = kuaishouPlatform,
-                                AccountId = SelectedAccount?.Model.Id ?? string.Empty,
-                                ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
-                                ProjectDirectory = projectDirectory,
-                            });
-                            var projectData = await _kuaishouPersonalProjectDataService.ResolveAsync(projectDirectory, config, cancellationToken);
-                            await _kuaishouPersonalPreparationService.PrepareAsync(projectData, config, PipelineForceRerun, cancellationToken);
-                            var issues = await _kuaishouPersonalPreparationService.ValidateAsync(projectData.WorkflowDirectory, cancellationToken);
-                            if (issues.Count > 0)
-                                throw new InvalidOperationException($"{kuaishouPlatform.DisplayName()}产物校验失败：{string.Join("；", issues.Select(item => item.Message))}");
-                            AppendActivityLog($"{kuaishouPlatform.DisplayName()}产物：横屏封面、竖屏海报、自动补齐字段和 payload 预览已生成并通过校验。");
                         });
                     }
 
@@ -1391,6 +1378,161 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         var source = profile[key]?.ToString();
         if (!string.IsNullOrWhiteSpace(source) && File.Exists(source)) File.Copy(source, target, true);
+    }
+
+    private async Task RunKuaishouSettlementPipelineAsync(
+        string projectDirectory,
+        PublishJob? trackedJob,
+        PublishJobRowViewModel? trackedRow,
+        CancellationToken cancellationToken)
+    {
+        var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
+        {
+            ("download", "download", "下载剧集", PipelineDownloadEnabled),
+            ("rewrite", "rewrite_info", "改写信息", PipelineRewriteEnabled),
+            ("poster-rename", "generate_poster", "生成海报", PipelinePosterEnabled),
+            ("project-image", "generate_project_images", "生成工程图", PipelineProjectImageEnabled),
+            ("auto-fill-info", "auto_fill_info", "补齐字段", PipelineAutoFillEnabled),
+        };
+        var enabled = steps.Where(step => step.Enabled).ToArray();
+        if (enabled.Length > 0)
+        {
+            var config = KuaishouPersonalConfig.Load(new PublishJob
+            {
+                Platform = SelectedPlatform.Value,
+                AccountId = SelectedAccount?.Model.Id ?? string.Empty,
+                ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
+                ProjectDirectory = projectDirectory,
+            });
+            var templateId = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
+                ? config.EnterpriseProjectImageTemplateId
+                : config.PersonalProjectImageTemplateId;
+            if (string.IsNullOrWhiteSpace(templateId))
+                templateId = config.ProjectImageTemplateId;
+            foreach (var step in enabled)
+                await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Running, "正在执行");
+            try
+            {
+                var prepared = await KuaishouSettlementPrepareRunner.RunAsync(
+                    projectDirectory,
+                    config,
+                    new KuaishouSettlementPrepareOptions(
+                        PipelineDownloadEnabled,
+                        PipelineRewriteEnabled,
+                        PipelinePosterEnabled,
+                        PipelineProjectImageEnabled,
+                        PipelineAutoFillEnabled,
+                        PipelineForceRerun,
+                        templateId,
+                        config.ProjectImageTemplateRoot),
+                    new Progress<string>(AppendActivityLog),
+                    cancellationToken);
+                var completed = prepared.CompletedSteps.ToHashSet(StringComparer.Ordinal);
+                foreach (var step in enabled)
+                {
+                    if (completed.Contains(step.AssistantKey))
+                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "执行完成");
+                    else
+                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Failed, "短剧助手未完成该步骤");
+                }
+                if (enabled.Any(step => !completed.Contains(step.AssistantKey)))
+                    throw new InvalidOperationException("快手分账有步骤未完成。");
+            }
+            catch (OperationCanceledException)
+            {
+                foreach (var step in enabled)
+                    await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Pending, "已停止，可继续执行");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                foreach (var step in enabled)
+                {
+                    if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var state) == true &&
+                        state.Status == PublishJobStepStatus.Running)
+                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Failed, ex.Message);
+                }
+                throw;
+            }
+        }
+
+        if (!PipelineUploadEpisodesEnabled)
+            return;
+        if (trackedJob is null || trackedRow is null)
+            throw new InvalidOperationException("上传剧集需要先把项目加入队列。");
+        await RunTrackedStepAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PipelineForceRerun, async () =>
+        {
+            var adapter = _coordinator.GetAdapter(trackedJob.Platform);
+            if (!adapter.IsAvailable)
+                throw new InvalidOperationException(adapter.AvailabilityMessage);
+            trackedJob.AttemptCount++;
+            trackedJob.LastStartedAt = DateTimeOffset.Now;
+            trackedJob.Status = PublishJobStatus.Running;
+            var uploadProgress = new Progress<string>(message =>
+            {
+                trackedJob.StatusMessage = message;
+                trackedRow.Refresh();
+                StatusMessage = $"[{trackedJob.ProjectName}] {message}";
+                AppendActivityLog(StatusMessage);
+            });
+            await adapter.RunAsync(trackedJob, uploadProgress, cancellationToken);
+            trackedJob.Status = PublishJobStatus.Succeeded;
+            trackedJob.StatusMessage = "发布流程执行完成";
+            trackedJob.LastCompletedAt = DateTimeOffset.Now;
+        });
+    }
+
+    private async Task GenerateKuaishouProjectImagesAsync(
+        string projectDirectory,
+        PublishJob? job,
+        CancellationToken cancellationToken)
+    {
+        var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath).Clone();
+        var config = KuaishouPersonalConfig.Load(new PublishJob
+        {
+            Platform = SelectedPlatform.Value,
+            AccountId = SelectedAccount?.Model.Id ?? string.Empty,
+            ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
+            ProjectDirectory = projectDirectory,
+        });
+        if (!string.IsNullOrWhiteSpace(config.ProjectImageTemplateRoot))
+            settings.TiktokProjectImageTemplateRoot = config.ProjectImageTemplateRoot.Trim();
+        var templateId = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
+            ? config.EnterpriseProjectImageTemplateId
+            : config.PersonalProjectImageTemplateId;
+        if (string.IsNullOrWhiteSpace(templateId))
+            templateId = config.ProjectImageTemplateId;
+        if (!string.IsNullOrWhiteSpace(templateId))
+            settings.TiktokProjectImageTemplateId = templateId.Trim();
+
+        var title = string.IsNullOrWhiteSpace(job?.ProjectName)
+            ? Path.GetFileName(projectDirectory)
+            : job.ProjectName;
+        await TikTokProjectImageService.GenerateAsync(
+            new QueueProjectItem
+            {
+                ProjectDir = projectDirectory,
+                OriginalTitle = title,
+                EpisodeCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(projectDirectory),
+            },
+            settings,
+            PipelineForceRerun,
+            AppendActivityLog,
+            cancellationToken);
+
+        var context = ProjectWorkspaceService.LoadContext(projectDirectory);
+        var generatedDir = TikTokProjectImageService.GetOutputDirectory(context.WorkflowProjectDir);
+        if (!Directory.Exists(generatedDir))
+            return;
+
+        var copied = 0;
+        foreach (var file in Directory.EnumerateFiles(generatedDir, "工程图_*.png"))
+        {
+            File.Copy(file, Path.Combine(context.WorkflowProjectDir, Path.GetFileName(file)), overwrite: true);
+            copied++;
+        }
+
+        AppendActivityLog($"快手工程图已同步到工作目录：{copied} 张。");
     }
 
     private async Task RunTrackedStepAsync(
