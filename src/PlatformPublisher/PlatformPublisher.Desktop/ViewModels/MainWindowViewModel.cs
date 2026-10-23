@@ -621,19 +621,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnDraftScheduleTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftCustomVideoFilesTextChanged(string value) => AddJobCommand.NotifyCanExecuteChanged();
     partial void OnDraftNewProjectNameChanged(string value) => CreateNamedProjectCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineDownloadEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineSmartRecutEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineRewriteEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelinePosterEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineTranscodeEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineAutoRepairEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineAutoFillEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineCostReportEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineProjectImageEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineGenerateAiProofEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineGenerateTimestampCertificateEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineMaterialValidateEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
-    partial void OnPipelineRemuxEnabledChanged(bool value) => RunSharedPipelineCommand.NotifyCanExecuteChanged();
+    partial void OnPipelineDownloadEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineSmartRecutEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineRewriteEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelinePosterEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineTranscodeEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineAutoRepairEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineAutoFillEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineCostReportEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineProjectImageEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineGenerateAiProofEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineGenerateTimestampCertificateEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineMaterialValidateEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineRemuxEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineUploadEpisodesEnabledChanged(bool value) => OnWorkflowStepChanged();
+    partial void OnPipelineForceRerunChanged(bool value) => RememberWorkflowSteps();
 
     private async Task LoadAsync()
     {
@@ -1002,8 +1004,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
+    private bool _applyingWorkflowSettings;
+
+    private void OnWorkflowStepChanged()
+    {
+        RunSharedPipelineCommand.NotifyCanExecuteChanged();
+        RememberWorkflowSteps();
+    }
+
+    private void RememberWorkflowSteps()
+    {
+        if (_applyingWorkflowSettings)
+            return;
+        _ = _workflowSettingsStore.SaveAsync(CreateWorkflowSettings());
+    }
+
     private void ApplyWorkflowSettings(WeixinWorkflowSettings settings)
     {
+        _applyingWorkflowSettings = true;
+        try
+        {
         DraftProjectDirectory = settings.LastWorkspaceDirectory;
         ArchiveRootDirectory = settings.ArchiveRootDirectory;
         PipelineDownloadEnabled = settings.DownloadEnabled;
@@ -1030,39 +1050,47 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AutoShelfMaxPages = Math.Clamp(settings.AutoShelfMaxPages, 1, 100);
         AutoShelfMaxRounds = Math.Clamp(settings.AutoShelfMaxRounds, 1, 100);
         RefreshArchivedProjects();
+        }
+        finally
+        {
+            _applyingWorkflowSettings = false;
+        }
     }
+
+    private WeixinWorkflowSettings CreateWorkflowSettings() => new()
+    {
+        LastWorkspaceDirectory = DraftProjectDirectory,
+        ArchiveRootDirectory = ArchiveRootDirectory,
+        DownloadEnabled = PipelineDownloadEnabled,
+        SmartRecutEnabled = PipelineSmartRecutEnabled,
+        SmartRecutEpisodeCount = SmartRecutEpisodeCount,
+        SmartRecutMinSeconds = SmartRecutMinSeconds,
+        SmartRecutMaxSeconds = SmartRecutMaxSeconds,
+        RewriteEnabled = PipelineRewriteEnabled,
+        PosterEnabled = PipelinePosterEnabled,
+        TranscodeEnabled = PipelineTranscodeEnabled,
+        AutoRepairEnabled = PipelineAutoRepairEnabled,
+        AutoFillEnabled = PipelineAutoFillEnabled,
+        CostReportEnabled = PipelineCostReportEnabled,
+        ProjectImageEnabled = PipelineProjectImageEnabled,
+        MaterialValidateEnabled = PipelineMaterialValidateEnabled,
+        RemuxEnabled = PipelineRemuxEnabled,
+        UploadEpisodesEnabled = PipelineUploadEpisodesEnabled,
+        ForceRerun = PipelineForceRerun,
+        AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
+        PreferUploadWhenReady = PipelinePreferUploadWhenReady,
+        SyncManagementAfterUpload = PipelineSyncManagementAfterUpload,
+        GenerateAiProofEnabled = PipelineGenerateAiProofEnabled,
+        GenerateTimestampCertificateEnabled = PipelineGenerateTimestampCertificateEnabled,
+        PageSize = WorkflowPageSize,
+        AutoShelfMaxPages = AutoShelfMaxPages,
+        AutoShelfMaxRounds = AutoShelfMaxRounds,
+    };
 
     private async Task SaveWorkflowSettingsAsync()
     {
-        await _workflowSettingsStore.SaveAsync(new WeixinWorkflowSettings
-        {
-            LastWorkspaceDirectory = DraftProjectDirectory,
-            ArchiveRootDirectory = ArchiveRootDirectory,
-            DownloadEnabled = PipelineDownloadEnabled,
-            SmartRecutEnabled = PipelineSmartRecutEnabled,
-            SmartRecutEpisodeCount = SmartRecutEpisodeCount,
-            SmartRecutMinSeconds = SmartRecutMinSeconds,
-            SmartRecutMaxSeconds = SmartRecutMaxSeconds,
-            RewriteEnabled = PipelineRewriteEnabled,
-            PosterEnabled = PipelinePosterEnabled,
-            TranscodeEnabled = PipelineTranscodeEnabled,
-            AutoRepairEnabled = PipelineAutoRepairEnabled,
-            AutoFillEnabled = PipelineAutoFillEnabled,
-            CostReportEnabled = PipelineCostReportEnabled,
-            ProjectImageEnabled = PipelineProjectImageEnabled,
-            MaterialValidateEnabled = PipelineMaterialValidateEnabled,
-            RemuxEnabled = PipelineRemuxEnabled,
-            ForceRerun = PipelineForceRerun,
-            AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
-            PreferUploadWhenReady = PipelinePreferUploadWhenReady,
-            SyncManagementAfterUpload = PipelineSyncManagementAfterUpload,
-            GenerateAiProofEnabled = PipelineGenerateAiProofEnabled,
-            GenerateTimestampCertificateEnabled = PipelineGenerateTimestampCertificateEnabled,
-            PageSize = WorkflowPageSize,
-            AutoShelfMaxPages = AutoShelfMaxPages,
-            AutoShelfMaxRounds = AutoShelfMaxRounds,
-        });
-        StatusMessage = "视频号项目流水线设置已保存。";
+        await _workflowSettingsStore.SaveAsync(CreateWorkflowSettings());
+        StatusMessage = "步骤勾选已保存。";
         AppendActivityLog(StatusMessage);
     }
 
@@ -1078,9 +1106,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return string.Empty;
     }
 
-    private async Task RunSharedPipelineAsync()
+    private Task RunSharedPipelineAsync() => RunSharedPipelineAsync(null);
+
+    private async Task RunSharedPipelineAsync(IReadOnlyList<string>? targetsOverride)
     {
-        var targets = ResolveSharedPipelineTargets();
+        var targets = targetsOverride ?? ResolveSharedPipelineTargets();
         if (targets.Count == 0)
         {
             StatusMessage = IsKuaishouPlatform
@@ -1655,6 +1685,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (SelectedJob is null)
             return;
+        if (IsKuaishouPlatform)
+        {
+            await RunSharedPipelineAsync([Path.GetFullPath(SelectedJob.Model.ProjectDirectory)]);
+            return;
+        }
 
         await RunRowsAsync([SelectedJob], clearSchedule: true);
     }
@@ -1769,6 +1804,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RunCheckedAsync()
     {
+        if (IsKuaishouPlatform)
+        {
+            await RunSharedPipelineAsync();
+            return;
+        }
         var rows = VisibleJobs.Where(row => row.IsChecked).ToArray();
         if (rows.Length == 0)
         {
