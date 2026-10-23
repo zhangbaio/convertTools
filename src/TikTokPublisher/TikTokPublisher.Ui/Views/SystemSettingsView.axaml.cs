@@ -46,9 +46,9 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.TiktokRoleReferenceSelectionMode)
                 or nameof(SystemSettingsViewModel.TiktokRoleVectorViewMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
-                or nameof(SystemSettingsViewModel.PosterLayoutRequestMode)
                 or nameof(SystemSettingsViewModel.NetworkAddressPreference)
                 or nameof(SystemSettingsViewModel.ImageProvider)
+                or nameof(SystemSettingsViewModel.ImageModelId)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageGenerationMode)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageTemplateId)
@@ -162,11 +162,6 @@ public partial class SystemSettingsView : UserControl
         PosterModeCombo.Items.Add(CreateItem("AI清除原文字并固定字体写入", "erase_fixed_lower_title"));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
 
-        PosterLayoutRequestModeCombo.Items.Clear();
-        PosterLayoutRequestModeCombo.Items.Add(CreateItem("标准（当前整图请求）", ClientSettingsDefaults.PosterLayoutRequestMode));
-        PosterLayoutRequestModeCombo.Items.Add(CreateItem("快速（低精度流式）", ClientSettingsDefaults.PosterLayoutRequestModeFast));
-        PosterLayoutRequestModeCombo.SelectionChanged += OnPosterLayoutRequestModeChanged;
-
         NetworkAddressPreferenceCombo.Items.Clear();
         NetworkAddressPreferenceCombo.Items.Add(CreateItem("系统默认网络", PreferredNetworkHttp.SystemValue));
         NetworkAddressPreferenceCombo.Items.Add(CreateItem("优先 IPv4", PreferredNetworkHttp.Ipv4Value));
@@ -177,6 +172,11 @@ public partial class SystemSettingsView : UserControl
         ImageProviderCombo.Items.Add(CreateItem("豆包", "doubao"));
         ImageProviderCombo.Items.Add(CreateItem("Ofox Image2", "ofox_image2"));
         ImageProviderCombo.SelectionChanged += OnImageProviderChanged;
+
+        ImageModelCombo.Items.Clear();
+        ImageModelCombo.Items.Add(CreateItem(ClientSettingsDefaults.ImageModelId, ClientSettingsDefaults.ImageModelId));
+        ImageModelCombo.Items.Add(CreateItem(ClientSettingsDefaults.ImageModelIdPro, ClientSettingsDefaults.ImageModelIdPro));
+        ImageModelCombo.SelectionChanged += OnImageModelChanged;
 
         PosterTitleVerifyModeCombo.Items.Clear();
         PosterTitleVerifyModeCombo.Items.Add(CreateItem("AI重试后重绘", "fallback_repaint"));
@@ -227,9 +227,9 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(RoleReferenceSelectionModeCombo, _vm.TiktokRoleReferenceSelectionMode);
         SelectComboItem(RoleVectorViewModeCombo, _vm.TiktokRoleVectorViewMode);
         SelectComboItem(PosterModeCombo, _vm.PosterMode);
-        SelectComboItem(PosterLayoutRequestModeCombo, _vm.PosterLayoutRequestMode);
         SelectComboItem(NetworkAddressPreferenceCombo, _vm.NetworkAddressPreference);
         SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
+        SelectComboItem(ImageModelCombo, ClientSettingsDefaults.NormalizeImageModelId(_vm.ImageModelId));
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
         SelectComboItem(ProjectImageGenerationModeCombo, _vm.TiktokProjectImageGenerationMode);
         SyncProjectImageTemplateComboFromVm();
@@ -237,7 +237,6 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
         UpdatePosterModeUi();
-        UpdatePosterLayoutRequestModeUi();
         UpdateNetworkAddressPreferenceUi();
     }
 
@@ -352,13 +351,6 @@ public partial class SystemSettingsView : UserControl
         _vm.TiktokRoleVectorViewMode = item.Tag as string ?? ClientSettingsDefaults.TiktokRoleVectorViewMode;
     }
 
-    private void OnPosterLayoutRequestModeChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_vm is null || PosterLayoutRequestModeCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.PosterLayoutRequestMode = item.Tag as string ?? ClientSettingsDefaults.PosterLayoutRequestMode;
-        UpdatePosterLayoutRequestModeUi();
-    }
-
     private void OnNetworkAddressPreferenceChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_vm is null || NetworkAddressPreferenceCombo.SelectedItem is not ComboBoxItem item) return;
@@ -379,19 +371,6 @@ public partial class SystemSettingsView : UserControl
                 "火山等 AI 接口先连 IPv6，连不上再用 IPv4。",
             _ => "按 Windows 的网络设置选择 IPv4 或 IPv6。切换后新建的连接生效，已有连接最多几分钟后更新，重启软件立即生效。",
         };
-    }
-
-    private void UpdatePosterLayoutRequestModeUi()
-    {
-        var mode = (PosterLayoutRequestModeCombo.SelectedItem as ComboBoxItem)?.Tag as string
-                   ?? _vm?.PosterLayoutRequestMode
-                   ?? ClientSettingsDefaults.PosterLayoutRequestMode;
-        PosterLayoutRequestModeHintText.Text = string.Equals(
-            mode,
-            ClientSettingsDefaults.PosterLayoutRequestModeFast,
-            StringComparison.OrdinalIgnoreCase)
-            ? "快速模式按方舟图片理解建议请求：detail=low，像素上限 3014080，流式返回。超时、429 或 5xx 会换一次新请求。原图仍用于最终出图。"
-            : "标准模式保持现在的整图、非流式布局检测。失败时会记录图片大小、像素、接口、耗时和异常链。";
     }
 
     private void OnPosterModeChanged(object? sender, SelectionChangedEventArgs e)
@@ -416,6 +395,12 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || ImageProviderCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.ImageProvider = item.Tag as string ?? "doubao";
+    }
+
+    private void OnImageModelChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ImageModelCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.ImageModelId = item.Tag as string ?? ClientSettingsDefaults.ImageModelId;
     }
 
     private void OnPosterTitleVerifyModeChanged(object? sender, SelectionChangedEventArgs e)

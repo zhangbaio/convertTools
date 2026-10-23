@@ -498,7 +498,7 @@
                             <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ImageProviderCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ImageModelId}" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ImageModelCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="模型 API Key" VerticalAlignment="Center" />
                             <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ImageModelApiKey}" PasswordChar="●" RevealPassword="False" />
@@ -555,14 +555,6 @@
                                    Foreground="#666" TextWrapping="Wrap" />
 
                         <TextBlock x:Name="PosterModeHintText"
-                                   Foreground="#666"
-                                   TextWrapping="Wrap" />
-
-                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
-                            <TextBlock Grid.Column="0" Text="布局检测" VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1" x:Name="PosterLayoutRequestModeCombo" HorizontalAlignment="Stretch" />
-                        </Grid>
-                        <TextBlock x:Name="PosterLayoutRequestModeHintText"
                                    Foreground="#666"
                                    TextWrapping="Wrap" />
 

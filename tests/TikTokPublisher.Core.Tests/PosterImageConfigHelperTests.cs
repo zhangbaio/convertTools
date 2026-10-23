@@ -7,9 +7,10 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class PosterImageConfigHelperTests
 {
     [Theory]
-    [InlineData("2K", "3:4", "1728x2304")]
-    [InlineData("4K", "3:4", "3520x4688")]
-    [InlineData("2K", "auto", "2K")]
+    [InlineData("2K", "3:4", "1776x2368")]
+    [InlineData("2K", "16:9", "2816x1584")]
+    [InlineData("4K", "3:4", "1776x2368")]
+    [InlineData("4K", "auto", "2K")]
     public void DoubaoImageSizeForRatio_matches_python_table(string resolution, string ratio, string expected)
     {
         PosterImageConfigHelper.DoubaoImageSizeForRatio(resolution, ratio).Should().Be(expected);
@@ -30,7 +31,7 @@ public sealed class PosterImageConfigHelperTests
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal);
         PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
 
-        payload["ImageSize"].Should().Be("1728x2304");
+        payload["ImageSize"].Should().Be("1776x2368");
         payload["ImageQuality"].Should().Be("2K");
         payload["ImageEditPath"].Should().Be("/images/generations");
     }

@@ -19,6 +19,7 @@ public sealed class AiDescriptionService
         {
             model = cfg.AiModel,
             temperature = 0.7,
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new { role = "system", content = "你是短视频发布文案助手，擅长把短剧简介与既有文案改写成新的发表描述。" },

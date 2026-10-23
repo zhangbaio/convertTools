@@ -201,6 +201,7 @@ public sealed class MaterialDirectoryPublishService
             {
                 model,
                 temperature = 0.7,
+                thinking = new { type = "disabled" },
                 messages = new[]
                 {
                     new { role = "system", content = DefaultRewritePrompt },

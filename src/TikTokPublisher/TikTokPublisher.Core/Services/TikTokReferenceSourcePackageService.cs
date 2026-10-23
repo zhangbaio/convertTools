@@ -1992,6 +1992,7 @@ public static partial class TikTokReferenceSourcePackageService
         {
             model = settings.AiTextModel.Trim(),
             temperature = 0,
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new { role = "user", content = content.ToArray() },
@@ -2632,7 +2633,9 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
         string model,
         string prompt,
         string referenceDataUri,
-        string size) => new()
+        string size)
+    {
+        var payload = new Dictionary<string, object?>
         {
             ["model"] = model,
             ["prompt"] = prompt,
@@ -2640,8 +2643,11 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             ["size"] = size,
             ["response_format"] = "b64_json",
             ["watermark"] = false,
-            ["sequential_image_generation"] = "disabled",
         };
+        if (ClientSettingsDefaults.AllowsGroupGenerationParameter(model))
+            payload["sequential_image_generation"] = "disabled";
+        return payload;
+    }
 
     private static async Task<byte[]> GenerateImageAsync(
         string prompt,

@@ -313,6 +313,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         {
             model = modelId,
             temperature = Math.Clamp(temperature, 0, 2),
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new { role = "user", content = prompt }
@@ -705,6 +706,7 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         {
             model = modelId,
             temperature = Math.Clamp(titleTemperature, 0, 2),
+            thinking = new { type = "disabled" },
             messages
         };
 

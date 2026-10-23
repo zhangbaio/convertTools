@@ -11,24 +11,13 @@ public static class PosterImageConfigHelper
             ["2K"] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["1:1"] = "2048x2048",
-                ["3:4"] = "1728x2304",
-                ["4:3"] = "2304x1728",
-                ["16:9"] = "2560x1440",
-                ["9:16"] = "1440x2560",
+                ["3:4"] = "1776x2368",
+                ["4:3"] = "2368x1776",
+                ["16:9"] = "2816x1584",
+                ["9:16"] = "1584x2816",
                 ["2:3"] = "1664x2496",
                 ["3:2"] = "2496x1664",
-                ["21:9"] = "3024x1296",
-            },
-            ["4K"] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                ["1:1"] = "4096x4096",
-                ["3:4"] = "3520x4688",
-                ["4:3"] = "4688x3520",
-                ["16:9"] = "5408x3040",
-                ["9:16"] = "3040x5408",
-                ["2:3"] = "3328x4992",
-                ["3:2"] = "4992x3328",
-                ["21:9"] = "6192x2656",
+                ["21:9"] = "3136x1344",
             },
         };
 
@@ -89,11 +78,7 @@ public static class PosterImageConfigHelper
     public static bool IsOpenAiImageProvider(string? provider) =>
         NormalizeImageProvider(provider) == "ofox_image2";
 
-    public static string NormalizeDoubaoImageResolution(string? value)
-    {
-        var text = (value ?? "2K").Trim().ToUpperInvariant();
-        return text is "2K" or "4K" ? text : "2K";
-    }
+    public static string NormalizeDoubaoImageResolution(string? value) => "2K";
 
     public static string NormalizeDoubaoImageRatio(string? value)
     {
@@ -117,10 +102,43 @@ public static class PosterImageConfigHelper
         if (DoubaoSizeTable.TryGetValue(normalizedResolution, out var table)
             && table.TryGetValue(normalizedRatio, out var size))
         {
+            return ClampDoubaoPixelSize(size);
+        }
+
+        return ClampDoubaoPixelSize("1776x2368");
+    }
+
+    /// <summary>Seedream 5.0 Flash 允许的总像素上限是 2048×2048×1.1025。</summary>
+    internal static string ClampDoubaoPixelSize(string size)
+    {
+        const long maxPixels = 4_624_220;
+        var parts = size.Split('x');
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], out var width) ||
+            !int.TryParse(parts[1], out var height) ||
+            width <= 0 || height <= 0)
+        {
             return size;
         }
 
-        return "1728x2304";
+        var pixels = (long)width * height;
+        if (pixels <= maxPixels)
+            return size;
+
+        var scale = Math.Sqrt(maxPixels / (double)pixels);
+        var clampedWidth = Math.Max(1, (int)Math.Floor(width * scale));
+        var clampedHeight = Math.Max(1, (int)Math.Floor(height * scale));
+        while ((long)clampedWidth * clampedHeight > maxPixels)
+        {
+            if (clampedWidth >= clampedHeight && clampedWidth > 1)
+                clampedWidth--;
+            else if (clampedHeight > 1)
+                clampedHeight--;
+            else
+                break;
+        }
+
+        return $"{clampedWidth}x{clampedHeight}";
     }
 
     public static string DefaultImageEditPath(string? endpoint)

@@ -68,6 +68,7 @@ public sealed class LlmScorer
         {
             model = opts.AiModel,
             temperature = 0.1,
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new { role = "system", content = "You are an expert short-drama clip editor." },
