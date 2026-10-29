@@ -1,6 +1,7 @@
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services;
@@ -17,7 +18,12 @@ public sealed record WorkspaceQueueRunInfo(
 public sealed class WorkspaceQueueOrchestrator
 {
     private readonly UploadSlotCoordinator _sharedUploadSlots = new();
+    private readonly XingeAutoPublishQueueObserver _autoPublishObserver = new();
+    private readonly XingeAutoPublishProgressReporter _autoPublishReporter;
     private readonly object _lock = new();
+
+    public WorkspaceQueueOrchestrator(XingeAutoPublishProgressReporter? autoPublishReporter = null) =>
+        _autoPublishReporter = autoPublishReporter ?? XingeAutoPublishProgressReporter.Shared;
     private readonly Dictionary<string, ActiveRun> _runs = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<QueueProjectItem, string, string>? ManualInterventionPending;
@@ -94,7 +100,11 @@ public sealed class WorkspaceQueueOrchestrator
                     host,
                     store,
                     finalAction,
-                    onProgress,
+                    progress =>
+                    {
+                        ReportAutoPublishProgress(progress);
+                        onProgress(progress);
+                    },
                     onPersist,
                     linkedCts.Token,
                     projectDirFilter),
@@ -122,6 +132,34 @@ public sealed class WorkspaceQueueOrchestrator
 
             run.Cts.Dispose();
             run.Runner.ManualIntervention.Reset();
+            ReportAutoPublishRunFinished(items);
+        }
+    }
+
+    private void ReportAutoPublishProgress(QueueWorkerProgress progress)
+    {
+        try
+        {
+            var report = _autoPublishObserver.Observe(progress);
+            if (report is not null)
+                _autoPublishReporter.Enqueue(report);
+        }
+        catch
+        {
+            // 回传是旁路能力，任何异常都不能影响队列执行。
+        }
+    }
+
+    private void ReportAutoPublishRunFinished(IList<QueueProjectItem> items)
+    {
+        try
+        {
+            foreach (var report in _autoPublishObserver.ObserveRunFinished(items.ToArray()))
+                _autoPublishReporter.Enqueue(report);
+        }
+        catch
+        {
+            // 回传失败不影响队列收尾。
         }
     }
 

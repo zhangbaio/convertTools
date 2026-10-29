@@ -3,6 +3,7 @@ using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
@@ -1357,8 +1358,10 @@ public sealed class QueueWorkerRunner
             throw new QueueStopRequestedException(failureMessage);
         }
 
+        // 自动上新派单无人值守，等待人工处理会让账号一直占着进行中名额；直接按失败回传，由派单端重试或改派。
         if (!skipManualIntervention &&
             manualIntervention is not null &&
+            !XingeAutoPublishMarkerStore.IsActive(item.ProjectDir) &&
             !ct.IsCancellationRequested &&
             !manualIntervention.WasResolved(item.ProjectDir))
         {

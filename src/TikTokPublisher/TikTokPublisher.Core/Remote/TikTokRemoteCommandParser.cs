@@ -230,7 +230,9 @@ public static class TikTokRemoteCommandParser
                     AutoRun: autoRun,
                     QueueOptions: queueOptions,
                     MatchMode: matchMode,
-                    Series: series.Count > 0 ? series : null);
+                    Series: series.Count > 0 ? series : null,
+                    AutoPublishAssignmentId: GetPositiveLong(root, "auto_publish_assignment_id"),
+                    AutoPublishProgressPath: FirstString(root, "auto_publish_progress_path"));
             }
 
             if (commandName is "tiktok_start_queue" or "start_tiktok_queue")
@@ -451,6 +453,20 @@ public static class TikTokRemoteCommandParser
 
         value = default;
         return false;
+    }
+
+    private static long GetPositiveLong(JsonElement element, string propertyName)
+    {
+        if (!TryGetProperty(element, propertyName, out var value))
+            return 0;
+        long parsed = 0;
+        var ok = value.ValueKind switch
+        {
+            JsonValueKind.Number => value.TryGetInt64(out parsed),
+            JsonValueKind.String => long.TryParse(value.GetString(), out parsed),
+            _ => false,
+        };
+        return ok && parsed > 0 ? parsed : 0;
     }
 
     private static bool GetBool(JsonElement element, bool fallback)

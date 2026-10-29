@@ -308,6 +308,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         SystemServices.SettingsSaved += RestartXingeRemoteCommandService;
         _xingeRemoteCommandService.StatusChanged += OnXingeRemoteStatusChanged;
+        XingeAutoPublishProgressReporter.Shared.Log += AppendLog;
     }
 
     public void StartXingeRemoteCommandService() => RestartXingeRemoteCommandService();
@@ -2465,6 +2466,65 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private async Task<TikTokRemoteCommandResult> ExecuteRemoteUploadSeriesAsync(TikTokRemoteCommand command)
     {
+        var assignment = XingeAutoPublishAssignment.FromCommand(command);
+        if (assignment is null)
+            return await ExecuteRemoteUploadSeriesCoreAsync(command, null);
+
+        var autoPublish = new RemoteAutoPublishContext(assignment);
+        TikTokRemoteCommandResult result;
+        try
+        {
+            result = await ExecuteRemoteUploadSeriesCoreAsync(command, autoPublish);
+        }
+        catch (Exception ex)
+        {
+            result = TikTokRemoteCommandResult.Failed(command.Command, ex.Message);
+        }
+
+        // 在命令回执之前同步回传，确保服务端按客户端给出的失败类型处理，而不是按回执文本猜测。
+        if (!autoPublish.TerminalReported && string.Equals(result.Status, "failed", StringComparison.OrdinalIgnoreCase))
+        {
+            await ReportRemoteAutoPublishFailureAsync(
+                autoPublish,
+                "import",
+                result.SummaryText,
+                XingeAutoPublishFailureClassifier.Classify("", result.SummaryText));
+        }
+
+        return result;
+    }
+
+    private async Task ReportRemoteAutoPublishFailureAsync(
+        RemoteAutoPublishContext autoPublish,
+        string step,
+        string detail,
+        string failureKind)
+    {
+        autoPublish.TerminalReported = true;
+        foreach (var projectDir in autoPublish.ProjectDirs)
+        {
+            try { XingeAutoPublishMarkerStore.MarkFinal(projectDir, autoPublish.Assignment.AssignmentId, XingeAutoPublishStatuses.Failed); }
+            catch (Exception ex) { AppendLog($"更新自动上新标记失败：{ex.Message}"); }
+        }
+
+        var delivered = await XingeAutoPublishProgressReporter.Shared.ReportAsync(
+            XingeAutoPublishProgress.For(autoPublish.Assignment, XingeAutoPublishStatuses.Failed, step, detail, failureKind),
+            CancellationToken.None);
+        if (!delivered)
+            AppendLog($"自动上新派单 {autoPublish.Assignment.AssignmentId} 的失败结果暂未送达 XINGE，将在连接恢复后补发。");
+    }
+
+    private sealed class RemoteAutoPublishContext(XingeAutoPublishAssignment assignment)
+    {
+        public XingeAutoPublishAssignment Assignment { get; } = assignment;
+        public List<string> ProjectDirs { get; } = [];
+        public bool TerminalReported { get; set; }
+    }
+
+    private async Task<TikTokRemoteCommandResult> ExecuteRemoteUploadSeriesCoreAsync(
+        TikTokRemoteCommand command,
+        RemoteAutoPublishContext? autoPublish)
+    {
         var titles = command.Titles?.Where(title => !string.IsNullOrWhiteSpace(title)).ToList() ?? [];
         if (titles.Count == 0)
             return TikTokRemoteCommandResult.Failed(command.Command, "未提供可上传的 TikTok 剧名。");
@@ -2504,7 +2564,8 @@ public sealed partial class MainViewModel : ViewModelBase
             singleMatchMode,
             finalAction,
             allowAppendToRunningQueue: command.AutoRun,
-            CancellationToken.None);
+            CancellationToken.None,
+            autoPublish: autoPublish);
 
         var result = importOutcome.ImportResult;
         if (result.ProjectDirs.Count == 0)
@@ -2513,9 +2574,30 @@ public sealed partial class MainViewModel : ViewModelBase
             var failurePreview = result.Failures.Count > 0
                 ? UploadTitleImportService.BuildFailurePreview(result.Failures)
                 : "没有匹配到可执行项目。";
+            if (autoPublish is not null)
+            {
+                // 管理系统已有上传记录、剧不存在或不符合导入条件：这部剧不应再派给任何账号。
+                var duplicateOnly = result.Duplicates.Count > 0 && result.Failures.Count == 0;
+                await ReportRemoteAutoPublishFailureAsync(
+                    autoPublish,
+                    "import",
+                    duplicateOnly ? $"管理系统已存在上传记录：{string.Join("、", result.Duplicates)}" : failurePreview,
+                    duplicateOnly
+                        ? XingeAutoPublishFailureKinds.Source
+                        : XingeAutoPublishFailureClassifier.ClassifyImportFailure(result.Failures.FirstOrDefault()?.Reason));
+            }
             return result.Duplicates.Count > 0 && result.Failures.Count == 0
                 ? TikTokRemoteCommandResult.Success(command.Command, $"没有需要上传的新剧（全部已存在）{duplicateSuffix}。")
                 : TikTokRemoteCommandResult.Failed(command.Command, $"TikTok 剧集导入失败：{failurePreview}{duplicateSuffix}");
+        }
+
+        if (autoPublish is not null)
+        {
+            XingeAutoPublishProgressReporter.Shared.Enqueue(XingeAutoPublishProgress.For(
+                autoPublish.Assignment,
+                XingeAutoPublishStatuses.Accepted,
+                "import",
+                $"已导入 {result.QueuedCount} 个项目"));
         }
 
         var authorExcludeNotice = UploadTitleImportService.BuildAuthorExcludeNotice(result.Failures);
@@ -4369,7 +4451,8 @@ public sealed partial class MainViewModel : ViewModelBase
         FinalAction? finalActionOverride,
         bool allowAppendToRunningQueue,
         CancellationToken ct,
-        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null)
+        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null,
+        RemoteAutoPublishContext? autoPublish = null)
     {
         var root = Path.GetFullPath(workspaceRoot);
         var settings = ClientSettingsStore.Load();
@@ -4385,6 +4468,16 @@ public sealed partial class MainViewModel : ViewModelBase
             ct,
             addProjectsToQueue: false,
             confirmUnknownAuthor: confirmUnknownAuthor);
+
+        // 标记必须在项目进入运行队列之前写好，队列观察者才能从第一条进度起识别派单。
+        if (autoPublish is not null)
+        {
+            foreach (var projectDir in BuildOrderedDistinctProjectDirs(result.ProjectDirs))
+            {
+                XingeAutoPublishMarkerStore.Write(projectDir, autoPublish.Assignment);
+                autoPublish.ProjectDirs.Add(projectDir);
+            }
+        }
 
         var applyOutcome = ApplyRemoteUploadTitleImportResult(
             result,

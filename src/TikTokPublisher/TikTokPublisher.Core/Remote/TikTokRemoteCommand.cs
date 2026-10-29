@@ -17,8 +17,13 @@ public sealed record TikTokRemoteCommand(
     bool AutoRun = true,
     IReadOnlyDictionary<string, object?>? QueueOptions = null,
     string MatchMode = "",
-    IReadOnlyList<TikTokUploadSeriesSpec>? Series = null)
+    IReadOnlyList<TikTokUploadSeriesSpec>? Series = null,
+    long AutoPublishAssignmentId = 0,
+    string AutoPublishProgressPath = "")
 {
+    // XINGE 自动上新派单下发的命令：执行结果需逐步回传到该派单。
+    public bool IsAutoPublishAssignment => AutoPublishAssignmentId > 0;
+
     public bool IsUploadCommand =>
         string.Equals(Command, TikTokRemoteCommandNames.UploadSeries, StringComparison.Ordinal);
 

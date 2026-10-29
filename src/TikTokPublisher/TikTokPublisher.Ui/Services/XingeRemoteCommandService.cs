@@ -117,6 +117,7 @@ public sealed class XingeRemoteCommandService
                     await RegisterAsync(http, config, snapshot, ct).ConfigureAwait(false);
                     lastRegisteredAt = DateTimeOffset.UtcNow;
                     Notify($"XINGE 已在线：{snapshot.AccountProfiles.Count} 个账号");
+                    await FlushAutoPublishProgressAsync(log, ct).ConfigureAwait(false);
                 }
 
                 var message = await PollAsync(http, config, ct).ConfigureAwait(false);
@@ -255,6 +256,18 @@ public sealed class XingeRemoteCommandService
             await CompleteAsync(http, config, message.ID, result, ct).ConfigureAwait(false);
         }
         log?.Invoke($"XINGE 远程命令完成：{result.SummaryText}");
+    }
+
+    private static async Task FlushAutoPublishProgressAsync(Action<string>? log, CancellationToken ct)
+    {
+        try
+        {
+            await XingeAutoPublishProgressReporter.Shared.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"XINGE 自动上新进度补发失败：{ex.Message}");
+        }
     }
 
     private async Task ProvisionAndSaveAsync(XingeRemoteConfig config, CancellationToken ct)
