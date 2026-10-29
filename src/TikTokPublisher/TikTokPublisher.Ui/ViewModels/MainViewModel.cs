@@ -309,6 +309,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.SettingsSaved += RestartXingeRemoteCommandService;
         _xingeRemoteCommandService.StatusChanged += OnXingeRemoteStatusChanged;
         XingeAutoPublishProgressReporter.Shared.Log += AppendLog;
+        XingeUploadTaskReporter.Shared.Log += AppendLog;
     }
 
     public void StartXingeRemoteCommandService() => RestartXingeRemoteCommandService();
@@ -2378,6 +2379,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 TikTokRemoteCommandNames.SwitchAccountProfile => ExecuteRemoteSwitchAccount(command),
                 TikTokRemoteCommandNames.StartQueue => await ExecuteRemoteStartQueueAsync(command),
                 TikTokRemoteCommandNames.UploadSeries => await ExecuteRemoteUploadSeriesAsync(command),
+                TikTokRemoteCommandNames.RetryQueue => await ExecuteRemoteRetryQueueAsync(command),
                 _ => TikTokRemoteCommandResult.Failed(command.Command, $"未支持的远程命令：{command.Command}"),
             };
         }
@@ -2446,6 +2448,201 @@ public sealed partial class MainViewModel : ViewModelBase
 
         return TikTokRemoteCommandResult.Accepted(command.Command, $"TikTok 队列已启动，工作目录：{workspace}");
     }
+
+    // XINGE 监控屏下发的手动重试：等同在账号工作目录勾选这些项目后点「执行勾选队列」。
+    // 不重置步骤状态，失败/已停止的步骤由队列重新执行，已完成的跳过；步骤沿用本机界面配置。
+    private async Task<TikTokRemoteCommandResult> ExecuteRemoteRetryQueueAsync(TikTokRemoteCommand command)
+    {
+        var retryItems = command.RetryItems ?? [];
+        if (retryItems.Count == 0)
+            return TikTokRemoteCommandResult.Failed(command.Command, "重试命令没有指定剧集。");
+
+        var account = FindAccountById(command.AccountProfileId)?.Model;
+        if (account is null)
+        {
+            return TikTokRemoteCommandResult.Failed(
+                command.Command,
+                $"未找到远程命令指定的 TikTok 账号：{FirstNonEmptyText(command.AccountProfileName, command.AccountProfileId)}");
+        }
+
+        var workspace = NormalizeWorkspacePath(account.ResolveWorkspacePath());
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+            return TikTokRemoteCommandResult.Failed(command.Command, $"账号「{account.DisplayName}」没有配置有效工作目录。");
+        var root = Path.GetFullPath(workspace);
+
+        var projectDirs = new List<string>();
+        var missing = new List<string>();
+        foreach (var item in retryItems)
+        {
+            if (!TryResolveRetryProjectDir(root, item.ProjectPath, out var projectDir))
+            {
+                missing.Add(item.ProjectPath);
+                continue;
+            }
+
+            if (item.AutoPublishAssignmentId > 0)
+                RefreshAutoPublishMarkerForRetry(projectDir, item.AutoPublishAssignmentId, account.Id);
+            projectDirs.Add(projectDir);
+        }
+
+        var ordered = BuildOrderedDistinctProjectDirs(projectDirs);
+        if (ordered.Count == 0)
+        {
+            return TikTokRemoteCommandResult.Failed(
+                command.Command,
+                $"要重试的项目不在账号「{account.DisplayName}」的工作目录中或已删除：{string.Join("、", missing.Select(Path.GetFileName).Take(5))}");
+        }
+
+        var skippedText = missing.Count > 0 ? $"，{missing.Count} 个项目已不存在，已跳过" : "";
+        TikTokRemoteCommandResult Accepted(string text)
+        {
+            text += skippedText + "。";
+            StatusMessage = text;
+            AppendLog(text);
+            return TikTokRemoteCommandResult.Accepted(command.Command, text);
+        }
+
+        if (IsWorkspaceQueueRunning(root))
+        {
+            var appended = _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, BuildRetryAppendCandidates(root, ordered, account));
+            if (appended > 0)
+                return Accepted($"已把 {appended} 部重试剧集追加到「{account.DisplayName}」运行中的队列末尾");
+        }
+
+        if ((IsWorkspaceQueueRunning(root) || IsWorkspaceQueueRunLifecycleActive(root)) &&
+            !await WaitForWorkspaceQueueToFinishClosingAsync(root, TimeSpan.FromSeconds(3)))
+        {
+            return TikTokRemoteCommandResult.Failed(command.Command, "目标队列正在收尾，暂不能接纳重试，请稍后再试。");
+        }
+
+        var preparation = PrepareRemoteRetryProjectsWhenIdle(root, ordered, account);
+        if (preparation.AppendCandidates.Count == 0)
+            return TikTokRemoteCommandResult.Failed(command.Command, "要重试的项目没有出现在队列中。");
+        ApplyRemoteUploadIdlePreparationToDisplayedWorkspace(root, preparation);
+
+        var runQueueRequested = RemoteQueueRunRequested;
+        if (runQueueRequested is null)
+            return TikTokRemoteCommandResult.Failed(command.Command, "队列视图尚未初始化，无法执行重试。");
+
+        var target = new WorkspaceQueueTarget(root, $"{account.DisplayName} · {root}", account.Id, ordered);
+        bool started;
+        try
+        {
+            started = await runQueueRequested.Invoke(target, null);
+        }
+        catch (Exception ex)
+        {
+            return TikTokRemoteCommandResult.Failed(command.Command, $"重试队列未启动：{ex.Message}");
+        }
+
+        if (!started)
+        {
+            var appended = _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, preparation.AppendCandidates);
+            if (appended > 0)
+                return Accepted($"已把 {appended} 部重试剧集追加到「{account.DisplayName}」运行中的队列末尾");
+            return TikTokRemoteCommandResult.Failed(command.Command, "重试队列未启动：没有可执行的步骤，或工作目录已被其它任务占用。");
+        }
+
+        return Accepted($"已按「执行勾选队列」重新执行「{account.DisplayName}」的 {preparation.AppendCandidates.Count} 部剧");
+    }
+
+    private static bool TryResolveRetryProjectDir(string root, string projectPath, out string projectDir)
+    {
+        projectDir = "";
+        try
+        {
+            projectDir = Path.GetFullPath(projectPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+
+        var prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return projectDir.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && Directory.Exists(projectDir);
+    }
+
+    // 服务端为重试重新占用了派单时，项目标记换成新派单，后续上报才会计入新派单。
+    private void RefreshAutoPublishMarkerForRetry(string projectDir, long assignmentId, string accountId)
+    {
+        try
+        {
+            var marker = XingeAutoPublishMarkerStore.TryRead(projectDir);
+            if (marker is { IsActive: true } && marker.AssignmentId == assignmentId)
+                return;
+            XingeAutoPublishMarkerStore.Write(projectDir, new XingeAutoPublishAssignment(
+                assignmentId,
+                $"{XingeAutoPublishProgressReporter.DefaultProgressPathPrefix}{assignmentId}/progress",
+                marker?.SeriesId ?? "",
+                FirstNonEmptyText(marker?.AccountProfileId, accountId),
+                marker?.Title ?? ""));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppendLog($"更新自动上新标记失败：{projectDir}：{ex.Message}");
+        }
+    }
+
+    private static List<QueueProjectItem> BuildRetryAppendCandidates(
+        string workspaceRoot,
+        IReadOnlyList<string> orderedProjectDirs,
+        TikTokAccountProfile account)
+    {
+        var byProjectDir = WorkspaceQueueService.ScanProjects(workspaceRoot)
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<QueueProjectItem>();
+        foreach (var projectDir in orderedProjectDirs)
+        {
+            if (!byProjectDir.TryGetValue(projectDir, out var item))
+                continue;
+            MarkRetryCandidate(item, account);
+            candidates.Add(item);
+        }
+
+        return candidates;
+    }
+
+    private static RemoteUploadIdlePreparation PrepareRemoteRetryProjectsWhenIdle(
+        string workspaceRoot,
+        IReadOnlyList<string> orderedProjectDirs,
+        TikTokAccountProfile account)
+    {
+        WorkspaceQueueService.AddProjectsToQueue(workspaceRoot, orderedProjectDirs);
+        var items = WorkspaceQueueService.ScanProjects(workspaceRoot).ToList();
+        var runOptions = WorkspaceQueueService.LoadRunOptions(workspaceRoot);
+        var byProjectDir = items
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<QueueProjectItem>();
+        foreach (var projectDir in orderedProjectDirs)
+        {
+            if (!byProjectDir.TryGetValue(projectDir, out var item))
+                continue;
+            MarkRetryCandidate(item, account);
+            candidates.Add(item);
+        }
+
+        if (candidates.Count > 0)
+            WorkspaceQueueService.SaveRunOptions(workspaceRoot, items, runOptions);
+        return new RemoteUploadIdlePreparation(items, candidates, runOptions);
+    }
+
+    private static void MarkRetryCandidate(QueueProjectItem item, TikTokAccountProfile account)
+    {
+        item.Enabled = true;
+        item.Archived = false;
+        if (string.IsNullOrWhiteSpace(item.AccountProfileId))
+        {
+            item.AccountProfileId = account.Id;
+            item.AccountProfileName = account.DisplayName;
+        }
+    }
+
+    private static string FirstNonEmptyText(params string?[] values) =>
+        values.Select(value => value?.Trim() ?? "").FirstOrDefault(value => value.Length > 0) ?? "";
 
     // 依据远程命令生成导入用的原始文本与匹配模式：
     // title_episode 模式下按 series 逐行输出「剧名 集数」，供精准按集数匹配；否则退回仅剧名。

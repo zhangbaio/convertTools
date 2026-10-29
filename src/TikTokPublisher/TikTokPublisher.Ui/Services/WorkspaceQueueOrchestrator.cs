@@ -18,12 +18,12 @@ public sealed record WorkspaceQueueRunInfo(
 public sealed class WorkspaceQueueOrchestrator
 {
     private readonly UploadSlotCoordinator _sharedUploadSlots = new();
-    private readonly XingeAutoPublishQueueObserver _autoPublishObserver = new();
-    private readonly XingeAutoPublishProgressReporter _autoPublishReporter;
+    private readonly XingeUploadTaskObserver _uploadTaskObserver = new();
+    private readonly XingeUploadTaskReporter _uploadTaskReporter;
     private readonly object _lock = new();
 
-    public WorkspaceQueueOrchestrator(XingeAutoPublishProgressReporter? autoPublishReporter = null) =>
-        _autoPublishReporter = autoPublishReporter ?? XingeAutoPublishProgressReporter.Shared;
+    public WorkspaceQueueOrchestrator(XingeUploadTaskReporter? uploadTaskReporter = null) =>
+        _uploadTaskReporter = uploadTaskReporter ?? XingeUploadTaskReporter.Shared;
     private readonly Dictionary<string, ActiveRun> _runs = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<QueueProjectItem, string, string>? ManualInterventionPending;
@@ -79,6 +79,8 @@ public sealed class WorkspaceQueueOrchestrator
         if (!selectionValidated)
             QueueWorkerRunner.ValidateRunSelection(items, options, store, projectDirFilter);
 
+        var uploadStepEnabled = RunsRealUpload(options);
+        Func<QueueProjectItem, XingeUploadTaskAccount?> resolveAccount = item => ResolveTaskAccount(store, item);
         CancellationTokenSource linkedCts;
         ActiveRun run;
         lock (_lock)
@@ -102,7 +104,7 @@ public sealed class WorkspaceQueueOrchestrator
                     finalAction,
                     progress =>
                     {
-                        ReportAutoPublishProgress(progress);
+                        ReportUploadTaskProgress(progress, uploadStepEnabled, resolveAccount);
                         onProgress(progress);
                     },
                     onPersist,
@@ -132,34 +134,60 @@ public sealed class WorkspaceQueueOrchestrator
 
             run.Cts.Dispose();
             run.Runner.ManualIntervention.Reset();
-            ReportAutoPublishRunFinished(items);
+            ReportUploadTaskRunFinished(root, items, resolveAccount);
         }
     }
 
-    private void ReportAutoPublishProgress(QueueWorkerProgress progress)
+    // 只补跑存证 / 大纲等不产生新上传的模式不计入上传任务。
+    private static bool RunsRealUpload(QueueRunOptions options) =>
+        options.IsStepEnabled(QueueStepRegistry.UploadSeries) &&
+        options.UploadEntryMode is not (QueueRunOptions.CopyrightProofOnlyEntryMode
+            or QueueRunOptions.CopyrightProofMaterialOnlyEntryMode
+            or QueueRunOptions.AiOutlineSupplementEntryMode);
+
+    private static XingeUploadTaskAccount? ResolveTaskAccount(AccountStore store, QueueProjectItem item)
     {
         try
         {
-            var report = _autoPublishObserver.Observe(progress);
+            var account = QueueAccountBindingResolver.Resolve(store, item);
+            return account is null ? null : new XingeUploadTaskAccount(account.Id, account.DisplayName);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void ReportUploadTaskProgress(
+        QueueWorkerProgress progress,
+        bool uploadStepEnabled,
+        Func<QueueProjectItem, XingeUploadTaskAccount?> resolveAccount)
+    {
+        try
+        {
+            var report = _uploadTaskObserver.Observe(progress, uploadStepEnabled, resolveAccount);
             if (report is not null)
-                _autoPublishReporter.Enqueue(report);
+                _uploadTaskReporter.Enqueue(report);
         }
         catch
         {
-            // 回传是旁路能力，任何异常都不能影响队列执行。
+            // 上报是旁路能力，任何异常都不能影响队列执行。
         }
     }
 
-    private void ReportAutoPublishRunFinished(IList<QueueProjectItem> items)
+    private void ReportUploadTaskRunFinished(
+        string root,
+        IList<QueueProjectItem> items,
+        Func<QueueProjectItem, XingeUploadTaskAccount?> resolveAccount)
     {
         try
         {
-            foreach (var report in _autoPublishObserver.ObserveRunFinished(items.ToArray()))
-                _autoPublishReporter.Enqueue(report);
+            foreach (var report in _uploadTaskObserver.ObserveRunFinished(root, items.ToArray(), resolveAccount))
+                _uploadTaskReporter.Enqueue(report);
         }
         catch
         {
-            // 回传失败不影响队列收尾。
+            // 上报失败不影响队列收尾。
         }
     }
 

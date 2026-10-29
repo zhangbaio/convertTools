@@ -249,6 +249,17 @@ public static class TikTokRemoteCommandParser
                     QueueOptions: queueOptions);
             }
 
+            if (commandName == TikTokRemoteCommandNames.RetryQueue)
+            {
+                return new TikTokRemoteCommand(
+                    TikTokRemoteCommandNames.RetryQueue,
+                    AccountProfileId: accountProfileId,
+                    AccountProfileName: accountProfileName,
+                    RetryItems: TryGetProperty(root, "items", out var itemsElement)
+                        ? RetryItemsFromJsonElement(itemsElement)
+                        : Array.Empty<TikTokRetryQueueItem>());
+            }
+
             return commandName switch
             {
                 "tiktok_stop_queue" or "stop_tiktok_queue" => new TikTokRemoteCommand(TikTokRemoteCommandNames.StopQueue),
@@ -556,6 +567,29 @@ public static class TikTokRemoteCommandParser
             }
 
             list.Add(new TikTokUploadSeriesSpec(title, episodeCnt < 0 ? 0 : episodeCnt, GetString(entry, "series_id").Trim()));
+        }
+
+        return list;
+    }
+
+    private static IReadOnlyList<TikTokRetryQueueItem> RetryItemsFromJsonElement(JsonElement element)
+    {
+        var list = new List<TikTokRetryQueueItem>();
+        if (element.ValueKind != JsonValueKind.Array)
+            return list;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in element.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object)
+                continue;
+            var projectPath = GetString(entry, "project_path").Trim();
+            if (projectPath.Length == 0 || !seen.Add(projectPath))
+                continue;
+            list.Add(new TikTokRetryQueueItem(
+                projectPath,
+                GetPositiveLong(entry, "task_id"),
+                GetPositiveLong(entry, "auto_publish_assignment_id")));
         }
 
         return list;

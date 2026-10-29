@@ -5,6 +5,9 @@ namespace TikTokPublisher.Core.Remote;
 // TikTokUploadSeriesSpec 描述一条上传剧集及其可选集数（用于「剧名 + 集数」精准匹配）。
 public sealed record TikTokUploadSeriesSpec(string Title, int EpisodeCnt = 0, string SeriesId = "");
 
+// TikTokRetryQueueItem 服务端监控屏下发的重试项：账号工作目录下的一个项目。
+public sealed record TikTokRetryQueueItem(string ProjectPath, long TaskId = 0, long AutoPublishAssignmentId = 0);
+
 public sealed record TikTokRemoteCommand(
     string Command,
     IReadOnlyList<string>? Titles = null,
@@ -19,8 +22,12 @@ public sealed record TikTokRemoteCommand(
     string MatchMode = "",
     IReadOnlyList<TikTokUploadSeriesSpec>? Series = null,
     long AutoPublishAssignmentId = 0,
-    string AutoPublishProgressPath = "")
+    string AutoPublishProgressPath = "",
+    IReadOnlyList<TikTokRetryQueueItem>? RetryItems = null)
 {
+    public bool IsRetryQueueCommand =>
+        string.Equals(Command, TikTokRemoteCommandNames.RetryQueue, StringComparison.Ordinal);
+
     // XINGE 自动上新派单下发的命令：执行结果需逐步回传到该派单。
     public bool IsAutoPublishAssignment => AutoPublishAssignmentId > 0;
 
@@ -50,6 +57,7 @@ public static class TikTokRemoteCommandNames
 {
     public const string UploadSeries = "tiktok_upload_series";
     public const string StartQueue = "tiktok_start_queue";
+    public const string RetryQueue = "tiktok_retry_queue";
     public const string StopQueue = "tiktok_stop_queue";
     public const string QueryStatus = "tiktok_query_status";
     public const string ShowHelpText = "show_help_text";

@@ -268,6 +268,15 @@ public sealed class XingeRemoteCommandService
         {
             log?.Invoke($"XINGE 自动上新进度补发失败：{ex.Message}");
         }
+
+        try
+        {
+            await XingeUploadTaskReporter.Shared.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"XINGE 上传任务补发失败：{ex.Message}");
+        }
     }
 
     private async Task ProvisionAndSaveAsync(XingeRemoteConfig config, CancellationToken ct)
