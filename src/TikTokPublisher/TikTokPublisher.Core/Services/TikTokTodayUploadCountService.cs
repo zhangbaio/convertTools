@@ -23,13 +23,13 @@ public static class TikTokTodayUploadCountService
 
         if (!string.IsNullOrWhiteSpace(workspace) && Directory.Exists(workspace))
         {
-            foreach (var item in TikTokArchivedProjectService.List(workspace, archiveRootDir))
+            foreach (var item in TikTokArchivedProjectService.ListStored(workspace, archiveRootDir))
                 AddArchiveItemIfToday(seen, item, accountId, today);
         }
 
         if (includeExecutionHistory)
         {
-            foreach (var snapshot in TikTokExecutionHistoryService.LoadProjectSnapshots())
+            foreach (var snapshot in TikTokExecutionHistoryService.LoadProjectSnapshots(accountProfileId: accountId))
             {
                 if (!WorkspaceMatches(workspace, snapshot.Workspace))
                     continue;
