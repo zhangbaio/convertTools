@@ -255,7 +255,7 @@ public static class TikTokBatchUploadService
 
     private static async Task<ILocator?> ResolveUploadButtonAsync(IPage page)
     {
-        foreach (var text in new[] { "上传视频", "本地上传" })
+        foreach (var text in new[] { "上传视频", "本地上传", "继续上传" })
         {
             var loc = page.Locator("button").Filter(new() { HasText = text }).First;
             try
@@ -354,25 +354,9 @@ public static class TikTokBatchUploadService
         }
     }
 
-    /// <summary>读取正片表格全量行数（aria-rowcount 覆盖虚拟化未渲染的行）；非编辑页返回 0。</summary>
-    private static async Task<int> ReadUploadTableRowCountAsync(IPage page)
-    {
-        try
-        {
-            return await page.EvaluateAsync<int>(
-                """
-                () => {
-                  const t = document.querySelector('.semi-table-body table');
-                  if (t && t.getAttribute('aria-rowcount')) return +t.getAttribute('aria-rowcount');
-                  return document.querySelectorAll('.semi-table-body tr.semi-table-row').length;
-                }
-                """);
-        }
-        catch
-        {
-            return 0;
-        }
-    }
+    /// <summary>读取正片列表全量行数（含虚拟化未渲染的行）；页面没有正片列表时返回 0。</summary>
+    private static async Task<int> ReadUploadTableRowCountAsync(IPage page) =>
+        await TikTokBrowserActions.ReadEpisodeListCountAsync(page) ?? 0;
 
     private static async Task<int> DeleteBatchRowsAsync(
         IPage page,
@@ -391,7 +375,7 @@ public static class TikTokBatchUploadService
             var result = await ClickBatchDeleteButtonAsync(page, targets);
 
             if (result == "no-table")
-                throw new InvalidOperationException("删除本批行失败：未找到正片列表（semi-table）。");
+                throw new InvalidOperationException("删除本批行失败：页面上未找到剧集正片列表。");
             if (result.StartsWith("none:", StringComparison.Ordinal))
                 break;
             if (!result.StartsWith("clicked:", StringComparison.Ordinal))
@@ -415,21 +399,22 @@ public static class TikTokBatchUploadService
         IReadOnlyList<int> targets)
     {
         return await page.EvaluateAsync<string>(
+            "async (targetValues) => {\n" + TikTokBrowserActions.EpisodeListScript +
             """
-            async (targetValues) => {
+
               const targets = new Set((targetValues || []).map((value) => Number(value)).filter((value) => value > 0));
               if (targets.size === 0) return 'none:no-targets';
 
-              const body = document.querySelector('.semi-table-body');
-              if (!body) return 'no-table';
+              const list = xgEpisodeList();
+              if (!list) return 'no-table';
+              if (list.rows().length === 0 || !list.scroller) return 'none:';
 
-              const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-              const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
-              const rows = () => Array.from(body.querySelectorAll('tr.semi-table-row'));
+              const sleep = xgSleep;
+              const normalize = xgNormalize;
+              const body = list.scroller;
+              const rows = list.rows;
               const rowEpisode = (tr) => {
-                const text = normalize(Array.from(tr.querySelectorAll('td'))
-                  .map((td) => td.textContent || '')
-                  .join(' '));
+                const text = list.text(tr);
                 const fileMatch = text.match(/-\s*第\s*(\d+)\s*集/);
                 if (fileMatch) return Number.parseInt(fileMatch[1], 10) || 0;
 

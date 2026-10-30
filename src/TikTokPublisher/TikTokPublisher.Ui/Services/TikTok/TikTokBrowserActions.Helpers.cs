@@ -99,6 +99,25 @@ public static partial class TikTokBrowserActions
                 "TikTok 已选择「是否 AI 短剧=是」，但动态字段「内容创作类型」(isRemakeV2) 未出现。");
         }
 
+        var radioIndex = key.ToLowerInvariant() switch
+        {
+            "remake" => 1,
+            "novel_adaptation" => 2,
+            _ => 0,
+        };
+        if (await TrySelectRadioGroupOptionAsync(
+                page,
+                RadioGroupSelectorForField("isRemakeV2"),
+                labels,
+                radioIndex,
+                "内容创作类型",
+                log,
+                ct,
+                waitForGroupMs: 0))
+        {
+            return;
+        }
+
         await ClosePopupIfOpenAsync(page);
         var combo = field.Locator("button[role='combobox']").First;
         await OpenComboboxAsync(page, combo, ct);
@@ -157,9 +176,7 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
-        var trigger = await FindComboboxByFieldLabelAsync(page, ["预期全集价格设置", "预期全集价格"]);
-        if (trigger is null)
-            trigger = page.Locator("#business-mode-section button[role='combobox']").First;
+        var trigger = await FindExpectedFullPriceTriggerAsync(page);
         if (await trigger.CountAsync() == 0)
             throw new InvalidOperationException("未找到 TikTok「预期全集价格设置」下拉框。");
 
@@ -248,6 +265,17 @@ public static partial class TikTokBrowserActions
             catch { /* ignore */ }
         }
         return false;
+    }
+
+    internal const string ExpectedFullPriceTriggerSelector =
+        "[x-field-id='priceInUsd'] button[role='combobox'], #business-mode-section button[role='combobox']";
+
+    private static async Task<ILocator> FindExpectedFullPriceTriggerAsync(IPage page)
+    {
+        var byField = page.Locator("[x-field-id='priceInUsd'] button[role='combobox']").First;
+        if (await byField.CountAsync() > 0) return byField;
+        return await FindComboboxByFieldLabelAsync(page, ["预期全集价格设置", "预期全集价格"])
+               ?? page.Locator("#business-mode-section button[role='combobox']").First;
     }
 
     private static async Task<ILocator?> FindComboboxByFieldLabelAsync(IPage page, IReadOnlyList<string> fieldLabels)

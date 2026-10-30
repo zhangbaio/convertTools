@@ -607,17 +607,26 @@ public static partial class TikTokBrowserActions
         bool preserveExistingCopyrightMaterials = false)
     {
         await EnsureSeriesDetailsStepAsync(page, ct);
-        await SetOptionalSwitchAsync(
-            page,
-            "#anchorPromotionStatus",
-            options.AnchorPromotionEnabled,
-            "锚点推广",
-            log,
-            ct);
+        if (!await TrySelectRadioGroupOptionAsync(
+                page,
+                RadioGroupSelectorForField("anchorPromotionStatus"),
+                [options.AnchorPromotionEnabled ? "已开启" : "未开启"],
+                options.AnchorPromotionEnabled ? 0 : 1,
+                "自动挂载锚点",
+                log,
+                ct))
+        {
+            await SetOptionalSwitchAsync(
+                page,
+                "#anchorPromotionStatus",
+                options.AnchorPromotionEnabled,
+                "锚点推广",
+                log,
+                ct);
+        }
         await PauseBetweenFieldsAsync(page);
 
         await SelectTargetAudienceAsync(page, recommendation.TargetAudience, log, ct);
-        await VerifyTargetAudienceAsync(page, recommendation.TargetAudience, log, ct);
         await PauseBetweenFieldsAsync(page);
 
         await SelectGenresAsync(page, recommendation.Genres, log, ct);
@@ -637,20 +646,30 @@ public static partial class TikTokBrowserActions
             await EnsureAllPublishAccountsSelectedAsync(page, log, ct);
         await PauseBetweenFieldsAsync(page);
 
-        await SelectTuxOptionByFieldAsync(
-            page,
-            ["是否 AI 短剧", "是否AI短剧"],
-            new[] { options.IsAiDrama ? "是" : "否" },
-            fallbackIndex: 4,
-            log,
-            ct);
-        await VerifyComboboxFieldAsync(
-            page,
-            ["是否 AI 短剧", "是否AI短剧"],
-            new[] { options.IsAiDrama ? "是" : "否" },
-            "是否 AI 短剧",
-            log,
-            ct);
+        if (!await TrySelectRadioGroupOptionAsync(
+                page,
+                RadioGroupSelectorForField("isAiSeries"),
+                [options.IsAiDrama ? "是" : "否"],
+                options.IsAiDrama ? 0 : 1,
+                "AI 短剧",
+                log,
+                ct))
+        {
+            await SelectTuxOptionByFieldAsync(
+                page,
+                ["是否 AI 短剧", "是否AI短剧"],
+                new[] { options.IsAiDrama ? "是" : "否" },
+                fallbackIndex: 4,
+                log,
+                ct);
+            await VerifyComboboxFieldAsync(
+                page,
+                ["是否 AI 短剧", "是否AI短剧"],
+                new[] { options.IsAiDrama ? "是" : "否" },
+                "是否 AI 短剧",
+                log,
+                ct);
+        }
         await PauseBetweenFieldsAsync(page);
 
         await SelectContentCreationTypeAsync(page, options, log, ct);
@@ -678,7 +697,17 @@ public static partial class TikTokBrowserActions
 
         await SelectPublishModeAsync(page, options.PublishModeLabel, ct);
         await PauseBetweenFieldsAsync(page);
-        await SetSwitchAsync(page, "#consignmentStatus", options.ConsignmentEnabled, ct);
+        if (!await TrySelectRadioGroupOptionAsync(
+                page,
+                RadioGroupSelectorForField("consignmentStatus"),
+                [options.ConsignmentEnabled ? "已开启" : "未开启"],
+                options.ConsignmentEnabled ? 0 : 1,
+                "托管模式",
+                log,
+                ct))
+        {
+            await SetSwitchAsync(page, "#consignmentStatus", options.ConsignmentEnabled, ct);
+        }
         await ApplyCommercialModeAsync(page, options, log, ct);
         await ApplyZeroCostAdsAsync(page, options, log, ct);
     }
@@ -988,6 +1017,33 @@ public static partial class TikTokBrowserActions
     {
         ct.ThrowIfCancellationRequested();
 
+        var oneClickGroup = await WaitForRadioGroupAsync(page, AdOneClickRadioGroupSelector, 2000, ct);
+        if (oneClickGroup is not null)
+        {
+            var enabled = options.ZeroCostAdsEnabled;
+            var radioOptions = await ReadRadioOptionsAsync(oneClickGroup);
+            var targetIndex = ResolveRadioOptionIndex(
+                radioOptions.Select(o => o.Text).ToArray(), [enabled ? "开启" : "关闭"], enabled ? 0 : 1);
+            if (targetIndex >= 0 && radioOptions[targetIndex] is { Disabled: true, Checked: false })
+            {
+                Log(log, "TikTok 当前账号的“一键托管（0 元投放）”暂不可配置，已自动跳过。");
+                return;
+            }
+
+            await TrySelectRadioGroupOptionAsync(
+                page,
+                AdOneClickRadioGroupSelector,
+                [enabled ? "开启" : "关闭"],
+                enabled ? 0 : 1,
+                "一键托管（0 元投放）",
+                log,
+                ct);
+            if (!enabled)
+                return;
+            await ApplyDayZeroRoiAsync(page, options, log, ct);
+            return;
+        }
+
         var section = page.Locator("#ad-placement-section").First;
         if (await section.CountAsync() == 0 ||
             !await section.IsVisibleAsync())
@@ -1026,6 +1082,15 @@ public static partial class TikTokBrowserActions
             return;
         }
 
+        await ApplyDayZeroRoiAsync(page, options, log, ct);
+    }
+
+    private static async Task ApplyDayZeroRoiAsync(
+        IPage page,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
         var roiInput = await TryResolveDayZeroRoiInputAsync(page, ct);
         if (roiInput is null)
         {
@@ -1055,7 +1120,7 @@ public static partial class TikTokBrowserActions
         CancellationToken ct)
     {
         const string selector =
-            "#ad-placement-section [x-field-id='adsRoi'] input:visible, " +
+            "[x-field-id='adsRoi'] input:visible, " +
             "#ad-placement-section input[placeholder='输入 (1.0~1.5)']:visible";
         var deadline = DateTime.UtcNow.AddSeconds(5);
         while (DateTime.UtcNow < deadline)
@@ -1080,7 +1145,20 @@ public static partial class TikTokBrowserActions
         var labels = TikTokPublishConstants.TargetAudienceAliases.TryGetValue(key, out var aliases)
             ? aliases
             : TikTokPublishConstants.TargetAudienceAliases["female"];
+        if (await TrySelectRadioGroupOptionAsync(
+                page,
+                RadioGroupSelectorForField("targetAudienceTag"),
+                labels,
+                string.Equals(key, "male", StringComparison.OrdinalIgnoreCase) ? 1 : 0,
+                "目标观众",
+                log,
+                ct))
+        {
+            return;
+        }
+
         await SelectTuxOptionByFieldAsync(page, ["目标观众", "目标受众"], labels, fallbackIndex: 1, log, ct);
+        await VerifyTargetAudienceAsync(page, targetAudience, log, ct);
     }
 
     private static async Task SelectGenresAsync(

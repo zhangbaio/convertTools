@@ -67,7 +67,7 @@ public static class TikTokExpectedPriceSyncService
                     await TikTokBrowserActions.DismissFloatingAssistantAsync(page, log);
                     await OpenBusinessModeStepAsync(page, ct);
 
-                    var trigger = page.Locator("#business-mode-section button[role='combobox']").First;
+                    var trigger = page.Locator(TikTokBrowserActions.ExpectedFullPriceTriggerSelector).First;
                     await trigger.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 15000 });
                     await trigger.ClickAsync(new() { Timeout = 10000 });
                     await page.WaitForTimeoutAsync(500);
