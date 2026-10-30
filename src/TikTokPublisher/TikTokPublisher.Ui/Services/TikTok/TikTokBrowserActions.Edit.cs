@@ -892,13 +892,12 @@ public static partial class TikTokBrowserActions
             if (count <= keepCount) break;
 
             var clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
-            if (!TryReadClickedEditVideoRow(clickResult, out var slot, out _))
+            if (!TryReadClickedEditVideoRow(clickResult, out var slot, out var uid, out _))
                 throw new InvalidOperationException($"未找到错位行的删除按钮（{clickResult}）。");
 
             planned = Math.Max(planned, deleted + Math.Max(0, count - keepCount));
-            await page.WaitForTimeoutAsync(500);
             await ConfirmDeleteDialogIfPresentAsync(page, ct);
-            var remaining = await WaitForEditVideoRowCountDecreaseAsync(page, count, ct);
+            var remaining = await WaitForEditVideoRowCountDecreaseAsync(page, count, uid, ct);
             deleted++;
             if (deleted % 10 == 0 && deleted < planned)
             {
@@ -916,25 +915,31 @@ public static partial class TikTokBrowserActions
         return deleted;
     }
 
-    private static bool TryReadClickedEditVideoRow(string clickResult, out int slot, out string rowText)
+    internal static bool TryReadClickedEditVideoRow(
+        string clickResult,
+        out int slot,
+        out string uid,
+        out string rowText)
     {
         slot = 0;
+        uid = "";
         rowText = "";
         const string prefix = "clicked:";
         if (!clickResult.StartsWith(prefix, StringComparison.Ordinal))
             return false;
 
-        var payload = clickResult[prefix.Length..];
-        var split = payload.IndexOf('\t');
-        var slotText = split >= 0 ? payload[..split] : payload;
-        if (split >= 0)
-            rowText = payload[(split + 1)..].Trim();
-        return int.TryParse(slotText, out slot);
+        var parts = clickResult[prefix.Length..].Split('\t', 3);
+        if (parts.Length >= 2)
+            uid = parts[1].Trim();
+        if (parts.Length >= 3)
+            rowText = parts[2].Trim();
+        return int.TryParse(parts[0], out slot);
     }
 
     private static async Task<int> WaitForEditVideoRowCountDecreaseAsync(
         IPage page,
         int previousCount,
+        string removedUid,
         CancellationToken ct,
         int timeoutSeconds = 15)
     {
@@ -945,7 +950,11 @@ public static partial class TikTokBrowserActions
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
-            lastCount = await ReadEditVideoTableRowCountAsync(page);
+            var probe = await ProbeEditVideoRowRemovalAsync(page, removedUid);
+            lastCount = probe.Count;
+            if (probe.Removed && lastCount == previousCount - 1)
+                return lastCount;
+
             if (lastCount < previousCount)
             {
                 // TikTok briefly tears down the virtual table while applying a deletion. Require
@@ -959,12 +968,48 @@ public static partial class TikTokBrowserActions
                 candidate = null;
             }
 
-            await page.WaitForTimeoutAsync(300);
+            await page.WaitForTimeoutAsync(200);
         }
 
         throw new InvalidOperationException(
             $"点击删除后等待 {Math.Max(3, timeoutSeconds)} 秒行数仍未减少" +
             $"（删除前 {previousCount}，最后读取 {lastCount}），可能删除请求未被平台接受，已中止。");
+    }
+
+    /// <summary>
+    /// 读取正片总数，并判断被删卡片是否已从页面消失。只有卡片列表全部渲染时 Removed 才可信；
+    /// 虚拟列表或旧版表格里行可能只是滚出视口，Removed 恒为 false。
+    /// </summary>
+    private static async Task<(int Count, bool Removed)> ProbeEditVideoRowRemovalAsync(IPage page, string removedUid)
+    {
+        if (string.IsNullOrEmpty(removedUid))
+            return (await ReadEditVideoTableRowCountAsync(page), false);
+
+        try
+        {
+            var result = await page.EvaluateAsync<JsonElement>(
+                "async (uid) => {\n" + EpisodeListScript +
+                """
+
+                  const list = xgEpisodeList();
+                  if (!list) return { count: 0, removed: false };
+                  const full = xgFullyRendered(list);
+                  const removed = full && !list.rows().some((row) => list.key(row) === uid);
+                  return { count: await xgCountEpisodes(list), removed };
+                }
+                """,
+                removedUid);
+            var count = result.TryGetProperty("count", out var countProp) && countProp.TryGetInt32(out var parsed)
+                ? parsed
+                : 0;
+            var removed = result.TryGetProperty("removed", out var removedProp) &&
+                          removedProp.ValueKind == JsonValueKind.True;
+            return (count, removed);
+        }
+        catch
+        {
+            return (await ReadEditVideoTableRowCountAsync(page), false);
+        }
     }
 
     private static async Task<string> ClickEditVideoDeleteButtonBeyondKeepAsync(
@@ -997,7 +1042,8 @@ public static partial class TikTokBrowserActions
                   const parsed = Number.parseInt(raw, 10);
                   slot = Number.isFinite(parsed) ? parsed : 0;
                 }
-                return { tr, slot, text };
+                const uid = list.kind === 'cards' ? list.key(tr) : '';
+                return { tr, slot, text, uid };
               };
               const rows = list.rows;
               const visibleSlots = () => rows().map((tr) => describeRow(tr).slot).filter((slot) => slot > 0);
@@ -1033,7 +1079,7 @@ public static partial class TikTokBrowserActions
                   try { button.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window })); } catch {}
                 }
                 button.click();
-                return `clicked:${target.slot}\t${target.text || ''}`;
+                return `clicked:${target.slot}\t${target.uid || ''}\t${target.text || ''}`;
               };
               const pickTarget = () => {
                 const candidates = rows()
@@ -1055,6 +1101,11 @@ public static partial class TikTokBrowserActions
                 }
                 return null;
               };
+
+              if (xgFullyRendered(list)) {
+                const target = pickTarget();
+                if (target) return clickDelete(target);
+              }
 
               const firstRow = rows()[0];
               const rowHeight = Math.max(32, Math.round(firstRow?.getBoundingClientRect().height || 48));

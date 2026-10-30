@@ -42,4 +42,31 @@ public sealed class TikTokEpisodeCardListTests
         rows.Select(row => (row.Slot, row.Real)).Should().Equal((1, 1), (2, 12), (3, 4), (4, 4), (5, 2));
         TikTokBrowserActions.FindAlignedEditVideoPrefixCount(rows).Should().Be(1);
     }
+
+    [Fact]
+    public void ClickedDeleteResult_ReadsSlotCardUidAndText()
+    {
+        TikTokBrowserActions.TryReadClickedEditVideoRow(
+                "clicked:12\tep-7701\t第 12 集 剧名-第4集",
+                out var slot,
+                out var uid,
+                out var text)
+            .Should().BeTrue();
+
+        slot.Should().Be(12);
+        uid.Should().Be("ep-7701");
+        text.Should().Be("第 12 集 剧名-第4集");
+    }
+
+    [Fact]
+    public void ClickedDeleteResult_TableRowHasNoCardUid()
+    {
+        TikTokBrowserActions.TryReadClickedEditVideoRow("clicked:3\t\t第 3 集", out var slot, out var uid, out _)
+            .Should().BeTrue();
+
+        slot.Should().Be(3);
+        uid.Should().BeEmpty();
+        TikTokBrowserActions.TryReadClickedEditVideoRow("not-rendered:1,2", out _, out _, out _)
+            .Should().BeFalse();
+    }
 }

@@ -53,9 +53,28 @@ public static partial class TikTokBrowserActions
           try { scroller.dispatchEvent(new Event('scroll', { bubbles: true })); } catch {}
           await xgSleep(180);
         };
+        // 卡片已全部在 DOM 中（首卡贴近滚动内容顶部、末卡贴近底部，没有虚拟列表占位空白）。
+        const xgFullyRendered = (list) => {
+          if (list.kind !== 'cards') return false;
+          const rows = list.rows();
+          const scroller = list.scroller;
+          if (rows.length === 0) return false;
+          if (!scroller || scroller.scrollHeight <= scroller.clientHeight + 2) return true;
+          const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
+          let top = Infinity, bottom = -Infinity, height = 0;
+          for (const row of rows) {
+            const rect = row.getBoundingClientRect();
+            top = Math.min(top, rect.top - base);
+            bottom = Math.max(bottom, rect.bottom - base);
+            height = Math.max(height, rect.height);
+          }
+          const slack = Math.max(240, height * 2);
+          return top <= slack && scroller.scrollHeight - bottom <= slack;
+        };
         // 列表可能虚拟化，只渲染视口内的行：自顶向下滚动一遍访问所有行，结束后恢复原滚动位置。
         const xgScanList = async (list, visit) => {
           list.rows().forEach(visit);
+          if (xgFullyRendered(list)) return;
           const scroller = list.scroller;
           if (!scroller || scroller.scrollHeight <= scroller.clientHeight + 2) return;
 
