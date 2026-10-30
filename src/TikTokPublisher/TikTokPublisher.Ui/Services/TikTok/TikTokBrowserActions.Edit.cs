@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
 
@@ -1193,17 +1194,11 @@ public static partial class TikTokBrowserActions
     {
         try
         {
-            if (await page.GetByText("点击上传或拖拽视频到此处", new() { Exact = false }).CountAsync() > 0)
-                return true;
-        }
-        catch { /* ignore */ }
-
-        try
-        {
             var bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 });
-            if (bodyText.Contains("正片内容", StringComparison.Ordinal) &&
-                !UploadedContentCountPattern.IsMatch(bodyText) &&
-                bodyText.Contains("点击上传或拖拽视频到此处", StringComparison.Ordinal))
+            if (TikTokUploadProgressParser.IsClearlyEmptyUploadQueue(
+                    bodyText,
+                    ExtractUploadedVideoCountFromText(bodyText),
+                    new TikTokUploadActivity(false, 0, false)))
                 return true;
         }
         catch { /* ignore */ }
