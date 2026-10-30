@@ -55,6 +55,9 @@ internal static class TikTokSeriesListLookupService
     [
         TikTokCopyrightProofAuditSelection.CopyrightSuspectedStatus,
         "疑似版权问题",
+        "版权审核未通过",
+        "版权审核中",
+        "已下架",
         "视频检测中",
         "检测中",
         "待审核",
