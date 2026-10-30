@@ -19,8 +19,9 @@ public sealed class KuaishouPersonalEpisodeUploadService
             if (stageChanged is not null) await stageChanged("episode_info_completed");
             if (!await ClickVisibleAsync(page, ["下一步"], 10_000))
                 throw new InvalidOperationException("快手个人版第一页未找到“下一步”按钮。");
+            progress?.Report("快手分账个人版：已点击下一步，准备确认进入视频上传。 ");
         }
-        await WaitForUploadPageAsync(page, cancellationToken);
+        await WaitForUploadPageAsync(page, progress, cancellationToken);
         if (stageChanged is not null) await stageChanged("first_page_completed");
         progress?.Report("快手分账个人版：已进入剧集视频上传步骤。 ");
 
@@ -326,18 +327,127 @@ public sealed class KuaishouPersonalEpisodeUploadService
         return match.Success ? match.Value : string.Empty;
     }
 
-    private static async Task WaitForUploadPageAsync(IPage page, CancellationToken cancellationToken)
+    private static async Task WaitForUploadPageAsync(IPage page, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (page.Url.Contains("step=1", StringComparison.OrdinalIgnoreCase) ||
-                await page.GetByText("视频上传", new PageGetByTextOptions { Exact = false }).CountAsync() > 0)
-                return;
+            if (await ConfirmNextStepDialogAsync(page))
+            {
+                progress?.Report("快手分账个人版：已点击下一步确认弹窗。 ");
+                await page.WaitForTimeoutAsync(700);
+                continue;
+            }
+            if (await IsVideoUploadStepAsync(page)) return;
             await page.WaitForTimeoutAsync(300);
         }
+        if (await NextStepDialogVisibleAsync(page))
+            throw new TimeoutException("下一步确认弹窗未处理，未进入视频上传步骤。");
         throw new TimeoutException("点击下一步后未进入视频上传步骤。");
+    }
+
+    private static async Task<bool> ConfirmNextStepDialogAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<bool>(
+                """
+                () => {
+                  const dense = value => String(value || '').replace(/\s+/g, '');
+                  const visible = element => {
+                    if (!element || !(element instanceof Element)) return false;
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && rect.bottom >= 0 && rect.right >= 0
+                      && rect.top <= window.innerHeight && rect.left <= window.innerWidth
+                      && style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+                  };
+                  const disabled = element => {
+                    const ariaDisabled = String(element.getAttribute('aria-disabled') || '').toLowerCase();
+                    return ariaDisabled === 'true'
+                      || element.disabled === true
+                      || element.classList.contains('is-disabled')
+                      || element.classList.contains('disabled')
+                      || Boolean(element.closest('[aria-disabled="true"],.is-disabled,.disabled'));
+                  };
+                  const dialogs = Array.from(document.querySelectorAll(
+                    '.ks-dialog,.ks-dialog-wrapper,.ks-modal,.ks-modal-content,.ks-message-box,.ant-modal,.ant-modal-content,.el-dialog,.semi-modal,.semi-modal-content,[role="dialog"]'
+                  )).filter(element => {
+                    if (!visible(element)) return false;
+                    const text = dense(element.innerText || element.textContent);
+                    return text.includes('确认提示') && text.includes('剧集审核通过后仅支持修改封面');
+                  });
+                  const dialog = dialogs.sort((left, right) => right.getBoundingClientRect().top - left.getBoundingClientRect().top)[0];
+                  if (!dialog) return false;
+                  const candidates = Array.from(dialog.querySelectorAll(
+                    'button,[role="button"],.ks-button,.ant-btn,.el-button,.semi-button,span,div'
+                  )).filter(element => visible(element) && !disabled(element));
+                  let best = null;
+                  for (const element of candidates) {
+                    const value = dense(element.innerText || element.textContent || element.value);
+                    if (!value) continue;
+                    const exact = value === '确认';
+                    const loose = value.includes('确认') && value.length <= 6;
+                    if (!exact && !loose) continue;
+                    const className = String(element.className || '');
+                    const rect = element.getBoundingClientRect();
+                    const inFooter = Boolean(element.closest(
+                      '.ks-dialog__footer,.ks-modal-footer,.dialog-footer,.ant-modal-footer,.el-dialog__footer,.semi-modal-footer,.semi-modal-confirm-btns'
+                    ));
+                    const score = (exact ? 1000 : 700) + (inFooter ? 120 : 0) + (/primary/i.test(className) ? 80 : 0) + Math.max(0, rect.left);
+                    if (!best || score > best.score) best = { element, score };
+                  }
+                  if (!best) {
+                    const primary = candidates.filter(element => /primary/i.test(String(element.className || '')) && element.closest(
+                      '.ks-dialog__footer,.ks-modal-footer,.dialog-footer,.ant-modal-footer,.el-dialog__footer,.semi-modal-footer,.semi-modal-confirm-btns'
+                    ));
+                    const element = primary[primary.length - 1];
+                    if (element) best = { element, score: 500 };
+                  }
+                  if (!best) return false;
+                  best.element.scrollIntoView({ block: 'center', inline: 'center' });
+                  best.element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+                  best.element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+                  best.element.click();
+                  return true;
+                }
+                """);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> NextStepDialogVisibleAsync(IPage page)
+    {
+        try
+        {
+            var body = await page.Locator("body").InnerTextAsync();
+            var compact = body.Replace(" ", string.Empty, StringComparison.Ordinal).Replace("\n", string.Empty, StringComparison.Ordinal);
+            return compact.Contains("确认提示", StringComparison.Ordinal) &&
+                   compact.Contains("剧集审核通过后仅支持修改封面", StringComparison.Ordinal);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> IsVideoUploadStepAsync(IPage page)
+    {
+        if (await NextStepDialogVisibleAsync(page)) return false;
+        if (page.Url.Contains("step=1", StringComparison.OrdinalIgnoreCase)) return true;
+        try
+        {
+            return await page.GetByText("视频上传", new PageGetByTextOptions { Exact = false }).CountAsync() > 0 ||
+                   await page.GetByText("上传视频", new PageGetByTextOptions { Exact = false }).CountAsync() > 0;
+        }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
     }
 
     private static async Task<ILocator> MarkOverlayAsync(IPage page, string marker, float timeout)

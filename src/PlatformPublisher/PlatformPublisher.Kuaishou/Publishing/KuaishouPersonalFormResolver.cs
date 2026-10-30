@@ -68,7 +68,7 @@ public static class KuaishouPersonalFormResolver
             string.IsNullOrWhiteSpace(nickname) && string.IsNullOrWhiteSpace(kuaishouId) ? string.Empty : $"{nickname}+{kuaishouId}",
             creditName,
             gender,
-            ResolveActors(config.ActorInfoJson),
+            ResolveUploadActors(null, config),
             KuaishouFormChoices.LabelOf(KuaishouFormChoices.SaleTypes, config.SaleType, "3"),
             KuaishouFormChoices.SaleTypeCode(config.SaleType),
             Math.Max(1, config.FreeEpisodeCount),
@@ -92,6 +92,20 @@ public static class KuaishouPersonalFormResolver
             return today.ToString("yyyy-MM-dd");
         if (DateTime.TryParse(raw, out var parsed)) return parsed.ToString("yyyy-MM-dd");
         return today.ToString("yyyy-MM-dd");
+    }
+
+    /// <summary>
+    /// 上传时优先用项目补齐结果里的演员。姓名要来自演员库，角色要换成简介里的人物，
+    /// 不能停在「演员A / 男主」这种占位。
+    /// </summary>
+    public static IReadOnlyList<KuaishouPersonalActor> ResolveUploadActors(string? workflowDirectory, KuaishouPersonalConfig config)
+    {
+        var prepared = ReadPreparedActors(workflowDirectory);
+        if (prepared.Count > 0) return prepared;
+
+        var characters = ReadPreparedCharacters(workflowDirectory);
+        var selected = SelectLibraryActors(config, characters);
+        return selected.Count > 0 ? selected : PlaceholderActors();
     }
 
     public static IReadOnlyList<KuaishouPersonalActor> ResolveActors(string? actorInfoJson)
@@ -123,12 +137,132 @@ public static class KuaishouPersonalFormResolver
             }
         }
         if (actors.Count > 0) return actors;
-        return
-        [
-            new("演员A", "男", "男主"),
-            new("演员B", "女", "女主"),
-        ];
+        return PlaceholderActors();
     }
+
+    private static IReadOnlyList<KuaishouPersonalActor> PlaceholderActors() =>
+    [
+        new("演员A", "男", "男主"),
+        new("演员B", "女", "女主"),
+    ];
+
+    private static IReadOnlyList<KuaishouPersonalActor> ReadPreparedActors(string? workflowDirectory)
+    {
+        if (!TryReadAutoFill(workflowDirectory, out var root) ||
+            !root.TryGetProperty("actor_info_list", out var actors) ||
+            actors.ValueKind != System.Text.Json.JsonValueKind.Array)
+            return [];
+
+        var prepared = new List<KuaishouPersonalActor>();
+        foreach (var item in actors.EnumerateArray())
+        {
+            if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+            var name = Text(item, "name", "姓名");
+            if (string.IsNullOrWhiteSpace(name) || IsPlaceholderName(name)) continue;
+            var gender = First(Text(item, "gender", "性别"), "男");
+            if (gender is not ("男" or "女")) gender = "男";
+            prepared.Add(new KuaishouPersonalActor(name, gender, First(Text(item, "role", "角色"), "主演")));
+            if (prepared.Count == 2) break;
+        }
+        return prepared;
+    }
+
+    private static IReadOnlyList<(string Name, string Gender)> ReadPreparedCharacters(string? workflowDirectory)
+    {
+        if (!TryReadAutoFill(workflowDirectory, out var root) ||
+            !root.TryGetProperty("character_info_list", out var characters) ||
+            characters.ValueKind != System.Text.Json.JsonValueKind.Array)
+            return [];
+
+        var prepared = new List<(string Name, string Gender)>();
+        foreach (var item in characters.EnumerateArray())
+        {
+            if (item.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+            var name = Text(item, "name", "姓名");
+            if (string.IsNullOrWhiteSpace(name) || IsPlaceholderName(name)) continue;
+            var gender = Text(item, "gender", "性别");
+            prepared.Add((name, gender is "男" or "女" ? gender : string.Empty));
+            if (prepared.Count == 2) break;
+        }
+        return prepared;
+    }
+
+    private static bool TryReadAutoFill(string? workflowDirectory, out System.Text.Json.JsonElement root)
+    {
+        root = default;
+        if (string.IsNullOrWhiteSpace(workflowDirectory)) return false;
+        var path = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
+        if (!File.Exists(path)) return false;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            root = document.RootElement.Clone();
+            return root.ValueKind == System.Text.Json.JsonValueKind.Object;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<KuaishouPersonalActor> SelectLibraryActors(
+        KuaishouPersonalConfig config,
+        IReadOnlyList<(string Name, string Gender)> characters)
+    {
+        var pool = new List<KuaishouPersonalActor>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var actor in ResolveActors(config.ActorInfoJson).Where(actor => !IsPlaceholderName(actor.Name)))
+            AddActor(pool, seen, actor);
+        foreach (var actor in ParseActorLibrary(config.ActorLibraryText))
+            AddActor(pool, seen, actor);
+
+        var selected = new List<KuaishouPersonalActor>();
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var character in characters.Take(2))
+        {
+            var match = pool.FirstOrDefault(actor =>
+                !used.Contains(actor.Name) &&
+                (character.Gender is not ("男" or "女") || actor.Gender == character.Gender));
+            if (match is null) continue;
+            used.Add(match.Name);
+            selected.Add(match with { Role = character.Name });
+        }
+
+        if (selected.Count == 0)
+        {
+            foreach (var gender in new[] { "男", "女" })
+            {
+                var match = pool.FirstOrDefault(actor => !used.Contains(actor.Name) && actor.Gender == gender);
+                if (match is null) continue;
+                used.Add(match.Name);
+                selected.Add(match);
+            }
+        }
+        return selected;
+    }
+
+    private static void AddActor(List<KuaishouPersonalActor> pool, HashSet<string> seen, KuaishouPersonalActor actor)
+    {
+        if (string.IsNullOrWhiteSpace(actor.Name) || !seen.Add(actor.Name)) return;
+        pool.Add(actor);
+    }
+
+    private static IEnumerable<KuaishouPersonalActor> ParseActorLibrary(string? rawText)
+    {
+        foreach (var rawLine in (rawText ?? string.Empty).Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = rawLine.Trim().Replace('｜', '|').Split('|', StringSplitOptions.TrimEntries);
+            if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[0])) continue;
+            var gender = parts[1] is "女" ? "女" : "男";
+            var role = parts.Length >= 3
+                ? parts[2].Split(['，', ',', '、'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault()
+                : null;
+            yield return new KuaishouPersonalActor(parts[0], gender, string.IsNullOrWhiteSpace(role) ? "主演" : role);
+        }
+    }
+
+    private static bool IsPlaceholderName(string name) =>
+        name.Trim() is "演员A" or "演员B" or "导演A" or "编剧A";
 
     public static Dictionary<string, object?> SettingsOverlay(KuaishouPersonalConfig config, bool enterprise)
     {

@@ -42,7 +42,8 @@ public sealed class KuaishouPersonalFirstPageService
         await SelectAsync(page, "播出平台", form.BroadcastPlatform, required: false);
         await SelectAsync(page, "播出途径", form.BroadcastChannel, required: false);
         await FillTextAsync(page, "播出时间", form.BroadcastDate, required: false);
-        if (!form.HasRecordNumber) await FillActorsAsync(page, form.Actors, cancellationToken);
+        if (!form.HasRecordNumber)
+            await FillActorsAsync(page, KuaishouPersonalFormResolver.ResolveUploadActors(data.WorkflowDirectory, config), cancellationToken);
         await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", form.SpecialTheme ? "是" : "否", required: false);
         await UploadScopedAsync(page, ["短剧封面", "横屏封面"], data.HorizontalCoverPath, required: true);
         progress?.Report($"{config.StoragePlatform.DisplayName()}：短剧封面已上传，正在确认图片裁剪。 ");

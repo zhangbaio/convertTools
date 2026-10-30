@@ -32,7 +32,11 @@ public sealed class KuaishouPersonalProjectDataService
         var selected = Path.GetFullPath(projectDirectory);
         var source = selected;
         var workflow = selected;
-        if (!File.Exists(Path.Combine(selected, "短剧信息.txt")))
+        // 源目录自己也有短剧信息.txt。不能因此把它当成 workflow，否则工程图和
+        // kuaishou-auto-fill.json 里的短剧分类都会读空。
+        ApplyWorkspaceMetadata(selected, ref source, ref workflow);
+        if (!File.Exists(Path.Combine(selected, "短剧信息.txt")) &&
+            !File.Exists(Path.Combine(workflow, "短剧信息.txt")))
         {
             var root = Directory.GetParent(selected)?.FullName
                        ?? throw new InvalidOperationException("无法确定快手个人版项目根目录。");
@@ -80,6 +84,42 @@ public sealed class KuaishouPersonalProjectDataService
             videos,
             KuaishouPersonalFormResolver.ResolveActors(config.ActorInfoJson));
     }
+
+    private static void ApplyWorkspaceMetadata(string selected, ref string source, ref string workflow)
+    {
+        var metadataPath = Path.Combine(selected, "shortdrama-project.json");
+        if (!File.Exists(metadataPath)) return;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(metadataPath));
+            var root = document.RootElement;
+            var metaSource = ReadJsonString(root, "sourceProjectDir");
+            var metaWorkflow = ReadJsonString(root, "workflowProjectDir");
+            if (string.IsNullOrWhiteSpace(metaWorkflow))
+            {
+                var name = ReadJsonString(root, "workflowDirName");
+                var workspace = Directory.GetParent(selected)?.FullName;
+                if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(workspace))
+                {
+                    var named = Path.Combine(workspace, "workflow", name);
+                    if (Directory.Exists(named)) metaWorkflow = named;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(metaSource) && Directory.Exists(metaSource))
+                source = Path.GetFullPath(metaSource);
+            if (!string.IsNullOrWhiteSpace(metaWorkflow) && Directory.Exists(metaWorkflow))
+                workflow = Path.GetFullPath(metaWorkflow);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+    }
+
+    private static string ReadJsonString(System.Text.Json.JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String
+            ? value.GetString()?.Trim() ?? string.Empty
+            : string.Empty;
 
     private static string ReadPreparedSourceDirectory(string workflowDirectory)
     {
