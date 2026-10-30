@@ -371,12 +371,14 @@ public sealed partial class MainViewModel : ViewModelBase
                 account.Id,
                 account.DisplayName,
                 HasAccountAuthFile(account.Model),
-                string.Equals(account.Id, activeId, StringComparison.OrdinalIgnoreCase)))
+                string.Equals(account.Id, activeId, StringComparison.OrdinalIgnoreCase),
+                account.Model.XingeRemoteDispatchEnabled))
             .ToArray();
 
         return new XingeRemoteRegistrationSnapshot(
             WorkspacePath ?? "",
             activeId,
+            ClientSettingsStore.Load().DramaSourceChain ?? "",
             accounts);
     }
 
@@ -2666,6 +2668,18 @@ public sealed partial class MainViewModel : ViewModelBase
         var assignment = XingeAutoPublishAssignment.FromCommand(command);
         if (assignment is null)
             return await ExecuteRemoteUploadSeriesCoreAsync(command, null);
+
+        var assignedAccount = FindAccountById(assignment.AccountProfileId)?.Model;
+        if (assignedAccount is not null && !assignedAccount.XingeRemoteDispatchEnabled)
+        {
+            var blocked = new RemoteAutoPublishContext(assignment);
+            await ReportRemoteAutoPublishFailureAsync(
+                blocked,
+                "import",
+                "账号未启用远程分发",
+                XingeAutoPublishFailureKinds.AccountRemoteDisabled);
+            return TikTokRemoteCommandResult.Failed(command.Command, "账号未启用远程分发");
+        }
 
         var autoPublish = new RemoteAutoPublishContext(assignment);
         TikTokRemoteCommandResult result;

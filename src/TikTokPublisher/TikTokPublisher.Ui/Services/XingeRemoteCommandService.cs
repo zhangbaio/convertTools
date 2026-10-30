@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
@@ -11,13 +12,15 @@ namespace TikTokPublisher.Ui.Services;
 public sealed record XingeRemoteRegistrationSnapshot(
     string WorkspacePath,
     string ActiveAccountProfileId,
+    string DramaSource,
     IReadOnlyList<XingeRemoteAccountSnapshot> AccountProfiles);
 
 public sealed record XingeRemoteAccountSnapshot(
     string Id,
     string Name,
     bool AuthReady,
-    bool IsCurrent);
+    bool IsCurrent,
+    bool RemoteDispatchEnabled);
 
 public sealed class XingeRemoteCommandService
 {
@@ -172,21 +175,26 @@ public sealed class XingeRemoteCommandService
         CancellationToken ct)
     {
         var version = typeof(XingeRemoteCommandService).Assembly.GetName().Version?.ToString() ?? "unknown";
+        var machineId = MachineFingerprintHelper.GetMachineFingerprint();
+        if (string.IsNullOrWhiteSpace(machineId))
+            machineId = Environment.MachineName;
         var body = new
         {
             client_id = config.ClientId,
             client_token = config.ClientToken,
-            machine_id = Environment.MachineName,
+            machine_id = machineId,
             device_name = FirstNonEmpty(config.ClientName, $"TikTokPublisher-{Environment.MachineName}"),
             app_version = $"TikTokPublisher/{version}",
             workspace_path = snapshot.WorkspacePath,
             active_account_profile_id = snapshot.ActiveAccountProfileId,
+            drama_source = snapshot.DramaSource,
             account_profiles = snapshot.AccountProfiles.Select(account => new
             {
                 id = account.Id,
                 name = account.Name,
                 auth_ready = account.AuthReady,
                 is_current = account.IsCurrent,
+                remote_dispatch_enabled = account.RemoteDispatchEnabled,
             }).ToArray(),
         };
 

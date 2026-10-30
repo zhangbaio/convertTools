@@ -68,6 +68,8 @@ public sealed class TikTokAccountProfile
 
     // 发布默认
     public bool TiktokSubmitEnabled { get; set; } = true;
+    /// <summary>是否接收 XINGE 自动下发的剧集。关闭后该账号不再参与远程分发。</summary>
+    public bool XingeRemoteDispatchEnabled { get; set; } = true;
     public string TiktokSubmitAction { get; set; } = "submit"; // none | submit | save
     /// <summary>上传剧集使用的浏览器：embedded=内置 WebView2；playwright=程序自动启动的外部浏览器。</summary>
     public string TiktokUploadBrowserMode { get; set; } = "embedded"; // embedded | playwright

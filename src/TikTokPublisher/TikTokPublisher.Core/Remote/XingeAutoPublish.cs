@@ -21,6 +21,7 @@ public static class XingeAutoPublishFailureKinds
 {
     public const string AccountLogin = "account_login";
     public const string AccountDailyLimit = "account_daily_limit";
+    public const string AccountRemoteDisabled = "account_remote_disabled";
     public const string Source = "source";
     public const string Upload = "upload";
 }
@@ -171,6 +172,8 @@ public static class XingeAutoPublishFailureClassifier
     public static string Classify(string? stepKey, string? message)
     {
         var text = message ?? "";
+        if (text.Contains("未启用远程分发", StringComparison.Ordinal))
+            return XingeAutoPublishFailureKinds.AccountRemoteDisabled;
         if (ContainsAny(text, DailyLimitKeywords))
             return XingeAutoPublishFailureKinds.AccountDailyLimit;
         if (ContainsAny(text, AccountLoginKeywords))

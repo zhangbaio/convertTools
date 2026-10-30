@@ -38,6 +38,7 @@ public partial class AccountSettingsDialog : Window
         ArchiveRootBox.Text = p.TiktokArchiveRootDir;
         DownloadWorkspaceBox.Text = p.LastDownloadWorkspace;
         DeleteVideosOnArchiveBox.IsChecked = p.TiktokDeleteVideosOnArchive;
+        RemoteDispatchBox.IsChecked = p.XingeRemoteDispatchEnabled;
 
         ContractIdBox.Text = p.TiktokContractId;
         SelectByTag(ContractModeCombo, p.TiktokContractIdMode, "manual");
@@ -138,6 +139,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokArchiveRootConfigMigrated = true;
         p.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
         p.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
+        p.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
         p.TiktokDeleteVideosOnArchiveConfigured = true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";

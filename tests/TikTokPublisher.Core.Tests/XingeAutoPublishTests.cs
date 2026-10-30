@@ -48,6 +48,7 @@ public sealed class XingeAutoPublishTests : IDisposable
     [InlineData("download", "账号「A」已达单日创建剧集上限", XingeAutoPublishFailureKinds.AccountDailyLimit)]
     [InlineData("rewrite_info", "AI 改写失败", XingeAutoPublishFailureKinds.Upload)]
     [InlineData("", "未找到远程命令指定的 TikTok 账号：acc-1", XingeAutoPublishFailureKinds.AccountLogin)]
+    [InlineData("download", "账号未启用远程分发", XingeAutoPublishFailureKinds.AccountRemoteDisabled)]
     public void Classify_MapsStepAndMessageToFailureKind(string step, string message, string expected) =>
         XingeAutoPublishFailureClassifier.Classify(step, message).Should().Be(expected);
 

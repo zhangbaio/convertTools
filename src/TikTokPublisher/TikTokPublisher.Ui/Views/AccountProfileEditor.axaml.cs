@@ -93,6 +93,7 @@ public partial class AccountProfileEditor : UserControl
         LoginEmailBox.Text = profile.TiktokLoginEmail;
         PasswordBox.Text = profile.TiktokLoginPassword;
         StorageStateBox.Text = profile.TiktokStorageStatePath;
+        RemoteDispatchBox.IsChecked = profile.XingeRemoteDispatchEnabled;
         SeriesUrlBox.Text = profile.TiktokSeriesUrl;
         WorkspaceBox.Text = !string.IsNullOrWhiteSpace(profile.TiktokUploadProfilePath)
             ? profile.TiktokUploadProfilePath
@@ -222,6 +223,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokLoginEmail = LoginEmailBox.Text?.Trim() ?? "";
             profile.TiktokLoginPassword = PasswordBox.Text ?? "";
             profile.TiktokStorageStatePath = StorageStateBox.Text?.Trim() ?? profile.TiktokStorageStatePath;
+            profile.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
             profile.TiktokSeriesUrl = string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
                 ? TikTokUrls.DefaultSeriesDraftUrl
                 : SeriesUrlBox.Text.Trim();

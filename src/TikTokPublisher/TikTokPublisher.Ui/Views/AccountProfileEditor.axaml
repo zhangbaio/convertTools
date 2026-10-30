@@ -81,7 +81,7 @@
             <TabControl Classes="accountTabs">
                 <TabItem Header="登录设置">
                     <ScrollViewer>
-                        <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
+                        <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
                         <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录状态" VerticalAlignment="Top" Margin="0,4,0,0" />
                         <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LoginStatusText" Classes="pageSummary" TextWrapping="Wrap" Text="尚未登录" />
 
@@ -94,8 +94,11 @@
                         <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="TikTok 密码" VerticalAlignment="Center" />
                         <TextBox Grid.Row="3" Grid.Column="1" x:Name="PasswordBox" PasswordChar="●" RevealPassword="False" Watermark="可选，仅本地保存" />
 
-                        <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="登录态文件" VerticalAlignment="Center" />
-                        <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="远程分发" VerticalAlignment="Center" />
+                        <CheckBox Grid.Row="4" Grid.Column="1" x:Name="RemoteDispatchBox" Content="参与 XINGE 远程分发剧集" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="登录态文件" VerticalAlignment="Center" />
+                        <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto">
                             <TextBox Grid.Column="0" x:Name="StorageStateBox" Watermark="留空时使用 ~/.tiktok_publisher/profiles/{id}/tiktok_auth_state.json" />
                             <Button Grid.Column="1" Content="浏览" Click="OnBrowseAuthPathClick" Margin="8,0,0,0" />
                         </Grid>
