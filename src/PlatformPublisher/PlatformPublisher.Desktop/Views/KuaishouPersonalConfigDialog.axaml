@@ -151,8 +151,10 @@
                         <ComboBox x:Name="NewTitleAliasPositionBox" Grid.Row="1" Grid.Column="1" />
                         <TextBlock Grid.Row="2" Text="别名值" VerticalAlignment="Center" />
                         <TextBox x:Name="NewTitleAliasValueBox" Grid.Row="2" Grid.Column="1" Watermark="例如 2" />
-                        <TextBlock Grid.Row="3" Text="任务队列并发数" VerticalAlignment="Center" />
-                        <TextBox x:Name="QueueParallelBox" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="3" Text="任务队列并发数" VerticalAlignment="Center"
+                                   ToolTip.Tip="同时执行的项目数，范围 1 到 5。本地步骤并行；浏览器上传共用登录态，同一时间只上传一个项目。" />
+                        <TextBox x:Name="QueueParallelBox" Grid.Row="3" Grid.Column="1"
+                                 ToolTip.Tip="同时执行的项目数，范围 1 到 5。本地步骤并行；浏览器上传共用登录态，同一时间只上传一个项目。" />
                         <TextBlock Grid.Row="4" Text="素材上传接口路径" VerticalAlignment="Center" />
                         <TextBox x:Name="MaterialUploadPathBox" Grid.Row="4" Grid.Column="1" />
                         <TextBlock Grid.Row="5" Text="创建短剧接口路径" VerticalAlignment="Center" />

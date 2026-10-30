@@ -168,7 +168,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     {
         if (_kuaishou is null) return StepStatus(key);
         if (Model.StepStates.TryGetValue(key, out var running) && running.Status == PublishJobStepStatus.Running)
-            return "进行中";
+            return string.Equals(running.Message, "等待槽位", StringComparison.Ordinal) ? "等待槽位" : "进行中";
         if (!string.IsNullOrWhiteSpace(artifactStatus) && artifactStatus != "未执行")
             return artifactStatus;
         if (!Model.StepStates.TryGetValue(key, out var state)) return artifactStatus ?? "未执行";
@@ -228,7 +228,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     {
         var text = status.Trim();
         if (text.StartsWith("已完成", StringComparison.Ordinal) || text is "完成" or "成功") return StepTone.Completed;
-        if (text.StartsWith("进行中", StringComparison.Ordinal) || text is "执行中" or "上传中" or "发布中") return StepTone.Running;
+        if (text.StartsWith("进行中", StringComparison.Ordinal) || text is "执行中" or "上传中" or "发布中" or "等待槽位") return StepTone.Running;
         if (text is "失败" or "异常" or "错误" || text.Contains("失败", StringComparison.Ordinal)) return StepTone.Failed;
         if (text is "已停止" or "停止中" or "已跳过") return StepTone.Stopped;
         if (text is "手工介入" || text.StartsWith("部分完成", StringComparison.Ordinal) || text is "已保持" or "已保存草稿") return StepTone.Held;
