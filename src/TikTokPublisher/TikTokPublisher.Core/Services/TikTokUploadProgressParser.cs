@@ -21,6 +21,20 @@ public static class TikTokUploadProgressParser
     private static readonly Regex SeriesEpisodeRatioPattern =
         new(@"剧集正片\s*(\d+)\s*/\s*(\d+)", RegexOptions.Compiled);
 
+    // 翻译包没加载时，工具条原文是 i18n key，紧跟着筛选「全部 (N)」。
+    private static readonly Regex EpisodeToolbarCountPattern =
+        new(@"contentPartnerHub_seriesStatus_episodeCountValue\s*全部\s*[（(](\d+)[)）]", RegexOptions.Compiled);
+
+    private static readonly (string Key, string Text)[] UntranslatedPageKeys =
+    {
+        ("contentPartnerHub_selfUpload_statusProcessing", "处理中"),
+        ("contentPartnerHub_selfUpload_statusUploading", "上传中"),
+        ("contentPartnerHub_selfUpload_statusWaiting", "等待中"),
+        ("contentPartnerHub_selfUpload_statusChecking", "检测中"),
+        ("contentPartnerHub_selfUpload_statusCheckFailed", "检测未通过"),
+        ("contentPartnerHub_seriesStatus_episodeN", " "),
+    };
+
     private static readonly Regex EpisodeLinePattern =
         new(@"(?:^|\n)\s*第\s*\d+\s*集", RegexOptions.Compiled | RegexOptions.Multiline);
 
@@ -35,6 +49,7 @@ public static class TikTokUploadProgressParser
         "草稿",
         "已上传",
         "上传完成",
+        "检测中",
         "Draft",
         "Uploaded",
         "Upload complete",
@@ -43,6 +58,7 @@ public static class TikTokUploadProgressParser
 
     public static int? ExtractReadyUploadedVideoCount(string bodyText, IReadOnlyList<string>? titleCandidates)
     {
+        bodyText = TranslateUntranslatedPageKeys(bodyText);
         var normalizedCandidates = (titleCandidates ?? Array.Empty<string>())
             .Select(value => (value ?? "").Trim())
             .Where(value => value.Length > 0)
@@ -51,6 +67,10 @@ public static class TikTokUploadProgressParser
         var ratioCount = ExtractSeriesEpisodeRatioCount(bodyText);
         if (ratioCount is not null)
             return ratioCount;
+
+        var toolbarCount = ExtractEpisodeToolbarCount(bodyText);
+        if (toolbarCount is not null)
+            return toolbarCount;
 
         var completedIndexes = ExtractCompletedUploadedEpisodeIndexes(bodyText, normalizedCandidates);
         if (completedIndexes.Count > 0)
@@ -122,12 +142,13 @@ public static class TikTokUploadProgressParser
         IReadOnlyList<string>? tableTexts)
     {
         var videoTableTexts = (tableTexts ?? Array.Empty<string>())
+            .Select(TranslateUntranslatedPageKeys)
             .Where(LooksLikeVideoUploadTable)
             .ToArray();
         var tableScoped = videoTableTexts.Length > 0;
         var statusText = tableScoped
             ? string.Join('\n', videoTableTexts)
-            : bodyText ?? "";
+            : TranslateUntranslatedPageKeys(bodyText);
 
         return new TikTokUploadActivity(
             ActiveUploadStatusMarkers.Any(
@@ -153,6 +174,22 @@ public static class TikTokUploadProgressParser
             return Math.Max(0, count);
 
         return ExtractSeriesEpisodeRatioCount(bodyText ?? "");
+    }
+
+    private static string TranslateUntranslatedPageKeys(string? bodyText)
+    {
+        var value = bodyText ?? "";
+        foreach (var (key, text) in UntranslatedPageKeys)
+            value = value.Replace(key, text, StringComparison.Ordinal);
+        return value;
+    }
+
+    private static int? ExtractEpisodeToolbarCount(string bodyText)
+    {
+        var match = EpisodeToolbarCountPattern.Match(bodyText ?? "");
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var count) && count >= 0)
+            return count;
+        return null;
     }
 
     private static int? ExtractSeriesEpisodeRatioCount(string bodyText)
@@ -252,7 +289,7 @@ public static class TikTokUploadProgressParser
             if (!match.Success || !int.TryParse(match.Groups[1].Value, out var value) || value <= 0 || !seen.Add(value))
                 continue;
 
-            var statusText = CollectEpisodeStatusText(lines, lineIndex + 1);
+            var statusText = line + "\n" + CollectEpisodeStatusText(lines, lineIndex + 1);
             if (!IsCompletedUploadStatusText(statusText))
                 continue;
 

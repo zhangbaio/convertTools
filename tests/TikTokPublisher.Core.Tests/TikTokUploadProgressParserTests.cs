@@ -152,4 +152,48 @@ public sealed class TikTokUploadProgressParserTests
       .Should()
       .BeFalse();
   }
+
+  [Fact]
+  public void RealEpisodeCard_UntranslatedCheckingStatus_CountsToolbarTotal()
+  {
+    const string text =
+      "contentPartnerHub_seriesStatus_episodeCountValue全部 (50)\n" +
+      "01:49contentPartnerHub_seriesStatus_episodeN The Lost Princess of Dragon-第1集10-30 09:27contentPartnerHub_selfUpload_statusChecking\n" +
+      "01:19contentPartnerHub_seriesStatus_episodeN The Lost Princess of Dragon-第50集10-30 09:27contentPartnerHub_selfUpload_statusChecking";
+
+    TikTokUploadProgressParser
+      .ExtractReadyUploadedVideoCount(text, ["The Lost Princess of Dragon", "Dragon's Lost Sister"])
+      .Should()
+      .Be(50);
+
+    var activity = TikTokUploadProgressParser.DetectUploadActivity(text, [text]);
+    activity.Uploading.Should().BeFalse();
+    activity.WaitingCount.Should().Be(0);
+    TikTokUploadProgressParser.IsUploadComplete(50, 50, activity).Should().BeTrue();
+  }
+
+  [Fact]
+  public void RealEpisodeCard_UntranslatedProcessingStatus_StaysIncomplete()
+  {
+    const string text =
+      "contentPartnerHub_seriesStatus_episodeCountValue全部 (50)\n" +
+      "01:49contentPartnerHub_seriesStatus_episodeN The Lost Princess of Dragon-第1集contentPartnerHub_selfUpload_statusProcessing";
+
+    var activity = TikTokUploadProgressParser.DetectUploadActivity(text, [text]);
+    activity.Uploading.Should().BeTrue();
+    TikTokUploadProgressParser.IsUploadComplete(50, 50, activity).Should().BeFalse();
+  }
+
+  [Fact]
+  public void RealEpisodeCard_SameLineCheckingStatus_CountsVisibleEpisodes()
+  {
+    const string text =
+      "01:49contentPartnerHub_seriesStatus_episodeN The Lost Princess of Dragon-第1集10-30 09:27contentPartnerHub_selfUpload_statusChecking\n" +
+      "01:19contentPartnerHub_seriesStatus_episodeN The Lost Princess of Dragon-第2集10-30 09:27contentPartnerHub_selfUpload_statusChecking";
+
+    TikTokUploadProgressParser
+      .ExtractReadyUploadedVideoCount(text, ["The Lost Princess of Dragon"])
+      .Should()
+      .Be(2);
+  }
 }

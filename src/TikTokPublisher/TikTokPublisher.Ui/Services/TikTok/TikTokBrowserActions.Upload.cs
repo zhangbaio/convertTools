@@ -112,6 +112,12 @@ public static partial class TikTokBrowserActions
                 await ReadUploadTableTextsAsync(page));
             var uploading = activity.Uploading;
             var waitingCount = activity.WaitingCount;
+            if (uploadedCount is null && !uploading && waitingCount == 0)
+            {
+                var domCount = await ReadEpisodeListCountAsync(page).ConfigureAwait(false);
+                if (domCount is > 0)
+                    uploadedCount = domCount;
+            }
             var emptyQueue = TikTokUploadProgressParser.IsClearlyEmptyUploadQueue(
                 bodyText,
                 uploadedCount,
