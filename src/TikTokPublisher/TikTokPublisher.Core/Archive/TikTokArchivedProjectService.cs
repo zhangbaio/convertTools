@@ -78,7 +78,7 @@ public static partial class TikTokArchivedProjectService
         var fileItems = new List<ArchivedProjectItem>();
         if (Directory.Exists(archiveRoot))
         {
-            fileItems.AddRange(ListMetaLayout(archiveRoot));
+            fileItems.AddRange(ListMetaLayout(archiveRoot, archiveSource: null));
             fileItems.AddRange(ListLegacyProjectLayout(archiveRoot, fileItems));
         }
 
@@ -132,7 +132,7 @@ public static partial class TikTokArchivedProjectService
         var fileItems = new List<ArchivedProjectItem>();
         if (Directory.Exists(archiveRoot))
         {
-            fileItems.AddRange(ListMetaLayout(archiveRoot));
+            fileItems.AddRange(ListMetaLayout(archiveRoot, archiveSource: null));
             fileItems.AddRange(ListLegacyProjectLayout(archiveRoot, fileItems));
         }
 
@@ -152,6 +152,21 @@ public static partial class TikTokArchivedProjectService
             return databaseItems;
 
         return MergeArchiveItems(fileItems, databaseItems);
+    }
+
+    public static IReadOnlyList<ArchivedProjectItem> ListBySource(
+        string workspaceRoot,
+        string? archiveRootDir,
+        string archiveSource)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot) || string.IsNullOrWhiteSpace(archiveSource))
+            return Array.Empty<ArchivedProjectItem>();
+        var archiveRoot = ResolveArchiveRoot(workspaceRoot, archiveRootDir);
+        if (!Directory.Exists(archiveRoot))
+            return Array.Empty<ArchivedProjectItem>();
+        return ListMetaLayout(archiveRoot, archiveSource)
+            .OrderByDescending(item => item.ArchivedAt, StringComparer.Ordinal)
+            .ToArray();
     }
 
     public static async Task ArchiveQueueProjectAsync(
@@ -211,6 +226,7 @@ public static partial class TikTokArchivedProjectService
         var deletedWorkflowVideoCount = 0;
         var deletedMaterialVideoCount = 0;
         var deletedMaterialClipVideoCount = 0;
+        var deletedSystemHighlightVideoCount = 0;
         var preservedVideoCount = 0;
         var sourceVideosPrunedBeforeMove = false;
         var sourceMaterialPrunedBeforeMove = false;
@@ -230,6 +246,7 @@ public static partial class TikTokArchivedProjectService
             if (sourceCrossVolume && deleteMaterialVideos)
             {
                 deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(sourceProjectDir);
+                deletedSystemHighlightVideoCount += DeleteSystemHighlightVideoFiles(sourceProjectDir);
                 sourceMaterialPrunedBeforeMove = true;
             }
 
@@ -252,6 +269,7 @@ public static partial class TikTokArchivedProjectService
             {
                 deletedMaterialVideoCount = DeleteMaterialVideoFiles(workflowProjectDir);
                 deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(workflowProjectDir);
+                deletedSystemHighlightVideoCount += DeleteSystemHighlightVideoFiles(workflowProjectDir);
                 workflowMaterialPrunedBeforeMove = true;
             }
 
@@ -278,6 +296,7 @@ public static partial class TikTokArchivedProjectService
             {
                 deletedMaterialVideoCount = DeleteMaterialVideoFiles(archivedWorkflowDir);
                 deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(archivedWorkflowDir);
+                deletedSystemHighlightVideoCount += DeleteSystemHighlightVideoFiles(archivedWorkflowDir);
             }
         }
 
@@ -287,6 +306,7 @@ public static partial class TikTokArchivedProjectService
             Directory.Exists(archivedSourceDir))
         {
             deletedMaterialClipVideoCount += DeleteMaterialClipVideoFiles(archivedSourceDir);
+            deletedSystemHighlightVideoCount += DeleteSystemHighlightVideoFiles(archivedSourceDir);
         }
 
         // Once directory moves have started, archive finalization is non-cancellable:
@@ -324,6 +344,7 @@ public static partial class TikTokArchivedProjectService
             ["queued_at"] = queuedAtValue,
             ["uploadCompletedAt"] = uploadCompletedAtValue,
             ["upload_completed_at"] = uploadCompletedAtValue,
+            ["workspaceRoot"] = Path.GetFullPath(workspaceRoot),
             ["workspaceRootAtArchive"] = Path.GetFullPath(workspaceRoot),
             ["archiveLayoutVersion"] = 2,
             ["sourceProjectDir"] = sourceProjectDir,
@@ -334,7 +355,8 @@ public static partial class TikTokArchivedProjectService
             ["deleteWorkflowVideos"] = deleteWorkflowVideos,
             ["deleteMaterialVideos"] = deleteMaterialVideos,
             ["deletedVideoFileCount"] =
-                deletedSourceVideoCount + deletedWorkflowVideoCount + deletedMaterialVideoCount + deletedMaterialClipVideoCount,
+                deletedSourceVideoCount + deletedWorkflowVideoCount + deletedMaterialVideoCount + deletedMaterialClipVideoCount + deletedSystemHighlightVideoCount,
+            ["deletedSystemHighlightVideoFileCount"] = deletedSystemHighlightVideoCount,
             ["preservedVideoFileCount"] = preservedVideoCount,
             ["deletedSourceVideoFileCount"] = deletedSourceVideoCount,
             ["deletedWorkflowVideoFileCount"] = deletedWorkflowVideoCount,
@@ -490,7 +512,7 @@ public static partial class TikTokArchivedProjectService
         };
     }
 
-    private static IReadOnlyList<ArchivedProjectItem> ListMetaLayout(string archiveRoot)
+    private static IReadOnlyList<ArchivedProjectItem> ListMetaLayout(string archiveRoot, string? archiveSource)
     {
         var metadataRoot = Path.Combine(archiveRoot, "meta");
         if (!Directory.Exists(metadataRoot))
@@ -500,14 +522,21 @@ public static partial class TikTokArchivedProjectService
         foreach (var metadataPath in Directory.EnumerateFiles(metadataRoot, "*.json", SearchOption.TopDirectoryOnly))
         {
             var payload = ReadJsonObject(metadataPath);
-            var archiveSource = ReadString(payload, "archiveSource");
-            if (!string.IsNullOrWhiteSpace(archiveSource) &&
-                !string.Equals(archiveSource, "tiktok", StringComparison.OrdinalIgnoreCase))
+            var storedSource = ReadString(payload, "archiveSource");
+            if (!MatchesArchiveSource(archiveSource, storedSource))
                 continue;
             items.Add(BuildItemFromPayload(payload, metadataPath, metadataPath));
         }
 
         return items;
+    }
+
+    private static bool MatchesArchiveSource(string? requested, string stored)
+    {
+        if (string.IsNullOrWhiteSpace(requested))
+            return string.IsNullOrWhiteSpace(stored) ||
+                   string.Equals(stored, "tiktok", StringComparison.OrdinalIgnoreCase);
+        return string.Equals(stored, requested, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IReadOnlyList<ArchivedProjectItem> ListLegacyProjectLayout(
@@ -757,6 +786,8 @@ public static partial class TikTokArchivedProjectService
             payload,
             "workspaceRootAtArchive",
             "workspace_root_at_archive",
+            "workspaceRoot",
+            "workspace_root",
             "WorkspaceRootAtArchive");
         if (!string.IsNullOrWhiteSpace(storedWorkspace))
         {
@@ -1402,7 +1433,14 @@ public static partial class TikTokArchivedProjectService
 
     private static int DeleteMaterialClipVideoFiles(string dir)
     {
-        var clipDir = Path.Combine(dir, "material-clip-output");
+        var deleted = 0;
+        foreach (var name in new[] { "material-clip-output", "素材剪辑输出" })
+            deleted += DeleteMaterialClipVideoFilesIn(Path.Combine(dir, name));
+        return deleted;
+    }
+
+    private static int DeleteMaterialClipVideoFilesIn(string clipDir)
+    {
         if (!Directory.Exists(clipDir)) return 0;
         if (!ContainsSubtitlesDirectory(clipDir) &&
             TryDeleteWholeDirectoryIfOnlyMatchingFiles(clipDir, IsVideoFile, out var wholeDirDeleted))
@@ -1417,6 +1455,19 @@ public static partial class TikTokArchivedProjectService
             if (!VideoExtensions.Contains(Path.GetExtension(file))) continue;
             File.Delete(file);
             deleted++;
+        }
+
+        return deleted;
+    }
+
+    private static int DeleteSystemHighlightVideoFiles(string dir)
+    {
+        var deleted = 0;
+        foreach (var name in new[] { "系统高光", "已下载系统高光" })
+        {
+            var highlightDir = Path.Combine(dir, name);
+            if (Directory.Exists(highlightDir))
+                deleted += DeleteVideoFilesRecursive(highlightDir);
         }
 
         return deleted;
@@ -1455,7 +1506,7 @@ public static partial class TikTokArchivedProjectService
             return false;
 
         return Directory.EnumerateDirectories(rootDir, "*", SearchOption.AllDirectories)
-            .Any(dir => string.Equals(Path.GetFileName(dir), "subtitles", StringComparison.OrdinalIgnoreCase));
+            .Any(dir => IsSubtitleDirectoryName(Path.GetFileName(dir)));
     }
 
     private static bool IsUnderSubtitlesDirectory(string rootDir, string filePath)
@@ -1466,8 +1517,12 @@ public static partial class TikTokArchivedProjectService
             StringSplitOptions.RemoveEmptyEntries);
         return parts.Length > 1 &&
                parts.Take(parts.Length - 1)
-                   .Any(part => string.Equals(part, "subtitles", StringComparison.OrdinalIgnoreCase));
+                   .Any(IsSubtitleDirectoryName);
     }
+
+    private static bool IsSubtitleDirectoryName(string name) =>
+        string.Equals(name, "subtitles", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name, "字幕", StringComparison.Ordinal);
 
     private static int ExtractEpisodeNumber(string text)
     {

@@ -1,0 +1,47 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PlatformPublisher.Desktop.ViewModels"
+             x:Class="PlatformPublisher.Desktop.Views.KuaishouArchivedProjectsView"
+             x:DataType="vm:MainWindowViewModel"
+             Background="#F3F6FA">
+    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10" Margin="12">
+        <Border Classes="panel" Padding="12">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="{Binding ArchivedProjectsSummary}" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <Button Grid.Column="1" x:Name="ReturnButton" Content="返回快手分账" Click="OnReturnClick" Classes="secondaryAction" />
+                <Button Grid.Column="2" Content="刷新" Click="OnRefreshClick" Classes="secondaryAction" />
+                <Button Grid.Column="3" Content="回退归档项目" Click="OnRestoreClick" Classes="primaryAction" />
+            </Grid>
+        </Border>
+        <Border Grid.Row="1" Classes="panel" Padding="10">
+            <TextBlock Text="归档目录与短剧助手相同：source、workflow、meta。回退会把目录移回原来的工作区，原位置已有同名目录时不会覆盖。"
+                       TextWrapping="Wrap" Foreground="#64748B" />
+        </Border>
+        <Border Grid.Row="2" Classes="panel" ClipToBounds="True">
+            <Grid RowDefinitions="Auto,*">
+                <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,7">
+                    <Grid ColumnDefinitions="1.4*,180,2*" ColumnSpacing="10">
+                        <TextBlock Text="项目" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="1" Text="归档时间" FontWeight="SemiBold" />
+                        <TextBlock Grid.Column="2" Text="归档元数据" FontWeight="SemiBold" />
+                    </Grid>
+                </Border>
+                <ListBox Grid.Row="1" ItemsSource="{Binding ArchivedProjects}" SelectedItem="{Binding SelectedArchivedProject}"
+                         Background="#FFFFFF" BorderThickness="0">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
+                            <Grid ColumnDefinitions="1.4*,180,2*" ColumnSpacing="10" Margin="10,8">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding ProjectKey}" FontSize="11" Foreground="#64748B" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding ArchivedAtText}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding ArchiveProjectDirectory}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

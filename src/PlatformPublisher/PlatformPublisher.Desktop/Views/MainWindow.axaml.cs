@@ -52,7 +52,10 @@ public partial class MainWindow : Window
                 : PublishPlatform.KuaishouPersonalRevenue);
         KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
         KuaishouWorkflowPage.ViewLogsRequested += (_, _) => ShowKuaishouLogs();
+        KuaishouWorkflowPage.ArchiveRequested += (_, _) => _ = ConfirmAndArchiveKuaishouAsync();
+        KuaishouWorkflowPage.OpenArchiveRequested += (_, _) => ShowKuaishouArchive();
         KuaishouLogPage.ReturnRequested += (_, _) => ReturnToKuaishouQueue();
+        KuaishouArchivePage.ReturnRequested += (_, _) => ReturnToKuaishouQueue();
         Opened += (_, _) =>
         {
             if (!_startupLayoutApplied)
@@ -393,6 +396,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
@@ -406,6 +410,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
@@ -423,6 +428,7 @@ public partial class MainWindow : Window
         KuaishouWorkflowPage.IsVisible = true;
         KuaishouWorkflowPage.IsKuaishouMode = true;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
@@ -442,6 +448,7 @@ public partial class MainWindow : Window
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = true;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
@@ -460,6 +467,7 @@ public partial class MainWindow : Window
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = true;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouLogPage.Refresh();
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
@@ -467,6 +475,80 @@ public partial class MainWindow : Window
         SetActiveNavigation(ViewModel.SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue
             ? KuaishouPersonalNavButton
             : KuaishouEnterpriseNavButton);
+    }
+
+    private void ShowKuaishouArchive()
+    {
+        if (ViewModel?.IsKuaishouPlatform != true)
+            return;
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = true;
+        KuaishouArchivePage.Refresh();
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(ViewModel.SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue
+            ? KuaishouPersonalNavButton
+            : KuaishouEnterpriseNavButton);
+    }
+
+    private async Task ConfirmAndArchiveKuaishouAsync()
+    {
+        if (ViewModel is null || !ViewModel.IsKuaishouPlatform)
+            return;
+        var count = ViewModel.VisibleJobs.Count(row => row.IsChecked);
+        if (count == 0)
+        {
+            ViewModel.StatusMessage = "请先勾选要归档的项目。";
+            return;
+        }
+
+        var dialog = new Window
+        {
+            Title = "确认归档",
+            Width = 480,
+            Height = 200,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"确认归档 {count} 个快手分账项目？归档后保持 source/workflow 目录，并删除原视频、转码视频和素材视频。",
+                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    },
+                },
+            },
+        };
+        var buttons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            Spacing = 8,
+        };
+        ((StackPanel)dialog.Content).Children.Add(buttons);
+        var confirmed = false;
+        var cancel = new Button { Content = "取消" };
+        var ok = new Button { Content = "归档" };
+        cancel.Click += (_, _) => dialog.Close();
+        ok.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        await dialog.ShowDialog(this);
+        if (confirmed)
+            await ViewModel.ArchiveCheckedKuaishouAsync();
     }
 
     private void ShowSettingsPage()
@@ -477,6 +559,7 @@ public partial class MainWindow : Window
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = true;
         AnalyticsPage.IsVisible = false;
@@ -490,6 +573,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = true;
@@ -615,6 +699,7 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = true;

@@ -13,7 +13,9 @@ using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Drama;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Ui.ViewModels;
@@ -2651,6 +2653,160 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Append();
         else
             Dispatcher.UIThread.Post(Append);
+    }
+
+    public async Task ArchiveCheckedKuaishouAsync()
+    {
+        if (!IsKuaishouPlatform)
+            return;
+        var rows = VisibleJobs.Where(row => row.IsChecked && Directory.Exists(row.Model.ProjectDirectory)).ToArray();
+        if (rows.Length == 0)
+        {
+            StatusMessage = "请先勾选要归档的项目。";
+            return;
+        }
+
+        var workspace = Path.GetFullPath(DraftProjectDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            StatusMessage = "请先选择快手分账工作目录。";
+            return;
+        }
+
+        var source = IsKuaishouPersonalPlatform ? "kuaishou_personal" : "kuaishou_enterprise";
+        await RunBusyAsync(async cancellationToken =>
+        {
+            var succeeded = 0;
+            var failed = 0;
+            foreach (var row in rows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var config = KuaishouPersonalConfig.Load(row.Model);
+                    var archiveRoot = string.IsNullOrWhiteSpace(config.ArchiveRootDirectory)
+                        ? null
+                        : config.ArchiveRootDirectory;
+                    AppendActivityLog($"准备归档：{row.ProjectName}");
+                    await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+                        workspace,
+                        row.Model.ProjectDirectory,
+                        archiveRoot,
+                        preserveWorkflowEpisodes: null,
+                        deleteSourceVideos: true,
+                        deleteWorkflowVideos: true,
+                        deleteMaterialVideos: true,
+                        source: source,
+                        account: new TikTokAccountProfile
+                        {
+                            Id = _activeGlobalAccount?.Id ?? row.Model.AccountId,
+                            Name = _activeGlobalAccount?.Name ?? row.Model.AccountName,
+                        },
+                        ct: cancellationToken);
+                    _jobs.Remove(row.Model);
+                    succeeded++;
+                    AppendActivityLog($"已归档：{row.ProjectName}");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    failed++;
+                    AppendActivityLog($"{row.ProjectName} 归档失败：{ex.Message}");
+                }
+            }
+
+            await PersistAsync(cancellationToken);
+            RefreshVisibleJobs();
+            StatusMessage = $"归档结束：成功 {succeeded}，失败 {failed}。原视频、转码视频和素材视频已按快手分账规则清理。";
+            AppendActivityLog(StatusMessage);
+        });
+    }
+
+    public void RefreshKuaishouArchivedProjects()
+    {
+        var selectedKey = SelectedArchivedProject?.ProjectKey;
+        ArchivedProjects.Clear();
+        if (!IsKuaishouPlatform || string.IsNullOrWhiteSpace(DraftProjectDirectory) || !Directory.Exists(DraftProjectDirectory))
+        {
+            OnPropertyChanged(nameof(ArchivedProjectsSummary));
+            SelectedArchivedProject = null;
+            return;
+        }
+
+        var workspace = Path.GetFullPath(DraftProjectDirectory);
+        var sample = new PublishJob
+        {
+            Platform = SelectedPlatform.Value,
+            AccountId = _activeGlobalAccount?.Id ?? string.Empty,
+            ConfigPath = DraftConfigPath,
+            ProjectDirectory = workspace,
+            ProjectName = _activeGlobalAccount?.Name ?? "快手分账",
+        };
+        var config = KuaishouPersonalConfig.Load(sample);
+        var archiveRoot = TikTokArchivedProjectService.ResolveArchiveRoot(
+            workspace,
+            string.IsNullOrWhiteSpace(config.ArchiveRootDirectory) ? null : config.ArchiveRootDirectory);
+        var source = IsKuaishouPersonalPlatform ? "kuaishou_personal" : "kuaishou_enterprise";
+        foreach (var item in TikTokArchivedProjectService.ListBySource(workspace, archiveRoot, source))
+        {
+            DateTimeOffset? archivedAt = DateTimeOffset.TryParse(item.ArchivedAt, out var parsed) ? parsed : null;
+            ArchivedProjects.Add(new ArchivedProjectRowViewModel(
+                item.ProjectKey,
+                FirstArchiveTitle(item),
+                item.MetadataPath,
+                item.ArchivedSourceDir,
+                item.ArchivedWorkflowDir,
+                archivedAt,
+                0,
+                0));
+        }
+
+        SelectedArchivedProject = selectedKey is null
+            ? ArchivedProjects.FirstOrDefault()
+            : ArchivedProjects.FirstOrDefault(item => item.ProjectKey == selectedKey) ?? ArchivedProjects.FirstOrDefault();
+        OnPropertyChanged(nameof(ArchivedProjectsSummary));
+    }
+
+    public async Task RestoreSelectedKuaishouArchiveAsync()
+    {
+        if (!IsKuaishouPlatform || SelectedArchivedProject is not { } row)
+        {
+            StatusMessage = "请先选择要回退的归档项目。";
+            return;
+        }
+
+        var workspace = Path.GetFullPath(DraftProjectDirectory);
+        var sample = new PublishJob
+        {
+            Platform = SelectedPlatform.Value,
+            AccountId = _activeGlobalAccount?.Id ?? string.Empty,
+            ConfigPath = DraftConfigPath,
+            ProjectDirectory = workspace,
+            ProjectName = row.DisplayName,
+        };
+        var config = KuaishouPersonalConfig.Load(sample);
+        var archiveRoot = string.IsNullOrWhiteSpace(config.ArchiveRootDirectory) ? null : config.ArchiveRootDirectory;
+        await RunBusyAsync(cancellationToken =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TikTokArchivedProjectService.Restore(workspace, row.ArchiveProjectDirectory, archiveRoot);
+            StatusMessage = $"已回退归档项目：{row.DisplayName}";
+            AppendActivityLog(StatusMessage);
+            return Task.CompletedTask;
+        });
+        RefreshKuaishouArchivedProjects();
+        if (!IsBusy)
+            await ScanWorkspaceAsync();
+    }
+
+    private static string FirstArchiveTitle(ArchivedProjectItem item)
+    {
+        foreach (var value in new[] { item.NewTitle, item.DisplayName, item.OriginalTitle, item.ProjectKey })
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return item.ProjectKey;
     }
 
     public void RefreshArchivedProjects()
