@@ -18,6 +18,9 @@ public static class TikTokUploadProgressParser
     private static readonly Regex UploadedContentCountPattern =
         new(@"正片内容\s*[\(（](\d+)[\)）]", RegexOptions.Compiled);
 
+    private static readonly Regex SeriesEpisodeRatioPattern =
+        new(@"剧集正片\s*(\d+)\s*/\s*(\d+)", RegexOptions.Compiled);
+
     private static readonly Regex EpisodeLinePattern =
         new(@"(?:^|\n)\s*第\s*\d+\s*集", RegexOptions.Compiled | RegexOptions.Multiline);
 
@@ -44,6 +47,10 @@ public static class TikTokUploadProgressParser
             .Select(value => (value ?? "").Trim())
             .Where(value => value.Length > 0)
             .ToList();
+
+        var ratioCount = ExtractSeriesEpisodeRatioCount(bodyText);
+        if (ratioCount is not null)
+            return ratioCount;
 
         var completedIndexes = ExtractCompletedUploadedEpisodeIndexes(bodyText, normalizedCandidates);
         if (completedIndexes.Count > 0)
@@ -142,9 +149,26 @@ public static class TikTokUploadProgressParser
     private static int? ExtractUploadedHeadingCount(string bodyText)
     {
         var match = UploadedContentCountPattern.Match(bodyText ?? "");
-        return match.Success && int.TryParse(match.Groups[1].Value, out var count)
-            ? Math.Max(0, count)
-            : null;
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var count))
+            return Math.Max(0, count);
+
+        return ExtractSeriesEpisodeRatioCount(bodyText ?? "");
+    }
+
+    private static int? ExtractSeriesEpisodeRatioCount(string bodyText)
+    {
+        var match = SeriesEpisodeRatioPattern.Match(bodyText ?? "");
+        if (!match.Success ||
+            !int.TryParse(match.Groups[1].Value, out var ready) ||
+            !int.TryParse(match.Groups[2].Value, out var total))
+        {
+            return null;
+        }
+
+        if (total <= 0 || ready < 0 || ready > total)
+            return null;
+
+        return ready;
     }
 
     private static int? ExtractUploadedVideoCountFromEpisodeLines(string bodyText)

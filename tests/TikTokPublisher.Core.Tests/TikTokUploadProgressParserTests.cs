@@ -133,6 +133,13 @@ public sealed class TikTokUploadProgressParserTests
       .BeTrue();
 
     TikTokUploadProgressParser
+      .ExtractReadyUploadedVideoCount(
+        "剧集正片 50/50\n第 45 集 第45集\n2026-10-30 15:25\n草稿\n第 46 集 第46集\n2026-10-30 15:26\n草稿",
+        ["The Lost Princess of Dragon"])
+      .Should()
+      .Be(50);
+
+    TikTokUploadProgressParser
       .IsClearlyEmptyUploadQueue("内容上传\n正片内容 (60)\n第 1 集 当前剧-第1集\n草稿", 60, idle)
       .Should()
       .BeFalse();
