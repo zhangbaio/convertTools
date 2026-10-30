@@ -101,8 +101,11 @@ public static class TikTokUploadProgressParser
             return false;
 
         var value = bodyText ?? "";
-        return value.Contains("正片内容", StringComparison.Ordinal) &&
-               value.Contains("点击上传或拖拽视频到此处", StringComparison.Ordinal) &&
+        var oldEmptyPrompt = value.Contains("正片内容", StringComparison.Ordinal) &&
+                             value.Contains("点击上传或拖拽视频到此处", StringComparison.Ordinal);
+        var newEmptyPrompt = value.Contains("点击或拖拽视频文件到此处上传", StringComparison.Ordinal) ||
+                             value.Contains("点击或拖拽视频文件到此处", StringComparison.Ordinal);
+        return (oldEmptyPrompt || newEmptyPrompt) &&
                ExtractUploadedHeadingCount(value) is null &&
                !EpisodeLinePattern.IsMatch(value);
     }

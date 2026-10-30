@@ -125,6 +125,14 @@ public sealed class TikTokUploadProgressParserTests
       .BeTrue();
 
     TikTokUploadProgressParser
+      .IsClearlyEmptyUploadQueue(
+        "发布配置\n剧集正片\n每部剧集至少需包含1集正片\n点击或拖拽视频文件到此处上传\n本地上传 (推荐)",
+        null,
+        idle)
+      .Should()
+      .BeTrue();
+
+    TikTokUploadProgressParser
       .IsClearlyEmptyUploadQueue("内容上传\n正片内容 (60)\n第 1 集 当前剧-第1集\n草稿", 60, idle)
       .Should()
       .BeFalse();
