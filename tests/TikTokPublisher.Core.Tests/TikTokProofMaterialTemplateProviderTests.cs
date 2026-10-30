@@ -8,7 +8,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokProofMaterialTemplateProviderTests
 {
     private const string ExpectedTemplateSha256 =
-        "31524CFE85F11B144B7DF3294ADE86219832EA533B22F72136F677B661009C6C";
+        "C195AE2D5782D4AF81B22D2A396F42D24EE3FC3FFC9523E8734D5312A0A3CED2";
 
     [Fact]
     public void Embedded_template_is_released_to_data_directory_and_restored_when_corrupted()

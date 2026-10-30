@@ -91,8 +91,26 @@ public static class ClientSettingsStore
         WriteIndented = false,
     };
 
+    private static readonly AsyncLocal<Func<ClientSettings>?> TestSettingsOverride = new();
+
+    /// <summary>测试专用：在当前异步调用链内用给定设置替代主数据库，不读写用户真实的 app.db。</summary>
+    internal static IDisposable UseSettingsForTests(Func<ClientSettings> loader)
+    {
+        var previous = TestSettingsOverride.Value;
+        TestSettingsOverride.Value = loader;
+        return new SettingsOverrideScope(previous);
+    }
+
+    private sealed class SettingsOverrideScope(Func<ClientSettings>? previous) : IDisposable
+    {
+        public void Dispose() => TestSettingsOverride.Value = previous;
+    }
+
     public static ClientSettings Load(string? databasePath = null)
     {
+        if (databasePath is null && TestSettingsOverride.Value is { } overrideLoader)
+            return overrideLoader();
+
         var path = ResolvePath(databasePath);
         AppDatabaseInitializer.EnsureInitialized(path);
         TikTokExecutionHistoryService.EnsureStorageOptimized(path);

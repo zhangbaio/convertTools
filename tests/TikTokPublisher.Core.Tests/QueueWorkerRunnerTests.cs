@@ -8,9 +8,15 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
-public sealed class QueueWorkerRunnerTests
+public sealed class QueueWorkerRunnerTests : IDisposable
 {
     private static readonly Lazy<byte[]> TinyMp4Bytes = new(CreateTinyMp4Bytes);
+
+    // 测试项目只有 1 集；集数下限来自系统设置（默认 30），不能读用户真实的 app.db。
+    private readonly IDisposable _settingsScope = ClientSettingsStore.UseSettingsForTests(
+        () => new ClientSettings { TiktokMinimumEpisodeCount = 1 });
+
+    public void Dispose() => _settingsScope.Dispose();
 
     [Fact]
     public void ValidateRunSelection_Reruns_Completed_Repair_When_Transferred_Upload_Is_Small()

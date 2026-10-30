@@ -39,7 +39,9 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         using var reader = new StreamReader(stream!);
         var script = reader.ReadToEnd();
 
-        script.Should().Contain("$ownsWindow = -not $before.ContainsKey");
+        script.Should().Contain("if (-not $before.ContainsKey([int64]$candidate.HWND))");
+        script.Should().Contain("$ownsWindow = $true");
+        script.Should().Contain("$ownsWindow = $false");
         script.Should().Contain("if ($ownsWindow)");
     }
 
@@ -338,7 +340,9 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
 
             var files = options.ResolveCopyrightMaterialFilePaths(
                 TikTokPublishConstants.SourceFileInformationMaterialType);
-            files.Should().BeEmpty("新的混合上传包尚未整理时不应回落到旧版四张截图");
+            files.Should().BeEquivalentTo(
+                TikTokSourceFileInfoScreenshotService.GetExpectedOutputPaths(workflow),
+                "原始文件信息截图直接写进上传目录，这两张图就是当前上传包");
         }
         finally
         {

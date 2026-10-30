@@ -22,10 +22,18 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
     [Fact]
     public void CreateRandomFilingStamp_StaysInside2025ThroughToday()
     {
+        var shipped = Path.GetDirectoryName(
+            ArticlesOfIncorporationPdfService.ResolveTemplatePath(CompanyNameCatalog.Template1FileName))!;
+        var user = Path.Combine(Path.GetTempPath(), $"company-names-stamp-{Guid.NewGuid():N}");
+        var previous = new CompanyLibrary(CompanyNameCatalog.Mississippi, CompanyNameCatalog.MississippiNotice);
+        CompanyNameCatalog.SetMississippi(
+            CompanyNameCatalog.Open(CompanyNameCatalog.Template1FileName, shipped, user));
         var today = new DateOnly(2026, 10, 19);
         var random = new Random(17);
-        for (var i = 0; i < 200; i++)
+        try
         {
+            for (var i = 0; i < 200; i++)
+            {
             var stamp = ArticlesOfIncorporationFields.CreateRandomFilingStamp(today, random);
             var signedOn = DateOnly.ParseExact(stamp.SignedOn, "MM/dd/yyyy");
             var filedAt = DateTime.ParseExact(stamp.FiledAt, "MM/dd/yyyy hh:mm tt", System.Globalization.CultureInfo.InvariantCulture);
@@ -42,6 +50,13 @@ public sealed class ArticlesOfIncorporationPdfServiceTests
             CompanyNameCatalog.Mississippi.Select(item => item.English).Should().Contain(stamp.CompanyName);
             stamp.Email.Should().MatchRegex(@"^[a-z]{6,}@[a-z]{14,}\.com$");
             stamp.Email.Should().NotContain(stamp.CompanyName.Split(' ')[0].ToLowerInvariant());
+            }
+        }
+        finally
+        {
+            CompanyNameCatalog.SetMississippi(previous);
+            if (Directory.Exists(user))
+                Directory.Delete(user, recursive: true);
         }
     }
 
