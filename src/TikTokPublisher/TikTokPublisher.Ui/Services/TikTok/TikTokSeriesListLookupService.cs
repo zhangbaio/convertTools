@@ -72,6 +72,37 @@ internal static class TikTokSeriesListLookupService
         "Draft",
     ];
 
+    // TikTok 前端偶尔漏加载翻译，列表直接显示 i18n key；中文取自前端语言包。
+    private static readonly IReadOnlyDictionary<string, string> UntranslatedStatusKeys =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["contentPartnerHub_seriesStatus_netdiskProcessing"] = "视频解析中",
+            ["contentPartnerHub_seriesStatus_netdiskParsing"] = "网盘解析中",
+            ["contentPartnerHub_seriesStatus_netdiskFailed"] = "网盘解析失败",
+            ["contentPartnerHub_seriesStatus_copyrightReviewing"] = "版权审核中",
+            ["contentPartnerHub_seriesStatus_copyrightRejected"] = "版权审核未通过",
+            ["contentPartnerHub_seriesStatus_reviewRejected"] = "审核未通过",
+            ["contentPartnerHub_seriesStatus_partialReviewRejected"] = "部分集审核未通过",
+            ["contentPartnerHub_seriesStatus_distributionFull"] = "整剧分发受限",
+            ["contentPartnerHub_seriesStatus_distributionPartial"] = "部分集分发受限",
+            ["contentPartnerHub_seriesStatus_copyrightSuspected"] = "疑似版权问题",
+            ["contentPartnerHub_selfUpload_statusProcessing"] = "处理中",
+            ["contentPartnerHub_selfUpload_statusChecking"] = "检测中",
+            ["contentPartnerHub_selfUpload_statusCheckFailed"] = "检测未通过",
+            ["contentPartnerHub_selfUpload_statusAppealing"] = "申诉中",
+            ["contentPartnerHub_selfUpload_statusAppealRejected"] = "申诉拒绝",
+        };
+
+    private static readonly Regex StatusKeyPattern =
+        new(@"contentPartnerHub_(?:seriesStatus|selfUpload)_[A-Za-z]+", RegexOptions.Compiled);
+
+    internal static string TranslateUntranslatedStatusKeys(string rowText) =>
+        string.IsNullOrEmpty(rowText) || !rowText.Contains("contentPartnerHub_", StringComparison.Ordinal)
+            ? rowText
+            : StatusKeyPattern.Replace(
+                rowText,
+                match => UntranslatedStatusKeys.TryGetValue(match.Value, out var text) ? text : match.Value);
+
     public static async Task OpenAsync(
         IPage page,
         Action<string>? log,
@@ -415,7 +446,8 @@ internal static class TikTokSeriesListLookupService
                 if (!await row.IsVisibleAsync().ConfigureAwait(false))
                     continue;
                 visibleRowCount++;
-                rawText = await row.InnerTextAsync(new() { Timeout = 1500 }).ConfigureAwait(false);
+                rawText = TranslateUntranslatedStatusKeys(
+                    await row.InnerTextAsync(new() { Timeout = 1500 }).ConfigureAwait(false));
             }
             catch
             {
@@ -1251,7 +1283,8 @@ internal static class TikTokSeriesListLookupService
                 string rawText;
                 try
                 {
-                    rawText = await row.InnerTextAsync(new() { Timeout = 1200 }).ConfigureAwait(false);
+                    rawText = TranslateUntranslatedStatusKeys(
+                        await row.InnerTextAsync(new() { Timeout = 1200 }).ConfigureAwait(false));
                 }
                 catch
                 {

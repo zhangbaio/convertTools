@@ -44,6 +44,19 @@ public sealed class TikTokEpisodeCardListTests
     }
 
     [Fact]
+    public void SeriesListRow_TranslatesUntranslatedStatusKeys()
+    {
+        TikTokSeriesListLookupService.TranslateUntranslatedStatusKeys(
+                "冰海争鲜兄弟分途 ID: 7702261516644455444 contentPartnerHub_selfUpload_statusChecking 详情")
+            .Should().Be("冰海争鲜兄弟分途 ID: 7702261516644455444 检测中 详情");
+        TikTokSeriesListLookupService.TranslateUntranslatedStatusKeys(
+                "某剧 contentPartnerHub_seriesStatus_copyrightSuspected contentPartnerHub_seriesStatus_unknownThing")
+            .Should().Be("某剧 疑似版权问题 contentPartnerHub_seriesStatus_unknownThing");
+        TikTokSeriesListLookupService.TranslateUntranslatedStatusKeys("我的人偶都是鉴宝大师 草稿")
+            .Should().Be("我的人偶都是鉴宝大师 草稿");
+    }
+
+    [Fact]
     public void ClickedDeleteResult_ReadsSlotCardUidAndText()
     {
         TikTokBrowserActions.TryReadClickedEditVideoRow(

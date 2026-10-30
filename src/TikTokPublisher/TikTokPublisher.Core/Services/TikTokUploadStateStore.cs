@@ -11,7 +11,9 @@ public static class TikTokUploadStateStore
     private const string CopyrightProofCompletedAtKey = "copyright_proof_completed_at";
     private const string CopyrightProofCompletedAccountIdKey = "copyright_proof_completed_account_id";
     private const string CopyrightProofStartedAtKey = "copyright_proof_started_at";
-    private static readonly Regex SeriesIdPattern = new(@"/series/draft/(\d{16,20})", RegexOptions.Compiled);
+    // 旧版草稿地址为 /series/draft/<id>，新版为 /series/<id>；/series/<id>/detail 是已提交剧集的只读详情页。
+    private static readonly Regex SeriesIdPattern =
+        new(@"/series/(?:draft/)?(\d{16,20})/?(?=[?#]|$)", RegexOptions.Compiled);
 
     public static string StateFilePath(string workflowProjectDir) =>
         Path.Combine(Path.GetFullPath(workflowProjectDir), StateFileName);
@@ -114,12 +116,28 @@ public static class TikTokUploadStateStore
             if (string.Equals(status, "found", StringComparison.OrdinalIgnoreCase))
                 return true;
             if (string.Equals(status, "not_found", StringComparison.OrdinalIgnoreCase))
-                return false;
+                return UploadStartedAfter(state, lookup);
         }
 
         return state.TryGetValue("last_upload_step_started_at", out var started) &&
                started.ValueKind == JsonValueKind.String &&
                !string.IsNullOrWhiteSpace(started.GetString());
+    }
+
+    /// <summary>「未找到」之后又进入过新建上传：那次上传可能已在平台建出草稿，旧的未找到结论不再可信。</summary>
+    private static bool UploadStartedAfter(Dictionary<string, JsonElement> state, JsonElement lookup)
+    {
+        if (!state.TryGetValue("last_upload_step_started_at", out var startedEl) ||
+            startedEl.ValueKind != JsonValueKind.String ||
+            !DateTimeOffset.TryParse(startedEl.GetString(), out var startedAt))
+            return false;
+
+        if (!lookup.TryGetProperty("searched_at", out var searchedEl) ||
+            searchedEl.ValueKind != JsonValueKind.String ||
+            !DateTimeOffset.TryParse(searchedEl.GetString(), out var searchedAt))
+            return true;
+
+        return startedAt > searchedAt;
     }
 
     public static string LoadCachedEditDetailUrl(string workflowProjectDir)
