@@ -177,8 +177,7 @@ public static partial class TikTokBrowserActions
         {
             try
             {
-                var combo = await FindComboboxByFieldLabelAsync(page, ["预期全集价格设置", "预期全集价格"])
-                            ?? page.Locator("#business-mode-section button[role='combobox']").First;
+                var combo = await FindExpectedFullPriceTriggerAsync(page);
                 if (await combo.CountAsync() == 0) return false;
                 var text = NormalizeWhitespace(await combo.InnerTextAsync(new() { Timeout = 2000 }));
                 if (string.IsNullOrWhiteSpace(text)) return false;

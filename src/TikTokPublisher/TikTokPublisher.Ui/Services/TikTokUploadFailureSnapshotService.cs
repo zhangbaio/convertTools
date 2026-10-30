@@ -173,6 +173,7 @@ public static class TikTokUploadFailureSnapshotService
                 '.semi-upload-file-list',
                 '.semi-table',
                 '.semi-table-body',
+                '[class*="videoPanel"]',
                 '.semi-form',
                 '.semi-spin',
                 '.semi-banner'

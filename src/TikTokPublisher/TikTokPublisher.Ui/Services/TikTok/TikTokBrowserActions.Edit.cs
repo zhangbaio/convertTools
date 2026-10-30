@@ -579,7 +579,7 @@ public static partial class TikTokBrowserActions
         ct.ThrowIfCancellationRequested();
         try
         {
-            if (await page.Locator(".semi-table-body").CountAsync() > 0)
+            if (await page.Locator(EpisodeListSelector).CountAsync() > 0)
                 return;
 
             var tab = page.GetByText("内容上传", new() { Exact = false }).First;
@@ -593,7 +593,7 @@ public static partial class TikTokBrowserActions
 
         try
         {
-            await page.Locator(".semi-table-body").First.WaitForAsync(
+            await page.Locator(EpisodeListSelector).First.WaitForAsync(
                 new() { State = WaitForSelectorState.Visible, Timeout = 8000 });
         }
         catch { /* continue */ }
@@ -749,43 +749,16 @@ public static partial class TikTokBrowserActions
         try
         {
             rawRows = await page.EvaluateAsync<JsonElement>(
+                "async () => {\n" + EpisodeListScript +
                 """
-                async () => {
-                  const body = document.querySelector(".semi-table-body");
-                  if (!body) return [];
+
+                  const list = xgEpisodeList();
+                  if (!list) return [];
                   const collected = {};
-                  const grab = () => {
-                    body.querySelectorAll("tr.semi-table-row").forEach((tr) => {
-                      const txt = Array.from(tr.querySelectorAll("td"))
-                        .map((td) => (td.textContent || "").trim())
-                        .filter(Boolean)
-                        .join(" ");
-                      const m = txt.match(/第\s*(\d+)\s*集[\s\S]*?-第\s*(\d+)\s*集/);
-                      if (m) collected[+m[1]] = { slot: +m[1], real: +m[2] };
-                    });
-                  };
-                  body.scrollTop = 0;
-                  const table = body.querySelector('table');
-                  const expected = Number.parseInt(table?.getAttribute('aria-rowcount') || '0', 10) || 0;
-                  let bottomStable = 0;
-                  for (let i = 0; i < 200; i++) {
-                    grab();
-                    if (expected > 0 && Object.keys(collected).length >= expected) break;
-
-                    const maxTop = Math.max(0, body.scrollHeight - body.clientHeight);
-                    const before = body.scrollTop;
-                    const step = Math.max(350, Math.floor(body.clientHeight * 0.8));
-                    body.scrollTop = Math.min(maxTop, before + step);
-                    try { body.dispatchEvent(new Event('scroll', { bubbles: true })); } catch {}
-                    await new Promise((r) => setTimeout(r, 180));
-                    grab();
-
-                    const atBottom = body.scrollTop >= maxTop - 2;
-                    if (atBottom && body.scrollTop === before) bottomStable++;
-                    else bottomStable = 0;
-                    if (bottomStable >= 5) break;
-                  }
-                  body.scrollTop = 0;
+                  await xgScanList(list, (row) => {
+                    const m = list.text(row).match(/第\s*(\d+)\s*集[\s\S]*?-\s*第\s*(\d+)\s*集/);
+                    if (m) collected[+m[1]] = { slot: +m[1], real: +m[2] };
+                  });
                   return Object.values(collected).sort((a, b) => a.slot - b.slot);
                 }
                 """);
@@ -798,28 +771,8 @@ public static partial class TikTokBrowserActions
         return ParseEditVideoRows(rawRows);
     }
 
-    private static async Task<int> ReadEditVideoTableRowCountAsync(IPage page)
-    {
-        try
-        {
-            return await page.EvaluateAsync<int>(
-                """
-                () => {
-                  const table = document.querySelector('.semi-table-body table');
-                  const raw = table && table.getAttribute('aria-rowcount');
-                  if (raw) {
-                    const parsed = Number.parseInt(raw, 10);
-                    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-                  }
-                  return document.querySelectorAll('.semi-table-body tr.semi-table-row').length;
-                }
-                """);
-        }
-        catch
-        {
-            return 0;
-        }
-    }
+    private static async Task<int> ReadEditVideoTableRowCountAsync(IPage page) =>
+        await ReadEpisodeListCountAsync(page) ?? 0;
 
     private static async Task<List<EditVideoRow>> TryReadEditVideoRowsFromBodyAsync(IPage page, CancellationToken ct)
     {
@@ -915,7 +868,14 @@ public static partial class TikTokBrowserActions
         CancellationToken ct)
     {
         await EnsureEditContentUploadTabAsync(page, ct);
-        var initialCount = await ReadEditVideoTableRowCountAsync(page);
+        if (await ReadEpisodeListCountAsync(page) is not { } initialCount)
+        {
+            if (await DetectEmptyVideoUploadStateAsync(page))
+                return 0;
+            throw new InvalidOperationException(
+                "页面上未找到剧集正片列表，无法删除错位或多余的正片；已停止，避免在旧视频上继续叠传造成乱序和重复。");
+        }
+
         var planned = Math.Max(0, initialCount - keepCount);
         if (planned > 0)
         {
@@ -1013,19 +973,20 @@ public static partial class TikTokBrowserActions
         int rowCount)
     {
         return await page.EvaluateAsync<string>(
+            "async (args) => {\n" + EpisodeListScript +
             """
-            async (args) => {
+
               const keepCount = Number(args.keepCount || 0);
               const rowCount = Number(args.rowCount || 0);
-              const body = document.querySelector('.semi-table-body');
-              if (!body) return 'no-table';
+              const list = xgEpisodeList();
+              if (!list) return 'no-table';
+              if (list.rows().length === 0 || !list.scroller) return 'not-rendered:';
 
-              const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-              const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+              const sleep = xgSleep;
+              const normalize = xgNormalize;
+              const body = list.scroller;
               const describeRow = (tr) => {
-                const text = normalize(Array.from(tr.querySelectorAll('td'))
-                  .map((td) => td.textContent || '')
-                  .join(' '));
+                const text = list.text(tr);
                 const textMatch = text.match(/第\s*(\d+)\s*集/);
                 let slot = textMatch ? (Number.parseInt(textMatch[1], 10) || 0) : 0;
                 if (!slot) {
@@ -1038,7 +999,7 @@ public static partial class TikTokBrowserActions
                 }
                 return { tr, slot, text };
               };
-              const rows = () => Array.from(body.querySelectorAll('tr.semi-table-row'));
+              const rows = list.rows;
               const visibleSlots = () => rows().map((tr) => describeRow(tr).slot).filter((slot) => slot > 0);
               const hoverRow = (tr) => {
                 try { tr.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch {}
@@ -1290,7 +1251,9 @@ public static partial class TikTokBrowserActions
             {
                 try
                 {
-                    var buttons = page.Locator("[role='dialog'] button").Filter(new() { HasText = text });
+                    var buttons = page
+                        .Locator("[role='dialog'] button, .semi-popconfirm button, .semi-modal button")
+                        .Filter(new() { HasText = text });
                     var count = Math.Min(await buttons.CountAsync(), 8);
                     for (var index = 0; index < count; index++)
                     {

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
@@ -422,7 +423,7 @@ public static partial class TikTokBrowserActions
 
     private static async Task<ILocator?> ResolveVideoUploadButtonAsync(IPage page)
     {
-        foreach (var text in new[] { "上传视频", "本地上传" })
+        foreach (var text in new[] { "上传视频", "本地上传", "继续上传" })
         {
             var locator = page.Locator("button").Filter(new() { HasText = text }).First;
             try
@@ -727,17 +728,8 @@ public static partial class TikTokBrowserActions
     public static int? ExtractReadyUploadedVideoCount(string bodyText, IReadOnlyList<string>? titleCandidates) =>
         TikTokUploadProgressParser.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
 
-    internal static async Task<IReadOnlyList<string>> ReadUploadTableTextsAsync(IPage page)
-    {
-        try
-        {
-            return await page.Locator(".semi-table-body").AllInnerTextsAsync();
-        }
-        catch
-        {
-            return Array.Empty<string>();
-        }
-    }
+    internal static Task<IReadOnlyList<string>> ReadUploadTableTextsAsync(IPage page) =>
+        ReadEpisodeListTextsAsync(page);
 
     private static int? ExtractReadyUploadedVideoCountInternal(string bodyText, IReadOnlyList<string>? titleCandidates) =>
         TikTokUploadProgressParser.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
@@ -764,56 +756,45 @@ public static partial class TikTokBrowserActions
 
     private static async Task<ILocator?> FindVideoFileInputInternalAsync(IPage page)
     {
-        // accept 现为扩展名(.mp4,.mov)，需同时匹配 mp4/mov/video（对齐 Python browser_actions）。
-        var selectors = new[]
-        {
-            "input.semi-upload-hidden-input[accept*='mp4']",
-            "input.semi-upload-hidden-input[accept*='mov']",
-            "input.semi-upload-hidden-input[accept*='video']",
-            "input[type=file][accept*='mp4']",
-            "input[type=file][accept*='mov']",
-            "input[type=file][accept*='video']",
-            "input.semi-upload-hidden-input",
-            "input.semi-upload-hidden-input-replace",
-            "input[type=file]",
-        };
+        // 新版编辑页每张剧集卡片都带一对隐藏上传框，「继续上传」的多选框排在它们之后，
+        // 必须遍历全部上传框，不能只看前几个。
+        var locator = page.Locator("input[type=file]");
+        int count;
+        try { count = Math.Min(await locator.CountAsync(), 200); }
+        catch { return null; }
 
         ILocator? best = null;
-        var bestScore = -1;
-        foreach (var selector in selectors)
+        var bestScore = int.MinValue;
+        for (var index = 0; index < count; index++)
         {
-            var locator = page.Locator(selector);
-            int count;
-            try { count = Math.Min(await locator.CountAsync(), 8); }
-            catch { continue; }
-
-            for (var index = 0; index < count; index++)
+            var candidate = locator.Nth(index);
+            JsonElement info;
+            try
             {
-                var candidate = locator.Nth(index);
-                string accept;
-                try { accept = (await candidate.GetAttributeAsync("accept") ?? "").Trim().ToLowerInvariant(); }
-                catch { accept = ""; }
+                info = await candidate.EvaluateAsync<JsonElement>(
+                    """
+                    (el) => ({
+                      accept: el.getAttribute('accept') || '',
+                      multiple: el.multiple === true,
+                      className: el.className || '',
+                      insideEpisodeCard: !!el.closest('[data-episode-uid]'),
+                    })
+                    """);
+            }
+            catch
+            {
+                continue;
+            }
 
-                var isVideo = accept.Contains("mp4") || accept.Contains("mov") || accept.Contains("video");
-                if (!string.IsNullOrEmpty(accept) && !isVideo) continue;
-
-                string? multipleAttr;
-                try { multipleAttr = await candidate.GetAttributeAsync("multiple"); }
-                catch { multipleAttr = null; }
-
-                var score = 0;
-                if (isVideo) score += 5;
-                if (!string.IsNullOrEmpty(accept)) score += 2;
-                if (multipleAttr is not null) score += 4;
-                var normalized = selector.ToLowerInvariant();
-                if (normalized.Contains("semi-upload-hidden-input") && !normalized.Contains("replace")) score += 3;
-                if (normalized.Contains("replace")) score -= 1;
-
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    best = candidate;
-                }
+            var score = ScoreVideoFileInputCandidate(
+                info.GetProperty("accept").GetString(),
+                info.GetProperty("multiple").GetBoolean(),
+                info.GetProperty("className").GetString(),
+                info.GetProperty("insideEpisodeCard").GetBoolean());
+            if (score is { } value && value > bestScore)
+            {
+                bestScore = value;
+                best = candidate;
             }
         }
 

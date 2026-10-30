@@ -1,0 +1,45 @@
+using FluentAssertions;
+using TikTokPublisher.Ui.Services.TikTok;
+
+namespace TikTokPublisher.Core.Tests;
+
+// 取自 TikTok 编辑页改版为卡片列表后的真实 DOM（2026-10-30 失败快照）。
+public sealed class TikTokEpisodeCardListTests
+{
+    [Fact]
+    public void VideoInput_PrefersContinueUploadInputOverEpisodeCardInputs()
+    {
+        var cardInput = TikTokBrowserActions.ScoreVideoFileInputCandidate(
+            ".mp4,.mov", multiple: false, "semi-upload-hidden-input", insideEpisodeCard: true);
+        var continueInput = TikTokBrowserActions.ScoreVideoFileInputCandidate(
+            ".mp4,.mov", multiple: true, "semi-upload-hidden-input", insideEpisodeCard: false);
+        var replaceInput = TikTokBrowserActions.ScoreVideoFileInputCandidate(
+            ".mp4,.mov", multiple: false, "semi-upload-hidden-input-replace", insideEpisodeCard: false);
+        var coverInput = TikTokBrowserActions.ScoreVideoFileInputCandidate(
+            "image/*", multiple: false, "semi-upload-hidden-input", insideEpisodeCard: false);
+
+        cardInput.Should().BeNull("卡片内的上传框只替换该集视频");
+        coverInput.Should().BeNull();
+        continueInput.Should().BeGreaterThan(replaceInput!.Value);
+    }
+
+    [Fact]
+    public void CardListText_DetectsMisalignmentAfterFirstEpisode()
+    {
+        const string cardText =
+            """
+            第 1 集 替嫁农女携夫共赴锦绣人生-第1集
+            2026-10-30 09:27
+            草稿
+            第 2 集 替嫁农女携夫共赴锦绣人生-第12集
+            第 3 集 替嫁农女携夫共赴锦绣人生-第4集
+            第 4 集 替嫁农女携夫共赴锦绣人生-第4集
+            第 5 集 替嫁农女携夫共赴锦绣人生-第2集
+            """;
+
+        var rows = TikTokBrowserActions.ParseEditVideoRowsFromText(cardText);
+
+        rows.Select(row => (row.Slot, row.Real)).Should().Equal((1, 1), (2, 12), (3, 4), (4, 4), (5, 2));
+        TikTokBrowserActions.FindAlignedEditVideoPrefixCount(rows).Should().Be(1);
+    }
+}

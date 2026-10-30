@@ -17,16 +17,28 @@ public static partial class TikTokBrowserActions
         if (await field.CountAsync() == 0)
             throw new InvalidOperationException("未找到 TikTok「发布账号」字段（accountIds）。");
 
-        var selectedBefore = await CountSelectedPublishAccountsAsync(field);
+        var control = await DetectPublishAccountControlAsync(page, ct);
+        var selectedBefore = await CountSelectedPublishAccountsAsync(page, field, control);
         if (selectedBefore > 0)
         {
             Log(log, $"TikTok 发布账号已自动选择 {selectedBefore} 个，跳过兜底全选。");
             return;
         }
 
+        if (control == PublishAccountControl.RegionPicker)
+        {
+            await field.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+            await ApplyPublishAccountPickerAsync(page, "all", [], ct);
+            var pickedCount = await CountSelectedPublishAccountsAsync(page, field, control);
+            if (pickedCount == 0)
+                throw new InvalidOperationException("TikTok 发布账号未自动选择，执行全选后仍未检测到已选账号。");
+            Log(log, $"TikTok 发布账号原本未选择，已自动全选 {pickedCount} 个国家/地区账号。");
+            return;
+        }
+
         var cascader = field.Locator(".semi-cascader[role='combobox']").First;
         if (await cascader.CountAsync() == 0)
-            throw new InvalidOperationException("未找到 TikTok「发布账号」级联选择器。");
+            throw new InvalidOperationException("未找到 TikTok「发布账号」选择器（新版国家/地区选择器与旧版级联选择器均不存在）。");
 
         await cascader.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
         await ClickWithFallbackAsync(cascader, ct);
@@ -80,7 +92,7 @@ public static partial class TikTokBrowserActions
         await page.Keyboard.PressAsync("Escape");
         await page.WaitForTimeoutAsync(400);
 
-        var selectedAfter = await CountSelectedPublishAccountsAsync(field);
+        var selectedAfter = await CountSelectedPublishAccountsAsync(page, field, control);
         if (selectedAfter == 0)
             throw new InvalidOperationException("TikTok 发布账号未自动选择，执行全选后仍未检测到已选账号。");
 
@@ -110,6 +122,7 @@ public static partial class TikTokBrowserActions
                 "已启用自定义发布账号，但没有勾选任何账号。请至少选择一个发布账号。");
         }
 
+        var control = await DetectPublishAccountControlAsync(page, ct);
         var scraped = await ScrapePublishAccountsAsync(page, log, ct).ConfigureAwait(false);
         var plan = TikTokPublishAccountCatalog.Plan(
             scraped.Select(account => new TikTokPublishAccountVisibleOption(
@@ -128,18 +141,41 @@ public static partial class TikTokBrowserActions
 
         if (plan.KeysToCheck.Count > 0 || plan.KeysToUncheck.Count > 0)
         {
-            await ApplyPublishAccountSelectionAsync(page, plan, ct).ConfigureAwait(false);
+            if (control == PublishAccountControl.RegionPicker)
+                await ApplyPublishAccountPickerAsync(page, "wanted", wanted, ct).ConfigureAwait(false);
+            else
+                await ApplyPublishAccountSelectionAsync(page, plan, ct).ConfigureAwait(false);
         }
 
-        await page.Keyboard.PressAsync("Escape");
-        await page.WaitForTimeoutAsync(400);
+        if (control != PublishAccountControl.RegionPicker)
+        {
+            await page.Keyboard.PressAsync("Escape");
+            await page.WaitForTimeoutAsync(400);
+        }
 
         var field = page.Locator("[x-field-id='accountIds']").First;
-        var selectedAfter = await CountSelectedPublishAccountsAsync(field);
+        var selectedAfter = await CountSelectedPublishAccountsAsync(page, field, control);
         if (selectedAfter != wanted.Length)
         {
             throw new InvalidOperationException(
                 $"TikTok 发布账号勾选结果为 {selectedAfter} 个，与已选 {wanted.Length} 个不一致。");
+        }
+
+        if (control == PublishAccountControl.RegionPicker)
+        {
+            var finalState = await ReadPublishAccountPickerAsync(page, ct).ConfigureAwait(false);
+            var remaining = TikTokPublishAccountCatalog.Plan(
+                finalState.Select(account => new TikTokPublishAccountVisibleOption(
+                    account.Country, account.DisplayName, account.Handle, account.Checked)),
+                wanted);
+            if (remaining.KeysToCheck.Count > 0 || remaining.KeysToUncheck.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "TikTok 发布账号勾选后校验失败：" +
+                    string.Join("、", remaining.KeysToCheck.Select(k => "未选中 " + TikTokPublishAccountCatalog.DescribeKey(k))
+                        .Concat(remaining.KeysToUncheck.Select(k => "多选了 " + TikTokPublishAccountCatalog.DescribeKey(k)))) +
+                    "。");
+            }
         }
 
         Log(log, $"TikTok 发布账号已按配置勾选 {selectedAfter} 个。");
@@ -171,9 +207,28 @@ public static partial class TikTokBrowserActions
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        await OpenPublishAccountCascaderAsync(page, ct).ConfigureAwait(false);
-        var json = await page.EvaluateAsync<string>(PublishAccountScrapeScript).ConfigureAwait(false);
+        IReadOnlyList<ScrapedPublishAccount> accounts;
+        if (await DetectPublishAccountControlAsync(page, ct).ConfigureAwait(false) == PublishAccountControl.RegionPicker)
+        {
+            accounts = await ReadPublishAccountPickerAsync(page, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await OpenPublishAccountCascaderAsync(page, ct).ConfigureAwait(false);
+            var json = await page.EvaluateAsync<string>(PublishAccountScrapeScript).ConfigureAwait(false);
+            accounts = ParseScrapedPublishAccounts(json);
+        }
+
         ct.ThrowIfCancellationRequested();
+        if (accounts.Count == 0)
+            throw new InvalidOperationException("TikTok「发布账号」已显示，但未找到账号选项。");
+
+        Log(log, $"已读取 {accounts.Count} 个 TikTok 发布账号。");
+        return accounts;
+    }
+
+    private static List<ScrapedPublishAccount> ParseScrapedPublishAccounts(string json)
+    {
         ScrapedPublishAccountPayload? payload;
         try
         {
@@ -186,14 +241,163 @@ public static partial class TikTokBrowserActions
 
         if (!string.IsNullOrWhiteSpace(payload?.Error))
             throw new InvalidOperationException($"读取 TikTok 发布账号列表失败：{payload.Error}");
-
-        var accounts = payload?.Accounts ?? [];
-        if (accounts.Count == 0)
-            throw new InvalidOperationException("TikTok「发布账号」下拉框已打开，但未找到账号选项。");
-
-        Log(log, $"已读取 {accounts.Count} 个 TikTok 发布账号。");
-        return accounts;
+        return payload?.Accounts ?? [];
     }
+
+    private enum PublishAccountControl
+    {
+        None,
+        RegionPicker,
+        Cascader,
+    }
+
+    private static async Task<PublishAccountControl> DetectPublishAccountControlAsync(IPage page, CancellationToken ct)
+    {
+        var script = "() => {\n" + PublishAccountPickerScript + """
+              if (xgReadPicker()?.regions) return 'picker';
+              return document.querySelector("[x-field-id='accountIds'] .semi-cascader") ? 'cascader' : '';
+            }
+            """;
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            var kind = await page.EvaluateAsync<string>(script);
+            if (kind == "picker") return PublishAccountControl.RegionPicker;
+            if (kind == "cascader") return PublishAccountControl.Cascader;
+            if (DateTime.UtcNow >= deadline) return PublishAccountControl.None;
+            await Task.Delay(300, ct);
+        }
+    }
+
+    private static async Task<List<ScrapedPublishAccount>> ReadPublishAccountPickerAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var script = "() => {\n" + PublishAccountPickerScript + """
+              const picker = xgReadPicker();
+              if (!picker) return JSON.stringify({ error: '未找到国家/地区账号选择器' });
+              if (picker.error) return JSON.stringify({ error: picker.error });
+              const accounts = [];
+              for (const region of picker.regions)
+                for (const account of region.accounts)
+                  accounts.push({ country: region.name, displayName: account.name, handle: '', checked: region.selected && account.on });
+              return JSON.stringify({ accounts });
+            }
+            """;
+        return ParseScrapedPublishAccounts(await page.EvaluateAsync<string>(script));
+    }
+
+    private static async Task ApplyPublishAccountPickerAsync(
+        IPage page,
+        string mode,
+        IReadOnlyList<string> wantedKeys,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var wanted = wantedKeys
+            .Select(key => PublishAccountToggle.FromKey(key, select: true))
+            .Where(action => action is not null)
+            .Cast<PublishAccountToggle>()
+            .ToArray();
+        var argument = JsonSerializer.Serialize(new { mode, wanted }, ScrapeJsonOptions);
+        var script = "async (argument) => {\n" + PublishAccountPickerScript + """
+              const { mode, wanted } = JSON.parse(argument);
+              const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+              const wantedByCountry = new Map(wanted.map(item => [xgNorm(item.country), xgNorm(item.displayName)]));
+              const regionAt = index => {
+                const picker = xgReadPicker();
+                if (!picker || picker.error) throw new Error(picker?.error || '国家/地区账号选择器已消失');
+                return picker.regions[index];
+              };
+              const first = xgReadPicker();
+              if (!first) return '未找到国家/地区账号选择器';
+              if (first.error) return first.error;
+              const known = new Set(first.regions.map(region => region.name));
+              for (const country of wantedByCountry.keys())
+                if (!known.has(country)) return `未找到国家/地区：${country}`;
+
+              try {
+                for (let index = 0; index < first.regions.length; index += 1) {
+                  let region = regionAt(index);
+                  const target = mode === 'all'
+                    ? (region.accounts.find(account => account.on) || region.accounts[0])?.name
+                    : wantedByCountry.get(region.name);
+                  if (!target) {
+                    if (region.selected) {
+                      if (!region.check) return `无法取消国家/地区：${region.name}`;
+                      region.check.click();
+                      await sleep(250);
+                    }
+                    continue;
+                  }
+
+                  if (!region.selected) {
+                    region.row.click();
+                    await sleep(300);
+                    region = regionAt(index);
+                  }
+                  const account = region.accounts.find(item => item.name === target);
+                  if (!account) return `未找到账号：${region.name} / ${target}`;
+                  if (!account.on) {
+                    account.button.click();
+                    await sleep(250);
+                    region = regionAt(index);
+                  }
+                  for (const other of region.accounts.filter(item => item.on && item.name !== target)) {
+                    other.button.click();
+                    await sleep(200);
+                  }
+                }
+              } catch (error) {
+                return String(error?.message || error);
+              }
+              await sleep(200);
+              return '';
+            }
+            """;
+        var error = await page.EvaluateAsync<string>(script, argument).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(error))
+            throw new InvalidOperationException($"勾选 TikTok 发布账号失败：{error}");
+    }
+
+    internal const string PublishAccountPickerScript =
+        """
+          const xgNorm = text => String(text || '').replace(/\s+/g, ' ').trim();
+          const xgHasClass = (element, name) => typeof element.className === 'string' &&
+            element.className.split(/\s+/).some(token => token === name || token.startsWith(name + '-'));
+          const xgReadPicker = () => {
+            const field = document.querySelector("[x-field-id='accountIds']");
+            if (!field) return null;
+            const all = Array.from(field.querySelectorAll('*'));
+            const rows = all.filter(element => xgHasClass(element, 'regionRow'));
+            if (!rows.length) return null;
+            const groups = all.filter(element => xgHasClass(element, 'accountGroup') || xgHasClass(element, 'accountGroupHidden'));
+            if (groups.length !== rows.length)
+              return { error: `国家/地区数 ${rows.length} 与账号分组数 ${groups.length} 不一致` };
+            const regions = rows.map((row, index) => {
+              const inner = Array.from(row.querySelectorAll('*'));
+              const accounts = Array.from(groups[index].querySelectorAll('*'))
+                .filter(element => xgHasClass(element, 'accountRow'))
+                .map(button => {
+                  const parts = Array.from(button.querySelectorAll('*'));
+                  return {
+                    name: xgNorm(parts.find(element => xgHasClass(element, 'accountName'))?.textContent),
+                    on: parts.some(element => xgHasClass(element, 'accountRadioOn')),
+                    button
+                  };
+                })
+                .filter(account => account.name);
+              return {
+                name: xgNorm(inner.find(element => xgHasClass(element, 'regionName'))?.textContent),
+                selected: row.getAttribute('aria-pressed') === 'true' || xgHasClass(row, 'regionRowSelected'),
+                check: inner.find(element => xgHasClass(element, 'regionCheck')) || null,
+                row,
+                accounts
+              };
+            });
+            return { field, regions };
+          };
+        """;
 
     private static async Task ApplyPublishAccountSelectionAsync(
         IPage page,
@@ -222,7 +426,7 @@ public static partial class TikTokBrowserActions
 
         var cascader = field.Locator(".semi-cascader[role='combobox']").First;
         if (await cascader.CountAsync() == 0)
-            throw new InvalidOperationException("未找到 TikTok「发布账号」级联选择器。");
+            throw new InvalidOperationException("未找到 TikTok「发布账号」选择器（新版国家/地区选择器与旧版级联选择器均不存在）。");
 
         await cascader.EvaluateAsync(
             """
@@ -433,8 +637,17 @@ public static partial class TikTokBrowserActions
         }
     }
 
-    private static async Task<int> CountSelectedPublishAccountsAsync(ILocator field)
+    private static async Task<int> CountSelectedPublishAccountsAsync(
+        IPage page,
+        ILocator field,
+        PublishAccountControl control)
     {
+        if (control == PublishAccountControl.RegionPicker)
+        {
+            var accounts = await ReadPublishAccountPickerAsync(page, CancellationToken.None);
+            return accounts.Count(account => account.Checked);
+        }
+
         return await field.EvaluateAsync<int>(
             """
             element => {
