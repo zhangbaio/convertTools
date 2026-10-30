@@ -100,6 +100,27 @@ public static partial class TikTokArchivedProjectService
     }
 
     /// <summary>
+    /// 只读归档索引，供今日上传计数使用。不扫描归档目录，也不回写数据库。
+    /// </summary>
+    public static IReadOnlyList<ArchivedProjectItem> ListStored(string workspaceRoot, string? archiveRootDir = null)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return Array.Empty<ArchivedProjectItem>();
+
+        var archiveRoot = ResolveArchiveRoot(workspaceRoot, archiveRootDir);
+        try
+        {
+            return LoadArchiveProjectsFromDatabase(workspaceRoot)
+                .Where(item => ItemBelongsToArchiveRoot(item, archiveRoot))
+                .ToArray();
+        }
+        catch
+        {
+            return Array.Empty<ArchivedProjectItem>();
+        }
+    }
+
+    /// <summary>
     /// 只读取归档剧名，不回写归档索引。目录里的条目优先，读不到数据库时仍返回文件结果。
     /// </summary>
     public static IReadOnlyList<ArchivedProjectItem> ListForNewTitleCheck(string workspaceRoot, string? archiveRootDir = null)

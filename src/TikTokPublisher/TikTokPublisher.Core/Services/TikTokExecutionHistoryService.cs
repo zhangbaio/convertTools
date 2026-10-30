@@ -188,7 +188,8 @@ public static class TikTokExecutionHistoryService
     }
 
     public static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadProjectSnapshots(
-        string? databasePath = null)
+        string? databasePath = null,
+        string? accountProfileId = null)
     {
         try
         {
@@ -198,11 +199,21 @@ public static class TikTokExecutionHistoryService
 
             using var conn = AppDatabaseInitializer.OpenConnection(path, readOnly: true);
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
+            var accountId = (accountProfileId ?? "").Trim();
+            cmd.CommandText = string.IsNullOrEmpty(accountId)
+                ? """
                 SELECT workspace, updated_at, payload_json
                 FROM upload_project_snapshots
                 ORDER BY updated_at, snapshot_key
+                """
+                : """
+                SELECT workspace, updated_at, payload_json
+                FROM upload_project_snapshots
+                WHERE account_profile_id = $account
+                ORDER BY updated_at, snapshot_key
                 """;
+            if (!string.IsNullOrEmpty(accountId))
+                cmd.Parameters.AddWithValue("$account", accountId);
             var snapshots = new List<TikTokExecutionProjectSnapshot>();
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
