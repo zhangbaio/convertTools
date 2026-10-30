@@ -96,7 +96,7 @@ public partial class KuaishouQueueLogView : UserControl
         WorkspaceLabel.Text = string.IsNullOrWhiteSpace(_vm.DraftProjectDirectory)
             ? "工作目录：未选择"
             : $"工作目录：{_vm.DraftProjectDirectory}";
-        StopButton.IsEnabled = _vm.IsBusy;
+        StopButton.IsEnabled = _vm.IsCurrentWorkStoppable;
         RebuildProjects();
         RefreshLog();
     }

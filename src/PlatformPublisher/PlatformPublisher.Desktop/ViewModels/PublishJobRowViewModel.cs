@@ -11,12 +11,13 @@ namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class PublishJobRowViewModel : ObservableObject
 {
-    public PublishJobRowViewModel(PublishJob model)
+    public PublishJobRowViewModel(PublishJob model, bool loadArtifacts = true)
     {
         Model = model;
         _isChecked = model.IsChecked;
         _tableInfo = ResolveTableInfo(model);
-        ReloadKuaishouArtifacts();
+        if (loadArtifacts)
+            ReloadKuaishouArtifacts();
         OpenSourceDirectoryCommand = new RelayCommand(() => OpenSourceDirectory());
         OpenWorkflowDirectoryCommand = new RelayCommand(() => OpenWorkflowDirectory());
     }
@@ -376,10 +377,19 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         return null;
     }
 
-    public void Refresh()
+    public void ApplyKuaishouArtifacts(KuaishouArtifactColumnStatus? artifacts)
     {
-        _tableInfo = ResolveTableInfo(Model);
-        ReloadKuaishouArtifacts();
+        _kuaishou = artifacts;
+        Refresh(reloadArtifacts: false);
+    }
+
+    public void Refresh(bool reloadArtifacts = true)
+    {
+        if (reloadArtifacts)
+        {
+            _tableInfo = ResolveTableInfo(Model);
+            ReloadKuaishouArtifacts();
+        }
         OnPropertyChanged(nameof(OriginalTitle));
         OnPropertyChanged(nameof(NewTitle));
         OnPropertyChanged(nameof(SourceDirectory));
