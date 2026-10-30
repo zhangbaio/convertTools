@@ -11,7 +11,8 @@ public static class KuaishouSettlementPrepareRunner
         KuaishouPersonalConfig config,
         KuaishouSettlementPrepareOptions options,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<KuaishouPrepareStepEvent, Task>? onStep = null)
     {
         var script = ResolveBridgeScript() ?? throw new InvalidOperationException("未找到快手分账准备脚本。");
         var toolRoot = ResolveAssistantRoot() ?? throw new InvalidOperationException("未找到短剧助手，无法按快手分账步骤生成产物。");
@@ -73,6 +74,11 @@ public static class KuaishouSettlementPrepareRunner
                 if (line is null) break;
                 if (line.StartsWith("LOG\t", StringComparison.Ordinal))
                     progress?.Report(line[4..]);
+                else if (line.StartsWith("STEP\t", StringComparison.Ordinal))
+                {
+                    if (onStep is not null && TryParseStepEvent(line, out var step))
+                        await onStep(step);
+                }
                 else if (line.StartsWith("ERROR\t", StringComparison.Ordinal))
                     stdoutError = line[6..];
                 else if (line.StartsWith("RESULT\t", StringComparison.Ordinal))
@@ -109,6 +115,18 @@ public static class KuaishouSettlementPrepareRunner
             if (line is null) break;
             if (!string.IsNullOrWhiteSpace(line)) error.AppendLine(line);
         }
+    }
+
+    public static bool TryParseStepEvent(string line, out KuaishouPrepareStepEvent step)
+    {
+        step = default;
+        if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("STEP\t", StringComparison.Ordinal))
+            return false;
+        var parts = line.Split('\t', 4);
+        if (parts.Length < 3 || string.IsNullOrWhiteSpace(parts[1]) || string.IsNullOrWhiteSpace(parts[2]))
+            return false;
+        step = new KuaishouPrepareStepEvent(parts[1].Trim(), parts[2].Trim(), parts.Length > 3 ? parts[3].Trim() : "");
+        return true;
     }
 
     private static KuaishouSettlementPrepareResult ParseResult(string json)

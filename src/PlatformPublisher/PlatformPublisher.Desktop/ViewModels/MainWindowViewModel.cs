@@ -1665,8 +1665,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 if (preserved.Contains(step.YunfanKey))
                     continue;
-                await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Running, "正在执行");
+                if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var stale) == true &&
+                    stale.Status == PublishJobStepStatus.Running)
+                    await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Pending, "等待执行");
             }
+
             try
             {
                 var prepared = await KuaishouSettlementPrepareRunner.RunAsync(
@@ -1682,7 +1685,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         templateId,
                         config.ProjectImageTemplateRoot),
                     new Progress<string>(message => AppendActivityLog(message, projectName)),
-                    cancellationToken);
+                    cancellationToken,
+                    step => ApplyKuaishouPrepareStepEventAsync(trackedJob, trackedRow, enabled, step));
                 var completed = prepared.CompletedSteps.ToHashSet(StringComparer.Ordinal);
                 foreach (var step in enabled)
                 {
@@ -1702,7 +1706,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     if (preserved.Contains(step.YunfanKey))
                         continue;
-                    await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Pending, "已停止，可继续执行");
+                    if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var state) == true &&
+                        state.Status == PublishJobStepStatus.Running)
+                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Pending, "已停止，可继续执行");
                 }
                 throw;
             }
@@ -1778,6 +1784,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             uploadLease?.Dispose();
         }
+    }
+
+    private async Task ApplyKuaishouPrepareStepEventAsync(
+        PublishJob? trackedJob,
+        PublishJobRowViewModel? trackedRow,
+        IReadOnlyList<(string YunfanKey, string AssistantKey, string Label, bool Enabled)> steps,
+        KuaishouPrepareStepEvent stepEvent)
+    {
+        var step = steps.FirstOrDefault(item => string.Equals(item.AssistantKey, stepEvent.StepKey, StringComparison.Ordinal));
+        if (string.IsNullOrWhiteSpace(step.YunfanKey))
+            return;
+
+        PublishJobStepStatus status;
+        string message;
+        switch (stepEvent.Status)
+        {
+            case "started":
+                status = PublishJobStepStatus.Running;
+                message = "正在执行";
+                break;
+            case "success":
+                status = PublishJobStepStatus.Succeeded;
+                message = "执行完成";
+                break;
+            case "failed":
+                status = PublishJobStepStatus.Failed;
+                message = string.IsNullOrWhiteSpace(stepEvent.Error) ? "执行失败" : stepEvent.Error;
+                break;
+            case "stopped":
+                status = PublishJobStepStatus.Pending;
+                message = "已停止，可继续执行";
+                break;
+            default:
+                return;
+        }
+
+        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, status, message);
     }
 
     private async Task GenerateKuaishouProjectImagesAsync(

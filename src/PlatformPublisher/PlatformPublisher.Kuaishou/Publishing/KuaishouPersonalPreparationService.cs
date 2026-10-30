@@ -32,6 +32,8 @@ public sealed record KuaishouSettlementPrepareResult(
     IReadOnlyList<string> CompletedSteps,
     int EpisodeCount);
 
+public readonly record struct KuaishouPrepareStepEvent(string StepKey, string Status, string Error);
+
 public sealed class KuaishouPersonalPreparationService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
