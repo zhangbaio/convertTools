@@ -183,6 +183,20 @@ public partial class WeixinWorkflowView : UserControl
     private void OnOpenArchiveClick(object? sender, RoutedEventArgs e) =>
         OpenArchiveRequested?.Invoke(this, EventArgs.Empty);
 
+    private void OnExportUploadReportClick(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null) return;
+        try { ViewModel.ExportKuaishouUploadReport(); }
+        catch (Exception ex) { ViewModel.StatusMessage = $"导出上传记录失败：{ex.Message}"; }
+    }
+
+    private void OnOpenUploadReportClick(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is null) return;
+        try { ViewModel.OpenKuaishouUploadReport(); }
+        catch (Exception ex) { ViewModel.StatusMessage = $"查看上传记录失败：{ex.Message}"; }
+    }
+
     private void OnKuaishouAdxDownloadClick(object? sender, RoutedEventArgs e) =>
         KuaishouAdxRequested?.Invoke(this, new KuaishouAdxRequestedEventArgs(false, (int)(KuaishouAdxCount.Value ?? 8)));
 

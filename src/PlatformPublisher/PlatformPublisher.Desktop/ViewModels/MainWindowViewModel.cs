@@ -1550,6 +1550,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         uploadSlot,
                         ct);
                     SetKuaishouLogTone(item.directory, "ok");
+                    RememberKuaishouUploadReport(item.directory, item.trackedJob, succeeded: true, error: "");
                     var done = $"共享项目流水线完成：{Path.GetFileName(item.directory)}";
                     SetStatusMessage(done);
                     AppendActivityLog(done, projectName);
@@ -1564,6 +1565,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     Interlocked.Increment(ref counts[1]);
                     SetKuaishouLogTone(item.directory, "failed");
+                    RememberKuaishouUploadReport(item.directory, item.trackedJob, succeeded: false, error: ex.Message);
                     var message = $"共享项目流水线失败：{ex.Message}";
                     SetStatusMessage(message);
                     AppendActivityLog(message, projectName);
@@ -1591,6 +1593,63 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var summary = $"勾选队列已停止：成功 {counts[0]}，失败 {counts[1]}。";
         SetStatusMessage(summary);
         AppendActivityLog(summary);
+        TryRefreshKuaishouUploadReport();
+    }
+
+    private void RememberKuaishouUploadReport(string projectDirectory, PublishJob? job, bool succeeded, string error)
+    {
+        try
+        {
+            KuaishouTodayUploadCounter.AppendRun(
+                SelectedPlatform.Value,
+                _activeGlobalAccount?.Id ?? job?.AccountId ?? "",
+                _activeGlobalAccount?.Name ?? job?.AccountName ?? "",
+                projectDirectory,
+                succeeded,
+                error);
+        }
+        catch (Exception ex)
+        {
+            AppendActivityLog($"上传记录写入失败：{ex.Message}");
+        }
+    }
+
+    private void TryRefreshKuaishouUploadReport()
+    {
+        try
+        {
+            var path = KuaishouTodayUploadCounter.ExportExcel(SelectedPlatform.Value);
+            AppendActivityLog($"快手分账上传记录 Excel 已刷新：{path}");
+        }
+        catch (Exception ex)
+        {
+            AppendActivityLog($"快手分账上传记录 Excel 刷新失败：{ex.Message}");
+        }
+        RefreshKuaishouTodayUploadCount();
+    }
+
+    public void ExportKuaishouUploadReport()
+    {
+        if (!IsKuaishouPlatform)
+            return;
+        var path = KuaishouTodayUploadCounter.ExportExcel(SelectedPlatform.Value);
+        StatusMessage = $"上传记录 Excel 已保存：{path}";
+        AppendActivityLog(StatusMessage);
+    }
+
+    public void OpenKuaishouUploadReport()
+    {
+        if (!IsKuaishouPlatform)
+            return;
+        var path = KuaishouTodayUploadCounter.ExportExcel(SelectedPlatform.Value);
+        if (!File.Exists(path))
+        {
+            StatusMessage = "上传记录 Excel 不存在。";
+            return;
+        }
+        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        StatusMessage = $"已打开上传记录 Excel：{path}";
+        AppendActivityLog(StatusMessage);
     }
 
     private async Task RunKuaishouSettlementPipelineAsync(

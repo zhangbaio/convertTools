@@ -1,3 +1,4 @@
+using DocumentFormat.OpenXml.Packaging;
 using PlatformPublisher.Common.Models;
 using Xunit;
 using PlatformPublisher.Kuaishou.Publishing;
@@ -49,5 +50,26 @@ public sealed class KuaishouTodayUploadCounterTests
             PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, today.Date, store));
         Assert.Equal(0, KuaishouTodayUploadCounter.CountToday(
             PublishPlatform.KuaishouEnterpriseRevenue, "acct-a", root.FullName, today.Date, store));
+    }
+
+    [Fact]
+    public void Excel_has_dashboard_and_timeline_sheets_for_the_current_edition()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var today = new DateTimeOffset(2026, 10, 30, 18, 0, 0, TimeSpan.FromHours(8));
+        KuaishouTodayUploadCounter.RecordSuccess(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", Path.Combine(root.FullName, "腕上红线"), today, store);
+
+        var path = KuaishouTodayUploadCounter.ExportExcel(PublishPlatform.KuaishouPersonalRevenue, store);
+
+        using var workbook = SpreadsheetDocument.Open(path, false);
+        var names = workbook.WorkbookPart!.Workbook.Sheets!.Elements<DocumentFormat.OpenXml.Spreadsheet.Sheet>()
+            .Select(sheet => sheet.Name?.Value)
+            .ToArray();
+        Assert.Equal(new[] { "快手分账个人版看板", "执行流水" }, names);
+        Assert.Equal(
+            Path.Combine(store, "kuaishou_personal_upload_records.xlsx"),
+            path);
     }
 }

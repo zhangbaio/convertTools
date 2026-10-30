@@ -155,6 +155,10 @@
                     <Button Content="归档勾选" Click="OnArchiveCheckedClick" Classes="secondaryAction compactAction" Margin="0,0,6,6"
                             ToolTip.Tip="按快手分账规则归档勾选项目：移动 source/workflow，并删除原视频、转码视频和素材视频。" />
                     <Button Content="已归档项目" Click="OnOpenArchiveClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="导出上传记录" Click="OnExportUploadReportClick" Classes="secondaryAction compactAction" Margin="0,0,6,6"
+                            ToolTip.Tip="把快手分账上传记录导出到本软件数据目录中的 Excel。个人版和企业版分开保存。" />
+                    <Button Content="查看上传记录" Click="OnOpenUploadReportClick" Classes="secondaryAction compactAction" Margin="0,0,6,6"
+                            ToolTip.Tip="打开当前版本的上传记录 Excel。文件被占用时会另存为 pending 副本。" />
                     <Button Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
                 </WrapPanel>
                 <Grid ColumnDefinitions="48,*,Auto" ColumnSpacing="8">
