@@ -81,13 +81,37 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     public string AiProofStepStatus => StepStatus("ai-proof");
     public string TimestampStepStatus => StepStatus("timestamp-certificate");
     public string UploadStepStatus => KuaishouStep(_kuaishou?.UploadStatus, "weixin-upload");
-    public IBrush DownloadStepBrush => StatusBrush(DownloadStepStatus);
-    public IBrush RewriteStepBrush => StatusBrush(RewriteStepStatus);
-    public IBrush PosterStepBrush => StatusBrush(PosterStepStatus);
-    public IBrush ProjectImageStepBrush => StatusBrush(ProjectImageStepStatus);
-    public IBrush AutoFillStepBrush => StatusBrush(AutoFillStepStatus);
-    public IBrush UploadStepBrush => StatusBrush(UploadStepStatus);
-    public IBrush StatusBrushValue => StatusBrush(StatusText);
+    public IBrush DownloadStepBrush => ForegroundBrush(DownloadStepStatus);
+    public IBrush RewriteStepBrush => ForegroundBrush(RewriteStepStatus);
+    public IBrush PosterStepBrush => ForegroundBrush(PosterStepStatus);
+    public IBrush ProjectImageStepBrush => ForegroundBrush(ProjectImageStepStatus);
+    public IBrush AutoFillStepBrush => ForegroundBrush(AutoFillStepStatus);
+    public IBrush UploadStepBrush => ForegroundBrush(UploadStepStatus);
+    public IBrush StatusBrushValue => ForegroundBrush(StatusText);
+    public IBrush DownloadStepBackgroundBrush => BackgroundBrush(DownloadStepStatus);
+    public IBrush RewriteStepBackgroundBrush => BackgroundBrush(RewriteStepStatus);
+    public IBrush PosterStepBackgroundBrush => BackgroundBrush(PosterStepStatus);
+    public IBrush ProjectImageStepBackgroundBrush => BackgroundBrush(ProjectImageStepStatus);
+    public IBrush AutoFillStepBackgroundBrush => BackgroundBrush(AutoFillStepStatus);
+    public IBrush UploadStepBackgroundBrush => BackgroundBrush(UploadStepStatus);
+    public IBrush StatusBackgroundBrush => BackgroundBrush(StatusText);
+    public IBrush DownloadStepBorderBrush => BorderBrush(DownloadStepStatus);
+    public IBrush RewriteStepBorderBrush => BorderBrush(RewriteStepStatus);
+    public IBrush PosterStepBorderBrush => BorderBrush(PosterStepStatus);
+    public IBrush ProjectImageStepBorderBrush => BorderBrush(ProjectImageStepStatus);
+    public IBrush AutoFillStepBorderBrush => BorderBrush(AutoFillStepStatus);
+    public IBrush UploadStepBorderBrush => BorderBrush(UploadStepStatus);
+    public IBrush StatusBorderBrush => BorderBrush(StatusText);
+    public IBrush DramaTitleBrush
+    {
+        get
+        {
+            if (HasStepTone(StepTone.Failed)) return FailedBrush;
+            if (ToneOf(StatusText) == StepTone.Running || ToneOf(UploadStepStatus) == StepTone.Running) return RunningBrush;
+            if (ToneOf(UploadStepStatus) == StepTone.Completed) return CompletedBrush;
+            return LinkBrush;
+        }
+    }
     public string ShelfStepStatus => StepStatus("shelf");
     public string ManagementSyncStepStatus => StepStatus("management-sync");
     public string StepProgressSummary
@@ -158,14 +182,69 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         };
     }
 
-    private static IBrush StatusBrush(string status)
+    private bool HasStepTone(StepTone tone) =>
+        ToneOf(StatusText) == tone ||
+        ToneOf(DownloadStepStatus) == tone ||
+        ToneOf(RewriteStepStatus) == tone ||
+        ToneOf(PosterStepStatus) == tone ||
+        ToneOf(ProjectImageStepStatus) == tone ||
+        ToneOf(AutoFillStepStatus) == tone ||
+        ToneOf(UploadStepStatus) == tone;
+
+    private static IBrush ForegroundBrush(string status) => ToneOf(status) switch
+    {
+        StepTone.Completed => CompletedBrush,
+        StepTone.Pending => PendingBrush,
+        StepTone.Running => RunningBrush,
+        StepTone.Failed => FailedBrush,
+        StepTone.Stopped => StoppedBrush,
+        StepTone.Held => HeldBrush,
+        _ => DefaultBrush,
+    };
+
+    private static IBrush BackgroundBrush(string status) => ToneOf(status) switch
+    {
+        StepTone.Completed => CompletedBackgroundBrush,
+        StepTone.Pending => PendingBackgroundBrush,
+        StepTone.Running => RunningBackgroundBrush,
+        StepTone.Failed => FailedBackgroundBrush,
+        StepTone.Stopped => StoppedBackgroundBrush,
+        StepTone.Held => HeldBackgroundBrush,
+        _ => DefaultBackgroundBrush,
+    };
+
+    private static IBrush BorderBrush(string status) => ToneOf(status) switch
+    {
+        StepTone.Completed => CompletedBorderBrush,
+        StepTone.Pending => PendingBorderBrush,
+        StepTone.Running => RunningBorderBrush,
+        StepTone.Failed => FailedBorderBrush,
+        StepTone.Stopped => StoppedBorderBrush,
+        StepTone.Held => HeldBorderBrush,
+        _ => DefaultBorderBrush,
+    };
+
+    private static StepTone ToneOf(string status)
     {
         var text = status.Trim();
-        if (text.StartsWith("已完成") || text is "完成" or "成功") return SuccessBrush;
-        if (text.StartsWith("进行中") || text is "执行中" or "上传中" or "发布中") return RunningBrush;
-        if (text is "失败" or "异常" or "错误" || text.Contains("失败")) return FailedBrush;
-        if (text is "已停止" or "停止中" or "手工介入" || text.StartsWith("部分完成")) return PartialBrush;
-        return MutedBrush;
+        if (text.StartsWith("已完成", StringComparison.Ordinal) || text is "完成" or "成功") return StepTone.Completed;
+        if (text.StartsWith("进行中", StringComparison.Ordinal) || text is "执行中" or "上传中" or "发布中") return StepTone.Running;
+        if (text is "失败" or "异常" or "错误" || text.Contains("失败", StringComparison.Ordinal)) return StepTone.Failed;
+        if (text is "已停止" or "停止中" or "已跳过") return StepTone.Stopped;
+        if (text is "手工介入" || text.StartsWith("部分完成", StringComparison.Ordinal) || text is "已保持" or "已保存草稿") return StepTone.Held;
+        if (text is "未执行" or "待执行" or "等待执行") return StepTone.Pending;
+        return StepTone.Default;
+    }
+
+    private enum StepTone
+    {
+        Completed,
+        Pending,
+        Running,
+        Failed,
+        Stopped,
+        Held,
+        Default,
     }
 
     private string StepStatus(string key)
@@ -318,6 +397,21 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(AutoFillStepBrush));
         OnPropertyChanged(nameof(UploadStepBrush));
         OnPropertyChanged(nameof(StatusBrushValue));
+        OnPropertyChanged(nameof(DownloadStepBackgroundBrush));
+        OnPropertyChanged(nameof(RewriteStepBackgroundBrush));
+        OnPropertyChanged(nameof(PosterStepBackgroundBrush));
+        OnPropertyChanged(nameof(ProjectImageStepBackgroundBrush));
+        OnPropertyChanged(nameof(AutoFillStepBackgroundBrush));
+        OnPropertyChanged(nameof(UploadStepBackgroundBrush));
+        OnPropertyChanged(nameof(StatusBackgroundBrush));
+        OnPropertyChanged(nameof(DownloadStepBorderBrush));
+        OnPropertyChanged(nameof(RewriteStepBorderBrush));
+        OnPropertyChanged(nameof(PosterStepBorderBrush));
+        OnPropertyChanged(nameof(ProjectImageStepBorderBrush));
+        OnPropertyChanged(nameof(AutoFillStepBorderBrush));
+        OnPropertyChanged(nameof(UploadStepBorderBrush));
+        OnPropertyChanged(nameof(StatusBorderBrush));
+        OnPropertyChanged(nameof(DramaTitleBrush));
         OnPropertyChanged(nameof(SmartRecutStepStatus));
         OnPropertyChanged(nameof(RewriteStepStatus));
         OnPropertyChanged(nameof(PosterStepStatus));
@@ -343,9 +437,26 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         string SourceDirectory,
         string WorkflowDirectory);
 
-    private static readonly IBrush SuccessBrush = new SolidColorBrush(Color.Parse("#1F7A42"));
-    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#0F63C7"));
+    private static readonly IBrush CompletedBrush = new SolidColorBrush(Color.Parse("#047857"));
+    private static readonly IBrush PendingBrush = new SolidColorBrush(Color.Parse("#B45309"));
+    private static readonly IBrush RunningBrush = new SolidColorBrush(Color.Parse("#075BC7"));
     private static readonly IBrush FailedBrush = new SolidColorBrush(Color.Parse("#B42318"));
-    private static readonly IBrush PartialBrush = new SolidColorBrush(Color.Parse("#9A6700"));
-    private static readonly IBrush MutedBrush = new SolidColorBrush(Color.Parse("#667085"));
+    private static readonly IBrush StoppedBrush = new SolidColorBrush(Color.Parse("#64748B"));
+    private static readonly IBrush HeldBrush = new SolidColorBrush(Color.Parse("#C2410C"));
+    private static readonly IBrush DefaultBrush = new SolidColorBrush(Color.Parse("#334155"));
+    private static readonly IBrush LinkBrush = new SolidColorBrush(Color.Parse("#0F63C7"));
+    private static readonly IBrush CompletedBackgroundBrush = new SolidColorBrush(Color.Parse("#DDFBEA"));
+    private static readonly IBrush PendingBackgroundBrush = new SolidColorBrush(Color.Parse("#FFF2CC"));
+    private static readonly IBrush RunningBackgroundBrush = new SolidColorBrush(Color.Parse("#DDEBFF"));
+    private static readonly IBrush FailedBackgroundBrush = new SolidColorBrush(Color.Parse("#FFE3E3"));
+    private static readonly IBrush StoppedBackgroundBrush = new SolidColorBrush(Color.Parse("#EEF2F6"));
+    private static readonly IBrush HeldBackgroundBrush = new SolidColorBrush(Color.Parse("#FFEDD5"));
+    private static readonly IBrush DefaultBackgroundBrush = new SolidColorBrush(Color.Parse("#F1F5F9"));
+    private static readonly IBrush CompletedBorderBrush = new SolidColorBrush(Color.Parse("#67E8A5"));
+    private static readonly IBrush PendingBorderBrush = new SolidColorBrush(Color.Parse("#FBBF24"));
+    private static readonly IBrush RunningBorderBrush = new SolidColorBrush(Color.Parse("#86B7FF"));
+    private static readonly IBrush FailedBorderBrush = new SolidColorBrush(Color.Parse("#F97066"));
+    private static readonly IBrush StoppedBorderBrush = new SolidColorBrush(Color.Parse("#CBD5E1"));
+    private static readonly IBrush HeldBorderBrush = new SolidColorBrush(Color.Parse("#FB923C"));
+    private static readonly IBrush DefaultBorderBrush = new SolidColorBrush(Color.Parse("#CBD5E1"));
 }

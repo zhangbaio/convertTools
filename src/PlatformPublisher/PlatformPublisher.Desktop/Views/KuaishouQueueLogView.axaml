@@ -2,6 +2,24 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="PlatformPublisher.Desktop.Views.KuaishouQueueLogView"
              Background="#F3F6FA">
+    <UserControl.Styles>
+        <Style Selector="ListBox#ProjectList ListBoxItem">
+            <Setter Property="Padding" Value="2,1" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="ListBox#ProjectList ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#EAF4FF" />
+        </Style>
+        <Style Selector="ListBox#ProjectList ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="#DDEEFF" />
+            <Setter Property="Foreground" Value="#23364D" />
+        </Style>
+        <Style Selector="ListBox#ProjectList ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#DDEEFF" />
+        </Style>
+    </UserControl.Styles>
     <DockPanel Margin="16,14,16,16">
         <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,8">
             <TextBlock x:Name="TitleLabel"
@@ -34,7 +52,13 @@
             <ListBox x:Name="ProjectList" Grid.Column="0" Margin="0,0,8,0" MinHeight="300">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                        <Border Background="{Binding Background}"
+                                CornerRadius="3"
+                                Padding="10,6">
+                            <TextBlock Text="{Binding Title}"
+                                       Foreground="{Binding Foreground}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>

@@ -188,6 +188,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<PublishAccountItemViewModel> VisibleAccounts { get; } = [];
     public ObservableCollection<string> ActivityLogs { get; } = [];
     public ObservableCollection<ActivityLogRecord> ActivityLogRecords { get; } = [];
+    private readonly List<KuaishouLogProject> _kuaishouLogProjects = [];
+    public IReadOnlyList<KuaishouLogProject> KuaishouLogProjects => _kuaishouLogProjects;
+    public event EventHandler? KuaishouLogProjectsChanged;
     private string _activityLogProject = "";
     public ObservableCollection<string> FilteredActivityLogs { get; } = [];
     public ObservableCollection<EpisodeRowViewModel> SelectedProjectEpisodes { get; } = [];
@@ -1136,6 +1139,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (!IsKuaishouPlatform && PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
 
         var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+        if (IsKuaishouPlatform)
+            PrepareKuaishouLogProjects(targets);
         await RunBusyAsync(async cancellationToken =>
         {
             var progress = new Progress<WorkRunEvent>(item =>
@@ -1164,12 +1169,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 var trackedRow = trackedJob is null ? null : VisibleJobs.FirstOrDefault(row => row.Id == trackedJob.Id);
                 var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, projectDirectory, ActiveWeixinAccountName);
                 _activityLogProject = trackedJob?.ProjectName ?? Path.GetFileName(projectDirectory);
+                if (IsKuaishouPlatform)
+                    SetKuaishouLogTone(projectDirectory, "running");
                 try
                 {
                     if (IsKuaishouPlatform)
                     {
                         await RunKuaishouSettlementPipelineAsync(projectDirectory, trackedJob, trackedRow, cancellationToken);
                         StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
+                        SetKuaishouLogTone(projectDirectory, "ok");
                         AppendActivityLog(StatusMessage);
                         succeeded++;
                         continue;
@@ -1294,6 +1302,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 catch (OperationCanceledException)
                 {
+                    if (IsKuaishouPlatform)
+                        SetKuaishouLogTone(projectDirectory, "none");
                     StatusMessage = "共享项目流水线已停止。";
                     AppendActivityLog(StatusMessage);
                     return;
@@ -1301,6 +1311,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 catch (Exception ex)
                 {
                     failed++;
+                    if (IsKuaishouPlatform)
+                        SetKuaishouLogTone(projectDirectory, "failed");
                     StatusMessage = $"共享项目流水线失败：{ex.Message}";
                     AppendActivityLog(StatusMessage);
                 }
@@ -2419,6 +2431,55 @@ public sealed partial class MainWindowViewModel : ObservableObject
             "系统日志" => entry.Contains("系统", StringComparison.OrdinalIgnoreCase) || entry.Contains("服务", StringComparison.OrdinalIgnoreCase),
             _ => true,
         };
+    }
+
+    private void PrepareKuaishouLogProjects(IReadOnlyList<string> directories)
+    {
+        _kuaishouLogProjects.Clear();
+        foreach (var directory in directories)
+        {
+            var normalized = NormalizeLogDirectory(directory);
+            var job = _jobs.FirstOrDefault(item =>
+                !string.IsNullOrWhiteSpace(item.ProjectDirectory) &&
+                string.Equals(NormalizeLogDirectory(item.ProjectDirectory), normalized, StringComparison.OrdinalIgnoreCase));
+            var name = string.IsNullOrWhiteSpace(job?.ProjectName)
+                ? Path.GetFileName(normalized)
+                : job.ProjectName;
+            _kuaishouLogProjects.Add(new KuaishouLogProject(name, normalized, "waiting"));
+        }
+
+        NotifyKuaishouLogProjectsChanged();
+    }
+
+    private void SetKuaishouLogTone(string directory, string tone)
+    {
+        var normalized = NormalizeLogDirectory(directory);
+        var project = _kuaishouLogProjects.FirstOrDefault(item =>
+            string.Equals(item.ProjectDirectory, normalized, StringComparison.OrdinalIgnoreCase));
+        if (project is null || project.Tone == tone)
+            return;
+        project.Tone = tone;
+        NotifyKuaishouLogProjectsChanged();
+    }
+
+    private void NotifyKuaishouLogProjectsChanged()
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            KuaishouLogProjectsChanged?.Invoke(this, EventArgs.Empty);
+        else
+            Dispatcher.UIThread.Post(() => KuaishouLogProjectsChanged?.Invoke(this, EventArgs.Empty));
+    }
+
+    private static string NormalizeLogDirectory(string directory)
+    {
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        }
+        catch
+        {
+            return directory.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
     }
 
     private void AppendActivityLog(string message)

@@ -10,14 +10,90 @@
             <Setter Property="Padding" Value="9,4" />
             <Setter Property="FontSize" Value="13" />
         </Style>
-        <Style Selector="UserControl.kuaishouQueue ListBoxItem">
-            <Setter Property="Padding" Value="8,1" />
-            <Setter Property="MinHeight" Value="28" />
+        <Style Selector="Button.queueLink">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="6,0" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
         </Style>
-        <Style Selector="UserControl.kuaishouQueue ListBoxItem CheckBox">
+        <Style Selector="Button.queueLink:pointerover">
+            <Setter Property="Background" Value="#EAF4FF" />
+        </Style>
+        <Style Selector="Button.queueLink:pressed">
+            <Setter Property="Background" Value="#DCEBFF" />
+        </Style>
+        <Style Selector="TextBlock.kuaishouTableHeader">
+            <Setter Property="Foreground" Value="#23364D" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Padding" Value="4,10" />
+            <Setter Property="Background" Value="#EDF3F9" />
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="TextAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.kuaishouStepHeader">
+            <Setter Property="Background" Value="#E5F1FF" />
+            <Setter Property="Foreground" Value="#0F4F86" />
+        </Style>
+        <Style Selector="Border.queueTableRow">
+            <Setter Property="BorderBrush" Value="#DCE7F3" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ListBox#KuaishouQueueList">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="#FFFFFF" />
+        </Style>
+        <Style Selector="ListBox#KuaishouQueueList ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="42" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Foreground" Value="#23364D" />
+        </Style>
+        <Style Selector="ListBox#KuaishouQueueList ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#EAF4FF" />
+            <Setter Property="Foreground" Value="#23364D" />
+        </Style>
+        <Style Selector="ListBox#KuaishouQueueList ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="#DDEEFF" />
+            <Setter Property="Foreground" Value="#23364D" />
+        </Style>
+        <Style Selector="ListBox#KuaishouQueueList ListBoxItem:selected:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#DDEEFF" />
+            <Setter Property="Foreground" Value="#23364D" />
+        </Style>
+        <Style Selector="ListBox#KuaishouQueueList ListBoxItem:selected:focus /template/ ContentPresenter">
+            <Setter Property="Background" Value="#DDEEFF" />
+            <Setter Property="Foreground" Value="#23364D" />
+        </Style>
+        <Style Selector="ListBox#KuaishouQueueList ListBoxItem CheckBox">
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.stepStatusBadge">
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="5,2" />
+            <Setter Property="MinWidth" Value="54" />
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.stepStatusText">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
     </UserControl.Styles>
     <Grid RowDefinitions="Auto,Auto,Auto,*,30" RowSpacing="8">
@@ -270,46 +346,62 @@
                 </Border>
                 <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <Grid MinWidth="1480" RowDefinitions="Auto,*">
-                        <Border x:Name="KuaishouQueueHeader" Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="8,4" IsVisible="False">
-                            <Grid ColumnDefinitions="52,52,220,220,70,110,90,100,100,110,90,100,80" ColumnSpacing="8">
-                                <TextBlock Text="序号" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="1" Text="执行" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="2" Text="原剧名" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="3" Text="新剧名" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="4" Text="集数" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="5" Text="加入时间" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="6" Text="下载" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="7" Text="改写信息" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="8" Text="生成海报" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="9" Text="生成工程图" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="10" Text="补齐字段" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="11" Text="上传剧集" FontWeight="SemiBold" />
-                                <TextBlock Grid.Column="12" Text="状态" FontWeight="SemiBold" />
+                        <Border x:Name="KuaishouQueueHeader" Background="#EDF3F9" BorderBrush="#DCE7F3" BorderThickness="0,0,0,1" Padding="0" IsVisible="False">
+                            <Grid ColumnDefinitions="52,52,220,220,70,128,96,104,104,112,96,104,96">
+                                <TextBlock Text="序号" Classes="kuaishouTableHeader" />
+                                <TextBlock Grid.Column="1" Text="执行" Classes="kuaishouTableHeader" />
+                                <TextBlock Grid.Column="2" Text="原剧名" Classes="kuaishouTableHeader" />
+                                <TextBlock Grid.Column="3" Text="新剧名" Classes="kuaishouTableHeader" />
+                                <TextBlock Grid.Column="4" Text="集数" Classes="kuaishouTableHeader" />
+                                <TextBlock Grid.Column="5" Text="加入时间" Classes="kuaishouTableHeader" />
+                                <TextBlock Grid.Column="6" Text="下载" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="7" Text="改写信息" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="8" Text="生成海报" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="9" Text="生成工程图" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="10" Text="补齐字段" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="11" Text="上传剧集" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="12" Text="状态" Classes="kuaishouTableHeader kuaishouStepHeader" />
                             </Grid>
                         </Border>
                         <ListBox x:Name="KuaishouQueueList" Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
                                  Background="#FFFFFF" BorderThickness="0" IsVisible="False">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
-                                    <Grid ColumnDefinitions="52,52,220,220,70,110,90,100,100,110,90,100,80" ColumnSpacing="8" Margin="8,2">
-                                        <TextBlock Text="{Binding QueueIndex}" VerticalAlignment="Center" />
-                                        <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" VerticalAlignment="Center" />
-                                        <Button Grid.Column="2" Click="OnOpenSourceDirectoryClick" Background="Transparent" BorderThickness="0" Padding="0" MinHeight="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Cursor="Hand" ToolTip.Tip="{Binding SourceDirectory}">
-                                            <TextBlock Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" TextDecorations="Underline" />
-                                        </Button>
-                                        <Button Grid.Column="3" Click="OnOpenWorkflowDirectoryClick" Background="Transparent" BorderThickness="0" Padding="0" MinHeight="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Cursor="Hand" ToolTip.Tip="{Binding WorkflowDirectory}">
-                                            <TextBlock Text="{Binding NewTitle}" Foreground="#0369A1" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextDecorations="Underline" />
-                                        </Button>
-                                        <TextBlock Grid.Column="4" Text="{Binding EpisodeCountText}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="5" Text="{Binding CreatedAtText}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="6" Text="{Binding DownloadStepStatus}" Foreground="{Binding DownloadStepBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="7" Text="{Binding RewriteStepStatus}" Foreground="{Binding RewriteStepBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="8" Text="{Binding PosterStepStatus}" Foreground="{Binding PosterStepBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="9" Text="{Binding ProjectImageStepStatus}" Foreground="{Binding ProjectImageStepBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="10" Text="{Binding AutoFillStepStatus}" Foreground="{Binding AutoFillStepBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="11" Text="{Binding UploadStepStatus}" Foreground="{Binding UploadStepBrush}" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="12" Text="{Binding StatusText}" Foreground="{Binding StatusBrushValue}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    </Grid>
+                                    <Border Classes="queueTableRow" Height="42">
+                                        <Grid ColumnDefinitions="52,52,220,220,70,128,96,104,104,112,96,104,96">
+                                            <TextBlock Text="{Binding QueueIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                            <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" />
+                                            <Button Grid.Column="2" Classes="queueLink" Click="OnOpenSourceDirectoryClick" ToolTip.Tip="{Binding SourceDirectory}">
+                                                <TextBlock Text="{Binding OriginalTitle}" VerticalAlignment="Center" HorizontalAlignment="Stretch" TextAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{Binding DramaTitleBrush}" />
+                                            </Button>
+                                            <Button Grid.Column="3" Classes="queueLink" Click="OnOpenWorkflowDirectoryClick" ToolTip.Tip="{Binding WorkflowDirectory}">
+                                                <TextBlock Text="{Binding NewTitle}" VerticalAlignment="Center" HorizontalAlignment="Stretch" TextAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{Binding DramaTitleBrush}" />
+                                            </Button>
+                                            <TextBlock Grid.Column="4" Text="{Binding EpisodeCountText}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                            <TextBlock Grid.Column="5" Text="{Binding CreatedAtText}" VerticalAlignment="Center" Margin="6,0" FontSize="12" TextTrimming="CharacterEllipsis" />
+                                            <Border Grid.Column="6" Classes="stepStatusBadge" Background="{Binding DownloadStepBackgroundBrush}" BorderBrush="{Binding DownloadStepBorderBrush}" ToolTip.Tip="{Binding DownloadStepStatus}">
+                                                <TextBlock Text="{Binding DownloadStepStatus}" Foreground="{Binding DownloadStepBrush}" Classes="stepStatusText" />
+                                            </Border>
+                                            <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding RewriteStepBackgroundBrush}" BorderBrush="{Binding RewriteStepBorderBrush}" ToolTip.Tip="{Binding RewriteStepStatus}">
+                                                <TextBlock Text="{Binding RewriteStepStatus}" Foreground="{Binding RewriteStepBrush}" Classes="stepStatusText" />
+                                            </Border>
+                                            <Border Grid.Column="8" Classes="stepStatusBadge" Background="{Binding PosterStepBackgroundBrush}" BorderBrush="{Binding PosterStepBorderBrush}" ToolTip.Tip="{Binding PosterStepStatus}">
+                                                <TextBlock Text="{Binding PosterStepStatus}" Foreground="{Binding PosterStepBrush}" Classes="stepStatusText" />
+                                            </Border>
+                                            <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding ProjectImageStepBackgroundBrush}" BorderBrush="{Binding ProjectImageStepBorderBrush}" ToolTip.Tip="{Binding ProjectImageStepStatus}">
+                                                <TextBlock Text="{Binding ProjectImageStepStatus}" Foreground="{Binding ProjectImageStepBrush}" Classes="stepStatusText" />
+                                            </Border>
+                                            <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding AutoFillStepBackgroundBrush}" BorderBrush="{Binding AutoFillStepBorderBrush}" ToolTip.Tip="{Binding AutoFillStepStatus}">
+                                                <TextBlock Text="{Binding AutoFillStepStatus}" Foreground="{Binding AutoFillStepBrush}" Classes="stepStatusText" />
+                                            </Border>
+                                            <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding UploadStepBackgroundBrush}" BorderBrush="{Binding UploadStepBorderBrush}" ToolTip.Tip="{Binding UploadStepStatus}">
+                                                <TextBlock Text="{Binding UploadStepStatus}" Foreground="{Binding UploadStepBrush}" Classes="stepStatusText" />
+                                            </Border>
+                                            <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding StatusBackgroundBrush}" BorderBrush="{Binding StatusBorderBrush}" ToolTip.Tip="{Binding StatusText}">
+                                                <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusBrushValue}" Classes="stepStatusText" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
