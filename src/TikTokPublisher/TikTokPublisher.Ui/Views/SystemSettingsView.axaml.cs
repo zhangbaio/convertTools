@@ -452,6 +452,21 @@ public partial class SystemSettingsView : UserControl
         _vm.TiktokProofPdfRenderer = item.Tag as string ?? ClientSettingsDefaults.TiktokProofPdfRenderer;
     }
 
+    private async void OnBrowseSyncWorkspaceRootClick(object? sender, RoutedEventArgs e)
+    {
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage is null || _vm is null)
+            return;
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择账号同步工作根目录",
+            AllowMultiple = false,
+        });
+        var path = folders.FirstOrDefault()?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(path))
+            _vm.TiktokSyncWorkspaceRoot = path;
+    }
+
     private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e)
     {
         var path = await PickFileAsync("选择证明材料 Word 模板", "*.docx");

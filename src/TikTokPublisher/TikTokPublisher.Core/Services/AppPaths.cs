@@ -8,6 +8,7 @@ public static class AppPaths
         ".tiktok_publisher");
 
     public static string AccountsFile => Path.Combine(DataRoot, "accounts.json");
+    public static string AccountConfigSyncStateFile => Path.Combine(DataRoot, "account-config-sync.json");
     public static string ActiveAccountFile => Path.Combine(DataRoot, "active-account.json");
     public static string AppDatabaseFile => Path.Combine(DataRoot, "app.db");
     public static string AnalyticsDatabaseFile => Path.Combine(DataRoot, "analytics.db");

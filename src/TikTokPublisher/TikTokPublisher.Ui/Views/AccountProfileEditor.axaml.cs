@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
@@ -329,6 +330,82 @@ public partial class AccountProfileEditor : UserControl
             _vm.StatusMessage = $"保存账号配置失败：{ex.Message}";
             _vm.AppendLog($"保存账号配置失败：{ex.GetType().Name}: {ex.Message}");
             return false;
+        }
+    }
+
+    private async void OnSyncAccountsClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (_vm is null || !SaveToProfile())
+            return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var direction = await AccountConfigSyncDirectionDialog.ShowAsync(owner);
+        if (direction is null)
+            return;
+
+        _vm.AccountConfigSyncStatus = "正在读取管理系统中的账号配置…";
+        var accounts = _vm.Accounts.Select(item => item.Model).ToArray();
+        var state = LicenseStore.Load();
+        var ttUser = FirstNonEmpty(state.AccountUsername, state.Email, state.LicenseKey);
+        var context = TikTokAccountConfigManualSync.CreateMachineContext(
+            _vm.SystemSettings.TiktokSyncWorkspaceRoot,
+            _vm.IsAccountQueueBusy);
+        var client = new TikTokAccountConfigSyncService();
+        var (preview, error) = await TikTokAccountConfigManualSync.LoadPreviewAsync(
+            accounts,
+            direction.Value,
+            ttUser,
+            client,
+            context,
+            _vm.IsAccountQueueBusy,
+            CancellationToken.None);
+        if (preview is null)
+        {
+            _vm.AccountConfigSyncStatus = error;
+            await InfoDialog.ShowAsync(owner, error, "同步账号配置", 460, 180);
+            return;
+        }
+
+        var refreshed = false;
+        while (true)
+        {
+            if (preview.Rows.Count == 0)
+            {
+                var sameMessage = $"当前 TT 用户「{(string.IsNullOrWhiteSpace(ttUser) ? "未登录" : ttUser)}」和本机有 {preview.UnchangedCount} 个一致的账号，没有需要处理的差异。";
+                _vm.AccountConfigSyncStatus = "账号配置一致，未写入";
+                await InfoDialog.ShowAsync(owner, sameMessage, "同步账号配置", 460, 180);
+                return;
+            }
+
+            var accepted = await AccountConfigSyncDialog.ShowAsync(owner, preview, refreshed);
+            if (!accepted)
+            {
+                _vm.AccountConfigSyncStatus = "已取消账号配置同步";
+                return;
+            }
+
+            _vm.AccountConfigSyncStatus = "正在同步账号配置…";
+            var result = await TikTokAccountConfigManualSync.ApplyAsync(
+                _vm.Accounts.Select(item => item.Model).ToArray(),
+                preview,
+                client,
+                context,
+                _vm.IsAccountQueueBusy,
+                CancellationToken.None);
+            if (result.Stale && result.Preview is not null)
+            {
+                preview = result.Preview;
+                refreshed = true;
+                continue;
+            }
+
+            if (result.AccountsChanged)
+                _vm.ApplySyncedAccounts(result.Accounts);
+            _vm.AccountConfigSyncStatus = result.Message;
+            _vm.AppendLog(result.Message);
+            await InfoDialog.ShowAsync(owner, result.Message, "同步账号配置", 460, 180);
+            return;
         }
     }
 

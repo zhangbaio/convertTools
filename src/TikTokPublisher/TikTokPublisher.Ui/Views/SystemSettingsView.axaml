@@ -20,6 +20,17 @@
                         <TextBlock Text="{Binding LoginSettingsHint}"
                                    TextWrapping="Wrap" Classes="pageSummary" />
 
+                        <TextBlock Text="账号同步" FontWeight="Bold" />
+                        <TextBlock Text="同一 TT 用户在其他电脑登录后，会自动同步 TikTok 账号、登录状态和印章。工作目录留在本机。没有本机工作目录的账号使用「根目录\账号名」。"
+                                   TextWrapping="Wrap" Classes="pageSummary" />
+                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="同步工作根目录" VerticalAlignment="Center" />
+                            <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox Grid.Column="0" Text="{Binding TiktokSyncWorkspaceRoot}" Watermark="例如 D:\TikTok工作目录" />
+                                <Button Grid.Column="1" Content="浏览" Click="OnBrowseSyncWorkspaceRootClick" MinWidth="72" />
+                            </Grid>
+                        </Grid>
+
                         <TextBlock Text="数据链路与下载参数" FontWeight="Bold" />
                         <TextBlock Text="选择短剧来源链路，并配置下载任务的通用参数。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">

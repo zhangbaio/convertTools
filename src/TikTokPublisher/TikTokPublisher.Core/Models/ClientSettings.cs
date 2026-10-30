@@ -151,6 +151,8 @@ public sealed class ClientSettings
 
     public string LastDownloadWorkspace { get; set; } = "";
     public string ArchiveRootDir { get; set; } = "";
+    /// <summary>新电脑同步下来的 TikTok 账号没有本机工作目录时，使用「根目录\账号名」。</summary>
+    public string TiktokSyncWorkspaceRoot { get; set; } = "";
     public string AuthServerUrl { get; set; } = "";
     public string AuthAccount { get; set; } = "";
     public string AuthPassword { get; set; } = "";
@@ -326,6 +328,7 @@ public sealed class ClientSettings
         TiktokProofKeepDocx = TiktokProofKeepDocx,
         LastDownloadWorkspace = LastDownloadWorkspace,
         ArchiveRootDir = ArchiveRootDir,
+        TiktokSyncWorkspaceRoot = TiktokSyncWorkspaceRoot,
         AuthServerUrl = AuthServerUrl,
         AuthAccount = AuthAccount,
         AuthPassword = AuthPassword,

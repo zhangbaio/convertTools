@@ -19,8 +19,11 @@ public sealed class AccountStore
     private static string AccountSnapshotQuarantineFile =>
         AppPaths.AccountsFile + ".sync-quarantine";
 
+    private int _generation;
+
     public IReadOnlyList<TikTokAccountProfile> Accounts => _accounts;
     public string ActiveAccountId => _activeAccountId;
+    public int Generation => Volatile.Read(ref _generation);
     public bool CanSyncAccountSnapshot { get; private set; } = true;
 
     public event Action? AccountsChanged;
@@ -94,6 +97,34 @@ public sealed class AccountStore
         if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig || migratedArchiveConfig) &&
             _accounts.Count > 0)
             SaveAccounts();
+        BumpGeneration();
+    }
+
+    /// <summary>用同步结果替换全部账号，并保留仍存在的账号的内存状态。</summary>
+    public void ReplaceAll(IReadOnlyList<TikTokAccountProfile> accounts)
+    {
+        var selected = _activeAccountId;
+        _accounts.Clear();
+        foreach (var account in accounts)
+        {
+            if (string.IsNullOrWhiteSpace(account.Id))
+                continue;
+            NormalizeProfileDefaults(account);
+            EnsureProfileDirs(account);
+            _accounts.Add(account);
+        }
+
+        if (_accounts.Count == 0)
+            _accounts.Add(CreateProfileSkeleton(CreateAccountId(), "默认账号"));
+
+        if (string.IsNullOrWhiteSpace(selected) || _accounts.All(account => account.Id != selected))
+            _activeAccountId = _accounts[0].Id;
+        else
+            _activeAccountId = selected;
+
+        SaveAccounts();
+        SaveActivePointer();
+        NotifyAccountsChanged();
     }
 
     public TikTokAccountProfile Add(string name)
@@ -185,8 +216,11 @@ public sealed class AccountStore
         File.WriteAllText(AppPaths.AccountsFile, JsonSerializer.Serialize(_accounts, JsonOptions));
     }
 
+    private void BumpGeneration() => Interlocked.Increment(ref _generation);
+
     private void NotifyAccountsChanged()
     {
+        BumpGeneration();
         foreach (var handler in AccountsChanged?.GetInvocationList().Cast<Action>() ?? [])
         {
             try { handler(); }

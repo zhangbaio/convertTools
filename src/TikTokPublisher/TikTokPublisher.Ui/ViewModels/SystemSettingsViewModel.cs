@@ -223,6 +223,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _tiktokProofKeepDocx = ClientSettingsDefaults.TiktokProofKeepDocx;
     [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
     [ObservableProperty] private bool _tiktokAccountAnalyticsEnabled = ClientSettingsDefaults.TiktokAccountAnalyticsEnabled;
+    [ObservableProperty] private string _tiktokSyncWorkspaceRoot = "";
     [ObservableProperty] private bool _managementDedupEnabled;
     [ObservableProperty] private string _managementDedupScope = "tiktok_username";
     [ObservableProperty] private bool _tiktokAllowOverLimitUploadImport = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
@@ -383,6 +384,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProofKeepDocx = TiktokProofKeepDocx,
         TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
         TiktokAccountAnalyticsEnabled = TiktokAccountAnalyticsEnabled,
+        TiktokSyncWorkspaceRoot = TiktokSyncWorkspaceRoot.Trim(),
         ManagementDedupEnabled = ManagementDedupEnabled,
         ManagementDedupScope = ManagementDedupScope,
         TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport,
@@ -1293,6 +1295,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProofKeepDocx = settings.TiktokProofKeepDocx;
         TiktokExcelAutoExportEnabled = settings.TiktokExcelAutoExportEnabled;
         TiktokAccountAnalyticsEnabled = settings.TiktokAccountAnalyticsEnabled;
+        TiktokSyncWorkspaceRoot = settings.TiktokSyncWorkspaceRoot;
         ManagementDedupEnabled = settings.ManagementDedupEnabled;
         ManagementDedupScope = settings.ManagementDedupScope;
         TiktokAllowOverLimitUploadImport = settings.TiktokAllowOverLimitUploadImport;

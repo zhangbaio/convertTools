@@ -133,6 +133,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     [ObservableProperty] private AccountItemViewModel? _selectedAccount;
     [ObservableProperty] private string _statusMessage = "就绪";
+    [ObservableProperty] private string _accountConfigSyncStatus = "";
     [ObservableProperty] private string _otherRunningStatusMessage = "";
     [ObservableProperty] private string _accountSearchText = "";
     [ObservableProperty] private string _queueSearchText = "";
@@ -1151,6 +1152,24 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         try { return Path.GetFullPath(path); }
         catch { return path.Trim(); }
+    }
+
+    public bool IsAccountQueueBusy(string accountId)
+    {
+        var account = FindAccountById(accountId)?.Model;
+        if (account is null)
+            return false;
+        var workspace = account.ResolveWorkspacePath();
+        if (string.IsNullOrWhiteSpace(workspace))
+            return false;
+        try
+        {
+            return IsWorkspaceQueueBusy(workspace);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     public bool IsWorkspaceQueueRunning(string workspaceRoot)
@@ -4041,6 +4060,31 @@ public sealed partial class MainViewModel : ViewModelBase
     public void ReloadAccountsFromDisk()
     {
         _store.Load();
+        ReloadAccounts();
+    }
+
+    public void ApplySyncedAccounts(IReadOnlyList<TikTokAccountProfile> accounts)
+    {
+        var removedDirs = _store.Accounts
+            .Where(account => accounts.All(item => item.Id != account.Id))
+            .Select(account => account.ProfileDir)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
+        _store.ReplaceAll(accounts);
+        foreach (var directory in removedDirs)
+        {
+            try
+            {
+                var full = Path.GetFullPath(directory);
+                var root = Path.GetFullPath(AppPaths.ProfilesRoot) + Path.DirectorySeparatorChar;
+                if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase) && Directory.Exists(full))
+                    Directory.Delete(full, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
         ReloadAccounts();
     }
 
