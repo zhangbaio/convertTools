@@ -19,32 +19,48 @@ public sealed class KuaishouPersonalFirstPageService
         if (string.IsNullOrWhiteSpace(config.KuaishouNickname) || !form.ProductionOrg.Contains('+'))
             throw new InvalidOperationException("请先在快手分账配置的“登录授权”中填写快手昵称和用户快手号 ID。");
 
+        var enterprise = config.StoragePlatform == PublishPlatform.KuaishouEnterpriseRevenue;
         await NavigateToUploadAsync(page, cancellationToken);
         await FillTextAsync(page, "短剧标题", data.Title, required: true);
         await FillTextAsync(page, "短剧简介", data.Intro, required: true);
-        await SelectAsync(page, "内容类型", form.ContentTypeLabel, required: false);
-        await SelectAsync(page, "漫剧制作方式", form.ComicMethodLabel, required: false);
-        await SelectCategoriesAsync(page, ReadCategoryLabels(data.WorkflowDirectory));
+        if (enterprise)
+            await SetRadioAsync(page, "内容类型", form.ContentTypeLabel, required: false);
+        else
+            await SelectAsync(page, "内容类型", form.ContentTypeLabel, required: false);
+        if (!enterprise || form.ContentTypeLabel == "漫剧")
+            await SelectAsync(page, "漫剧制作方式", form.ComicMethodLabel, required: false);
+        if (enterprise)
+            await SelectOptionalDropdownAsync(page, "请选择男女频道", ReadAutoFillLabel(data.WorkflowDirectory, "audience_gender_label"));
+        await SelectLabeledOptionsAsync(page, ReadAutoFillLabels(data.WorkflowDirectory, "tag_label_list"), "请选择分类", "短剧分类", required: true);
+        await SelectLabeledOptionsAsync(page, ReadAutoFillLabels(data.WorkflowDirectory, "plot_label_list"), "请选择短剧情节", "短剧情节", required: false);
         await SelectAsync(page, "作者声明", form.AuthorDeclarationLabel, required: true);
         await FillTextAsync(page, "短标题", data.ShortTitle, required: false);
         await FillTextAsync(page, "标签", string.Join(' ', data.Tags), required: false);
         await SelectAsync(page, "版权证明类型", form.CopyrightProofTypeLabel, required: false);
+        await FillTextAsync(page, "短剧标题", data.Title, required: true);
         await SetRadioAsync(page, "是否完结", form.Finished ? "是" : "否", required: true);
         await SetRadioAsync(page, "是否全场景展示", form.FullSceneDisplay ? "是" : "否", required: false);
         await SetRadioAsync(page, "是否有备案号", form.HasRecordNumber ? "是" : "否", required: true);
         await page.WaitForTimeoutAsync(600);
         await SetRadioAsync(page, "制作形式", form.ProductionForm, required: false);
-        await FillTextAsync(page, "出品年份", form.ProductionYear.ToString(), required: false);
+        if (!await SelectYearAsync(page, form.ProductionYear))
+            await FillTextAsync(page, "出品年份", form.ProductionYear.ToString(), required: false);
         await FillTextAsync(page, "制作成本", form.ProductionCost, required: false);
         await FillTextAsync(page, "单集平均时长", form.AverageDurationMinutes.ToString(), required: false);
-        await FillTextAsync(page, "制作机构", form.ProductionOrg, required: false);
-        await FillPeopleAsync(page, form.CreditName, form.Gender, cancellationToken);
+        var productionOrg = enterprise
+            ? FirstNonEmpty(config.CommitmentRecipientCompanyName, config.ProductionOrganization, form.ProductionOrg)
+            : form.ProductionOrg;
+        await FillTextAsync(page, "制作机构", productionOrg, required: false);
+        if (enterprise)
+            await FillEnterprisePeopleAsync(page, data.WorkflowDirectory, cancellationToken);
+        else
+            await FillPeopleAsync(page, form.CreditName, form.Gender, cancellationToken);
         await SelectAsync(page, "播出平台", form.BroadcastPlatform, required: false);
         await SelectAsync(page, "播出途径", form.BroadcastChannel, required: false);
         await FillTextAsync(page, "播出时间", form.BroadcastDate, required: false);
         if (!form.HasRecordNumber)
             await FillActorsAsync(page, KuaishouPersonalFormResolver.ResolveUploadActors(data.WorkflowDirectory, config), cancellationToken);
-        await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", form.SpecialTheme ? "是" : "否", required: false);
+        await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", "否", required: false);
         await UploadScopedAsync(page, ["短剧封面", "横屏封面"], data.HorizontalCoverPath, required: true);
         progress?.Report($"{config.StoragePlatform.DisplayName()}：短剧封面已上传，正在确认图片裁剪。 ");
         await HandleCropDialogAsync(page, 15, cancellationToken);
@@ -611,20 +627,39 @@ public sealed class KuaishouPersonalFirstPageService
         try { await page.Keyboard.PressAsync("Escape"); } catch (PlaywrightException) { /* 下拉已经关上。 */ }
     }
 
-    private static IReadOnlyList<string> ReadCategoryLabels(string workflowDirectory)
+    private static IReadOnlyList<string> ReadAutoFillLabels(string workflowDirectory, string property) =>
+        ReadAutoFillArray(workflowDirectory, property).Take(3).ToArray();
+
+    private static string ReadAutoFillLabel(string workflowDirectory, string property)
+    {
+        var path = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
+        if (!File.Exists(path)) return string.Empty;
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            return document.RootElement.TryGetProperty(property, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String
+                ? value.GetString()?.Trim() ?? string.Empty
+                : string.Empty;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static IReadOnlyList<string> ReadAutoFillArray(string workflowDirectory, string property)
     {
         var path = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
         if (!File.Exists(path)) return [];
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
-            if (!document.RootElement.TryGetProperty("tag_label_list", out var labels) ||
+            if (!document.RootElement.TryGetProperty(property, out var labels) ||
                 labels.ValueKind != System.Text.Json.JsonValueKind.Array)
                 return [];
             return labels.EnumerateArray()
                 .Select(item => item.GetString()?.Trim() ?? string.Empty)
                 .Where(item => item.Length > 0)
-                .Take(3)
                 .ToArray();
         }
         catch (System.Text.Json.JsonException)
@@ -633,42 +668,251 @@ public sealed class KuaishouPersonalFirstPageService
         }
     }
 
-    private static async Task SelectCategoriesAsync(IPage page, IReadOnlyList<string> labels)
+    private static string FirstNonEmpty(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
+
+    private static async Task SelectOptionalDropdownAsync(IPage page, string placeholder, string option)
+    {
+        if (string.IsNullOrWhiteSpace(option)) return;
+        if (!await MarkSelectTriggerAsync(page, placeholder, placeholder, "data-kuaishou-optional")) return;
+        var trigger = page.Locator("[data-kuaishou-optional='1']").First;
+        await trigger.ScrollIntoViewIfNeededAsync();
+        await trigger.ClickAsync();
+        await page.WaitForTimeoutAsync(400);
+        await ClickDropdownOptionOnceAsync(page, option);
+        try { await page.Keyboard.PressAsync("Escape"); } catch (PlaywrightException) { /* 下拉已经关上。 */ }
+    }
+
+    private static async Task SelectLabeledOptionsAsync(
+        IPage page,
+        IReadOnlyList<string> labels,
+        string placeholder,
+        string fieldLabel,
+        bool required)
     {
         var targets = labels.Where(label => !string.IsNullOrWhiteSpace(label)).Take(3).ToArray();
-        if (targets.Length == 0) throw new InvalidOperationException("项目没有可用的短剧分类。");
-        var marked = await page.EvaluateAsync<bool>(
+        if (targets.Length == 0)
+        {
+            if (required) throw new InvalidOperationException($"项目没有可用的{fieldLabel}。");
+            return;
+        }
+        if (!await MarkSelectTriggerAsync(page, placeholder, fieldLabel, "data-kuaishou-category"))
+        {
+            if (required) throw new InvalidOperationException($"未找到{fieldLabel}。");
+            return;
+        }
+        var trigger = page.Locator("[data-kuaishou-category='1']").First;
+        await trigger.ScrollIntoViewIfNeededAsync();
+        await trigger.ClickAsync();
+        await page.WaitForTimeoutAsync(500);
+        foreach (var label in targets)
+        {
+            if (!await DropdownPopupVisibleAsync(page))
+            {
+                await trigger.ClickAsync();
+                await page.WaitForTimeoutAsync(300);
+            }
+            if (!await ClickDropdownOptionOnceAsync(page, label))
+            {
+                if (required) throw new InvalidOperationException($"{fieldLabel}未找到“{label}”。");
+            }
+        }
+
+        try { await page.Keyboard.PressAsync("Escape"); } catch (PlaywrightException) { /* 分类下拉已经关上。 */ }
+    }
+
+    private static async Task<bool> MarkSelectTriggerAsync(IPage page, string placeholder, string fieldLabel, string attribute)
+    {
+        return await page.EvaluateAsync<bool>(
             """
-            () => {
+            ({ placeholder, fieldLabel, attribute }) => {
               const compact = value => String(value || '').replace(/\s+/g, '');
+              document.querySelectorAll('[' + attribute + ']').forEach(element => element.removeAttribute(attribute));
+              const byPlaceholder = document.querySelector(`input[placeholder="${placeholder}"]`);
               const items = Array.from(document.querySelectorAll('.ks-form-item, .ant-form-item, .el-form-item'));
               const item = items
-                .filter(element => compact(element.querySelector('label, .ks-form-item__label, .ant-form-item-label')?.innerText || '').startsWith('短剧分类'))
+                .filter(element => compact(element.querySelector('label, .ks-form-item__label, .ant-form-item-label')?.innerText || '').startsWith(fieldLabel))
                 .sort((left, right) => {
                   const leftBox = left.getBoundingClientRect();
                   const rightBox = right.getBoundingClientRect();
                   return leftBox.width * leftBox.height - rightBox.width * rightBox.height;
                 })[0];
-              const trigger = item?.querySelector('.select-trigger, [role="combobox"], .ks-select')
-                || document.querySelector('input[placeholder="请选择分类"]')?.closest('.select-trigger, .ks-select')
-                || document.querySelector('input[placeholder="请选择分类"]');
+              const trigger = byPlaceholder?.closest('.ks-select')?.querySelector('.select-trigger')
+                || item?.querySelector('.select-trigger')
+                || item?.querySelector('[role="combobox"], .ks-select')
+                || byPlaceholder?.closest('.select-trigger, .ks-select')
+                || byPlaceholder;
               if (!trigger) return false;
-              trigger.setAttribute('data-kuaishou-category', '1');
+              trigger.setAttribute(attribute, '1');
               return true;
             }
-            """);
-        if (!marked) throw new InvalidOperationException("未找到短剧分类。");
-        var trigger = page.Locator("[data-kuaishou-category='1']").First;
-        foreach (var label in targets)
+            """,
+            new { placeholder, fieldLabel, attribute });
+    }
+
+    private static async Task<bool> SelectYearAsync(IPage page, int year)
+    {
+        var trigger = page.Locator(".ks-form-item").Filter(new LocatorFilterOptions { HasText = "出品年份" }).Locator("input").First;
+        if (await trigger.CountAsync() == 0) return false;
+        try
         {
             await trigger.ScrollIntoViewIfNeededAsync();
-            await trigger.ClickAsync();
-            await page.WaitForTimeoutAsync(300);
-            if (!await ClickDropdownOptionAsync(page, label))
-                throw new InvalidOperationException($"短剧分类未找到“{label}”。");
+            await trigger.ClickAsync(new LocatorClickOptions { Timeout = 3_000 });
         }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
+        await page.WaitForTimeoutAsync(400);
+        var target = year.ToString();
+        var cells = page.Locator(".ks-year-table a.cell, .ks-picker-panel__content a.cell, .ks-picker-panel td a.cell");
+        for (var pass = 0; pass < 8; pass++)
+        {
+            var count = await cells.CountAsync();
+            for (var index = 0; index < count; index++)
+            {
+                var cell = cells.Nth(index);
+                if (!await cell.IsVisibleAsync()) continue;
+                var text = (await cell.InnerTextAsync()).Trim();
+                if (text != target) continue;
+                await cell.ClickAsync();
+                await page.WaitForTimeoutAsync(300);
+                var value = await trigger.InputValueAsync();
+                if (value.Contains(target, StringComparison.Ordinal)) return true;
+            }
+            if (!await ShiftYearDecadeAsync(page, year)) break;
+            await page.WaitForTimeoutAsync(250);
+        }
+        return false;
+    }
 
-        try { await page.Keyboard.PressAsync("Escape"); } catch (PlaywrightException) { /* 分类下拉已经关上。 */ }
+    private static Task<bool> ShiftYearDecadeAsync(IPage page, int year) =>
+        page.EvaluateAsync<bool>(
+            """
+            (year) => {
+              const visible = element => {
+                if (!element) return false;
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none';
+              };
+              const header = Array.from(document.querySelectorAll('.ks-date-picker__header-label'))
+                .filter(visible)
+                .map(element => (element.innerText || '').replace(/\s+/g, ' ').trim())
+                .find(Boolean) || '';
+              const match = header.match(/(\d{4})\D+(\d{4})/);
+              if (!match) return false;
+              const start = Number(match[1]);
+              const end = Number(match[2]);
+              const previous = document.querySelector('.ks-date-picker__prev-btn');
+              const next = document.querySelector('.ks-date-picker__next-btn');
+              if (year < start && previous && visible(previous)) { previous.click(); return true; }
+              if (year > end && next && visible(next)) { next.click(); return true; }
+              return false;
+            }
+            """,
+            year);
+
+    private static async Task FillEnterprisePeopleAsync(IPage page, string workflowDirectory, CancellationToken cancellationToken)
+    {
+        var director = ReadPerson(workflowDirectory, "director_info_list", "男");
+        var screenwriter = ReadPerson(workflowDirectory, "screenwriter_info_list", "女");
+        var producer = screenwriter;
+        await FillNamedPersonAsync(page, "导演", director.Name, director.Gender, required: true, cancellationToken);
+        await FillNamedPersonAsync(page, "编剧", screenwriter.Name, screenwriter.Gender, required: false, cancellationToken);
+        await FillNamedPersonAsync(page, "制片人", producer.Name, producer.Gender, required: false, cancellationToken);
+    }
+
+    private static async Task FillNamedPersonAsync(
+        IPage page,
+        string role,
+        string name,
+        string gender,
+        bool required,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(name)) return;
+        await FillTextAsync(page, role + "姓名", name, required: false);
+        await FillTextAsync(page, role, name, required: required);
+        await SelectAsync(page, role + "性别", gender, required: false);
+    }
+
+    private static (string Name, string Gender) ReadPerson(string workflowDirectory, string property, string defaultGender)
+    {
+        var path = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
+        if (!File.Exists(path)) return (string.Empty, defaultGender);
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+            if (!document.RootElement.TryGetProperty(property, out var people) ||
+                people.ValueKind != System.Text.Json.JsonValueKind.Array)
+                return (string.Empty, defaultGender);
+            foreach (var person in people.EnumerateArray())
+            {
+                if (person.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                var name = person.TryGetProperty("name", out var nameValue) ? nameValue.GetString()?.Trim() ?? string.Empty : string.Empty;
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                var gender = person.TryGetProperty("gender", out var genderValue) ? genderValue.GetString()?.Trim() : string.Empty;
+                return (name, string.IsNullOrWhiteSpace(gender) ? defaultGender : gender);
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+        return (string.Empty, defaultGender);
+    }
+
+    private static async Task<bool> DropdownPopupVisibleAsync(IPage page) =>
+        await page.EvaluateAsync<bool>(
+            """
+            () => Array.from(document.querySelectorAll('.ks-select__popper,.ks-popper,.ant-select-dropdown,.el-select-dropdown,[role="listbox"]'))
+              .some(element => {
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0
+                  && style.display !== 'none' && style.visibility !== 'hidden';
+              });
+            """);
+
+    private static async Task<bool> ClickDropdownOptionOnceAsync(IPage page, string option)
+    {
+        var point = await page.EvaluateAsync<double[]?>(
+            """
+            (optionText) => {
+              const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+              const compact = value => normalize(value).replace(/\s+/g, '');
+              const target = normalize(optionText);
+              const compactTarget = compact(optionText);
+              if (!target) return null;
+              const visible = element => {
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0
+                  && rect.bottom >= 0 && rect.right >= 0
+                  && rect.top <= window.innerHeight && rect.left <= window.innerWidth
+                  && style.display !== 'none' && style.visibility !== 'hidden';
+              };
+              const popups = Array.from(document.querySelectorAll(
+                '.ks-select__popper,.ks-popper,.ant-select-dropdown,.el-select-dropdown,[role="listbox"]'
+              )).filter(visible);
+              for (const popup of popups) {
+                const options = Array.from(popup.querySelectorAll(
+                  'li.ks-select-dropdown__item,.ks-select-dropdown__item,[role="option"],.ant-select-item-option,.el-select-dropdown__item,li'
+                )).filter(visible);
+                const match = options.find(element => compact(element.innerText || element.textContent || '') === compactTarget);
+                if (!match) continue;
+                const rect = match.getBoundingClientRect();
+                return [rect.left + rect.width / 2, rect.top + rect.height / 2];
+              }
+              return null;
+            }
+            """,
+            option);
+        if (point is not { Length: 2 }) return false;
+        await page.Mouse.ClickAsync((float)point[0], (float)point[1]);
+        await page.WaitForTimeoutAsync(200);
+        return true;
     }
 
     private static async Task SetCheckboxAsync(IPage page, IReadOnlyList<string> labels)

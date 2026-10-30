@@ -79,6 +79,13 @@
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <Style Selector="Border.kuaishouStepFrame">
+            <Setter Property="Background" Value="#F8FBFF" />
+            <Setter Property="BorderBrush" Value="#CFE2F6" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
         <Style Selector="Border.stepStatusBadge">
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="5" />
@@ -98,24 +105,8 @@
     </UserControl.Styles>
     <Grid RowDefinitions="Auto,Auto,Auto,*,30" RowSpacing="8">
         <Border x:Name="KuaishouChrome" Grid.Row="0" Grid.RowSpan="3" Classes="panel" Padding="8" IsVisible="False">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
-                <WrapPanel Orientation="Horizontal">
-                    <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0"
-                            ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
-                    <Button x:Name="KuaishouUploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="快手分账配置" Click="OnKuaishouConfigClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <TextBlock Text="ADX" VerticalAlignment="Center" Margin="4,0,4,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                    <NumericUpDown x:Name="KuaishouAdxCount" Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                    <Button Content="下载ADX素材" Click="OnKuaishouAdxDownloadClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                    <Button Content="发布ADX素材" Click="OnKuaishouAdxPublishClick" Classes="primaryAction compactAction" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                </WrapPanel>
-                <Grid Grid.Row="1" ColumnDefinitions="64,*,Auto" ColumnSpacing="8">
+            <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="64,*,Auto" ColumnSpacing="8">
                     <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                     <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}" Watermark="选择快手分账工作目录" />
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
@@ -123,53 +114,71 @@
                         <Button Content="重置" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" />
                     </StackPanel>
                 </Grid>
-                <WrapPanel Grid.Row="2" Orientation="Horizontal">
-                    <TextBlock Text="本地：" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0" />
-                    <CheckBox Content="下载" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,12,0" />
-                    <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,0" />
-                    <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,12,0" />
-                    <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,12,0" />
-                    <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,16,0" />
-                    <TextBlock Text="浏览器：" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,8,0" />
-                    <CheckBox Content="上传剧集" IsChecked="{Binding PipelineUploadEpisodesEnabled}" Margin="0,0,12,0" />
-                    <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,0" />
-                    <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0"
-                            ToolTip.Tip="对勾选的项目执行上方已勾选的步骤。已完成的步骤会跳过，除非勾选强制重跑。" />
-                    <Button Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="secondaryAction compactAction" />
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6"
+                            ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
+                    <Button x:Name="KuaishouUploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6"
+                            ToolTip.Tip="对勾选的项目执行步骤区已勾选的步骤。已完成的步骤会跳过，除非勾选强制重跑。" />
+                    <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="快手分账配置" Click="OnKuaishouConfigClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <TextBlock Text="ADX" VerticalAlignment="Center" Margin="4,0,4,6" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <NumericUpDown x:Name="KuaishouAdxCount" Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,6" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <Button Content="下载ADX素材" Click="OnKuaishouAdxDownloadClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <Button Content="发布ADX素材" Click="OnKuaishouAdxPublishClick" Classes="primaryAction compactAction" Margin="0,0,6,6" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
                 </WrapPanel>
-                <Grid Grid.Row="3" ColumnDefinitions="48,*,Auto" ColumnSpacing="8">
+                <WrapPanel Orientation="Horizontal">
+                    <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="勾选到当前项目" Command="{Binding CheckToCurrentCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="取消" Command="{Binding UncheckAllVisibleCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="删除勾选" Command="{Binding RemoveCheckedJobsCommand}" Classes="dangerAction compactAction" Margin="0,0,6,6"
+                            ToolTip.Tip="只从任务队列删除，保留项目目录和文件" />
+                    <TextBlock Text="自动上架" VerticalAlignment="Center" Margin="4,0,6,6" />
+                    <NumericUpDown Width="60" Value="{Binding AutoShelfMaxPages}" Minimum="1" Maximum="100" Margin="0,0,4,6" />
+                    <TextBlock Text="页" VerticalAlignment="Center" Margin="0,0,6,6" />
+                    <NumericUpDown Width="60" Value="{Binding AutoShelfMaxRounds}" Minimum="1" Maximum="100" Margin="0,0,4,6" />
+                    <TextBlock Text="轮" VerticalAlignment="Center" Margin="0,0,6,6" />
+                    <Button Content="开始" Command="{Binding AutoShelfCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="重置当前任务" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="批量重置" Command="{Binding ResetCheckedJobsCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                </WrapPanel>
+                <Grid ColumnDefinitions="48,*,Auto" ColumnSpacing="8">
                     <TextBlock Text="搜索" VerticalAlignment="Center" FontWeight="SemiBold" />
                     <TextBox Grid.Column="1" Text="{Binding WorkflowFilterText}" Watermark="搜索原剧名 / 新剧名 / 账号 / 状态 / 问题" />
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                        <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="secondaryAction compactAction" />
-                        <Button Content="勾选到当前项目" Command="{Binding CheckToCurrentCommand}" Classes="secondaryAction compactAction" />
-                        <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="secondaryAction compactAction" />
-                        <Button Content="取消" Command="{Binding UncheckAllVisibleCommand}" Classes="secondaryAction compactAction" />
-                        <Button Content="删除勾选" Command="{Binding RemoveCheckedJobsCommand}" Classes="dangerAction compactAction"
-                                ToolTip.Tip="只从任务队列删除，保留项目目录和文件" />
-                        <TextBlock Text="每页" VerticalAlignment="Center" Foreground="#64748B" Margin="6,0,0,0" />
+                        <TextBlock Text="每页" VerticalAlignment="Center" Foreground="#64748B" />
                         <NumericUpDown Width="64" Value="{Binding WorkflowPageSize}" Minimum="5" Maximum="200" Increment="5" />
                         <Button Content="‹" Command="{Binding PreviousWorkflowPageCommand}" Classes="secondaryAction compactAction" />
                         <TextBlock Text="{Binding WorkflowPageSummary}" VerticalAlignment="Center" Foreground="#64748B" />
                         <Button Content="›" Command="{Binding NextWorkflowPageCommand}" Classes="secondaryAction compactAction" />
                     </StackPanel>
                 </Grid>
-                <WrapPanel Grid.Row="4" Orientation="Horizontal">
-                    <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <TextBlock Text="自动上架" VerticalAlignment="Center" Margin="4,0,6,0" />
-                    <NumericUpDown Width="60" Value="{Binding AutoShelfMaxPages}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
-                    <TextBlock Text="页" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <NumericUpDown Width="60" Value="{Binding AutoShelfMaxRounds}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
-                    <TextBlock Text="轮" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <Button Content="开始" Command="{Binding AutoShelfCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="重置当前任务" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="批量重置" Command="{Binding ResetCheckedJobsCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
-                    <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction compactAction" />
-                </WrapPanel>
-            </Grid>
+                <Border Classes="kuaishouStepFrame">
+                    <WrapPanel Orientation="Horizontal">
+                        <TextBlock Text="本地" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
+                        <CheckBox Content="下载" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,12,2" />
+                        <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,2" />
+                        <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,12,2" />
+                        <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,12,2" />
+                        <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,16,2" />
+                        <TextBlock Text="浏览器" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
+                        <CheckBox Content="上传剧集" IsChecked="{Binding PipelineUploadEpisodesEnabled}" Margin="0,0,12,2" />
+                        <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,2" />
+                    </WrapPanel>
+                </Border>
+            </StackPanel>
         </Border>
         <Border x:Name="WeixinChrome" Grid.Row="0" Grid.RowSpan="3" IsVisible="True">
         <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">

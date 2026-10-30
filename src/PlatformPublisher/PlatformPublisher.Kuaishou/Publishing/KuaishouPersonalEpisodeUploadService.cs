@@ -27,11 +27,10 @@ public sealed class KuaishouPersonalEpisodeUploadService
 
         if (!videosAlreadyUploaded)
         {
-            var input = await FindVideoInputAsync(page);
-            await input.SetInputFilesAsync(data.VideoPaths.ToArray());
+            await SelectBatchVideoFilesAsync(page, data.VideoPaths, progress);
             await ConfirmUploadPositionAsync(page, cancellationToken);
-            if (!await ClickVisibleAsync(page, ["开始上传"], 10_000))
-                throw new InvalidOperationException("未找到批量上传抽屉中的“开始上传”按钮。");
+            if (!await ClickDrawerStartUploadAsync(page))
+                throw new InvalidOperationException("未找到本地视频抽屉里的“开始上传”。不要点“视频链接”页的上传按钮。");
             await WaitForUploadsAsync(page, data.VideoPaths.Count, config.UploadTimeoutMinutes, progress, cancellationToken);
             if (stageChanged is not null) await stageChanged("videos_uploaded");
         }
@@ -44,10 +43,10 @@ public sealed class KuaishouPersonalEpisodeUploadService
         {
             if (config.SubmitPreCheckWaitSeconds > 0)
                 await Task.Delay(TimeSpan.FromSeconds(Math.Clamp(config.SubmitPreCheckWaitSeconds, 0, 120)), cancellationToken);
-            if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 30_000, cancellationToken))
-                throw new InvalidOperationException("剧集上传完成，但未找到“提交审核”按钮。");
-            await ConfirmDialogAsync(page);
-            await WaitForReviewSubmissionAsync(page, data.Title, config, cancellationToken);
+            if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 120_000, cancellationToken))
+                throw new InvalidOperationException("剧集上传完成，但未找到可点击的“提交审核”按钮。");
+            progress?.Report("快手分账个人版：已点击提交审核，等待确认弹窗和平台结果。");
+            await WaitForReviewSubmissionAsync(page, data.Title, progress, cancellationToken);
             if (stageChanged is not null) await stageChanged("review_submitted");
             progress?.Report("快手分账个人版：已提交审核。 ");
         }
@@ -65,14 +64,20 @@ public sealed class KuaishouPersonalEpisodeUploadService
     {
         var episodeCount = data.VideoPaths.Count;
         if (episodeCount < 1) throw new InvalidOperationException("没有可设置的剧集视频，无法确定开始集和结束集。");
+        // 页面默认已有第 1 集。添加单集信息填“总集数 - 1”，批量设置再选第 1 集到第总集数集。
         var additional = Math.Max(0, episodeCount - 1);
         if (additional > 0)
         {
             if (!await ClickVisibleAsync(page, ["添加单集信息"], 8_000))
                 throw new InvalidOperationException("未找到“添加单集信息”按钮。");
             var addDialog = await VisibleDialogAsync(page, 8_000);
-            var input = addDialog.Locator("input").First;
-            if (await input.CountAsync() > 0) await input.FillAsync(additional.ToString());
+            var input = addDialog.Locator("input:not([type='hidden']):not([type='file']):not([placeholder*='输入查询'])").First;
+            if (await input.CountAsync() == 0) input = addDialog.Locator("input:not([type='hidden']):not([type='file'])").First;
+            if (await input.CountAsync() == 0) throw new InvalidOperationException("添加单集信息弹窗未找到集数输入框。");
+            await input.FillAsync(additional.ToString());
+            var filled = (await input.InputValueAsync()).Trim();
+            if (filled != additional.ToString())
+                throw new InvalidOperationException($"添加单集信息应填写总集数减 1（{additional}），实际为“{filled}”。");
             await ClickDialogConfirmAsync(addDialog);
             await page.WaitForTimeoutAsync(1000);
         }
@@ -80,11 +85,10 @@ public sealed class KuaishouPersonalEpisodeUploadService
         if (!await ClickVisibleAsync(page, ["批量设置"], 8_000))
             throw new InvalidOperationException("未找到单集信息“批量设置”按钮。");
         var dialog = await MarkOverlayAsync(page, "选择集数", 8_000);
-        var queries = dialog.Locator("input[placeholder*='输入查询']");
-        var queryCount = await queries.CountAsync();
-        if (queryCount < 2) throw new InvalidOperationException("批量设置弹窗未找到集数选择器。");
-        await SelectQueryOptionAsync(page, queries.Nth(0), "第1集");
-        await SelectQueryOptionAsync(page, queries.Nth(queryCount - 1), $"第{episodeCount}集");
+        var queries = await VisibleQueryInputsAsync(dialog);
+        if (queries.Count < 2) throw new InvalidOperationException("批量设置弹窗未找到集数选择器。");
+        await SelectQueryOptionAsync(page, queries[0], "第1集");
+        await SelectQueryOptionAsync(page, queries[1], $"第{episodeCount}集");
         await page.WaitForTimeoutAsync(400);
         var titleInput = dialog.Locator("input[placeholder*=标题], input[placeholder*=单集]").Last;
         if (await titleInput.CountAsync() > 0) await titleInput.FillAsync(data.Title);
@@ -143,6 +147,23 @@ public sealed class KuaishouPersonalEpisodeUploadService
             await ConfirmEnterpriseFreeEpisodeWarningAsync(page);
     }
 
+    private static async Task<IReadOnlyList<ILocator>> VisibleQueryInputsAsync(ILocator dialog)
+    {
+        var queries = dialog.Locator("input[placeholder*='输入查询']");
+        var count = await queries.CountAsync();
+        var visible = new List<ILocator>();
+        for (var index = 0; index < count; index++)
+        {
+            var candidate = queries.Nth(index);
+            if (!await candidate.IsVisibleAsync()) continue;
+            var box = await candidate.BoundingBoxAsync();
+            if (box is null || box.Y < 0) continue;
+            visible.Add(candidate);
+        }
+
+        return visible;
+    }
+
     private static async Task SelectQueryOptionAsync(IPage page, ILocator input, string option)
     {
         try { await input.ScrollIntoViewIfNeededAsync(); } catch (PlaywrightException) { /* 输入框已经在视野内。 */ }
@@ -176,11 +197,18 @@ public sealed class KuaishouPersonalEpisodeUploadService
                   && rect.top <= window.innerHeight && rect.left <= window.innerWidth
                   && style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
               };
+              const episodeNumber = value => {
+                const text = compact(value);
+                const labeled = text.match(/^第0*(\d+)集$/);
+                if (labeled) return Number(labeled[1]);
+                return /^\d+$/.test(text) ? Number(text) : null;
+              };
+              const targetEpisode = episodeNumber(optionText);
               const matches = element => {
                 const text = normalize(element.innerText || element.textContent || '');
                 if (!text) return false;
                 if (text === target || compact(text) === compactTarget) return true;
-                return text.includes(target) && text.length <= target.length + 12;
+                return targetEpisode !== null && episodeNumber(text) === targetEpisode;
               };
               const popups = Array.from(document.querySelectorAll('.ks-select__popper,.ks-popper,.ant-select-dropdown,.el-select-dropdown,[role="listbox"]')).filter(popup => {
                 if (!visible(popup)) return false;
@@ -189,10 +217,13 @@ public sealed class KuaishouPersonalEpisodeUploadService
               });
               const preferred = popups.filter(popup => popperId && (popup.id === popperId || popup.getAttribute('aria-describedby') === popperId));
               for (const popup of preferred.concat(popups)) {
-                const options = Array.from(popup.querySelectorAll('li.ks-select-dropdown__item,.ks-select-dropdown__item,[role="option"],li,div,span'))
+                const options = Array.from(popup.querySelectorAll('li.ks-select-dropdown__item,.ks-select-dropdown__item,[role="option"],li'))
                   .filter(element => visible(element) && matches(element) && element.getBoundingClientRect().height < 56);
-                options.sort((left, right) => left.getBoundingClientRect().width - right.getBoundingClientRect().width);
-                const option = options[0];
+                const exact = options.filter(element => {
+                  const text = normalize(element.innerText || element.textContent || '');
+                  return text === target || compact(text) === compactTarget;
+                });
+                const option = exact[0] || options[0];
                 if (!option) continue;
                 const rect = option.getBoundingClientRect();
                 return [rect.left + rect.width / 2, rect.top + rect.height / 2];
@@ -201,14 +232,9 @@ public sealed class KuaishouPersonalEpisodeUploadService
             }
             """,
             new { optionText = option, popperId });
-        if (point is { Length: 2 })
-            await page.Mouse.ClickAsync((float)point[0], (float)point[1]);
-        else
-        {
-            await input.PressAsync("ArrowDown");
-            await page.WaitForTimeoutAsync(100);
-            await input.PressAsync("Enter");
-        }
+        if (point is not { Length: 2 })
+            throw new InvalidOperationException($"批量设置未找到集数选项：{option}");
+        await page.Mouse.ClickAsync((float)point[0], (float)point[1]);
         await page.WaitForTimeoutAsync(250);
     }
 
@@ -251,40 +277,201 @@ public sealed class KuaishouPersonalEpisodeUploadService
     private static string First(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 
+    private static async Task SelectBatchVideoFilesAsync(IPage page, IReadOnlyList<string> paths, IProgress<string>? progress)
+    {
+        try
+        {
+            var chooser = await page.RunAndWaitForFileChooserAsync(async () =>
+            {
+                if (!await OpenLocalVideoUploadAsync(page))
+                    throw new InvalidOperationException("未打开批量上传视频菜单。");
+            }, new PageRunAndWaitForFileChooserOptions { Timeout = 8_000 });
+            await chooser.SetFilesAsync(paths.ToArray());
+            progress?.Report($"快手分账个人版：已通过“上传视频”选择 {paths.Count} 集。 ");
+            return;
+        }
+        catch (PlaywrightException)
+        {
+            // 菜单没有拉起文件选择器时，改用批量视频 input。
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        var input = page.Locator("#batch-upload, .batch-wrapper input[type=file][multiple][accept*=video], input[type=file][multiple][accept*=video], input[type=file][multiple][accept*=mp4]").First;
+        if (await input.CountAsync() == 0)
+            input = await FindVideoInputAsync(page);
+        await input.SetInputFilesAsync(paths.ToArray());
+        progress?.Report($"快手分账个人版：已选择 {paths.Count} 集本地视频。 ");
+    }
+
+    private static async Task<bool> OpenLocalVideoUploadAsync(IPage page)
+    {
+        var menu = page.Locator(".batch-wrapper .batch-btn, .batch-btn").Filter(new LocatorFilterOptions { HasText = "批量上传视频" }).First;
+        if (await menu.CountAsync() == 0 || !await menu.IsVisibleAsync())
+        {
+            if (!await ClickVisibleAsync(page, ["批量上传视频"], 3_000)) return false;
+        }
+        else
+        {
+            await menu.HoverAsync();
+        }
+        await page.WaitForTimeoutAsync(350);
+        var item = page.Locator("label[for='batch-upload'], .batch-btn-list label, .batch-btn-list li").Filter(new LocatorFilterOptions { HasText = "上传视频" }).First;
+        if (await item.CountAsync() > 0 && await item.IsVisibleAsync())
+        {
+            await item.ClickAsync();
+            return true;
+        }
+        return await ClickVisibleAsync(page, ["上传视频"], 3_000);
+    }
+
+    private static async Task<bool> ClickDrawerStartUploadAsync(IPage page)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var clicked = await page.EvaluateAsync<bool>(
+                """
+                () => {
+                  const compact = value => String(value || '').replace(/\s+/g, '');
+                  const visible = element => {
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                  };
+                  const disabled = element => element.disabled === true
+                    || String(element.getAttribute('aria-disabled') || '').toLowerCase() === 'true'
+                    || element.classList.contains('is-disabled')
+                    || Boolean(element.closest('[aria-disabled="true"],.is-disabled,.disabled'));
+                  const panels = Array.from(document.querySelectorAll('.ks-drawer,.ks-drawer-content,[class*="drawer"]'))
+                    .filter(element => visible(element) && compact(element.innerText).includes('批量上传视频'));
+                  let best = null;
+                  for (const panel of panels) {
+                    for (const button of panel.querySelectorAll('button,[role="button"],.ks-button')) {
+                      if (!visible(button) || disabled(button)) continue;
+                      const text = compact(button.innerText);
+                      if (!text.includes('开始上传')) continue;
+                      const local = button.closest('.drawer-footer')?.parentElement || button.parentElement;
+                      const localText = compact(local?.innerText || '');
+                      let score = 0;
+                      if (button.closest('.drawer-footer,[class*="drawer-footer"]')) score += 1000;
+                      if (/(mp4|mov|webm|ogg)/i.test(localText)) score += 500;
+                      if (/第\d+集/.test(localText)) score += 300;
+                      if (button.closest('.sort-wrapper,.cdn-content') && !button.closest('.drawer-footer')) score -= 10000;
+                      if (/填写视频链接|上传链接文件|视频链接/.test(localText) && !/(mp4|mov)/i.test(localText)) score -= 800;
+                      if (!best || score > best.score) best = { button, score };
+                    }
+                  }
+                  if (!best || best.score < 500) return false;
+                  best.button.click();
+                  return true;
+                }
+                """);
+            if (clicked) return true;
+            await page.WaitForTimeoutAsync(500);
+        }
+        return false;
+    }
+
+    private static async Task ClickDrawerConfirmAsync(IPage page)
+    {
+        var clicked = await page.EvaluateAsync<bool>(
+            """
+            () => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const visible = element => {
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+              };
+              const panels = Array.from(document.querySelectorAll('.ks-drawer,.ks-drawer-content,[class*="drawer"]'))
+                .filter(element => visible(element) && compact(element.innerText).includes('批量上传视频'));
+              for (const panel of panels) {
+                const button = Array.from(panel.querySelectorAll('button,[role="button"],.ks-button'))
+                  .filter(element => visible(element) && ['确定', '确认'].includes(compact(element.innerText)))
+                  .at(-1);
+                if (!button) continue;
+                button.click();
+                return true;
+              }
+              return false;
+            }
+            """);
+        if (!clicked)
+            await ClickVisibleAsync(page, ["确定"], 2_000);
+    }
+
     private static async Task<ILocator> FindVideoInputAsync(IPage page)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
         while (DateTimeOffset.UtcNow < deadline)
         {
-            foreach (var selector in new[]
-                     {
-                         "input[type=file][accept*=video]",
-                         "input[type=file][accept*=mp4]",
-                         "input[type=file]",
-                     })
-            {
-                var inputs = page.Locator(selector);
-                var count = await inputs.CountAsync();
-                for (var index = count - 1; index >= 0; index--)
-                {
-                    var input = inputs.Nth(index);
-                    if (await input.IsEnabledAsync()) return input;
+            var index = await page.EvaluateAsync<int>(
+                """
+                () => {
+                  const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+                  const videoWords = ['剧集视频', '上传视频', '视频上传', '上传剧集', '批量上传视频'];
+                  const rejectWords = ['版权证明', '承诺函', '现场拍摄图', '短剧工程文件', '短剧封面', '单集封面'];
+                  const rejectAcceptRe = /(pdf|image|jpg|jpeg|png|bmp|gif|webp)/i;
+                  const videoAcceptRe = /(video|mp4|mov|m4v|avi|mkv)/i;
+                  const contextText = element => {
+                    let node = element;
+                    const parts = [];
+                    for (let depth = 0; node && depth < 9; depth += 1, node = node.parentElement) {
+                      const value = normalize(node.innerText || node.textContent || '');
+                      if (value) parts.push(value);
+                    }
+                    return parts.join(' ');
+                  };
+                  const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+                  let best = null;
+                  inputs.forEach((element, index) => {
+                    const accept = String(element.getAttribute('accept') || '');
+                    const acceptVideo = videoAcceptRe.test(accept);
+                    if (rejectAcceptRe.test(accept) && !acceptVideo) return;
+                    const nearText = contextText(element);
+                    const nearVideo = videoWords.some(word => nearText.includes(word));
+                    const nearReject = rejectWords.some(word => nearText.includes(word));
+                    if (nearReject && !nearVideo) return;
+                    if (!acceptVideo && element.multiple !== true) return;
+                    let score = 0;
+                    if (element.id === 'batch-upload') score += 200;
+                    if (acceptVideo) score += 120;
+                    if (element.multiple === true) score += 80;
+                    if (nearVideo) score += 60;
+                    if (nearReject) score -= 100;
+                    if (!best || score > best.score) best = { index, score };
+                  });
+                  return best ? best.index : -1;
                 }
-            }
+                """);
+            if (index >= 0)
+                return page.Locator("input[type=file]").Nth(index);
             await page.WaitForTimeoutAsync(300);
         }
-        throw new InvalidOperationException("视频上传步骤未找到剧集视频文件入口。");
+        throw new InvalidOperationException("视频上传步骤未找到可批量选择的剧集视频入口。");
     }
 
     private static async Task ConfirmUploadPositionAsync(IPage page, CancellationToken cancellationToken)
     {
-        var dialog = page.Locator("[role=dialog]:visible, .ks-dialog:visible, .ant-modal:visible").Last;
-        try { await dialog.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Visible, Timeout = 8_000 }); }
-        catch { return; }
-        var input = dialog.Locator("input").First;
-        if (await input.CountAsync() > 0) await input.FillAsync("1");
-        cancellationToken.ThrowIfCancellationRequested();
-        await ClickDialogConfirmAsync(dialog);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var dialog = page.Locator(".ks-dialog:visible, .ant-modal:visible, [role=dialog]:visible")
+                .Filter(new LocatorFilterOptions { HasText = "请选择批量上传位置" });
+            if (await dialog.CountAsync() == 0)
+            {
+                await page.WaitForTimeoutAsync(300);
+                continue;
+            }
+            var input = dialog.Last.Locator("input").First;
+            if (await input.CountAsync() > 0) await input.FillAsync("1");
+            await ClickDialogConfirmAsync(dialog.Last);
+            return;
+        }
+        throw new InvalidOperationException("选择视频后未出现“请选择批量上传位置”弹窗。");
     }
 
     private static async Task WaitForUploadsAsync(
@@ -300,12 +487,15 @@ public sealed class KuaishouPersonalEpisodeUploadService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var body = (await page.Locator("body").InnerTextAsync()).Replace("为避免上传失败", string.Empty, StringComparison.Ordinal);
-            if (body.Contains("全部上传完成", StringComparison.Ordinal) ||
-                body.Contains($"{expected}集成功，0集失败", StringComparison.Ordinal) ||
-                body.Contains("提交审核", StringComparison.Ordinal) && !body.Contains("上传中", StringComparison.Ordinal))
+            var drawerDone = body.Contains("全部上传完成", StringComparison.Ordinal)
+                || System.Text.RegularExpressions.Regex.IsMatch(body, $"{expected}\\s*集成功\\s*[，,]\\s*0\\s*集失败");
+            var stillUploading = body.Contains("上传中", StringComparison.Ordinal)
+                || body.Contains("等待上传", StringComparison.Ordinal)
+                || body.Contains("解析中", StringComparison.Ordinal);
+            if (drawerDone && !stillUploading)
             {
                 progress?.Report($"快手分账个人版：{expected} 集视频上传完成。 ");
-                await ClickVisibleAsync(page, ["确定"], 2_000);
+                await ClickDrawerConfirmAsync(page);
                 return;
             }
             if (body.Contains("上传失败", StringComparison.Ordinal) || body.Contains("校验失败", StringComparison.Ordinal))
@@ -438,11 +628,40 @@ public sealed class KuaishouPersonalEpisodeUploadService
     private static async Task<bool> IsVideoUploadStepAsync(IPage page)
     {
         if (await NextStepDialogVisibleAsync(page)) return false;
-        if (page.Url.Contains("step=1", StringComparison.OrdinalIgnoreCase)) return true;
         try
         {
-            return await page.GetByText("视频上传", new PageGetByTextOptions { Exact = false }).CountAsync() > 0 ||
-                   await page.GetByText("上传视频", new PageGetByTextOptions { Exact = false }).CountAsync() > 0;
+            return await page.EvaluateAsync<bool>(
+                """
+                () => {
+                  const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+                  const text = normalize(document.body?.innerText || '');
+                  if (text.includes('确认提示') && text.includes('剧集审核通过后仅支持修改封面')) return false;
+                  const firstPage = text.includes('保存草稿') && text.includes('下一步') && text.includes('请勾选同意');
+                  const videoWords = ['剧集视频', '上传视频', '视频上传', '上传剧集'];
+                  const rejectAcceptRe = /(pdf|image|jpg|jpeg|png|bmp|gif|webp)/i;
+                  const videoAcceptRe = /(video|mp4|mov|m4v|avi|mkv)/i;
+                  const rejectContext = ['版权证明', '承诺函', '现场拍摄图', '短剧工程文件', '短剧封面', '单集封面'];
+                  const contextText = element => {
+                    let node = element;
+                    const parts = [];
+                    for (let depth = 0; node && depth < 8; depth += 1, node = node.parentElement) {
+                      const value = normalize(node.innerText || '');
+                      if (value) parts.push(value);
+                    }
+                    return parts.join(' ');
+                  };
+                  const hasVideoInput = Array.from(document.querySelectorAll('input[type="file"]')).some(element => {
+                    const accept = String(element.getAttribute('accept') || '');
+                    if (rejectAcceptRe.test(accept) && !videoAcceptRe.test(accept)) return false;
+                    const nearText = contextText(element);
+                    const nearVideo = videoWords.some(word => nearText.includes(word));
+                    const nearReject = rejectContext.some(word => nearText.includes(word));
+                    if (nearReject && !nearVideo) return false;
+                    return videoAcceptRe.test(accept) || element.multiple === true || nearVideo;
+                  });
+                  return hasVideoInput || (!firstPage && videoWords.some(word => text.includes(word)));
+                }
+                """);
         }
         catch (PlaywrightException)
         {
@@ -587,25 +806,102 @@ public sealed class KuaishouPersonalEpisodeUploadService
     private static async Task WaitForReviewSubmissionAsync(
         IPage page,
         string title,
-        KuaishouPersonalConfig config,
+        IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
-        var intervalSeconds = Math.Clamp(config.SubmitReadyCheckIntervalSeconds, 1, 60);
-        var maxChecks = Math.Clamp(config.SubmitReadyCheckMax, 1, 600);
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(intervalSeconds * maxChecks);
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(240);
+        var lastText = string.Empty;
+        var confirmClicked = false;
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var body = await ReadAllBodyTextAsync(page);
-            if (new[] { "提交成功", "发布成功", "已提交审核" }.Any(body.Contains) ||
-                !page.Url.Contains("content-management/edit", StringComparison.OrdinalIgnoreCase) &&
+            if (await ClickSubmitReviewConfirmAsync(page))
+            {
+                if (!confirmClicked)
+                    progress?.Report("快手分账个人版：已点击提交审核确认弹窗。");
+                confirmClicked = true;
+                await page.WaitForTimeoutAsync(800);
+                continue;
+            }
+
+            var body = (await ReadAllBodyTextAsync(page)).Replace("为避免上传失败", string.Empty, StringComparison.Ordinal);
+            if (!string.IsNullOrWhiteSpace(body)) lastText = body;
+            var leftEditPage = !page.Url.Contains("content-management/edit", StringComparison.OrdinalIgnoreCase);
+            // 列表页的「审核状态」筛选项本身就包含“审核中”，不能拿整页文字判断。
+            // 与 weixin-channel-tool 一致：成功文案，或确认弹窗已点且已离开编辑页，或标题所在行是审核中。
+            if (ReviewSucceeded(body) ||
+                (confirmClicked && leftEditPage) ||
                 await HasReviewingRowAsync(page, title))
                 return;
-            if (new[] { "提交失败", "发布失败", "审核提交失败" }.Any(body.Contains))
+            if (new[] { "发布失败", "上传失败", "校验失败", "请重新上传", "提交失败", "审核提交失败" }.Any(body.Contains))
                 throw new InvalidOperationException("快手个人版提交审核失败，平台页面返回失败提示。");
-            await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), cancellationToken);
+            await Task.Delay(1500, cancellationToken);
         }
-        throw new TimeoutException("点击提交审核后，未检测到“提交成功/审核中”等平台最终状态；任务不会标记为完成。");
+
+        var detail = string.IsNullOrWhiteSpace(lastText) ? string.Empty : $"最近页面：{TrimForError(lastText)}";
+        throw new TimeoutException($"等待提交审核成功提示超时。{detail}");
+    }
+
+    private static bool ReviewSucceeded(string body) =>
+        new[] { "发布成功", "提交成功", "提交审核成功", "审核提交成功", "已提交审核", "已提交至审核", "内容提交成功" }
+            .Any(marker => body.Contains(marker, StringComparison.Ordinal));
+
+    private static string TrimForError(string text)
+    {
+        var compact = Normalize(text);
+        return compact.Length <= 180 ? compact : compact[..180];
+    }
+
+    private static async Task<bool> ClickSubmitReviewConfirmAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<bool>(
+                """
+                () => {
+                  const compact = value => String(value || '').replace(/\s+/g, '');
+                  const visible = element => {
+                    if (!element || !(element instanceof Element)) return false;
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && rect.bottom >= 0 && rect.right >= 0
+                      && rect.top <= window.innerHeight && rect.left <= window.innerWidth
+                      && style.display !== 'none' && style.visibility !== 'hidden' && style.pointerEvents !== 'none';
+                  };
+                  const disabled = element => element.disabled === true
+                    || String(element.getAttribute('aria-disabled') || '').toLowerCase() === 'true'
+                    || element.classList.contains('is-disabled')
+                    || Boolean(element.closest('[aria-disabled="true"],.is-disabled,.disabled'));
+                  const dialogs = Array.from(document.querySelectorAll(
+                    '.ks-dialog,.ks-dialog-wrapper,.ks-modal,.ks-modal-content,.ks-message-box,.ant-modal,.ant-modal-content,.el-dialog,.semi-modal,[role="dialog"]'
+                  )).filter(element => {
+                    if (!visible(element)) return false;
+                    const text = compact(element.innerText || '');
+                    if (!text || text.includes('批量上传视频') || text.includes('图片裁剪')) return false;
+                    return text.includes('提交审核') || text.includes('确认提示') || text.includes('审核通过后')
+                      || text.includes('不可修改') || text.includes('确认提交');
+                  });
+                  for (const dialog of dialogs) {
+                    const button = Array.from(dialog.querySelectorAll('button,[role="button"],.ks-button,.ant-btn'))
+                      .filter(element => visible(element) && !disabled(element))
+                      .filter(element => ['确认', '确定'].includes(compact(element.innerText)))
+                      .sort((left, right) => {
+                        const leftFooter = left.closest('.ks-dialog__footer,.ant-modal-footer') ? 1 : 0;
+                        const rightFooter = right.closest('.ks-dialog__footer,.ant-modal-footer') ? 1 : 0;
+                        return rightFooter - leftFooter;
+                      })[0];
+                    if (!button) continue;
+                    button.click();
+                    return true;
+                  }
+                  return false;
+                }
+                """);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
     }
 
     private static async Task<bool> HasReviewingRowAsync(IPage page, string title)

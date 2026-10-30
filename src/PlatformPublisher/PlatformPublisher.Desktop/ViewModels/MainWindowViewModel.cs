@@ -67,6 +67,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly List<GlobalAccount> _globalAccounts = [];
     private readonly DispatcherTimer _scheduleTimer;
     private CancellationTokenSource? _operationCts;
+    private Task? _managementBrowserTask;
     private bool _scheduleTickRunning;
     private CancellationTokenSource? _episodeLoadCts;
     private WorkflowInteractionRequest? _currentInteractionRequest;
@@ -1162,6 +1163,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             AppendActivityLog($"执行勾选步骤：{targets.Count} 个项目，步骤：{(stepNames.Count == 0 ? "无" : string.Join("、", stepNames))}。已完成的步骤会跳过。");
             foreach (var projectDirectory in targets)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var trackedJob = _jobs.FirstOrDefault(job =>
                     !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
                     string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
@@ -1331,9 +1333,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
             }
 
-            if (targets.Count > 1)
+            if (IsKuaishouPlatform || targets.Count > 1)
             {
-                StatusMessage = $"勾选步骤结束：成功 {succeeded}，失败 {failed}。";
+                StatusMessage = IsKuaishouPlatform
+                    ? $"勾选队列已停止：成功 {succeeded}，失败 {failed}。"
+                    : $"勾选步骤结束：成功 {succeeded}，失败 {failed}。";
                 AppendActivityLog(StatusMessage);
             }
         });
@@ -1476,8 +1480,51 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 : config.PersonalProjectImageTemplateId;
             if (string.IsNullOrWhiteSpace(templateId))
                 templateId = config.ProjectImageTemplateId;
+            var preserved = new HashSet<string>(StringComparer.Ordinal);
+            if (!PipelineForceRerun)
+            {
+                KuaishouArtifactColumnStatus? artifacts = null;
+                try
+                {
+                    if (Directory.Exists(projectDirectory))
+                        artifacts = KuaishouArtifactColumnStatusReader.Read(
+                            projectDirectory,
+                            SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue);
+                }
+                catch
+                {
+                    artifacts = null;
+                }
+
+                foreach (var step in enabled)
+                {
+                    var artifactStatus = step.AssistantKey switch
+                    {
+                        "download" => artifacts?.DownloadStatus,
+                        "rewrite_info" => artifacts?.RewriteStatus,
+                        "generate_poster" => artifacts?.PosterStatus,
+                        "generate_project_images" => artifacts?.ProjectImageStatus,
+                        "auto_fill_info" => artifacts?.AutoFillStatus,
+                        _ => null,
+                    };
+                    var alreadyCompleted = artifactStatus?.StartsWith("已完成", StringComparison.Ordinal) == true
+                        || (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var existing) == true
+                            && existing.Status == PublishJobStepStatus.Succeeded);
+                    if (!alreadyCompleted)
+                        continue;
+                    preserved.Add(step.YunfanKey);
+                    if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var running) == true
+                        && running.Status == PublishJobStepStatus.Running)
+                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "已完成，跳过");
+                }
+            }
+
             foreach (var step in enabled)
+            {
+                if (preserved.Contains(step.YunfanKey))
+                    continue;
                 await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Running, "正在执行");
+            }
             try
             {
                 var prepared = await KuaishouSettlementPrepareRunner.RunAsync(
@@ -1497,18 +1544,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 var completed = prepared.CompletedSteps.ToHashSet(StringComparer.Ordinal);
                 foreach (var step in enabled)
                 {
+                    if (preserved.Contains(step.YunfanKey))
+                        continue;
                     if (completed.Contains(step.AssistantKey))
                         await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "执行完成");
                     else
                         await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Failed, "短剧助手未完成该步骤");
                 }
-                if (enabled.Any(step => !completed.Contains(step.AssistantKey)))
+                if (enabled.Any(step => !preserved.Contains(step.YunfanKey) && !completed.Contains(step.AssistantKey)))
                     throw new InvalidOperationException("快手分账有步骤未完成。");
             }
             catch (OperationCanceledException)
             {
                 foreach (var step in enabled)
+                {
+                    if (preserved.Contains(step.YunfanKey))
+                        continue;
                     await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Pending, "已停止，可继续执行");
+                }
                 throw;
             }
             catch (Exception ex)
@@ -1716,7 +1769,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishSchedulePolicy.CanRunNow(row.Model, DateTimeOffset.Now) &&
         _coordinator.GetAdapter(row.Platform).IsAvailable);
     private bool CanRetryFailed() => !IsBusy && VisibleJobs.Any(row => row.Model.Status == PublishJobStatus.Failed);
-    private bool CanOpenLogin() => SelectedJob is not null && !IsBusy;
+    private bool CanOpenLogin() => IsKuaishouPlatform
+        ? ResolveOperatorPlatformJob() is not null
+        : SelectedJob is not null && !IsBusy;
 
     private async Task RunSelectedAsync()
     {
@@ -2114,6 +2169,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task OpenLoginAsync()
     {
+        if (IsKuaishouPlatform)
+        {
+            await OpenKuaishouManagementPlatformAsync();
+            return;
+        }
+
         if (SelectedJob is null)
             return;
 
@@ -2142,6 +2203,88 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 StatusMessage = $"[{job.ProjectName}] 打开登录窗口失败：{ex.Message}";
             }
         });
+    }
+
+    private PublishJob? ResolveOperatorPlatformJob()
+    {
+        if (SelectedJob is not null)
+            return SelectedJob.Model;
+        var running = _jobs.FirstOrDefault(job =>
+            job.Platform == SelectedPlatform.Value && job.Status == PublishJobStatus.Running);
+        if (running is not null)
+            return running;
+        if (_activeGlobalAccount is not null)
+        {
+            return new PublishJob
+            {
+                Platform = SelectedPlatform.Value,
+                AccountId = _activeGlobalAccount.Id,
+                AccountName = _activeGlobalAccount.Name,
+                ConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, SelectedPlatform.Value),
+                ProjectDirectory = DraftProjectDirectory,
+                ProjectName = string.IsNullOrWhiteSpace(_activeGlobalAccount.Name) ? "经营者管理平台" : _activeGlobalAccount.Name,
+            };
+        }
+        var account = SelectedAccount?.Model;
+        if (account is null)
+            return null;
+        return new PublishJob
+        {
+            Platform = SelectedPlatform.Value,
+            AccountId = account.Id,
+            AccountName = account.Name,
+            ConfigPath = string.IsNullOrWhiteSpace(account.BaseConfigPath) ? DraftConfigPath : account.BaseConfigPath,
+            ProjectDirectory = DraftProjectDirectory,
+            ProjectName = string.IsNullOrWhiteSpace(account.Name) ? "经营者管理平台" : account.Name,
+        };
+    }
+
+    private Task OpenKuaishouManagementPlatformAsync()
+    {
+        if (_managementBrowserTask is { IsCompleted: false })
+        {
+            StatusMessage = "经营者管理平台已打开，请先在该浏览器中操作。";
+            AppendActivityLog(StatusMessage);
+            return Task.CompletedTask;
+        }
+
+        var job = ResolveOperatorPlatformJob();
+        if (job is null)
+        {
+            StatusMessage = "请先选择账号后再打开经营者管理平台。";
+            return Task.CompletedTask;
+        }
+
+        var adapter = _coordinator.GetAdapter(job.Platform);
+        if (!adapter.IsAvailable)
+        {
+            StatusMessage = adapter.AvailabilityMessage;
+            return Task.CompletedTask;
+        }
+
+        StatusMessage = "已打开经营者管理平台。关闭该浏览器后保存登录态，不影响当前队列。";
+        AppendActivityLog(StatusMessage);
+        _managementBrowserTask = Task.Run(async () =>
+        {
+            try
+            {
+                await adapter.OpenLoginAsync(job, CancellationToken.None);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    StatusMessage = "经营者管理平台已关闭，登录态已保存。";
+                    AppendActivityLog(StatusMessage);
+                });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    StatusMessage = $"打开经营者管理平台失败：{ex.Message}";
+                    AppendActivityLog(StatusMessage);
+                });
+            }
+        });
+        return Task.CompletedTask;
     }
 
     private async Task RemoveSelectedAsync()

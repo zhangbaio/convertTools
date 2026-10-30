@@ -66,6 +66,11 @@ public sealed class KuaishouPersonalUploadService
             progress?.Report($"{label}：项目已经完成，跳过重复执行。 ");
             return;
         }
+        if (!state.ReviewSubmitted && state.VideosUploaded)
+        {
+            state.VideosUploaded = false;
+            progress?.Report($"{label}：上次未完成提交审核，不能把视频视为已全部上传，将继续上传。 ");
+        }
         progress?.Report($"{label}项目解析完成：《{data.Title}》，视频 {data.VideoPaths.Count} 集，工程图 {data.ProjectImagePaths.Count} 张。 ");
         state.Status = "running";
         state.CurrentStage = "opening_browser";
@@ -78,9 +83,17 @@ public sealed class KuaishouPersonalUploadService
                 var resume = ShouldResume(effectiveConfig, state);
                 if (resume)
                 {
-                    await NavigateToExistingSeriesAsync(page, data.Title, state, progress, ct);
+                    var opened = await NavigateToExistingSeriesAsync(page, data.Title, state, progress, ct);
+                    if (!opened)
+                    {
+                        progress?.Report($"{label}：内容管理页未搜索到《{data.Title}》，回退到新建上传。 ");
+                        state.MiniSeriesId = string.Empty;
+                        state.FirstPageCompleted = false;
+                        state.EpisodeInfoCompleted = false;
+                        resume = false;
+                    }
                 }
-                else
+                if (!resume)
                 {
                     state.CurrentStage = "first_page";
                     await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
@@ -100,7 +113,7 @@ public sealed class KuaishouPersonalUploadService
                     return;
                 }
 
-                state.CurrentStage = state.VideosUploaded ? "final_action" : "episode_upload";
+                state.CurrentStage = state.VideosUploaded && state.ReviewSubmitted ? "final_action" : "episode_upload";
                 await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                 await _episodeUploadService.UploadAsync(
                     page,
@@ -108,7 +121,7 @@ public sealed class KuaishouPersonalUploadService
                     effectiveConfig,
                     progress,
                     resume,
-                    state.VideosUploaded,
+                    state.VideosUploaded && state.ReviewSubmitted,
                     stage => RecordStageAsync(page, data.WorkflowDirectory, state, stage, ct, job.Platform),
                     ct);
                 CaptureMiniSeriesId(page, state);
@@ -163,7 +176,7 @@ public sealed class KuaishouPersonalUploadService
         return state.FirstPageCompleted;
     }
 
-    private static async Task NavigateToExistingSeriesAsync(
+    private static async Task<bool> NavigateToExistingSeriesAsync(
         IPage page,
         string title,
         KuaishouPersonalUploadState state,
@@ -178,17 +191,18 @@ public sealed class KuaishouPersonalUploadService
                 WaitUntil = WaitUntilState.DOMContentLoaded,
                 Timeout = 60_000,
             });
-            return;
+            return true;
         }
 
         progress?.Report($"快手分账个人版：状态中没有短剧 ID，正在按剧名《{title}》查找已有剧集。 ");
         var opened = await SearchAndOpenEditAsync(page, title, cancellationToken);
         if (!opened)
-            throw new InvalidOperationException($"runMode=edit，但内容管理列表中未找到《{title}》，为避免重复创建已停止任务。");
+            return false;
         CaptureMiniSeriesId(page, state);
         progress?.Report(string.IsNullOrWhiteSpace(state.MiniSeriesId)
             ? $"快手分账个人版：已按剧名打开《{title}》编辑页。 "
             : $"快手分账个人版：已找到《{title}》，短剧 ID：{state.MiniSeriesId}。 ");
+        return true;
     }
 
     private static async Task<bool> SearchAndOpenEditAsync(
