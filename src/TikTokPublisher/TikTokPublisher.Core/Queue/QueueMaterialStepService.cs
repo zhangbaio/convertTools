@@ -1107,7 +1107,7 @@ public static class QueueMaterialStepService
     private static string DramaSourceLabel(string? source) =>
         NormalizeDramaSource(source) switch
         {
-            "hghigh" => "红果高码率",
+            "hghigh" => "红果短剧助手",
             "mapleleaf" => "Mapleleaf",
             "hglocal" => "本地直连",
             "pikachu" => "皮卡丘",

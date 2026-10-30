@@ -22,7 +22,7 @@ public sealed class ClientSettings
 
     public string HghighAccount { get; set; } = "";
     public string HghighPassword { get; set; } = "";
-    public string HghighEdition { get; set; } = "high";
+    public string HghighEdition { get; set; } = "standard";
     public string HghighDeviceId { get; set; } = "";
     public string HghighClientExe { get; set; } = "";
     public string HghighClientVersion { get; set; } = "2.1.6";

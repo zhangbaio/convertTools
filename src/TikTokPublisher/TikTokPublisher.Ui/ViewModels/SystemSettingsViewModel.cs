@@ -283,7 +283,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
         HghighAccount = HghighAccount.Trim(),
         HghighPassword = HghighPassword,
-        HghighEdition = HongguoClientProfile.NormalizeEdition(HghighEdition),
+        HghighEdition = HongguoClientProfile.StandardEdition,
         HghighDeviceId = HghighDeviceId.Trim(),
         HghighClientExe = HghighClientExe.Trim(),
         HghighClientVersion = NormalizeHghighClientVersion(HghighClientVersion, HongguoClientProfile.High.ClientVersion),
@@ -685,7 +685,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     {
         if (string.IsNullOrWhiteSpace(HghighAccount) || string.IsNullOrWhiteSpace(HghighPassword))
         {
-            HghighProbeStatus = "请先填写红果高码率账号和密码。";
+            HghighProbeStatus = "请先填写红果短剧助手账号和密码。";
             return;
         }
 
@@ -1173,7 +1173,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewClientVersion = settings.HgnewClientVersion;
         HghighAccount = settings.HghighAccount;
         HghighPassword = settings.HghighPassword;
-        HghighEdition = HongguoClientProfile.NormalizeEdition(settings.HghighEdition);
+        HghighEdition = HongguoClientProfile.StandardEdition;
         HghighDeviceId = string.IsNullOrWhiteSpace(settings.HghighDeviceId)
             ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.High)
             : settings.HghighDeviceId;

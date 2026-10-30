@@ -17,7 +17,7 @@ public static class DramaSourceSettingsMapping
         HgnewClientVersion = settings.HgnewClientVersion ?? ClientSettings.DefaultHongguoClientVersion,
         HghighAccount = settings.HghighAccount ?? "",
         HghighPassword = settings.HghighPassword ?? "",
-        HghighEdition = HongguoClientProfile.NormalizeEdition(settings.HghighEdition),
+        HghighEdition = HongguoClientProfile.StandardEdition,
         HghighDeviceId = settings.HghighDeviceId ?? "",
         HghighClientExe = settings.HghighClientExe ?? "",
         HghighClientVersion = settings.HghighClientVersion ?? "",

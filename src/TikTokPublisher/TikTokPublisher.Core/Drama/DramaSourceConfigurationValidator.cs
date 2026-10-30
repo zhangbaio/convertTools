@@ -55,7 +55,7 @@ public static class DramaSourceConfigurationValidator
     private static string Label(string source) => source switch
     {
         "hgnew" => "红果新接口",
-        "hghigh" => "红果高码率",
+        "hghigh" => "红果短剧助手",
         "mapleleaf" => "Mapleleaf",
         "hglocal" => "本地直连",
         "pikachu" => "皮卡丘",

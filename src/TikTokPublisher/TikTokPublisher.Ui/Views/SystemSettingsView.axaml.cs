@@ -104,7 +104,7 @@ public partial class SystemSettingsView : UserControl
     private void InitializeComboBoxes()
     {
         DramaSourceCombo.Items.Clear();
-        DramaSourceCombo.Items.Add(CreateItem("红果高码率", "hghigh"));
+        DramaSourceCombo.Items.Add(CreateItem("红果短剧助手", "hghigh"));
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
