@@ -536,7 +536,7 @@ public static class TikTokPublishedSeriesVideoDownloadService
         while (stopwatch.Elapsed < EpisodeLookupTimeout)
         {
             ct.ThrowIfCancellationRequested();
-            var rows = page.Locator("tbody tr, [role='row']");
+            var rows = page.Locator("[data-episode-uid], tbody tr, [role='row']");
             var count = Math.Min(await rows.CountAsync().ConfigureAwait(false), 300);
             var maxEpisode = 0;
             ILocator? lastEpisodeRow = null;

@@ -113,14 +113,7 @@ public static class TikTokCopyrightProofEditService
             catch { /* SPA */ }
             await TikTokBrowserActions.DismissFloatingAssistantAsync(page, L).ConfigureAwait(false);
 
-            var copyrightTab = page.GetByText("版权证明", new() { Exact = true }).Last;
-            await copyrightTab.WaitForAsync(new()
-            {
-                State = WaitForSelectorState.Visible,
-                Timeout = 30000,
-            }).ConfigureAwait(false);
-            await copyrightTab.ClickAsync(new() { Timeout = 15000 }).ConfigureAwait(false);
-            L("已进入版权证明页；本任务不会修改剧集信息、视频、商业模式或价格。");
+            await TikTokBrowserActions.OpenEditableCopyrightProofAsync(page, L, ct).ConfigureAwait(false);
 
             var workflowDir = TikTokUploadStateStore.ResolveWorkflowProjectDir(item.ProjectDir);
             var options = TikTokPublishOptionsBuilder.FromAccount(
@@ -198,16 +191,22 @@ public static class TikTokCopyrightProofEditService
             if (finalAction == FinalAction.None)
                 return PublishResult.Success("版权证明页已填写完成（账号配置为只填不提交）");
 
-            if (finalAction == FinalAction.Draft)
-                await TikTokBrowserActions.SaveAsync(page, L, ct).ConfigureAwait(false);
-            else
-                await TikTokBrowserActions.SubmitAsync(
-                        page,
-                        L,
-                        ct,
-                        [item.Title],
-                        verifySeriesListStatus: false)
-                    .ConfigureAwait(false);
+            var submittedStandalone = await TikTokBrowserActions
+                .TrySubmitStandaloneCopyrightProofAsync(page, finalAction, L, ct)
+                .ConfigureAwait(false);
+            if (!submittedStandalone)
+            {
+                if (finalAction == FinalAction.Draft)
+                    await TikTokBrowserActions.SaveAsync(page, L, ct).ConfigureAwait(false);
+                else
+                    await TikTokBrowserActions.SubmitAsync(
+                            page,
+                            L,
+                            ct,
+                            [item.Title],
+                            verifySeriesListStatus: false)
+                        .ConfigureAwait(false);
+            }
 
             await VerifyPersistedCopyrightProofMaterialsAsync(
                     page,
@@ -286,12 +285,41 @@ public static class TikTokCopyrightProofEditService
         // retries handle eventual consistency without ever treating the already-published series
         // status as proof that the copyright files were saved.
         await Task.Delay(2000, ct).ConfigureAwait(false);
+        var seriesId = TikTokBrowserActions.ExtractSeriesIdFromUrl(detailUrl);
+        if (string.IsNullOrEmpty(seriesId))
+            seriesId = TikTokBrowserActions.ExtractSeriesIdFromUrl(page.Url);
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
             attempt++;
             try
             {
+                var saved = await TikTokBrowserActions
+                    .TryReadSeriesCopyrightMaterialsAsync(page, seriesId, log)
+                    .ConfigureAwait(false);
+                if (saved is not null)
+                {
+                    var details = configured.Select(key =>
+                        $"{TikTokPublishConstants.CopyrightMaterialLabels[key]}：{saved.FileCounts.GetValueOrDefault(key)} 个文件");
+                    log?.Invoke($"提交后第 {attempt} 次按平台接口复查版权材料：{string.Join("；", details)}。");
+                    var mismatch = TikTokBrowserActions.DescribeCopyrightMaterialMismatch(
+                        saved,
+                        configured,
+                        requireFullRebuildVerification);
+                    if (mismatch is null)
+                    {
+                        log?.Invoke("TikTok 版权证明提交后复查通过：平台已保存账号配置的全部材料。");
+                        return;
+                    }
+
+                    lastFailure = mismatch;
+                    if (DateTime.UtcNow >= deadline)
+                        break;
+                    log?.Invoke($"版权证明提交后复查尚未通过（{lastFailure}），5 秒后重试。");
+                    await Task.Delay(5000, ct).ConfigureAwait(false);
+                    continue;
+                }
+
                 log?.Invoke($"提交后第 {attempt} 次复查版权证明材料：重新打开当前剧集。");
                 await page.GotoAsync(detailUrl, new PageGotoOptions
                 {
@@ -305,13 +333,7 @@ public static class TikTokCopyrightProofEditService
                 if (IsLoginPage(page.Url))
                     throw new InvalidOperationException("TikTok 登录态失效，无法完成版权材料落库复查。");
 
-                var copyrightTab = page.GetByText("版权证明", new() { Exact = true }).Last;
-                await copyrightTab.WaitForAsync(new()
-                {
-                    State = WaitForSelectorState.Visible,
-                    Timeout = 30000,
-                }).ConfigureAwait(false);
-                await copyrightTab.ClickAsync(new() { Timeout = 15000 }).ConfigureAwait(false);
+                await TikTokBrowserActions.OpenEditableCopyrightProofAsync(page, log, ct).ConfigureAwait(false);
 
                 if (requireFullRebuildVerification)
                 {

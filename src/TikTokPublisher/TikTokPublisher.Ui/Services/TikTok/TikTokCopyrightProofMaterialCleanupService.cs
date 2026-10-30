@@ -146,12 +146,6 @@ public static class TikTokCopyrightProofMaterialCleanupService
         if ((page.Url ?? string.Empty).Contains("/login", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("TikTok 登录态失效，请先重新登录当前账号。");
 
-        var tab = page.GetByText("版权证明", new() { Exact = true }).Last;
-        await tab.WaitForAsync(new()
-        {
-            State = WaitForSelectorState.Visible,
-            Timeout = 30000,
-        }).WaitAsync(ct).ConfigureAwait(false);
-        await tab.ClickAsync(new() { Timeout = 15000 }).WaitAsync(ct).ConfigureAwait(false);
+        await TikTokBrowserActions.OpenEditableCopyrightProofAsync(page, log, ct).ConfigureAwait(false);
     }
 }
