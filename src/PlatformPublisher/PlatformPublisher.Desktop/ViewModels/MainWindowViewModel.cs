@@ -344,6 +344,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty] private string _archiveRootDirectory = string.Empty;
     [ObservableProperty] private ArchivedProjectRowViewModel? _selectedArchivedProject;
+    [ObservableProperty] private string _kuaishouTodayUploadText = "";
     [ObservableProperty] private string _workflowFilterText = string.Empty;
     [ObservableProperty] private string _draftNewProjectName = string.Empty;
     [ObservableProperty] private int _workflowPageSize = 20;
@@ -412,6 +413,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DraftConfigPath = ResolveGlobalConfigPath(account, SelectedPlatform.Value);
         if (IsKuaishouPlatform)
             ApplyKuaishouWorkspace(account);
+        RefreshKuaishouTodayUploadCount();
         RefreshVisibleJobs();
         RefreshVisibleAccounts(account?.Id);
         OnPropertyChanged(nameof(QueueSummary));
@@ -532,6 +534,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWeixinPlatform));
         OnPropertyChanged(nameof(IsKuaishouPersonalPlatform));
         OnPropertyChanged(nameof(IsKuaishouPlatform));
+        RefreshKuaishouTodayUploadCount();
         NotifyCommands();
     }
 
@@ -1338,6 +1341,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     : $"勾选步骤结束：成功 {succeeded}，失败 {failed}。";
                 AppendActivityLog(StatusMessage);
             }
+            if (IsKuaishouPlatform)
+                RefreshKuaishouTodayUploadCount();
         });
     }
 
@@ -2916,6 +2921,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Append();
         else
             Dispatcher.UIThread.Post(Append);
+    }
+
+    public void RefreshKuaishouTodayUploadCount()
+    {
+        if (!IsKuaishouPlatform)
+        {
+            KuaishouTodayUploadText = "";
+            return;
+        }
+
+        var count = KuaishouTodayUploadCounter.CountToday(
+            SelectedPlatform.Value,
+            _activeGlobalAccount?.Id ?? "",
+            Directory.Exists(DraftProjectDirectory) ? DraftProjectDirectory : null);
+        KuaishouTodayUploadText = $"今日已上传剧集：{count}";
     }
 
     public async Task ArchiveCheckedKuaishouAsync()

@@ -365,11 +365,20 @@
         </Grid>
 
         <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">
-            <TextBlock Text="{Binding StatusMessage}"
-                       VerticalAlignment="Center"
-                       FontSize="12"
-                       Foreground="#475569"
-                       TextTrimming="CharacterEllipsis" />
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding StatusMessage}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Foreground="#475569"
+                           TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding KuaishouTodayUploadText}"
+                           IsVisible="{Binding IsKuaishouPlatform}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Margin="16,0,0,0"
+                           Foreground="#0F4F86" />
+            </Grid>
         </Border>
     </Grid>
 </Window>

@@ -130,6 +130,10 @@ public sealed class KuaishouPersonalUploadService
                 await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                 if (state.ReviewSubmitted)
                 {
+                    KuaishouTodayUploadCounter.RecordSuccess(
+                        job.Platform,
+                        job.AccountId,
+                        data.WorkflowDirectory);
                     var onlineItem = _onlineQueueStore.Register(job, data, state, effectiveConfig);
                     if (onlineItem is not null)
                         progress?.Report($"{label}：已加入当前账号的自动上架队列，等待审核通过。 ");
