@@ -458,7 +458,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var normalized = Path.GetFullPath(directory);
-        _activeGlobalAccount.WorkRootDirectory = normalized;
+        if (SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue)
+            _activeGlobalAccount.KuaishouPersonalWorkRootDirectory = normalized;
+        else if (SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue)
+            _activeGlobalAccount.KuaishouEnterpriseWorkRootDirectory = normalized;
+        else
+            _activeGlobalAccount.WorkRootDirectory = normalized;
+        if (string.IsNullOrWhiteSpace(_activeGlobalAccount.WorkRootDirectory))
+            _activeGlobalAccount.WorkRootDirectory = normalized;
         _globalAccountStore.Update(_activeGlobalAccount);
         DraftProjectDirectory = normalized;
         StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的{SelectedPlatform.Name}工作目录：{normalized}";
@@ -477,17 +484,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void ApplyKuaishouWorkspace(GlobalAccount? account)
     {
-        if (string.IsNullOrWhiteSpace(account?.WorkRootDirectory) || !Directory.Exists(account.WorkRootDirectory))
+        var workspace = ResolveKuaishouWorkRoot(account);
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
             return;
-        DraftProjectDirectory = Path.GetFullPath(account.WorkRootDirectory);
+        DraftProjectDirectory = Path.GetFullPath(workspace);
+    }
+
+    private string ResolveKuaishouWorkRoot(GlobalAccount? account)
+    {
+        if (account is null)
+            return string.Empty;
+        var editionRoot = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
+            ? account.KuaishouEnterpriseWorkRootDirectory
+            : account.KuaishouPersonalWorkRootDirectory;
+        return string.IsNullOrWhiteSpace(editionRoot) ? account.WorkRootDirectory ?? string.Empty : editionRoot;
     }
 
     private async Task EnsureWorkspaceProjectsLoadedAsync()
     {
         if (!IsKuaishouPlatform || _activeGlobalAccount is null)
             return;
-        // 列表跟短剧助手一样，属于当前账号的工作目录，不跟“上次是哪个账号导入的”绑定。
-        var workspace = _activeGlobalAccount.WorkRootDirectory;
+        // 个人版和企业版各自记住工作目录。没单独配过的版本仍沿用原来的工作目录。
+        var workspace = ResolveKuaishouWorkRoot(_activeGlobalAccount);
         if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
         {
             DraftProjectDirectory = string.Empty;
@@ -1018,74 +1036,83 @@ public sealed partial class MainWindowViewModel : ObservableObject
          PipelineRemuxEnabled || PipelineUploadEpisodesEnabled);
 
     private bool CanScanWorkspace() =>
-        !IsBusy && _activeGlobalAccount is not null && Directory.Exists(DraftProjectDirectory);
+        _activeGlobalAccount is not null && Directory.Exists(DraftProjectDirectory) &&
+        (IsKuaishouPlatform || !IsBusy);
 
     private async Task ScanWorkspaceAsync()
     {
         var rootDirectory = Path.GetFullPath(DraftProjectDirectory);
         var platform = SelectedPlatform.Value;
         ArchiveRootDirectory = rootDirectory;
-        await RunBusyAsync(async cancellationToken =>
+        if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
         {
-            try
-            {
-                StatusMessage = $"正在扫描{platform.DisplayName()}工作目录：{rootDirectory}";
-                AppendActivityLog(StatusMessage);
-                var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
-                var projects = result.Projects;
-                if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
-                {
-                    projects = projects
-                        .Where(project => KuaishouWorkspaceProjects.IsListed(rootDirectory, project.SourceProjectDir))
-                        .ToList();
-                }
+            await ScanWorkspaceCoreAsync(rootDirectory, platform, CancellationToken.None);
+            return;
+        }
 
-                var existing = _jobs
-                    .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
-                    .Select(job => Path.GetFullPath(job.ProjectDirectory))
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var added = 0;
-                foreach (var project in projects)
+        await RunBusyAsync(cancellationToken => ScanWorkspaceCoreAsync(rootDirectory, platform, cancellationToken));
+    }
+
+    private async Task ScanWorkspaceCoreAsync(string rootDirectory, PublishPlatform platform, CancellationToken cancellationToken)
+    {
+        try
+        {
+            StatusMessage = $"正在扫描{platform.DisplayName()}工作目录：{rootDirectory}";
+            AppendActivityLog(StatusMessage);
+            var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
+            var projects = result.Projects;
+            if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+            {
+                projects = projects
+                    .Where(project => KuaishouWorkspaceProjects.IsListed(rootDirectory, project.SourceProjectDir))
+                    .ToList();
+            }
+
+            var existing = _jobs
+                .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
+                .Select(job => Path.GetFullPath(job.ProjectDirectory))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var added = 0;
+            foreach (var project in projects)
+            {
+                var sourceDirectory = Path.GetFullPath(project.SourceProjectDir);
+                if (!existing.Add(sourceDirectory)) continue;
+                var job = new PublishJob
                 {
-                    var sourceDirectory = Path.GetFullPath(project.SourceProjectDir);
-                    if (!existing.Add(sourceDirectory)) continue;
-                    var job = new PublishJob
-                    {
-                        Platform = platform,
-                        Kind = PublishJobKind.Series,
-                        ProjectName = project.DisplayName,
-                        ProjectDirectory = sourceDirectory,
-                        ConfigPath = platform == PublishPlatform.WeixinChannel
-                            ? ResolveScannedWeixinConfig(project.WorkflowProjectDir)
-                            : ResolveGlobalConfigPath(_activeGlobalAccount, platform),
-                        AccountId = _activeWeixinAccountId,
-                        AccountName = ActiveWeixinAccountName,
-                        AccountSessionDirectory = platform == PublishPlatform.WeixinChannel
-                            ? _activeWeixinAccountSessionDirectory
-                            : string.Empty,
-                        Status = PublishJobStatus.Pending,
-                        StatusMessage = "扫描导入，等待执行",
-                    };
-                    EnsureStepStates(job);
-                    _jobs.Add(job);
-                    added++;
-                }
-                await PersistAsync(cancellationToken);
-                RefreshVisibleJobs();
-                StatusMessage = $"扫描完成：发现 {projects.Count} 个项目，新增 {added} 个任务。";
-                AppendActivityLog(StatusMessage);
+                    Platform = platform,
+                    Kind = PublishJobKind.Series,
+                    ProjectName = project.DisplayName,
+                    ProjectDirectory = sourceDirectory,
+                    ConfigPath = platform == PublishPlatform.WeixinChannel
+                        ? ResolveScannedWeixinConfig(project.WorkflowProjectDir)
+                        : ResolveGlobalConfigPath(_activeGlobalAccount, platform),
+                    AccountId = _activeWeixinAccountId,
+                    AccountName = ActiveWeixinAccountName,
+                    AccountSessionDirectory = platform == PublishPlatform.WeixinChannel
+                        ? _activeWeixinAccountSessionDirectory
+                        : string.Empty,
+                    Status = PublishJobStatus.Pending,
+                    StatusMessage = "扫描导入，等待执行",
+                };
+                EnsureStepStates(job);
+                _jobs.Add(job);
+                added++;
             }
-            catch (OperationCanceledException)
-            {
-                StatusMessage = "扫描工作目录已停止。";
-                AppendActivityLog(StatusMessage);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                StatusMessage = $"扫描工作目录失败：{ex.Message}";
-                AppendActivityLog(StatusMessage);
-            }
-        });
+            await PersistAsync(cancellationToken);
+            RefreshVisibleJobs();
+            StatusMessage = $"扫描完成：发现 {projects.Count} 个项目，新增 {added} 个任务。";
+            AppendActivityLog(StatusMessage);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "扫描工作目录已停止。";
+            AppendActivityLog(StatusMessage);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            StatusMessage = $"扫描工作目录失败：{ex.Message}";
+            AppendActivityLog(StatusMessage);
+        }
     }
 
     private bool _applyingWorkflowSettings;
@@ -1590,7 +1617,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         NotifyCommands();
-        StatusMessage = $"账号「{account.Name}」开始执行勾选队列。其他账号可以同时执行。";
+        var otherPlatform = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
+            ? PublishPlatform.KuaishouPersonalRevenue
+            : PublishPlatform.KuaishouEnterpriseRevenue;
+        var otherRunning = IsKuaishouAccountRunning(KuaishouRunKey(account.Id, otherPlatform));
+        StatusMessage = otherRunning
+            ? $"账号「{account.Name}」的{SelectedPlatform.Name}开始执行。另一版本的队列继续执行。"
+            : $"账号「{account.Name}」开始执行勾选队列。其他账号和个人版、企业版可以同时执行。";
         try
         {
             PrepareKuaishouLogProjects(targets, key);
@@ -1667,6 +1700,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var work = targets.Select(directory =>
         {
             var trackedJob = _jobs.FirstOrDefault(job =>
+                job.Platform == request.Platform &&
                 !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
                 string.Equals(Path.GetFullPath(job.ProjectDirectory), directory, StringComparison.OrdinalIgnoreCase));
             if (trackedJob is not null)

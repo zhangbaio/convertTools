@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using ChannelsPublisher.Core.Models;
@@ -11,6 +12,17 @@ namespace PlatformPublisher.Desktop.Views;
 
 public partial class WeixinWorkflowView : UserControl
 {
+    private static readonly double[] KuaishouColumnMinWidths =
+    {
+        36, 40, 88, 88, 44, 84, 60, 72, 72, 80, 64, 72, 56,
+    };
+    private readonly double[] _kuaishouColumnWidths =
+    {
+        44, 48, 168, 168, 56, 100, 72, 84, 84, 92, 76, 84, 72,
+    };
+    private int _kuaishouResizeColumn = -1;
+    private double _kuaishouResizeStartX;
+    private double _kuaishouResizeStartWidth;
     private Func<PublishAccount?>? _accountProvider;
     private bool _isKuaishouMode;
     public event EventHandler? SettingsRequested;
@@ -33,12 +45,50 @@ public partial class WeixinWorkflowView : UserControl
     public WeixinWorkflowView()
     {
         InitializeComponent();
+        QueueTableGrid.SetColumnWidths(KuaishouTableRoot, _kuaishouColumnWidths);
         AttachedToVisualTree += (_, _) => ViewModel?.ActivateSeriesWorkflow();
         PropertyChanged += (_, args) =>
         {
             if (args.Property == IsVisibleProperty && IsVisible)
                 ViewModel?.ActivateSeriesWorkflow();
         };
+    }
+
+    private void OnKuaishouColumnResizerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Control control ||
+            !int.TryParse(control.Tag?.ToString(), out var column) ||
+            column < 0 ||
+            column >= _kuaishouColumnWidths.Length)
+            return;
+        _kuaishouResizeColumn = column;
+        _kuaishouResizeStartX = e.GetPosition(KuaishouQueueHeaderGrid).X;
+        _kuaishouResizeStartWidth = _kuaishouColumnWidths[column];
+        e.Pointer.Capture(control);
+        e.Handled = true;
+    }
+
+    private void OnKuaishouColumnResizerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_kuaishouResizeColumn < 0)
+            return;
+        var width = Math.Max(
+            KuaishouColumnMinWidths[_kuaishouResizeColumn],
+            _kuaishouResizeStartWidth + e.GetPosition(KuaishouQueueHeaderGrid).X - _kuaishouResizeStartX);
+        if (Math.Abs(width - _kuaishouColumnWidths[_kuaishouResizeColumn]) < 0.5)
+            return;
+        _kuaishouColumnWidths[_kuaishouResizeColumn] = width;
+        QueueTableGrid.SetColumnWidths(KuaishouTableRoot, _kuaishouColumnWidths.ToArray());
+        e.Handled = true;
+    }
+
+    private void OnKuaishouColumnResizerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_kuaishouResizeColumn < 0)
+            return;
+        e.Pointer.Capture(null);
+        _kuaishouResizeColumn = -1;
+        e.Handled = true;
     }
 
     private void ApplyMode()

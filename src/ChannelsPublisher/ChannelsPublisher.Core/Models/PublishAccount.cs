@@ -24,6 +24,10 @@ public sealed class PublishAccount
     public string KuaishouEnterpriseAccount { get; set; } = "";
     public string KuaishouEnterpriseConfigPath { get; set; } = "";
     public string WorkRootDirectory { get; set; } = "";
+    /// <summary>快手分账个人版工作目录。为空时沿用 <see cref="WorkRootDirectory"/>。</summary>
+    public string KuaishouPersonalWorkRootDirectory { get; set; } = "";
+    /// <summary>快手分账企业版工作目录。为空时沿用 <see cref="WorkRootDirectory"/>。</summary>
+    public string KuaishouEnterpriseWorkRootDirectory { get; set; } = "";
     public string DownloadDirectory { get; set; } = "";
     public string ArchiveRootDirectory { get; set; } = "";
     public string LegacyProfileId { get; set; } = "";
