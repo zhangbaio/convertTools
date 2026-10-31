@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Ui.Views;
@@ -38,7 +39,9 @@ public partial class AccountSettingsDialog : Window
         ArchiveRootBox.Text = p.TiktokArchiveRootDir;
         DownloadWorkspaceBox.Text = p.LastDownloadWorkspace;
         DeleteVideosOnArchiveBox.IsChecked = p.TiktokDeleteVideosOnArchive;
-        RemoteDispatchBox.IsChecked = p.XingeRemoteDispatchEnabled;
+        var xingeEnabled = ClientSettingsStore.Load().XingeRemoteEnabled;
+        RemoteDispatchBox.IsEnabled = xingeEnabled;
+        RemoteDispatchBox.IsChecked = xingeEnabled && p.XingeRemoteDispatchEnabled;
 
         ContractIdBox.Text = p.TiktokContractId;
         SelectByTag(ContractModeCombo, p.TiktokContractIdMode, "manual");
@@ -139,7 +142,8 @@ public partial class AccountSettingsDialog : Window
         p.TiktokArchiveRootConfigMigrated = true;
         p.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
         p.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
-        p.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
+        p.XingeRemoteDispatchEnabled =
+            ClientSettingsStore.Load().XingeRemoteEnabled && RemoteDispatchBox.IsChecked == true;
         p.TiktokDeleteVideosOnArchiveConfigured = true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
