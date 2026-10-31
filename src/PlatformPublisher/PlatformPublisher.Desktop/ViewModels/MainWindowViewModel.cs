@@ -206,6 +206,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public event EventHandler? KuaishouLogProjectsChanged;
     private string _activityLogProject = "";
     private static readonly AsyncLocal<string?> ActivityLogProjectScope = new();
+    private static readonly AsyncLocal<string?> ActivityLogAccountScope = new();
     private readonly SemaphoreSlim _persistGate = new(1, 1);
     public ObservableCollection<string> FilteredActivityLogs { get; } = [];
     public ObservableCollection<EpisodeRowViewModel> SelectedProjectEpisodes { get; } = [];
@@ -1627,7 +1628,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             PrepareKuaishouLogProjects(targets, key);
-            await RunKuaishouCheckedProjectsAsync(targets, cts.Token);
+            await RunKuaishouCheckedProjectsAsync(targets, key, cts.Token);
         }
         finally
         {
@@ -1673,6 +1674,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task RunKuaishouCheckedProjectsAsync(
         IReadOnlyList<string> targets,
+        string accountKey,
         CancellationToken cancellationToken)
     {
         KuaishouPipelineRequest request;
@@ -1721,6 +1723,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ? Path.GetFileName(item.directory)
                     : item.trackedJob!.ProjectName;
                 ActivityLogProjectScope.Value = projectName;
+                ActivityLogAccountScope.Value = accountKey;
                 ActivityLogPlatformScope.Value = request.Platform;
                 try
                 {
@@ -1757,6 +1760,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 finally
                 {
                     ActivityLogProjectScope.Value = null;
+                    ActivityLogAccountScope.Value = null;
                     ActivityLogPlatformScope.Value = null;
                 }
             }, cancellationToken);
@@ -3131,6 +3135,46 @@ public sealed partial class MainWindowViewModel : ObservableObject
             NotifyKuaishouLogProjectsChanged();
     }
 
+    private void RememberKuaishouProjectLog(string? accountKey, string projectName, string text)
+    {
+        if (string.IsNullOrWhiteSpace(projectName) || _kuaishouLogsByAccount.Count == 0)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(accountKey) &&
+            _kuaishouLogsByAccount.TryGetValue(accountKey, out var scoped) &&
+            AppendKuaishouProjectLog(scoped, projectName, text))
+            return;
+
+        KuaishouLogProject? fallback = null;
+        foreach (var projects in _kuaishouLogsByAccount.Values)
+        {
+            foreach (var project in projects)
+            {
+                if (!string.Equals(project.ProjectName, projectName, StringComparison.Ordinal))
+                    continue;
+                if (project.Tone == "running")
+                {
+                    project.AppendLine(text);
+                    return;
+                }
+
+                fallback ??= project;
+            }
+        }
+
+        fallback?.AppendLine(text);
+    }
+
+    private static bool AppendKuaishouProjectLog(List<KuaishouLogProject> projects, string projectName, string text)
+    {
+        var project = projects.FirstOrDefault(item =>
+            string.Equals(item.ProjectName, projectName, StringComparison.Ordinal));
+        if (project is null)
+            return false;
+        project.AppendLine(text);
+        return true;
+    }
+
     private void NotifyKuaishouLogProjectsChanged()
     {
         if (Dispatcher.UIThread.CheckAccess())
@@ -3171,6 +3215,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             project = _activityLogProject;
         if (string.IsNullOrWhiteSpace(project))
             project = ExtractLeadingProject(message);
+        var accountKey = ActivityLogAccountScope.Value;
         var record = new ActivityLogRecord
         {
             Text = $"[{DateTime.Now:HH:mm:ss}] {message}",
@@ -3181,6 +3226,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             ActivityLogs.Add(record.Text);
             ActivityLogRecords.Add(record);
+            RememberKuaishouProjectLog(accountKey, record.ProjectName, record.Text);
             while (ActivityLogs.Count > 500)
                 ActivityLogs.RemoveAt(0);
             while (ActivityLogRecords.Count > 500)

@@ -262,9 +262,7 @@
                             <TextBlock Text="页" VerticalAlignment="Center" Margin="0,0,6,0" />
                             <NumericUpDown Width="60" Value="{Binding AutoShelfMaxRounds}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
                             <TextBlock Text="轮" VerticalAlignment="Center" Margin="0,0,6,0" />
-                            <Button Content="开始" Command="{Binding AutoShelfCommand}" Classes="repairAction compactAction" Margin="0,0,8,0" />
-                            <Button Content="重置当前任务" Command="{Binding ResetSelectedJobCommand}" Classes="repairAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="批量重置" Command="{Binding ResetCheckedJobsCommand}" Classes="repairAction compactAction" />
+                            <Button Content="开始" Command="{Binding AutoShelfCommand}" Classes="repairAction compactAction" />
                         </WrapPanel>
                     </Border>
                     <Border Classes="kuaishouButtonGroup" Background="#FFF5F5" BorderBrush="#F3C7C3">

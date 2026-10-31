@@ -5,7 +5,7 @@ using PlatformPublisher.Common.Services;
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 /// <summary>
-/// 快手分账今日成功上传剧集数。个人版和企业版分开记，同一账号同一项目当天只计一次。
+/// 快手分账今日成功上传剧集数。个人版和企业版分开记，只统计当前账号，同一项目当天只计一次。
 /// </summary>
 public static class KuaishouTodayUploadCounter
 {
@@ -135,83 +135,29 @@ public static class KuaishouTodayUploadCounter
         DateTime? today = null,
         string? storeRoot = null)
     {
+        _ = workspaceDirectory;
         var edition = Edition(platform);
         if (edition is null)
             return 0;
         var day = (today ?? DateTime.Now).Date;
         var account = accountId?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(account))
+            return 0;
         var counted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var ownedByOtherAccount = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var record in Read(StorePath(edition, storeRoot)))
         {
             if (!string.Equals(Field(record, "上传状态", "Status"), "成功", StringComparison.Ordinal))
                 continue;
             if (!IsSameDay(record, day))
                 continue;
-            var key = Normalize(Field(record, "项目路径", "ProjectDirectory"));
-            if (string.IsNullOrWhiteSpace(key))
+            if (!string.Equals(Field(record, "账号档案", "AccountId"), account, StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (string.Equals(Field(record, "账号档案", "AccountId"), account, StringComparison.OrdinalIgnoreCase))
+            var key = Normalize(Field(record, "项目路径", "ProjectDirectory"));
+            if (!string.IsNullOrWhiteSpace(key))
                 counted.Add(key);
-            else
-                ownedByOtherAccount.Add(key);
-        }
-
-        if (!string.IsNullOrWhiteSpace(workspaceDirectory) && Directory.Exists(workspaceDirectory))
-        {
-            var stateName = edition == "enterprise"
-                ? ".kuaishou-enterprise-upload-state.json"
-                : ".kuaishou-personal-upload-state.json";
-            IEnumerable<string> files;
-            try
-            {
-                files = Directory.EnumerateFiles(workspaceDirectory, stateName, SearchOption.AllDirectories);
-            }
-            catch (IOException)
-            {
-                files = Array.Empty<string>();
-            }
-            catch (UnauthorizedAccessException)
-            {
-                files = Array.Empty<string>();
-            }
-
-            foreach (var file in files)
-            {
-                if (!TryReadSubmittedToday(file, day, out var projectDirectory))
-                    continue;
-                var key = Normalize(projectDirectory);
-                if (ownedByOtherAccount.Contains(key))
-                    continue;
-                counted.Add(key);
-            }
         }
 
         return counted.Count;
-    }
-
-    private static bool TryReadSubmittedToday(string statePath, DateTime day, out string projectDirectory)
-    {
-        projectDirectory = Path.GetDirectoryName(statePath) ?? "";
-        try
-        {
-            using var document = JsonDocument.Parse(File.ReadAllText(statePath));
-            var root = document.RootElement;
-            if (!ReadBool(root, "ReviewSubmitted") && !ReadBool(root, "review_submitted"))
-                return false;
-            var updated = ReadString(root, "UpdatedAt");
-            if (string.IsNullOrWhiteSpace(updated))
-                updated = ReadString(root, "updated_at");
-            return DateTimeOffset.TryParse(updated, out var parsed) && parsed.ToLocalTime().Date == day;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
     }
 
     private static bool ReadBool(JsonElement root, string name) =>

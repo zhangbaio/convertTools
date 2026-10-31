@@ -191,18 +191,33 @@ public partial class KuaishouQueueLogView : UserControl
         return "waiting";
     }
 
-    private void RefreshLog()
+    private IEnumerable<string> ReadLogLines()
     {
-        if (_vm is null) return;
+        if (_vm is null)
+            return [];
+        var projects = _vm.KuaishouLogProjects;
+        if (projects.Count > 0 && projects.Any(project => project.CopyLines().Count > 0))
+        {
+            if (string.IsNullOrEmpty(_selectedProject))
+                return projects.SelectMany(project => project.CopyLines());
+            return projects.FirstOrDefault(project => project.ProjectName == _selectedProject)?.CopyLines() ?? [];
+        }
+
         var platform = _vm.SelectedPlatform.Value;
-        var problemsOnly = ProblemsOnlyBox.IsChecked == true;
-        var lines = _vm.ActivityLogRecords
+        return _vm.ActivityLogRecords
             .Where(record => record.Platform == platform)
             .Where(record => string.IsNullOrEmpty(_selectedProject) ||
                              string.Equals(record.ProjectName, _selectedProject, StringComparison.Ordinal) ||
                              record.Text.Contains(_selectedProject, StringComparison.Ordinal))
-            .Where(record => !problemsOnly || IsProblem(record.Text))
-            .Select(record => record.Text)
+            .Select(record => record.Text);
+    }
+
+    private void RefreshLog()
+    {
+        if (_vm is null) return;
+        var problemsOnly = ProblemsOnlyBox.IsChecked == true;
+        var lines = ReadLogLines()
+            .Where(line => !problemsOnly || IsProblem(line))
             .ToList();
         var running = _projects.Count(row => row.Tone == "running");
         var succeeded = _projects.Count(row => row.Tone == "ok");

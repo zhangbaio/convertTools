@@ -18,7 +18,21 @@ public sealed class KuaishouLogProject
         Tone = tone;
     }
 
+    public const int MaxLines = 1000;
+
     public string ProjectName { get; }
     public string ProjectDirectory { get; }
     public string Tone { get; set; }
+    private readonly List<string> _lines = [];
+
+    public void AppendLine(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+        _lines.Add(text);
+        if (_lines.Count > MaxLines)
+            _lines.RemoveRange(0, _lines.Count - MaxLines);
+    }
+
+    public IReadOnlyList<string> CopyLines() => _lines.ToArray();
 }

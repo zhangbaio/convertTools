@@ -53,6 +53,38 @@ public sealed class KuaishouTodayUploadCounterTests
     }
 
     [Fact]
+    public void Shared_workspace_does_not_add_other_accounts_uploads()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var today = new DateTimeOffset(2026, 10, 31, 16, 0, 0, TimeSpan.FromHours(8));
+        var mine = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_我的剧"));
+        var theirs = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_别人的剧"));
+        var untagged = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_没有账号记录"));
+        foreach (var directory in new[] { mine, theirs, untagged })
+        {
+            File.WriteAllText(
+                Path.Combine(directory.FullName, ".kuaishou-personal-upload-state.json"),
+                $$"""
+                {
+                  "ReviewSubmitted": true,
+                  "UpdatedAt": "{{today:O}}"
+                }
+                """);
+        }
+
+        KuaishouTodayUploadCounter.RecordSuccess(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", mine.FullName, today, store);
+        KuaishouTodayUploadCounter.RecordSuccess(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-b", theirs.FullName, today, store);
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, today.Date, store));
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-b", root.FullName, today.Date, store));
+    }
+
+    [Fact]
     public void Excel_has_dashboard_and_timeline_sheets_for_the_current_edition()
     {
         var root = Directory.CreateTempSubdirectory();
