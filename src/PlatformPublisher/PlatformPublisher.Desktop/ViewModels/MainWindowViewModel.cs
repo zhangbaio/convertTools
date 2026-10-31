@@ -355,6 +355,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _archiveRootDirectory = string.Empty;
     [ObservableProperty] private ArchivedProjectRowViewModel? _selectedArchivedProject;
     [ObservableProperty] private string _kuaishouTodayUploadText = "";
+    [ObservableProperty] private bool _kuaishouArchiveIsPersonal = true;
+    [ObservableProperty] private string _kuaishouArchiveRootText = "";
     [ObservableProperty] private string _workflowFilterText = string.Empty;
     [ObservableProperty] private string _draftNewProjectName = string.Empty;
     [ObservableProperty] private int _workflowPageSize = 20;
@@ -424,6 +426,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (IsKuaishouPlatform)
             ApplyKuaishouWorkspace(account);
         RefreshKuaishouTodayUploadCount();
+        RefreshKuaishouArchivedProjects();
         RefreshVisibleJobs();
         NotifyKuaishouLogProjectsChanged();
         RefreshVisibleAccounts(account?.Id);
@@ -3164,9 +3167,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 try
                 {
                     var config = KuaishouPersonalConfig.Load(row.Model);
-                    var archiveRoot = string.IsNullOrWhiteSpace(config.ArchiveRootDirectory)
-                        ? null
-                        : config.ArchiveRootDirectory;
+                    if (string.IsNullOrWhiteSpace(config.ArchiveRootDirectory))
+                        throw new InvalidOperationException($"请先在已归档项目中为快手分账{(row.Model.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版")}配置归档目录。");
+                    var archiveRoot = config.ArchiveRootDirectory;
                     AppendActivityLog($"准备归档：{row.ProjectName}");
                     await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
                         workspace,
@@ -3201,31 +3204,51 @@ public sealed partial class MainWindowViewModel : ObservableObject
         });
     }
 
+    partial void OnKuaishouArchiveIsPersonalChanged(bool value) => RefreshKuaishouArchivedProjects();
+
+    public void SelectKuaishouArchiveEdition(bool personal) => KuaishouArchiveIsPersonal = personal;
+
+    public async Task SaveKuaishouArchiveRootAsync(string directory)
+    {
+        if (_activeGlobalAccount is null)
+        {
+            StatusMessage = "请先在左侧选择账号。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            StatusMessage = "请选择有效的归档目录。";
+            return;
+        }
+
+        var platform = KuaishouArchivePlatform();
+        var normalized = Path.GetFullPath(directory);
+        var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, "归档目录"));
+        config.ArchiveRootDirectory = normalized;
+        await config.SaveAsync(KuaishouPersonalConfig.DefaultConfigPath(_activeGlobalAccount.Id, platform));
+        KuaishouArchiveRootText = normalized;
+        StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的{(KuaishouArchiveIsPersonal ? "个人版" : "企业版")}归档目录：{normalized}";
+        AppendActivityLog(StatusMessage);
+        RefreshKuaishouArchivedProjects();
+    }
+
     public void RefreshKuaishouArchivedProjects()
     {
         var selectedKey = SelectedArchivedProject?.ProjectKey;
         ArchivedProjects.Clear();
-        if (!IsKuaishouPlatform || string.IsNullOrWhiteSpace(DraftProjectDirectory) || !Directory.Exists(DraftProjectDirectory))
+        var platform = KuaishouArchivePlatform();
+        var config = _activeGlobalAccount is null ? null : KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, "已归档"));
+        var archiveRoot = config?.ArchiveRootDirectory?.Trim() ?? "";
+        KuaishouArchiveRootText = archiveRoot;
+        if (_activeGlobalAccount is null || string.IsNullOrWhiteSpace(archiveRoot) || !Directory.Exists(archiveRoot))
         {
-            OnPropertyChanged(nameof(ArchivedProjectsSummary));
             SelectedArchivedProject = null;
+            OnPropertyChanged(nameof(ArchivedProjectsSummary));
             return;
         }
 
-        var workspace = Path.GetFullPath(DraftProjectDirectory);
-        var sample = new PublishJob
-        {
-            Platform = SelectedPlatform.Value,
-            AccountId = _activeGlobalAccount?.Id ?? string.Empty,
-            ConfigPath = DraftConfigPath,
-            ProjectDirectory = workspace,
-            ProjectName = _activeGlobalAccount?.Name ?? "快手分账",
-        };
-        var config = KuaishouPersonalConfig.Load(sample);
-        var archiveRoot = TikTokArchivedProjectService.ResolveArchiveRoot(
-            workspace,
-            string.IsNullOrWhiteSpace(config.ArchiveRootDirectory) ? null : config.ArchiveRootDirectory);
-        var source = IsKuaishouPersonalPlatform ? "kuaishou_personal" : "kuaishou_enterprise";
+        var workspace = Directory.Exists(DraftProjectDirectory) ? Path.GetFullPath(DraftProjectDirectory) : archiveRoot;
+        var source = KuaishouArchiveIsPersonal ? "kuaishou_personal" : "kuaishou_enterprise";
         foreach (var item in TikTokArchivedProjectService.ListBySource(workspace, archiveRoot, source))
         {
             DateTimeOffset? archivedAt = DateTimeOffset.TryParse(item.ArchivedAt, out var parsed) ? parsed : null;
@@ -3237,7 +3260,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 item.ArchivedWorkflowDir,
                 archivedAt,
                 0,
-                0));
+                0,
+                item.OriginalTitle,
+                string.IsNullOrWhiteSpace(item.NewTitle) ? FirstArchiveTitle(item) : item.NewTitle,
+                string.IsNullOrWhiteSpace(item.AccountProfileName) ? _activeGlobalAccount.Name : item.AccountProfileName));
         }
 
         SelectedArchivedProject = selectedKey is null
@@ -3245,6 +3271,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
             : ArchivedProjects.FirstOrDefault(item => item.ProjectKey == selectedKey) ?? ArchivedProjects.FirstOrDefault();
         OnPropertyChanged(nameof(ArchivedProjectsSummary));
     }
+
+    private PublishPlatform KuaishouArchivePlatform() =>
+        KuaishouArchiveIsPersonal
+            ? PublishPlatform.KuaishouPersonalRevenue
+            : PublishPlatform.KuaishouEnterpriseRevenue;
+
+    private PublishJob CreateKuaishouArchiveJob(PublishPlatform platform, string projectName) => new()
+    {
+        Platform = platform,
+        AccountId = _activeGlobalAccount?.Id ?? string.Empty,
+        ConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, platform),
+        ProjectDirectory = Directory.Exists(DraftProjectDirectory) ? DraftProjectDirectory : string.Empty,
+        ProjectName = projectName,
+    };
 
     public async Task RestoreSelectedKuaishouArchiveAsync()
     {
@@ -3254,17 +3294,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        var workspace = Path.GetFullPath(DraftProjectDirectory);
-        var sample = new PublishJob
+        if (!Directory.Exists(DraftProjectDirectory))
         {
-            Platform = SelectedPlatform.Value,
-            AccountId = _activeGlobalAccount?.Id ?? string.Empty,
-            ConfigPath = DraftConfigPath,
-            ProjectDirectory = workspace,
-            ProjectName = row.DisplayName,
-        };
-        var config = KuaishouPersonalConfig.Load(sample);
-        var archiveRoot = string.IsNullOrWhiteSpace(config.ArchiveRootDirectory) ? null : config.ArchiveRootDirectory;
+            StatusMessage = "请先选择当前账号的工作目录，再回退归档项目。";
+            return;
+        }
+        var workspace = Path.GetFullPath(DraftProjectDirectory);
+        var platform = KuaishouArchivePlatform();
+        var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, row.DisplayName));
+        if (string.IsNullOrWhiteSpace(config.ArchiveRootDirectory))
+        {
+            StatusMessage = "请先配置当前版本的归档目录。";
+            return;
+        }
+        var archiveRoot = config.ArchiveRootDirectory;
         await RunBusyAsync(cancellationToken =>
         {
             cancellationToken.ThrowIfCancellationRequested();

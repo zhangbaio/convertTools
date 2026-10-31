@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using PlatformPublisher.Desktop.ViewModels;
 
 namespace PlatformPublisher.Desktop.Views;
@@ -17,9 +18,54 @@ public partial class KuaishouArchivedProjectsView : UserControl
     {
         if (DataContext is MainWindowViewModel viewModel)
         {
-            ReturnButton.Content = viewModel.IsKuaishouPersonalPlatform ? "返回快手分账个人" : "返回快手分账企业";
+            ReturnButton.Content = viewModel.KuaishouArchiveIsPersonal ? "返回快手分账个人" : "返回快手分账企业";
+            UpdateEditionTabs(viewModel.KuaishouArchiveIsPersonal);
             viewModel.RefreshKuaishouArchivedProjects();
         }
+    }
+
+    private void OnPersonalTabClick(object? sender, RoutedEventArgs e) => SelectEdition(personal: true);
+
+    private void OnEnterpriseTabClick(object? sender, RoutedEventArgs e) => SelectEdition(personal: false);
+
+    private void SelectEdition(bool personal)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+            return;
+        viewModel.SelectKuaishouArchiveEdition(personal);
+        UpdateEditionTabs(personal);
+        ReturnButton.Content = personal ? "返回快手分账个人" : "返回快手分账企业";
+    }
+
+    private void UpdateEditionTabs(bool personal)
+    {
+        SetTabActive(PersonalTab, personal);
+        SetTabActive(EnterpriseTab, !personal);
+    }
+
+    private static void SetTabActive(Button button, bool active)
+    {
+        if (active)
+            button.Classes.Add("navActive");
+        else
+            button.Classes.Remove("navActive");
+    }
+
+    private async void OnPickArchiveRootClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+            return;
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage is null)
+            return;
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = viewModel.KuaishouArchiveIsPersonal ? "选择个人版归档目录" : "选择企业版归档目录",
+            AllowMultiple = false,
+        });
+        if (folders.Count == 0)
+            return;
+        await viewModel.SaveKuaishouArchiveRootAsync(folders[0].Path.LocalPath);
     }
 
     private void OnReturnClick(object? sender, RoutedEventArgs e) =>

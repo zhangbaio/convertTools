@@ -8,7 +8,10 @@ public sealed record ArchivedProjectRowViewModel(
     string ArchivedWorkflowDirectory,
     DateTimeOffset? ArchivedAt,
     int DeletedVideoFileCount,
-    int PreservedVideoFileCount)
+    int PreservedVideoFileCount,
+    string OriginalTitle = "",
+    string NewTitle = "",
+    string AccountName = "")
 {
     public string ArchivedAtText => ArchivedAt?.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss") ?? "未知";
     public string VideoSummary => $"删除 {DeletedVideoFileCount} / 保留 {PreservedVideoFileCount}";

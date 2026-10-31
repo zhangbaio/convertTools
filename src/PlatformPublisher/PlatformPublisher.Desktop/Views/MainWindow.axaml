@@ -85,6 +85,7 @@
                         <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
                         <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
                         <Button x:Name="KuaishouConfigNavButton" Classes="nav" Content="快手分账配置" Click="OnKuaishouConfigNavClick" />
+                        <Button x:Name="KuaishouArchiveNavButton" Classes="nav" Content="已归档项目" Click="OnKuaishouArchiveNavClick" />
                         <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
                         <Button x:Name="DatabaseNavButton" Classes="nav" Content="数据库" Click="OnDatabaseClick" />
                         <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />

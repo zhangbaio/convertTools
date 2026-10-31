@@ -380,6 +380,20 @@ public partial class MainWindow : Window
     private void OnKuaishouConfigNavClick(object? sender, RoutedEventArgs e) =>
         ShowKuaishouConfigPage(KuaishouConfigPage.CurrentPlatform);
 
+    private void OnKuaishouArchiveNavClick(object? sender, RoutedEventArgs e)
+    {
+        var platform = ViewModel?.IsKuaishouPlatform == true
+            ? ViewModel.SelectedPlatform.Value
+            : KuaishouConfigPage.CurrentPlatform == PublishPlatform.KuaishouEnterpriseRevenue
+                ? PublishPlatform.KuaishouEnterpriseRevenue
+                : PublishPlatform.KuaishouPersonalRevenue;
+        if (ViewModel?.IsKuaishouPlatform != true)
+            ViewModel?.SelectPlatform(platform);
+        ViewModel?.LoadKuaishouWorkspace();
+        ViewModel?.SelectKuaishouArchiveEdition(platform != PublishPlatform.KuaishouEnterpriseRevenue);
+        ShowKuaishouArchive();
+    }
+
     private void OnSettingsNavClick(object? sender, RoutedEventArgs e) => ShowSettingsPage();
     private void OnAnalyticsNavClick(object? sender, RoutedEventArgs e) => ShowAnalyticsPage();
     private async void OnDatabaseClick(object? sender,RoutedEventArgs e)
@@ -492,9 +506,7 @@ public partial class MainWindow : Window
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
-        SetActiveNavigation(ViewModel.SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue
-            ? KuaishouPersonalNavButton
-            : KuaishouEnterpriseNavButton);
+        SetActiveNavigation(KuaishouArchiveNavButton);
     }
 
     private async Task ConfirmAndArchiveKuaishouAsync()
@@ -589,6 +601,7 @@ public partial class MainWindow : Window
                      KuaishouPersonalNavButton,
                      KuaishouEnterpriseNavButton,
                      KuaishouConfigNavButton,
+                     KuaishouArchiveNavButton,
                      AnalyticsNavButton,
                      SettingsNavButton,
                  })
