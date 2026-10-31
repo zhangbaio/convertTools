@@ -241,11 +241,6 @@
                     <Border Classes="kuaishouButtonGroup" Background="#F3F8FF" BorderBrush="#B9D7F5">
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0"
-                                    ToolTip.Tip="对勾选的项目执行步骤区已勾选的步骤。已完成的步骤会跳过，除非勾选强制重跑。" />
-                            <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="repairAction compactAction" Margin="0,0,6,0" />
                             <Button Content="停止" Command="{Binding StopCommand}" Classes="stopAction compactAction" />
                         </WrapPanel>
                     </Border>
