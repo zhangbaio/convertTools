@@ -1,7 +1,8 @@
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 /// <summary>
-/// 与短剧助手快手个人版、企业版相同：只列出当前工作目录下带 shortdrama-project.json 的项目。
+/// 与短剧助手快手个人版、企业版相同：列出当前工作目录下的项目。
+/// 有项目文件、短剧信息，或目录里已经有剧集视频，都会出现在列表中。
 /// </summary>
 public static class KuaishouWorkspaceProjects
 {
@@ -39,10 +40,63 @@ public static class KuaishouWorkspaceProjects
             return false;
         }
 
-        if (IsArchiveRoot(project))
+        if (IsArchiveRoot(project) || !Directory.Exists(project))
             return false;
 
-        return File.Exists(Path.Combine(project, ProjectFileName));
+        if (File.Exists(Path.Combine(project, ProjectFileName)) ||
+            File.Exists(Path.Combine(project, "短剧信息.txt")))
+            return true;
+
+        return HasEpisodeVideo(project);
+    }
+
+    private static bool HasEpisodeVideo(string directory)
+    {
+        var pending = new Stack<string>();
+        pending.Push(directory);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            IEnumerable<string> files;
+            IEnumerable<string> children;
+            try
+            {
+                files = Directory.EnumerateFiles(current);
+                children = Directory.EnumerateDirectories(current);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            foreach (var file in files)
+            {
+                var extension = Path.GetExtension(file);
+                if (extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".m4v", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".avi", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            foreach (var child in children)
+            {
+                var childName = Path.GetFileName(child);
+                if (childName.StartsWith('.') ||
+                    childName.Equals("material-videos", StringComparison.OrdinalIgnoreCase) ||
+                    childName.Equals("material-clip-output", StringComparison.OrdinalIgnoreCase) ||
+                    childName.Equals("素材剪辑输出", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                pending.Push(child);
+            }
+        }
+
+        return false;
     }
 
     private static bool IsArchiveRoot(string directory)

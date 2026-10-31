@@ -424,7 +424,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DraftAccountName = account?.Name ?? string.Empty;
         DraftConfigPath = ResolveGlobalConfigPath(account, SelectedPlatform.Value);
         if (IsKuaishouPlatform)
+        {
             ApplyKuaishouWorkspace(account);
+            _ = EnsureWorkspaceProjectsLoadedAsync();
+        }
         RefreshKuaishouTodayUploadCount();
         RefreshKuaishouArchivedProjects();
         RefreshVisibleJobs();
@@ -481,10 +484,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task EnsureWorkspaceProjectsLoadedAsync()
     {
-        if (!IsKuaishouPlatform || !CanScanWorkspace() || _activeGlobalAccount is null)
+        if (!IsKuaishouPlatform || _activeGlobalAccount is null)
             return;
-        // 快手个人版和企业版共用同一工作目录。短剧助手每次进入都会按磁盘重扫；
-        // 这里不能因为已有旧任务就跳过，否则后加入的项目只会出现在后扫描的那一版。
+        // 列表跟短剧助手一样，属于当前账号的工作目录，不跟“上次是哪个账号导入的”绑定。
+        var workspace = _activeGlobalAccount.WorkRootDirectory;
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+        {
+            DraftProjectDirectory = string.Empty;
+            RefreshVisibleJobs();
+            return;
+        }
+
+        DraftProjectDirectory = Path.GetFullPath(workspace);
+        if (!CanScanWorkspace())
+        {
+            RefreshVisibleJobs();
+            return;
+        }
+
         await ScanWorkspaceAsync();
     }
 
@@ -823,6 +840,45 @@ public sealed partial class MainWindowViewModel : ObservableObject
         StatusMessage = $"导入{SelectedPlatform.Name}本地项目完成：新增 {added} 个任务。";
         AppendActivityLog(StatusMessage);
         return added;
+    }
+
+    public IReadOnlyList<KuaishouLocalDramaCandidate> ListKuaishouLocalImportCandidates()
+    {
+        if (!Directory.Exists(DraftProjectDirectory))
+            return [];
+        return KuaishouLocalDramaImportService.ListCandidates(DraftProjectDirectory);
+    }
+
+    public async Task<int> ImportKuaishouLocalDramasAsync(IEnumerable<string> directories)
+    {
+        if (_activeGlobalAccount is null)
+        {
+            StatusMessage = "请先在左侧选择账号。";
+            return 0;
+        }
+
+        var imported = new List<string>();
+        var failed = new List<string>();
+        await Task.Run(() =>
+        {
+            foreach (var directory in directories)
+            {
+                try
+                {
+                    imported.Add(KuaishouLocalDramaImportService.Bootstrap(directory).ProjectDirectory);
+                }
+                catch (Exception ex)
+                {
+                    failed.Add($"{Path.GetFileName(directory)}：{ex.Message}");
+                }
+            }
+        });
+        var added = await AddImportedProjectJobsAsync(imported, platform: SelectedPlatform.Value);
+        StatusMessage = $"导入本地短剧完成：成功 {imported.Count} 个，新增 {added} 个，失败 {failed.Count} 个。";
+        AppendActivityLog(StatusMessage);
+        foreach (var message in failed.Take(20))
+            AppendActivityLog($"导入失败：{message}");
+        return imported.Count;
     }
 
     public Task<int> ImportVideoChannelProjectDirectoriesAsync(TikTokQueueImportRequest request) =>
@@ -3417,7 +3473,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                          .Where(job => job.Platform == SelectedPlatform.Value)
                          .Where(job => !IsKuaishouPlatform ||
                                        KuaishouWorkspaceProjects.IsListed(DraftProjectDirectory, job.ProjectDirectory))
-                         .Where(job => _activeGlobalAccount is null ||
+                         .Where(job => IsKuaishouPlatform || _activeGlobalAccount is null ||
                                        string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase))
                          .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
                                        (_materialWorkflowActive

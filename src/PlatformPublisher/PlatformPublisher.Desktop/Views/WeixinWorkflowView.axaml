@@ -118,7 +118,8 @@
                     <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6"
                             ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
                     <Button x:Name="KuaishouUploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Button Content="导入本地短剧" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,6"
+                            ToolTip.Tip="扫描工作目录里已有视频的短剧，生成项目信息后加入列表。本地导入会跳过下载。" />
                     <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
                     <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
                     <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
