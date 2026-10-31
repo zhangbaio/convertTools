@@ -413,6 +413,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(WeixinNavButton);
     }
@@ -427,6 +428,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(DramaDownloadNavButton);
     }
@@ -445,6 +447,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
             ? KuaishouPersonalNavButton
@@ -465,6 +468,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
             ? KuaishouPersonalNavButton
@@ -485,6 +489,7 @@ public partial class MainWindow : Window
         KuaishouLogPage.Refresh();
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(ViewModel.SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue
             ? KuaishouPersonalNavButton
@@ -505,6 +510,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.Refresh();
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(KuaishouArchiveNavButton);
     }
@@ -597,6 +603,23 @@ public partial class MainWindow : Window
         await dialog.ShowDialog(this);
     }
 
+    private void ShowLicensePage()
+    {
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        LicensePage.IsVisible = true;
+        SetActiveNavigation(LicenseNavButton);
+    }
+
+    private void OnLicenseNavClick(object? sender, RoutedEventArgs e) => ShowLicensePage();
+
     private void ShowSettingsPage()
     {
         WeixinPublisherView.IsVisible = false;
@@ -609,6 +632,7 @@ public partial class MainWindow : Window
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = true;
         AnalyticsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         SetActiveNavigation(SettingsNavButton);
     }
 
@@ -622,6 +646,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         AnalyticsPage.IsVisible = true;
         SetActiveNavigation(AnalyticsNavButton);
     }
@@ -637,6 +662,7 @@ public partial class MainWindow : Window
                      KuaishouConfigNavButton,
                      KuaishouArchiveNavButton,
                      AnalyticsNavButton,
+                     LicenseNavButton,
                      SettingsNavButton,
                  })
         {
@@ -748,6 +774,7 @@ public partial class MainWindow : Window
         KuaishouLogPage.IsVisible = false;
         KuaishouArchivePage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        LicensePage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = true;
         KuaishouConfigPage.LoadAccount(WeixinPublisherView.SelectedAccountProfile, platform);
@@ -878,6 +905,7 @@ public partial class MainWindow : Window
         SetNavLabel(KuaishouEnterpriseNavButton, "快手分账 · 企业", "快手企业", shortenNav);
         SetNavLabel(AnalyticsNavButton, "数据统计", "统计", shortenNav);
         SetNavLabel(DatabaseNavButton, "数据库", "数据库", shortenNav);
+        SetNavLabel(LicenseNavButton, "执照翻译", "执照", shortenNav);
         SetNavLabel(SettingsNavButton, "系统设置", "设置", shortenNav);
     }
 

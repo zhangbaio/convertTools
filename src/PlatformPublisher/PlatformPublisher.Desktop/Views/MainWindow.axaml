@@ -88,6 +88,7 @@
                         <Button x:Name="KuaishouArchiveNavButton" Classes="nav" Content="已归档项目" Click="OnKuaishouArchiveNavClick" />
                         <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
                         <Button x:Name="DatabaseNavButton" Classes="nav" Content="数据库" Click="OnDatabaseClick" />
+                        <Button x:Name="LicenseNavButton" Classes="nav" Content="执照翻译" Click="OnLicenseNavClick" />
                         <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
                     </StackPanel>
                 </ScrollViewer>
@@ -355,6 +356,7 @@
         </Border>
         <views:KuaishouPersonalConfigDialog x:Name="KuaishouConfigPage" IsVisible="False" />
         <views:AnalyticsView x:Name="AnalyticsPage" IsVisible="False" />
+        <views:BusinessLicenseTranslateView x:Name="LicensePage" IsVisible="False" />
         <TabControl x:Name="SettingsPage" Classes="secondaryTabs" IsVisible="False">
             <TabItem Header="通用配置">
                 <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" />
