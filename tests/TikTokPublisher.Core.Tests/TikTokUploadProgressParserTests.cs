@@ -196,4 +196,33 @@ public sealed class TikTokUploadProgressParserTests
       .Should()
       .Be(2);
   }
+
+  [Fact]
+  public void FailedEpisode_OnAnEarlierCard_DoesNotFailTheCurrentBatch()
+  {
+    var cards = new[]
+    {
+      "00:00\n第 11 集 八零猎户的跨国姻缘-第11集\n上传失败\n重试",
+      "00:53\n第 66 集 八零猎户的跨国姻缘-第66集\n草稿",
+      "第 67 集 八零猎户的跨国姻缘-第67集\n处理中",
+      "第 68 集 八零猎户的跨国姻缘-第68集\n处理中",
+      "第 69 集 八零猎户的跨国姻缘-第69集\n处理中",
+    };
+
+    TikTokUploadProgressParser.FailedEpisodeNumbers(cards).Should().Equal(11);
+    TikTokUploadProgressParser.CurrentBatchUploadFailed(cards, [67, 68, 69]).Should().BeFalse();
+    TikTokUploadProgressParser.BatchEpisodesAreOnPage(cards, [67, 68, 69]).Should().BeTrue();
+    TikTokUploadProgressParser.CurrentBatchUploadFailed(cards, [11]).Should().BeTrue();
+  }
+
+  [Fact]
+  public void CombinedCardText_AttributesUploadFailureToThatEpisodeOnly()
+  {
+    const string panel =
+      "第 11 集 八零猎户的跨国姻缘-第11集\n上传失败\n重试\n" +
+      "第 67 集 八零猎户的跨国姻缘-第67集\n处理中";
+
+    TikTokUploadProgressParser.FailedEpisodeNumbers([panel]).Should().Equal(11);
+    TikTokUploadProgressParser.BatchEpisodesAreOnPage([panel], [67]).Should().BeTrue();
+  }
 }
