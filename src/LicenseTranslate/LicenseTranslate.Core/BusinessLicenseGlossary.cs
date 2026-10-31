@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace PlatformPublisher.Desktop.Licensing;
+namespace LicenseTranslate.Core;
 
 public sealed class BusinessLicenseGlossary
 {

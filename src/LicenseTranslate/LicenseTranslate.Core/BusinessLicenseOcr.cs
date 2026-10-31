@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace PlatformPublisher.Desktop.Licensing;
+namespace LicenseTranslate.Core;
 
 public static class BusinessLicenseOcr
 {

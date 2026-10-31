@@ -3,7 +3,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Microsoft.Extensions.Logging;
 using PlatformPublisher.Common.Services;
-using PlatformPublisher.Desktop.Licensing;
+using LicenseTranslate.Core;
 using ShortDrama.Infrastructure.Process;
 using ShortDrama.Infrastructure.Rendering;
 using TikTokPublisher.Core.Services;

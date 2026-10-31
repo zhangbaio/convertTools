@@ -2,7 +2,7 @@ using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 
-namespace PlatformPublisher.Desktop.Licensing;
+namespace LicenseTranslate.Core;
 
 public static class BusinessLicenseDocumentWriter
 {

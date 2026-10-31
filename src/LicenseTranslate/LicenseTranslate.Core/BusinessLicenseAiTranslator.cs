@@ -2,7 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
-namespace PlatformPublisher.Desktop.Licensing;
+namespace LicenseTranslate.Core;
 
 public sealed class BusinessLicenseTranslationOptions
 {

@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace PlatformPublisher.Desktop.Licensing;
+namespace LicenseTranslate.Core;
 
 public static class BusinessLicenseParser
 {

@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 using NPinyin;
 
-namespace PlatformPublisher.Desktop.Licensing;
+namespace LicenseTranslate.Core;
 
 public static class BusinessLicenseTranslator
 {

@@ -1,6 +1,6 @@
 using System.Net;
 using System.Text;
-using PlatformPublisher.Desktop.Licensing;
+using LicenseTranslate.Core;
 using Xunit;
 
 namespace PlatformPublisher.Desktop.Tests;

@@ -1,0 +1,70 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="LicenseTranslate.App.TranslateWindow"
+        Title="执照翻译"
+        Width="1100"
+        Height="760"
+        WindowStartupLocation="CenterScreen">
+  <Grid Margin="16" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+    <Grid ColumnDefinitions="*,Auto">
+      <StackPanel Spacing="6">
+        <TextBlock Text="执照翻译" FontSize="20" FontWeight="SemiBold" />
+        <TextBlock x:Name="AccountText" Opacity="0.75" />
+        <TextBlock Text="名称、地址、经营范围、类型和登记机关用下面的大模型翻译。生成后会把译文记在本程序目录。" TextWrapping="Wrap" Opacity="0.75" />
+      </StackPanel>
+      <Button Grid.Column="1" Content="退出登录" VerticalAlignment="Top" Click="Logout_Click" />
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="90,*,90,*" ColumnSpacing="8">
+      <TextBlock Text="接口地址" VerticalAlignment="Center" />
+      <TextBox x:Name="LlmUrlBox" Grid.Column="1" />
+      <TextBlock Grid.Column="2" Text="模型" VerticalAlignment="Center" />
+      <TextBox x:Name="LlmModelBox" Grid.Column="3" />
+    </Grid>
+    <Grid Grid.Row="2" ColumnDefinitions="90,*" ColumnSpacing="8">
+      <TextBlock Text="API Key" VerticalAlignment="Center" />
+      <TextBox x:Name="LlmKeyBox" Grid.Column="1" PasswordChar="*" />
+    </Grid>
+    <DockPanel Grid.Row="3">
+      <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,8">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="选择图片" Click="PickImages_Click" />
+          <Button Content="识别" Click="Recognize_Click" />
+          <Button Content="按中文重新翻译" Click="Retranslate_Click" />
+          <Button Content="生成 Word 和 PDF" Click="Generate_Click" />
+        </StackPanel>
+        <TextBlock x:Name="StatusText" TextWrapping="Wrap" />
+        <ComboBox x:Name="FileBox" HorizontalAlignment="Stretch" SelectionChanged="FileBox_SelectionChanged" />
+      </StackPanel>
+      <ScrollViewer>
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+          <StackPanel Spacing="6">
+            <TextBlock Text="中文" FontWeight="SemiBold" />
+            <TextBlock Text="统一社会信用代码" /><TextBox x:Name="CreditBox" />
+            <TextBlock Text="名称" /><TextBox x:Name="NameBox" />
+            <TextBlock Text="类型" /><TextBox x:Name="TypeBox" />
+            <TextBlock x:Name="PersonLabel" Text="法定代表人" /><TextBox x:Name="PersonBox" />
+            <TextBlock x:Name="ExtraLabel" Text="注册资本" /><TextBox x:Name="ExtraBox" />
+            <TextBlock x:Name="DateLabel" Text="成立日期" /><TextBox x:Name="DateBox" />
+            <TextBlock x:Name="AddressLabel" Text="住所" /><TextBox x:Name="AddressBox" />
+            <TextBlock Text="经营范围" /><TextBox x:Name="ScopeBox" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
+            <TextBlock Text="登记机关" /><TextBox x:Name="AuthorityBox" />
+            <TextBlock Text="发照日期" /><TextBox x:Name="IssueBox" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Spacing="6">
+            <TextBlock Text="英文" FontWeight="SemiBold" />
+            <TextBlock Text="Unified Social Credit Code" /><TextBox x:Name="EnglishCreditBox" IsReadOnly="True" />
+            <TextBlock Text="Name" /><TextBox x:Name="EnglishNameBox" />
+            <TextBlock Text="Type" /><TextBox x:Name="EnglishTypeBox" />
+            <TextBlock x:Name="EnglishPersonLabel" Text="Legal Representative" /><TextBox x:Name="EnglishPersonBox" />
+            <TextBlock x:Name="EnglishExtraLabel" Text="Registered Capital" /><TextBox x:Name="EnglishExtraBox" />
+            <TextBlock x:Name="EnglishDateLabel" Text="Date of Establishment" /><TextBox x:Name="EnglishDateBox" />
+            <TextBlock x:Name="EnglishAddressLabel" Text="Domicile" /><TextBox x:Name="EnglishAddressBox" />
+            <TextBlock Text="Business Scope" /><TextBox x:Name="EnglishScopeBox" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
+            <TextBlock Text="Registration Authority" /><TextBox x:Name="EnglishAuthorityBox" />
+            <TextBlock Text="Issue Date" /><TextBox x:Name="EnglishIssueBox" />
+          </StackPanel>
+        </Grid>
+      </ScrollViewer>
+    </DockPanel>
+  </Grid>
+</Window>

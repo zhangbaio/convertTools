@@ -1,0 +1,6 @@
+{
+  "authServerUrl": "",
+  "llmBaseUrl": "https://api.deepseek.com/v1",
+  "llmModel": "deepseek-chat",
+  "llmApiKey": ""
+}
