@@ -20,6 +20,9 @@ public sealed class KuaishouPersonalFirstPageService
             throw new InvalidOperationException("请先在快手分账配置的“登录授权”中填写快手昵称和用户快手号 ID。");
 
         var enterprise = config.StoragePlatform == PublishPlatform.KuaishouEnterpriseRevenue;
+        var dismissed = await KuaishouPageNotice.DismissAsync(page, cancellationToken);
+        if (dismissed > 0)
+            progress?.Report($"{config.StoragePlatform.DisplayName()}：已关闭首页短剧下架通知，继续进入内容上传。 ");
         await NavigateToUploadAsync(page, cancellationToken);
         await FillTextAsync(page, "短剧标题", data.Title, required: true);
         await FillTextAsync(page, "短剧简介", data.Intro, required: true);
@@ -91,10 +94,23 @@ public sealed class KuaishouPersonalFirstPageService
         if (page.Url.Contains("content-management/edit", StringComparison.OrdinalIgnoreCase))
             return;
 
+        await KuaishouPageNotice.DismissAsync(page, cancellationToken);
         var button = await WaitForContentUploadButtonAsync(page, cancellationToken);
         if (button is null)
             throw new InvalidOperationException("未找到快手个人版“内容上传”入口。");
-        await button.ClickAsync(new LocatorClickOptions { Timeout = 10_000 });
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                await button.ClickAsync(new LocatorClickOptions { Timeout = 8_000 });
+                break;
+            }
+            catch (PlaywrightException) when (attempt < 2)
+            {
+                await KuaishouPageNotice.DismissAsync(page, cancellationToken);
+                button = await WaitForContentUploadButtonAsync(page, cancellationToken) ?? button;
+            }
+        }
         await page.GetByText("短剧标题", new PageGetByTextOptions { Exact = false }).First.WaitForAsync(
             new LocatorWaitForOptions { State = WaitForSelectorState.Visible, Timeout = 20_000 });
         cancellationToken.ThrowIfCancellationRequested();

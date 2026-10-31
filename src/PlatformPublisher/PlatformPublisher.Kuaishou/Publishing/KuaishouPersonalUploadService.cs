@@ -197,6 +197,9 @@ public sealed class KuaishouPersonalUploadService
         }
 
         progress?.Report($"快手分账个人版：状态中没有短剧 ID，正在按剧名《{title}》查找已有剧集。 ");
+        var dismissed = await KuaishouPageNotice.DismissAsync(page, cancellationToken);
+        if (dismissed > 0)
+            progress?.Report("快手分账个人版：已关闭首页短剧下架通知，继续查找剧集。 ");
         var opened = await SearchAndOpenEditAsync(page, title, cancellationToken);
         if (!opened)
             return false;
