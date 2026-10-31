@@ -3138,29 +3138,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }, DispatcherPriority.Background);
     }
 
-    public async Task ArchiveCheckedKuaishouAsync()
+    public async Task<IReadOnlyList<string>> ArchiveCheckedKuaishouAsync()
     {
         if (!IsKuaishouPlatform)
-            return;
+            return ["当前不是快手分账页面。"];
         var rows = VisibleJobs.Where(row => row.IsChecked && Directory.Exists(row.Model.ProjectDirectory)).ToArray();
         if (rows.Length == 0)
         {
             StatusMessage = "请先勾选要归档的项目。";
-            return;
+            return ["请先勾选要归档的项目。"];
         }
 
         var workspace = Path.GetFullPath(DraftProjectDirectory);
         if (!Directory.Exists(workspace))
         {
             StatusMessage = "请先选择快手分账工作目录。";
-            return;
+            return ["请先选择快手分账工作目录。"];
         }
 
+        var failures = new List<string>();
         var source = IsKuaishouPersonalPlatform ? "kuaishou_personal" : "kuaishou_enterprise";
         await RunBusyAsync(async cancellationToken =>
         {
             var succeeded = 0;
-            var failed = 0;
             foreach (var row in rows)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -3192,16 +3192,20 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    failed++;
-                    AppendActivityLog($"{row.ProjectName} 归档失败：{ex.Message}");
+                    var reason = $"{row.ProjectName}：{ex.Message}";
+                    failures.Add(reason);
+                    AppendActivityLog($"归档失败：{reason}");
                 }
             }
 
             await PersistAsync(cancellationToken);
             RefreshVisibleJobs();
-            StatusMessage = $"归档结束：成功 {succeeded}，失败 {failed}。原视频、转码视频和素材视频已按快手分账规则清理。";
+            StatusMessage = failures.Count == 0
+                ? $"归档结束：成功 {succeeded}。原视频、转码视频和素材视频已按快手分账规则清理。"
+                : $"归档结束：成功 {succeeded}，失败 {failures.Count}。";
             AppendActivityLog(StatusMessage);
         });
+        return failures;
     }
 
     partial void OnKuaishouArchiveIsPersonalChanged(bool value) => RefreshKuaishouArchivedProjects();

@@ -559,8 +559,42 @@ public partial class MainWindow : Window
         buttons.Children.Add(cancel);
         buttons.Children.Add(ok);
         await dialog.ShowDialog(this);
-        if (confirmed)
-            await ViewModel.ArchiveCheckedKuaishouAsync();
+        if (!confirmed)
+            return;
+        var failures = await ViewModel.ArchiveCheckedKuaishouAsync();
+        if (failures.Count == 0)
+            return;
+        await ShowNoticeAsync(
+            "归档失败",
+            string.Join(Environment.NewLine + Environment.NewLine, failures));
+    }
+
+    private async Task ShowNoticeAsync(string title, string message)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 520,
+            Height = 240,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = message,
+                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    },
+                },
+            },
+        };
+        var close = new Button { Content = "知道了", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        close.Click += (_, _) => dialog.Close();
+        ((StackPanel)dialog.Content).Children.Add(close);
+        await dialog.ShowDialog(this);
     }
 
     private void ShowSettingsPage()

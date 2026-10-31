@@ -20,7 +20,6 @@ public sealed record KuaishouPersonalProjectData(
 
 public sealed class KuaishouPersonalProjectDataService
 {
-    private static readonly string[] VideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private readonly IProjectScanner _projectScanner;
     public KuaishouPersonalProjectDataService(IProjectScanner projectScanner) => _projectScanner = projectScanner;
 
@@ -56,14 +55,13 @@ public sealed class KuaishouPersonalProjectDataService
         var title = First(info.GetValueOrDefault("新剧名"), info.GetValueOrDefault("剧名"), info.GetValueOrDefault("原剧名"), Path.GetFileName(workflow).TrimStart('_'));
         var intro = First(info.GetValueOrDefault("简介"), info.GetValueOrDefault("剧情简介"), info.GetValueOrDefault("剧情"), info.GetValueOrDefault("介绍"));
         if (string.IsNullOrWhiteSpace(intro)) intro = $"《{title}》精彩剧情，人物关系与故事冲突逐步展开。";
-        var videos = EnumerateVideos(Path.Combine(workflow, "videos"));
+        var videos = KuaishouSettlementEpisodeVideoService.Prepare(source, workflow, title);
         if (videos.Count == 0)
         {
             var preparedSource = ReadPreparedSourceDirectory(workflow);
             if (!string.IsNullOrWhiteSpace(preparedSource))
-                videos = EnumerateVideos(preparedSource);
+                videos = KuaishouSettlementEpisodeVideoService.Prepare(preparedSource, workflow, title);
         }
-        if (videos.Count == 0) videos = EnumerateVideos(source);
         var horizontalCover = FindFirst(workflow, "快手横屏封面.*", "横屏封面.*", "海报图片.*");
         var verticalCover = FindFirst(workflow, "快手竖屏海报.*", "竖屏封面.*", "海报图片.*");
         var projectImages = Directory.EnumerateFiles(workflow, "工程图_*.png", SearchOption.TopDirectoryOnly)
@@ -149,47 +147,6 @@ public sealed class KuaishouPersonalProjectDataService
         }
         return result;
     }
-
-    private static IReadOnlyList<string> EnumerateVideos(string directory)
-    {
-        if (!Directory.Exists(directory)) return [];
-        var paths = Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly)
-            .Where(path => VideoExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
-            .ToArray();
-        if (paths.Length == 0) return [];
-        var numbered = paths.Select(path => (Path: path, Episode: EpisodeNumber(path))).ToArray();
-        if (numbered.All(item => item.Episode is null))
-            return paths.OrderBy(NaturalSortKey, StringComparer.OrdinalIgnoreCase).ToArray();
-        var missingNumbers = numbered.Where(item => item.Episode is null).Select(item => Path.GetFileName(item.Path)).Take(5).ToArray();
-        if (missingNumbers.Length > 0)
-            throw new InvalidOperationException(
-                $"剧集视频命名不一致，以下文件无法确定集号：{string.Join('、', missingNumbers)}。请统一使用“第N集”命名。");
-        var duplicates = numbered.GroupBy(item => item.Episode!.Value).Where(group => group.Count() > 1).Select(group => group.Key).ToArray();
-        if (duplicates.Length > 0)
-            throw new InvalidOperationException($"剧集视频集号重复：{string.Join('、', duplicates.Select(value => $"第{value}集"))}。");
-        var ordered = numbered.OrderBy(item => item.Episode).ToArray();
-        var actual = ordered.Select(item => item.Episode!.Value).ToArray();
-        var expected = Enumerable.Range(1, actual.Length).ToArray();
-        if (!actual.SequenceEqual(expected))
-        {
-            var missing = Enumerable.Range(1, actual.Max()).Except(actual).Select(value => $"第{value}集");
-            throw new InvalidOperationException(
-                $"剧集集号必须从第1集开始连续，当前缺少 {string.Join('、', missing)}；为避免批量上传错位已停止任务。");
-        }
-        return ordered.Select(item => item.Path).ToArray();
-    }
-
-    private static int? EpisodeNumber(string path)
-    {
-        var match = System.Text.RegularExpressions.Regex.Match(Path.GetFileNameWithoutExtension(path), @"第\s*0*(\d+)\s*集");
-        return match.Success && int.TryParse(match.Groups[1].Value, out var value) && value > 0 ? value : null;
-    }
-
-    private static string NaturalSortKey(string path) =>
-        System.Text.RegularExpressions.Regex.Replace(
-            Path.GetFileName(path),
-            @"\d+",
-            match => match.Value.PadLeft(20, '0'));
 
     private static string FindFirst(string directory, params string[] patterns)
     {

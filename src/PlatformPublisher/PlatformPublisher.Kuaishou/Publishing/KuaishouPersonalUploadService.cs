@@ -72,6 +72,8 @@ public sealed class KuaishouPersonalUploadService
             progress?.Report($"{label}：上次未完成提交审核，不能把视频视为已全部上传，将继续上传。 ");
         }
         progress?.Report($"{label}项目解析完成：《{data.Title}》，视频 {data.VideoPaths.Count} 集，工程图 {data.ProjectImagePaths.Count} 张。 ");
+        if (data.VideoPaths.Count > 0)
+            progress?.Report($"{label}：剧集视频已放入新剧名目录 {Path.Combine(data.WorkflowDirectory, "videos")}。 ");
         state.Status = "running";
         state.CurrentStage = "opening_browser";
         state.LastError = string.Empty;

@@ -37,8 +37,46 @@ public sealed class KuaishouPersonalProjectDataServiceTests
         Assert.Equal(Path.GetFullPath(workflow.FullName), data.WorkflowDirectory);
         Assert.Equal(Path.GetFullPath(source.FullName), data.SourceDirectory);
         Assert.Single(data.ProjectImagePaths);
-        Assert.Single(data.VideoPaths);
+        Assert.Equal(Path.Combine(workflow.FullName, "videos", "赶山-第1集.mp4"), Assert.Single(data.VideoPaths));
+        Assert.False(File.Exists(Path.Combine(source.FullName, "1.mp4")));
         Assert.True(File.Exists(Path.Combine(data.WorkflowDirectory, "kuaishou-auto-fill.json")));
+    }
+
+    [Fact]
+    public void Episode_videos_keep_real_episode_numbers_inside_the_new_title_folder()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var source = Directory.CreateDirectory(Path.Combine(root.FullName, "红果_原剧"));
+        var workflow = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_临危受命守大乾"));
+        File.WriteAllText(Path.Combine(source.FullName, "剧-第2集.mp4"), "second");
+        File.WriteAllText(Path.Combine(source.FullName, "剧-第1集.mp4"), "first");
+
+        var paths = KuaishouSettlementEpisodeVideoService.Prepare(source.FullName, workflow.FullName, "临危受命守大乾");
+
+        Assert.Equal(
+            Path.Combine(workflow.FullName, "videos", "临危受命守大乾-第1集.mp4"),
+            paths[0]);
+        Assert.Equal(
+            Path.Combine(workflow.FullName, "videos", "临危受命守大乾-第2集.mp4"),
+            paths[1]);
+        Assert.False(File.Exists(Path.Combine(source.FullName, "剧-第1集.mp4")));
+    }
+
+    [Fact]
+    public void Missing_episode_number_stops_before_moving_videos()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var source = Directory.CreateDirectory(Path.Combine(root.FullName, "source"));
+        var workflow = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_新剧"));
+        File.WriteAllText(Path.Combine(source.FullName, "剧-第1集.mp4"), "one");
+        File.WriteAllText(Path.Combine(source.FullName, "剧-第3集.mp4"), "three");
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            KuaishouSettlementEpisodeVideoService.Prepare(source.FullName, workflow.FullName, "新剧"));
+
+        Assert.Contains("第2集", error.Message);
+        Assert.True(File.Exists(Path.Combine(source.FullName, "剧-第1集.mp4")));
+        Assert.False(Directory.Exists(Path.Combine(workflow.FullName, "videos")));
     }
 
     [Fact]
