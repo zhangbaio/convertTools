@@ -24,6 +24,13 @@ public static class TikTokUploadProgressParser
     private static readonly Regex EpisodeNumberPattern =
         new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
 
+    // 一张卡片的正文以行首「第 N 集」开头；文件名里的「-第N集」不另起一张卡。
+    private static readonly Regex EpisodeCardBoundaryPattern =
+        new(@"(?:^|\n)(?=\s*第\s*\d+\s*集)", RegexOptions.Compiled);
+
+    private static readonly Regex EpisodeFileNumberPattern =
+        new(@"-\s*第\s*(\d+)\s*集", RegexOptions.Compiled);
+
     private static readonly Regex VideoFilePattern =
         new(@"\.(?:mp4|mov|m4v|webm)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -128,6 +135,79 @@ public static class TikTokUploadProgressParser
             CountOccurrences(statusText, "等待中") +
             CountOccurrences(statusText, "等待上传"),
             tableScoped);
+    }
+
+    /// <summary>卡片上的真实集号。优先取文件名「-第N集」，否则取最后一个「第N集」。</summary>
+    public static int ReadEpisodeCardNumber(string? cardText)
+    {
+        var text = cardText ?? "";
+        var file = EpisodeFileNumberPattern.Match(text);
+        if (file.Success && int.TryParse(file.Groups[1].Value, out var fromFile) && fromFile > 0)
+            return fromFile;
+
+        var matches = EpisodeNumberPattern.Matches(text);
+        if (matches.Count == 0)
+            return 0;
+        return int.TryParse(matches[^1].Groups[1].Value, out var episode) && episode > 0 ? episode : 0;
+    }
+
+    public static bool EpisodeCardUploadFailed(string? cardText)
+    {
+        var text = cardText ?? "";
+        return text.Contains("上传失败", StringComparison.Ordinal) ||
+               text.Contains("Upload failed", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static IReadOnlyList<string> SplitEpisodeCardTexts(IEnumerable<string>? texts)
+    {
+        var cards = new List<string>();
+        foreach (var raw in texts ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            var parts = EpisodeCardBoundaryPattern
+                .Split(raw)
+                .Where(part => EpisodeNumberPattern.IsMatch(part))
+                .ToArray();
+            if (parts.Length == 0)
+                cards.Add(raw);
+            else
+                cards.AddRange(parts);
+        }
+
+        return cards;
+    }
+
+    public static IReadOnlyList<int> FailedEpisodeNumbers(IEnumerable<string>? cardTexts) =>
+        SplitEpisodeCardTexts(cardTexts)
+            .Where(EpisodeCardUploadFailed)
+            .Select(ReadEpisodeCardNumber)
+            .Where(episode => episode > 0)
+            .Distinct()
+            .OrderBy(episode => episode)
+            .ToArray();
+
+    public static bool BatchEpisodesAreOnPage(IEnumerable<string>? cardTexts, IReadOnlyCollection<int> episodes)
+    {
+        var wanted = episodes.Where(episode => episode > 0).Distinct().ToArray();
+        if (wanted.Length == 0)
+            return false;
+
+        var present = SplitEpisodeCardTexts(cardTexts)
+            .Select(ReadEpisodeCardNumber)
+            .Where(episode => episode > 0)
+            .ToHashSet();
+        return wanted.All(present.Contains);
+    }
+
+    public static bool CurrentBatchUploadFailed(IEnumerable<string>? cardTexts, IReadOnlyCollection<int> episodes)
+    {
+        var wanted = episodes.Where(episode => episode > 0).ToHashSet();
+        if (wanted.Count == 0)
+            return false;
+
+        return SplitEpisodeCardTexts(cardTexts).Any(card =>
+            EpisodeCardUploadFailed(card) && wanted.Contains(ReadEpisodeCardNumber(card)));
     }
 
     public static bool IsUploadComplete(

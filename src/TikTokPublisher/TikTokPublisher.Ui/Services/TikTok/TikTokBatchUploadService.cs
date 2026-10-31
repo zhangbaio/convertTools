@@ -128,6 +128,7 @@ public static class TikTokBatchUploadService
                         stallSeconds, batch.Count, batch);
                     outcome = await WaitBatchAsync(
                         page,
+                        batch.Select(EpisodeNumber).Where(episode => episode > 0).ToArray(),
                         targetReady,
                         grandTotal,
                         titleCandidates,
@@ -169,6 +170,8 @@ public static class TikTokBatchUploadService
                 }
             }
         }
+
+        await EnsureFailedEpisodesRetriedAsync(page, videoPaths, log, ct);
     }
 
     private static async Task<bool> FeedBatchAsync(
@@ -226,9 +229,14 @@ public static class TikTokBatchUploadService
 
             TikTokBrowserActions.ThrowIfTikTokCrashText(bodyText);
             await TikTokBrowserActions.ThrowIfDailyEpisodeLimitAsync(page).ConfigureAwait(false);
-            if (bodyText.Contains("上传失败", StringComparison.Ordinal) ||
-                bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
-                return false;
+
+            var cardTexts = await TikTokBrowserActions.ReadUploadTableTextsAsync(page);
+            var batchEpisodes = batch.Select(EpisodeNumber).Where(episode => episode > 0).ToArray();
+            // 别的集（例如更早失败、卡片上仍写着「上传失败」的第 11 集）不能把本批判成没接收。
+            // 本批卡片已经出现，包括「处理中」或本批自己的「上传失败」，都说明文件已被页面收下。
+            if (TikTokUploadProgressParser.CurrentBatchUploadFailed(cardTexts, batchEpisodes) ||
+                TikTokUploadProgressParser.BatchEpisodesAreOnPage(cardTexts, batchEpisodes))
+                return true;
 
             var rowCount = await ReadUploadTableRowCountAsync(page);
             if (rowCount > targetReady)
@@ -241,9 +249,7 @@ public static class TikTokBatchUploadService
                 names.Any(name => bodyText.Contains(name, StringComparison.OrdinalIgnoreCase)))
                 return true;
 
-            var activity = TikTokUploadProgressParser.DetectUploadActivity(
-                bodyText,
-                await TikTokBrowserActions.ReadUploadTableTextsAsync(page));
+            var activity = TikTokUploadProgressParser.DetectUploadActivity(bodyText, cardTexts);
             if (activity.Uploading || activity.WaitingCount > 0)
                 return true;
 
@@ -270,6 +276,7 @@ public static class TikTokBatchUploadService
 
     private static async Task<BatchWaitOutcome> WaitBatchAsync(
         IPage page,
+        IReadOnlyCollection<int> batchEpisodes,
         int targetReady,
         int grandTotal,
         IReadOnlyList<string>? titleCandidates,
@@ -282,6 +289,7 @@ public static class TikTokBatchUploadService
         var lastChange = DateTime.UtcNow;
         var lastLog = "";
         var doneStreak = 0;
+        var retriedOtherEpisodes = new HashSet<int>();
 
         while (true)
         {
@@ -293,18 +301,22 @@ public static class TikTokBatchUploadService
             TikTokBrowserActions.ThrowIfTikTokCrashText(bodyText);
             await TikTokBrowserActions.ThrowIfDailyEpisodeLimitAsync(page).ConfigureAwait(false);
 
-            if (bodyText.Contains("上传失败", StringComparison.Ordinal) ||
-                bodyText.Contains("Upload failed", StringComparison.OrdinalIgnoreCase))
+            var cardTexts = await TikTokBrowserActions.ReadUploadTableTextsAsync(page);
+            if (TikTokUploadProgressParser.CurrentBatchUploadFailed(cardTexts, batchEpisodes))
                 return BatchWaitOutcome.Stuck;
+
+            var otherFailures = TikTokUploadProgressParser.FailedEpisodeNumbers(cardTexts)
+                .Where(episode => !batchEpisodes.Contains(episode) && retriedOtherEpisodes.Add(episode))
+                .ToArray();
+            if (otherFailures.Length > 0)
+                await RetryFailedEpisodeCardsAsync(page, otherFailures, log, ct);
 
             // 编辑页正片表格是虚拟化列表，可见文本只包含视口内的行；
             // 就绪计数必须结合 aria-rowcount（全量行数）与上传中标记判断，不能只数可见行。
             var ready = TikTokBrowserActions.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
             var percent = TikTokBrowserActions.ExtractTotalUploadPercent(bodyText);
             var rowCount = await ReadUploadTableRowCountAsync(page);
-            var activity = TikTokUploadProgressParser.DetectUploadActivity(
-                bodyText,
-                await TikTokBrowserActions.ReadUploadTableTextsAsync(page));
+            var activity = TikTokUploadProgressParser.DetectUploadActivity(bodyText, cardTexts);
             var uploading = activity.Uploading;
 
             if (rowCount > targetReady)
@@ -494,6 +506,147 @@ public static class TikTokBatchUploadService
             }
             """,
             targets);
+    }
+
+    /// <summary>
+    /// 点失败卡片上的「重试」，不删除、不重新选文件。删了再传会把这一集接到列表末尾，造成乱序。
+    /// </summary>
+    private static async Task RetryFailedEpisodeCardsAsync(
+        IPage page,
+        IReadOnlyCollection<int> episodes,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var targets = episodes.Where(episode => episode > 0).Distinct().OrderBy(episode => episode).ToArray();
+        if (targets.Length == 0)
+            return;
+
+        ct.ThrowIfCancellationRequested();
+        string result;
+        try
+        {
+            result = await page.EvaluateAsync<string>(
+                """
+                (episodes) => {
+                  const wanted = new Set((episodes || []).map((value) => Number(value)).filter((value) => value > 0));
+                  const normalize = (value) => (value || '').replace(/\s+/g, ' ').trim();
+                  const episodeOf = (text) => {
+                    const file = text.match(/-\s*第\s*(\d+)\s*集/);
+                    if (file) return Number.parseInt(file[1], 10) || 0;
+                    const matches = Array.from(text.matchAll(/第\s*(\d+)\s*集/g));
+                    if (matches.length === 0) return 0;
+                    return Number.parseInt(matches[matches.length - 1][1], 10) || 0;
+                  };
+                  const cards = Array.from(document.querySelectorAll('[data-episode-uid]'));
+                  if (cards.length === 0) return 'no-cards';
+                  const clicked = [];
+                  const missing = [];
+                  for (const episode of wanted) {
+                    const card = cards.find((item) => episodeOf(normalize(item.innerText)) === episode);
+                    if (!card) {
+                      missing.push(episode);
+                      continue;
+                    }
+                    const button = Array.from(card.querySelectorAll('button,[role="button"],a,span'))
+                      .find((item) => {
+                        const text = normalize(item.textContent);
+                        return text === '重试' || /^retry$/i.test(text);
+                      });
+                    if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') {
+                      missing.push(episode);
+                      continue;
+                    }
+                    button.click();
+                    clicked.push(episode);
+                  }
+                  return `clicked:${clicked.join(',')} missing:${missing.join(',')}`;
+                }
+                """,
+                targets);
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"⚠️ 点击失败剧集的重试按钮失败：{ex.Message}");
+            return;
+        }
+
+        var clicked = ReadRetryEpisodes(result, "clicked:");
+        var missing = ReadRetryEpisodes(result, "missing:");
+        if (clicked.Count > 0)
+            log?.Invoke($"已点击第 {string.Join("、", clicked)} 集卡片上的重试，不删除、不重新选择文件。");
+        if (missing.Count > 0)
+            log?.Invoke($"⚠️ 第 {string.Join("、", missing)} 集仍是上传失败，但卡片上没有可点的重试。");
+        if (clicked.Count == 0 && missing.Count == 0)
+            log?.Invoke($"⚠️ 未能点击失败剧集的重试：{result}");
+    }
+
+    private static async Task EnsureFailedEpisodesRetriedAsync(
+        IPage page,
+        IReadOnlyList<string> videoPaths,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        IReadOnlyList<string> cards;
+        try
+        {
+            cards = await TikTokBrowserActions.ReadUploadTableTextsAsync(page);
+        }
+        catch
+        {
+            return;
+        }
+
+        var failed = TikTokUploadProgressParser.FailedEpisodeNumbers(cards);
+        if (failed.Count == 0)
+            return;
+
+        log?.Invoke($"上传结束前仍有失败剧集：第 {string.Join("、", failed)} 集，先点卡片上的重试。");
+        await RetryFailedEpisodeCardsAsync(page, failed, log, ct);
+
+        var deadline = DateTime.UtcNow.AddSeconds(45);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            await page.WaitForTimeoutAsync(1500);
+            try
+            {
+                cards = await TikTokBrowserActions.ReadUploadTableTextsAsync(page);
+            }
+            catch
+            {
+                continue;
+            }
+
+            failed = TikTokUploadProgressParser.FailedEpisodeNumbers(cards);
+            if (failed.Count == 0)
+            {
+                log?.Invoke("失败剧集已离开「上传失败」状态。");
+                return;
+            }
+        }
+
+        var uploaded = videoPaths.Select(EpisodeNumber).Where(episode => episode > 0).ToHashSet();
+        var stillFailed = failed.Where(uploaded.Contains).ToArray();
+        if (stillFailed.Length == 0)
+            return;
+
+        throw new InvalidOperationException(
+            $"TikTok 第 {string.Join("、", stillFailed)} 集上传失败，点击卡片重试后仍未恢复。" +
+            "已停止提交，避免带着失败视频继续；请重新执行编辑。");
+    }
+
+    private static IReadOnlyList<int> ReadRetryEpisodes(string result, string marker)
+    {
+        var start = result.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0)
+            return Array.Empty<int>();
+        start += marker.Length;
+        var end = result.IndexOf(' ', start);
+        var text = end >= 0 ? result[start..end] : result[start..];
+        return text.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(value => int.TryParse(value, out var episode) ? episode : 0)
+            .Where(episode => episode > 0)
+            .ToArray();
     }
 
     private static string EpisodeLabel(string path)
