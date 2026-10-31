@@ -243,6 +243,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.StatusRequested += message => StatusMessage = message;
         SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         WireXingeRemoteCommandService();
+        SystemServices.Load();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
@@ -288,6 +289,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemServices.StatusRequested += message => StatusMessage = message;
         SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         WireXingeRemoteCommandService();
+        SystemServices.Load();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
         ArchivedProjects.Restored += () => RefreshWorkspaceProjects(WorkspacePath, force: true);
         DramaDownload.ImportToQueueRequested += ImportDramaProjectsToQueueAsync;
@@ -373,7 +375,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 account.DisplayName,
                 HasAccountAuthFile(account.Model),
                 string.Equals(account.Id, activeId, StringComparison.OrdinalIgnoreCase),
-                account.Model.XingeRemoteDispatchEnabled))
+                account.Model.ParticipatesInXingeRemoteDispatch))
             .ToArray();
 
         return new XingeRemoteRegistrationSnapshot(
@@ -2689,7 +2691,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return await ExecuteRemoteUploadSeriesCoreAsync(command, null);
 
         var assignedAccount = FindAccountById(assignment.AccountProfileId)?.Model;
-        if (assignedAccount is not null && !assignedAccount.XingeRemoteDispatchEnabled)
+        if (assignedAccount is not null && !assignedAccount.ParticipatesInXingeRemoteDispatch)
         {
             var blocked = new RemoteAutoPublishContext(assignment);
             await ReportRemoteAutoPublishFailureAsync(

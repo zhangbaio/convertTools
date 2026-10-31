@@ -20,7 +20,7 @@ public partial class AccountProfileEditor : UserControl
     private MainViewModel? _vm;
     private SystemServicesViewModel? _systemServices;
     private bool _isReloadingFromSelectedAccount;
-    private bool _remoteDispatchAvailable;
+    private bool _persistedRemoteDispatch;
 
     public event EventHandler? LoginRequested;
     public event EventHandler? ReloginRequested;
@@ -70,15 +70,17 @@ public partial class AccountProfileEditor : UserControl
             ApplyRemoteDispatchAvailability();
     }
 
+    private void ShowPersistedRemoteDispatch(TikTokAccountProfile? profile)
+    {
+        _persistedRemoteDispatch = profile?.ParticipatesInXingeRemoteDispatch == true;
+        ApplyRemoteDispatchAvailability();
+    }
+
     private void ApplyRemoteDispatchAvailability()
     {
         var xingeEnabled = _vm?.SystemServices.XingeRemoteEnabled == true;
         RemoteDispatchBox.IsEnabled = xingeEnabled;
-        if (!xingeEnabled)
-            RemoteDispatchBox.IsChecked = false;
-        else if (!_remoteDispatchAvailable)
-            RemoteDispatchBox.IsChecked = _vm?.SelectedAccount?.Model.XingeRemoteDispatchEnabled == true;
-        _remoteDispatchAvailable = xingeEnabled;
+        RemoteDispatchBox.IsChecked = xingeEnabled && _persistedRemoteDispatch;
     }
 
     private void OnAccountProfileChanged(TikTokAccountProfile profile)
@@ -110,8 +112,7 @@ public partial class AccountProfileEditor : UserControl
         {
             ClearFields();
             LoginStatusText.Text = "尚未登录";
-            _remoteDispatchAvailable = false;
-            ApplyRemoteDispatchAvailability();
+            ShowPersistedRemoteDispatch(null);
             return;
         }
 
@@ -120,9 +121,7 @@ public partial class AccountProfileEditor : UserControl
         LoginEmailBox.Text = profile.TiktokLoginEmail;
         PasswordBox.Text = profile.TiktokLoginPassword;
         StorageStateBox.Text = profile.TiktokStorageStatePath;
-        _remoteDispatchAvailable = false;
-        RemoteDispatchBox.IsChecked = profile.XingeRemoteDispatchEnabled;
-        ApplyRemoteDispatchAvailability();
+        ShowPersistedRemoteDispatch(profile);
         SeriesUrlBox.Text = profile.TiktokSeriesUrl;
         WorkspaceBox.Text = !string.IsNullOrWhiteSpace(profile.TiktokUploadProfilePath)
             ? profile.TiktokUploadProfilePath
@@ -252,8 +251,12 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokLoginEmail = LoginEmailBox.Text?.Trim() ?? "";
             profile.TiktokLoginPassword = PasswordBox.Text ?? "";
             profile.TiktokStorageStatePath = StorageStateBox.Text?.Trim() ?? profile.TiktokStorageStatePath;
-            profile.XingeRemoteDispatchEnabled =
-                _vm.SystemServices.XingeRemoteEnabled && RemoteDispatchBox.IsChecked == true;
+            if (_vm.SystemServices.XingeRemoteEnabled)
+            {
+                profile.XingeRemoteDispatchConfigured = true;
+                profile.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
+                _persistedRemoteDispatch = profile.XingeRemoteDispatchEnabled;
+            }
             profile.TiktokSeriesUrl = string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
                 ? TikTokUrls.DefaultSeriesDraftUrl
                 : SeriesUrlBox.Text.Trim();
