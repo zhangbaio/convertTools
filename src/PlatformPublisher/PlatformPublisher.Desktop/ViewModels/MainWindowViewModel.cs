@@ -147,7 +147,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _selectedJobKind = JobKinds[0];
         _selectedJobStatusChoice = JobStatusChoices[0];
         AddJobCommand = new AsyncRelayCommand(AddJobAsync, CanAddJob);
-        RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected);
+        RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         RunRunnableCommand = new AsyncRelayCommand(RunRunnableAsync, CanRunRunnable);
         RetryFailedCommand = new AsyncRelayCommand(RetryFailedAsync, CanRetryFailed);
         OpenLoginCommand = new AsyncRelayCommand(OpenLoginAsync, CanOpenLogin);
@@ -161,13 +161,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ClearActivityLogsCommand = new RelayCommand(ClearActivityLogs);
         RefreshSelectedEpisodesCommand = new AsyncRelayCommand(() => LoadSelectedProjectEpisodesAsync(SelectedJob));
         OpenSelectedEpisodeDirectoryCommand = new RelayCommand(OpenSelectedEpisodeDirectory, () => SelectedEpisode is not null);
-        RunSharedPipelineCommand = new AsyncRelayCommand(RunSharedPipelineAsync, CanRunSharedPipeline);
+        RunSharedPipelineCommand = new AsyncRelayCommand(RunSharedPipelineAsync, CanRunSharedPipeline, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         ScanWorkspaceCommand = new AsyncRelayCommand(ScanWorkspaceAsync, CanScanWorkspace);
         RefreshArchivedProjectsCommand = new RelayCommand(RefreshArchivedProjects);
         ResetSelectedJobCommand = new AsyncRelayCommand(ResetSelectedJobAsync, () => SelectedJob is not null && !IsBusy);
         SaveWorkflowSettingsCommand = new AsyncRelayCommand(SaveWorkflowSettingsAsync, () => !IsBusy);
         CreateNamedProjectCommand = new AsyncRelayCommand(CreateNamedProjectAsync, CanCreateNamedProject);
-        RunCheckedCommand = new AsyncRelayCommand(RunCheckedAsync, CanRunChecked);
+        RunCheckedCommand = new AsyncRelayCommand(RunCheckedAsync, CanRunChecked, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         CheckAllVisibleCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(_ => true), () => !IsBusy);
         CheckPendingCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(row => row.Model.Status is PublishJobStatus.Pending or PublishJobStatus.Failed), () => !IsBusy);
         UncheckAllVisibleCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(_ => false), () => !IsBusy);
@@ -1009,7 +1009,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     private bool CanRunSharedPipeline() =>
-        !IsBusy &&
+        (IsKuaishouPlatform ? !IsKuaishouAccountRunning(CurrentKuaishouRunKey()) : !IsBusy) &&
         Directory.Exists(DraftProjectDirectory) &&
         (PipelineDownloadEnabled || PipelineSmartRecutEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
@@ -2221,7 +2221,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AppendActivityLog("一键修复完成。");
     }
 
-    private bool CanRunSelected() => SelectedJob is not null && !IsBusy;
+    private bool CanRunSelected() =>
+        SelectedJob is not null && (IsKuaishouPlatform ? !IsKuaishouAccountRunning(CurrentKuaishouRunKey()) : !IsBusy);
     private bool CanRunRunnable() => !IsBusy && VisibleJobs.Any(row =>
         PublishSchedulePolicy.CanRunNow(row.Model, DateTimeOffset.Now) &&
         _coordinator.GetAdapter(row.Platform).IsAvailable);

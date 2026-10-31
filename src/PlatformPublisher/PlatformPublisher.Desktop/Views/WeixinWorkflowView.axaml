@@ -10,6 +10,100 @@
             <Setter Property="Padding" Value="9,4" />
             <Setter Property="FontSize" Value="13" />
         </Style>
+        <Style Selector="Border.kuaishouButtonGroup">
+            <Setter Property="Padding" Value="6,5" />
+            <Setter Property="Margin" Value="0,0,8,8" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Button.contentAction">
+            <Setter Property="Background" Value="#EAF4FF" />
+            <Setter Property="Foreground" Value="#0F63C7" />
+            <Setter Property="BorderBrush" Value="#9CCBFF" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.contentAction:pointerover">
+            <Setter Property="Background" Value="#DCEBFF" />
+        </Style>
+        <Style Selector="Button.selectionAction">
+            <Setter Property="Background" Value="#F2F5FF" />
+            <Setter Property="Foreground" Value="#3730A3" />
+            <Setter Property="BorderBrush" Value="#C7D2FE" />
+        </Style>
+        <Style Selector="Button.selectionAction:pointerover">
+            <Setter Property="Background" Value="#E7ECFF" />
+        </Style>
+        <Style Selector="Button.repairAction">
+            <Setter Property="Background" Value="#FFF7E6" />
+            <Setter Property="Foreground" Value="#B45309" />
+            <Setter Property="BorderBrush" Value="#FBBF24" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.repairAction:pointerover">
+            <Setter Property="Background" Value="#FFEFC2" />
+        </Style>
+        <Style Selector="Button.fileAction">
+            <Setter Property="Background" Value="#EAF8F0" />
+            <Setter Property="Foreground" Value="#047857" />
+            <Setter Property="BorderBrush" Value="#86D9A8" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.fileAction:pointerover">
+            <Setter Property="Background" Value="#DDFBEA" />
+        </Style>
+        <Style Selector="Button.browserAction">
+            <Setter Property="Background" Value="#EEF6FF" />
+            <Setter Property="Foreground" Value="#0B5CAD" />
+            <Setter Property="BorderBrush" Value="#B8D8FF" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.browserAction:pointerover">
+            <Setter Property="Background" Value="#DCEBFF" />
+        </Style>
+        <Style Selector="Button.toolAction">
+            <Setter Property="Background" Value="#F1F5F9" />
+            <Setter Property="Foreground" Value="#0F4F86" />
+            <Setter Property="BorderBrush" Value="#BFD3E8" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.toolAction:pointerover">
+            <Setter Property="Background" Value="#E6EEF8" />
+        </Style>
+        <Style Selector="Button.logAction">
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="Foreground" Value="#334155" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+        </Style>
+        <Style Selector="Button.logAction:pointerover">
+            <Setter Property="Background" Value="#EEF2F6" />
+        </Style>
+        <Style Selector="Button.neutralAction">
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="Foreground" Value="#334155" />
+            <Setter Property="BorderBrush" Value="#CBD5E1" />
+        </Style>
+        <Style Selector="Button.neutralAction:pointerover">
+            <Setter Property="Background" Value="#EEF2F6" />
+        </Style>
+        <Style Selector="Button.dangerSoftAction">
+            <Setter Property="Background" Value="#FFE3E3" />
+            <Setter Property="Foreground" Value="#B42318" />
+            <Setter Property="BorderBrush" Value="#F97066" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Button.dangerSoftAction:pointerover">
+            <Setter Property="Background" Value="#FFD4D4" />
+        </Style>
+        <Style Selector="Button.stopAction">
+            <Setter Property="Background" Value="#DC2626" />
+            <Setter Property="Foreground" Value="#FFFFFF" />
+            <Setter Property="BorderBrush" Value="#DC2626" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="Button.stopAction:pointerover">
+            <Setter Property="Background" Value="#B91C1C" />
+            <Setter Property="BorderBrush" Value="#B91C1C" />
+        </Style>
         <Style Selector="Button.queueLink">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -115,52 +209,79 @@
                     </StackPanel>
                 </Grid>
                 <WrapPanel Orientation="Horizontal">
-                    <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6"
-                            ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
-                    <Button x:Name="KuaishouUploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="导入本地短剧" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,6"
-                            ToolTip.Tip="扫描工作目录里已有视频的短剧，生成项目信息后加入列表。本地导入会跳过下载。" />
-                    <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,6"
-                            ToolTip.Tip="对勾选的项目执行步骤区已勾选的步骤。已完成的步骤会跳过，除非勾选强制重跑。" />
-                    <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="停止" Command="{Binding StopCommand}" Classes="dangerAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="快手分账配置" Click="OnKuaishouConfigClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <TextBlock Text="ADX" VerticalAlignment="Center" Margin="4,0,4,6" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                    <NumericUpDown x:Name="KuaishouAdxCount" Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,6" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                    <Button Content="下载ADX素材" Click="OnKuaishouAdxDownloadClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                    <Button Content="发布ADX素材" Click="OnKuaishouAdxPublishClick" Classes="primaryAction compactAction" Margin="0,0,6,6" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                </WrapPanel>
-                <WrapPanel Orientation="Horizontal">
-                    <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="勾选到当前项目" Command="{Binding CheckToCurrentCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="取消" Command="{Binding UncheckAllVisibleCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="删除勾选" Command="{Binding RemoveCheckedJobsCommand}" Classes="dangerAction compactAction" Margin="0,0,6,6"
-                            ToolTip.Tip="只从任务队列删除，保留项目目录和文件" />
-                    <TextBlock Text="自动上架" VerticalAlignment="Center" Margin="4,0,6,6" />
-                    <NumericUpDown Width="60" Value="{Binding AutoShelfMaxPages}" Minimum="1" Maximum="100" Margin="0,0,4,6" />
-                    <TextBlock Text="页" VerticalAlignment="Center" Margin="0,0,6,6" />
-                    <NumericUpDown Width="60" Value="{Binding AutoShelfMaxRounds}" Minimum="1" Maximum="100" Margin="0,0,4,6" />
-                    <TextBlock Text="轮" VerticalAlignment="Center" Margin="0,0,6,6" />
-                    <Button Content="开始" Command="{Binding AutoShelfCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="重置当前任务" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="批量重置" Command="{Binding ResetCheckedJobsCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="归档勾选" Click="OnArchiveCheckedClick" Classes="secondaryAction compactAction" Margin="0,0,6,6"
-                            ToolTip.Tip="按快手分账规则归档勾选项目：移动 source/workflow，并删除原视频、转码视频和素材视频。" />
-                    <Button Content="已归档项目" Click="OnOpenArchiveClick" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
-                    <Button Content="导出上传记录" Click="OnExportUploadReportClick" Classes="secondaryAction compactAction" Margin="0,0,6,6"
-                            ToolTip.Tip="把快手分账上传记录导出到本软件数据目录中的 Excel。个人版和企业版分开保存。" />
-                    <Button Content="查看上传记录" Click="OnOpenUploadReportClick" Classes="secondaryAction compactAction" Margin="0,0,6,6"
-                            ToolTip.Tip="打开当前版本的上传记录 Excel。文件被占用时会另存为 pending 副本。" />
-                    <Button Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="secondaryAction compactAction" Margin="0,0,6,6" />
+                    <Border Classes="kuaishouButtonGroup" Background="#F8FBFF" BorderBrush="#D6E8FA">
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="neutralAction compactAction" Margin="0,0,6,0"
+                                    ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
+                            <Button x:Name="KuaishouUploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="contentAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="导入本地短剧" Click="OnImportLocalProjectsClick" Classes="contentAction compactAction" Margin="0,0,6,0"
+                                    ToolTip.Tip="扫描工作目录里已有视频的短剧，生成项目信息后加入列表。本地导入会跳过下载。" />
+                            <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="contentAction compactAction" />
+                        </WrapPanel>
+                    </Border>
+                    <Border Classes="kuaishouButtonGroup" Background="#F3F8FF" BorderBrush="#B9D7F5">
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="执行选中" Command="{Binding RunSelectedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="执行全部待办" Command="{Binding RunRunnableCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="执行勾选步骤" Command="{Binding RunSharedPipelineCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0"
+                                    ToolTip.Tip="对勾选的项目执行步骤区已勾选的步骤。已完成的步骤会跳过，除非勾选强制重跑。" />
+                            <Button Content="重试失败" Command="{Binding RetryFailedCommand}" Classes="repairAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="停止" Command="{Binding StopCommand}" Classes="stopAction compactAction" />
+                        </WrapPanel>
+                    </Border>
+                    <Border Classes="kuaishouButtonGroup" Background="#F7F8FF" BorderBrush="#D9DEF8">
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="勾选到当前项目" Command="{Binding CheckToCurrentCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="全选" Command="{Binding CheckAllVisibleCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="取消" Command="{Binding UncheckAllVisibleCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="删除勾选" Command="{Binding RemoveCheckedJobsCommand}" Classes="dangerSoftAction compactAction"
+                                    ToolTip.Tip="只从任务队列删除，保留项目目录和文件" />
+                        </WrapPanel>
+                    </Border>
+                    <Border Classes="kuaishouButtonGroup" Background="#FFF9EE" BorderBrush="#F3D7A1">
+                        <WrapPanel Orientation="Horizontal">
+                            <TextBlock Text="自动上架" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#B45309" />
+                            <NumericUpDown Width="60" Value="{Binding AutoShelfMaxPages}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
+                            <TextBlock Text="页" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <NumericUpDown Width="60" Value="{Binding AutoShelfMaxRounds}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
+                            <TextBlock Text="轮" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <Button Content="开始" Command="{Binding AutoShelfCommand}" Classes="repairAction compactAction" Margin="0,0,8,0" />
+                            <Button Content="重置当前任务" Command="{Binding ResetSelectedJobCommand}" Classes="repairAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="批量重置" Command="{Binding ResetCheckedJobsCommand}" Classes="repairAction compactAction" />
+                        </WrapPanel>
+                    </Border>
+                    <Border Classes="kuaishouButtonGroup" Background="#FFF5F5" BorderBrush="#F3C7C3">
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="归档勾选" Click="OnArchiveCheckedClick" Classes="dangerSoftAction compactAction" Margin="0,0,6,0"
+                                    ToolTip.Tip="按快手分账规则归档勾选项目：移动 source/workflow，并删除原视频、转码视频和素材视频。" />
+                            <Button Content="已归档项目" Click="OnOpenArchiveClick" Classes="dangerSoftAction compactAction" />
+                        </WrapPanel>
+                    </Border>
+                    <Border Classes="kuaishouButtonGroup" Background="#F3FBF6" BorderBrush="#C6E8D4">
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="导出上传记录" Click="OnExportUploadReportClick" Classes="fileAction compactAction" Margin="0,0,6,0"
+                                    ToolTip.Tip="把快手分账上传记录导出到本软件数据目录中的 Excel。个人版和企业版分开保存。" />
+                            <Button Content="查看上传记录" Click="OnOpenUploadReportClick" Classes="fileAction compactAction"
+                                    ToolTip.Tip="打开当前版本的上传记录 Excel。文件被占用时会另存为 pending 副本。" />
+                        </WrapPanel>
+                    </Border>
+                    <Border Classes="kuaishouButtonGroup" Background="#F7FAFC" BorderBrush="#D5E2EE">
+                        <WrapPanel Orientation="Horizontal">
+                            <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="logAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="快手分账配置" Click="OnKuaishouConfigClick" Classes="toolAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="browserAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="repairAction compactAction" Margin="0,0,6,0" />
+                            <Button Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="toolAction compactAction" />
+                        </WrapPanel>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" IsVisible="False">
+                        <NumericUpDown x:Name="KuaishouAdxCount" Width="58" Minimum="1" Maximum="20" Value="8" />
+                        <Button Content="下载ADX素材" Click="OnKuaishouAdxDownloadClick" />
+                        <Button Content="发布ADX素材" Click="OnKuaishouAdxPublishClick" />
+                    </StackPanel>
                 </WrapPanel>
                 <Grid ColumnDefinitions="48,*,Auto" ColumnSpacing="8">
                     <TextBlock Text="搜索" VerticalAlignment="Center" FontWeight="SemiBold" />
@@ -216,12 +337,12 @@
                             ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
                     <Button x:Name="UploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="primaryAction compactAction" Margin="0,0,6,0"
                              ToolTip.Tip="按剧名精确搜索，创建项目并加入执行队列" />
-                    <TextBlock Text="ADX素材数" VerticalAlignment="Center" Margin="2,0,4,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
-                    <NumericUpDown Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                    <TextBlock Text="ADX素材数" VerticalAlignment="Center" Margin="2,0,4,0" IsVisible="False" />
+                    <NumericUpDown Width="58" Minimum="1" Maximum="20" Value="8" Margin="0,0,6,0" IsVisible="False" />
                     <Button x:Name="KuaishouAdxDownloadButton" Content="下载ADX素材" Click="OnKuaishouAdxDownloadClick"
-                            Classes="secondaryAction compactAction" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                            Classes="secondaryAction compactAction" Margin="0,0,6,0" IsVisible="False" />
                     <Button x:Name="KuaishouAdxPublishButton" Content="发布ADX素材" Click="OnKuaishouAdxPublishClick"
-                            Classes="primaryAction compactAction" Margin="0,0,6,0" IsVisible="{Binding IsKuaishouPersonalPlatform}" />
+                            Classes="primaryAction compactAction" Margin="0,0,6,0" IsVisible="False" />
                     <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                     <Button Content="导入本地项目" Click="OnImportLocalProjectsClick" Classes="secondaryAction compactAction" Margin="0,0,6,0" />
                     <TextBox x:Name="CreateProjectNameBox" Width="220" Text="{Binding DraftNewProjectName}" Watermark="按剧名创建项目" Margin="0,0,6,0" />
