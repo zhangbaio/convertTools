@@ -329,6 +329,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _pipelineProjectImageEnabled = true;
     [ObservableProperty] private bool _pipelineMaterialValidateEnabled = true;
     [ObservableProperty] private bool _pipelineRemuxEnabled;
+    [ObservableProperty] private bool _pipelineUploadEpisodesEnabled = true;
     [ObservableProperty] private bool _pipelineForceRerun;
     [ObservableProperty] private bool _pipelineAutoArchiveAfterUpload;
     [ObservableProperty] private bool _pipelinePreferUploadWhenReady = true;
@@ -1075,7 +1076,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ProjectImageEnabled = PipelineProjectImageEnabled,
         MaterialValidateEnabled = PipelineMaterialValidateEnabled,
         RemuxEnabled = PipelineRemuxEnabled,
-        UploadEpisodesEnabled = PipelineUploadEpisodesEnabled,
         ForceRerun = PipelineForceRerun,
         AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
         PreferUploadWhenReady = PipelinePreferUploadWhenReady,
