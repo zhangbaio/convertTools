@@ -325,6 +325,38 @@ public static class ClientSettingsDefaults
         目标剧名必须使用普通、标准、清晰的简体中文印刷粗体，逐字正确，不得使用繁体字、异体字、艺术字或变形字。
         """;
 
+    public const string PosterModeDirect = "original";
+    public const string PosterModeEraseFixedTitle = "erase_fixed_lower_title";
+
+    public const string PosterAgentDirectPrompt = """
+        基于输入短剧海报重新设计一张可直接发布的成品海报。
+        必须彻底清除原图中的全部标题、字幕、人物名、演员名、作者及改编来源、宣传语、季数、水印、Logo文字和角标，只写一次新的海报标题“{title}”，成品中不得出现其他任何可读文字。
+        必须同时更换背景并重新设计构图，不能只对原文字区域做局部修补。
+        必须改变人物的肢体动作、服饰和脸部表情，但保持人物身份、主要面部特征、人物关系和短剧题材可识别。
+        新标题使用标准、清晰、易识别的简体中文海报粗标题，逐字准确，醒目且占据主标题区域；禁止繁体字、异体字、错别字、手写体、花体和变形字。
+        保持专业短剧海报质感，避免重复人物、畸形肢体、异常五官、额外文字、乱码和水印。
+        """;
+
+    public const string PosterAgentErasePrompt = """
+        这是海报全图文字清理任务，不是重新设计或重绘海报。
+        删除图片中所有可读文字和文字残影，包括主标题、副标题、人物或角色姓名、演员名、作者、改编或来源说明、版权或出品信息、宣传语、季数、字幕、水印、Logo文字、角标，以及任何中文、英文、拼音、字母和数字文字。
+        用每处文字周围的背景、纹理和光影自然补全被删除区域，不能留下描边、底纹、模糊字或残影。
+        不得生成任何新文字、符号、Logo、水印、印章或标记。
+        人物、脸部、身体、服装、发型、动作、道具、背景、构图、尺寸、比例、颜色、光影和清晰度必须保持不变。
+        最终输出必须是一张完全无文字的干净海报底图，新剧名由程序用固定字体写入。
+        """;
+
+    public const string PosterAgentSafeRetryPrefix = """
+        这是安全合规的短剧海报设计任务：人物着装和动作保持得体，不包含暴力、血腥、裸露或低俗暗示；标题使用最普通、标准、清晰的简体中文印刷粗体，逐字准确。
+
+        """;
+
+    public static bool IsEraseFixedTitlePosterMode(string? mode) =>
+        string.Equals(mode?.Trim(), PosterModeEraseFixedTitle, StringComparison.OrdinalIgnoreCase);
+
+    public static string DefaultPosterAgentPrompt(string? mode) =>
+        IsEraseFixedTitlePosterMode(mode) ? PosterAgentErasePrompt : PosterAgentDirectPrompt;
+
     public const string PosterNameSystemPrompt =
         "你是短剧海报名助手。请输出一个适合作为海报标题的中文短句。" +
         "输出必须使用常见、标准、易识别的简体中文汉字，避免生僻字、异体字和容易写错的字。" +

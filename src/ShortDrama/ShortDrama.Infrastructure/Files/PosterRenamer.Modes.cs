@@ -282,11 +282,12 @@ public sealed partial class PosterRenamer
                 cancellationToken);
             var config = KeyValueConfigReader.Read(configFile);
             var layout = new PosterLayout(0, 0, 1, 1, 0.08f, new Rgba32(255, 214, 0), new Rgba32(0, 0, 0), 0, HorizontalAlignment.Center);
+            var erasePrompt = GetOptional(config, "PosterAllTextErasePrompt") ?? DefaultPosterAllTextErasePrompt;
             var erasedBytes = await GenerateTitleErasedPosterBytesAsync(
                 config,
                 outputPath,
                 layout,
-                DefaultPosterAllTextErasePrompt,
+                erasePrompt,
                 eraseAllText: true,
                 cancellationToken);
             await WriteGeneratedPosterCandidateAsync(outputPath, erasedBytes, erasedPath, cancellationToken);
@@ -303,7 +304,7 @@ public sealed partial class PosterRenamer
                         config,
                         erasedPath,
                         layout,
-                        DefaultPosterAllTextErasePrompt,
+                        erasePrompt,
                         eraseAllText: true,
                         cancellationToken);
                     await WriteGeneratedPosterCandidateAsync(outputPath, retryBytes, erasedPath, cancellationToken);

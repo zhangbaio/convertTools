@@ -615,6 +615,53 @@ public static class ClientSettingsStore
             : ClientSettingsDefaults.AiPublishInfoPrompt;
     }
 
+    /// <summary>
+    /// 当前海报模式实际使用的提示词。直接生成模式未单独设置时，沿用用户改过的旧「整图改字/局部改字」提示词。
+    /// </summary>
+    public static string ResolvePosterAgentPrompt(ClientSettings settings, string? mode)
+    {
+        if (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode))
+            return DefaultIfBlank(settings.PosterAgentErasePrompt, ClientSettingsDefaults.PosterAgentErasePrompt);
+
+        var current = settings.PosterAgentDirectPrompt?.Trim() ?? "";
+        if (current.Length > 0)
+            return current;
+
+        return CustomizedPrompt(
+                   settings.PosterGenerationPrompt,
+                   ClientSettingsDefaults.PosterGenerationPrompt,
+                   ClientSettingsDefaults.LegacyPosterGenerationPrompt)
+               ?? CustomizedPrompt(
+                   settings.PosterInpaintPrompt,
+                   ClientSettingsDefaults.PosterInpaintPrompt,
+                   ClientSettingsDefaults.LegacyPosterInpaintPrompt)
+               ?? ClientSettingsDefaults.PosterAgentDirectPrompt;
+    }
+
+    /// <summary>与默认值相同时存空字符串，以后默认提示词更新时自动跟随。</summary>
+    public static string StoredPosterAgentPrompt(string? value, string? mode)
+    {
+        var text = value?.Trim() ?? "";
+        return string.Equals(text, ClientSettingsDefaults.DefaultPosterAgentPrompt(mode).Trim(), StringComparison.Ordinal)
+            ? ""
+            : text;
+    }
+
+    public static string WithPosterTitlePlaceholder(string prompt) =>
+        prompt.Contains("{title}", StringComparison.Ordinal)
+            ? prompt
+            : $"{prompt.TrimEnd()}\n海报标题：{{title}}";
+
+    private static string? CustomizedPrompt(string? value, params string[] builtIns)
+    {
+        var text = value?.Trim() ?? "";
+        if (text.Length == 0)
+            return null;
+        return builtIns.Any(builtIn => string.Equals(text, builtIn.Trim(), StringComparison.Ordinal))
+            ? null
+            : text;
+    }
+
     private static string DefaultIfBlank(string? value, string fallback)
     {
         var text = value?.Trim() ?? "";
@@ -642,13 +689,10 @@ public static class ClientSettingsStore
     private static string NormalizePosterLayoutRequestMode(string? value) =>
         ClientSettingsDefaults.PosterLayoutRequestMode;
 
-    private static string NormalizePosterMode(string? value) =>
-        (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch
-        {
-            "original" or "poster_ai_erase_pil_title" or "erase_fixed_lower_title" =>
-                (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant(),
-            _ => ClientSettingsDefaults.PosterMode
-        };
+    internal static string NormalizePosterMode(string? value) =>
+        ClientSettingsDefaults.IsEraseFixedTitlePosterMode(value)
+            ? ClientSettingsDefaults.PosterModeEraseFixedTitle
+            : ClientSettingsDefaults.PosterModeDirect;
 
     internal static string NormalizeRoleReferenceSelectionMode(string? value) =>
         string.Equals(value?.Trim(), "ai_full_review", StringComparison.OrdinalIgnoreCase)

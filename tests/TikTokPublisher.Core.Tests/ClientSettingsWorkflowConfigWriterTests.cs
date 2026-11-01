@@ -121,6 +121,55 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
     }
 
     [Fact]
+    public void WriteTempConfig_maps_single_poster_agent_prompt_to_workflow_prompts()
+    {
+        var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings
+        {
+            PosterAgentDirectPrompt = "重新设计海报",
+            PosterAgentErasePrompt = "只清除文字",
+            PosterLayoutDetectPrompt = "旧布局提示",
+        });
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            const string direct = "重新设计海报\n海报标题：{title}";
+            root.GetProperty("PosterGenerationPrompt").GetString().Should().Be(direct);
+            root.GetProperty("PosterInpaintPrompt").GetString().Should().Be(direct);
+            root.GetProperty("PosterGenerationSafeRetryPrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterAgentSafeRetryPrefix + direct);
+            root.GetProperty("PosterInpaintSafeRetryPrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterAgentSafeRetryPrefix + direct);
+            root.GetProperty("PosterAllTextErasePrompt").GetString().Should().Be("只清除文字");
+            root.GetProperty("PosterLayoutDetectPrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterLayoutDetectPrompt);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void WriteTempConfig_keeps_title_placeholder_in_default_poster_prompt()
+    {
+        var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings());
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            root.GetProperty("PosterGenerationPrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterAgentDirectPrompt);
+            root.GetProperty("PosterAllTextErasePrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterAgentErasePrompt);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void WriteTempConfig_forces_standard_poster_layout_mode()
     {
         var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings

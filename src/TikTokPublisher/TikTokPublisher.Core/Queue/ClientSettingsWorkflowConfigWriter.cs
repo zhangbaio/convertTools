@@ -14,6 +14,9 @@ public static class ClientSettingsWorkflowConfigWriter
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, $"workflow-config-{Guid.NewGuid():N}.json");
 
+        var directPosterPrompt = ClientSettingsStore.WithPosterTitlePlaceholder(
+            ClientSettingsStore.ResolvePosterAgentPrompt(settings, ClientSettingsDefaults.PosterModeDirect));
+        var safeRetryPosterPrompt = ClientSettingsDefaults.PosterAgentSafeRetryPrefix + directPosterPrompt;
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["AiTextEndpoint"] = settings.AiTextEndpoint,
@@ -47,11 +50,14 @@ public static class ClientSettingsWorkflowConfigWriter
             ["OfoxImage2Endpoint"] = settings.OfoxImage2Endpoint,
             ["OfoxImage2Quality"] = settings.OfoxImage2Quality,
             ["OfoxImage2Size"] = settings.OfoxImage2Size,
-            ["PosterLayoutDetectPrompt"] = settings.PosterLayoutDetectPrompt,
-            ["PosterInpaintPrompt"] = settings.PosterInpaintPrompt,
-            ["PosterInpaintSafeRetryPrompt"] = settings.PosterInpaintSafeRetryPrompt,
-            ["PosterGenerationPrompt"] = settings.PosterGenerationPrompt,
-            ["PosterGenerationSafeRetryPrompt"] = settings.PosterGenerationSafeRetryPrompt,
+            ["PosterLayoutDetectPrompt"] = ClientSettingsDefaults.PosterLayoutDetectPrompt,
+            ["PosterInpaintPrompt"] = directPosterPrompt,
+            ["PosterInpaintSafeRetryPrompt"] = safeRetryPosterPrompt,
+            ["PosterGenerationPrompt"] = directPosterPrompt,
+            ["PosterGenerationSafeRetryPrompt"] = safeRetryPosterPrompt,
+            ["PosterAllTextErasePrompt"] = ClientSettingsStore.ResolvePosterAgentPrompt(
+                settings,
+                ClientSettingsDefaults.PosterModeEraseFixedTitle),
             ["PosterNameSystemPrompt"] = settings.PosterNameSystemPrompt,
             ["PosterNameUserPrompt"] = settings.PosterNameUserPrompt,
             ["PosterTitleVerifyEnabled"] = settings.PosterTitleVerifyEnabled,

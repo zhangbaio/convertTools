@@ -128,6 +128,10 @@ public sealed class ClientSettings
     public double FrameExtractTime { get; set; } = ClientSettingsDefaults.FrameExtractTime;
     public string FrameExtractNeighborOffsetsSeconds { get; set; } = ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds;
     public string FrameExtractFallbackPercents { get; set; } = ClientSettingsDefaults.FrameExtractFallbackPercents;
+    /// <summary>「AI 直接生成」海报提示词；为空表示使用默认值。</summary>
+    public string PosterAgentDirectPrompt { get; set; } = "";
+    /// <summary>「AI 消除文字后固定字体写入」去字提示词；为空表示使用默认值。</summary>
+    public string PosterAgentErasePrompt { get; set; } = "";
     public string FrameCoverPrompt { get; set; } = ClientSettingsDefaults.FrameCoverPrompt;
     public string PosterLayoutDetectPrompt { get; set; } = ClientSettingsDefaults.PosterLayoutDetectPrompt;
     public string PosterInpaintPrompt { get; set; } = ClientSettingsDefaults.PosterInpaintPrompt;
@@ -313,6 +317,8 @@ public sealed class ClientSettings
         FrameExtractTime = FrameExtractTime,
         FrameExtractNeighborOffsetsSeconds = FrameExtractNeighborOffsetsSeconds,
         FrameExtractFallbackPercents = FrameExtractFallbackPercents,
+        PosterAgentDirectPrompt = PosterAgentDirectPrompt,
+        PosterAgentErasePrompt = PosterAgentErasePrompt,
         FrameCoverPrompt = FrameCoverPrompt,
         PosterLayoutDetectPrompt = PosterLayoutDetectPrompt,
         PosterInpaintPrompt = PosterInpaintPrompt,

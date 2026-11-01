@@ -218,14 +218,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private double _frameExtractTime = ClientSettingsDefaults.FrameExtractTime;
     [ObservableProperty] private string _frameExtractNeighborOffsetsSeconds = ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds;
     [ObservableProperty] private string _frameExtractFallbackPercents = ClientSettingsDefaults.FrameExtractFallbackPercents;
-    [ObservableProperty] private string _frameCoverPrompt = "";
-    [ObservableProperty] private string _posterLayoutDetectPrompt = "";
-    [ObservableProperty] private string _posterInpaintPrompt = "";
-    [ObservableProperty] private string _posterInpaintSafeRetryPrompt = "";
-    [ObservableProperty] private string _posterGenerationPrompt = "";
-    [ObservableProperty] private string _posterGenerationSafeRetryPrompt = "";
-    [ObservableProperty] private string _posterNameSystemPrompt = "";
-    [ObservableProperty] private string _posterNameUserPrompt = "";
+    [ObservableProperty] private string _posterAgentPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
+    private string _posterAgentDirectPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
+    private string _posterAgentErasePrompt = ClientSettingsDefaults.PosterAgentErasePrompt;
     [ObservableProperty] private string _tiktokProjectImageGenerationMode = ClientSettingsDefaults.TiktokProjectImageGenerationMode;
     [ObservableProperty] private string _tiktokProjectImageTemplateRoot = "";
     [ObservableProperty] private string _tiktokProjectImageTemplateId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
@@ -448,14 +443,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.FrameExtractTime = FrameExtractTime;
         settings.FrameExtractNeighborOffsetsSeconds = FrameExtractNeighborOffsetsSeconds;
         settings.FrameExtractFallbackPercents = FrameExtractFallbackPercents;
-        settings.FrameCoverPrompt = FrameCoverPrompt;
-        settings.PosterLayoutDetectPrompt = PosterLayoutDetectPrompt;
-        settings.PosterInpaintPrompt = PosterInpaintPrompt;
-        settings.PosterInpaintSafeRetryPrompt = PosterInpaintSafeRetryPrompt;
-        settings.PosterGenerationPrompt = PosterGenerationPrompt;
-        settings.PosterGenerationSafeRetryPrompt = PosterGenerationSafeRetryPrompt;
-        settings.PosterNameSystemPrompt = PosterNameSystemPrompt;
-        settings.PosterNameUserPrompt = PosterNameUserPrompt;
+        settings.PosterAgentDirectPrompt = ClientSettingsStore.StoredPosterAgentPrompt(
+            _posterAgentDirectPrompt,
+            ClientSettingsDefaults.PosterModeDirect);
+        settings.PosterAgentErasePrompt = ClientSettingsStore.StoredPosterAgentPrompt(
+            _posterAgentErasePrompt,
+            ClientSettingsDefaults.PosterModeEraseFixedTitle);
         settings.TiktokProjectImageGenerationMode = TiktokProjectImageGenerationMode;
         settings.TiktokProjectImageTemplateRoot = TiktokProjectImageTemplateRoot.Trim();
         settings.TiktokProjectImageTemplateId = TiktokProjectImageTemplateId.Trim();
@@ -712,6 +705,25 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     [RelayCommand]
     private void ResetAiPublishInfoPrompt() => AiPublishInfoPrompt = ClientSettingsDefaults.AiPublishInfoPrompt;
+
+    [RelayCommand]
+    private void ResetPosterAgentPrompt() =>
+        PosterAgentPrompt = ClientSettingsDefaults.DefaultPosterAgentPrompt(PosterMode);
+
+    partial void OnPosterModeChanged(string value) => ShowPosterAgentPromptForCurrentMode();
+
+    partial void OnPosterAgentPromptChanged(string value)
+    {
+        if (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode))
+            _posterAgentErasePrompt = value;
+        else
+            _posterAgentDirectPrompt = value;
+    }
+
+    private void ShowPosterAgentPromptForCurrentMode() =>
+        PosterAgentPrompt = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode)
+            ? _posterAgentErasePrompt
+            : _posterAgentDirectPrompt;
 
     [RelayCommand]
     private void ReadHgnewUdid()
@@ -1375,14 +1387,13 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         FrameExtractTime = settings.FrameExtractTime;
         FrameExtractNeighborOffsetsSeconds = settings.FrameExtractNeighborOffsetsSeconds;
         FrameExtractFallbackPercents = settings.FrameExtractFallbackPercents;
-        FrameCoverPrompt = settings.FrameCoverPrompt;
-        PosterLayoutDetectPrompt = settings.PosterLayoutDetectPrompt;
-        PosterInpaintPrompt = settings.PosterInpaintPrompt;
-        PosterInpaintSafeRetryPrompt = settings.PosterInpaintSafeRetryPrompt;
-        PosterGenerationPrompt = settings.PosterGenerationPrompt;
-        PosterGenerationSafeRetryPrompt = settings.PosterGenerationSafeRetryPrompt;
-        PosterNameSystemPrompt = settings.PosterNameSystemPrompt;
-        PosterNameUserPrompt = settings.PosterNameUserPrompt;
+        _posterAgentDirectPrompt = ClientSettingsStore.ResolvePosterAgentPrompt(
+            settings,
+            ClientSettingsDefaults.PosterModeDirect);
+        _posterAgentErasePrompt = ClientSettingsStore.ResolvePosterAgentPrompt(
+            settings,
+            ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        ShowPosterAgentPromptForCurrentMode();
         TiktokProjectImageGenerationMode = settings.TiktokProjectImageGenerationMode;
         TiktokProjectImageTemplateRoot = settings.TiktokProjectImageTemplateRoot;
         TiktokProjectImageTemplateId = settings.TiktokProjectImageTemplateId;

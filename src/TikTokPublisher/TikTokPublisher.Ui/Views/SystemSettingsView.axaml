@@ -632,31 +632,16 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Prompt 配置" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Frame Cover" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding FrameCoverPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="布局检测" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PosterLayoutDetectPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="局部改字" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding PosterInpaintPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="整图改字" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding PosterGenerationPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="局部改字安全重试" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding PosterInpaintSafeRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="整图改字安全重试" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding PosterGenerationSafeRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="海报名 System" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding PosterNameSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
-
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="海报名 User" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding PosterNameUserPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
+                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="海报 Agent 提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Column="1" Spacing="6">
+                                <TextBox Text="{Binding PosterAgentPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetPosterAgentPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="切换海报模式时显示该模式自己的提示词。直接生成用 {title} 表示新剧名，缺少时会自动追加；去字模式只清除文字，新剧名由程序写入。安全重试、布局检测、标题校验和修复使用内置提示词。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>
