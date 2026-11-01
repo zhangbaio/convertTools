@@ -571,7 +571,8 @@ public static class TikTokEditFlowService
         IReadOnlyList<string>? titleCandidates,
         Action<string>? log,
         CancellationToken ct,
-        int timeoutSeconds = 120)
+        int timeoutSeconds = 120,
+        bool allowDetailRecheck = true)
     {
         var normalized = NormalizeTitleCandidates(titleCandidates?.ToArray() ?? Array.Empty<string>());
         if (normalized.Count == 0)
@@ -627,10 +628,27 @@ public static class TikTokEditFlowService
 
         if (LooksDraftStatus(lastSeenRow))
         {
+            if (allowDetailRecheck)
+            {
+                var rechecked = await RecheckDraftOnDetailAsync(page, normalized, lastSeenRow, log, ct);
+                if (rechecked is not null)
+                    return rechecked;
+            }
+            else
+            {
+                var detailText = await ReadMatchingDetailTextAsync(page, normalized, ct);
+                if (DetailConfirmsSubmitted(detailText))
+                {
+                    return new SubmitVerificationResult(
+                        true,
+                        $"TikTok 详情已进入提交状态：{CompactRowForLog(detailText)}");
+                }
+            }
+
             return new SubmitVerificationResult(
                 false,
-                "TikTok 提交后平台仍显示草稿，未标记为完成；可能是独立/无头浏览器触发平台风控或二次验证，" +
-                $"请关闭外部浏览器无头模式或改用内置浏览器重试。列表行：{CompactRowForLog(lastSeenRow)}");
+                "TikTok 提交后列表和详情仍显示草稿，未标记为完成。" +
+                $"列表行：{CompactRowForLog(lastSeenRow)}");
         }
 
         if (!string.IsNullOrWhiteSpace(lastSeenRow))
@@ -782,6 +800,75 @@ public static class TikTokEditFlowService
             }
         }
         return "";
+    }
+
+    internal static bool DetailConfirmsSubmitted(string? detailText) =>
+        !string.IsNullOrWhiteSpace(detailText) && LooksSubmittedStatus(detailText);
+
+    private static async Task<SubmitVerificationResult?> RecheckDraftOnDetailAsync(
+        IPage page,
+        IReadOnlyList<string> titles,
+        string listRow,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        log?.Invoke("列表仍显示草稿，打开详情确认提交状态。");
+        var detailText = await ReadMatchingDetailTextAsync(page, titles, ct);
+        if (detailText is null)
+        {
+            log?.Invoke($"详情页未打开，列表行仍为：{CompactRowForLog(listRow)}");
+            return null;
+        }
+
+        if (DetailConfirmsSubmitted(detailText))
+        {
+            return new SubmitVerificationResult(
+                true,
+                $"TikTok 详情已进入提交状态：{CompactRowForLog(detailText)}");
+        }
+
+        log?.Invoke("详情仍是草稿，再次提交一次。");
+        try
+        {
+            await TikTokBrowserActions.SubmitAsync(page, log, ct, titles, verifySeriesListStatus: false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"再次提交未完成：{ex.Message}");
+            return new SubmitVerificationResult(
+                false,
+                "TikTok 提交后列表和详情仍显示草稿，未标记为完成。" +
+                $"列表行：{CompactRowForLog(listRow)}");
+        }
+
+        return await VerifySubmittedFromSeriesListAsync(
+            page, titles, log, ct, timeoutSeconds: 90, allowDetailRecheck: false);
+    }
+
+    private static async Task<string?> ReadMatchingDetailTextAsync(
+        IPage page,
+        IReadOnlyList<string> titles,
+        CancellationToken ct)
+    {
+        var detailUrl = "";
+        foreach (var title in ExpandTitleSearchKeywords(titles))
+        {
+            detailUrl = await FindMatchingDetailUrlAsync(page, title);
+            if (!string.IsNullOrWhiteSpace(detailUrl))
+                break;
+        }
+
+        if (string.IsNullOrWhiteSpace(detailUrl))
+            return null;
+
+        ct.ThrowIfCancellationRequested();
+        await page.GotoAsync(detailUrl, new PageGotoOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 60000,
+        });
+        try { return await page.Locator("body").InnerTextAsync(new() { Timeout = 8000 }); }
+        catch { return ""; }
     }
 
     private static bool LooksSubmittedStatus(string rowText) =>

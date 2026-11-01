@@ -9,6 +9,30 @@ namespace TikTokPublisher.Ui.Services.TikTok;
 public static class TikTokBatchUploadService
 {
     private static readonly Regex EpisodeNumberPattern = new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
+    private static readonly AsyncLocal<int> UncertainReconcileDepth = new();
+    internal const int BatchAcceptanceTimeoutSeconds = 90;
+    private const int BatchAcceptanceExtendLogSeconds = 25;
+
+    internal static bool TryBeginUncertainReconcile()
+    {
+        if (UncertainReconcileDepth.Value > 0)
+            return false;
+        UncertainReconcileDepth.Value = 1;
+        return true;
+    }
+
+    internal static void EndUncertainReconcile() => UncertainReconcileDepth.Value = 0;
+
+    internal static bool BatchLooksAccepted(
+        int? rowCount,
+        int targetReady,
+        bool episodesOnPage,
+        bool namesInBody,
+        bool uploadActivity) =>
+        episodesOnPage ||
+        namesInBody ||
+        uploadActivity ||
+        (targetReady > 0 && rowCount >= targetReady);
 
     internal static bool ShouldUseBatchedUpload(TikTokPublishOptions options, int fileCount)
     {
@@ -154,12 +178,12 @@ public static class TikTokBatchUploadService
                 else
                 {
                     // 文件选择命令成功返回后，页面可能只是延迟渲染视频行。此时再次选择
-                    // 同一批会把已经被平台接收的文件重复加入列表。状态不确定时必须失败
-                    // 关闭，交给下一次编辑流程先核对并修复列表，不能盲目重传。
-                    throw new InvalidOperationException(
+                    // 同一批会把已经被平台接收的文件重复加入列表。确认超时后只重读编辑页，
+                    // 由对齐逻辑补真正缺失的集，不在同一次选择里重传本批。
+                    throw new BatchUploadAcceptanceUncertainException(
                         $"TikTok 分批上传状态不确定：第 {batchIndex + 1} 批（{labels}）" +
-                        "执行文件选择后，页面未在确认时间内显示对应视频行。" +
-                        "已停止自动重选，避免重复上传；请重新执行编辑，程序会先检查并修复重复或乱序集数。");
+                        $"执行文件选择后，{BatchAcceptanceTimeoutSeconds} 秒内页面仍未显示对应视频行。" +
+                        "已停止自动重选，避免重复上传。");
                 }
                 if (attempt >= maxRetries)
                 {
@@ -198,13 +222,13 @@ public static class TikTokBatchUploadService
 
         log?.Invoke($"已向浏览器选择本批 {batch.Count} 个文件，正在确认 TikTok 页面已接收。");
         await page.WaitForTimeoutAsync(1500);
-        if (await WaitForBatchAcceptedAsync(page, batch, targetReady, ct))
+        if (await WaitForBatchAcceptedAsync(page, batch, targetReady, log, ct))
         {
             log?.Invoke($"TikTok 页面已接收本批 {batch.Count} 个文件。");
             return true;
         }
 
-        log?.Invoke("⚠️ 文件选择命令已执行，但 TikTok 页面未出现本批视频行或上传状态，按未接收处理。");
+        log?.Invoke("⚠️ 文件选择命令已执行，延长确认后页面仍未出现本批视频行或上传状态。");
         return false;
     }
 
@@ -212,17 +236,27 @@ public static class TikTokBatchUploadService
         IPage page,
         IReadOnlyList<string> batch,
         int targetReady,
+        Action<string>? log,
         CancellationToken ct,
-        int timeoutSeconds = 25)
+        int timeoutSeconds = BatchAcceptanceTimeoutSeconds)
     {
         var names = batch
             .Select(path => Path.GetFileNameWithoutExtension(path))
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToArray();
-        var deadline = DateTime.UtcNow.AddSeconds(Math.Max(5, timeoutSeconds));
+        var started = DateTime.UtcNow;
+        var deadline = started.AddSeconds(Math.Max(5, timeoutSeconds));
+        var loggedExtension = false;
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
+            if (!loggedExtension && (DateTime.UtcNow - started).TotalSeconds >= BatchAcceptanceExtendLogSeconds)
+            {
+                loggedExtension = true;
+                log?.Invoke("本批可能已接收，延长确认。");
+            }
+
+            await TikTokBrowserActions.ScrollEpisodeListToEndAsync(page);
             string bodyText;
             try { bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 }); }
             catch { bodyText = ""; }
@@ -234,10 +268,8 @@ public static class TikTokBatchUploadService
             var batchEpisodes = batch.Select(EpisodeNumber).Where(episode => episode > 0).ToArray();
             // 别的集（例如更早失败、卡片上仍写着「上传失败」的第 11 集）不能把本批判成没接收。
             // 本批卡片已经出现，包括「处理中」或本批自己的「上传失败」，都说明文件已被页面收下。
-            if (TikTokUploadProgressParser.CurrentBatchUploadFailed(cardTexts, batchEpisodes) ||
-                TikTokUploadProgressParser.BatchEpisodesAreOnPage(cardTexts, batchEpisodes))
-                return true;
-
+            var episodesOnPage = TikTokUploadProgressParser.CurrentBatchUploadFailed(cardTexts, batchEpisodes) ||
+                                 TikTokUploadProgressParser.BatchEpisodesAreOnPage(cardTexts, batchEpisodes);
             var rowCount = await ReadUploadTableRowCountAsync(page);
             if (rowCount > targetReady)
             {
@@ -245,12 +277,14 @@ public static class TikTokBatchUploadService
                     $"TikTok 本批上传后正片表格已有 {rowCount} 行，超过本批目标 {targetReady} 行。" +
                     "已立即停止后续批次，避免继续产生重复视频；请重新执行编辑，程序会清空正片后从第1集重传。");
             }
-            if (rowCount >= targetReady ||
-                names.Any(name => bodyText.Contains(name, StringComparison.OrdinalIgnoreCase)))
-                return true;
 
             var activity = TikTokUploadProgressParser.DetectUploadActivity(bodyText, cardTexts);
-            if (activity.Uploading || activity.WaitingCount > 0)
+            if (BatchLooksAccepted(
+                    rowCount,
+                    targetReady,
+                    episodesOnPage,
+                    names.Any(name => bodyText.Contains(name, StringComparison.OrdinalIgnoreCase)),
+                    activity.Uploading || activity.WaitingCount > 0))
                 return true;
 
             await page.WaitForTimeoutAsync(500);
@@ -659,6 +693,11 @@ public static class TikTokBatchUploadService
     {
         var match = EpisodeNumberPattern.Match(Path.GetFileName(path));
         return match.Success && int.TryParse(match.Groups[1].Value, out var n) ? n : 0;
+    }
+
+    internal sealed class BatchUploadAcceptanceUncertainException : InvalidOperationException
+    {
+        public BatchUploadAcceptanceUncertainException(string message) : base(message) { }
     }
 
     private enum BatchWaitOutcome
