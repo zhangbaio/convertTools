@@ -340,16 +340,10 @@ public partial class MainWindow : Window
     public void BindAnalytics(AnalyticsViewModel analyticsViewModel, MainWindowViewModel mainViewModel)
     {
         analyticsViewModel.Bind(
-            () => WeixinPublisherView.AccountProfiles
-                .Select(account => new AnalyticsAccount(account.Id, PublishPlatform.WeixinChannel, account.Name, account.ProfileDir))
-                .Concat(mainViewModel.ListAnalyticsAccounts().Where(account => account.Platform != PublishPlatform.WeixinChannel))
+            () => mainViewModel.ListAnalyticsAccounts()
+                .Where(account => account.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
                 .ToArray(),
-            async (accountId, cancellationToken) =>
-            {
-                if (mainViewModel.IsBusy || WeixinPublisherView.HasActivePublish)
-                    throw new InvalidOperationException("当前有发布任务运行，暂时不能采集视频号数据。");
-                return await WeixinPublisherView.EnsureAccountCdpEndpointAsync(accountId, cancellationToken);
-            });
+            account => mainViewModel.IsKuaishouPublishRunning(account.Id, account.Platform));
         AnalyticsPage.DataContext = analyticsViewModel;
     }
 

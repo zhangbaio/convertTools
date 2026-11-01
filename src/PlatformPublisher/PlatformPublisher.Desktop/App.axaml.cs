@@ -141,6 +141,7 @@ public partial class App : Application
         services.AddSingleton<YunfanAnalyticsImporter>();
         services.AddSingleton<WeixinAnalyticsCollector>();
         services.AddSingleton<KuaishouAnalyticsCollector>();
+        services.AddSingleton<KuaishouWorksPlayCollector>();
         services.AddSingleton<WeixinWorkflowSettingsStore>();
         services.AddSingleton<LegacyAccountSessionImportService>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();

@@ -1653,6 +1653,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ? KuaishouRunKey(_activeGlobalAccount.Id, SelectedPlatform.Value)
             : null;
 
+    public bool IsKuaishouPublishRunning(string accountId, PublishPlatform platform) =>
+        IsKuaishouAccountRunning(KuaishouRunKey(accountId, platform));
+
     private bool IsKuaishouAccountRunning(string? key)
     {
         if (string.IsNullOrWhiteSpace(key))
