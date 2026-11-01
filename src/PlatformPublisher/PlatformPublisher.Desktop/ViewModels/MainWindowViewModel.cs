@@ -601,11 +601,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RefreshVisibleJobs();
     }
 
-    private HashSet<string> KuaishouJobDirectories(PublishPlatform platform) =>
-        _jobs
-            .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
-            .Select(job => Path.GetFullPath(job.ProjectDirectory))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> KuaishouJobDirectories(PublishPlatform platform)
+    {
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var job in _jobs.ToArray())
+        {
+            if (job.Platform != platform || job.Kind != PublishJobKind.Series || string.IsNullOrWhiteSpace(job.ProjectDirectory))
+                continue;
+            try
+            {
+                directories.Add(Path.GetFullPath(job.ProjectDirectory));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+            {
+            }
+        }
+
+        return directories;
+    }
 
     public DramaSourceConfigurationStatus GetDramaSourceConfigurationStatus()
     {
@@ -1233,17 +1246,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private IEnumerable<(string Directory, string Name)> SeedKuaishouProjectsFromOtherEdition(
+    private List<(string Directory, string Name)> SeedKuaishouProjectsFromOtherEdition(
         string rootDirectory,
         PublishPlatform platform,
         HashSet<string> existing)
     {
+        var seeded = new List<(string Directory, string Name)>();
         var other = platform == PublishPlatform.KuaishouEnterpriseRevenue
             ? PublishPlatform.KuaishouPersonalRevenue
             : PublishPlatform.KuaishouEnterpriseRevenue;
         var root = rootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        foreach (var job in _jobs.Where(job => job.Platform == other && job.Kind == PublishJobKind.Series))
+        // 先复制再添加。添加时会改 _jobs，不能边遍历边写。
+        foreach (var job in _jobs.ToArray())
         {
+            if (job.Platform != other || job.Kind != PublishJobKind.Series)
+                continue;
             string directory;
             try
             {
@@ -1261,8 +1278,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 continue;
             }
 
-            yield return (directory, string.IsNullOrWhiteSpace(job.ProjectName) ? Path.GetFileName(directory) : job.ProjectName);
+            seeded.Add((directory, string.IsNullOrWhiteSpace(job.ProjectName) ? Path.GetFileName(directory) : job.ProjectName));
         }
+
+        return seeded;
     }
 
     private int AddKuaishouJobs(
@@ -3892,8 +3911,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         void Refresh()
         {
             _kuaishouListedMisses.Clear();
+            var jobs = _jobs.ToArray();
             var rows = new List<PublishJobRowViewModel>();
-            foreach (var job in _jobs
+            foreach (var job in jobs
                          .Where(job => job.Platform == SelectedPlatform.Value)
                          .Where(job => !IsKuaishouPlatform ||
                                        IsKuaishouJobListed(DraftProjectDirectory, job.ProjectDirectory))
@@ -3914,7 +3934,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 rows.Add(RowForJob(job));
             }
 
-            var liveIds = _jobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var liveIds = jobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var stale in _jobRowCache.Keys.Where(id => !liveIds.Contains(id)).ToArray())
                 _jobRowCache.Remove(stale);
 

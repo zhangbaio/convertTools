@@ -42,7 +42,9 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     {
         get
         {
-            var count = _kuaishou?.EpisodeCount ?? _tableInfo.EpisodeCount;
+            var count = _kuaishou?.EpisodeCount ?? 0;
+            if (count <= 0)
+                count = _tableInfo.EpisodeCount;
             return count > 0 ? count.ToString() : "-";
         }
     }
