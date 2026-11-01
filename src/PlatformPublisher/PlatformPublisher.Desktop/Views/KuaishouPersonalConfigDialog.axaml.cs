@@ -17,8 +17,11 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private PublishPlatform _platform = PublishPlatform.KuaishouPersonalRevenue;
     private ChannelsAccount? _account;
     private string _cleanJson = "";
+    private string _cleanEdition = "";
     private bool _suspendDirty;
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
+    public event Func<ChannelsAccount, string, Task<bool>>? ConfirmAccountEdition;
+    public event Func<ChannelsAccount, string, Task>? AccountEditionApplied;
     private readonly ObservableCollection<DistributorAccountEditorRow> _distributorAccounts = [];
 
     public KuaishouPersonalConfigDialog()
@@ -60,6 +63,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void LoadValues()
     {
+        var edition = _account?.KuaishouAccountEdition ?? "";
+        EditionPersonalBox.IsChecked = string.Equals(edition, "personal", StringComparison.OrdinalIgnoreCase);
+        EditionEnterpriseBox.IsChecked = string.Equals(edition, "enterprise", StringComparison.OrdinalIgnoreCase);
         ApiBaseUrlBox.Text = _config.ApiBaseUrl;
         AdvertiserIdBox.Text = FirstNonEmpty(_config.AdvertiserId, _config.KuaishouId);
         NicknameBox.Text = _config.KuaishouNickname;
@@ -665,6 +671,23 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             return false;
         }
         if (!ApplyToConfig()) return false;
+        var edition = SelectedEdition();
+        var editionChanged = !string.Equals(edition, _account.KuaishouAccountEdition ?? "", StringComparison.OrdinalIgnoreCase);
+        if (editionChanged)
+        {
+            if (string.IsNullOrWhiteSpace(edition))
+            {
+                ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+                ValidationText.Text = "请选择账号类型。";
+                return false;
+            }
+            if (ConfirmAccountEdition is null || !await ConfirmAccountEdition(_account, edition))
+            {
+                ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+                ValidationText.Text = "账号类型未保存。";
+                return false;
+            }
+        }
         var issues = KuaishouConfigurationValidator.Validate(_config);
         if (issues.Count > 0)
         {
@@ -678,6 +701,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
         ValidationText.Text = "已保存。";
         if (ConfigSaved is not null) await ConfigSaved(_account.Id, _platform, path);
+        if (editionChanged && AccountEditionApplied is not null)
+            await AccountEditionApplied(_account, edition);
+        _cleanEdition = edition;
         return true;
     }
 
@@ -709,14 +735,25 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     public string? AccountId => _account?.Id;
     public PublishPlatform CurrentPlatform => _platform;
 
+    private string SelectedEdition() =>
+        EditionEnterpriseBox.IsChecked == true ? "enterprise"
+        : EditionPersonalBox.IsChecked == true ? "personal"
+        : "";
+
     private bool HasUnsavedChanges()
     {
         if (_suspendDirty) return false;
+        if (!string.Equals(SelectedEdition(), _cleanEdition, StringComparison.OrdinalIgnoreCase))
+            return true;
         if (!ApplyToConfig()) return true;
         return JsonSerializer.Serialize(_config) != _cleanJson;
     }
 
-    private void CaptureClean() => _cleanJson = JsonSerializer.Serialize(_config);
+    private void CaptureClean()
+    {
+        _cleanJson = JsonSerializer.Serialize(_config);
+        _cleanEdition = SelectedEdition();
+    }
 
     private void UpdateHeading()
     {

@@ -8,9 +8,8 @@
         <Border Classes="panel" Padding="12">
             <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Button x:Name="PersonalTab" Content="快手分账个人版" Click="OnPersonalTabClick" Classes="secondaryAction" />
-                    <Button x:Name="EnterpriseTab" Content="快手分账企业版" Click="OnEnterpriseTabClick" Classes="secondaryAction" />
-                    <TextBlock Text="{Binding ArchivedProjectsSummary}" VerticalAlignment="Center" Margin="8,0,0,0" />
+                    <TextBlock Text="{Binding KuaishouEditionHeading}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding ArchivedProjectsSummary}" VerticalAlignment="Center" />
                 </StackPanel>
                 <Button Grid.Column="1" x:Name="ReturnButton" Content="返回快手分账" Click="OnReturnClick" Classes="secondaryAction" />
                 <Button Grid.Column="2" Content="刷新" Click="OnRefreshClick" Classes="secondaryAction" />
@@ -25,7 +24,7 @@
             </Grid>
         </Border>
         <Border Grid.Row="2" Classes="panel" Padding="10">
-            <TextBlock Text="个人版和企业版分开保存归档目录。目录结构为 source、workflow、meta。回退会把目录移回原来的工作区，原位置已有同名目录时不会覆盖。"
+            <TextBlock Text="归档目录跟当前账号类型走。目录结构为 source、workflow、meta。回退会把目录移回原来的工作区，原位置已有同名目录时不会覆盖。"
                        TextWrapping="Wrap" Foreground="#64748B" />
         </Border>
         <Border Grid.Row="3" Classes="panel" ClipToBounds="True">

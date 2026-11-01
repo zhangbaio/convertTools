@@ -89,9 +89,8 @@ public partial class KuaishouQueueLogView : UserControl
     public void Refresh()
     {
         if (_vm is null) return;
-        var personal = _vm.IsKuaishouPersonalPlatform;
-        TitleLabel.Text = personal ? "快手分账 · 个人" : "快手分账 · 企业";
-        ReturnButton.Content = personal ? "返回快手分账个人" : "返回快手分账企业";
+        TitleLabel.Text = _vm.KuaishouEditionHeading;
+        ReturnButton.Content = "返回快手分账";
         WorkspaceLabel.Text = string.IsNullOrWhiteSpace(_vm.DraftProjectDirectory)
             ? "工作目录：未选择"
             : $"工作目录：{_vm.DraftProjectDirectory}";

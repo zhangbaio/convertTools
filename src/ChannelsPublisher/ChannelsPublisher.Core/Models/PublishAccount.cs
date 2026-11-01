@@ -35,6 +35,8 @@ public sealed class PublishAccount
     public string WeixinAuthStatePath { get; set; } = "";
     public string KuaishouPersonalAuthStatePath { get; set; } = "";
     public string KuaishouEnterpriseAuthStatePath { get; set; } = "";
+    /// <summary>快手分账账号类型：personal、enterprise。空表示未设置，不能生成产物或上传。</summary>
+    public string KuaishouAccountEdition { get; set; } = "";
     public DateTimeOffset? LegacySessionImportedAt { get; set; }
 
     /// <summary>运行期状态，不持久化。</summary>

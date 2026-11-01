@@ -62,17 +62,15 @@ public sealed partial class AccountItemViewModel : ViewModelBase
         _ => "离线",
     };
 
-    public string PlatformSummary
-    {
-        get
-        {
-            var personal = !string.IsNullOrWhiteSpace(Model.KuaishouPersonalAccount) ||
-                           !string.IsNullOrWhiteSpace(Model.KuaishouPersonalConfigPath);
-            var enterprise = !string.IsNullOrWhiteSpace(Model.KuaishouEnterpriseAccount) ||
-                             !string.IsNullOrWhiteSpace(Model.KuaishouEnterpriseConfigPath);
-            return $"视频号：{StatusText} · 快手个人：{(personal ? "已配置" : "未配置")} · 快手企业：{(enterprise ? "已配置" : "未配置")}";
-        }
-    }
+    public string PlatformSummary =>
+        $"视频号：{StatusText} · 快手分账：{KuaishouEditionLabel(Model.KuaishouAccountEdition)}";
+
+    public void NotifyKuaishouEditionChanged() => OnPropertyChanged(nameof(PlatformSummary));
+
+    private static string KuaishouEditionLabel(string? edition) =>
+        string.Equals(edition, "enterprise", StringComparison.OrdinalIgnoreCase) ? "企业版"
+        : string.Equals(edition, "personal", StringComparison.OrdinalIgnoreCase) ? "个人版"
+        : "未设置";
 
     partial void OnNameChanged(string value) => Model.Name = value;
     partial void OnNicknameChanged(string value) => Model.Nickname = value;

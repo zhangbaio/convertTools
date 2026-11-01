@@ -6,14 +6,24 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel Spacing="3">
                 <TextBlock x:Name="AccountHeading" Text="快手分账配置" FontSize="20" FontWeight="Bold" Foreground="#0B74D1" />
-                <TextBlock x:Name="AccountHint" Text="每个账号只保存一份快手分账配置。个人版和企业版队列都使用这份配置。" Foreground="#64748B" TextWrapping="Wrap" />
+                <TextBlock x:Name="AccountHint" Text="每个账号只保存一份快手分账配置。账号类型决定生成产物和上传走个人版还是企业版。" Foreground="#64748B" TextWrapping="Wrap" />
             </StackPanel>
         </Grid>
 
         <TabControl Grid.Row="1">
             <TabItem Header="登录授权">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                    <StackPanel Margin="16" Spacing="14">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="账号类型" FontWeight="SemiBold" />
+                        <StackPanel Orientation="Horizontal" Spacing="18">
+                            <RadioButton x:Name="EditionPersonalBox" Content="个人版" GroupName="KuaishouAccountEdition" />
+                            <RadioButton x:Name="EditionEnterpriseBox" Content="企业版" GroupName="KuaishouAccountEdition" />
+                        </StackPanel>
+                        <TextBlock Text="未选择时不能生成产物或上传。改成另一种类型会删除另一版本的任务记录，不删除项目文件。"
+                                   Foreground="#64748B" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
                         <TextBlock Text="API Base URL" VerticalAlignment="Center" />
                         <TextBox x:Name="ApiBaseUrlBox" Grid.Column="1" />
                         <TextBlock Grid.Row="1" Text="用户快手号 ID" VerticalAlignment="Center" />
@@ -42,6 +52,7 @@
                         <TextBlock Grid.Row="13" Text="Token Header" VerticalAlignment="Center" />
                         <TextBox x:Name="TokenHeaderBox" Grid.Row="13" Grid.Column="1" />
                     </Grid>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

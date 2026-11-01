@@ -18,6 +18,7 @@ namespace TikTokPublisher.Ui.ViewModels;
 
 public static class DramaQueuePlatforms
 {
+    public const string Kuaishou = "kuaishou";
     public const string KuaishouPersonal = "kuaishou-personal";
     public const string KuaishouEnterprise = "kuaishou-enterprise";
     public const string Weixin = "weixin";

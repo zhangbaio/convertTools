@@ -82,8 +82,7 @@
                     <StackPanel Orientation="Horizontal" Margin="10,0">
                         <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
                         <Button x:Name="DramaDownloadNavButton" Classes="nav" Content="短剧下载" Click="OnDramaDownloadNavClick" />
-                        <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
-                        <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
+                        <Button x:Name="KuaishouNavButton" Classes="nav" Content="快手分账" Click="OnKuaishouNavClick" />
                         <Button x:Name="KuaishouConfigNavButton" Classes="nav" Content="快手分账配置" Click="OnKuaishouConfigNavClick" />
                         <Button x:Name="KuaishouArchiveNavButton" Classes="nav" Content="已归档项目" Click="OnKuaishouArchiveNavClick" />
                         <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />

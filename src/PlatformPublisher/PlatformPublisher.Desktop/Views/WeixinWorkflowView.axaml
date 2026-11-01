@@ -219,6 +219,14 @@
     <Grid RowDefinitions="Auto,Auto,Auto,*,30" RowSpacing="8">
         <Border x:Name="KuaishouChrome" Grid.Row="0" Grid.RowSpan="3" Classes="panel" Padding="8" IsVisible="False">
             <StackPanel Spacing="8">
+                <Border Background="#FFF7ED" BorderBrush="#FDBA74" BorderThickness="1" CornerRadius="6" Padding="10"
+                        IsVisible="{Binding ShowKuaishouEditionPrompt}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="请先在快手分账配置中选择账号类型。" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        <Button Grid.Column="1" Content="去配置" Click="OnKuaishouConfigClick" Margin="12,0,0,0" Classes="primaryAction compactAction" />
+                    </Grid>
+                </Border>
+                <TextBlock Text="{Binding KuaishouEditionHeading}" FontWeight="SemiBold" Foreground="#0B74D1" />
                 <Grid ColumnDefinitions="64,*,Auto" ColumnSpacing="8">
                     <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                     <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}" Watermark="选择快手分账工作目录" />

@@ -201,6 +201,8 @@ public partial class App : Application
         services.AddSingleton<KuaishouDistributionService>();
         services.AddSingleton<KuaishouOnlineQueueStore>();
         services.AddSingleton<KuaishouOnlineQueueProcessor>();
+        services.AddSingleton<IKuaishouAccountEditionCatalog>(provider =>
+            new GlobalKuaishouAccountEditionCatalog(provider.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>()));
         services.AddSingleton<KuaishouOnlineQueueWorker>();
         services.AddSingleton<KuaishouPersonalUploadService>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouPersonalPublishAdapter>();
