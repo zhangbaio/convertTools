@@ -331,6 +331,13 @@
                             </StackPanel>
                         </Grid>
 
+                        <Separator Margin="0,4" />
+
+                        <TextBlock Text="红果APP下载" FontWeight="Bold" />
+                        <TextBlock Text="搜索、分集目录和播放地址走红果标准版接口，账号和密码使用上面的红果短剧助手。加密视频会用返回的媒体密钥解密。红果短剧下载器本身仍只走链路 1。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
+
                         <Separator Margin="0,4" IsVisible="False" />
 
                         <TextBlock Text="海外短剧下载器（v2.4.0）" FontWeight="Bold" IsVisible="False" />

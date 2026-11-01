@@ -87,6 +87,7 @@ public sealed class DramaSourceConfigurationValidatorTests
         Assert.Equal("hglocal", VisibleDramaSource.Normalize("hglocal"));
         Assert.Equal("pikachu", VisibleDramaSource.Normalize("pikachu"));
         Assert.Equal("playlet", VisibleDramaSource.Normalize("playlet"));
+        Assert.Equal("hongguoapp", VisibleDramaSource.Normalize("hongguoapp"));
         Assert.Equal("dramabox", VisibleDramaSource.Normalize("dramabox"));
     }
 

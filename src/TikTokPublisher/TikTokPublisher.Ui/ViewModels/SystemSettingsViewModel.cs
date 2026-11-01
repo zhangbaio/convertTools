@@ -236,6 +236,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         "hglocal",
         "pikachu",
         "playlet",
+        "hongguoapp",
         "dramabox"
     ];
 
