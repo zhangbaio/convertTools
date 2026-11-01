@@ -82,20 +82,63 @@ public sealed class KuaishouPersonalEpisodeUploadService
             await page.WaitForTimeoutAsync(1000);
         }
 
-        if (!await ClickVisibleAsync(page, ["批量设置"], 8_000))
-            throw new InvalidOperationException("未找到单集信息“批量设置”按钮。");
-        var dialog = await MarkOverlayAsync(page, "选择集数", 8_000);
-        var queries = await VisibleQueryInputsAsync(dialog);
-        if (queries.Count < 2) throw new InvalidOperationException("批量设置弹窗未找到集数选择器。");
-        await SelectQueryOptionAsync(page, queries[0], "第1集");
-        await SelectQueryOptionAsync(page, queries[1], $"第{episodeCount}集");
-        await page.WaitForTimeoutAsync(400);
-        var titleInput = dialog.Locator("input[placeholder*=标题], input[placeholder*=单集]").Last;
-        if (await titleInput.CountAsync() > 0) await titleInput.FillAsync(data.Title);
-        if (config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)
-            await ConfigureEnterpriseEpisodePriceAsync(dialog, config);
         if (string.IsNullOrWhiteSpace(data.VerticalCoverPath) || !File.Exists(data.VerticalCoverPath))
-            throw new FileNotFoundException("缺少快手个人版竖屏单集封面。", data.VerticalCoverPath);
+            throw new FileNotFoundException("缺少快手竖屏单集封面。", data.VerticalCoverPath);
+        var enterprise = config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue;
+        string? gap = null;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!await ClickVisibleAsync(page, ["批量设置"], 8_000))
+                throw new InvalidOperationException("未找到单集信息“批量设置”按钮。");
+            var dialog = await MarkOverlayAsync(page, "选择集数", 8_000);
+            var queries = await VisibleQueryInputsAsync(dialog);
+            if (queries.Count < 2) throw new InvalidOperationException("批量设置弹窗未找到集数选择器。");
+            await SelectQueryOptionAsync(page, queries[0], "第1集");
+            await SelectQueryOptionAsync(page, queries[1], $"第{episodeCount}集");
+            await page.WaitForTimeoutAsync(400);
+            await UploadBatchCoverAsync(dialog, data.VerticalCoverPath);
+            // 企业版第二次重试不再缩小，避免把已经裁好的封面再次裁小。
+            var shrinkClicks = !enterprise || attempt == 0 ? 18 : 0;
+            await HandleCropDialogAsync(page, shrinkClicks, cancellationToken);
+            // 裁剪弹窗关闭会重绘批量设置，先填的标题会被清空，封面数据键也要等预览出现后再确认。
+            await page.WaitForTimeoutAsync(400);
+            dialog = await MarkOverlayAsync(page, "选择集数", 8_000);
+            await FillBatchEpisodeTitleAsync(dialog, data.Title);
+            if (enterprise)
+                await ConfigureEnterpriseEpisodePriceAsync(dialog, config);
+            var previewReady = await WaitForBatchCoverPreviewAsync(page, cancellationToken);
+            if (!previewReady)
+            {
+                try { await page.Keyboard.PressAsync("Escape"); } catch (PlaywrightException) { /* 弹窗已经关闭。 */ }
+                if (attempt == 0) continue;
+                throw new InvalidOperationException("批量设置弹窗中的单集封面预览未就绪。");
+            }
+
+            await page.WaitForTimeoutAsync(1500);
+            await ClickDialogConfirmAsync(dialog);
+            if (!await WaitForBatchDialogClosedAsync(page))
+                throw new InvalidOperationException("批量设置弹窗确认后仍未关闭。");
+            var status = await ReadEpisodeInfoStatusAsync(page);
+            if (status.Episodes > 0 && status.MissingTitles == 0 && status.MissingCovers == 0)
+            {
+                gap = null;
+                break;
+            }
+
+            gap = status.Episodes <= 0
+                ? "页面上没有读到单集卡片"
+                : $"当前可见 {status.Episodes} 集，缺标题 {status.MissingTitles} 集，缺封面 {status.MissingCovers} 集";
+            if (attempt == 0) continue;
+            throw new InvalidOperationException($"批量设置未应用到单集信息：{gap}。");
+        }
+
+        if (enterprise)
+            await ConfirmEnterpriseFreeEpisodeWarningAsync(page);
+    }
+
+    private static async Task UploadBatchCoverAsync(ILocator dialog, string coverPath)
+    {
         var markedCover = await dialog.EvaluateAsync<bool>(
             """
             (el) => {
@@ -123,14 +166,54 @@ public sealed class KuaishouPersonalEpisodeUploadService
             }
             """);
         if (!markedCover) throw new InvalidOperationException("批量设置弹窗未找到单集封面上传入口。");
-        await page.Locator("input[type=file][data-kuaishou-batch-cover='1']").First.SetInputFilesAsync(data.VerticalCoverPath);
-        await HandleCropDialogAsync(page, 18, cancellationToken);
-        await ClickDialogConfirmAsync(dialog);
-        var closed = false;
+        await dialog.Page.Locator("input[type=file][data-kuaishou-batch-cover='1']").First.SetInputFilesAsync(coverPath);
+    }
+
+    private static async Task FillBatchEpisodeTitleAsync(ILocator dialog, string title)
+    {
+        var titleInput = dialog.Locator("input[placeholder*='单集标题'], input[placeholder*='标题']").Last;
+        if (await titleInput.CountAsync() == 0)
+            throw new InvalidOperationException("批量设置弹窗未找到单集标题输入框。");
+        await titleInput.FillAsync(title);
+        var actual = (await titleInput.InputValueAsync()).Trim();
+        if (string.IsNullOrWhiteSpace(actual))
+            throw new InvalidOperationException("批量设置的单集标题填写后仍为空。");
+    }
+
+    private static async Task<bool> WaitForBatchCoverPreviewAsync(IPage page, CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var ready = await page.EvaluateAsync<bool>(
+                """
+                () => {
+                  const visible = element => {
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                  };
+                  const dialogs = Array.from(document.querySelectorAll('.ks-dialog,[role="dialog"],.ant-modal')).filter(visible);
+                  const images = dialogs.flatMap(dialog => Array.from(dialog.querySelectorAll(
+                    '.batch-setting-dialog-form .cover-img img, .batch-setting-dialog-form img[alt="cropper-img"], .cover-img img, img[alt="cropper-img"]'
+                  )));
+                  return images.some(img => visible(img) && img.complete && img.naturalWidth > 0);
+                }
+                """);
+            if (ready) return true;
+            await page.WaitForTimeoutAsync(250);
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> WaitForBatchDialogClosedAsync(IPage page)
+    {
         for (var attempt = 0; attempt < 10; attempt++)
         {
             await page.WaitForTimeoutAsync(300);
-            closed = !await page.EvaluateAsync<bool>(
+            var open = await page.EvaluateAsync<bool>(
                 """
                 () => Array.from(document.querySelectorAll('div, span, label'))
                   .some(element => {
@@ -140,11 +223,86 @@ public sealed class KuaishouPersonalEpisodeUploadService
                       && (element.innerText || '').replace(/\s+/g, '') === '选择集数';
                   });
                 """);
-            if (closed) break;
+            if (!open) return true;
         }
-        if (!closed) throw new InvalidOperationException("批量设置弹窗确认后仍未关闭。");
-        if (config.StoragePlatform == PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)
-            await ConfirmEnterpriseFreeEpisodeWarningAsync(page);
+
+        return false;
+    }
+
+    private readonly record struct EpisodeInfoStatus(int Episodes, int MissingTitles, int MissingCovers);
+
+    private static async Task<EpisodeInfoStatus> ReadEpisodeInfoStatusAsync(IPage page)
+    {
+        var tabs = page.Locator(".set-list li");
+        var tabCount = 0;
+        try { tabCount = await tabs.CountAsync(); }
+        catch (PlaywrightException) { tabCount = 0; }
+        if (tabCount <= 1)
+            return await ReadVisibleEpisodeInfoAsync(page);
+
+        var episodes = 0;
+        var missingTitles = 0;
+        var missingCovers = 0;
+        for (var index = 0; index < tabCount; index++)
+        {
+            var tab = tabs.Nth(index);
+            try
+            {
+                if (!await tab.IsVisibleAsync()) continue;
+                await tab.ClickAsync(new LocatorClickOptions { Timeout = 3_000 });
+                await page.WaitForTimeoutAsync(250);
+            }
+            catch (PlaywrightException)
+            {
+                continue;
+            }
+
+            var status = await ReadVisibleEpisodeInfoAsync(page);
+            episodes += status.Episodes;
+            missingTitles += status.MissingTitles;
+            missingCovers += status.MissingCovers;
+        }
+
+        try
+        {
+            await tabs.First.ClickAsync(new LocatorClickOptions { Timeout = 3_000 });
+            await page.WaitForTimeoutAsync(250);
+        }
+        catch (PlaywrightException)
+        {
+            // 核对结束后回到第一页失败不影响提交流程。
+        }
+
+        return new EpisodeInfoStatus(episodes, missingTitles, missingCovers);
+    }
+
+    private static async Task<EpisodeInfoStatus> ReadVisibleEpisodeInfoAsync(IPage page)
+    {
+        var status = await page.EvaluateAsync<int[]>(
+            """
+            () => {
+              const visible = element => {
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+              };
+              const episodes = Array.from(document.querySelectorAll('.wrapper'))
+                .filter(item => item.querySelector('.episode-header') && visible(item));
+              let missingTitles = 0;
+              let missingCovers = 0;
+              for (const episode of episodes) {
+                const title = episode.querySelector('input[placeholder*="单集标题"], input[placeholder="请输入"]');
+                if (!String(title?.value || '').trim()) missingTitles += 1;
+                const cover = episode.querySelector('.cover-img img, img[class*="cover"], img[class*="preview"]');
+                const src = String(cover?.getAttribute('src') || '');
+                if (!cover || !src || src.startsWith('data:image/svg')) missingCovers += 1;
+              }
+              return [episodes.length, missingTitles, missingCovers];
+            }
+            """);
+        return status is { Length: 3 }
+            ? new EpisodeInfoStatus(status[0], status[1], status[2])
+            : new EpisodeInfoStatus(0, 0, 0);
     }
 
     private static async Task<IReadOnlyList<ILocator>> VisibleQueryInputsAsync(ILocator dialog)
@@ -523,6 +681,9 @@ public sealed class KuaishouPersonalEpisodeUploadService
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var fillError = await ReadEpisodeFillErrorAsync(page);
+            if (!string.IsNullOrWhiteSpace(fillError))
+                throw new InvalidOperationException($"快手单集信息未通过校验：{fillError}");
             if (await ConfirmNextStepDialogAsync(page))
             {
                 progress?.Report("快手分账个人版：已点击下一步确认弹窗。 ");
@@ -607,6 +768,36 @@ public sealed class KuaishouPersonalEpisodeUploadService
         catch (PlaywrightException)
         {
             return false;
+        }
+    }
+
+    private static async Task<string?> ReadEpisodeFillErrorAsync(IPage page)
+    {
+        try
+        {
+            var text = await page.EvaluateAsync<string>(
+                """
+                () => {
+                  const compact = value => String(value || '').replace(/\s+/g, '');
+                  const visible = element => {
+                    if (!element || !(element instanceof Element)) return false;
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+                  };
+                  const dialogs = Array.from(document.querySelectorAll(
+                    '.ks-dialog,.ks-message-box,.ant-modal,.el-dialog,[role="dialog"]'
+                  )).filter(element => visible(element) && compact(element.innerText).includes('信息填写错误'));
+                  if (dialogs.length === 0) return '';
+                  const message = compact(dialogs[0].innerText);
+                  return message.length > 240 ? message.slice(0, 240) : message;
+                }
+                """);
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+        catch (PlaywrightException)
+        {
+            return null;
         }
     }
 
