@@ -974,42 +974,75 @@ public sealed class KuaishouPersonalFirstPageService
 
     private static async Task<bool> ClickDropdownOptionOnceAsync(IPage page, string option)
     {
-        var point = await page.EvaluateAsync<double[]?>(
-            """
-            (optionText) => {
-              const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
-              const compact = value => normalize(value).replace(/\s+/g, '');
-              const target = normalize(optionText);
-              const compactTarget = compact(optionText);
-              if (!target) return null;
-              const visible = element => {
-                const rect = element.getBoundingClientRect();
-                const style = getComputedStyle(element);
-                return rect.width > 0 && rect.height > 0
-                  && rect.bottom >= 0 && rect.right >= 0
-                  && rect.top <= window.innerHeight && rect.left <= window.innerWidth
-                  && style.display !== 'none' && style.visibility !== 'hidden';
-              };
-              const popups = Array.from(document.querySelectorAll(
-                '.ks-select__popper,.ks-popper,.ant-select-dropdown,.el-select-dropdown,[role="listbox"]'
-              )).filter(visible);
-              for (const popup of popups) {
-                const options = Array.from(popup.querySelectorAll(
-                  'li.ks-select-dropdown__item,.ks-select-dropdown__item,[role="option"],.ant-select-item-option,.el-select-dropdown__item,li'
-                )).filter(visible);
-                const match = options.find(element => compact(element.innerText || element.textContent || '') === compactTarget);
-                if (!match) continue;
-                const rect = match.getBoundingClientRect();
-                return [rect.left + rect.width / 2, rect.top + rect.height / 2];
-              }
-              return null;
+        for (var attempt = 0; attempt < 16; attempt++)
+        {
+            var action = await page.EvaluateAsync<string?>(
+                """
+                (optionText) => {
+                  const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+                  const compact = value => normalize(value).replace(/\s+/g, '');
+                  const compactTarget = compact(optionText);
+                  if (!compactTarget) return '';
+                  const shown = element => {
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return rect.width > 0 && rect.height > 0
+                      && style.display !== 'none' && style.visibility !== 'hidden';
+                  };
+                  const inside = (element, popup) => {
+                    const rect = element.getBoundingClientRect();
+                    const box = popup.getBoundingClientRect();
+                    return rect.bottom > box.top + 1 && rect.top < box.bottom - 1
+                      && rect.right > box.left && rect.left < box.right;
+                  };
+                  const popups = Array.from(document.querySelectorAll(
+                    '.ks-select__popper,.ks-popper,.ant-select-dropdown,.el-select-dropdown,[role="listbox"]'
+                  )).filter(shown);
+                  const optionSelector = 'li.ks-select-dropdown__item,.ks-select-dropdown__item,[role="option"],.ant-select-item-option,.el-select-dropdown__item,li';
+                  for (const popup of popups) {
+                    const match = Array.from(popup.querySelectorAll(optionSelector))
+                      .find(element => compact(element.innerText || element.textContent || '') === compactTarget);
+                    if (!match) continue;
+                    if (!inside(match, popup)) {
+                      match.scrollIntoView({ block: 'nearest' });
+                      return 'scrolled';
+                    }
+                    const rect = match.getBoundingClientRect();
+                    return `click:${rect.left + rect.width / 2},${rect.top + rect.height / 2}`;
+                  }
+                  let moved = false;
+                  for (const popup of popups) {
+                    const scroller = popup.querySelector(
+                      '.ks-select-dropdown__wrap,.ks-scrollbar__wrap,.el-scrollbar__wrap,.rc-virtual-list-holder'
+                    ) || popup;
+                    const before = scroller.scrollTop;
+                    const max = scroller.scrollHeight - scroller.clientHeight;
+                    if (max <= 1 || before >= max - 1) continue;
+                    scroller.scrollTop = Math.min(max, before + Math.max(40, scroller.clientHeight * 0.8));
+                    if (scroller.scrollTop !== before) moved = true;
+                  }
+                  return moved ? 'scrolled' : '';
+                }
+                """,
+                option);
+            if (string.IsNullOrEmpty(action)) return false;
+            if (!action.StartsWith("click:", StringComparison.Ordinal))
+            {
+                await page.WaitForTimeoutAsync(60);
+                continue;
             }
-            """,
-            option);
-        if (point is not { Length: 2 }) return false;
-        await page.Mouse.ClickAsync((float)point[0], (float)point[1]);
-        await page.WaitForTimeoutAsync(200);
-        return true;
+
+            var parts = action["click:".Length..].Split(',');
+            if (parts.Length != 2 ||
+                !float.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ||
+                !float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var y))
+                return false;
+            await page.Mouse.ClickAsync(x, y);
+            await page.WaitForTimeoutAsync(200);
+            return true;
+        }
+
+        return false;
     }
 
     private static async Task SetCheckboxAsync(IPage page, IReadOnlyList<string> labels)
