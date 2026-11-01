@@ -104,6 +104,26 @@ public sealed class KuaishouTodayUploadCounterTests
     }
 
     [Fact]
+    public void Finished_run_counts_even_when_the_state_file_still_says_running()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var finished = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_已完成"));
+        var draft = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_草稿"));
+        File.WriteAllText(Path.Combine(finished.FullName, ".kuaishou-personal-upload-state.json"), """{"Status":"running"}""");
+        File.WriteAllText(Path.Combine(draft.FullName, ".kuaishou-personal-upload-state.json"), """{"Status":"draft_saved"}""");
+        var today = new DateTimeOffset(2026, 11, 1, 11, 0, 0, TimeSpan.FromHours(8));
+
+        KuaishouTodayUploadCounter.AppendRun(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", "快手分账个人", finished.FullName, succeeded: true, error: "", store);
+        KuaishouTodayUploadCounter.AppendRun(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", "快手分账个人", draft.FullName, succeeded: true, error: "", store);
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, today.Date, store));
+    }
+
+    [Fact]
     public void Excel_has_dashboard_and_timeline_sheets_for_the_current_edition()
     {
         var root = Directory.CreateTempSubdirectory();

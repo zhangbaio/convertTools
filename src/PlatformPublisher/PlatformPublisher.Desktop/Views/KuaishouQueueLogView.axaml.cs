@@ -6,7 +6,6 @@ using Avalonia.Controls.Documents;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using PlatformPublisher.Common.Models;
 using PlatformPublisher.Desktop.ViewModels;
 using TikTokPublisher.Core.Services;
 
@@ -111,7 +110,8 @@ public partial class KuaishouQueueLogView : UserControl
             {
                 if (string.IsNullOrWhiteSpace(project.ProjectName) || rows.Any(row => row.ProjectName == project.ProjectName))
                     continue;
-                rows.Add(new LogProjectRow(project.ProjectName, project.ProjectName, project.Tone));
+                var job = FindJob(project.ProjectName, project.ProjectDirectory);
+                rows.Add(new LogProjectRow(project.ProjectName, project.ProjectName, job is null ? project.Tone : ToneFromJob(job)));
             }
         }
         else
@@ -178,18 +178,62 @@ public partial class KuaishouQueueLogView : UserControl
         _syncingSelection = false;
     }
 
+    private PublishJobRowViewModel? FindJob(string projectName, string projectDirectory)
+    {
+        if (_vm is null)
+            return null;
+        return _vm.VisibleJobs.FirstOrDefault(job =>
+            string.Equals(job.ProjectName, projectName, StringComparison.Ordinal) ||
+            SameDirectory(job.ProjectDirectory, projectDirectory));
+    }
+
+    private static bool SameDirectory(string left, string right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+        {
+            return false;
+        }
+    }
+
     private static string ToneFromJob(PublishJobRowViewModel job)
     {
-        if (job.Model.Status == PublishJobStatus.Failed ||
-            job.Model.StepStates.Values.Any(step => step.Status == PublishJobStepStatus.Failed))
+        var statuses = new[]
+        {
+            job.StatusText,
+            job.DownloadStepStatus,
+            job.RewriteStepStatus,
+            job.PosterStepStatus,
+            job.ProjectImageStepStatus,
+            job.AutoFillStepStatus,
+            job.UploadStepStatus,
+        };
+        if (statuses.Any(IsFailedStatus))
             return "failed";
-        if (job.Model.Status == PublishJobStatus.Running ||
-            job.Model.StepStates.Values.Any(step => step.Status == PublishJobStepStatus.Running))
+        if (statuses.Any(IsRunningStatus))
             return "running";
-        if (job.Model.Status == PublishJobStatus.Succeeded)
+        if (IsSuccessStatus(job.StatusText) || IsSuccessStatus(job.UploadStepStatus))
             return "ok";
         return "waiting";
     }
+
+    private static bool IsFailedStatus(string status) =>
+        status.Contains("失败", StringComparison.Ordinal) || status is "异常" or "错误";
+
+    private static bool IsRunningStatus(string status) =>
+        status.StartsWith("进行中", StringComparison.Ordinal) ||
+        status is "执行中" or "上传中" or "发布中" or "等待槽位";
+
+    private static bool IsSuccessStatus(string status) =>
+        status.StartsWith("已完成", StringComparison.Ordinal) || status is "完成" or "成功";
 
     private IEnumerable<string> ReadLogLines()
     {
@@ -287,12 +331,12 @@ public partial class KuaishouQueueLogView : UserControl
     private void OnReturnClick(object? sender, RoutedEventArgs e) => ReturnRequested?.Invoke(this, EventArgs.Empty);
 
     private static readonly IBrush SuccessForeground = new SolidColorBrush(Color.Parse("#047857"));
-    private static readonly IBrush SuccessBackground = new SolidColorBrush(Color.Parse("#E8F7ED"));
+    private static readonly IBrush SuccessBackground = new SolidColorBrush(Color.Parse("#DDFBEA"));
     private static readonly IBrush FailedForeground = new SolidColorBrush(Color.Parse("#B42318"));
     private static readonly IBrush FailedBackground = new SolidColorBrush(Color.Parse("#FFE3E3"));
     private static readonly IBrush RunningForeground = new SolidColorBrush(Color.Parse("#075BC7"));
     private static readonly IBrush RunningBackground = new SolidColorBrush(Color.Parse("#DDEBFF"));
-    private static readonly IBrush WaitingForeground = new SolidColorBrush(Color.Parse("#8A4B00"));
+    private static readonly IBrush WaitingForeground = new SolidColorBrush(Color.Parse("#B45309"));
     private static readonly IBrush WaitingBackground = new SolidColorBrush(Color.Parse("#FFF2CC"));
     private static readonly IBrush DefaultForeground = new SolidColorBrush(Color.Parse("#334155"));
 

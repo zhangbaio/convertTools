@@ -68,6 +68,8 @@ public static class KuaishouTodayUploadCounter
         var rawStatus = succeeded
             ? FirstText(ReadString(state, "Status"), ReadString(state, "status"), "completed")
             : "failed";
+        if (succeeded && IsInProgressStatus(rawStatus))
+            rawStatus = "completed";
         var uploaded = ReadBool(state, "ReviewSubmitted") || ReadBool(state, "review_submitted")
             ? artifacts?.EpisodeCount.ToString() ?? ""
             : "";
@@ -302,6 +304,9 @@ public static class KuaishouTodayUploadCounter
             : "kuaishou_personal_upload_records.xlsx";
         return Path.Combine(root, name);
     }
+
+    private static bool IsInProgressStatus(string status) =>
+        status.Trim().ToLowerInvariant() is "running" or "uploading" or "publishing" or "preparing";
 
     private static string StatusLabel(string status)
     {

@@ -1821,6 +1821,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         ct);
                     SetKuaishouLogTone(item.directory, "ok");
                     RememberKuaishouUploadReport(item.directory, request, succeeded: true, error: "");
+                    if (IsViewingKuaishouRun(request))
+                        RefreshKuaishouTodayUploadCount();
                     var done = $"共享项目流水线完成：{Path.GetFileName(item.directory)}";
                     ReportRunStatus(done);
                     AppendActivityLog(done, projectName);
@@ -2286,7 +2288,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         if (row is not null)
-            PostUi(() => row.Refresh(reloadArtifacts: false));
+        {
+            var kuaishou = job.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue;
+            var reloadTitle = status == PublishJobStepStatus.Succeeded && kuaishou;
+            PostUi(() =>
+            {
+                row.Refresh(reloadArtifacts: reloadTitle);
+                if (kuaishou)
+                    NotifyKuaishouLogProjectsChanged();
+            });
+        }
     }
 
     private async Task RunMaterialAutoRepairAsync(

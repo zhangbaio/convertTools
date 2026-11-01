@@ -14,7 +14,6 @@
         </Style>
         <Style Selector="ListBox#ProjectList ListBoxItem:selected /template/ ContentPresenter">
             <Setter Property="Background" Value="#DDEEFF" />
-            <Setter Property="Foreground" Value="#23364D" />
         </Style>
         <Style Selector="ListBox#ProjectList ListBoxItem:selected:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="#DDEEFF" />
