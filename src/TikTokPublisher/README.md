@@ -52,3 +52,4 @@ dotnet run --project src\TikTokPublisher\TikTokPublisher.Desktop
 - 每账号独立 CDP 端口与静态 IP 代理
 - 队列 Worker（预处理 + upload_series）
 - 短剧下载 / AI 改写 / 海报（ShortDrama C#）
+- 红果 APP 下载的协议、两条取流链路和解密记录见 `src/ShortDrama/docs/hongguo/README.md`
