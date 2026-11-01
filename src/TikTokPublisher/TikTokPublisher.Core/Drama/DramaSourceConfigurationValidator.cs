@@ -35,7 +35,7 @@ public static class DramaSourceConfigurationValidator
             "hglocal" => Missing((settings.HongguoLocalBaseUrl, "本地服务地址")),
             "pikachu" => Missing((settings.PikachuServerUrl, "服务器地址")),
             "playlet" => Missing((settings.PlayletServerUrl, "服务器地址"), (settings.PlayletDeviceId, "设备号")),
-            "hongguoapp" => Missing((settings.HghighAccount, "账号"), (settings.HghighPassword, "密码")),
+            "hongguoapp" => [],
             "foreign" => Missing((settings.ForeignServerUrl, "服务器地址"), (settings.ForeignDeviceId, "设备号")),
             "dramabox" => Missing((settings.DramaBoxDeviceId, "设备ID")),
             "downloader" => Missing((settings.DownloaderApiBaseUrl, "下载器地址")),

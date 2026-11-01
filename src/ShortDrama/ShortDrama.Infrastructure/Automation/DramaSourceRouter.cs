@@ -48,6 +48,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private readonly HongguoDramaDownloader _hgnewDownloader;
     private readonly HongguoMemoryReaderService _hongguoMemoryReaderService;
     private readonly HongguoHighApiService _hghighApiService;
+    private readonly HongguoAppDirectClient _hongguoApp;
     private readonly MapleleafApiService _mapleleafApiService;
     private readonly DownloaderGatewayApiService _downloaderApiService;
     private readonly DramaBoxApiService _dramaBoxApiService;
@@ -114,6 +115,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         _hgnewDownloader = hgnewDownloader;
         _hongguoMemoryReaderService = hongguoMemoryReaderService;
         _hghighApiService = hghighApiService;
+        _hongguoApp = new HongguoAppDirectClient(httpClient);
         _mapleleafApiService = mapleleafApiService;
         _downloaderApiService = new DownloaderGatewayApiService(httpClient);
         _dramaBoxApiService = new DramaBoxApiService(httpClient);
@@ -2308,12 +2310,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken,
         string? searchCategory = null)
     {
-        var items = await _hghighApiService.SearchAsync(
-            ForHongguoApp(settings),
-            keyword,
-            page,
-            cancellationToken,
-            searchCategory);
+        var items = await _hongguoApp.SearchAsync(keyword, page, cancellationToken, searchCategory);
         return items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray();
     }
 
@@ -2731,7 +2728,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var bookId = prefixedBookId.StartsWith(HongguoAppBookPrefix, StringComparison.OrdinalIgnoreCase)
             ? prefixedBookId[HongguoAppBookPrefix.Length..]
             : prefixedBookId;
-        var items = await _hghighApiService.GetEpisodesAsync(ForHongguoApp(settings), bookId, cancellationToken);
+        var items = await _hongguoApp.GetEpisodesAsync(bookId, cancellationToken);
         return items
             .Select(item => new SourceEpisode(item.EpisodeNumber, item.Title, item.VideoId, item.PosterUrl))
             .ToArray();
@@ -2743,11 +2740,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
-        var detail = await _hghighApiService.GetVideoPlaybackAsync(
-            ForHongguoApp(settings),
-            prefixedVideoId,
-            quality,
-            cancellationToken);
+        var detail = await _hongguoApp.GetVideoPlaybackAsync(prefixedVideoId, quality, cancellationToken);
         return new SourceVideoDetail(
             detail.Url,
             HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),

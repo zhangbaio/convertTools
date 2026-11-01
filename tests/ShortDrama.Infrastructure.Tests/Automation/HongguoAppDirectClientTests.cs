@@ -1,0 +1,46 @@
+using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Automation;
+using Xunit;
+
+namespace ShortDrama.Infrastructure.Tests.Automation;
+
+public sealed class HongguoAppDirectClientTests
+{
+    [Fact]
+    public async Task LiveSearchEpisodesAndPlayback()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable("HONGUO_LIVE"), "1", StringComparison.Ordinal))
+            return;
+
+        using var http = new HttpClient();
+        var client = new HongguoAppDirectClient(http);
+        var items = await client.SearchAsync("长公主", 1, CancellationToken.None);
+        Assert.True(items.Count > 0);
+        var item = items.FirstOrDefault(candidate => candidate.Title.Contains("长公主", StringComparison.Ordinal)) ?? items[0];
+        var episodes = await client.GetEpisodesAsync(item.BookId, CancellationToken.None);
+        Assert.True(episodes.Count > 0);
+        Assert.True(HongguoHighCrypto.TryDecodeEpisodeId(episodes[0].VideoId, out _, out _, out var videoId));
+        var probe = await client.ProbePlaybackAsync(videoId, CancellationToken.None);
+        Assert.True(probe.Count >= 5);
+        Assert.True(probe.AllHaveUrl);
+        Assert.True(probe.AllHaveSpade);
+        var playback = await client.GetVideoPlaybackAsync(episodes[0].VideoId, "1080", CancellationToken.None);
+        Assert.True(playback.Encrypted);
+        Assert.True(playback.SpadeA.Length > 0);
+#pragma warning disable xUnit2009
+        Assert.True(playback.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+#pragma warning restore xUnit2009
+        Assert.True(playback.EncryptedUrls.Count > 0);
+    }
+
+    [Fact]
+    public async Task BookIdQuerySkipsNetwork()
+    {
+        using var http = new HttpClient();
+        var client = new HongguoAppDirectClient(http);
+        var items = await client.SearchAsync("1234567890123456", 1, CancellationToken.None, DramaSearchCategory.BookId);
+        Assert.Single(items);
+        Assert.Equal("1234567890123456", items[0].BookId);
+    }
+
+}

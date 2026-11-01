@@ -334,7 +334,7 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果APP下载" FontWeight="Bold" />
-                        <TextBlock Text="搜索、分集目录和播放地址走红果标准版接口，账号和密码使用上面的红果短剧助手。加密视频会用返回的媒体密钥解密。红果短剧下载器本身仍只走链路 1。"
+                        <TextBlock Text="搜索、分集和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单和漫剧上新仍使用上面的红果短剧助手账号。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
 
