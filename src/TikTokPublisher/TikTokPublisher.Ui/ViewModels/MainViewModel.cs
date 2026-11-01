@@ -206,6 +206,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool _todayUploadRefreshScheduled;
     private int _todayUploadRefreshGeneration;
     private int _pendingTodayUploadGeneration;
+    private int _appliedTodayUploadGeneration;
     private static readonly TimeSpan TodayUploadRefreshDelay = TimeSpan.FromMilliseconds(120);
     private readonly Dictionary<string, string> _lastProgressMessageByKey =
         new(StringComparer.OrdinalIgnoreCase);
@@ -917,8 +918,15 @@ public sealed partial class MainViewModel : ViewModelBase
 
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                if (generation == _todayUploadRefreshGeneration)
-                    TodayUploadCount = task.Result;
+                // 队列重新加载会再排一次统计。先到的结果只要还是当前账号就先显示，
+                // 更晚的一次算完后再覆盖，避免切账号后一直停在上一个数字。
+                if (!string.Equals(accountId, _pendingTodayUploadAccountId, StringComparison.Ordinal) ||
+                    !string.Equals(workspace, _pendingTodayUploadWorkspace, StringComparison.OrdinalIgnoreCase) ||
+                    generation < _appliedTodayUploadGeneration)
+                    return;
+
+                _appliedTodayUploadGeneration = generation;
+                TodayUploadCount = task.Result;
             });
         });
     }

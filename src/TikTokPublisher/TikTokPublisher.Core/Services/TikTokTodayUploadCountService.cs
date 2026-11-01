@@ -29,11 +29,20 @@ public static class TikTokTodayUploadCountService
 
         if (includeExecutionHistory)
         {
-            foreach (var snapshot in TikTokExecutionHistoryService.LoadProjectSnapshots(accountProfileId: accountId))
+            foreach (var stamp in TikTokExecutionHistoryService.ReadUploadCompletionStamps(accountProfileId: accountId))
             {
-                if (!WorkspaceMatches(workspace, snapshot.Workspace))
+                if (!WorkspaceMatches(workspace, stamp.Workspace))
                     continue;
-                AddQueueItemIfToday(seen, snapshot.Item, accountId, today);
+                AddQueueItemIfToday(seen, new QueueProjectItem
+                {
+                    AccountProfileId = stamp.AccountProfileId,
+                    AccountProfileName = stamp.AccountProfileName,
+                    ProjectDir = stamp.ProjectDir,
+                    OriginalTitle = stamp.OriginalTitle,
+                    NewTitle = stamp.NewTitle,
+                    DisplayName = stamp.DisplayName,
+                    UploadCompletedAt = stamp.UploadCompletedAt,
+                }, accountId, today);
             }
         }
 
