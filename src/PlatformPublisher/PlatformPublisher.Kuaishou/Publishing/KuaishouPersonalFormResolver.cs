@@ -98,12 +98,15 @@ public static class KuaishouPersonalFormResolver
     /// 上传时优先用项目补齐结果里的演员。姓名要来自演员库，角色要换成简介里的人物，
     /// 不能停在「演员A / 男主」这种占位。
     /// </summary>
-    public static IReadOnlyList<KuaishouPersonalActor> ResolveUploadActors(string? workflowDirectory, KuaishouPersonalConfig config)
+    public static IReadOnlyList<KuaishouPersonalActor> ResolveUploadActors(
+        string? workflowDirectory,
+        KuaishouPersonalConfig config,
+        bool enterprise = false)
     {
-        var prepared = ReadPreparedActors(workflowDirectory);
+        var prepared = ReadPreparedActors(workflowDirectory, enterprise);
         if (prepared.Count > 0) return prepared;
 
-        var characters = ReadPreparedCharacters(workflowDirectory);
+        var characters = ReadPreparedCharacters(workflowDirectory, enterprise);
         var selected = SelectLibraryActors(config, characters);
         return selected.Count > 0 ? selected : PlaceholderActors();
     }
@@ -146,9 +149,9 @@ public static class KuaishouPersonalFormResolver
         new("演员B", "女", "女主"),
     ];
 
-    private static IReadOnlyList<KuaishouPersonalActor> ReadPreparedActors(string? workflowDirectory)
+    private static IReadOnlyList<KuaishouPersonalActor> ReadPreparedActors(string? workflowDirectory, bool enterprise)
     {
-        if (!TryReadAutoFill(workflowDirectory, out var root) ||
+        if (!TryReadAutoFill(workflowDirectory, enterprise, out var root) ||
             !root.TryGetProperty("actor_info_list", out var actors) ||
             actors.ValueKind != System.Text.Json.JsonValueKind.Array)
             return [];
@@ -167,9 +170,9 @@ public static class KuaishouPersonalFormResolver
         return prepared;
     }
 
-    private static IReadOnlyList<(string Name, string Gender)> ReadPreparedCharacters(string? workflowDirectory)
+    private static IReadOnlyList<(string Name, string Gender)> ReadPreparedCharacters(string? workflowDirectory, bool enterprise)
     {
-        if (!TryReadAutoFill(workflowDirectory, out var root) ||
+        if (!TryReadAutoFill(workflowDirectory, enterprise, out var root) ||
             !root.TryGetProperty("character_info_list", out var characters) ||
             characters.ValueKind != System.Text.Json.JsonValueKind.Array)
             return [];
@@ -187,11 +190,13 @@ public static class KuaishouPersonalFormResolver
         return prepared;
     }
 
-    private static bool TryReadAutoFill(string? workflowDirectory, out System.Text.Json.JsonElement root)
+    private static bool TryReadAutoFill(string? workflowDirectory, bool enterprise, out System.Text.Json.JsonElement root)
     {
         root = default;
         if (string.IsNullOrWhiteSpace(workflowDirectory)) return false;
-        var path = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
+        var path = Path.Combine(
+            workflowDirectory,
+            enterprise ? "kuaishou-enterprise-auto-fill.json" : "kuaishou-auto-fill.json");
         if (!File.Exists(path)) return false;
         try
         {

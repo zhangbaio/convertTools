@@ -8,6 +8,17 @@ public static class KuaishouWorkspaceProjects
 {
     public const string ProjectFileName = "shortdrama-project.json";
 
+    public static IReadOnlyList<string> List(string? workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot) || !Directory.Exists(workspaceRoot))
+            return [];
+
+        return Directory.EnumerateDirectories(workspaceRoot)
+            .Where(directory => IsListed(workspaceRoot, directory))
+            .Select(directory => Path.GetFullPath(directory))
+            .ToList();
+    }
+
     public static bool IsListed(string? workspaceRoot, string? projectDirectory)
     {
         if (string.IsNullOrWhiteSpace(workspaceRoot) || string.IsNullOrWhiteSpace(projectDirectory))

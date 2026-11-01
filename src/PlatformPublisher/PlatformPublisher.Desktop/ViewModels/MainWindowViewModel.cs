@@ -1061,14 +1061,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             StatusMessage = $"正在扫描{platform.DisplayName()}工作目录：{rootDirectory}";
             AppendActivityLog(StatusMessage);
-            var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
-            var projects = result.Projects;
             if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
             {
-                projects = projects
-                    .Where(project => KuaishouWorkspaceProjects.IsListed(rootDirectory, project.SourceProjectDir))
-                    .ToList();
+                await ScanKuaishouWorkspaceAsync(rootDirectory, platform, cancellationToken);
+                return;
             }
+
+            var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
+            var projects = result.Projects;
 
             var existing = _jobs
                 .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
@@ -1115,6 +1115,98 @@ public sealed partial class MainWindowViewModel : ObservableObject
             StatusMessage = $"扫描工作目录失败：{ex.Message}";
             AppendActivityLog(StatusMessage);
         }
+    }
+
+    private async Task ScanKuaishouWorkspaceAsync(
+        string rootDirectory,
+        PublishPlatform platform,
+        CancellationToken cancellationToken)
+    {
+        var existing = _jobs
+            .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
+            .Select(job => Path.GetFullPath(job.ProjectDirectory))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var added = AddKuaishouJobs(platform, SeedKuaishouProjectsFromOtherEdition(rootDirectory, platform, existing), existing);
+        if (added > 0)
+        {
+            RefreshVisibleJobs();
+            StatusMessage = $"已显示同目录另一版本的 {added} 个剧集，正在核对 {platform.DisplayName()} 工作目录…";
+        }
+
+        var directories = await Task.Run(
+            () => KuaishouWorkspaceProjects.List(rootDirectory),
+            cancellationToken);
+        added += AddKuaishouJobs(
+            platform,
+            directories.Select(directory => (directory, Path.GetFileName(directory))),
+            existing);
+        await PersistAsync(cancellationToken);
+        RefreshVisibleJobs();
+        StatusMessage = $"扫描完成：发现 {directories.Count} 个项目，新增 {added} 个任务。";
+        AppendActivityLog(StatusMessage);
+    }
+
+    private IEnumerable<(string Directory, string Name)> SeedKuaishouProjectsFromOtherEdition(
+        string rootDirectory,
+        PublishPlatform platform,
+        HashSet<string> existing)
+    {
+        var other = platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? PublishPlatform.KuaishouPersonalRevenue
+            : PublishPlatform.KuaishouEnterpriseRevenue;
+        var root = rootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        foreach (var job in _jobs.Where(job => job.Platform == other && job.Kind == PublishJobKind.Series))
+        {
+            string directory;
+            try
+            {
+                directory = Path.GetFullPath(job.ProjectDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (!string.Equals(Path.GetDirectoryName(directory), root, StringComparison.OrdinalIgnoreCase) ||
+                existing.Contains(directory))
+            {
+                continue;
+            }
+
+            yield return (directory, string.IsNullOrWhiteSpace(job.ProjectName) ? Path.GetFileName(directory) : job.ProjectName);
+        }
+    }
+
+    private int AddKuaishouJobs(
+        PublishPlatform platform,
+        IEnumerable<(string Directory, string Name)> projects,
+        HashSet<string> existing)
+    {
+        var added = 0;
+        foreach (var project in projects)
+        {
+            var directory = Path.GetFullPath(project.Directory);
+            if (!existing.Add(directory))
+                continue;
+            var job = new PublishJob
+            {
+                Platform = platform,
+                Kind = PublishJobKind.Series,
+                ProjectName = project.Name,
+                ProjectDirectory = directory,
+                ConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, platform),
+                AccountId = _activeWeixinAccountId,
+                AccountName = ActiveWeixinAccountName,
+                Status = PublishJobStatus.Pending,
+                StatusMessage = "扫描导入，等待执行",
+            };
+            EnsureStepStates(job);
+            _jobs.Add(job);
+            added++;
+        }
+
+        return added;
     }
 
     private bool _applyingWorkflowSettings;

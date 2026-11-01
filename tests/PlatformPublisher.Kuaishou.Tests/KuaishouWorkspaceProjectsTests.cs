@@ -25,5 +25,9 @@ public sealed class KuaishouWorkspaceProjectsTests
         var videosOnly = Directory.CreateDirectory(Path.Combine(root.FullName, "红果_只有视频"));
         File.WriteAllBytes(Path.Combine(videosOnly.FullName, "1.mp4"), [1]);
         Assert.True(KuaishouWorkspaceProjects.IsListed(root.FullName, videosOnly.FullName));
+        var listed = KuaishouWorkspaceProjects.List(root.FullName);
+        Assert.Contains(project.FullName, listed);
+        Assert.Contains(videosOnly.FullName, listed);
+        Assert.DoesNotContain(empty.FullName, listed);
     }
 }

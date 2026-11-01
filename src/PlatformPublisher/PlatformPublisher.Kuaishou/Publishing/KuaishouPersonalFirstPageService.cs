@@ -14,12 +14,22 @@ public sealed class KuaishouPersonalFirstPageService
     {
         var size = await ProbeVideoSizeAsync(data.VideoPaths.FirstOrDefault());
         var form = KuaishouPersonalFormResolver.Resolve(config, size.Width, size.Height);
-        if (string.IsNullOrWhiteSpace(form.CreditName))
-            throw new InvalidOperationException("请先在快手分账配置的“分账配置”中填写用户名。");
-        if (string.IsNullOrWhiteSpace(config.KuaishouNickname) || !form.ProductionOrg.Contains('+'))
-            throw new InvalidOperationException("请先在快手分账配置的“登录授权”中填写快手昵称和用户快手号 ID。");
-
         var enterprise = config.StoragePlatform == PublishPlatform.KuaishouEnterpriseRevenue;
+        if (enterprise)
+        {
+            if (string.IsNullOrWhiteSpace(config.KuaishouNickname) ||
+                string.IsNullOrWhiteSpace(FirstNonEmpty(config.AdvertiserId, config.KuaishouId)))
+                throw new InvalidOperationException("请先在快手分账配置的“登录授权”中填写快手昵称和用户快手号 ID。");
+        }
+        else if (string.IsNullOrWhiteSpace(form.CreditName))
+        {
+            throw new InvalidOperationException("请先在快手分账配置的“分账配置”中填写用户名。");
+        }
+        else if (string.IsNullOrWhiteSpace(config.KuaishouNickname) || !form.ProductionOrg.Contains('+'))
+        {
+            throw new InvalidOperationException("请先在快手分账配置的“登录授权”中填写快手昵称和用户快手号 ID。");
+        }
+
         var dismissed = await KuaishouPageNotice.DismissAsync(page, cancellationToken);
         if (dismissed > 0)
             progress?.Report($"{config.StoragePlatform.DisplayName()}：已关闭首页短剧下架通知，继续进入内容上传。 ");
@@ -33,9 +43,9 @@ public sealed class KuaishouPersonalFirstPageService
         if (!enterprise || form.ContentTypeLabel == "漫剧")
             await SelectAsync(page, "漫剧制作方式", form.ComicMethodLabel, required: false);
         if (enterprise)
-            await SelectOptionalDropdownAsync(page, "请选择男女频道", ReadAutoFillLabel(data.WorkflowDirectory, "audience_gender_label"));
-        await SelectLabeledOptionsAsync(page, ReadAutoFillLabels(data.WorkflowDirectory, "tag_label_list"), "请选择分类", "短剧分类", required: true);
-        await SelectLabeledOptionsAsync(page, ReadAutoFillLabels(data.WorkflowDirectory, "plot_label_list"), "请选择短剧情节", "短剧情节", required: false);
+            await SelectOptionalDropdownAsync(page, "请选择男女频道", NormalizeGenderChannel(ReadAutoFillLabel(data.WorkflowDirectory, "audience_gender_label", enterprise: true)));
+        await SelectLabeledOptionsAsync(page, ReadAutoFillLabels(data.WorkflowDirectory, "tag_label_list", enterprise), "请选择分类", "短剧分类", required: true);
+        await SelectLabeledOptionsAsync(page, ReadAutoFillLabels(data.WorkflowDirectory, "plot_label_list", enterprise), "请选择短剧情节", "短剧情节", required: false);
         await SelectAsync(page, "作者声明", form.AuthorDeclarationLabel, required: true);
         await FillTextAsync(page, "短标题", data.ShortTitle, required: false);
         await FillTextAsync(page, "标签", string.Join(' ', data.Tags), required: false);
@@ -51,19 +61,24 @@ public sealed class KuaishouPersonalFirstPageService
         await FillTextAsync(page, "制作成本", form.ProductionCost, required: false);
         await FillTextAsync(page, "单集平均时长", form.AverageDurationMinutes.ToString(), required: false);
         var productionOrg = enterprise
-            ? FirstNonEmpty(config.CommitmentRecipientCompanyName, config.ProductionOrganization, form.ProductionOrg)
+            ? FirstNonEmpty(config.CommitmentRecipientCompanyName, config.ProductionOrganization)
             : form.ProductionOrg;
         await FillTextAsync(page, "制作机构", productionOrg, required: false);
         if (enterprise)
             await FillEnterprisePeopleAsync(page, data.WorkflowDirectory, cancellationToken);
         else
             await FillPeopleAsync(page, form.CreditName, form.Gender, cancellationToken);
-        await SelectAsync(page, "播出平台", form.BroadcastPlatform, required: false);
+        if (enterprise)
+            await FillEnterpriseBroadcastPlatformAsync(page, form.BroadcastPlatform);
+        else
+            await SelectAsync(page, "播出平台", form.BroadcastPlatform, required: false);
         await SelectAsync(page, "播出途径", form.BroadcastChannel, required: false);
         await FillTextAsync(page, "播出时间", form.BroadcastDate, required: false);
         if (!form.HasRecordNumber)
-            await FillActorsAsync(page, KuaishouPersonalFormResolver.ResolveUploadActors(data.WorkflowDirectory, config), cancellationToken);
+            await FillActorsAsync(page, KuaishouPersonalFormResolver.ResolveUploadActors(data.WorkflowDirectory, config, enterprise), cancellationToken);
         await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", "否", required: false);
+        await ReassertRadioAsync(page, "是否完结", form.Finished ? "是" : "否");
+        await ReassertRadioAsync(page, "是否有备案号", form.HasRecordNumber ? "是" : "否");
         await UploadScopedAsync(page, ["短剧封面", "横屏封面"], data.HorizontalCoverPath, required: true);
         progress?.Report($"{config.StoragePlatform.DisplayName()}：短剧封面已上传，正在确认图片裁剪。 ");
         await HandleCropDialogAsync(page, 15, cancellationToken);
@@ -643,12 +658,19 @@ public sealed class KuaishouPersonalFirstPageService
         try { await page.Keyboard.PressAsync("Escape"); } catch (PlaywrightException) { /* 下拉已经关上。 */ }
     }
 
-    private static IReadOnlyList<string> ReadAutoFillLabels(string workflowDirectory, string property) =>
-        ReadAutoFillArray(workflowDirectory, property).Take(3).ToArray();
+    private static IReadOnlyList<string> ReadAutoFillLabels(string workflowDirectory, string property, bool enterprise = false) =>
+        ReadAutoFillArray(workflowDirectory, property, enterprise).Take(3).ToArray();
 
-    private static string ReadAutoFillLabel(string workflowDirectory, string property)
+    private static string NormalizeGenderChannel(string value) => value.Trim() switch
     {
-        var path = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
+        "女" => "女频",
+        "男" => "男频",
+        _ => value.Trim(),
+    };
+
+    private static string ReadAutoFillLabel(string workflowDirectory, string property, bool enterprise = false)
+    {
+        var path = AutoFillPath(workflowDirectory, enterprise);
         if (!File.Exists(path)) return string.Empty;
         try
         {
@@ -663,9 +685,12 @@ public sealed class KuaishouPersonalFirstPageService
         }
     }
 
-    private static IReadOnlyList<string> ReadAutoFillArray(string workflowDirectory, string property)
+    private static string AutoFillPath(string workflowDirectory, bool enterprise) =>
+        Path.Combine(workflowDirectory, enterprise ? "kuaishou-enterprise-auto-fill.json" : "kuaishou-auto-fill.json");
+
+    private static IReadOnlyList<string> ReadAutoFillArray(string workflowDirectory, string property, bool enterprise)
     {
-        var path = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
+        var path = AutoFillPath(workflowDirectory, enterprise);
         if (!File.Exists(path)) return [];
         try
         {
@@ -831,16 +856,25 @@ public sealed class KuaishouPersonalFirstPageService
 
     private static async Task FillEnterprisePeopleAsync(IPage page, string workflowDirectory, CancellationToken cancellationToken)
     {
-        var director = ReadPerson(workflowDirectory, "director_info_list", "男");
-        var screenwriter = ReadPerson(workflowDirectory, "screenwriter_info_list", "女");
+        var director = ReadPerson(workflowDirectory, "director_info_list", "男", enterprise: true);
+        var screenwriter = ReadPerson(workflowDirectory, "screenwriter_info_list", "女", enterprise: true);
         var producer = screenwriter;
-        await FillNamedPersonAsync(page, "导演", director.Name, director.Gender, required: true, cancellationToken);
-        await FillNamedPersonAsync(page, "编剧", screenwriter.Name, screenwriter.Gender, required: false, cancellationToken);
-        await FillNamedPersonAsync(page, "制片人", producer.Name, producer.Gender, required: false, cancellationToken);
+        await FillEnterprisePersonAsync(page, "directorInfoList.0.name", "导演", director.Name, director.Gender, required: true, cancellationToken);
+        await FillEnterprisePersonAsync(page, "screenwriterInfoList.0.name", "编剧", screenwriter.Name, screenwriter.Gender, required: false, cancellationToken);
+        await FillEnterprisePersonAsync(page, "producerInfo.name", "制片人", producer.Name, producer.Gender, required: false, cancellationToken);
     }
 
-    private static async Task FillNamedPersonAsync(
+    private static async Task FillEnterpriseBroadcastPlatformAsync(IPage page, string platform)
+    {
+        var value = string.IsNullOrWhiteSpace(platform) ? "快手" : platform.Trim();
+        if (await FillInputByForIdAsync(page, "displayInfoList.0.displayPlatform", value))
+            return;
+        await FillTextAsync(page, "播出平台", value, required: true);
+    }
+
+    private static async Task FillEnterprisePersonAsync(
         IPage page,
+        string forId,
         string role,
         string name,
         string gender,
@@ -848,15 +882,62 @@ public sealed class KuaishouPersonalFirstPageService
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (string.IsNullOrWhiteSpace(name)) return;
-        await FillTextAsync(page, role + "姓名", name, required: false);
-        await FillTextAsync(page, role, name, required: required);
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+        if (!await FillInputByForIdAsync(page, forId, name))
+        {
+            await FillTextAsync(page, role + "姓名", name, required: required);
+            await FillTextAsync(page, role, name, required: false);
+        }
         await SelectAsync(page, role + "性别", gender, required: false);
     }
 
-    private static (string Name, string Gender) ReadPerson(string workflowDirectory, string property, string defaultGender)
+    private static async Task<bool> FillInputByForIdAsync(IPage page, string forId, string value)
     {
-        var path = Path.Combine(workflowDirectory, "kuaishou-auto-fill.json");
+        if (string.IsNullOrWhiteSpace(forId) || string.IsNullOrWhiteSpace(value))
+            return false;
+        var input = page.Locator($".ks-form-item:has(label[for=\"{forId}\"]) input:not([type='hidden']):not([readonly])").First;
+        if (await input.CountAsync() == 0)
+            return false;
+        try
+        {
+            await input.ScrollIntoViewIfNeededAsync();
+            await input.FillAsync(value);
+            return string.Equals((await input.InputValueAsync()).Trim(), value.Trim(), StringComparison.Ordinal);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task ReassertRadioAsync(IPage page, string label, string option)
+    {
+        var checkedAlready = await page.EvaluateAsync<bool>(
+            """
+            ({ label, option }) => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const wanted = compact(label);
+              const choice = compact(option);
+              const items = Array.from(document.querySelectorAll('.ks-form-item, .ant-form-item, .el-form-item'));
+              const item = items.find(element => compact(element.querySelector('label, .ks-form-item__label')?.innerText || '').startsWith(wanted));
+              if (!item) return false;
+              const radios = Array.from(item.querySelectorAll('input[type=radio], .ks-radio'));
+              return radios.some(element => {
+                const text = compact(element.innerText || element.parentElement?.innerText || element.value || '');
+                const selected = element.checked === true || element.classList.contains('is-checked') || element.getAttribute('aria-checked') === 'true';
+                return selected && (text === choice || text.includes(choice));
+              });
+            }
+            """,
+            new { label, option });
+        if (!checkedAlready)
+            await SetRadioAsync(page, label, option, required: false);
+    }
+
+    private static (string Name, string Gender) ReadPerson(string workflowDirectory, string property, string defaultGender, bool enterprise = false)
+    {
+        var path = AutoFillPath(workflowDirectory, enterprise);
         if (!File.Exists(path)) return (string.Empty, defaultGender);
         try
         {
