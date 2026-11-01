@@ -34,6 +34,14 @@ public sealed class HongguoAppDirectClientTests
     }
 
     [Fact]
+    public void SavedPlaybackIdentityRequiresBothNumbers()
+    {
+        Assert.True(HongguoGuestPlayback.IsSavedIdentity("1234567890123456", "1234567890123457"));
+        Assert.False(HongguoGuestPlayback.IsSavedIdentity("", "1234567890123457"));
+        Assert.False(HongguoGuestPlayback.IsSavedIdentity("12345", "1234567890123457"));
+    }
+
+    [Fact]
     public async Task BookIdQuerySkipsNetwork()
     {
         using var http = new HttpClient();

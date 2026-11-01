@@ -357,6 +357,17 @@ public static class ClientSettingsStore
         Save(settings, databasePath);
     }
 
+    public static void PatchHongguoAppPlaybackIdentity(string deviceId, string installId, string? databasePath = null)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(installId))
+            return;
+
+        var settings = Load(databasePath);
+        settings.HongguoAppDeviceId = deviceId.Trim();
+        settings.HongguoAppInstallId = installId.Trim();
+        Save(settings, databasePath);
+    }
+
     private static ClientSettings Normalize(ClientSettings settings)
     {
         settings.DramaSourceChain = VisibleDramaSource.Normalize(settings.DramaSourceChain);

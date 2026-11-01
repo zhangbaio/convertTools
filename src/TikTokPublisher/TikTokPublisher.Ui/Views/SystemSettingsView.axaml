@@ -334,9 +334,19 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果APP下载" FontWeight="Bold" />
-                        <TextBlock Text="搜索、分集和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单和漫剧上新仍使用上面的红果短剧助手账号。"
+                        <TextBlock Text="搜索、分集和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单和漫剧上新仍使用上面的红果短剧助手账号。下面两个号码在第一次播放后自动保存，重启后继续使用；清空并重新打开助手后会重新注册。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="播放设备号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1"
+                                     Text="{Binding HongguoAppDeviceId}"
+                                     Watermark="第一次播放后自动填写" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="播放安装号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1"
+                                     Text="{Binding HongguoAppInstallId}"
+                                     Watermark="与播放设备号成对保存" />
+                        </Grid>
 
                         <Separator Margin="0,4" IsVisible="False" />
 

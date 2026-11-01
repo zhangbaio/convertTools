@@ -30,6 +30,8 @@ public sealed class ClientSettings
     public string HghighStandardClientExe { get; set; } = "";
     public string HghighStandardClientVersion { get; set; } = "2.2.1";
     public string HghighStandardPlaybackMode { get; set; } = "single";
+    public string HongguoAppDeviceId { get; set; } = "";
+    public string HongguoAppInstallId { get; set; } = "";
     public string MapleleafAccount { get; set; } = "";
     public string MapleleafPassword { get; set; } = "";
     public string MapleleafUdid { get; set; } = "";
@@ -218,6 +220,8 @@ public sealed class ClientSettings
         HghighStandardClientExe = HghighStandardClientExe,
         HghighStandardClientVersion = HghighStandardClientVersion,
         HghighStandardPlaybackMode = HghighStandardPlaybackMode,
+        HongguoAppDeviceId = HongguoAppDeviceId,
+        HongguoAppInstallId = HongguoAppInstallId,
         MapleleafAccount = MapleleafAccount,
         MapleleafPassword = MapleleafPassword,
         MapleleafUdid = MapleleafUdid,

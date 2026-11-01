@@ -121,15 +121,23 @@ internal sealed class HongguoAppDirectClient
     internal Task<HongguoHighVideoPlayback> GetVideoPlaybackAsync(
         string videoId,
         string quality,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null)
     {
         if (!HongguoHighCrypto.TryDecodeEpisodeId(videoId, out _, out _, out var rawVideoId))
             throw new HongguoHighException("剧集标识无效");
-        return _playback.GetAsync(rawVideoId, quality, cancellationToken);
+        return _playback.GetAsync(rawVideoId, quality, cancellationToken, deviceId, installId, persist);
     }
 
-    internal Task<HongguoGuestPlayback.TrackProbe> ProbePlaybackAsync(string videoId, CancellationToken cancellationToken) =>
-        _playback.ProbeAsync(videoId, cancellationToken);
+    internal Task<HongguoGuestPlayback.TrackProbe> ProbePlaybackAsync(
+        string videoId,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null) =>
+        _playback.ProbeAsync(videoId, cancellationToken, deviceId, installId, persist);
 
     private async Task<JsonNode> SendAsync(
         HttpMethod method,

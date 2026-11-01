@@ -2740,7 +2740,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         DramaSourceSettings settings,
         CancellationToken cancellationToken)
     {
-        var detail = await _hongguoApp.GetVideoPlaybackAsync(prefixedVideoId, quality, cancellationToken);
+        var current = _settingsProvider.Get();
+        var detail = await _hongguoApp.GetVideoPlaybackAsync(
+            prefixedVideoId,
+            quality,
+            cancellationToken,
+            current.HongguoAppDeviceId,
+            current.HongguoAppInstallId,
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId));
         return new SourceVideoDetail(
             detail.Url,
             HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),

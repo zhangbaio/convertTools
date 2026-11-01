@@ -25,6 +25,8 @@ public static class DramaSourceSettingsMapping
         HghighStandardClientExe = settings.HghighStandardClientExe ?? "",
         HghighStandardClientVersion = settings.HghighStandardClientVersion ?? "",
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode),
+        HongguoAppDeviceId = settings.HongguoAppDeviceId ?? "",
+        HongguoAppInstallId = settings.HongguoAppInstallId ?? "",
         MapleleafAccount = settings.MapleleafAccount ?? "",
         MapleleafPassword = settings.MapleleafPassword ?? "",
         MapleleafUdid = settings.MapleleafUdid ?? "",
@@ -128,6 +130,19 @@ public sealed class ClientSettingsDramaSettingsProvider : IDramaSettingsProvider
         {
             _settings.PikachuDeviceId = deviceId.Trim();
             ClientSettingsStore.PatchPikachuRuntimeFields(_settings.PikachuFanqieCookie, _settings.PikachuDeviceId, _databasePath);
+        }
+    }
+
+    public void SaveHongguoAppPlaybackIdentity(string deviceId, string installId)
+    {
+        lock (_gate)
+        {
+            _settings.HongguoAppDeviceId = deviceId.Trim();
+            _settings.HongguoAppInstallId = installId.Trim();
+            ClientSettingsStore.PatchHongguoAppPlaybackIdentity(
+                _settings.HongguoAppDeviceId,
+                _settings.HongguoAppInstallId,
+                _databasePath);
         }
     }
 

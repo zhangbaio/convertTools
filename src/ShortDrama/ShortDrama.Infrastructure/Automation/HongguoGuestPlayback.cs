@@ -65,15 +65,26 @@ internal sealed class HongguoGuestPlayback
 
     internal HongguoGuestPlayback(HttpClient httpClient) => _httpClient = httpClient;
 
-    internal async Task<HongguoHighVideoPlayback> GetAsync(string videoId, string quality, CancellationToken cancellationToken)
+    internal async Task<HongguoHighVideoPlayback> GetAsync(
+        string videoId,
+        string quality,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null)
     {
-        var model = await ModelAsync(videoId, cancellationToken);
+        var model = await ModelAsync(videoId, deviceId, installId, persist, cancellationToken);
         return Pick(model, quality);
     }
 
-    internal async Task<TrackProbe> ProbeAsync(string videoId, CancellationToken cancellationToken)
+    internal async Task<TrackProbe> ProbeAsync(
+        string videoId,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null)
     {
-        var model = await ModelAsync(videoId, cancellationToken);
+        var model = await ModelAsync(videoId, deviceId, installId, persist, cancellationToken);
         var tracks = TracksOf(model);
         var count = 0;
         var allUrl = tracks.Count > 0;
@@ -89,14 +100,22 @@ internal sealed class HongguoGuestPlayback
         return new TrackProbe(count, allUrl, allSpade);
     }
 
-    private async Task<JsonObject> ModelAsync(string videoId, CancellationToken cancellationToken)
+    internal static bool IsSavedIdentity(string? deviceId, string? installId) =>
+        IsIdentityPart(deviceId) && IsIdentityPart(installId);
+
+    private async Task<JsonObject> ModelAsync(
+        string videoId,
+        string? deviceId,
+        string? installId,
+        Action<string, string>? persist,
+        CancellationToken cancellationToken)
     {
         Exception? last = null;
         for (var refresh = 0; refresh < 2; refresh++)
         {
             try
             {
-                var data = await PostAsync(videoId, refresh == 1, cancellationToken);
+                var data = await PostAsync(videoId, refresh == 1, deviceId, installId, persist, cancellationToken);
                 var model = ModelOf(data[videoId]?["video_model"]);
                 if (model is not null)
                     return model;
@@ -119,9 +138,15 @@ internal sealed class HongguoGuestPlayback
         };
     }
 
-    private async Task<JsonObject> PostAsync(string videoId, bool refresh, CancellationToken cancellationToken)
+    private async Task<JsonObject> PostAsync(
+        string videoId,
+        bool refresh,
+        string? deviceId,
+        string? installId,
+        Action<string, string>? persist,
+        CancellationToken cancellationToken)
     {
-        var identity = await IdentityAsync(refresh, cancellationToken);
+        var identity = await IdentityAsync(refresh, deviceId, installId, persist, cancellationToken);
         var ticket = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var pairs = new List<string>();
         foreach (var (key, value) in DeviceBase)
@@ -166,19 +191,52 @@ internal sealed class HongguoGuestPlayback
         return data;
     }
 
-    private async Task<Identity> IdentityAsync(bool refresh, CancellationToken cancellationToken)
+    private async Task<Identity> IdentityAsync(
+        bool refresh,
+        string? deviceId,
+        string? installId,
+        Action<string, string>? persist,
+        CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (refresh || _identity is null)
-                _identity = await RegisterAsync(cancellationToken);
-            return _identity;
+            var saved = IsSavedIdentity(deviceId, installId)
+                ? new Identity(deviceId!.Trim(), installId!.Trim())
+                : null;
+            if (!refresh)
+            {
+                if (_identity is not null && (saved is null || Same(_identity, saved)))
+                    return _identity;
+                if (saved is not null)
+                {
+                    _identity = saved;
+                    return saved;
+                }
+
+                if (_identity is not null)
+                    return _identity;
+            }
+
+            var created = await RegisterAsync(cancellationToken);
+            _identity = created;
+            persist?.Invoke(created.DeviceId, created.InstallId);
+            return created;
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private static bool Same(Identity left, Identity right) =>
+        string.Equals(left.DeviceId, right.DeviceId, StringComparison.Ordinal) &&
+        string.Equals(left.InstallId, right.InstallId, StringComparison.Ordinal);
+
+    private static bool IsIdentityPart(string? value)
+    {
+        var text = (value ?? "").Trim();
+        return text.Length is >= 10 and <= 24 && text.All(char.IsDigit) && text.Any(digit => digit != '0');
     }
 
     private async Task<Identity> RegisterAsync(CancellationToken cancellationToken)

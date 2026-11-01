@@ -131,6 +131,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _isPikachuBusy;
     [ObservableProperty] private string _playletServerUrl = PlayletDramaClient.DefaultServerUrl;
     [ObservableProperty] private string _playletDeviceId = "";
+    [ObservableProperty] private string _hongguoAppDeviceId = "";
+    [ObservableProperty] private string _hongguoAppInstallId = "";
+    private string _hongguoAppPlaybackLoadedDeviceId = "";
     [ObservableProperty] private string _dramaBoxApiBaseUrl = DramaBoxApiService.DefaultBaseUrl;
     [ObservableProperty] private string _dramaBoxDeviceId = DramaBoxApiService.DefaultDeviceId;
     [ObservableProperty] private string _dramaBoxProbeStatus = "";
@@ -299,6 +302,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.HghighStandardClientExe = HghighStandardClientExe.Trim();
         settings.HghighStandardClientVersion = NormalizeHghighClientVersion(HghighStandardClientVersion, HongguoClientProfile.Standard.ClientVersion);
         settings.HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(HghighStandardPlaybackMode);
+        settings.HongguoAppDeviceId = HongguoAppDeviceId.Trim();
+        settings.HongguoAppInstallId = HongguoAppInstallId.Trim();
         settings.MapleleafAccount = MapleleafAccount.Trim();
         settings.MapleleafPassword = MapleleafPassword;
         settings.MapleleafUdid = MapleleafUdid.Trim();
@@ -602,7 +607,19 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     {
         try
         {
-            var settings = ApplySystemSettingsForm(ClientSettingsStore.Load(_settingsDatabasePath));
+            var loaded = ClientSettingsStore.Load(_settingsDatabasePath);
+            var storedDeviceId = loaded.HongguoAppDeviceId;
+            var storedInstallId = loaded.HongguoAppInstallId;
+            var settings = ApplySystemSettingsForm(loaded);
+            if (string.IsNullOrWhiteSpace(HongguoAppDeviceId) &&
+                string.IsNullOrWhiteSpace(HongguoAppInstallId) &&
+                string.IsNullOrWhiteSpace(_hongguoAppPlaybackLoadedDeviceId) &&
+                !string.IsNullOrWhiteSpace(storedDeviceId) &&
+                !string.IsNullOrWhiteSpace(storedInstallId))
+            {
+                settings.HongguoAppDeviceId = storedDeviceId;
+                settings.HongguoAppInstallId = storedInstallId;
+            }
             PersistHghighMastersFromForm();
             ClientSettingsStore.Save(settings, _settingsDatabasePath);
             ApplyFromSettings(settings);
@@ -1197,6 +1214,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             settings.HghighStandardClientVersion,
             HongguoClientProfile.Standard.ClientVersion);
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode);
+        HongguoAppDeviceId = settings.HongguoAppDeviceId ?? "";
+        HongguoAppInstallId = settings.HongguoAppInstallId ?? "";
+        _hongguoAppPlaybackLoadedDeviceId = HongguoAppDeviceId;
         MapleleafAccount = settings.MapleleafAccount;
         MapleleafPassword = settings.MapleleafPassword;
         MapleleafUdid = string.IsNullOrWhiteSpace(settings.MapleleafUdid)

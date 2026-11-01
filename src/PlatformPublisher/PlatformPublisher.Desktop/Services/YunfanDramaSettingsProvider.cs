@@ -24,4 +24,10 @@ public sealed class YunfanDramaSettingsProvider : IDramaSettingsProvider
             settings.PikachuDeviceId,
             PlatformPublisherPaths.SettingsDatabasePath);
     }
+
+    public void SaveHongguoAppPlaybackIdentity(string deviceId, string installId) =>
+        ClientSettingsStore.PatchHongguoAppPlaybackIdentity(
+            deviceId,
+            installId,
+            PlatformPublisherPaths.SettingsDatabasePath);
 }
