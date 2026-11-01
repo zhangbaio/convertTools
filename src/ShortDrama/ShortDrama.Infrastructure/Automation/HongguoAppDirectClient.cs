@@ -8,17 +8,20 @@ using ShortDrama.Core.Models;
 namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
-/// 红果 APP 下载的搜索、剧集和播放地址。搜索与剧集用进程内 PureSign，播放地址用匿名注册。
+/// 红果 APP 下载的搜索、剧集和播放地址。搜索与剧集用进程内 PureSign。
+/// 播放地址按勾选先走链路 1（匿名注册、无签名），失败再走链路 2（同一身份的兼容签名）。
 /// </summary>
 internal sealed class HongguoAppDirectClient
 {
     private readonly HttpClient _httpClient;
     private readonly HongguoGuestPlayback _playback;
+    private readonly HongguoSignedPlayback _signed;
 
     internal HongguoAppDirectClient(HttpClient httpClient)
     {
         _httpClient = httpClient;
         _playback = new HongguoGuestPlayback(httpClient);
+        _signed = new HongguoSignedPlayback(_playback);
     }
 
     internal async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
@@ -118,17 +121,53 @@ internal sealed class HongguoAppDirectClient
         };
     }
 
-    internal Task<HongguoHighVideoPlayback> GetVideoPlaybackAsync(
+    internal async Task<HongguoHighVideoPlayback> GetVideoPlaybackAsync(
         string videoId,
         string quality,
         CancellationToken cancellationToken,
         string? deviceId = null,
         string? installId = null,
-        Action<string, string>? persist = null)
+        Action<string, string>? persist = null,
+        bool streamLink1 = true,
+        bool streamLink2 = true)
     {
         if (!HongguoHighCrypto.TryDecodeEpisodeId(videoId, out _, out _, out var rawVideoId))
             throw new HongguoHighException("剧集标识无效");
-        return _playback.GetAsync(rawVideoId, quality, cancellationToken, deviceId, installId, persist);
+        if (!streamLink1 && !streamLink2)
+        {
+            streamLink1 = true;
+            streamLink2 = true;
+        }
+
+        Exception? first = null;
+        if (streamLink1)
+        {
+            try
+            {
+                return await _playback.GetAsync(rawVideoId, quality, cancellationToken, deviceId, installId, persist);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (streamLink2)
+            {
+                first = ex;
+            }
+        }
+
+        try
+        {
+            return await _signed.GetAsync(rawVideoId, quality, cancellationToken, deviceId, installId, persist);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (first is not null)
+        {
+            throw new HongguoHighException($"链路 1 失败：{first.Message}；链路 2 失败：{ex.Message}", 0, ex);
+        }
     }
 
     internal Task<HongguoGuestPlayback.TrackProbe> ProbePlaybackAsync(

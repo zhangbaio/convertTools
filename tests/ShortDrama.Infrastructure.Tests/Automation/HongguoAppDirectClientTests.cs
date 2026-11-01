@@ -34,6 +34,24 @@ public sealed class HongguoAppDirectClientTests
     }
 
     [Fact]
+    public void SignedMediaUrlRejectsBadCiphertext()
+    {
+        var shortCipher = Assert.Throws<HongguoHighException>(() =>
+            HongguoSignedPlayback.DecryptMediaUrl("YQ==", [1, 2, 3]));
+        Assert.Equal("链路 2 地址密文格式无效", shortCipher.Message);
+        var badHeader = Convert.ToBase64String(new byte[20]);
+        var header = Assert.Throws<HongguoHighException>(() =>
+            HongguoSignedPlayback.DecryptMediaUrl(badHeader, [1, 2, 3]));
+        Assert.Equal("链路 2 地址密文格式无效", header.Message);
+        Assert.Equal(
+            "链路 2 地址不受支持",
+            Assert.Throws<HongguoHighException>(() =>
+                HongguoSignedPlayback.RequireHttpsHost("http://v.fqnovelvod.com/a", HongguoSignedPlayback.VodDomains)).Message);
+        var allowed = HongguoSignedPlayback.RequireHttpsHost("https://v.fqnovelvod.com/a", HongguoSignedPlayback.VodDomains);
+        Assert.Contains("fqnovelvod.com", allowed, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SavedPlaybackIdentityRequiresBothNumbers()
     {
         Assert.True(HongguoGuestPlayback.IsSavedIdentity("1234567890123456", "1234567890123457"));

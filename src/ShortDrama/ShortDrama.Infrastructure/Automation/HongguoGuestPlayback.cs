@@ -54,7 +54,7 @@ internal sealed class HongguoGuestPlayback
         ("is_android_pad_screen", "0"),
     ];
 
-    private static readonly JsonSerializerOptions CompactJson = new()
+    internal static readonly JsonSerializerOptions CompactJson = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
@@ -102,6 +102,17 @@ internal sealed class HongguoGuestPlayback
 
     internal static bool IsSavedIdentity(string? deviceId, string? installId) =>
         IsIdentityPart(deviceId) && IsIdentityPart(installId);
+
+    internal async Task<(string DeviceId, string InstallId)> SharedIdentityAsync(
+        bool refresh,
+        string? deviceId,
+        string? installId,
+        Action<string, string>? persist,
+        CancellationToken cancellationToken)
+    {
+        var identity = await IdentityAsync(refresh, deviceId, installId, persist, cancellationToken);
+        return (identity.DeviceId, identity.InstallId);
+    }
 
     private async Task<JsonObject> ModelAsync(
         string videoId,
@@ -352,7 +363,7 @@ internal sealed class HongguoGuestPlayback
         return Concat(Convert.FromHexString("746305100000"), random, cipher);
     }
 
-    private static HongguoHighVideoPlayback Pick(JsonObject model, string quality)
+    internal static HongguoHighVideoPlayback Pick(JsonObject model, string quality)
     {
         var tracks = TracksOf(model);
         if (tracks.Count == 0)
@@ -394,7 +405,7 @@ internal sealed class HongguoGuestPlayback
         return [];
     }
 
-    private static JsonObject? ModelOf(JsonNode? node)
+    internal static JsonObject? ModelOf(JsonNode? node)
     {
         if (node is JsonValue value && value.TryGetValue<string>(out var text))
         {
@@ -489,7 +500,7 @@ internal sealed class HongguoGuestPlayback
         return int.TryParse(digits, out var number) ? number : 0;
     }
 
-    private static async Task<byte[]> ReadBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    internal static async Task<byte[]> ReadBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
         var gzip = response.Content.Headers.ContentEncoding.Any(value =>
@@ -504,7 +515,7 @@ internal sealed class HongguoGuestPlayback
         return output.ToArray();
     }
 
-    private static int CodeOf(JsonObject obj)
+    internal static int CodeOf(JsonObject obj)
     {
         var node = obj["code"] ?? obj["Code"];
         if (node is null)
@@ -520,7 +531,7 @@ internal sealed class HongguoGuestPlayback
         return text.Length > 0 && text.All(char.IsDigit) && text != "0" ? text : "";
     }
 
-    private static string? Text(JsonObject? obj, string name)
+    internal static string? Text(JsonObject? obj, string name)
     {
         if (obj is null || obj[name] is not JsonValue value)
             return null;

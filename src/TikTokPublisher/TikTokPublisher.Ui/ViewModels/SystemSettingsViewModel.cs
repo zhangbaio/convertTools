@@ -133,7 +133,28 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _playletDeviceId = "";
     [ObservableProperty] private string _hongguoAppDeviceId = "";
     [ObservableProperty] private string _hongguoAppInstallId = "";
+    [ObservableProperty] private bool _hongguoAppStreamLink1 = true;
+    [ObservableProperty] private bool _hongguoAppStreamLink2 = true;
     private string _hongguoAppPlaybackLoadedDeviceId = "";
+    private bool _hongguoAppStreamLinkGuard;
+
+    partial void OnHongguoAppStreamLink1Changed(bool value)
+    {
+        if (_hongguoAppStreamLinkGuard || value || HongguoAppStreamLink2)
+            return;
+        _hongguoAppStreamLinkGuard = true;
+        HongguoAppStreamLink1 = true;
+        _hongguoAppStreamLinkGuard = false;
+    }
+
+    partial void OnHongguoAppStreamLink2Changed(bool value)
+    {
+        if (_hongguoAppStreamLinkGuard || value || HongguoAppStreamLink1)
+            return;
+        _hongguoAppStreamLinkGuard = true;
+        HongguoAppStreamLink2 = true;
+        _hongguoAppStreamLinkGuard = false;
+    }
     [ObservableProperty] private string _dramaBoxApiBaseUrl = DramaBoxApiService.DefaultBaseUrl;
     [ObservableProperty] private string _dramaBoxDeviceId = DramaBoxApiService.DefaultDeviceId;
     [ObservableProperty] private string _dramaBoxProbeStatus = "";
@@ -304,6 +325,13 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(HghighStandardPlaybackMode);
         settings.HongguoAppDeviceId = HongguoAppDeviceId.Trim();
         settings.HongguoAppInstallId = HongguoAppInstallId.Trim();
+        settings.HongguoAppStreamLink1 = HongguoAppStreamLink1;
+        settings.HongguoAppStreamLink2 = HongguoAppStreamLink2;
+        if (!settings.HongguoAppStreamLink1 && !settings.HongguoAppStreamLink2)
+        {
+            settings.HongguoAppStreamLink1 = true;
+            settings.HongguoAppStreamLink2 = true;
+        }
         settings.MapleleafAccount = MapleleafAccount.Trim();
         settings.MapleleafPassword = MapleleafPassword;
         settings.MapleleafUdid = MapleleafUdid.Trim();
@@ -1216,6 +1244,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode);
         HongguoAppDeviceId = settings.HongguoAppDeviceId ?? "";
         HongguoAppInstallId = settings.HongguoAppInstallId ?? "";
+        HongguoAppStreamLink1 = settings.HongguoAppStreamLink1;
+        HongguoAppStreamLink2 = settings.HongguoAppStreamLink2;
         _hongguoAppPlaybackLoadedDeviceId = HongguoAppDeviceId;
         MapleleafAccount = settings.MapleleafAccount;
         MapleleafPassword = settings.MapleleafPassword;
