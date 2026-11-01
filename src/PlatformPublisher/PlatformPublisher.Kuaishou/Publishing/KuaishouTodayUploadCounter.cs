@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Services;
@@ -266,10 +267,17 @@ public static class KuaishouTodayUploadCounter
     private static bool IsSameDay(IReadOnlyDictionary<string, string> record, DateTime day)
     {
         var date = Field(record, "日期");
-        if (date.Length >= 10 && DateTime.TryParse(date[..10], out var parsedDate))
-            return parsedDate.Date == day;
+        if (date.Length >= 10 &&
+            DateTime.TryParseExact(
+                date[..10],
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var parsedDate))
+            return parsedDate.Date == day.Date;
         var time = Field(record, "记录时间", "RecordedAt");
-        return DateTimeOffset.TryParse(time, out var parsed) && parsed.ToLocalTime().Date == day;
+        return DateTimeOffset.TryParse(time, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
+            && parsed.ToLocalTime().Date == day.Date;
     }
 
     private static string Normalize(string? path)

@@ -53,6 +53,25 @@ public sealed class KuaishouTodayUploadCounterTests
     }
 
     [Fact]
+    public void Yesterday_uploads_are_not_counted_after_midnight()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var yesterday = new DateTimeOffset(2026, 10, 31, 23, 40, 0, TimeSpan.FromHours(8));
+        KuaishouTodayUploadCounter.RecordSuccess(
+            PublishPlatform.KuaishouPersonalRevenue,
+            "acct-a",
+            Path.Combine(root.FullName, "昨天的剧"),
+            yesterday,
+            store);
+
+        Assert.Equal(0, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, new DateTime(2026, 11, 1), store));
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, new DateTime(2026, 10, 31), store));
+    }
+
+    [Fact]
     public void Shared_workspace_does_not_add_other_accounts_uploads()
     {
         var root = Directory.CreateTempSubdirectory();

@@ -75,6 +75,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly Dictionary<string, List<KuaishouLogProject>> _kuaishouLogsByAccount = new(StringComparer.OrdinalIgnoreCase);
     private int _visibleJobGeneration;
     private int _todayUploadGeneration;
+    private DateTime _countedUploadDay = DateTime.MinValue;
     private int _logRefreshPosted;
     private Task? _managementBrowserTask;
     private bool _scheduleTickRunning;
@@ -2896,6 +2897,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async void OnScheduleTimerTick(object? sender, EventArgs e)
     {
+        var today = DateTime.Now.Date;
+        if (today != _countedUploadDay)
+            RefreshKuaishouTodayUploadCount();
         if (_scheduleTickRunning || IsBusy)
             return;
 
@@ -3249,6 +3253,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var generation = Interlocked.Increment(ref _todayUploadGeneration);
+        _countedUploadDay = DateTime.Now.Date;
         var platform = SelectedPlatform.Value;
         var accountId = _activeGlobalAccount?.Id ?? "";
         var workspace = Directory.Exists(DraftProjectDirectory) ? DraftProjectDirectory : null;
