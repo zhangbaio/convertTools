@@ -266,6 +266,7 @@ public sealed partial class MainViewModel : ViewModelBase
         };
         SystemSettings.StatusRequested += message => StatusMessage = message;
         SystemSettings.Load(WorkspacePath);
+        SystemSettings.BeginHongguoAppPlaybackIdentity();
         DramaDownload.ApplyClientSettings(ClientSettingsStore.Load(), preferSavedWorkspace: true);
     }
 

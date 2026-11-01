@@ -22,7 +22,7 @@ TikTok 助手里的「红果APP下载」（链路 id `hongguoapp`）按本目录
 | 链路 2 播放地址 | `HongguoSignedPlayback` | 同一对播放设备号和安装号，PureSign 后再请求同一接口。没有分集画面时走 `fallback_api`，`key_seed` 密文要先解密。不跟随跳转 |
 | 选择两条链路 | `HongguoAppDirectClient.GetVideoPlaybackAsync` | 设置里至少留一条。两条都开时先链路 1，失败再链路 2 |
 | 下载解密 | `HongguoCdnDecryptor`、`HongguoSpadeKey` | 有 `spade_a` 时按密文下载再解密。优先 1080p / `bytevc1` |
-| 设置持久化 | `ClientSettings.HongguoAppDeviceId`、`HongguoAppInstallId`、`HongguoAppStreamLink1`、`HongguoAppStreamLink2` | 播放身份在第一次成功取流后写入系统设置，重启后复用。清空两个号码并重新打开助手会重新注册 |
+| 设置持久化 | `ClientSettings.HongguoAppDeviceId`、`HongguoAppInstallId`、`HongguoAppStreamLink1`、`HongguoAppStreamLink2` | 播放身份在助手第一次启动时向 `device_register` 注册并写入系统设置，之后复用。清空两个号码并重新打开助手会重新注册 |
 
 剧集 id 仍用 `HongguoHighCrypto.EncodeEpisodeId`（`hghigh_ep:`）。路由在 `DramaSourceRouter` 的 `SearchHongguoAppAsync`、`GetHongguoAppEpisodesAsync`、`GetHongguoAppVideoUrlAsync`。
 

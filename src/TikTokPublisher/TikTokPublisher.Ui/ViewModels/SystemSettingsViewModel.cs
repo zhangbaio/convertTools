@@ -292,6 +292,64 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         RefreshDatabaseStats();
     }
 
+    private int _hongguoPlaybackIdentityStarted;
+
+    /// <summary>
+    /// 第一次打开助手时，若还没有成对的播放设备号和安装号，向红果注册一对并写入设置。
+    /// </summary>
+    public void BeginHongguoAppPlaybackIdentity()
+    {
+        if (HongguoAppPlaybackIdentity.IsComplete(HongguoAppDeviceId, HongguoAppInstallId))
+            return;
+        if (Interlocked.CompareExchange(ref _hongguoPlaybackIdentityStarted, 1, 0) != 0)
+            return;
+        _ = RegisterHongguoAppPlaybackIdentityAsync();
+    }
+
+    private async Task RegisterHongguoAppPlaybackIdentityAsync()
+    {
+        try
+        {
+            var loaded = ClientSettingsStore.Load(_settingsDatabasePath);
+            if (HongguoAppPlaybackIdentity.IsComplete(loaded.HongguoAppDeviceId, loaded.HongguoAppInstallId))
+            {
+                PublishHongguoAppPlaybackIdentity(loaded.HongguoAppDeviceId, loaded.HongguoAppInstallId);
+                return;
+            }
+
+            var created = await HongguoAppPlaybackIdentity.RegisterAsync(ProbeHttp, CancellationToken.None);
+            if (!HongguoAppPlaybackIdentity.IsComplete(created.DeviceId, created.InstallId))
+                return;
+
+            ClientSettingsStore.PatchHongguoAppPlaybackIdentity(
+                created.DeviceId,
+                created.InstallId,
+                _settingsDatabasePath);
+            PublishHongguoAppPlaybackIdentity(created.DeviceId, created.InstallId);
+        }
+        catch (Exception)
+        {
+            Interlocked.Exchange(ref _hongguoPlaybackIdentityStarted, 0);
+        }
+    }
+
+    private void PublishHongguoAppPlaybackIdentity(string deviceId, string installId)
+    {
+        void Apply()
+        {
+            if (!string.IsNullOrWhiteSpace(HongguoAppDeviceId) || !string.IsNullOrWhiteSpace(HongguoAppInstallId))
+                return;
+            HongguoAppDeviceId = deviceId;
+            HongguoAppInstallId = installId;
+            _hongguoAppPlaybackLoadedDeviceId = deviceId;
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+            Apply();
+        else
+            Dispatcher.UIThread.Post(Apply);
+    }
+
     public ClientSettings ToSettings() => ApplySystemSettingsForm(new ClientSettings());
 
     /// <summary>

@@ -334,7 +334,7 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果APP下载" FontWeight="Bold" />
-                        <TextBlock Text="搜索、分集和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单和漫剧上新仍使用上面的红果短剧助手账号。播放地址按勾选的链路获取，至少选择一条；两条都选时先走链路 1，失败再走链路 2。下面两个号码在第一次播放后自动保存，重启后继续使用；清空并重新打开助手后会重新注册。"
+                        <TextBlock Text="搜索、分集和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单和漫剧上新仍使用上面的红果短剧助手账号。播放地址按勾选的链路获取，至少选择一条；两条都选时先走链路 1，失败再走链路 2。播放设备号和安装号在软件第一次启动时自动生成并保存，之后继续使用；清空两个号码并重新打开助手后会重新生成。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
@@ -346,11 +346,11 @@
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="播放设备号" VerticalAlignment="Center" />
                             <TextBox Grid.Row="1" Grid.Column="1"
                                      Text="{Binding HongguoAppDeviceId}"
-                                     Watermark="第一次播放后自动填写" />
+                                     Watermark="首次启动时自动生成" />
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="播放安装号" VerticalAlignment="Center" />
                             <TextBox Grid.Row="2" Grid.Column="1"
                                      Text="{Binding HongguoAppInstallId}"
-                                     Watermark="与播放设备号成对保存" />
+                                     Watermark="首次启动时与设备号成对生成" />
                         </Grid>
 
                         <Separator Margin="0,4" IsVisible="False" />
