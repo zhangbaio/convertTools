@@ -443,6 +443,7 @@ public static class ClientSettingsStore
         settings.AiFullInfoBatchPrompt = DefaultIfBlank(settings.AiFullInfoBatchPrompt, ClientSettingsDefaults.AiFullInfoBatchPrompt);
         settings.AiFullInfoRetryPrompt = DefaultIfBlank(settings.AiFullInfoRetryPrompt, ClientSettingsDefaults.AiFullInfoRetryPrompt);
         settings.AiPublishInfoPrompt = ResolvePublishInfoPrompt(settings);
+        settings.KuaishouPublishInfoPrompt = ResolveKuaishouPublishInfoPrompt(settings);
         settings.PosterMode = NormalizePosterMode(settings.PosterMode);
         settings.PosterLayoutRequestMode = NormalizePosterLayoutRequestMode(settings.PosterLayoutRequestMode);
         var networkPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
@@ -616,6 +617,22 @@ public static class ClientSettingsStore
     }
 
     /// <summary>
+    /// 快手发布信息提示词为空时，沿用用户改过的旧「完整信息 System Prompt」，否则使用新默认值。
+    /// </summary>
+    public static string ResolveKuaishouPublishInfoPrompt(ClientSettings settings)
+    {
+        var current = settings.KuaishouPublishInfoPrompt?.Trim() ?? "";
+        if (current.Length > 0)
+            return current;
+
+        var legacy = settings.AiFullInfoSystemPrompt?.Trim() ?? "";
+        return legacy.Length > 0 &&
+               !string.Equals(legacy, ClientSettingsDefaults.AiFullInfoSystemPrompt.Trim(), StringComparison.Ordinal)
+            ? legacy
+            : ClientSettingsDefaults.KuaishouPublishInfoPrompt;
+    }
+
+    /// <summary>
     /// 当前海报模式实际使用的提示词。直接生成模式未单独设置时，沿用用户改过的旧「整图改字/局部改字」提示词。
     /// </summary>
     public static string ResolvePosterAgentPrompt(ClientSettings settings, string? mode)
@@ -636,6 +653,45 @@ public static class ClientSettingsStore
                    ClientSettingsDefaults.PosterInpaintPrompt,
                    ClientSettingsDefaults.LegacyPosterInpaintPrompt)
                ?? ClientSettingsDefaults.PosterAgentDirectPrompt;
+    }
+
+    /// <summary>
+    /// 快手竖屏、横屏提示词按模式取值。竖屏未单独设置时，沿用用户改过的海报 Agent 提示词；横屏不复用竖屏文案。
+    /// </summary>
+    public static string ResolveKuaishouPosterPrompt(ClientSettings settings, bool horizontal, string? mode)
+    {
+        var current = horizontal
+            ? (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
+                ? settings.KuaishouPosterHorizontalErasePrompt
+                : settings.KuaishouPosterHorizontalDirectPrompt)
+            : (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
+                ? settings.KuaishouPosterVerticalErasePrompt
+                : settings.KuaishouPosterVerticalDirectPrompt);
+        if (!string.IsNullOrWhiteSpace(current))
+            return current.Trim();
+
+        if (!horizontal)
+        {
+            var migrated = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
+                ? CustomizedPrompt(settings.PosterAgentErasePrompt, ClientSettingsDefaults.PosterAgentErasePrompt)
+                : CustomizedPrompt(settings.PosterAgentDirectPrompt, ClientSettingsDefaults.PosterAgentDirectPrompt);
+            if (migrated is not null)
+                return migrated;
+        }
+
+        return ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal, mode);
+    }
+
+    /// <summary>与该方向、该模式的默认值相同时存空字符串。</summary>
+    public static string StoredKuaishouPosterPrompt(string? value, bool horizontal, string? mode)
+    {
+        var text = value?.Trim() ?? "";
+        return string.Equals(
+            text,
+            ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal, mode).Trim(),
+            StringComparison.Ordinal)
+            ? ""
+            : text;
     }
 
     /// <summary>与默认值相同时存空字符串，以后默认提示词更新时自动跟随。</summary>

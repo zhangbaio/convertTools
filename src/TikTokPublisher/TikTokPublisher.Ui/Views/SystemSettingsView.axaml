@@ -497,12 +497,23 @@
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="请求超时" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding AiTextTimeoutSeconds}" Minimum="10" Maximum="600" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="发布信息提示词" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6">
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="发布信息提示词" VerticalAlignment="Top" Margin="0,4,0,0"
+                                       IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6" IsVisible="{Binding ShowsTikTokPublishPrompt}">
                                 <TextBox Text="{Binding AiPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                     <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetAiPublishInfoPromptCommand}" />
                                     <TextBlock Grid.Column="1" Text="一次请求同时生成新剧名、简介、题材和目标观众，不再生成推荐语。剧名占用查重、字数校验和不合格重试由程序处理。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="快手发布信息提示词" VerticalAlignment="Top" Margin="0,4,0,0"
+                                       IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6" IsVisible="{Binding ShowsKuaishouPublishPrompt}">
+                                <TextBox Text="{Binding KuaishouPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPublishInfoPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="一次请求同时生成新剧名、短标题、简介、标签、观众、短剧分类和情节，不再生成推荐语。字数、选项和禁用词由程序校验，不合格会带上原因重试。"
                                                Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
                                 </Grid>
                             </StackPanel>
@@ -632,13 +643,33 @@
                             </StackPanel>
                         </Border>
 
-                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10" IsVisible="{Binding ShowsTikTokPublishPrompt}">
                             <TextBlock Grid.Column="0" Text="海报 Agent 提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <StackPanel Grid.Column="1" Spacing="6">
                                 <TextBox Text="{Binding PosterAgentPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220" />
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                     <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetPosterAgentPromptCommand}" />
                                     <TextBlock Grid.Column="1" Text="切换海报模式时显示该模式自己的提示词。直接生成用 {title} 表示新剧名，缺少时会自动追加；去字模式只清除文字，新剧名由程序写入。安全重试、布局检测、标题校验和修复使用内置提示词。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="12" ColumnSpacing="10" IsVisible="{Binding ShowsKuaishouPublishPrompt}">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="竖屏海报提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="6">
+                                <TextBox Text="{Binding KuaishouPosterVerticalPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPosterVerticalPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="切换海报模式时换成该模式的竖屏提示词。直接生成会重做竖屏海报并写一次 {title}；去字模式只清除文字，剧名由程序写入。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="横屏封面提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6">
+                                <TextBox Text="{Binding KuaishouPosterHorizontalPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPosterHorizontalPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="直接生成把完成的竖屏海报扩成 16:10 并写一次剧名。去字模式从无文字底图扩成横屏，再由程序写入剧名。AI 失败时改为居中裁成 1600×1000。"
                                                Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
                                 </Grid>
                             </StackPanel>

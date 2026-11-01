@@ -18,13 +18,18 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private static readonly HttpClient ProbeHttp = CreateProbeHttpClient();
     private readonly string? _settingsDatabasePath;
 
-    public SystemSettingsViewModel(string? settingsDatabasePath = null)
+    public SystemSettingsViewModel(string? settingsDatabasePath = null, bool kuaishouPublishPrompts = false)
     {
         _settingsDatabasePath = string.IsNullOrWhiteSpace(settingsDatabasePath)
             ? null
             : Path.GetFullPath(settingsDatabasePath);
         MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
+        ShowsKuaishouPublishPrompt = kuaishouPublishPrompts;
+        ShowsTikTokPublishPrompt = !kuaishouPublishPrompts;
     }
+
+    public bool ShowsKuaishouPublishPrompt { get; }
+    public bool ShowsTikTokPublishPrompt { get; }
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
@@ -196,6 +201,13 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     [ObservableProperty] private string _tiktokRoleVectorViewMode = ClientSettingsDefaults.TiktokRoleVectorViewMode;
     [ObservableProperty] private string _aiPublishInfoPrompt = ClientSettingsDefaults.AiPublishInfoPrompt;
+    [ObservableProperty] private string _kuaishouPublishInfoPrompt = ClientSettingsDefaults.KuaishouPublishInfoPrompt;
+    [ObservableProperty] private string _kuaishouPosterVerticalPrompt = ClientSettingsDefaults.KuaishouPosterVerticalDirectPrompt;
+    [ObservableProperty] private string _kuaishouPosterHorizontalPrompt = ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt;
+    private string _kuaishouPosterVerticalDirectPrompt = ClientSettingsDefaults.KuaishouPosterVerticalDirectPrompt;
+    private string _kuaishouPosterVerticalErasePrompt = ClientSettingsDefaults.KuaishouPosterVerticalErasePrompt;
+    private string _kuaishouPosterHorizontalDirectPrompt = ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt;
+    private string _kuaishouPosterHorizontalErasePrompt = ClientSettingsDefaults.KuaishouPosterHorizontalErasePrompt;
 
     [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
     [ObservableProperty] private string _posterLayoutRequestMode = ClientSettingsDefaults.PosterLayoutRequestMode;
@@ -422,6 +434,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled;
         settings.TiktokRoleVectorViewMode = TiktokRoleVectorViewMode;
         settings.AiPublishInfoPrompt = AiPublishInfoPrompt;
+        settings.KuaishouPublishInfoPrompt = KuaishouPublishInfoPrompt;
         settings.PosterMode = PosterMode;
         settings.PosterLayoutRequestMode = PosterLayoutRequestMode;
         settings.NetworkAddressPreference = NetworkAddressPreference;
@@ -448,6 +461,22 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             ClientSettingsDefaults.PosterModeDirect);
         settings.PosterAgentErasePrompt = ClientSettingsStore.StoredPosterAgentPrompt(
             _posterAgentErasePrompt,
+            ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        settings.KuaishouPosterVerticalDirectPrompt = ClientSettingsStore.StoredKuaishouPosterPrompt(
+            _kuaishouPosterVerticalDirectPrompt,
+            horizontal: false,
+            ClientSettingsDefaults.PosterModeDirect);
+        settings.KuaishouPosterVerticalErasePrompt = ClientSettingsStore.StoredKuaishouPosterPrompt(
+            _kuaishouPosterVerticalErasePrompt,
+            horizontal: false,
+            ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        settings.KuaishouPosterHorizontalDirectPrompt = ClientSettingsStore.StoredKuaishouPosterPrompt(
+            _kuaishouPosterHorizontalDirectPrompt,
+            horizontal: true,
+            ClientSettingsDefaults.PosterModeDirect);
+        settings.KuaishouPosterHorizontalErasePrompt = ClientSettingsStore.StoredKuaishouPosterPrompt(
+            _kuaishouPosterHorizontalErasePrompt,
+            horizontal: true,
             ClientSettingsDefaults.PosterModeEraseFixedTitle);
         settings.TiktokProjectImageGenerationMode = TiktokProjectImageGenerationMode;
         settings.TiktokProjectImageTemplateRoot = TiktokProjectImageTemplateRoot.Trim();
@@ -707,10 +736,49 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private void ResetAiPublishInfoPrompt() => AiPublishInfoPrompt = ClientSettingsDefaults.AiPublishInfoPrompt;
 
     [RelayCommand]
+    private void ResetKuaishouPublishInfoPrompt() =>
+        KuaishouPublishInfoPrompt = ClientSettingsDefaults.KuaishouPublishInfoPrompt;
+
+    [RelayCommand]
     private void ResetPosterAgentPrompt() =>
         PosterAgentPrompt = ClientSettingsDefaults.DefaultPosterAgentPrompt(PosterMode);
 
-    partial void OnPosterModeChanged(string value) => ShowPosterAgentPromptForCurrentMode();
+    [RelayCommand]
+    private void ResetKuaishouPosterVerticalPrompt() =>
+        KuaishouPosterVerticalPrompt = ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal: false, PosterMode);
+
+    [RelayCommand]
+    private void ResetKuaishouPosterHorizontalPrompt() =>
+        KuaishouPosterHorizontalPrompt = ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal: true, PosterMode);
+
+    partial void OnPosterModeChanged(string value)
+    {
+        ShowPosterAgentPromptForCurrentMode();
+        ShowKuaishouPosterPromptsForCurrentMode();
+    }
+
+    partial void OnKuaishouPosterVerticalPromptChanged(string value)
+    {
+        if (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode))
+            _kuaishouPosterVerticalErasePrompt = value;
+        else
+            _kuaishouPosterVerticalDirectPrompt = value;
+    }
+
+    partial void OnKuaishouPosterHorizontalPromptChanged(string value)
+    {
+        if (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode))
+            _kuaishouPosterHorizontalErasePrompt = value;
+        else
+            _kuaishouPosterHorizontalDirectPrompt = value;
+    }
+
+    private void ShowKuaishouPosterPromptsForCurrentMode()
+    {
+        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode);
+        KuaishouPosterVerticalPrompt = erase ? _kuaishouPosterVerticalErasePrompt : _kuaishouPosterVerticalDirectPrompt;
+        KuaishouPosterHorizontalPrompt = erase ? _kuaishouPosterHorizontalErasePrompt : _kuaishouPosterHorizontalDirectPrompt;
+    }
 
     partial void OnPosterAgentPromptChanged(string value)
     {
@@ -1366,6 +1434,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokRoleReferenceAiFallbackEnabled = settings.TiktokRoleReferenceAiFallbackEnabled;
         TiktokRoleVectorViewMode = settings.TiktokRoleVectorViewMode;
         AiPublishInfoPrompt = ClientSettingsStore.ResolvePublishInfoPrompt(settings);
+        KuaishouPublishInfoPrompt = ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(settings);
         PosterMode = settings.PosterMode;
         PosterLayoutRequestMode = settings.PosterLayoutRequestMode;
         NetworkAddressPreference = settings.NetworkAddressPreference;
@@ -1394,6 +1463,15 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             settings,
             ClientSettingsDefaults.PosterModeEraseFixedTitle);
         ShowPosterAgentPromptForCurrentMode();
+        _kuaishouPosterVerticalDirectPrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
+            settings, horizontal: false, ClientSettingsDefaults.PosterModeDirect);
+        _kuaishouPosterVerticalErasePrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
+            settings, horizontal: false, ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        _kuaishouPosterHorizontalDirectPrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
+            settings, horizontal: true, ClientSettingsDefaults.PosterModeDirect);
+        _kuaishouPosterHorizontalErasePrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
+            settings, horizontal: true, ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        ShowKuaishouPosterPromptsForCurrentMode();
         TiktokProjectImageGenerationMode = settings.TiktokProjectImageGenerationMode;
         TiktokProjectImageTemplateRoot = settings.TiktokProjectImageTemplateRoot;
         TiktokProjectImageTemplateId = settings.TiktokProjectImageTemplateId;

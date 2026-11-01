@@ -591,6 +591,43 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Kuaishou_poster_prompts_follow_direction_and_mode()
+    {
+        var defaults = new ClientSettings();
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(defaults, horizontal: false, "original")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterVerticalDirectPrompt);
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(defaults, horizontal: true, "original")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt);
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(defaults, horizontal: false, "erase_fixed_lower_title")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterVerticalErasePrompt);
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(defaults, horizontal: true, "erase_fixed_lower_title")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterHorizontalErasePrompt);
+
+        ClientSettingsDefaults.KuaishouPosterVerticalDirectPrompt.Should().Contain("{title}").And.Contain("竖屏");
+        ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt.Should().Contain("{title}").And.Contain("16:10");
+        ClientSettingsDefaults.KuaishouPosterVerticalErasePrompt.Should().NotContain("{title}");
+        ClientSettingsDefaults.KuaishouPosterHorizontalErasePrompt.Should().NotContain("{title}").And.Contain("底图");
+        ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt.Should().NotBe(ClientSettingsDefaults.PosterAgentDirectPrompt);
+
+        var migrated = new ClientSettings { PosterAgentDirectPrompt = "云帆改过的竖屏 {title}" };
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(migrated, horizontal: false, "original")
+            .Should().Be("云帆改过的竖屏 {title}");
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(migrated, horizontal: true, "original")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt);
+
+        var custom = new ClientSettings
+        {
+            PosterAgentDirectPrompt = "云帆改过的竖屏 {title}",
+            KuaishouPosterVerticalDirectPrompt = "单独的竖屏",
+            KuaishouPosterHorizontalDirectPrompt = "单独的横屏",
+        };
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(custom, horizontal: false, "original").Should().Be("单独的竖屏");
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(custom, horizontal: true, "original").Should().Be("单独的横屏");
+        ClientSettingsStore.StoredKuaishouPosterPrompt(
+            ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt, horizontal: true, "original").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Client_settings_store_clamps_frame_extract_values_to_supported_ranges()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-video-frame-limits-{Guid.NewGuid():N}.db");

@@ -2285,6 +2285,50 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AppendActivityLog(StatusMessage);
     }
 
+    private static KuaishouPosterSettings CreateKuaishouPosterSettings(ClientSettings settings)
+    {
+        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(settings.PosterMode);
+        var vertical = ClientSettingsStore.ResolveKuaishouPosterPrompt(settings, horizontal: false, settings.PosterMode);
+        var horizontal = ClientSettingsStore.ResolveKuaishouPosterPrompt(settings, horizontal: true, settings.PosterMode);
+        if (!erase)
+        {
+            vertical = ClientSettingsStore.WithPosterTitlePlaceholder(vertical);
+            horizontal = ClientSettingsStore.WithPosterTitlePlaceholder(horizontal);
+        }
+
+        var prefix = ClientSettingsDefaults.PosterAgentSafeRetryPrefix;
+        var provider = PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider);
+        var payload = new Dictionary<string, object?>(StringComparer.Ordinal);
+        PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
+        string Value(string key) => payload.TryGetValue(key, out var value) ? value?.ToString()?.Trim() ?? "" : "";
+        var endpoint = FirstPosterSetting(Value("ImageEditEndpoint"), settings.ImageModelEndpoint);
+        return new KuaishouPosterSettings(
+            settings.PosterMode,
+            erase,
+            vertical,
+            prefix + vertical,
+            horizontal,
+            prefix + horizontal,
+            provider,
+            FirstPosterSetting(Value("ImageEditModelId"), settings.ImageModelId),
+            FirstPosterSetting(Value("ImageEditApiKey"), settings.ImageModelApiKey),
+            endpoint,
+            FirstPosterSetting(Value("ImageEditPath"), PosterImageConfigHelper.DefaultImageEditPath(endpoint)),
+            Value("ImageSize"),
+            Value("ImageQuality"),
+            KuaishouPosterService.HorizontalRequestSize(provider),
+            settings.AiTextEndpoint,
+            settings.AiTextApiKey,
+            settings.AiTextModel,
+            settings.PosterTitleVerifyEnabled,
+            settings.PosterTitleVerifyMode,
+            settings.PosterTitleVerifyAiRetryCount,
+            ClientSettingsDefaults.PosterLayoutDetectPrompt);
+    }
+
+    private static string FirstPosterSetting(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "";
+
     private async Task RunKuaishouSettlementPipelineAsync(
         string projectDirectory,
         PublishJob? trackedJob,
@@ -2314,11 +2358,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ConfigPath = request.ConfigPath,
                 ProjectDirectory = projectDirectory,
             });
-            var templateId = request.Platform == PublishPlatform.KuaishouEnterpriseRevenue
-                ? config.EnterpriseProjectImageTemplateId
-                : config.PersonalProjectImageTemplateId;
-            if (string.IsNullOrWhiteSpace(templateId))
-                templateId = config.ProjectImageTemplateId;
             var preserved = new HashSet<string>(StringComparer.Ordinal);
             if (!request.Force)
             {
@@ -2369,33 +2408,117 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             try
             {
-                var prepared = await KuaishouSettlementPrepareRunner.RunAsync(
-                    projectDirectory,
-                    config,
-                    new KuaishouSettlementPrepareOptions(
-                        request.Download,
-                        request.Rewrite,
-                        request.Poster,
-                        request.ProjectImages,
-                        request.AutoFill,
-                        request.Force,
-                        templateId,
-                        config.ProjectImageTemplateRoot),
-                    new Progress<string>(message => AppendActivityLog(message, projectName)),
-                    cancellationToken,
-                    step => ApplyKuaishouPrepareStepEventAsync(trackedJob, trackedRow, enabled, step));
-                var completed = prepared.CompletedSteps.ToHashSet(StringComparer.Ordinal);
-                foreach (var step in enabled)
+                void MarkPrepareStep(string step)
                 {
-                    if (preserved.Contains(step.YunfanKey))
-                        continue;
-                    if (completed.Contains(step.AssistantKey))
-                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "执行完成");
-                    else
-                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Failed, "短剧助手未完成该步骤");
+                    var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+                    if (Directory.Exists(workflow))
+                        KuaishouPrepareStateStore.Mark(
+                            workflow,
+                            request.Platform == PublishPlatform.KuaishouEnterpriseRevenue,
+                            step);
                 }
-                if (enabled.Any(step => !preserved.Contains(step.YunfanKey) && !completed.Contains(step.AssistantKey)))
-                    throw new InvalidOperationException("快手分账有步骤未完成。");
+
+                if (request.Download && !preserved.Contains("download"))
+                {
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在下载剧集");
+                    var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+                    SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
+                    if (KuaishouDownloadPolicy.ShouldSkip(projectDirectory))
+                    {
+                        AppendActivityLog("本地导入项目已有视频，跳过下载。", projectName);
+                    }
+                    else
+                    {
+                        var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                        var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, directories.SourceDirectory, "");
+                        try
+                        {
+                            var downloadProgress = new Progress<WorkRunEvent>(item =>
+                            {
+                                if (!string.IsNullOrWhiteSpace(item.Message))
+                                    AppendActivityLog(item.Message, projectName);
+                            });
+                            var downloaded = await _workService.RunProjectStepAsync(
+                                directories.SourceDirectory,
+                                null,
+                                "download",
+                                request.Force,
+                                downloadProgress,
+                                cancellationToken,
+                                runtimeConfigPath);
+                            if (!downloaded.Ok)
+                                throw new InvalidOperationException(downloaded.Message ?? "下载剧集失败。");
+                        }
+                        finally
+                        {
+                            TryDeleteKuaishouRuntimeConfig(runtimeConfigPath);
+                        }
+
+                        SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
+                    }
+
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Succeeded, "执行完成");
+                    MarkPrepareStep("download");
+                }
+                if ((request.Rewrite && !preserved.Contains("rewrite")) ||
+                    (request.AutoFill && !preserved.Contains("auto-fill-info")))
+                {
+                    if (request.Rewrite && !preserved.Contains("rewrite"))
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "rewrite", "改写信息", PublishJobStepStatus.Running, "正在生成快手发布信息");
+                    if (request.AutoFill && !preserved.Contains("auto-fill-info"))
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PublishJobStepStatus.Running, "正在补齐快手字段");
+                    var ai = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                    await new KuaishouPublishInfoService().PrepareAsync(
+                        projectDirectory,
+                        config,
+                        new KuaishouPublishInfoAiSettings(
+                            ai.AiTextEndpoint,
+                            ai.AiTextApiKey,
+                            ai.AiTextModel,
+                            ai.AiTextTimeoutSeconds,
+                            ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(ai)),
+                        request.Rewrite && !preserved.Contains("rewrite"),
+                        request.AutoFill && !preserved.Contains("auto-fill-info"),
+                        request.Platform == PublishPlatform.KuaishouEnterpriseRevenue,
+                        new Progress<string>(message => AppendActivityLog(message, projectName)),
+                        cancellationToken);
+                    if (request.Rewrite && !preserved.Contains("rewrite"))
+                    {
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "rewrite", "改写信息", PublishJobStepStatus.Succeeded, "执行完成");
+                        MarkPrepareStep("rewrite_info");
+                    }
+                    if (request.AutoFill && !preserved.Contains("auto-fill-info"))
+                    {
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PublishJobStepStatus.Succeeded, "执行完成");
+                        MarkPrepareStep("auto_fill_info");
+                    }
+                }
+                if (request.Poster && !preserved.Contains("poster-rename"))
+                {
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Running, "正在生成快手海报");
+                    var imageSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                    await new KuaishouPosterService().PrepareAsync(
+                        projectDirectory,
+                        CreateKuaishouPosterSettings(imageSettings),
+                        new Progress<string>(message => AppendActivityLog(message, projectName)),
+                        cancellationToken);
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Succeeded, "执行完成");
+                    MarkPrepareStep("generate_poster");
+                }
+                if (request.ProjectImages && !preserved.Contains("project-image"))
+                {
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Running, "正在生成工程图");
+                    await GenerateKuaishouProjectImagesAsync(
+                        projectDirectory,
+                        trackedJob,
+                        cancellationToken,
+                        request.Platform,
+                        request.AccountId,
+                        request.ConfigPath,
+                        request.Force);
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Succeeded, "执行完成");
+                    MarkPrepareStep("generate_project_images");
+                }
             }
             catch (OperationCanceledException)
             {
@@ -2486,65 +2609,61 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private async Task ApplyKuaishouPrepareStepEventAsync(
-        PublishJob? trackedJob,
-        PublishJobRowViewModel? trackedRow,
-        IReadOnlyList<(string YunfanKey, string AssistantKey, string Label, bool Enabled)> steps,
-        KuaishouPrepareStepEvent stepEvent)
+    private void SyncKuaishouWorkflow(string sourceDirectory, string projectName)
     {
-        var step = steps.FirstOrDefault(item => string.Equals(item.AssistantKey, stepEvent.StepKey, StringComparison.Ordinal));
-        if (string.IsNullOrWhiteSpace(step.YunfanKey))
-            return;
+        var workflowDirectory = ProjectWorkspaceService.PrepareWorkflowProject(sourceDirectory, message => AppendActivityLog(message, projectName));
+        var sourceInfo = Path.Combine(sourceDirectory, "短剧信息.txt");
+        var workflowInfo = Path.Combine(workflowDirectory, "短剧信息.txt");
+        if (File.Exists(sourceInfo) && !File.Exists(workflowInfo))
+            File.Copy(sourceInfo, workflowInfo);
+        var episodeCount = Math.Max(1, ProjectWorkspaceService.ResolveSourceEpisodeCount(sourceDirectory));
+        ProjectWorkspaceService.EnsureWorkflowInfo(sourceDirectory, episodeCount, message => AppendActivityLog(message, projectName));
+    }
 
-        PublishJobStepStatus status;
-        string message;
-        switch (stepEvent.Status)
+    private static void TryDeleteKuaishouRuntimeConfig(string runtimeConfigPath)
+    {
+        try
         {
-            case "started":
-                status = PublishJobStepStatus.Running;
-                message = "正在执行";
-                break;
-            case "success":
-                status = PublishJobStepStatus.Succeeded;
-                message = "执行完成";
-                break;
-            case "failed":
-                status = PublishJobStepStatus.Failed;
-                message = string.IsNullOrWhiteSpace(stepEvent.Error) ? "执行失败" : stepEvent.Error;
-                break;
-            case "stopped":
-                status = PublishJobStepStatus.Pending;
-                message = "已停止，可继续执行";
-                break;
-            default:
-                return;
+            var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
+            if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
+                Directory.Delete(runtimeDir, true);
+            else
+                File.Delete(runtimeConfigPath);
         }
-
-        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, status, message);
+        catch
+        {
+            // 临时配置清理由下次系统临时目录维护。
+        }
     }
 
     private async Task GenerateKuaishouProjectImagesAsync(
         string projectDirectory,
         PublishJob? job,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PublishPlatform? platform = null,
+        string? accountId = null,
+        string? configPath = null,
+        bool? force = null)
     {
         var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath).Clone();
+        var selectedPlatform = platform ?? SelectedPlatform.Value;
         var config = KuaishouPersonalConfig.Load(new PublishJob
         {
-            Platform = SelectedPlatform.Value,
-            AccountId = SelectedAccount?.Model.Id ?? string.Empty,
-            ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
+            Platform = selectedPlatform,
+            AccountId = accountId ?? SelectedAccount?.Model.Id ?? string.Empty,
+            ConfigPath = configPath ?? SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
             ProjectDirectory = projectDirectory,
         });
         if (!string.IsNullOrWhiteSpace(config.ProjectImageTemplateRoot))
             settings.TiktokProjectImageTemplateRoot = config.ProjectImageTemplateRoot.Trim();
-        var templateId = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
+        var templateId = selectedPlatform == PublishPlatform.KuaishouEnterpriseRevenue
             ? config.EnterpriseProjectImageTemplateId
             : config.PersonalProjectImageTemplateId;
         if (string.IsNullOrWhiteSpace(templateId))
             templateId = config.ProjectImageTemplateId;
         if (!string.IsNullOrWhiteSpace(templateId))
             settings.TiktokProjectImageTemplateId = templateId.Trim();
+        settings.TiktokProjectImageGenerationMode = TikTokProjectImageService.ImageTemplateMode;
 
         var title = string.IsNullOrWhiteSpace(job?.ProjectName)
             ? Path.GetFileName(projectDirectory)
@@ -2557,14 +2676,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 EpisodeCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(projectDirectory),
             },
             settings,
-            PipelineForceRerun,
+            force ?? PipelineForceRerun,
             AppendActivityLog,
             cancellationToken);
 
         var context = ProjectWorkspaceService.LoadContext(projectDirectory);
         var generatedDir = TikTokProjectImageService.GetOutputDirectory(context.WorkflowProjectDir);
         if (!Directory.Exists(generatedDir))
-            return;
+            throw new InvalidOperationException("工程图目录没有生成。");
 
         var copied = 0;
         foreach (var file in Directory.EnumerateFiles(generatedDir, "工程图_*.png"))
@@ -2573,6 +2692,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             copied++;
         }
 
+        if (copied == 0)
+            throw new InvalidOperationException("没有生成可上传的工程图。");
         AppendActivityLog($"快手工程图已同步到工作目录：{copied} 张。");
     }
 

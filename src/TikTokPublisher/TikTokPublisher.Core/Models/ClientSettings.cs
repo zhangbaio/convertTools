@@ -100,6 +100,16 @@ public sealed class ClientSettings
         ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     public string TiktokRoleVectorViewMode { get; set; } = ClientSettingsDefaults.TiktokRoleVectorViewMode;
     public string AiPublishInfoPrompt { get; set; } = "";
+    /// <summary>快手一次请求生成的发布信息提示词；为空表示使用默认值。</summary>
+    public string KuaishouPublishInfoPrompt { get; set; } = "";
+    /// <summary>快手竖屏海报直接生成提示词；为空表示使用当前模式的默认值。</summary>
+    public string KuaishouPosterVerticalDirectPrompt { get; set; } = "";
+    /// <summary>快手竖屏海报去字提示词；为空表示使用默认值。</summary>
+    public string KuaishouPosterVerticalErasePrompt { get; set; } = "";
+    /// <summary>快手横屏封面直接生成提示词；为空表示使用默认值。</summary>
+    public string KuaishouPosterHorizontalDirectPrompt { get; set; } = "";
+    /// <summary>快手横屏封面去字提示词；为空表示使用默认值。</summary>
+    public string KuaishouPosterHorizontalErasePrompt { get; set; } = "";
     public string AiTagSystemPrompt { get; set; } = ClientSettingsDefaults.AiTagSystemPrompt;
     public string AiTagBatchPrompt { get; set; } = ClientSettingsDefaults.AiTagBatchPrompt;
     public string AiFullInfoSystemPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoSystemPrompt;
@@ -290,6 +300,11 @@ public sealed class ClientSettings
         TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
         TiktokRoleVectorViewMode = TiktokRoleVectorViewMode,
         AiPublishInfoPrompt = AiPublishInfoPrompt,
+        KuaishouPublishInfoPrompt = KuaishouPublishInfoPrompt,
+        KuaishouPosterVerticalDirectPrompt = KuaishouPosterVerticalDirectPrompt,
+        KuaishouPosterVerticalErasePrompt = KuaishouPosterVerticalErasePrompt,
+        KuaishouPosterHorizontalDirectPrompt = KuaishouPosterHorizontalDirectPrompt,
+        KuaishouPosterHorizontalErasePrompt = KuaishouPosterHorizontalErasePrompt,
         AiTagSystemPrompt = AiTagSystemPrompt,
         AiTagBatchPrompt = AiTagBatchPrompt,
         AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,

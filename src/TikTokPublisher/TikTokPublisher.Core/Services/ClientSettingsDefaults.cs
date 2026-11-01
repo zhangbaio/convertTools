@@ -152,6 +152,22 @@ public static class ClientSettingsDefaults
         {"title":"","description":"","themes":[""],"audience":"","language":""}
         """;
 
+    public const string KuaishouPublishInfoPrompt = """
+        你是快手分账短剧发布信息助手。根据原始短剧信息，一次生成个人版和企业版都要使用的发布信息。不生成推荐语。
+
+        title（新剧名）：2 到 title_max_length 个字，不得包含空格、标点和书名号，必须与原剧名明显不同。这是硬性限制，输出前逐字计数，超长就压缩，不得用空格或标点规避。
+        short_title（短标题）：6-16 个字，不得包含空格，不能与新剧名或原剧名相同。
+        description（简介）：必须根据原简介改写，不能照抄。100-400 个字，以句号、问号或感叹号结束。写清人物关系、核心冲突和剧情转折，不得虚构原简介没有的人名、身份和剧情，不得重复句子。
+        tags：3-6 个短标签，突出题材、关系或情绪，不带 #。
+        audience：只能从 audience_options 中选一个。
+        categories：从 category_options 中选 1-3 个，不能自造。
+        plots：从 plot_options 中选 1-3 个，不能自造。
+        新剧名、短标题、简介和标签不得包含炫富拜金、极端复仇、低俗擦边、侮辱挑衅等不良导向。
+
+        只返回 JSON，不要解释，不要 Markdown：
+        {"title":"","short_title":"","description":"","tags":[""],"audience":"","categories":[""],"plots":[""]}
+        """;
+
     public const string AiTagSystemPrompt = "";
 
     public const string AiTagBatchPrompt = "";
@@ -351,11 +367,61 @@ public static class ClientSettingsDefaults
 
         """;
 
+    public const string KuaishouPosterVerticalDirectPrompt = """
+        基于输入短剧海报重新设计一张可直接发布的竖屏成品海报。
+        必须彻底清除原图中的全部标题、字幕、人物名、演员名、作者及改编来源、宣传语、季数、水印、Logo文字和角标，只写一次新的海报标题“{title}”，成品中不得出现其他任何可读文字。
+        必须同时更换背景并重新设计构图，不能只对原文字区域做局部修补。
+        必须改变人物的肢体动作、服饰和脸部表情，但保持人物身份、主要面部特征、人物关系和短剧题材可识别。
+        保持竖屏海报比例，不要改成横屏，不要加黑边、白边或画中画。
+        新标题使用标准、清晰、易识别的简体中文海报粗标题，逐字准确，醒目且占据主标题区域；禁止繁体字、异体字、错别字、手写体、花体和变形字。
+        保持专业短剧海报质感，避免重复人物、畸形肢体、异常五官、额外文字、乱码和水印。
+        """;
+
+    public const string KuaishouPosterVerticalErasePrompt = """
+        这是竖屏海报全图文字清理任务，不是重新设计或重绘海报。
+        删除图片中所有可读文字和文字残影，包括主标题、副标题、人物或角色姓名、演员名、作者、改编或来源说明、版权或出品信息、宣传语、季数、字幕、水印、Logo文字、角标，以及任何中文、英文、拼音、字母和数字文字。
+        用每处文字周围的背景、纹理和光影自然补全被删除区域，不能留下描边、底纹、模糊字或残影。
+        不得生成任何新文字、符号、Logo、水印、印章或标记。
+        人物、脸部、身体、服装、发型、动作、道具、背景、构图、尺寸、比例、颜色、光影和清晰度必须保持不变，并保持竖屏比例。
+        最终输出必须是一张完全无文字的干净竖屏海报底图，新剧名由程序用固定字体写入。
+        """;
+
+    public const string KuaishouPosterHorizontalDirectPrompt = """
+        参考已完成的竖屏海报，生成一张 16:10 横屏短剧封面。
+        最终画面必须是自然横屏构图，不能把竖屏海报压扁、拉宽或简单缩放到横屏，也不能做成竖屏画中画。
+        保持人物、脸部、身体、道具和文字的真实比例，严禁横向拉伸、纵向压缩、头身比例变形、脸部变宽或文字被挤扁。
+        以竖屏海报为视觉参考重新构图：保留主要人物、题材氛围、服装和关键场景，允许扩展左右两侧背景、环境和光影。
+        主体人物位于画面中部偏上，脸部清晰，不要被裁掉，不要贴边；画面底部预留标题安全区。
+        必须彻底清除原图中的全部旧标题和其他可读文字，只写一次完整剧名“{title}”，逐字准确，水平居中，字号足够大，不能遮挡脸部，不能贴边或被裁切。
+        标题使用标准、清晰、易识别的简体中文印刷粗体，禁止繁体字、异体字、错别字、手写体、花体和变形字。
+        不要添加黑边、白边、相框或截图边框。
+        """;
+
+    public const string KuaishouPosterHorizontalErasePrompt = """
+        参考这张没有文字的竖屏海报底图，生成一张 16:10 横屏短剧封面底图，供程序随后写入标题。
+        最终画面必须是自然横屏构图，不能把竖屏海报压扁、拉宽、简单缩放，也不能做成竖屏画中画。
+        保持人物、脸部、身体和道具的真实比例，严禁横向拉伸或头身比例变形。
+        保留主要人物、题材氛围、服装和关键场景，允许扩展左右两侧背景、环境和光影。
+        主体人物位于画面中部偏上，脸部清晰；画面底部保留干净、连续、适合添加标题的安全区。
+        不得生成任何标题、汉字、拼音、英文、数字、Logo、水印、字幕或文字残影。
+        人物身份、主要面部特征、服装、动作和清晰度保持不变。
+        不要添加黑边、白边、相框或截图边框。
+        """;
+
     public static bool IsEraseFixedTitlePosterMode(string? mode) =>
         string.Equals(mode?.Trim(), PosterModeEraseFixedTitle, StringComparison.OrdinalIgnoreCase);
 
     public static string DefaultPosterAgentPrompt(string? mode) =>
         IsEraseFixedTitlePosterMode(mode) ? PosterAgentErasePrompt : PosterAgentDirectPrompt;
+
+    public static string DefaultKuaishouPosterPrompt(bool horizontal, string? mode) =>
+        (horizontal, IsEraseFixedTitlePosterMode(mode)) switch
+        {
+            (false, false) => KuaishouPosterVerticalDirectPrompt,
+            (false, true) => KuaishouPosterVerticalErasePrompt,
+            (true, false) => KuaishouPosterHorizontalDirectPrompt,
+            _ => KuaishouPosterHorizontalErasePrompt,
+        };
 
     public const string PosterNameSystemPrompt =
         "你是短剧海报名助手。请输出一个适合作为海报标题的中文短句。" +

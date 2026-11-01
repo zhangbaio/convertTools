@@ -170,6 +170,21 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
     }
 
     [Fact]
+    public void ResolveKuaishouPublishInfoPrompt_uses_default_until_customized()
+    {
+        ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(new ClientSettings())
+            .Should().Be(ClientSettingsDefaults.KuaishouPublishInfoPrompt);
+        ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(new ClientSettings { AiFullInfoSystemPrompt = "我改过的快手提示词" })
+            .Should().Be("我改过的快手提示词");
+        ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(new ClientSettings
+            {
+                KuaishouPublishInfoPrompt = "新的快手提示词",
+                AiFullInfoSystemPrompt = "我改过的快手提示词",
+            })
+            .Should().Be("新的快手提示词");
+    }
+
+    [Fact]
     public void WriteTempConfig_forces_standard_poster_layout_mode()
     {
         var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings
