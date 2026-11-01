@@ -38,10 +38,38 @@ public static class BusinessLicenseTranslator
 
     private static string Capital(string value)
     {
-        var match = Regex.Match(value, @"(\d+(?:\.\d+)?)万");
-        if (!match.Success) return value.Trim();
-        var amount = decimal.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) * 10000m;
-        return "CNY " + amount.ToString("N0", CultureInfo.InvariantCulture);
+        var arabic = Regex.Match(value, @"(\d+(?:\.\d+)?)万");
+        if (arabic.Success)
+            return FormatCapital(decimal.Parse(arabic.Groups[1].Value, CultureInfo.InvariantCulture));
+        var chinese = Regex.Match(value, @"([零〇一二三四五六七八九十百千万壹贰叁肆伍陆柒捌玖拾佰仟]+)万");
+        if (!chinese.Success) return value.Trim();
+        return FormatCapital(ChineseNumber(chinese.Groups[1].Value));
+    }
+
+    private static string FormatCapital(decimal wan) =>
+        "CNY " + (wan * 10000m).ToString("N0", CultureInfo.InvariantCulture);
+
+    private static decimal ChineseNumber(string text)
+    {
+        var digits = new Dictionary<char, int>
+        {
+            ['零'] = 0, ['〇'] = 0, ['一'] = 1, ['二'] = 2, ['三'] = 3, ['四'] = 4, ['五'] = 5, ['六'] = 6, ['七'] = 7, ['八'] = 8, ['九'] = 9,
+            ['壹'] = 1, ['贰'] = 2, ['叁'] = 3, ['肆'] = 4, ['伍'] = 5, ['陆'] = 6, ['柒'] = 7, ['捌'] = 8, ['玖'] = 9,
+        };
+        var units = new Dictionary<char, int> { ['十'] = 10, ['拾'] = 10, ['百'] = 100, ['佰'] = 100, ['千'] = 1000, ['仟'] = 1000 };
+        decimal total = 0;
+        decimal current = 0;
+        foreach (var character in text)
+        {
+            if (digits.TryGetValue(character, out var digit))
+                current = digit;
+            else if (units.TryGetValue(character, out var unit))
+            {
+                total += (current == 0 ? 1 : current) * unit;
+                current = 0;
+            }
+        }
+        return total + current;
     }
 
     private static string DateText(string value)

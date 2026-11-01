@@ -42,6 +42,9 @@ public class BusinessLicenseTranslatorTests
         Assert.Equal("Huang Xing", draft.EnglishPersonName);
         Assert.Equal("", draft.EnglishName);
         Assert.Equal("CNY 100,000", draft.EnglishExtraValue);
+        var words = new BusinessLicenseDraft { Kind = "公司", ExtraValue = "壹拾万圆人民币" };
+        BusinessLicenseTranslator.ApplyFixed(words);
+        Assert.Equal("CNY 100,000", words.EnglishExtraValue);
         Assert.Equal("April 8, 2026", draft.EnglishDateValue);
         Assert.Equal("", draft.EnglishScope);
         var docx = Path.Combine(Path.GetTempPath(), "yunfan-license-test.docx");
@@ -156,6 +159,17 @@ public class BusinessLicenseTranslatorTests
         Assert.Contains("Individual Operation", xml);
         Assert.DoesNotContain("Registered capital", xml);
         File.Delete(docx);
+    }
+
+    [Fact]
+    public void Chinese_capital_words_become_cny()
+    {
+        var ten = new BusinessLicenseDraft { Kind = "公司", ExtraValue = "壹拾万圆人民币" };
+        BusinessLicenseTranslator.ApplyFixed(ten);
+        Assert.Equal("CNY 100,000", ten.EnglishExtraValue);
+        var hundred = new BusinessLicenseDraft { Kind = "公司", ExtraValue = "壹佰万圆人民币" };
+        BusinessLicenseTranslator.ApplyFixed(hundred);
+        Assert.Equal("CNY 1,000,000", hundred.EnglishExtraValue);
     }
 
     [Fact]

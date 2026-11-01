@@ -121,8 +121,7 @@ public partial class TranslateWindow : Window
         {
             try
             {
-                var text = await BusinessLicenseOcr.RecognizeAsync(draft.SourcePath, CancellationToken.None);
-                var parsed = BusinessLicenseParser.Parse(draft.SourcePath, text);
+                var parsed = await BusinessLicenseVision.ReadAsync(draft.SourcePath, TranslationOptions(), CancellationToken.None);
                 CopyParsed(draft, parsed);
                 draft.EnglishName = draft.EnglishType = draft.EnglishAddress = draft.EnglishScope = draft.EnglishAuthority = "";
                 BusinessLicenseTranslator.ApplyFixed(draft);

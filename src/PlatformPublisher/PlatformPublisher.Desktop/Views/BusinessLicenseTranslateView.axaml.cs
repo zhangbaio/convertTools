@@ -60,8 +60,7 @@ public partial class BusinessLicenseTranslateView : UserControl
         {
             try
             {
-                var text = await BusinessLicenseOcr.RecognizeAsync(draft.SourcePath, CancellationToken.None);
-                var parsed = BusinessLicenseParser.Parse(draft.SourcePath, text);
+                var parsed = await BusinessLicenseVision.ReadAsync(draft.SourcePath, CreateOptions(), CancellationToken.None);
                 CopyParsed(draft, parsed);
                 ClearMachineTranslation(draft);
                 BusinessLicenseTranslator.ApplyFixed(draft);
@@ -244,9 +243,9 @@ public partial class BusinessLicenseTranslateView : UserControl
         var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
         return new BusinessLicenseTranslationOptions
         {
-            ApiKey = settings.VideoTranslateLlmApiKey,
-            BaseUrl = settings.VideoTranslateLlmBaseUrl,
-            Model = settings.VideoTranslateLlmModel,
+            ApiKey = settings.AiTextApiKey,
+            BaseUrl = settings.AiTextEndpoint,
+            Model = settings.AiTextModel,
         };
     }
 

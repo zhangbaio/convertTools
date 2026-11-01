@@ -19,7 +19,7 @@ public sealed class BusinessLicenseTranslationOptions
 
 public static class BusinessLicenseAiTranslator
 {
-    public const string MissingApiKeyMessage = "未配置大模型翻译 API Key。请到系统设置 → 系统服务 → 翻译配置填写。";
+    public const string MissingApiKeyMessage = "未配置火山文本模型 API Key。请到系统设置的文本接口填写。";
 
     private static readonly HttpClient SharedClient = new() { Timeout = TimeSpan.FromSeconds(90) };
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
