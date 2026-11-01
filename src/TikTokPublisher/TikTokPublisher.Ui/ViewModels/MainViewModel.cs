@@ -2785,6 +2785,8 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var options = SystemServices.BuildRemoteUploadRunOptions(command);
         options.ProjectConcurrency = Math.Clamp(targetAccount?.TiktokProjectConcurrency ?? options.ProjectConcurrency, 1, 20);
+        if (command.EnabledSteps is { Count: > 0 })
+            ApplyServerConfiguredQueueSteps(targetAccount, options);
 
         var (singleRawText, singleMatchMode) = BuildRemoteUploadImportInput(command, titles);
         var importOutcome = await ImportRemoteUploadTitlesAsync(
@@ -3853,6 +3855,37 @@ public sealed partial class MainViewModel : ViewModelBase
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
         _queueRunOptions.UploadEntryMode = "";
+    }
+
+    private void ApplyServerConfiguredQueueSteps(TikTokAccountProfile? account, QueueRunOptions options)
+    {
+        var steps = NormalizeQueueEnabledSteps(options.EnabledSteps);
+        if (steps.Count == 0)
+            return;
+        options.EnabledSteps = steps.ToList();
+        if (account is not null)
+        {
+            account.TiktokQueueEnabledSteps = steps.ToList();
+            account.TiktokQueueAutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
+            account.TiktokQueuePreferUploadWhenReady = options.PreferUploadWhenReady;
+            account.TiktokQueueSyncManagementAfterUpload = options.SyncManagementAfterUpload;
+            _context.NotifyProfileUpdated(account);
+        }
+
+        var appliesToDisplayedAccount = account is null || SelectedAccount?.Model.Id == account.Id;
+        if (!appliesToDisplayedAccount)
+            return;
+
+        _queueRunOptions.EnabledSteps = steps.ToList();
+        _queueRunOptions.AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
+        _queueRunOptions.ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
+        _queueRunOptions.PreferUploadWhenReady = options.PreferUploadWhenReady;
+        _queueRunOptions.SyncManagementAfterUpload = options.SyncManagementAfterUpload;
+        ApplyQueueStepTogglesFromOptions();
+        ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
+        AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
+        PreferUploadWhenReady = options.PreferUploadWhenReady;
+        SyncManagementAfterUpload = options.SyncManagementAfterUpload;
     }
 
     private void ApplyAccountQueueEnabledSteps(string workspaceRoot, QueueRunOptions? preloadedOptions = null)
