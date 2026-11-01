@@ -75,7 +75,7 @@
                         <Button Content="历史上新" Command="{Binding LoadHistoryCommand}" Margin="0,0,8,8" />
                         <Button Content="◀ 上页" Command="{Binding PreviousPageCommand}" Margin="0,0,8,8" />
                         <Button Content="下页 ▶" Command="{Binding NextPageCommand}" Margin="0,0,8,8" />
-                        <ComboBox Width="120" ItemsSource="{Binding SearchViewModeOptions}" SelectedItem="{Binding SearchViewMode}" Margin="0,0,8,8" />
+                        <ComboBox Width="120" ItemsSource="{Binding SearchViewModeOptions}" SelectedItem="{Binding SearchViewMode}" SelectionChanged="OnSearchViewModeChanged" Margin="0,0,8,8" />
                         <TextBlock Text="{Binding SearchPageText}" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8" />
                     </WrapPanel>
 
@@ -134,7 +134,7 @@
                             <TextBlock Grid.Column="10" Text="简介" Classes="tableHeader" />
                         </Grid>
 
-                        <ListBox ItemsSource="{Binding SearchResults}" Background="{StaticResource PythonInputBg}">
+                        <ListBox x:Name="SearchResultList" ItemsSource="{Binding SearchResults}" Background="{StaticResource PythonInputBg}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:DramaSearchRowViewModel">
                                     <Grid ColumnDefinitions="56,64,220,140,72,90,90,140,168,150,320" MinHeight="34">
@@ -156,7 +156,7 @@
                     </DockPanel>
                     </ScrollViewer>
 
-                    <ScrollViewer IsVisible="{Binding IsPosterView}">
+                    <ScrollViewer x:Name="SearchPosterScroll" ScrollChanged="OnSearchPosterScrollChanged" IsVisible="{Binding IsPosterView}">
                         <ItemsControl ItemsSource="{Binding SearchResults}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>

@@ -17,7 +17,7 @@ TikTok 助手里的「红果APP下载」（链路 id `hongguoapp`）按本目录
 
 | 步骤 | 类 | 说明 |
 | --- | --- | --- |
-| 搜索、剧集列表、漫剧上新、AI短剧上新 | `HongguoPureSign`、`HongguoAppDirectClient` | 进程内 PureSign。搜索设备号单独写在 `%LOCALAPPDATA%/TikTokPublisher/hongguoapp-device.json`，不要给它配播放安装号。上新走分类页，体裁分别是 `comic_series` 和 `ai_series`，排序 `online_time`，时间 `days_7` |
+| 搜索、剧集列表、漫剧上新、AI短剧上新 | `HongguoPureSign`、`HongguoAppDirectClient` | 进程内 PureSign。搜索设备号单独写在 `%LOCALAPPDATA%/TikTokPublisher/hongguoapp-device.json`，不要给它配播放安装号。上新走分类页，体裁分别是 `comic_series` 和 `ai_series`，排序 `online_time`，时间 `days_7`。每次 20 部，下一页带上返回的 `session_id` |
 | 链路 1 播放地址 | `HongguoGuestPlayback` | 匿名 `device_register` 之后，无签名 POST `multi_video_model/v1` |
 | 链路 2 播放地址 | `HongguoSignedPlayback` | 同一对播放设备号和安装号，PureSign 后再请求同一接口。没有分集画面时走 `fallback_api`，`key_seed` 密文要先解密。不跟随跳转 |
 | 选择两条链路 | `HongguoAppDirectClient.GetVideoPlaybackAsync` | 设置里至少留一条。两条都开时先链路 1，失败再链路 2 |

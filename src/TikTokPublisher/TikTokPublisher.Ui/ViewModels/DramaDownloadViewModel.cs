@@ -311,6 +311,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private bool _rankHasMore = true;
     private int _rankNextOffset;
     private int _rankGeneration;
+    private bool _newReleaseActive;
+    private bool _newReleaseIsAi;
+    private bool _newReleaseHasMore;
+    private int _newReleaseOffset;
+    private int _newReleaseGeneration;
+    private string _newReleaseSession = "";
 
     public DramaDownloadViewModel(string? stateDatabasePath = null)
     {
@@ -528,10 +534,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         SearchPage = 1;
         if (ShortDramaDramaServices.IsHongguoAppSourceSelected())
         {
-            await LoadSearchResultsAsync(
-                "漫剧上新 · 最新上架 · 7天内",
-                ct => ShortDramaDramaServices.GetMangaTodayAsync(7, ct),
-                sourceMode: "mj_today");
+            await LoadHongguoAppNewReleaseAsync(isAi: false, append: false);
             return;
         }
 
@@ -565,10 +568,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         SearchPage = 1;
         if (ShortDramaDramaServices.IsHongguoAppSourceSelected())
         {
-            await LoadSearchResultsAsync(
-                "AI短剧上新 · 最新上架 · 7天内",
-                ct => ShortDramaDramaServices.GetAiTodayAsync(7, ct),
-                sourceMode: "aiju_today");
+            await LoadHongguoAppNewReleaseAsync(isAi: true, append: false);
             return;
         }
 
@@ -619,6 +619,89 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     {
     }
 
+    public void NotifyHongguoNewReleaseScroll(double offsetY, double viewportY, double extentY)
+    {
+        if (!_newReleaseActive || !_newReleaseHasMore || IsSearching)
+            return;
+        if (extentY <= viewportY + 4)
+            return;
+        if (offsetY + viewportY < extentY - 80)
+            return;
+        _ = LoadHongguoAppNewReleaseAsync(_newReleaseIsAi, append: true);
+    }
+
+    private async Task LoadHongguoAppNewReleaseAsync(bool isAi, bool append)
+    {
+        if (IsSearching)
+            return;
+        if (append && (!_newReleaseActive || !_newReleaseHasMore))
+            return;
+
+        IsSearching = true;
+        var generation = append ? _newReleaseGeneration : ++_newReleaseGeneration;
+        var label = isAi ? "AI短剧上新 · 最新上架 · 7天内" : "漫剧上新 · 最新上架 · 7天内";
+        var sourceMode = isAi ? "aiju_today" : "mj_today";
+        if (!append)
+        {
+            _newReleaseActive = true;
+            _newReleaseIsAi = isAi;
+            _newReleaseHasMore = true;
+            _newReleaseOffset = 0;
+            _newReleaseSession = "";
+            _allSearchResults.Clear();
+            ApplyFilteredSearchResults(label, updateSearchPageText: false);
+        }
+
+        var offset = append ? _newReleaseOffset : 0;
+        var session = append ? _newReleaseSession : "";
+        SearchPageText = append ? $"{label} · 正在加载下一批" : $"{label} · 加载中...";
+        try
+        {
+            var page = await ShortDramaDramaServices.GetHongguoAppNewReleasePageAsync(
+                isAi,
+                offset,
+                session,
+                CancellationToken.None);
+            if (generation != _newReleaseGeneration)
+                return;
+
+            var added = 0;
+            foreach (var item in page.Items)
+            {
+                if (_allSearchResults.Any(existing =>
+                        string.Equals(existing.BookId, item.BookId, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                item.Selected = false;
+                item.SourceMode = sourceMode;
+                _allSearchResults.Add(item);
+                added++;
+            }
+
+            var nextOffset = page.NextOffset > offset ? page.NextOffset : offset + Math.Max(page.Items.Count, 1);
+            _newReleaseHasMore = page.HasMore && added > 0 && nextOffset > offset;
+            _newReleaseOffset = nextOffset;
+            if (!string.IsNullOrWhiteSpace(page.SessionId))
+                _newReleaseSession = page.SessionId;
+            ApplyFilteredSearchResults(label, updateSearchPageText: false);
+            SearchPageText = _newReleaseHasMore
+                ? $"{label} · 已加载 {SearchResults.Count} 条，继续下滑加载"
+                : $"{label} · 已到最后 · {SearchResults.Count} 条";
+            LogRequested?.Invoke($"{label}：本批 {page.Items.Count} 条，累计 {SearchResults.Count} 条");
+        }
+        catch (Exception ex)
+        {
+            if (generation != _newReleaseGeneration)
+                return;
+            SearchPageText = append ? $"{label} · 下一批加载失败" : $"{label} · 加载失败";
+            LogRequested?.Invoke($"{label}失败：{ex.Message}");
+        }
+        finally
+        {
+            if (generation == _newReleaseGeneration)
+                IsSearching = false;
+        }
+    }
+
     private async Task LoadRankCoreAsync(bool append)
     {
         if (IsSearching)
@@ -634,6 +717,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var generation = append ? _rankGeneration : ++_rankGeneration;
         if (!append)
         {
+            _newReleaseActive = false;
             _rankReloadPending = false;
             _rankHasMore = true;
             _rankNextOffset = 0;
@@ -1187,6 +1271,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     {
         if (IsSearching) return;
         CancelBackgroundNewRelease();
+        _newReleaseActive = false;
         IsSearching = true;
         SetPageText($"{label} · 加载中...");
         try

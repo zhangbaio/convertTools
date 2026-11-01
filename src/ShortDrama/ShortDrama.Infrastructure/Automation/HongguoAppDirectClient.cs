@@ -170,53 +170,40 @@ internal sealed class HongguoAppDirectClient
         }
     }
 
-    internal async Task<IReadOnlyList<DramaSearchItem>> GetNewReleaseAsync(
+    internal async Task<HongguoAppReleasePage> GetNewReleasePageAsync(
         string genre,
+        int offset,
+        string? sessionId,
         CancellationToken cancellationToken)
     {
-        var results = new List<DramaSearchItem>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        for (var page = 0; page < NewReleaseMaxPages; page++)
-        {
-            var root = await SendAsync(
-                HttpMethod.Post,
-                LandpagePath,
-                LandpageBody(genre, page * NewReleasePageSize),
-                null,
-                cancellationToken);
-            var items = ReadLandpageItems(root);
-            var added = 0;
-            foreach (var item in items)
-            {
-                if (item.BookId.Length > 0 && seen.Add(item.BookId))
-                {
-                    results.Add(item);
-                    added++;
-                }
-            }
-
-            if (added == 0 || !LandpageHasMore(root, items.Count))
-                break;
-        }
-
-        return results;
+        var safeOffset = Math.Max(0, offset);
+        var root = await SendAsync(
+            HttpMethod.Post,
+            LandpagePath,
+            LandpageBody(genre, safeOffset, sessionId),
+            null,
+            cancellationToken,
+            attempts: 8);
+        var items = ReadLandpageItems(root);
+        var paging = ReadLandpagePaging(root, safeOffset, items.Count);
+        return new HongguoAppReleasePage(items, paging.HasMore, paging.NextOffset, paging.SessionId);
     }
 
     internal const string LandpagePath = "/reading/distribution/category/landpage/v";
     internal const int NewReleasePageSize = 20;
-    internal const int NewReleaseMaxPages = 15;
 
-    internal static byte[] LandpageBody(string genre, int offset)
+    internal static byte[] LandpageBody(string genre, int offset, string? sessionId = null)
     {
         if (genre is not ("comic_series" or "ai_series"))
             throw new ArgumentOutOfRangeException(nameof(genre));
         var safeOffset = Math.Max(0, offset);
+        var session = new string((sessionId ?? "").Where(char.IsLetterOrDigit).ToArray());
         var json = "{\"client_req_type\":3,\"filter_ids\":\"\",\"limit\":20,"
                    + "\"need_selector_panel\":false,\"offset\":" + safeOffset
                    + ",\"req_scene\":\"comic_series\",\"req_type\":\"only_content\",\"select_items\":{"
                    + "\"category_dim_epoch\":[],\"category_dim_role\":[],\"category_dim_theme\":[],"
                    + "\"gender\":[],\"genre\":[\"" + genre + "\"],\"online_time\":[\"days_7\"],"
-                   + "\"sort\":[\"online_time\"]},\"session_id\":\"\"}";
+                   + "\"sort\":[\"online_time\"]},\"session_id\":\"" + session + "\"}";
         return Encoding.UTF8.GetBytes(json);
     }
 
@@ -231,41 +218,22 @@ internal sealed class HongguoAppDirectClient
             .ToArray();
     }
 
-    internal static bool LandpageHasMore(JsonNode? root, int itemCount)
+    internal static bool LandpageHasMore(JsonNode? root, int itemCount) =>
+        ReadLandpagePaging(root, 0, itemCount).HasMore;
+
+    internal readonly record struct LandpageCursor(bool HasMore, int NextOffset, string SessionId);
+
+    internal static LandpageCursor ReadLandpagePaging(JsonNode? root, int offset, int itemCount)
     {
-        if (itemCount <= 0)
-            return false;
-        var paging = FindLandpagePaging(root);
-        return paging.Found ? paging.HasMore : itemCount >= NewReleasePageSize;
-    }
-
-    private readonly record struct LandpagePaging(bool Found, bool HasMore);
-
-    private static LandpagePaging FindLandpagePaging(JsonNode? node)
-    {
-        switch (node)
-        {
-            case JsonObject obj when obj.ContainsKey("has_more"):
-                return new LandpagePaging(true, ReadBool(obj["has_more"]));
-            case JsonObject obj:
-                foreach (var property in obj)
-                {
-                    var nested = FindLandpagePaging(property.Value);
-                    if (nested.Found)
-                        return nested;
-                }
-                break;
-            case JsonArray array:
-                foreach (var item in array)
-                {
-                    var nested = FindLandpagePaging(item);
-                    if (nested.Found)
-                        return nested;
-                }
-                break;
-        }
-
-        return default;
+        var data = root?["data"] as JsonObject;
+        var hasMore = itemCount > 0 && (data is not null && data.ContainsKey("has_more")
+            ? ReadBool(data["has_more"])
+            : itemCount >= NewReleasePageSize);
+        var next = Positive(data, "next_offset");
+        if (next <= offset)
+            next = offset + Math.Max(itemCount, 0);
+        var session = Text(data, "session_id") ?? "";
+        return new LandpageCursor(hasMore, next, session);
     }
 
     private static bool ReadBool(JsonNode? node)
@@ -296,12 +264,14 @@ internal sealed class HongguoAppDirectClient
         string path,
         byte[]? body,
         IReadOnlyList<KeyValuePair<string, string>>? extra,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int attempts = 3)
     {
         var deviceId = HongguoPureSign.LoadDeviceId(HongguoPureSign.DefaultDevicePath());
         Exception? last = null;
         var rticket = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        for (var attempt = 0; attempt < 3; attempt++)
+        var maxAttempts = Math.Clamp(attempts, 1, 8);
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             var khronos = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var built = HongguoPureSign.BuildUrl(path, extra, deviceId, rticket);
@@ -351,7 +321,7 @@ internal sealed class HongguoAppDirectClient
             {
                 last = ex;
                 rticket++;
-                if (attempt < 2)
+                if (attempt < maxAttempts - 1)
                     await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationToken);
             }
         }

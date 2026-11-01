@@ -11,7 +11,9 @@ public partial class DramaDownloadView : UserControl
 {
     private DramaDownloadViewModel? _vm;
     private ScrollViewer? _rankListScroll;
+    private ScrollViewer? _searchListScroll;
     private int _rankScrollAttachAttempts;
+    private int _searchScrollAttachAttempts;
 
     public DramaDownloadView()
     {
@@ -37,6 +39,8 @@ public partial class DramaDownloadView : UserControl
         vm.LoadState();
         DataContext = vm;
         SyncComboFromVm();
+        _searchScrollAttachAttempts = 0;
+        AttachSearchListScroll();
     }
 
     private async Task<IReadOnlyList<TikTokQueueImportTarget>?> PickTikTokQueueTargetsAsync(
@@ -61,13 +65,60 @@ public partial class DramaDownloadView : UserControl
     {
         if (e.Source is not TabControl || sender is not TabControl tabs)
             return;
-        if (tabs.SelectedItem is TabItem item &&
-            string.Equals(item.Header?.ToString(), "榜单", StringComparison.Ordinal))
+        if (tabs.SelectedItem is not TabItem item)
+            return;
+        if (string.Equals(item.Header?.ToString(), "榜单", StringComparison.Ordinal))
         {
             _rankScrollAttachAttempts = 0;
             AttachRankListScroll();
         }
+        else if (string.Equals(item.Header?.ToString(), "搜索", StringComparison.Ordinal))
+        {
+            _searchScrollAttachAttempts = 0;
+            AttachSearchListScroll();
+        }
     }
+
+    private void AttachSearchListScroll()
+    {
+        var scroll = SearchResultList?.FindDescendantOfType<ScrollViewer>();
+        if (scroll is null)
+        {
+            if (_searchScrollAttachAttempts++ > 8)
+                return;
+            Dispatcher.UIThread.Post(AttachSearchListScroll, DispatcherPriority.Loaded);
+            return;
+        }
+
+        _searchScrollAttachAttempts = 0;
+        if (ReferenceEquals(_searchListScroll, scroll))
+            return;
+        if (_searchListScroll is not null)
+            _searchListScroll.ScrollChanged -= OnSearchListScrollChanged;
+        _searchListScroll = scroll;
+        _searchListScroll.ScrollChanged += OnSearchListScrollChanged;
+    }
+
+    private void OnSearchViewModeChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        _searchScrollAttachAttempts = 0;
+        AttachSearchListScroll();
+    }
+
+    private void OnSearchListScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is ScrollViewer scroll)
+            NotifySearchScroll(scroll);
+    }
+
+    private void OnSearchPosterScrollChanged(object? sender, ScrollChangedEventArgs e)
+    {
+        if (sender is ScrollViewer scroll)
+            NotifySearchScroll(scroll);
+    }
+
+    private void NotifySearchScroll(ScrollViewer scroll) =>
+        _vm?.NotifyHongguoNewReleaseScroll(scroll.Offset.Y, scroll.Viewport.Height, scroll.Extent.Height);
 
     private void AttachRankListScroll()
     {

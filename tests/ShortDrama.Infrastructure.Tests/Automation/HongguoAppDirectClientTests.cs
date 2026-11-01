@@ -79,6 +79,11 @@ public sealed class HongguoAppDirectClientTests
         Assert.Contains("\"sort\":[\"online_time\"]", comic, StringComparison.Ordinal);
         Assert.Contains("\"online_time\":[\"days_7\"]", comic, StringComparison.Ordinal);
         Assert.Contains("\"offset\":20", comic, StringComparison.Ordinal);
+        Assert.Contains("\"session_id\":\"\"", comic, StringComparison.Ordinal);
+        var continued = Encoding.UTF8.GetString(
+            HongguoAppDirectClient.LandpageBody("ai_series", 20, "20261101161659E2CC17C340F09FAB0FB3"));
+        Assert.Contains("\"session_id\":\"20261101161659E2CC17C340F09FAB0FB3\"", continued, StringComparison.Ordinal);
+        Assert.Contains("\"offset\":20", continued, StringComparison.Ordinal);
 
         var ai = Encoding.UTF8.GetString(HongguoAppDirectClient.LandpageBody("ai_series", 0));
         Assert.Contains("\"genre\":[\"ai_series\"]", ai, StringComparison.Ordinal);
@@ -113,6 +118,29 @@ public sealed class HongguoAppDirectClientTests
         Assert.Equal("测试漫剧", items[0].Title);
         Assert.Equal(12, items[0].EpisodeTotal);
         Assert.False(HongguoAppDirectClient.LandpageHasMore(root, items.Count));
+        var cursor = HongguoAppDirectClient.ReadLandpagePaging(root, 0, items.Count);
+        Assert.False(cursor.HasMore);
+        Assert.Equal(items.Count, cursor.NextOffset);
+    }
+
+    [Fact]
+    public void NewReleasePagingKeepsSessionAndNextOffset()
+    {
+        var root = JsonNode.Parse("""
+            {
+              "code": 0,
+              "data": {
+                "has_more": true,
+                "next_offset": 20,
+                "session_id": "20261101161659E2CC17C340F09FAB0FB3",
+                "video_data": []
+              }
+            }
+            """)!;
+        var cursor = HongguoAppDirectClient.ReadLandpagePaging(root, 0, 20);
+        Assert.True(cursor.HasMore);
+        Assert.Equal(20, cursor.NextOffset);
+        Assert.Equal("20261101161659E2CC17C340F09FAB0FB3", cursor.SessionId);
     }
 
 }

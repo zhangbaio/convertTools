@@ -248,6 +248,27 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             downloaderLoader: ct => _downloaderApiService.GetLatestAsync(settings, "ai", days, ct));
     }
 
+    public async Task<HongguoAppReleasePage> GetHongguoAppNewReleasePageAsync(
+        bool ai,
+        int offset,
+        string? sessionId,
+        CancellationToken cancellationToken)
+    {
+        var settings = _settingsProvider.Get();
+        if (!string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
+            return new HongguoAppReleasePage([], false, Math.Max(0, offset), sessionId ?? "");
+
+        var page = await _hongguoApp.GetNewReleasePageAsync(
+            ai ? "ai_series" : "comic_series",
+            offset,
+            sessionId,
+            cancellationToken);
+        return page with
+        {
+            Items = page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray()
+        };
+    }
+
     public bool IsHongguoAppSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase);
 
@@ -2306,9 +2327,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         IProgress<IReadOnlyList<DramaSearchItem>>? partialResults,
         CancellationToken cancellationToken)
     {
-        var items = (await _hongguoApp.GetNewReleaseAsync(genre, cancellationToken))
-            .Select(item => RetargetBook(item, HongguoAppBookPrefix))
-            .ToArray();
+        var page = await _hongguoApp.GetNewReleasePageAsync(genre, 0, null, cancellationToken);
+        var items = page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray();
         partialResults?.Report(items);
         return items;
     }
