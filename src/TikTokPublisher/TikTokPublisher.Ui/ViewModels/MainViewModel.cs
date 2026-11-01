@@ -2794,7 +2794,11 @@ public sealed partial class MainViewModel : ViewModelBase
         var options = SystemServices.BuildRemoteUploadRunOptions(command);
         options.ProjectConcurrency = Math.Clamp(targetAccount?.TiktokProjectConcurrency ?? options.ProjectConcurrency, 1, 20);
         if (command.EnabledSteps is { Count: > 0 })
+        {
             ApplyServerConfiguredQueueSteps(targetAccount, options);
+            options = QueueOptionsFromLocalChecks(targetAccount, targetWorkspace, options);
+            _queueOrchestrator.ApplyRunningQueueSteps(targetWorkspace, options);
+        }
 
         var (singleRawText, singleMatchMode) = BuildRemoteUploadImportInput(command, titles);
         var importOutcome = await ImportRemoteUploadTitlesAsync(
@@ -3863,6 +3867,24 @@ public sealed partial class MainViewModel : ViewModelBase
         var concurrency = SelectedAccount?.Model.TiktokProjectConcurrency ?? _queueRunOptions.ProjectConcurrency;
         _queueRunOptions.ProjectConcurrency = Math.Clamp(concurrency < 1 ? 4 : concurrency, 1, 20);
         _queueRunOptions.UploadEntryMode = "";
+    }
+
+    private QueueRunOptions QueueOptionsFromLocalChecks(TikTokAccountProfile? account, string workspace, QueueRunOptions serverOptions)
+    {
+        QueueRunOptions local;
+        if (account is null || string.Equals(SelectedAccount?.Model.Id, account.Id, StringComparison.Ordinal))
+        {
+            SyncEnabledStepsFromUi();
+            local = _queueRunOptions.Clone();
+        }
+        else
+        {
+            local = LoadQueueRunOptionsForAccountWorkspace(workspace, account);
+            local.ForceRerunCompletedSteps = serverOptions.ForceRerunCompletedSteps;
+        }
+
+        local.ProjectConcurrency = Math.Clamp(account?.TiktokProjectConcurrency ?? local.ProjectConcurrency, 1, 20);
+        return local;
     }
 
     private void ApplyServerConfiguredQueueSteps(TikTokAccountProfile? account, QueueRunOptions options)

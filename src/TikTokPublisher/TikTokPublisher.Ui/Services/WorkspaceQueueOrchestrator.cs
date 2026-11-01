@@ -112,7 +112,7 @@ public sealed class WorkspaceQueueOrchestrator
                     projectDirFilter),
                 linkedCts.Token);
 
-            run = new ActiveRun(root, displayLabel, runner, linkedCts, task);
+            run = new ActiveRun(root, displayLabel, runner, linkedCts, task, options);
             _runs[root] = run;
         }
 
@@ -243,6 +243,26 @@ public sealed class WorkspaceQueueOrchestrator
         }
     }
 
+    public bool ApplyRunningQueueSteps(string workspaceRoot, QueueRunOptions source)
+    {
+        if (source is null || string.IsNullOrWhiteSpace(workspaceRoot))
+            return false;
+
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (!_runs.TryGetValue(root, out var run) || run.Task.IsCompleted)
+                return false;
+
+            run.Options.EnabledSteps = source.EnabledSteps?.ToList() ?? [];
+            run.Options.AutoArchiveAfterUpload = source.AutoArchiveAfterUpload;
+            run.Options.ForceRerunCompletedSteps = source.ForceRerunCompletedSteps;
+            run.Options.PreferUploadWhenReady = source.PreferUploadWhenReady;
+            run.Options.SyncManagementAfterUpload = source.SyncManagementAfterUpload;
+            return true;
+        }
+    }
+
     public int TryAppendItemsToRunningWorkspace(string workspaceRoot, IEnumerable<QueueProjectItem> items)
     {
         var root = Path.GetFullPath(workspaceRoot);
@@ -324,13 +344,15 @@ public sealed class WorkspaceQueueOrchestrator
             string displayLabel,
             QueueWorkerRunner runner,
             CancellationTokenSource cts,
-            Task<QueueWorkerSummary?> task)
+            Task<QueueWorkerSummary?> task,
+            QueueRunOptions options)
         {
             WorkspaceRoot = workspaceRoot;
             DisplayLabel = displayLabel;
             Runner = runner;
             Cts = cts;
             Task = task;
+            Options = options;
         }
 
         public string WorkspaceRoot { get; }
@@ -338,6 +360,7 @@ public sealed class WorkspaceQueueOrchestrator
         public QueueWorkerRunner Runner { get; }
         public CancellationTokenSource Cts { get; }
         public Task<QueueWorkerSummary?> Task { get; }
+        public QueueRunOptions Options { get; }
         public QueueWorkerSummary? Summary => Task.IsCompletedSuccessfully ? Task.Result : null;
     }
 }

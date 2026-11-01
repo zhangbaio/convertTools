@@ -303,7 +303,6 @@ public sealed class QueueWorkerRunner
         var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
         var orderedSteps = options.OrderedEnabledSteps();
         var preUploadSteps = orderedSteps.Where(s => s != QueueStepRegistry.UploadSeries).ToList();
-        var uploadEnabled = options.IsStepEnabled(QueueStepRegistry.UploadSeries);
 
         var candidates = BuildInitialCandidates(items, options, accountStore, filterOrder, orderedSteps);
         EnsureExplicitFilterMatched(filterOrder, candidates.Count);
@@ -319,6 +318,7 @@ public sealed class QueueWorkerRunner
             candidates.Select((item, index) => (index + 1, item)));
         var readyForUpload = new Queue<QueueProjectItem>();
         var preUploadTasks = new Dictionary<Task, QueueProjectItem>();
+        var preUploadStepsByTask = new Dictionary<Task, IReadOnlyList<string>>();
         var uploadTasks = new Dictionary<Task<bool>, (QueueProjectItem Item, string AccountKey, TikTokAccountProfile Account)>();
         var activeUploadAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -359,7 +359,15 @@ public sealed class QueueWorkerRunner
                        && preUploadTasks.Count < projectConcurrency)
                 {
                     var (_, item) = pendingPreUpload.Dequeue();
-                    var itemPreUploadSteps = preUploadSteps;
+                    var currentSteps = options.OrderedEnabledSteps();
+                    MarkQueuedForRun(
+                        item,
+                        currentSteps,
+                        options,
+                        QueueAccountBindingResolver.Resolve(accountStore, item));
+                    var itemPreUploadSteps = currentSteps
+                        .Where(step => step != QueueStepRegistry.UploadSeries)
+                        .ToList();
 
                     if (itemPreUploadSteps.Count > 0)
                     {
@@ -377,10 +385,11 @@ public sealed class QueueWorkerRunner
                                 Mutate),
                             ct));
                         preUploadTasks[task] = captured;
+                        preUploadStepsByTask[task] = itemPreUploadSteps;
                         continue;
                     }
 
-                    if (uploadEnabled && ShouldRunStep(item, QueueStepRegistry.UploadSeries, options))
+                    if (options.IsStepEnabled(QueueStepRegistry.UploadSeries) && ShouldRunStep(item, QueueStepRegistry.UploadSeries, options))
                     {
                         MarkWaitingSlot(item);
                         readyForUpload.Enqueue(item);
@@ -605,6 +614,9 @@ public sealed class QueueWorkerRunner
 
             if (preUploadTasks.Remove(completed, out var preItem))
             {
+                preUploadStepsByTask.Remove(completed, out var startedPreUploadSteps);
+                var failureSteps = startedPreUploadSteps ?? preUploadSteps;
+                var uploadEnabledNow = options.IsStepEnabled(QueueStepRegistry.UploadSeries);
                 try
                 {
                     await completed.ConfigureAwait(false);
@@ -612,9 +624,9 @@ public sealed class QueueWorkerRunner
                     {
                         if (stopped)
                         {
-                            MarkStopped(preItem, uploadEnabled ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
+                            MarkStopped(preItem, uploadEnabledNow ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
                         }
-                        else if (uploadEnabled && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
+                        else if (uploadEnabledNow && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
                         {
                             MarkWaitingSlot(preItem);
                             readyForUpload.Enqueue(preItem);
@@ -628,7 +640,7 @@ public sealed class QueueWorkerRunner
                 }
                 catch (OperationCanceledException ex)
                 {
-                    var failedStep = ResolveFailedStep(ex, preItem, preUploadSteps);
+                    var failedStep = ResolveFailedStep(ex, preItem, failureSteps);
                     if (ct.IsCancellationRequested)
                     {
                         Mutate(() => MarkStopped(preItem, failedStep));
@@ -659,7 +671,7 @@ public sealed class QueueWorkerRunner
                 }
                 catch (Exception ex)
                 {
-                    var failedStep = ResolveFailedStep(ex, preItem, preUploadSteps);
+                    var failedStep = ResolveFailedStep(ex, preItem, failureSteps);
                     var failureMessage = DescribeQueueFailure(ex);
                     Mutate(() =>
                     {
@@ -2146,6 +2158,7 @@ public sealed class QueueWorkerRunner
 
         lock (stateLock)
         {
+            orderedSteps = options.OrderedEnabledSteps();
             var added = false;
             foreach (var item in batch)
             {

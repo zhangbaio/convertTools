@@ -190,7 +190,10 @@ public static class TikTokRemoteCommandParser
             var workspacePath = FirstString(root, "workspace_path", "workspace");
             var accountProfileId = FirstString(root, "account_profile_id", "profile_id");
             var accountProfileName = FirstString(root, "account_profile_name", "account", "profile");
-            var accountSelectors = ReadJsonAccountSelectors(root, accountProfileId, accountProfileName);
+            // 账号 ID 和名称描述的是同一个账号。两个都传时不能当成多账号，否则队列已在跑时后续派单会被拒绝。
+            var accountSelectors = ReadJsonAccountSelectors(
+                root,
+                string.IsNullOrWhiteSpace(accountProfileId) ? accountProfileName : accountProfileId);
             var allAccounts = IsAllAccountsSelector(accountProfileId) ||
                               IsAllAccountsSelector(accountProfileName) ||
                               accountSelectors.Any(IsAllAccountsSelector) ||
