@@ -442,6 +442,7 @@ public static class ClientSettingsStore
         settings.AiFullInfoSystemPrompt = DefaultIfBlank(settings.AiFullInfoSystemPrompt, ClientSettingsDefaults.AiFullInfoSystemPrompt);
         settings.AiFullInfoBatchPrompt = DefaultIfBlank(settings.AiFullInfoBatchPrompt, ClientSettingsDefaults.AiFullInfoBatchPrompt);
         settings.AiFullInfoRetryPrompt = DefaultIfBlank(settings.AiFullInfoRetryPrompt, ClientSettingsDefaults.AiFullInfoRetryPrompt);
+        settings.AiPublishInfoPrompt = ResolvePublishInfoPrompt(settings);
         settings.PosterMode = NormalizePosterMode(settings.PosterMode);
         settings.PosterLayoutRequestMode = NormalizePosterLayoutRequestMode(settings.PosterLayoutRequestMode);
         var networkPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
@@ -596,6 +597,22 @@ public static class ClientSettingsStore
     {
         var normalized = (value ?? "auto").Trim().ToLowerInvariant();
         return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
+    }
+
+    /// <summary>
+    /// 发布信息提示词为空时，沿用用户改过的旧「完整信息 System Prompt」，否则使用新默认值。
+    /// </summary>
+    public static string ResolvePublishInfoPrompt(ClientSettings settings)
+    {
+        var current = settings.AiPublishInfoPrompt?.Trim() ?? "";
+        if (current.Length > 0)
+            return current;
+
+        var legacy = settings.AiFullInfoSystemPrompt?.Trim() ?? "";
+        return legacy.Length > 0 &&
+               !string.Equals(legacy, ClientSettingsDefaults.AiFullInfoSystemPrompt.Trim(), StringComparison.Ordinal)
+            ? legacy
+            : ClientSettingsDefaults.AiPublishInfoPrompt;
     }
 
     private static string DefaultIfBlank(string? value, string fallback)

@@ -99,6 +99,7 @@ public sealed class ClientSettings
     public bool TiktokRoleReferenceAiFallbackEnabled { get; set; } =
         ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     public string TiktokRoleVectorViewMode { get; set; } = ClientSettingsDefaults.TiktokRoleVectorViewMode;
+    public string AiPublishInfoPrompt { get; set; } = "";
     public string AiTagSystemPrompt { get; set; } = ClientSettingsDefaults.AiTagSystemPrompt;
     public string AiTagBatchPrompt { get; set; } = ClientSettingsDefaults.AiTagBatchPrompt;
     public string AiFullInfoSystemPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoSystemPrompt;
@@ -284,6 +285,7 @@ public sealed class ClientSettings
         TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode,
         TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
         TiktokRoleVectorViewMode = TiktokRoleVectorViewMode,
+        AiPublishInfoPrompt = AiPublishInfoPrompt,
         AiTagSystemPrompt = AiTagSystemPrompt,
         AiTagBatchPrompt = AiTagBatchPrompt,
         AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,

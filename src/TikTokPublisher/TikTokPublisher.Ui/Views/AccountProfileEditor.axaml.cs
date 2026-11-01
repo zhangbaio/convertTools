@@ -191,7 +191,6 @@ public partial class AccountProfileEditor : UserControl
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
         RewriteFollowsSourceLanguageBox.IsChecked = profile.TiktokRewriteFollowsSourceLanguage;
         SelectByTag(AiNewTitleRandomnessCombo, profile.TiktokAiNewTitleRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
-        SelectByTag(AiSynopsisRandomnessCombo, profile.TiktokAiSynopsisRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(profile.TiktokDayZeroRoi);
@@ -320,7 +319,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
             profile.TiktokRewriteFollowsSourceLanguage = RewriteFollowsSourceLanguageBox.IsChecked == true;
             profile.TiktokAiNewTitleRandomness = TagOf(AiNewTitleRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
-            profile.TiktokAiSynopsisRandomness = TagOf(AiSynopsisRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
             profile.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(

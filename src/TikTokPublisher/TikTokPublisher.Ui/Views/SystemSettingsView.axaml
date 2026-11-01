@@ -484,7 +484,7 @@
                         </Grid>
                         <TextBlock Text="本地链路会先本地预筛再由视觉模型匹配；AI全量优选会审核全部有效抽帧，准确率更高但调用量更大。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="接口地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />
 
@@ -497,23 +497,16 @@
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="请求超时" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding AiTextTimeoutSeconds}" Minimum="10" Maximum="600" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="单批项目数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding AiTextMaxBatchSize}" Minimum="1" Maximum="50" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="标签 System Prompt" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding AiTagSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" />
-
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="标签 Batch Prompt" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding AiTagBatchPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" />
-
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="完整信息 System Prompt" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding AiFullInfoSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" />
-
-                            <TextBlock Grid.Row="8" Grid.Column="0" Text="完整信息 Batch Prompt" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding AiFullInfoBatchPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="发布信息提示词" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6">
+                                <TextBox Text="{Binding AiPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetAiPublishInfoPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="一次请求同时生成新剧名、简介、题材和目标观众，不再生成推荐语。剧名占用查重、字数校验和不合格重试由程序处理。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
                         </Grid>
-                        <TextBlock Text="完整信息 Retry Prompt" FontWeight="Bold" />
-                        <TextBox Text="{Binding AiFullInfoRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

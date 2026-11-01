@@ -81,6 +81,46 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
     }
 
     [Fact]
+    public void WriteTempConfig_writes_single_publish_info_prompt_with_account_genre_count()
+    {
+        var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(
+            new ClientSettings { AiPublishInfoPrompt = "合并提示词" },
+            new TikTokAccountProfile { TiktokGenreCount = 5, TiktokTargetAudienceMode = "female" });
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            root.GetProperty("AiTextSystemPrompt").GetString().Should().Be("合并提示词");
+            root.GetProperty("AiPublishInfoMode").GetBoolean().Should().BeTrue();
+            root.GetProperty("AiPublishThemeCount").GetInt32().Should().Be(5);
+            root.GetProperty("AiPublishAskAudience").GetBoolean().Should().BeFalse();
+            root.GetProperty("AiPublishThemeOptions").GetString().Should().Contain("|");
+            root.TryGetProperty("AiTextBatchPrompt", out _).Should().BeFalse();
+            root.TryGetProperty("AiTextRetryPrompt", out _).Should().BeFalse();
+            root.TryGetProperty("AiSynopsisTemperature", out _).Should().BeFalse();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ResolvePublishInfoPrompt_migrates_only_a_customized_legacy_prompt()
+    {
+        ClientSettingsStore.ResolvePublishInfoPrompt(new ClientSettings())
+            .Should().Be(ClientSettingsDefaults.AiPublishInfoPrompt);
+        ClientSettingsStore.ResolvePublishInfoPrompt(new ClientSettings { AiFullInfoSystemPrompt = "我改过的提示词" })
+            .Should().Be("我改过的提示词");
+        ClientSettingsStore.ResolvePublishInfoPrompt(new ClientSettings
+            {
+                AiPublishInfoPrompt = "新提示词",
+                AiFullInfoSystemPrompt = "我改过的提示词",
+            })
+            .Should().Be("新提示词");
+    }
+
+    [Fact]
     public void WriteTempConfig_forces_standard_poster_layout_mode()
     {
         var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings

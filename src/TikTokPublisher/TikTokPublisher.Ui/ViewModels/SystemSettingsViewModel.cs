@@ -190,17 +190,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aiTextApiKey = "";
     [ObservableProperty] private string _aiTextModel = ClientSettingsDefaults.AiTextModel;
     [ObservableProperty] private int _aiTextTimeoutSeconds = ClientSettingsDefaults.AiTextTimeoutSeconds;
-    [ObservableProperty] private int _aiTextMaxBatchSize = ClientSettingsDefaults.AiTextMaxBatchSize;
     [ObservableProperty] private string _tiktokRoleReferenceSelectionMode =
         ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
     [ObservableProperty] private bool _tiktokRoleReferenceAiFallbackEnabled =
         ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     [ObservableProperty] private string _tiktokRoleVectorViewMode = ClientSettingsDefaults.TiktokRoleVectorViewMode;
-    [ObservableProperty] private string _aiTagSystemPrompt = "";
-    [ObservableProperty] private string _aiTagBatchPrompt = "";
-    [ObservableProperty] private string _aiFullInfoSystemPrompt = "";
-    [ObservableProperty] private string _aiFullInfoBatchPrompt = "";
-    [ObservableProperty] private string _aiFullInfoRetryPrompt = "";
+    [ObservableProperty] private string _aiPublishInfoPrompt = ClientSettingsDefaults.AiPublishInfoPrompt;
 
     [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
     [ObservableProperty] private string _posterLayoutRequestMode = ClientSettingsDefaults.PosterLayoutRequestMode;
@@ -428,15 +423,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.AiTextApiKey = AiTextApiKey;
         settings.AiTextModel = AiTextModel.Trim();
         settings.AiTextTimeoutSeconds = AiTextTimeoutSeconds;
-        settings.AiTextMaxBatchSize = AiTextMaxBatchSize;
         settings.TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode;
         settings.TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled;
         settings.TiktokRoleVectorViewMode = TiktokRoleVectorViewMode;
-        settings.AiTagSystemPrompt = AiTagSystemPrompt;
-        settings.AiTagBatchPrompt = AiTagBatchPrompt;
-        settings.AiFullInfoSystemPrompt = AiFullInfoSystemPrompt;
-        settings.AiFullInfoBatchPrompt = AiFullInfoBatchPrompt;
-        settings.AiFullInfoRetryPrompt = AiFullInfoRetryPrompt;
+        settings.AiPublishInfoPrompt = AiPublishInfoPrompt;
         settings.PosterMode = PosterMode;
         settings.PosterLayoutRequestMode = PosterLayoutRequestMode;
         settings.NetworkAddressPreference = NetworkAddressPreference;
@@ -719,6 +709,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             StatusRequested?.Invoke(SaveMessage);
         }
     }
+
+    [RelayCommand]
+    private void ResetAiPublishInfoPrompt() => AiPublishInfoPrompt = ClientSettingsDefaults.AiPublishInfoPrompt;
 
     [RelayCommand]
     private void ReadHgnewUdid()
@@ -1357,15 +1350,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextApiKey = settings.AiTextApiKey;
         AiTextModel = settings.AiTextModel;
         AiTextTimeoutSeconds = settings.AiTextTimeoutSeconds;
-        AiTextMaxBatchSize = settings.AiTextMaxBatchSize;
         TiktokRoleReferenceSelectionMode = settings.TiktokRoleReferenceSelectionMode;
         TiktokRoleReferenceAiFallbackEnabled = settings.TiktokRoleReferenceAiFallbackEnabled;
         TiktokRoleVectorViewMode = settings.TiktokRoleVectorViewMode;
-        AiTagSystemPrompt = settings.AiTagSystemPrompt;
-        AiTagBatchPrompt = settings.AiTagBatchPrompt;
-        AiFullInfoSystemPrompt = settings.AiFullInfoSystemPrompt;
-        AiFullInfoBatchPrompt = settings.AiFullInfoBatchPrompt;
-        AiFullInfoRetryPrompt = settings.AiFullInfoRetryPrompt;
+        AiPublishInfoPrompt = ClientSettingsStore.ResolvePublishInfoPrompt(settings);
         PosterMode = settings.PosterMode;
         PosterLayoutRequestMode = settings.PosterLayoutRequestMode;
         NetworkAddressPreference = settings.NetworkAddressPreference;

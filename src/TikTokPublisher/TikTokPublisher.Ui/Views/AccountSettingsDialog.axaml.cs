@@ -100,7 +100,6 @@ public partial class AccountSettingsDialog : Window
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         RewriteFollowsSourceLanguageBox.IsChecked = p.TiktokRewriteFollowsSourceLanguage;
         SelectNewTitleRandomness(AiNewTitleRandomnessCombo, p.TiktokAiNewTitleRandomness);
-        SelectNewTitleRandomness(AiSynopsisRandomnessCombo, p.TiktokAiSynopsisRandomness);
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(p.TiktokDayZeroRoi);
@@ -195,7 +194,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokRewriteFollowsSourceLanguage = RewriteFollowsSourceLanguageBox.IsChecked == true;
         p.TiktokAiNewTitleRandomness = ReadNewTitleRandomness(AiNewTitleRandomnessCombo);
-        p.TiktokAiSynopsisRandomness = ReadNewTitleRandomness(AiSynopsisRandomnessCombo);
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
         p.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(

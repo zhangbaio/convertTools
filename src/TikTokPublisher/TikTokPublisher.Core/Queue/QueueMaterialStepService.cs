@@ -1619,7 +1619,7 @@ public static class QueueMaterialStepService
             {
                 var detected = RewriteSourceLanguage.ReadCached(workflowDir);
                 if (detected is not null)
-                    log($"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题、推荐语和简介使用该语言。");
+                    log($"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题和简介使用该语言。");
             }
             log($"改写完成：{generatedResult.Title}");
         }
@@ -1631,7 +1631,15 @@ public static class QueueMaterialStepService
             infoPath = Path.Combine(workflowDir, "短剧信息.txt");
         }
 
-        await WriteTikTokPublishFieldsAsync(item, settings, account, episodeCount, workflowDir, log, ct);
+        await WriteTikTokPublishFieldsAsync(
+            item,
+            settings,
+            account,
+            episodeCount,
+            workflowDir,
+            allowAi: generatedResult is null,
+            log,
+            ct);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
 
@@ -1911,6 +1919,7 @@ public static class QueueMaterialStepService
         TikTokAccountProfile? account,
         int episodeCount,
         string workflowDir,
+        bool allowAi,
         Action<string> log,
         CancellationToken ct)
     {
@@ -1961,7 +1970,8 @@ public static class QueueMaterialStepService
             settings,
             options,
             log,
-            ct);
+            ct,
+            allowAi);
 
         ProjectInfoTextHelper.UpdateFields(infoPath, new Dictionary<string, string>
         {
@@ -2595,7 +2605,6 @@ public static class QueueMaterialStepService
             item.Title);
         var originalTitle = NormalizeComparableTitle(rawOriginalTitle);
         var title = NormalizeComparableTitle(rawTitle);
-        var tagline = FirstNonEmpty(info.GetValueOrDefault("推荐语"));
         var synopsis = FirstNonEmpty(
             info.GetValueOrDefault("简介"),
             info.GetValueOrDefault("描述"),
@@ -2604,7 +2613,6 @@ public static class QueueMaterialStepService
         if (string.IsNullOrWhiteSpace(title)) return false;
         if (!string.IsNullOrWhiteSpace(originalTitle) && string.Equals(title, originalTitle, StringComparison.OrdinalIgnoreCase))
             return false;
-        if (string.IsNullOrWhiteSpace(tagline)) return false;
         if (rewriteSynopsis &&
             IsDefaultSynopsis(synopsis, rawTitle, rawOriginalTitle, Path.GetFileName(context.SourceProjectDir)))
             return false;

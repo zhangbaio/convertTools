@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 
 namespace ShortDrama.Infrastructure.AI;
 
-public sealed class ProjectInfoRewriter : IProjectInfoRewriter
+public sealed partial class ProjectInfoRewriter : IProjectInfoRewriter
 {
     private static readonly string[] WeakMarketingSuffixes =
     [
@@ -183,6 +183,27 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         var followSourceLanguage = GetOptionalBool(config, "AiRewriteFollowsSourceLanguage") ?? false;
         if (followSourceLanguage)
             (project, canonicalOriginalTitle) = ApplyImportedSource(project, canonicalOriginalTitle);
+        if (GetOptionalBool(config, "AiPublishInfoMode") == true)
+        {
+            return await RewritePublishInfoAsync(
+                new PublishInfoContext(
+                    endpoint,
+                    modelId,
+                    apiKey,
+                    systemPrompt,
+                    timeoutSeconds,
+                    titleTemperature,
+                    rewriteSynopsis,
+                    followSourceLanguage,
+                    ParseThemeOptions(GetOptional(config, "AiPublishThemeOptions")),
+                    Math.Clamp(GetOptionalInt(config, "AiPublishThemeCount") ?? 3, 1, 8),
+                    GetOptionalBool(config, "AiPublishAskAudience") ?? true),
+                project,
+                canonicalOriginalTitle,
+                request,
+                cancellationToken);
+        }
+
         var outputLanguage = followSourceLanguage
             ? await ResolveSourceLanguageAsync(
                 endpoint,
@@ -423,20 +444,24 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string title,
         string tagline,
         string synopsis,
-        IReadOnlyDictionary<string, string> preservedFields)
+        IReadOnlyDictionary<string, string> preservedFields,
+        IReadOnlyList<string>? extraKeys = null)
     {
         var originalTitleLine = string.IsNullOrWhiteSpace(project.OriginalTitle)
             ? string.Empty
             : $"原剧名: {project.OriginalTitle}\n";
+        var taglineLine = string.IsNullOrWhiteSpace(tagline)
+            ? string.Empty
+            : $"推荐语: {tagline}\n";
 
         var text =
             $"{originalTitleLine}" +
             $"新剧名: {title}\n" +
-            $"推荐语: {tagline}\n" +
+            $"{taglineLine}" +
             $"简介: {synopsis}\n" +
             $"集数: {project.EpisodeCount}\n" +
             $"制作公司: {project.CompanyName}\n";
-        foreach (var key in new[] { "短标题", "标签", "时长", "成本" })
+        foreach (var key in new[] { "短标题", "标签", "时长", "成本" }.Concat(extraKeys ?? []))
             if (preservedFields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
                 text += $"{key}: {value.Trim()}\n";
         return text;
@@ -807,7 +832,8 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         NormalizedRewrite rewrite,
         ProjectInfoRewriteRequest request,
         bool rewriteSynopsis,
-        string outputLanguage)
+        string outputLanguage,
+        bool checkTagline = true)
     {
         var limits = RewriteSourceLanguage.GetLimits(outputLanguage);
         var issues = new List<string>();
@@ -842,12 +868,12 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
             issues.Add("新剧名与已占用剧名完全相同");
         }
 
-        if (!IsReasonableTaglineLength(rewrite.Tagline, outputLanguage))
+        if (checkTagline && !IsReasonableTaglineLength(rewrite.Tagline, outputLanguage))
         {
             issues.Add($"推荐语字数不在 {limits.TaglineMin}-{limits.TaglineMax} 个字符范围内");
         }
 
-        var taglineSafetyIssue = ValidateTaglineSafety(rewrite.Tagline);
+        var taglineSafetyIssue = checkTagline ? ValidateTaglineSafety(rewrite.Tagline) : string.Empty;
         if (!string.IsNullOrWhiteSpace(taglineSafetyIssue))
         {
             issues.Add($"推荐语{taglineSafetyIssue}");
@@ -1746,7 +1772,12 @@ public sealed class ProjectInfoRewriter : IProjectInfoRewriter
         string? 短标题,
         string[]? Tags,
         string[]? Tag_List,
-        string[]? 标签);
+        string[]? 标签,
+        JsonElement? Themes = null,
+        JsonElement? Genres = null,
+        string? Audience = null,
+        string? Target_Audience = null,
+        string? Language = null);
 
     private sealed record NormalizedRewrite(
         string Title,
