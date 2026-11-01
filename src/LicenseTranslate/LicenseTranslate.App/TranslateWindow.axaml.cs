@@ -87,7 +87,7 @@ public partial class TranslateWindow : Window
         };
     }
 
-    private async void PickImages_Click(object? sender, RoutedEventArgs e)
+    private async void TranslateLicenses_Click(object? sender, RoutedEventArgs e)
     {
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -97,63 +97,46 @@ public partial class TranslateWindow : Window
         });
         if (files.Count == 0) return;
         SaveCurrent();
+        var selected = new List<BusinessLicenseDraft>();
         foreach (var file in files)
         {
             var path = file.TryGetLocalPath();
             if (string.IsNullOrWhiteSpace(path)) continue;
-            if (_drafts.Any(item => string.Equals(item.SourcePath, path, StringComparison.OrdinalIgnoreCase))) continue;
-            _drafts.Add(new BusinessLicenseDraft { SourcePath = path });
+            var draft = _drafts.FirstOrDefault(item => string.Equals(item.SourcePath, path, StringComparison.OrdinalIgnoreCase));
+            if (draft is null)
+            {
+                draft = new BusinessLicenseDraft { SourcePath = path };
+                _drafts.Add(draft);
+            }
+            selected.Add(draft);
         }
+        if (selected.Count == 0) return;
         BindFiles();
-        StatusText.Text = $"已选择 {_drafts.Count} 张图片。";
-    }
-
-    private async void Recognize_Click(object? sender, RoutedEventArgs e)
-    {
-        if (_drafts.Count == 0)
-        {
-            StatusText.Text = "请先选择营业执照图片。";
-            return;
-        }
-        StatusText.Text = "正在识别…";
+        var options = TranslationOptions();
         var failures = new List<string>();
-        foreach (var draft in _drafts)
+        for (var i = 0; i < selected.Count; i++)
         {
+            var draft = selected[i];
+            StatusText.Text = $"正在翻译 {i + 1}/{selected.Count}…";
             try
             {
-                var parsed = await BusinessLicenseVision.ReadAsync(draft.SourcePath, TranslationOptions(), CancellationToken.None);
+                var parsed = await BusinessLicenseVision.ReadAsync(draft.SourcePath, options, CancellationToken.None);
                 CopyParsed(draft, parsed);
                 draft.EnglishName = draft.EnglishType = draft.EnglishAddress = draft.EnglishScope = draft.EnglishAuthority = "";
                 BusinessLicenseTranslator.ApplyFixed(draft);
+                await BusinessLicenseAiTranslator.TranslateAsync(draft, options);
             }
             catch (Exception ex)
             {
                 failures.Add($"{Path.GetFileName(draft.SourcePath)}：{ex.Message}");
             }
+            if (ReferenceEquals(_current, draft) || _current is null)
+                Show(draft);
         }
-        Show(_current ?? _drafts[0]);
-        StatusText.Text = failures.Count == 0 ? "识别完成。请核对中文，再点「按中文重新翻译」。" : "部分图片识别失败：" + string.Join(" ", failures);
-    }
-
-    private async void Retranslate_Click(object? sender, RoutedEventArgs e)
-    {
-        SaveCurrent();
-        if (_drafts.Count == 0)
-        {
-            StatusText.Text = "请先选择并识别营业执照。";
-            return;
-        }
-        var options = TranslationOptions();
-        var failures = new List<string>();
-        for (var i = 0; i < _drafts.Count; i++)
-        {
-            StatusText.Text = $"正在翻译 {i + 1}/{_drafts.Count}…";
-            BusinessLicenseTranslator.ApplyFixed(_drafts[i]);
-            try { await BusinessLicenseAiTranslator.TranslateAsync(_drafts[i], options); }
-            catch (Exception ex) { failures.Add($"{Path.GetFileName(_drafts[i].SourcePath)}：{ex.Message}"); }
-        }
-        if (_current is not null) Show(_current);
-        StatusText.Text = failures.Count == 0 ? "已按当前中文翻译。请核对英文后再生成。" : "翻译失败：" + string.Join(" ", failures);
+        Show(_current ?? selected[0]);
+        StatusText.Text = failures.Count == 0
+            ? $"已翻译 {selected.Count} 张执照。请核对英文后再生成。"
+            : "翻译失败：" + string.Join(" ", failures);
     }
 
     private void Generate_Click(object? sender, RoutedEventArgs e)
@@ -161,7 +144,7 @@ public partial class TranslateWindow : Window
         SaveCurrent();
         if (_drafts.Count == 0 || _drafts.All(item => string.IsNullOrWhiteSpace(item.EnglishName)))
         {
-            StatusText.Text = "请先识别，并确认英文名称。";
+            StatusText.Text = "请先翻译执照，并确认英文名称。";
             return;
         }
         var options = TranslationOptions();

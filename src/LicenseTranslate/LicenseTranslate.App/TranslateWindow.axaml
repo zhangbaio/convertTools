@@ -27,9 +27,7 @@
     <DockPanel Grid.Row="3">
       <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,8">
         <StackPanel Orientation="Horizontal" Spacing="8">
-          <Button Content="选择图片" Click="PickImages_Click" />
-          <Button Content="识别" Click="Recognize_Click" />
-          <Button Content="按中文重新翻译" Click="Retranslate_Click" />
+          <Button Content="翻译执照" Click="TranslateLicenses_Click" />
           <Button Content="生成 Word 和 PDF" Click="Generate_Click" />
         </StackPanel>
         <TextBlock x:Name="StatusText" TextWrapping="Wrap" />
