@@ -526,6 +526,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private async Task LoadMangaTodayAsync()
     {
         SearchPage = 1;
+        if (ShortDramaDramaServices.IsHongguoAppSourceSelected())
+        {
+            await LoadSearchResultsAsync(
+                "漫剧上新 · 最新上架 · 7天内",
+                ct => ShortDramaDramaServices.GetMangaTodayAsync(7, ct),
+                sourceMode: "mj_today");
+            return;
+        }
+
         if (ShortDramaDramaServices.IsHighSourceSelected())
         {
             await LoadProgressiveHighNewReleaseAsync(
@@ -554,6 +563,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private async Task LoadAiTodayAsync()
     {
         SearchPage = 1;
+        if (ShortDramaDramaServices.IsHongguoAppSourceSelected())
+        {
+            await LoadSearchResultsAsync(
+                "AI短剧上新 · 最新上架 · 7天内",
+                ct => ShortDramaDramaServices.GetAiTodayAsync(7, ct),
+                sourceMode: "aiju_today");
+            return;
+        }
+
         if (ShortDramaDramaServices.IsHighSourceSelected())
         {
             await LoadProgressiveHighNewReleaseAsync(

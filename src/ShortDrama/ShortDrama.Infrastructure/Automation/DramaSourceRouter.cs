@@ -200,15 +200,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         if (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
             return await PlayletDramaClient.GetComicNewTodayAsync(_httpClient, cancellationToken);
         if (string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
-        {
-            var items = await _hghighApiService.GetManjuNewAsync(
-                ForHongguoApp(settings),
-                1,
-                enrich: true,
-                progress: null,
-                cancellationToken);
-            return items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray();
-        }
+            return await GetHongguoAppNewReleaseAsync("comic_series", partialResults, cancellationToken);
 
         return await LoadNewReleaseAsync(
             settings,
@@ -242,6 +234,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             return FilterByRecentDays(items, days);
         }
 
+        if (string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
+            return await GetHongguoAppNewReleaseAsync("ai_series", partialResults, cancellationToken);
+
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
@@ -252,6 +247,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "aiju", days, ct),
             downloaderLoader: ct => _downloaderApiService.GetLatestAsync(settings, "ai", days, ct));
     }
+
+    public bool IsHongguoAppSourceSelected() =>
+        string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase);
 
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
@@ -2301,6 +2299,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             cancellationToken,
             allowMissingCookie: true);
         return ReadFanqieSearchItems(document, PlayletDramaClient.BookPrefix);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> GetHongguoAppNewReleaseAsync(
+        string genre,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults,
+        CancellationToken cancellationToken)
+    {
+        var items = (await _hongguoApp.GetNewReleaseAsync(genre, cancellationToken))
+            .Select(item => RetargetBook(item, HongguoAppBookPrefix))
+            .ToArray();
+        partialResults?.Report(items);
+        return items;
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> SearchHongguoAppAsync(

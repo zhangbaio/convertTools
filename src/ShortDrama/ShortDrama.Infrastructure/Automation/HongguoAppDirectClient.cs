@@ -170,6 +170,119 @@ internal sealed class HongguoAppDirectClient
         }
     }
 
+    internal async Task<IReadOnlyList<DramaSearchItem>> GetNewReleaseAsync(
+        string genre,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<DramaSearchItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var page = 0; page < NewReleaseMaxPages; page++)
+        {
+            var root = await SendAsync(
+                HttpMethod.Post,
+                LandpagePath,
+                LandpageBody(genre, page * NewReleasePageSize),
+                null,
+                cancellationToken);
+            var items = ReadLandpageItems(root);
+            var added = 0;
+            foreach (var item in items)
+            {
+                if (item.BookId.Length > 0 && seen.Add(item.BookId))
+                {
+                    results.Add(item);
+                    added++;
+                }
+            }
+
+            if (added == 0 || !LandpageHasMore(root, items.Count))
+                break;
+        }
+
+        return results;
+    }
+
+    internal const string LandpagePath = "/reading/distribution/category/landpage/v";
+    internal const int NewReleasePageSize = 20;
+    internal const int NewReleaseMaxPages = 15;
+
+    internal static byte[] LandpageBody(string genre, int offset)
+    {
+        if (genre is not ("comic_series" or "ai_series"))
+            throw new ArgumentOutOfRangeException(nameof(genre));
+        var safeOffset = Math.Max(0, offset);
+        var json = "{\"client_req_type\":3,\"filter_ids\":\"\",\"limit\":20,"
+                   + "\"need_selector_panel\":false,\"offset\":" + safeOffset
+                   + ",\"req_scene\":\"comic_series\",\"req_type\":\"only_content\",\"select_items\":{"
+                   + "\"category_dim_epoch\":[],\"category_dim_role\":[],\"category_dim_theme\":[],"
+                   + "\"gender\":[],\"genre\":[\"" + genre + "\"],\"online_time\":[\"days_7\"],"
+                   + "\"sort\":[\"online_time\"]},\"session_id\":\"\"}";
+        return Encoding.UTF8.GetBytes(json);
+    }
+
+    internal static IReadOnlyList<DramaSearchItem> ReadLandpageItems(JsonNode root)
+    {
+        var mapped = HongguoHighCalendarMapper.MapPayload(root);
+        if (mapped.Count > 0)
+            return mapped;
+        return HongguoHighCalendarMapper.ExtractLandpageItems(root)
+            .Select(HongguoHighCalendarMapper.TryMapItem)
+            .OfType<DramaSearchItem>()
+            .ToArray();
+    }
+
+    internal static bool LandpageHasMore(JsonNode? root, int itemCount)
+    {
+        if (itemCount <= 0)
+            return false;
+        var paging = FindLandpagePaging(root);
+        return paging.Found ? paging.HasMore : itemCount >= NewReleasePageSize;
+    }
+
+    private readonly record struct LandpagePaging(bool Found, bool HasMore);
+
+    private static LandpagePaging FindLandpagePaging(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj when obj.ContainsKey("has_more"):
+                return new LandpagePaging(true, ReadBool(obj["has_more"]));
+            case JsonObject obj:
+                foreach (var property in obj)
+                {
+                    var nested = FindLandpagePaging(property.Value);
+                    if (nested.Found)
+                        return nested;
+                }
+                break;
+            case JsonArray array:
+                foreach (var item in array)
+                {
+                    var nested = FindLandpagePaging(item);
+                    if (nested.Found)
+                        return nested;
+                }
+                break;
+        }
+
+        return default;
+    }
+
+    private static bool ReadBool(JsonNode? node)
+    {
+        if (node is not JsonValue value)
+            return false;
+        return value.GetValueKind() switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Number => value.TryGetValue<int>(out var number) && number != 0,
+            JsonValueKind.String => bool.TryParse(value.GetValue<string>(), out var flag) && flag
+                || string.Equals(value.GetValue<string>(), "1", StringComparison.Ordinal),
+            _ => false
+        };
+    }
+
     internal Task<HongguoGuestPlayback.TrackProbe> ProbePlaybackAsync(
         string videoId,
         CancellationToken cancellationToken,

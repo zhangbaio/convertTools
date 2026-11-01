@@ -17,7 +17,7 @@ TikTok 助手里的「红果APP下载」（链路 id `hongguoapp`）按本目录
 
 | 步骤 | 类 | 说明 |
 | --- | --- | --- |
-| 搜索、剧集列表 | `HongguoPureSign`、`HongguoAppDirectClient` | 进程内 PureSign。搜索设备号单独写在 `%LOCALAPPDATA%/TikTokPublisher/hongguoapp-device.json`，不要给它配播放安装号 |
+| 搜索、剧集列表、漫剧上新、AI短剧上新 | `HongguoPureSign`、`HongguoAppDirectClient` | 进程内 PureSign。搜索设备号单独写在 `%LOCALAPPDATA%/TikTokPublisher/hongguoapp-device.json`，不要给它配播放安装号。上新走分类页，体裁分别是 `comic_series` 和 `ai_series`，排序 `online_time`，时间 `days_7` |
 | 链路 1 播放地址 | `HongguoGuestPlayback` | 匿名 `device_register` 之后，无签名 POST `multi_video_model/v1` |
 | 链路 2 播放地址 | `HongguoSignedPlayback` | 同一对播放设备号和安装号，PureSign 后再请求同一接口。没有分集画面时走 `fallback_api`，`key_seed` 密文要先解密。不跟随跳转 |
 | 选择两条链路 | `HongguoAppDirectClient.GetVideoPlaybackAsync` | 设置里至少留一条。两条都开时先链路 1，失败再链路 2 |
@@ -28,7 +28,7 @@ TikTok 助手里的「红果APP下载」（链路 id `hongguoapp`）按本目录
 
 ## 不要一起改的路径
 
-榜单和漫剧上新仍走红果短剧助手账号，入口是 `DramaSourceRouter.ForHongguoApp`、`GetRankPageAsync`、`GetMangaTodayAsync`，背后是 `_hghighApiService`。`hghigh` 的 `/video/batch-parse` 也不属于这条客户端直连。
+榜单仍走红果短剧助手账号，入口是 `DramaSourceRouter.ForHongguoApp` 和 `GetRankPageAsync`，背后是 `_hghighApiService`。漫剧上新和 AI短剧上新走 `HongguoAppDirectClient.GetNewReleaseAsync`，不按本地日期再滤掉没有上线时间的剧。`hghigh` 的 `/video/batch-parse` 也不属于这条客户端直连。
 
 播放身份和搜索设备号是两套数字。播放请求把 `device_id` 和 `iid` 配错会得到空包。搜索可以只带自己的 `device_id`。
 

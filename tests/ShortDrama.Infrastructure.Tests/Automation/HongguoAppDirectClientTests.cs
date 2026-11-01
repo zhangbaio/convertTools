@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json.Nodes;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
 using Xunit;
@@ -67,6 +69,50 @@ public sealed class HongguoAppDirectClientTests
         var items = await client.SearchAsync("1234567890123456", 1, CancellationToken.None, DramaSearchCategory.BookId);
         Assert.Single(items);
         Assert.Equal("1234567890123456", items[0].BookId);
+    }
+
+    [Fact]
+    public void NewReleaseBodyUsesLatestShelfWithinSevenDays()
+    {
+        var comic = Encoding.UTF8.GetString(HongguoAppDirectClient.LandpageBody("comic_series", 20));
+        Assert.Contains("\"genre\":[\"comic_series\"]", comic, StringComparison.Ordinal);
+        Assert.Contains("\"sort\":[\"online_time\"]", comic, StringComparison.Ordinal);
+        Assert.Contains("\"online_time\":[\"days_7\"]", comic, StringComparison.Ordinal);
+        Assert.Contains("\"offset\":20", comic, StringComparison.Ordinal);
+
+        var ai = Encoding.UTF8.GetString(HongguoAppDirectClient.LandpageBody("ai_series", 0));
+        Assert.Contains("\"genre\":[\"ai_series\"]", ai, StringComparison.Ordinal);
+        Assert.Contains("\"sort\":[\"online_time\"]", ai, StringComparison.Ordinal);
+        Assert.Contains("\"online_time\":[\"days_7\"]", ai, StringComparison.Ordinal);
+        Assert.Throws<ArgumentOutOfRangeException>(() => HongguoAppDirectClient.LandpageBody("short_play", 0));
+    }
+
+    [Fact]
+    public void NewReleasePageReadsSeriesAndStopsWhenServerHasNoMore()
+    {
+        var root = JsonNode.Parse("""
+            {
+              "code": 0,
+              "data": {
+                "has_more": false,
+                "cell_list": [
+                  {
+                    "video_data": {
+                      "series_id": "1234567890123456789",
+                      "series_title": "测试漫剧",
+                      "episode_cnt": 12
+                    }
+                  }
+                ]
+              }
+            }
+            """)!;
+        var items = HongguoAppDirectClient.ReadLandpageItems(root);
+        Assert.Single(items);
+        Assert.Equal("1234567890123456789", items[0].BookId.Split(':')[^1]);
+        Assert.Equal("测试漫剧", items[0].Title);
+        Assert.Equal(12, items[0].EpisodeTotal);
+        Assert.False(HongguoAppDirectClient.LandpageHasMore(root, items.Count));
     }
 
 }
