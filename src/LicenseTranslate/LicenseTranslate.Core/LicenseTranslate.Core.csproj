@@ -6,7 +6,15 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="DocumentFormat.OpenXml" Version="3.0.2" />
     <PackageReference Include="NPinyin" Version="0.2.6321.26573" />
+    <PackageReference Include="PDFsharp" Version="6.2.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Templates\license-template.docx" LogicalName="LicenseTranslate.Core.Templates.license-template.docx" />
+    <EmbeddedResource Include="Templates\emblem.png" LogicalName="LicenseTranslate.Core.Templates.emblem.png" />
+    <EmbeddedResource Include="Templates\qr.png" LogicalName="LicenseTranslate.Core.Templates.qr.png" />
+    <EmbeddedResource Include="Templates\seal_left.png" LogicalName="LicenseTranslate.Core.Templates.seal_left.png" />
+    <EmbeddedResource Include="Templates\seal_right.png" LogicalName="LicenseTranslate.Core.Templates.seal_right.png" />
+    <EmbeddedResource Include="Templates\signature.png" LogicalName="LicenseTranslate.Core.Templates.signature.png" />
   </ItemGroup>
 </Project>

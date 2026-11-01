@@ -1,6 +1,5 @@
-using DocumentFormat.OpenXml;
-using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
+using System.IO.Compression;
+using System.Text;
 
 namespace LicenseTranslate.Core;
 
@@ -8,36 +7,31 @@ public static class BusinessLicenseDocumentWriter
 {
     public static void Write(string path, BusinessLicenseDraft draft)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        using var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document);
-        var main = document.AddMainDocumentPart();
-        main.Document = new Document(new Body());
-        var body = main.Document.Body!;
-        body.Append(Paragraph("Business License", true, "32", JustificationValues.Center));
-        body.Append(Paragraph("(Duplicate)", false, "24", JustificationValues.Center));
-        if (!string.IsNullOrWhiteSpace(draft.EnglishDuplicateNo))
-            body.Append(Paragraph("Duplicate No.: " + draft.EnglishDuplicateNo, false, "21", JustificationValues.Right));
-        body.Append(Paragraph("Unified Social Credit Code: " + draft.CreditCode, true, "21", JustificationValues.Left));
-        body.Append(Paragraph("Scan the QR code to learn more about registration, filing, licensing and supervision information.", false, "18", JustificationValues.Left));
-        body.Append(Blank());
-        body.Append(Field(draft.Kind == "个体工商户" ? "Name" : "Name", draft.EnglishName));
-        body.Append(Field("Type", draft.EnglishType));
-        if (!string.IsNullOrWhiteSpace(draft.EnglishExtraValue))
-            body.Append(Field(draft.EnglishExtraLabel, draft.EnglishExtraValue));
-        body.Append(Field(draft.EnglishPersonRole, draft.EnglishPersonName));
-        body.Append(Field(draft.EnglishDateLabel, draft.EnglishDateValue));
-        body.Append(Field(draft.EnglishAddressLabel, draft.EnglishAddress));
-        body.Append(Blank());
-        body.Append(Paragraph("Business Scope", true, "21", JustificationValues.Left));
-        body.Append(Paragraph(draft.EnglishScope, false, "20", JustificationValues.Both));
-        body.Append(Blank());
-        body.Append(Paragraph("Registration Authority: " + draft.EnglishAuthority, false, "21", JustificationValues.Right));
-        body.Append(Paragraph(draft.EnglishIssueDate, false, "21", JustificationValues.Right));
-        body.Append(Blank());
-        body.Append(Paragraph("http://www.gsxt.gov.cn", false, "18", JustificationValues.Left));
-        body.Append(Paragraph("Market entities shall submit and publicize their annual reports through the National Enterprise Credit Information Publicity System from January 1 to June 30 each year.", false, "18", JustificationValues.Left));
-        body.Append(Paragraph("Formulated under the Supervision of the State Administration for Market Regulation", false, "18", JustificationValues.Center));
-        main.Document.Save();
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var sheet = BusinessLicenseSheet.From(draft);
+        using var templateStream = new MemoryStream(BusinessLicenseAssets.Read("license-template.docx"));
+        using var template = new ZipArchive(templateStream, ZipArchiveMode.Read);
+        using var output = File.Create(path);
+        using var zip = new ZipArchive(output, ZipArchiveMode.Create);
+        foreach (var entry in template.Entries)
+        {
+            var created = zip.CreateEntry(entry.FullName, CompressionLevel.Optimal);
+            using var source = entry.Open();
+            using var target = created.Open();
+            if (string.Equals(entry.FullName, "word/document.xml", StringComparison.Ordinal))
+            {
+                using var reader = new StreamReader(source, Encoding.UTF8);
+                using var writer = new StreamWriter(target, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+                writer.Write(Fill(reader.ReadToEnd(), sheet));
+            }
+            else
+            {
+                source.CopyTo(target);
+            }
+        }
     }
 
     public static string OutputPath(BusinessLicenseDraft draft, string extension)
@@ -55,16 +49,35 @@ public static class BusinessLicenseDocumentWriter
         return path;
     }
 
-    private static Paragraph Field(string label, string value) =>
-        Paragraph(label + ": " + value, false, "21", JustificationValues.Left);
-
-    private static Paragraph Blank() => new(new Run(new Text(" ")));
-
-    private static Paragraph Paragraph(string text, bool bold, string size, JustificationValues align)
+    private static string Fill(string xml, BusinessLicenseSheet sheet)
     {
-        var run = new Run(new RunProperties(new FontSize { Val = size }, new RunFonts { Ascii = "Calibri", HighAnsi = "Calibri" }));
-        if (bold) run.RunProperties!.Bold = new Bold();
-        run.Append(new Text(text) { Space = SpaceProcessingModeValues.Preserve });
-        return new Paragraph(new ParagraphProperties(new Justification { Val = align }), run);
+        xml = Token(xml, "{{CREDIT}}", sheet.Credit);
+        xml = Token(xml, "{{NAME}}", sheet.Name);
+        xml = Token(xml, "{{CAPITAL}}", sheet.ExtraValue);
+        xml = Token(xml, "{{TYPE}}", sheet.Type);
+        xml = Token(xml, "{{ESTABLISHED}}", sheet.Established);
+        xml = Token(xml, "{{PERSON}}", sheet.Person);
+        xml = Token(xml, "{{ADDRESS}}", sheet.Address);
+        xml = Token(xml, "{{SCOPE}}", sheet.Scope);
+        xml = Token(xml, "{{AUTHORITY}}", sheet.Authority);
+        xml = Token(xml, "{{ISSUED}}", sheet.Issued);
+        xml = Token(xml, "{{EXTRA_LABEL}}", sheet.ExtraLabel);
+        xml = Token(xml, "{{DATE_LABEL}}", sheet.DateLabel);
+        xml = Token(xml, "{{PERSON_LABEL}}", sheet.PersonLabel);
+        xml = Token(xml, "{{ADDRESS_LABEL}}", sheet.AddressLabel);
+        xml = Token(xml, "{{DUPLICATE}}", sheet.Duplicate);
+        return xml;
     }
+
+    private static string Token(string xml, string token, string value)
+    {
+        if (!xml.Contains(token, StringComparison.Ordinal))
+            throw new InvalidOperationException("执照模板缺少 " + token);
+        return xml.Replace(token, Xml(value), StringComparison.Ordinal);
+    }
+
+    private static string Xml(string value) =>
+        value.Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
 }

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using LicenseTranslate.Core;
@@ -93,6 +94,68 @@ public class BusinessLicenseTranslatorTests
         Assert.Equal("Lyu Bin", draft.EnglishPersonName);
         Assert.Equal("", draft.EnglishName);
         Assert.Equal("Individual Operation", draft.EnglishExtraValue);
+    }
+
+    [Fact]
+    public void Styled_documents_use_the_reference_license_table()
+    {
+        var draft = new BusinessLicenseDraft
+        {
+            Kind = "公司",
+            CreditCode = "91420106MA4F5DDT0E",
+            EnglishName = "Wuhan Jingchuan Digital Technology Co., Ltd.",
+            EnglishType = "Limited Liability Company (Wholly Owned by Natural Person)",
+            EnglishExtraValue = "CNY 100,000",
+            EnglishDateValue = "December 6, 2021",
+            EnglishPersonName = "Yu Zhiyong",
+            EnglishAddress = "Room 4, 1st Floor, Building 4, Dingxiu Jingcheng, No. 299, Fazhan Avenue, Jianghan District, Wuhan, Hubei Province",
+            EnglishScope = "General items: software development.",
+            EnglishAuthority = "Jianghan District Administrative Approval Bureau of Wuhan",
+            EnglishIssueDate = "July 30, 2026",
+        };
+        var docx = Path.Combine(Path.GetTempPath(), "yunfan-license-style-" + Guid.NewGuid().ToString("N") + ".docx");
+        var pdf = Path.ChangeExtension(docx, ".pdf");
+        BusinessLicenseDocumentWriter.Write(docx, draft);
+        BusinessLicensePdfWriter.Write(pdf, draft);
+
+        using var zip = ZipFile.OpenRead(docx);
+        Assert.Contains(zip.Entries, entry => entry.FullName == "word/media/image1.png");
+        using var reader = new StreamReader(zip.GetEntry("word/document.xml")!.Open());
+        var xml = reader.ReadToEnd();
+        Assert.Contains("Business License", xml);
+        Assert.Contains("91420106MA4F5DDT0E", xml);
+        Assert.Contains("Wuhan Jingchuan Digital Technology Co., Ltd.", xml);
+        Assert.Contains("Registered capital", xml);
+        Assert.Contains("Date of establishment", xml);
+        Assert.Contains("(Sealed)", xml);
+        Assert.DoesNotContain("{{", xml);
+        Assert.Equal("%PDF-", Encoding.ASCII.GetString(File.ReadAllBytes(pdf).AsSpan(0, 5)));
+        File.Delete(docx);
+        File.Delete(pdf);
+    }
+
+    [Fact]
+    public void Individual_sheet_uses_the_household_labels()
+    {
+        var draft = new BusinessLicenseDraft
+        {
+            Kind = "个体工商户",
+            EnglishName = "Suchao Department Store (Individual Industrial and Commercial Household)",
+            EnglishType = "Individual Business",
+            EnglishExtraValue = "Individual Operation",
+            EnglishDateValue = "September 10, 2025",
+            EnglishPersonName = "Lyu Bin",
+        };
+        var docx = Path.Combine(Path.GetTempPath(), "yunfan-license-individual-" + Guid.NewGuid().ToString("N") + ".docx");
+        BusinessLicenseDocumentWriter.Write(docx, draft);
+        using var zip = ZipFile.OpenRead(docx);
+        using var reader = new StreamReader(zip.GetEntry("word/document.xml")!.Open());
+        var xml = reader.ReadToEnd();
+        Assert.Contains("Form of Organization", xml);
+        Assert.Contains("Registration Date", xml);
+        Assert.Contains("Individual Operation", xml);
+        Assert.DoesNotContain("Registered capital", xml);
+        File.Delete(docx);
     }
 
     [Fact]

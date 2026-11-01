@@ -67,8 +67,8 @@ public class AccountStoreTests
             EnglishPersonRole = "Legal Representative",
             EnglishPersonName = "Huang Xing",
         });
-        var header = File.ReadAllText(path, Encoding.ASCII)[..8];
-        Assert.Equal("%PDF-1.4", header);
+        var header = Encoding.ASCII.GetString(File.ReadAllBytes(path).AsSpan(0, 5));
+        Assert.Equal("%PDF-", header);
         File.Delete(path);
     }
 
