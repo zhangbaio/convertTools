@@ -30,4 +30,23 @@ public sealed class KuaishouWorkspaceProjectsTests
         Assert.Contains(videosOnly.FullName, listed);
         Assert.DoesNotContain(empty.FullName, listed);
     }
+
+    [Fact]
+    public void Listed_result_is_cached_until_invalidated()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var project = Directory.CreateDirectory(Path.Combine(root.FullName, "心藏温善"));
+        var projectFile = Path.Combine(project.FullName, KuaishouWorkspaceProjects.ProjectFileName);
+        File.WriteAllText(projectFile, "{}");
+
+        Assert.True(KuaishouWorkspaceProjects.IsListed(root.FullName, project.FullName));
+        File.Delete(projectFile);
+        Assert.True(KuaishouWorkspaceProjects.IsListed(root.FullName, project.FullName));
+        Assert.True(KuaishouWorkspaceProjects.IsStructuralChild(root.FullName, project.FullName));
+
+        KuaishouWorkspaceProjects.Invalidate(project.FullName);
+        Assert.False(KuaishouWorkspaceProjects.IsListed(root.FullName, project.FullName));
+        Assert.True(KuaishouWorkspaceProjects.TryGetListed(root.FullName, project.FullName, out var listed));
+        Assert.False(listed);
+    }
 }

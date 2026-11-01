@@ -11,11 +11,11 @@ namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class PublishJobRowViewModel : ObservableObject
 {
-    public PublishJobRowViewModel(PublishJob model, bool loadArtifacts = true)
+    public PublishJobRowViewModel(PublishJob model, bool loadArtifacts = true, bool loadTableInfo = true)
     {
         Model = model;
         _isChecked = model.IsChecked;
-        _tableInfo = ResolveTableInfo(model);
+        _tableInfo = loadTableInfo ? ResolveTableInfo(model) : PlaceholderTableInfo(model);
         if (loadArtifacts)
             ReloadKuaishouArtifacts();
         OpenSourceDirectoryCommand = new RelayCommand(() => OpenSourceDirectory());
@@ -309,6 +309,15 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         }
     }
 
+    private static ProjectTableInfo PlaceholderTableInfo(PublishJob model) =>
+        new(
+            model.ProjectName,
+            model.ProjectName,
+            model.Kind == PublishJobKind.Series ? "本地" : model.Kind.DisplayName(),
+            0,
+            model.ProjectDirectory,
+            model.ProjectDirectory);
+
     private static ProjectTableInfo ResolveTableInfo(PublishJob model)
     {
         var original = model.ProjectName;
@@ -376,6 +385,8 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
                 return value.GetString();
         return null;
     }
+
+    public void LoadTableInfo() => _tableInfo = ResolveTableInfo(Model);
 
     public void ApplyKuaishouArtifacts(KuaishouArtifactColumnStatus? artifacts)
     {

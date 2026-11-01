@@ -77,6 +77,19 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private int _todayUploadGeneration;
     private DateTime _countedUploadDay = DateTime.MinValue;
     private int _logRefreshPosted;
+    private int _workspaceLoadGeneration;
+    private int _kuaishouListingDepth;
+    private int _listedVerifyGeneration;
+    private int _archiveListGeneration;
+    private readonly List<string> _kuaishouListedMisses = [];
+    private string _kuaishouScannedWorkspace = "";
+    private long _kuaishouScannedTick;
+    private const int KuaishouWorkspaceFreshMilliseconds = 30_000;
+    private readonly Queue<(string? AccountKey, ActivityLogRecord Record)> _pendingActivityLogs = new();
+    private int _activityLogFlushScheduled;
+    private long _nextActivityLogFlushTick;
+    private int _kuaishouLogNotifyPending;
+    private long _nextKuaishouLogNotifyTick;
     private Task? _managementBrowserTask;
     private bool _scheduleTickRunning;
     private CancellationTokenSource? _episodeLoadCts;
@@ -430,9 +443,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ApplyKuaishouWorkspace(account);
             _ = EnsureWorkspaceProjectsLoadedAsync();
         }
+        else
+        {
+            RefreshVisibleJobs();
+        }
         RefreshKuaishouTodayUploadCount();
         RefreshKuaishouArchivedProjects();
-        RefreshVisibleJobs();
         NotifyKuaishouLogProjectsChanged();
         RefreshVisibleAccounts(account?.Id);
         OnPropertyChanged(nameof(QueueSummary));
@@ -504,10 +520,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task EnsureWorkspaceProjectsLoadedAsync()
     {
+        var generation = Interlocked.Increment(ref _workspaceLoadGeneration);
         if (!IsKuaishouPlatform || _activeGlobalAccount is null)
             return;
         // 个人版和企业版各自记住工作目录。没单独配过的版本仍沿用原来的工作目录。
         var workspace = ResolveKuaishouWorkRoot(_activeGlobalAccount);
+        if (!IsWorkspaceLoadCurrent(generation))
+            return;
         if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
         {
             DraftProjectDirectory = string.Empty;
@@ -515,15 +534,78 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
-        DraftProjectDirectory = Path.GetFullPath(workspace);
-        if (!CanScanWorkspace())
+        var fullWorkspace = Path.GetFullPath(workspace);
+        DraftProjectDirectory = fullWorkspace;
+        ArchiveRootDirectory = fullWorkspace;
+        BeginKuaishouListing();
+        try
         {
             RefreshVisibleJobs();
-            return;
-        }
+            if (!CanScanWorkspace() || !IsWorkspaceLoadCurrent(generation))
+                return;
+            if (IsKuaishouWorkspaceFresh(fullWorkspace))
+            {
+                await AdoptFreshKuaishouWorkspaceAsync(fullWorkspace, generation);
+                return;
+            }
 
-        await ScanWorkspaceAsync();
+            ArchiveRootDirectory = fullWorkspace;
+            await ScanKuaishouWorkspaceAsync(fullWorkspace, SelectedPlatform.Value, CancellationToken.None, generation);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!IsWorkspaceLoadCurrent(generation))
+                return;
+            StatusMessage = "扫描工作目录已停止。";
+            AppendActivityLog(StatusMessage);
+        }
+        catch (Exception ex)
+        {
+            if (!IsWorkspaceLoadCurrent(generation))
+                return;
+            StatusMessage = $"扫描工作目录失败：{ex.Message}";
+            AppendActivityLog(StatusMessage);
+        }
+        finally
+        {
+            EndKuaishouListing();
+        }
     }
+
+    private bool IsWorkspaceLoadCurrent(int generation) =>
+        generation == 0 || generation == Volatile.Read(ref _workspaceLoadGeneration);
+
+    private bool IsKuaishouWorkspaceFresh(string workspace) =>
+        string.Equals(_kuaishouScannedWorkspace, workspace, StringComparison.OrdinalIgnoreCase) &&
+        Environment.TickCount64 - _kuaishouScannedTick < KuaishouWorkspaceFreshMilliseconds;
+
+    private void BeginKuaishouListing() => _kuaishouListingDepth++;
+
+    private void EndKuaishouListing()
+    {
+        if (_kuaishouListingDepth > 0)
+            _kuaishouListingDepth--;
+    }
+
+    private async Task AdoptFreshKuaishouWorkspaceAsync(string workspace, int generation)
+    {
+        var platform = SelectedPlatform.Value;
+        var existing = KuaishouJobDirectories(platform);
+        var added = AddKuaishouJobs(platform, SeedKuaishouProjectsFromOtherEdition(workspace, platform, existing), existing);
+        if (!IsWorkspaceLoadCurrent(generation))
+            return;
+        if (added > 0)
+            await PersistAsync();
+        if (!IsWorkspaceLoadCurrent(generation))
+            return;
+        RefreshVisibleJobs();
+    }
+
+    private HashSet<string> KuaishouJobDirectories(PublishPlatform platform) =>
+        _jobs
+            .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
+            .Select(job => Path.GetFullPath(job.ProjectDirectory))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     public DramaSourceConfigurationStatus GetDramaSourceConfigurationStatus()
     {
@@ -1050,7 +1132,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             AppendActivityLog(StatusMessage);
             if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
             {
-                await ScanKuaishouWorkspaceAsync(rootDirectory, platform, cancellationToken);
+                await ScanKuaishouWorkspaceAsync(rootDirectory, platform, cancellationToken, generation: 0);
                 return;
             }
 
@@ -1107,30 +1189,48 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task ScanKuaishouWorkspaceAsync(
         string rootDirectory,
         PublishPlatform platform,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int generation)
     {
-        var existing = _jobs
-            .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
-            .Select(job => Path.GetFullPath(job.ProjectDirectory))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var added = AddKuaishouJobs(platform, SeedKuaishouProjectsFromOtherEdition(rootDirectory, platform, existing), existing);
-        if (added > 0)
-        {
-            RefreshVisibleJobs();
-            StatusMessage = $"已显示同目录另一版本的 {added} 个剧集，正在核对 {platform.DisplayName()} 工作目录…";
-        }
+        if (!IsWorkspaceLoadCurrent(generation))
+            return;
 
-        var directories = await Task.Run(
-            () => KuaishouWorkspaceProjects.List(rootDirectory),
-            cancellationToken);
-        added += AddKuaishouJobs(
-            platform,
-            directories.Select(directory => (directory, Path.GetFileName(directory))),
-            existing);
-        await PersistAsync(cancellationToken);
-        RefreshVisibleJobs();
-        StatusMessage = $"扫描完成：发现 {directories.Count} 个项目，新增 {added} 个任务。";
-        AppendActivityLog(StatusMessage);
+        BeginKuaishouListing();
+        try
+        {
+            var existing = KuaishouJobDirectories(platform);
+            var added = AddKuaishouJobs(platform, SeedKuaishouProjectsFromOtherEdition(rootDirectory, platform, existing), existing);
+            if (added > 0 && IsWorkspaceLoadCurrent(generation))
+            {
+                RefreshVisibleJobs();
+                StatusMessage = $"已显示同目录另一版本的 {added} 个剧集，正在核对 {platform.DisplayName()} 工作目录…";
+            }
+
+            var directories = await Task.Run(
+                () => KuaishouWorkspaceProjects.List(rootDirectory),
+                cancellationToken);
+            if (!IsWorkspaceLoadCurrent(generation))
+                return;
+
+            added += AddKuaishouJobs(
+                platform,
+                directories.Select(directory => (directory, Path.GetFileName(directory))),
+                existing);
+            if (added > 0)
+                await PersistAsync(cancellationToken);
+            if (!IsWorkspaceLoadCurrent(generation))
+                return;
+
+            _kuaishouScannedWorkspace = rootDirectory;
+            _kuaishouScannedTick = Environment.TickCount64;
+            RefreshVisibleJobs();
+            StatusMessage = $"扫描完成：发现 {directories.Count} 个项目，新增 {added} 个任务。";
+            AppendActivityLog(StatusMessage);
+        }
+        finally
+        {
+            EndKuaishouListing();
+        }
     }
 
     private IEnumerable<(string Directory, string Name)> SeedKuaishouProjectsFromOtherEdition(
@@ -3274,10 +3374,42 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void NotifyKuaishouLogProjectsChanged()
     {
-        if (Dispatcher.UIThread.CheckAccess())
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(NotifyKuaishouLogProjectsChanged);
+            return;
+        }
+
+        var now = Environment.TickCount64;
+        if (now >= _nextKuaishouLogNotifyTick)
+        {
+            _nextKuaishouLogNotifyTick = now + 250;
             KuaishouLogProjectsChanged?.Invoke(this, EventArgs.Empty);
-        else
-            Dispatcher.UIThread.Post(() => KuaishouLogProjectsChanged?.Invoke(this, EventArgs.Empty));
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _kuaishouLogNotifyPending, 1) == 1)
+            return;
+        var wait = (int)Math.Max(1, _nextKuaishouLogNotifyTick - now);
+        _ = NotifyKuaishouLogProjectsAfterDelayAsync(wait);
+    }
+
+    private async Task NotifyKuaishouLogProjectsAfterDelayAsync(int wait)
+    {
+        try
+        {
+            await Task.Delay(wait).ConfigureAwait(false);
+            Dispatcher.UIThread.Post(() =>
+            {
+                Interlocked.Exchange(ref _kuaishouLogNotifyPending, 0);
+                _nextKuaishouLogNotifyTick = Environment.TickCount64 + 250;
+                KuaishouLogProjectsChanged?.Invoke(this, EventArgs.Empty);
+            });
+        }
+        catch (Exception)
+        {
+            Interlocked.Exchange(ref _kuaishouLogNotifyPending, 0);
+        }
     }
 
     private static string NormalizeLogDirectory(string directory)
@@ -3319,22 +3451,84 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ProjectName = project,
             Platform = ActivityLogPlatformScope.Value ?? SelectedPlatform.Value,
         };
-        void Append()
+        EnqueueActivityLog(accountKey, record);
+    }
+
+    private void EnqueueActivityLog(string? accountKey, ActivityLogRecord record)
+    {
+        var start = false;
+        lock (_pendingActivityLogs)
+        {
+            _pendingActivityLogs.Enqueue((accountKey, record));
+            if (_activityLogFlushScheduled == 0)
+            {
+                _activityLogFlushScheduled = 1;
+                start = true;
+            }
+        }
+
+        if (!start)
+            return;
+        var wait = (int)Math.Max(0, _nextActivityLogFlushTick - Environment.TickCount64);
+        if (wait == 0)
+            Dispatcher.UIThread.Post(FlushActivityLogs, DispatcherPriority.Background);
+        else
+            _ = FlushActivityLogsAfterDelayAsync(wait);
+    }
+
+    private async Task FlushActivityLogsAfterDelayAsync(int wait)
+    {
+        try
+        {
+            await Task.Delay(wait).ConfigureAwait(false);
+            Dispatcher.UIThread.Post(FlushActivityLogs, DispatcherPriority.Background);
+        }
+        catch (Exception)
+        {
+            lock (_pendingActivityLogs)
+                _activityLogFlushScheduled = 0;
+        }
+    }
+
+    private void FlushActivityLogs()
+    {
+        List<(string? AccountKey, ActivityLogRecord Record)> batch;
+        lock (_pendingActivityLogs)
+        {
+            batch = _pendingActivityLogs.ToList();
+            _pendingActivityLogs.Clear();
+            _activityLogFlushScheduled = 0;
+        }
+
+        foreach (var (accountKey, record) in batch)
         {
             ActivityLogs.Add(record.Text);
             ActivityLogRecords.Add(record);
             RememberKuaishouProjectLog(accountKey, record.ProjectName, record.Text);
-            while (ActivityLogs.Count > 500)
-                ActivityLogs.RemoveAt(0);
-            while (ActivityLogRecords.Count > 500)
-                ActivityLogRecords.RemoveAt(0);
+        }
+
+        while (ActivityLogs.Count > 500)
+            ActivityLogs.RemoveAt(0);
+        while (ActivityLogRecords.Count > 500)
+            ActivityLogRecords.RemoveAt(0);
+        if (batch.Count > 0)
+        {
+            _nextActivityLogFlushTick = Environment.TickCount64 + 200;
             ScheduleFilteredLogRefresh();
         }
 
-        if (Dispatcher.UIThread.CheckAccess())
-            Append();
-        else
-            Dispatcher.UIThread.Post(Append);
+        var more = false;
+        lock (_pendingActivityLogs)
+        {
+            if (_pendingActivityLogs.Count > 0 && _activityLogFlushScheduled == 0)
+            {
+                _activityLogFlushScheduled = 1;
+                more = true;
+            }
+        }
+
+        if (more)
+            _ = FlushActivityLogsAfterDelayAsync(200);
     }
 
     public void RefreshKuaishouTodayUploadCount()
@@ -3406,6 +3600,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         throw new InvalidOperationException($"请先在已归档项目中为快手分账{(row.Model.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版")}配置归档目录。");
                     var archiveRoot = config.ArchiveRootDirectory;
                     AppendActivityLog($"准备归档：{row.ProjectName}");
+                    KuaishouWorkspaceProjects.Invalidate(row.Model.ProjectDirectory);
                     await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
                         workspace,
                         row.Model.ProjectDirectory,
@@ -3473,38 +3668,87 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public void RefreshKuaishouArchivedProjects()
     {
+        var generation = Interlocked.Increment(ref _archiveListGeneration);
         var selectedKey = SelectedArchivedProject?.ProjectKey;
-        ArchivedProjects.Clear();
+        var account = _activeGlobalAccount;
         var platform = KuaishouArchivePlatform();
-        var config = _activeGlobalAccount is null ? null : KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, "已归档"));
-        var archiveRoot = config?.ArchiveRootDirectory?.Trim() ?? "";
+        var personal = KuaishouArchiveIsPersonal;
+        var workspaceDraft = DraftProjectDirectory;
+        var accountName = account?.Name ?? "";
+        if (account is null)
+        {
+            ApplyKuaishouArchivedProjects(generation, selectedKey, "", []);
+            return;
+        }
+
+        var configJob = CreateKuaishouArchiveJob(platform, "已归档");
+        _ = Task.Run(() =>
+        {
+            string archiveRoot;
+            IReadOnlyList<ArchivedProjectRowViewModel> rows;
+            try
+            {
+                var config = KuaishouPersonalConfig.Load(configJob);
+                archiveRoot = config.ArchiveRootDirectory?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(archiveRoot) || !Directory.Exists(archiveRoot))
+                {
+                    rows = [];
+                }
+                else
+                {
+                    var workspace = Directory.Exists(workspaceDraft) ? Path.GetFullPath(workspaceDraft) : archiveRoot;
+                    var source = personal ? "kuaishou_personal" : "kuaishou_enterprise";
+                    rows = TikTokArchivedProjectService.ListBySource(workspace, archiveRoot, source)
+                        .Select(item =>
+                        {
+                            DateTimeOffset? archivedAt = DateTimeOffset.TryParse(item.ArchivedAt, out var parsed) ? parsed : null;
+                            var title = FirstArchiveTitle(item);
+                            return new ArchivedProjectRowViewModel(
+                                item.ProjectKey,
+                                title,
+                                item.MetadataPath,
+                                item.ArchivedSourceDir,
+                                item.ArchivedWorkflowDir,
+                                archivedAt,
+                                0,
+                                0,
+                                item.OriginalTitle,
+                                string.IsNullOrWhiteSpace(item.NewTitle) ? title : item.NewTitle,
+                                string.IsNullOrWhiteSpace(item.AccountProfileName) ? accountName : item.AccountProfileName);
+                        })
+                        .ToArray();
+                }
+            }
+            catch (Exception ex)
+            {
+                archiveRoot = "";
+                rows = [];
+                PostUi(() => AppendActivityLog($"读取快手归档项目失败：{ex.Message}"));
+            }
+
+            PostUi(() => ApplyKuaishouArchivedProjects(generation, selectedKey, archiveRoot, rows));
+        });
+    }
+
+    private void ApplyKuaishouArchivedProjects(
+        int generation,
+        string? selectedKey,
+        string archiveRoot,
+        IReadOnlyList<ArchivedProjectRowViewModel> rows)
+    {
+        if (generation != _archiveListGeneration)
+            return;
+        ArchivedProjects.Clear();
         KuaishouArchiveRootText = archiveRoot;
-        if (_activeGlobalAccount is null || string.IsNullOrWhiteSpace(archiveRoot) || !Directory.Exists(archiveRoot))
+        if (rows.Count == 0)
         {
             SelectedArchivedProject = null;
             OnPropertyChanged(nameof(ArchivedProjectsSummary));
             return;
         }
 
-        var workspace = Directory.Exists(DraftProjectDirectory) ? Path.GetFullPath(DraftProjectDirectory) : archiveRoot;
-        var source = KuaishouArchiveIsPersonal ? "kuaishou_personal" : "kuaishou_enterprise";
-        foreach (var item in TikTokArchivedProjectService.ListBySource(workspace, archiveRoot, source))
-        {
-            DateTimeOffset? archivedAt = DateTimeOffset.TryParse(item.ArchivedAt, out var parsed) ? parsed : null;
-            ArchivedProjects.Add(new ArchivedProjectRowViewModel(
-                item.ProjectKey,
-                FirstArchiveTitle(item),
-                item.MetadataPath,
-                item.ArchivedSourceDir,
-                item.ArchivedWorkflowDir,
-                archivedAt,
-                0,
-                0,
-                item.OriginalTitle,
-                string.IsNullOrWhiteSpace(item.NewTitle) ? FirstArchiveTitle(item) : item.NewTitle,
-                string.IsNullOrWhiteSpace(item.AccountProfileName) ? _activeGlobalAccount.Name : item.AccountProfileName));
-        }
-
+        foreach (var row in rows)
+            ArchivedProjects.Add(row);
         SelectedArchivedProject = selectedKey is null
             ? ArchivedProjects.FirstOrDefault()
             : ArchivedProjects.FirstOrDefault(item => item.ProjectKey == selectedKey) ?? ArchivedProjects.FirstOrDefault();
@@ -3647,11 +3891,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         void Refresh()
         {
+            _kuaishouListedMisses.Clear();
             var rows = new List<PublishJobRowViewModel>();
             foreach (var job in _jobs
                          .Where(job => job.Platform == SelectedPlatform.Value)
                          .Where(job => !IsKuaishouPlatform ||
-                                       KuaishouWorkspaceProjects.IsListed(DraftProjectDirectory, job.ProjectDirectory))
+                                       IsKuaishouJobListed(DraftProjectDirectory, job.ProjectDirectory))
                          .Where(job => IsKuaishouPlatform || _activeGlobalAccount is null ||
                                        string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase))
                          .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
@@ -3679,6 +3924,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             RefreshPagedJobs(selectId);
             OnPropertyChanged(nameof(QueueSummary));
+            ScheduleKuaishouListedVerification();
         }
 
         if (Dispatcher.UIThread.CheckAccess())
@@ -3687,11 +3933,53 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Dispatcher.UIThread.Post(Refresh);
     }
 
+    private bool IsKuaishouJobListed(string workspace, string projectDirectory)
+    {
+        if (KuaishouWorkspaceProjects.TryGetListed(workspace, projectDirectory, out var listed))
+            return listed;
+        var structural = KuaishouWorkspaceProjects.IsStructuralChild(workspace, projectDirectory);
+        if (structural)
+            _kuaishouListedMisses.Add(projectDirectory);
+        return structural;
+    }
+
+    private void ScheduleKuaishouListedVerification()
+    {
+        if (_kuaishouListingDepth > 0 || !IsKuaishouPlatform || _kuaishouListedMisses.Count == 0)
+            return;
+        var workspace = DraftProjectDirectory;
+        var pending = _kuaishouListedMisses.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var generation = Interlocked.Increment(ref _listedVerifyGeneration);
+        _ = Task.Run(() =>
+        {
+            var changed = false;
+            foreach (var directory in pending)
+            {
+                var optimistic = KuaishouWorkspaceProjects.IsStructuralChild(workspace, directory);
+                var listed = KuaishouWorkspaceProjects.IsListed(workspace, directory);
+                if (optimistic != listed)
+                    changed = true;
+            }
+
+            if (!changed)
+                return;
+            PostUi(() =>
+            {
+                if (generation != _listedVerifyGeneration || _kuaishouListingDepth > 0)
+                    return;
+                if (!string.Equals(DraftProjectDirectory, workspace, StringComparison.OrdinalIgnoreCase))
+                    return;
+                RefreshVisibleJobs();
+            });
+        });
+    }
+
     private PublishJobRowViewModel RowForJob(PublishJob job)
     {
         if (_jobRowCache.TryGetValue(job.Id, out var row))
             return row;
-        row = new PublishJobRowViewModel(job, loadArtifacts: false);
+        var deferTable = job.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue;
+        row = new PublishJobRowViewModel(job, loadArtifacts: false, loadTableInfo: !deferTable);
         _jobRowCache[job.Id] = row;
         return row;
     }
@@ -3709,6 +3997,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 KuaishouArtifactColumnStatus? artifacts = null;
                 try
                 {
+                    row.LoadTableInfo();
                     if (Directory.Exists(row.ProjectDirectory))
                         artifacts = KuaishouArtifactColumnStatusReader.Read(
                             row.ProjectDirectory,

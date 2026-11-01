@@ -123,6 +123,8 @@ public partial class MainWindow : Window
             ShowSettingsPage);
         WeixinPublisherView.SelectedAccountChanged += account =>
         {
+            if (!viewModel.IsWeixinPlatform)
+                return;
             workflowView.ApplyAccount(account);
             materialView.ApplyAccount(account);
             unifiedPublishViewModel.RefreshCommand.Execute(null);
@@ -160,8 +162,23 @@ public partial class MainWindow : Window
     {
         WeixinPublisherView.UseAccountStore(accountStore);
         GlobalAccountSidebar.DataContext = WeixinPublisherView.DataContext;
+        CancellationTokenSource? accountSwitchDelay = null;
         WeixinPublisherView.SelectedAccountChanged += async account =>
         {
+            var previous = accountSwitchDelay;
+            var next = new CancellationTokenSource();
+            accountSwitchDelay = next;
+            previous?.Cancel();
+            previous?.Dispose();
+            try
+            {
+                await Task.Delay(160, next.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
             ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, account);
             await SwitchKuaishouConfigAccountAsync(account);
         };
@@ -788,10 +805,7 @@ public partial class MainWindow : Window
     {
         if (_switchingKuaishouConfig) return;
         if (!KuaishouConfigPage.IsVisible)
-        {
-            KuaishouConfigPage.LoadAccount(account, KuaishouConfigPage.CurrentPlatform);
             return;
-        }
         var previousId = KuaishouConfigPage.AccountId;
         if (!string.IsNullOrEmpty(previousId) &&
             string.Equals(previousId, account?.Id, StringComparison.OrdinalIgnoreCase))
