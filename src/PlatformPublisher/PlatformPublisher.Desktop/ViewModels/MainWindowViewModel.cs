@@ -595,45 +595,32 @@ public sealed partial class MainWindowViewModel : ObservableObject
             string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase));
         if (account is null) return;
         var fullPath = Path.GetFullPath(path);
-        if (platform == PublishPlatform.KuaishouEnterpriseRevenue)
-        {
-            account.KuaishouEnterpriseConfigPath = fullPath;
-            if (string.IsNullOrWhiteSpace(account.KuaishouEnterpriseAccount))
-                account.KuaishouEnterpriseAccount = account.Name;
-        }
-        else
-        {
-            account.KuaishouPersonalConfigPath = fullPath;
-            if (string.IsNullOrWhiteSpace(account.KuaishouPersonalAccount))
-                account.KuaishouPersonalAccount = account.Name;
-        }
+        account.KuaishouPersonalConfigPath = fullPath;
+        account.KuaishouEnterpriseConfigPath = fullPath;
+        if (string.IsNullOrWhiteSpace(account.KuaishouPersonalAccount))
+            account.KuaishouPersonalAccount = account.Name;
+        if (string.IsNullOrWhiteSpace(account.KuaishouEnterpriseAccount))
+            account.KuaishouEnterpriseAccount = account.Name;
         _globalAccountStore.Update(account);
-        StatusMessage = $"{platform.DisplayName()}配置已保存到账号「{account.Name}」。";
+        StatusMessage = $"快手分账配置已保存到账号「{account.Name}」。";
     }
 
     public async Task UpdateSelectedAccountConfigPathAsync(string configPath)
     {
         if (_activeGlobalAccount is null) throw new InvalidOperationException("请先在左侧选择全局账号。");
         var path = Path.GetFullPath(configPath);
-        switch (SelectedPlatform.Value)
-        {
-            case PublishPlatform.KuaishouPersonalRevenue:
-                _activeGlobalAccount.KuaishouPersonalConfigPath = path;
-                if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouPersonalAccount))
-                    _activeGlobalAccount.KuaishouPersonalAccount = _activeGlobalAccount.Name;
-                break;
-            case PublishPlatform.KuaishouEnterpriseRevenue:
-                _activeGlobalAccount.KuaishouEnterpriseConfigPath = path;
-                if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouEnterpriseAccount))
-                    _activeGlobalAccount.KuaishouEnterpriseAccount = _activeGlobalAccount.Name;
-                break;
-            default:
-                throw new InvalidOperationException("当前平台不使用独立配置文件。");
-        }
+        if (SelectedPlatform.Value is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue))
+            throw new InvalidOperationException("当前平台不使用独立配置文件。");
+        _activeGlobalAccount.KuaishouPersonalConfigPath = path;
+        _activeGlobalAccount.KuaishouEnterpriseConfigPath = path;
+        if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouPersonalAccount))
+            _activeGlobalAccount.KuaishouPersonalAccount = _activeGlobalAccount.Name;
+        if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouEnterpriseAccount))
+            _activeGlobalAccount.KuaishouEnterpriseAccount = _activeGlobalAccount.Name;
         _globalAccountStore.Update(_activeGlobalAccount);
         DraftConfigPath = path;
         RefreshVisibleAccounts(_activeGlobalAccount.Id);
-        StatusMessage = $"{SelectedPlatform.Name}配置已保存到全局账号「{_activeGlobalAccount.Name}」：{path}";
+        StatusMessage = $"快手分账配置已保存到全局账号「{_activeGlobalAccount.Name}」：{path}";
         await Task.CompletedTask;
     }
 
@@ -3806,12 +3793,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Dispatcher.UIThread.Post(Refresh);
     }
 
-    private static string ResolveGlobalConfigPath(GlobalAccount? account, PublishPlatform platform) => platform switch
+    private static string ResolveGlobalConfigPath(GlobalAccount? account, PublishPlatform platform)
     {
-        PublishPlatform.KuaishouPersonalRevenue => account?.KuaishouPersonalConfigPath?.Trim() ?? string.Empty,
-        PublishPlatform.KuaishouEnterpriseRevenue => account?.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty,
-        _ => string.Empty,
-    };
+        if (platform is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue))
+            return string.Empty;
+        var personal = account?.KuaishouPersonalConfigPath?.Trim() ?? string.Empty;
+        var enterprise = account?.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty;
+        if (File.Exists(personal)) return personal;
+        if (File.Exists(enterprise)) return enterprise;
+        return string.IsNullOrWhiteSpace(personal) ? enterprise : personal;
+    }
 
     private async Task MigrateLegacyPlatformAccountsAsync(IReadOnlyList<PublishAccount> legacyAccounts)
     {

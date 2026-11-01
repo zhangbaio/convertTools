@@ -74,12 +74,31 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
     }
 
     [Fact]
-    public void EnterpriseUsesIndependentConfigurationPath()
+    public async Task PersonalAndEnterpriseLoadTheSameAccountConfiguration()
     {
-        var personal = KuaishouPersonalConfig.DefaultConfigPath("same-account", PublishPlatform.KuaishouPersonalRevenue);
-        var enterprise = KuaishouPersonalConfig.DefaultConfigPath("same-account", PublishPlatform.KuaishouEnterpriseRevenue);
-        Assert.NotEqual(personal, enterprise);
-        Assert.Contains("kuaishou-enterprise", enterprise);
+        Directory.CreateDirectory(_root);
+        var database = new PlatformDatabase(Path.Combine(_root, "shared-config.db"));
+        var jsonStore = new AccountJsonSettingStore(database);
+        var credentialStore = new KuaishouCredentialStore(new SecureBlobStore(database), new PassthroughProtector());
+        KuaishouPersonalConfig.ConfigureDatabase(jsonStore, credentialStore);
+        var personalJob = new PublishJob
+        {
+            Platform = PublishPlatform.KuaishouPersonalRevenue,
+            AccountId = "same-account",
+        };
+        var config = KuaishouPersonalConfig.Load(personalJob);
+        config.KuaishouNickname = "同一账号";
+        config.Username = "张彪";
+        await config.SaveAsync(Path.Combine(_root, "shared.json"));
+
+        var enterprise = KuaishouPersonalConfig.Load(new PublishJob
+        {
+            Platform = PublishPlatform.KuaishouEnterpriseRevenue,
+            AccountId = "same-account",
+        });
+        Assert.Equal("同一账号", enterprise.KuaishouNickname);
+        Assert.Equal("张彪", enterprise.Username);
+        Assert.Equal(PublishPlatform.KuaishouEnterpriseRevenue, enterprise.StoragePlatform);
     }
 
     [Fact]

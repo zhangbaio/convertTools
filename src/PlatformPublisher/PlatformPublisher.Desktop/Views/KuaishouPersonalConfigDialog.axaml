@@ -6,11 +6,7 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel Spacing="3">
                 <TextBlock x:Name="AccountHeading" Text="快手分账配置" FontSize="20" FontWeight="Bold" Foreground="#0B74D1" />
-                <TextBlock x:Name="AccountHint" Text="配置按左侧账号独立保存。切换账号前如有修改，会先询问是否保存。" Foreground="#64748B" TextWrapping="Wrap" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button x:Name="PersonalEditionButton" Content="个人版" Click="OnPersonalEditionClick" />
-                <Button x:Name="EnterpriseEditionButton" Content="企业版" Click="OnEnterpriseEditionClick" />
+                <TextBlock x:Name="AccountHint" Text="每个账号只保存一份快手分账配置。个人版和企业版队列都使用这份配置。" Foreground="#64748B" TextWrapping="Wrap" />
             </StackPanel>
         </Grid>
 
@@ -193,10 +189,9 @@
                             <Button Grid.Column="2" Content="浏览" Click="PickProjectImageRoot_Click" />
                             <TextBlock Grid.Row="1" Text="快手上传模板" VerticalAlignment="Center" />
                             <ComboBox x:Name="UploadTemplateBox" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" />
-                            <TextBlock Grid.Row="2" Text="分账个人版模板" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="2" Text="分账工程图模板" VerticalAlignment="Center" />
                             <ComboBox x:Name="PersonalTemplateBox" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" />
-                            <TextBlock Grid.Row="3" Text="分账企业版模板" VerticalAlignment="Center" />
-                            <ComboBox x:Name="EnterpriseTemplateBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
+                            <ComboBox x:Name="EnterpriseTemplateBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" IsVisible="False" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>
@@ -327,11 +322,11 @@
                     <StackPanel Margin="16" Spacing="14">
                         <Border BorderBrush="#D8C3A8" BorderThickness="1" CornerRadius="8" Background="#FFFAF5" Padding="12">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="个人版配置" FontWeight="SemiBold" />
-                                <TextBlock Text="仅用于快手分账个人版：入口地址、人员姓名/性别，以及固定复用的承诺函 PDF 文件。企业版使用本页企业版入口和承诺函。"
+                                <TextBlock Text="分账配置" FontWeight="SemiBold" />
+                                <TextBlock Text="入口地址、人员姓名/性别，以及固定复用的承诺函 PDF。个人版和企业版队列共用。"
                                            TextWrapping="Wrap" Foreground="#665A4B" />
                                 <Grid ColumnDefinitions="160,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                                    <TextBlock Text="个人版入口URL" VerticalAlignment="Center" />
+                                    <TextBlock Text="入口 URL" VerticalAlignment="Center" />
                                     <TextBox x:Name="EntryUrlBox" Grid.Column="1" Grid.ColumnSpan="2" />
                                     <TextBlock Grid.Row="1" Text="用户名" VerticalAlignment="Center" />
                                     <TextBox x:Name="UsernameBox" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Watermark="导演 / 编剧 / 制片人统一使用此用户名" />
@@ -345,12 +340,12 @@
                         </Border>
                         <Border BorderBrush="#AEBFD2" BorderThickness="1" CornerRadius="8" Background="#F7FBFF" Padding="12">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="共用配置（个人版 / 企业版）" FontWeight="SemiBold" />
-                                <TextBlock Text="同时影响快手分账个人版和企业版：上传浏览器模式、全场景展示、登录等待、出错保留浏览器、第一页和最终提交动作。"
+                                <TextBlock Text="上传与提交" FontWeight="SemiBold" />
+                                <TextBlock Text="上传浏览器模式、全场景展示、登录等待、出错保留浏览器、第一页和最终提交动作。"
                                            TextWrapping="Wrap" Foreground="#536171" />
                                 <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                     <TextBlock Text="登录超时(秒)" VerticalAlignment="Center" />
-                                    <TextBox x:Name="LoginTimeoutBox" Grid.Column="1" Watermark="登录等待秒数，默认 300（个人版/企业版共用）" />
+                                    <TextBox x:Name="LoginTimeoutBox" Grid.Column="1" Watermark="登录等待秒数，默认 300" />
                                     <TextBlock Grid.Row="1" Text="上传浏览器模式" VerticalAlignment="Center" />
                                     <ComboBox x:Name="RevenueShareBrowserModeBox" Grid.Row="1" Grid.Column="1" />
                                     <TextBlock Grid.Row="2" Text="全场景展示" VerticalAlignment="Center" />

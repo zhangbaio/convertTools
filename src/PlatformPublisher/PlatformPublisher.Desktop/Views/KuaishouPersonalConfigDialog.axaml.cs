@@ -35,7 +35,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     {
         if (!HasUnsavedChanges()) return true;
         var save = await ConfirmDialog.ShowAsync(owner, "保存快手分账配置",
-            $"「{_account?.Name ?? "当前账号"}」的{_platform.DisplayName()}配置已修改，是否保存？");
+            $"「{_account?.Name ?? "当前账号"}」的快手分账配置已修改，是否保存？");
         if (!save)
         {
             LoadAccount(_account, _platform);
@@ -132,12 +132,10 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         ProjectImageRootBox.Text = _config.ProjectImageTemplateRoot;
         FillTemplate(UploadTemplateBox, FirstNonEmpty(_config.UploadProjectImageTemplateId, _config.ProjectImageTemplateId));
-        FillTemplate(PersonalTemplateBox, _platform == PublishPlatform.KuaishouPersonalRevenue
-            ? FirstNonEmpty(_config.PersonalProjectImageTemplateId, _config.ProjectImageTemplateId)
-            : _config.PersonalProjectImageTemplateId);
-        FillTemplate(EnterpriseTemplateBox, _platform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? FirstNonEmpty(_config.EnterpriseProjectImageTemplateId, _config.ProjectImageTemplateId)
-            : _config.EnterpriseProjectImageTemplateId);
+        FillTemplate(PersonalTemplateBox, FirstNonEmpty(
+            _config.PersonalProjectImageTemplateId,
+            _config.EnterpriseProjectImageTemplateId,
+            _config.ProjectImageTemplateId));
 
         FillChoice(VideoStorageProviderBox, KuaishouFormChoices.VideoStorageProviders, _config.VideoStorageProvider, "aliyun_oss");
         StorageConcurrencyBox.Text = _config.PublicStorageUploadConcurrency.ToString();
@@ -382,11 +380,10 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         _config.ProjectImageTemplateRoot = ProjectImageRootBox.Text?.Trim() ?? string.Empty;
         _config.UploadProjectImageTemplateId = TemplateValue(UploadTemplateBox);
-        _config.PersonalProjectImageTemplateId = TemplateValue(PersonalTemplateBox);
-        _config.EnterpriseProjectImageTemplateId = TemplateValue(EnterpriseTemplateBox);
-        _config.ProjectImageTemplateId = _platform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? _config.EnterpriseProjectImageTemplateId
-            : _config.PersonalProjectImageTemplateId;
+        var settlementTemplate = TemplateValue(PersonalTemplateBox);
+        _config.PersonalProjectImageTemplateId = settlementTemplate;
+        _config.EnterpriseProjectImageTemplateId = settlementTemplate;
+        _config.ProjectImageTemplateId = settlementTemplate;
 
         _config.VideoStorageProvider = ChoiceValue(VideoStorageProviderBox, "aliyun_oss");
         _config.PublicStorageUploadConcurrency = Math.Clamp(Positive(StorageConcurrencyBox.Text, 2), 1, 8);
@@ -660,19 +657,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void Cancel_Click(object? sender, RoutedEventArgs e) => LoadAccount(_account, _platform);
 
-    private async void OnPersonalEditionClick(object? sender, RoutedEventArgs e) =>
-        await SwitchEditionAsync(PublishPlatform.KuaishouPersonalRevenue);
-
-    private async void OnEnterpriseEditionClick(object? sender, RoutedEventArgs e) =>
-        await SwitchEditionAsync(PublishPlatform.KuaishouEnterpriseRevenue);
-
-    private async Task SwitchEditionAsync(PublishPlatform platform)
-    {
-        if (platform == _platform) return;
-        if (TopLevel.GetTopLevel(this) is Window owner && !await TryLeaveAsync(owner)) return;
-        LoadAccount(_account, platform);
-    }
-
     private async Task<bool> SaveCurrentAsync()
     {
         if (_account is null)
@@ -711,12 +695,14 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private string ResolveConfigPath(bool createDefault)
     {
-        var configured = _platform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? _account?.KuaishouEnterpriseConfigPath
-            : _account?.KuaishouPersonalConfigPath;
-        if (!string.IsNullOrWhiteSpace(configured)) return Path.GetFullPath(configured);
+        var personal = _account?.KuaishouPersonalConfigPath?.Trim();
+        var enterprise = _account?.KuaishouEnterpriseConfigPath?.Trim();
+        if (!string.IsNullOrWhiteSpace(personal) && File.Exists(personal)) return Path.GetFullPath(personal);
+        if (!string.IsNullOrWhiteSpace(enterprise) && File.Exists(enterprise)) return Path.GetFullPath(enterprise);
+        if (!string.IsNullOrWhiteSpace(personal)) return Path.GetFullPath(personal);
+        if (!string.IsNullOrWhiteSpace(enterprise)) return Path.GetFullPath(enterprise);
         return createDefault && _account is not null
-            ? KuaishouPersonalConfig.DefaultConfigPath(_account.Id, _platform)
+            ? KuaishouPersonalConfig.DefaultConfigPath(_account.Id, PublishPlatform.KuaishouPersonalRevenue)
             : string.Empty;
     }
 
@@ -734,10 +720,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void UpdateHeading()
     {
-        var edition = _platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版";
-        AccountHeading.Text = _account is null ? "快手分账配置" : $"{_account.Name} · {edition}";
-        PersonalEditionButton.Classes.Set("navActive", _platform != PublishPlatform.KuaishouEnterpriseRevenue);
-        EnterpriseEditionButton.Classes.Set("navActive", _platform == PublishPlatform.KuaishouEnterpriseRevenue);
+        AccountHeading.Text = _account is null ? "快手分账配置" : _account.Name;
     }
 
     private IStorageProvider Files =>
