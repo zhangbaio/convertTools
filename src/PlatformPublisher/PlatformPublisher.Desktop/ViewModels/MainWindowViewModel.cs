@@ -2539,6 +2539,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
             catch (Exception ex)
             {
+                if (trackedJob is not null)
+                {
+                    trackedJob.Status = PublishJobStatus.Failed;
+                    trackedJob.StatusMessage = ex.Message;
+                    trackedJob.LastCompletedAt = DateTimeOffset.Now;
+                }
                 foreach (var step in enabled)
                 {
                     if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var state) == true &&

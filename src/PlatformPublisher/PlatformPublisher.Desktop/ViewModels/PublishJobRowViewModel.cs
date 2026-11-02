@@ -55,15 +55,17 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     {
         get
         {
-            if (_kuaishou is null) return ModelStatusText();
-            if (Model.Status == PublishJobStatus.Running)
+            var kuaishou = Model.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue;
+            if (kuaishou && Model.Status == PublishJobStatus.Running)
             {
-                if (Model.StepStates.TryGetValue("weixin-upload", out var upload) &&
-                    upload.Status == PublishJobStepStatus.Failed)
+                if (StepFailed("weixin-upload") || StepFailed("rewrite") || StepFailed("auto-fill-info"))
                     return "失败";
                 return "执行中";
             }
             if (Model.Status == PublishJobStatus.Failed) return "失败";
+            if (kuaishou && Model.Status != PublishJobStatus.Succeeded && HasFailedPrepareStep())
+                return "失败";
+            if (_kuaishou is null) return ModelStatusText();
             if (!string.IsNullOrWhiteSpace(_kuaishou.OverallStatus) && _kuaishou.OverallStatus != "待执行")
                 return _kuaishou.OverallStatus;
             if (Model.Status == PublishJobStatus.Succeeded) return "已完成";
@@ -140,6 +142,16 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     private bool _isChecked;
 
     partial void OnIsCheckedChanged(bool value) => Model.IsChecked = value;
+
+    private bool HasFailedPrepareStep() =>
+        StepFailed("download") ||
+        StepFailed("rewrite") ||
+        StepFailed("poster-rename") ||
+        StepFailed("project-image") ||
+        StepFailed("auto-fill-info");
+
+    private bool StepFailed(string key) =>
+        Model.StepStates.TryGetValue(key, out var state) && state.Status == PublishJobStepStatus.Failed;
 
     private string ModelStatusText() => Model.Status switch
     {
