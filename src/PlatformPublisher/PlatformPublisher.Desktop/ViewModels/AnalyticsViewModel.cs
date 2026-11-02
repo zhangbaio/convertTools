@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Avalonia.Media;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PlatformPublisher.Analytics.Models;
@@ -20,6 +21,7 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     private Func<IReadOnlyList<AnalyticsAccount>> _accountProvider = () => [];
     private Func<AnalyticsAccount, bool> _publishRunning = _ => false;
     private CancellationTokenSource? _cts;
+    private DispatcherTimer? _dailyTimer;
     private IReadOnlyList<AnalyticsAccount> _accounts = [];
     private IReadOnlyList<DailyAnalyticsRecord> _records = [];
     private readonly HashSet<string> _hidden = new(StringComparer.Ordinal);
@@ -45,16 +47,52 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     {
         _accountProvider = accountProvider;
         _publishRunning = publishRunning;
+        _dailyTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+        _dailyTimer.Tick -= OnDailyTick;
+        _dailyTimer.Tick += OnDailyTick;
+        _dailyTimer.Start();
+        _ = RefreshIfDueAsync();
     }
 
     public Task ActivateAsync()
     {
-        if (IsBusy) return Task.CompletedTask;
         LoadCached();
-        StatusMessage = _accounts.Count == 0
-            ? "还没有快手分账账号。"
-            : "已显示本地保存的最近 30 天播放量。";
+        if (!IsBusy)
+        {
+            StatusMessage = _accounts.Count == 0
+                ? "还没有快手分账账号。"
+                : "已显示本地保存的最近 30 天播放量。";
+            _ = RefreshIfDueAsync();
+        }
         return Task.CompletedTask;
+    }
+
+    private void OnDailyTick(object? sender, EventArgs e) => _ = RefreshIfDueAsync();
+
+    private async Task RefreshIfDueAsync()
+    {
+        if (IsBusy || !CollectionDue()) return;
+        await CollectAsync(null);
+    }
+
+    private bool CollectionDue()
+    {
+        var now = DateTime.Now;
+        var window = KuaishouPlayWindow.Dates(DateOnly.FromDateTime(now));
+        var accounts = Accounts();
+        if (accounts.Count == 0) return false;
+        var records = _repository.ListDaily(window[0], window[^1]);
+        foreach (var account in accounts)
+        {
+            var saved = records
+                .Where(record => record.AccountId.Equals(account.Id, StringComparison.OrdinalIgnoreCase) &&
+                                 record.Platform == account.Platform &&
+                                 record.Status == AnalyticsRecordStatus.Success &&
+                                 record.SeriesViewsTotal.HasValue)
+                .Select(record => record.MetricDate);
+            if (KuaishouPlayWindow.NeedsCollection(window, saved, now.Hour)) return true;
+        }
+        return false;
     }
 
     [RelayCommand(CanExecute = nameof(CanUpdate))]

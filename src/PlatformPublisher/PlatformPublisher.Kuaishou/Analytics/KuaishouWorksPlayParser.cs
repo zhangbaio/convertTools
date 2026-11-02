@@ -57,6 +57,7 @@ public static class KuaishouWorksPlayParser
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
+                TryReadPlayTrend(element, target);
                 TryReadDateMap(element, parent, target);
                 TryReadRange(element, target);
                 foreach (var property in element.EnumerateObject())
@@ -107,6 +108,37 @@ public static class KuaishouWorksPlayParser
         date = foundDate.Value;
         views = foundViews.Value;
         return true;
+    }
+
+    private static void TryReadPlayTrend(JsonElement element, IDictionary<DateOnly, long> target)
+    {
+        if (!IsPlayMetric(element) ||
+            !TryProperty(element, out var trend, "trendData", "trendList") ||
+            trend.ValueKind != JsonValueKind.Array)
+            return;
+        foreach (var item in trend.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object ||
+                !TryProperty(item, out var dateElement, "date", "statDate", "time") ||
+                !TryDate(dateElement, out var date) ||
+                !TryProperty(item, out var countElement, "count", "value", "playCnt", "playCount") ||
+                !TryLong(countElement, out var views))
+                continue;
+            target[date] = views;
+        }
+    }
+
+    private static bool IsPlayMetric(JsonElement element)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.String || !IsNamed(property.Name, "name", "tab", "type", "metric"))
+                continue;
+            var text = property.Value.GetString() ?? string.Empty;
+            if (text.Equals("PLAY", StringComparison.OrdinalIgnoreCase) || text is "播放量" or "播放")
+                return true;
+        }
+        return false;
     }
 
     private static void TryReadDateMap(JsonElement element, string parent, IDictionary<DateOnly, long> target)

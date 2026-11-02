@@ -132,6 +132,27 @@ public sealed class KuaishouPlayStatisticsTests : IDisposable
         Assert.Equal(5, KuaishouWorksPlayParser.Parse("""
             {"播放量":[{"date":"2026-10-31","value":5}]}
             """)[new DateOnly(2026, 10, 31)]);
+
+        var overview = KuaishouWorksPlayParser.Parse("""
+            {"data":{"basicData":[
+              {"name":"播放量","tab":"PLAY","trendData":[{"date":"20261031","count":12000},{"date":"20261101","count":96640}]},
+              {"name":"点赞量","tab":"LIKE","trendData":[{"date":"20261101","count":223}]}
+            ]}}
+            """);
+        Assert.Equal(12000, overview[new DateOnly(2026, 10, 31)]);
+        Assert.Equal(96640, overview[new DateOnly(2026, 11, 1)]);
+        Assert.Equal(2, overview.Count);
+    }
+
+    [Fact]
+    public void ScheduledRefreshWaitsUntilNoonForYesterdayOnly()
+    {
+        var window = KuaishouPlayWindow.Dates(Today);
+        var saved = window.Take(window.Count - 1).ToArray();
+        Assert.False(KuaishouPlayWindow.NeedsCollection(window, saved, 11));
+        Assert.True(KuaishouPlayWindow.NeedsCollection(window, saved, 12));
+        Assert.True(KuaishouPlayWindow.NeedsCollection(window, [window[^1]], 11));
+        Assert.False(KuaishouPlayWindow.NeedsCollection(window, window, 15));
     }
 
     [Fact]

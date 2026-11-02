@@ -38,8 +38,13 @@ public sealed class KuaishouWorksPlayCollector
                 if (IsLoginPage(page))
                     throw new InvalidOperationException("创作者服务平台登录态无效，请先在该快手分账账号里重新登录。");
                 await ClickThirtyDaysAsync(page);
-                await page.WaitForTimeoutAsync(1500);
-                Drain(bodies, found);
+                var deadline = DateTime.UtcNow.AddSeconds(8);
+                do
+                {
+                    await page.WaitForTimeoutAsync(400);
+                    Drain(bodies, found);
+                }
+                while (DateTime.UtcNow < deadline && !found.ContainsKey(start));
                 await ReadMissingDaysAsync(page, bodies, found, start, end, ct);
             }
             finally
@@ -106,8 +111,16 @@ public sealed class KuaishouWorksPlayCollector
 
     private static async Task ClickThirtyDaysAsync(IPage page)
     {
+        var radio = page.Locator("input.el-radio-button__orig-radio[value='30']");
+        for (var attempt = 0; attempt < 10 && await radio.CountAsync() == 0; attempt++)
+            await page.WaitForTimeoutAsync(300);
         try
         {
+            if (await radio.CountAsync() > 0)
+            {
+                await radio.First.ClickAsync(new LocatorClickOptions { Force = true, Timeout = 3000 });
+                return;
+            }
             var shortcut = page.GetByText("近30天", new PageGetByTextOptions { Exact = true });
             if (await shortcut.CountAsync() > 0 && await shortcut.First.IsVisibleAsync())
                 await shortcut.First.ClickAsync(new LocatorClickOptions { Timeout = 3000 });

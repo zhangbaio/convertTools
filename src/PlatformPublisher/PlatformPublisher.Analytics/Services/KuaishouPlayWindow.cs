@@ -31,6 +31,15 @@ public static class KuaishouPlayWindow
         var end = window[^1];
         return window.Where(date => date == end || !saved.Contains(date)).ToArray();
     }
+
+    public static bool NeedsCollection(IReadOnlyList<DateOnly> window, IEnumerable<DateOnly> successfulDates, int hour)
+    {
+        if (window.Count == 0) return false;
+        var saved = successfulDates.ToHashSet();
+        var missing = window.Where(date => !saved.Contains(date)).ToArray();
+        if (missing.Length == 0) return false;
+        return missing.Length > 1 || missing[0] != window[^1] || hour >= 12;
+    }
 }
 
 public static class KuaishouPlayFormat

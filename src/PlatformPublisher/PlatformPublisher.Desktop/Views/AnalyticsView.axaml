@@ -10,7 +10,7 @@
             <Grid ColumnDefinitions="*,Auto,Auto">
                 <StackPanel>
                     <TextBlock Text="数据统计" FontSize="20" FontWeight="SemiBold" />
-                    <TextBlock Text="只统计快手分账。每个账号按已选的个人版或企业版统计，保留最近连续 30 天的每日播放量。"
+                    <TextBlock Text="只统计快手分账。每个账号按已选的个人版或企业版统计，保留最近连续 30 天的每日播放量。第一次补齐近 30 天，之后每天 12 点后自动更新前一天。"
                                Foreground="#6B7280" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
                 <Button Grid.Column="1" Content="更新全部账号" MinWidth="120" Margin="0,0,8,0"
