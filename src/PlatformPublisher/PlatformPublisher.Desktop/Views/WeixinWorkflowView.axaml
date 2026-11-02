@@ -284,17 +284,9 @@
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="导出上传记录" Click="OnExportUploadReportClick" Classes="fileAction compactAction" Margin="0,0,6,0"
                                     ToolTip.Tip="把快手分账上传记录导出到本软件数据目录中的 Excel。个人版和企业版分开保存。" />
-                            <Button Content="查看上传记录" Click="OnOpenUploadReportClick" Classes="fileAction compactAction"
+                            <Button Content="查看上传记录" Click="OnOpenUploadReportClick" Classes="fileAction compactAction" Margin="0,0,6,0"
                                     ToolTip.Tip="打开当前版本的上传记录 Excel。文件被占用时会另存为 pending 副本。" />
-                        </WrapPanel>
-                    </Border>
-                    <Border Classes="kuaishouButtonGroup" Background="#F7FAFC" BorderBrush="#D5E2EE">
-                        <WrapPanel Orientation="Horizontal">
-                            <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="logAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="快手分账配置" Click="OnKuaishouConfigClick" Classes="toolAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="browserAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="repairAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="保存设置" Command="{Binding SaveWorkflowSettingsCommand}" Classes="toolAction compactAction" />
+                            <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="logAction compactAction" />
                         </WrapPanel>
                     </Border>
                     <StackPanel Orientation="Horizontal" IsVisible="False">
