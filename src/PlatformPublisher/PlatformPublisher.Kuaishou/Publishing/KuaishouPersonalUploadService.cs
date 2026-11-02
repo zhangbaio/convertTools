@@ -12,7 +12,6 @@ public sealed class KuaishouPersonalUploadService
     private readonly KuaishouPersonalEpisodeUploadService _episodeUploadService;
     private readonly KuaishouPersonalUploadStateStore _stateStore;
     private readonly KuaishouCommitmentService _commitmentService;
-    private readonly KuaishouContentComplianceService _contentComplianceService;
     private readonly KuaishouDistributionService _distributionService;
     private readonly KuaishouOnlineQueueStore _onlineQueueStore;
 
@@ -23,7 +22,6 @@ public sealed class KuaishouPersonalUploadService
         KuaishouPersonalEpisodeUploadService episodeUploadService,
         KuaishouPersonalUploadStateStore stateStore,
         KuaishouCommitmentService commitmentService,
-        KuaishouContentComplianceService contentComplianceService,
         KuaishouDistributionService distributionService,
         KuaishouOnlineQueueStore onlineQueueStore)
     {
@@ -33,7 +31,6 @@ public sealed class KuaishouPersonalUploadService
         _episodeUploadService = episodeUploadService;
         _stateStore = stateStore;
         _commitmentService = commitmentService;
-        _contentComplianceService = contentComplianceService;
         _distributionService = distributionService;
         _onlineQueueStore = onlineQueueStore;
     }
@@ -52,7 +49,6 @@ public sealed class KuaishouPersonalUploadService
         var commitmentPdf = await _commitmentService.ResolveAsync(data, config, cancellationToken);
         if (!string.Equals(commitmentPdf, data.CommitmentPdfPath, StringComparison.OrdinalIgnoreCase))
             data = data with { CommitmentPdfPath = commitmentPdf };
-        _contentComplianceService.Validate(data, config);
         if (data.VideoPaths.Count == 0) throw new InvalidOperationException($"{label}项目没有可上传的剧集视频。");
         var state = _stateStore.Load(data.WorkflowDirectory, job.Platform);
         if (config.ForceRerun)

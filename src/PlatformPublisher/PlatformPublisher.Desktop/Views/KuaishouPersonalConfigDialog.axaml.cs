@@ -194,7 +194,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         FillChoice(FirstPageActionBox, KuaishouFormChoices.FirstPageActions, _config.FirstPageAction, "next");
         FillChoice(FinalActionBox, KuaishouFormChoices.FinalActions, _config.FinalAction, "submit_review");
 
-        AiComplianceBox.IsChecked = _config.AiComplianceReviewEnabled;
         SynopsisRewriteBox.IsChecked = _config.SynopsisAiRewriteEnabled;
         LoadContentPolicy();
     }
@@ -443,7 +442,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.FirstPageAction = ChoiceValue(FirstPageActionBox, "next");
         _config.FinalAction = ChoiceValue(FinalActionBox, "submit_review");
 
-        _config.AiComplianceReviewEnabled = AiComplianceBox.IsChecked == true;
         _config.SynopsisAiRewriteEnabled = SynopsisRewriteBox.IsChecked == true;
         _config.DramaTitlePolicyJson = KuaishouContentPolicyText.BuildTitlePolicy(
             TitlePolicyBox.Text ?? string.Empty, KuaishouContentPolicyDefaults.TitlePolicyJson);

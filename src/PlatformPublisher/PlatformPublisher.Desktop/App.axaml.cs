@@ -197,7 +197,6 @@ public partial class App : Application
         services.AddSingleton<KuaishouPersonalEpisodeUploadService>();
         services.AddSingleton<KuaishouPersonalUploadStateStore>();
         services.AddSingleton<KuaishouCommitmentService>();
-        services.AddSingleton<KuaishouContentComplianceService>();
         services.AddSingleton<KuaishouDistributionService>();
         services.AddSingleton<KuaishouOnlineQueueStore>();
         services.AddSingleton<KuaishouOnlineQueueProcessor>();

@@ -163,6 +163,7 @@ public static class ClientSettingsDefaults
         categories：从 category_options 中选 1-3 个，不能自造。
         plots：从 plot_options 中选 1-3 个，不能自造。
         新剧名、短标题、简介和标签不得包含炫富拜金、极端复仇、低俗擦边、侮辱挑衅等不良导向。
+        必须遵守 compliance 中的快手内容合规要求：按 compliance.rule 避开 title_forbidden、synopsis_forbidden 中的词和 synopsis_forbidden_combinations 中的组合，输出前逐条自查。
 
         只返回 JSON，不要解释，不要 Markdown：
         {"title":"","short_title":"","description":"","tags":[""],"audience":"","categories":[""],"plots":[""]}

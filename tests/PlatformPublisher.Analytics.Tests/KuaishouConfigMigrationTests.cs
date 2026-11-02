@@ -124,22 +124,6 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
     }
 
     [Fact]
-    public void ContentComplianceRejectsConfiguredBlockedTerms()
-    {
-        var config = new KuaishouPersonalConfig
-        {
-            SynopsisPolicyJson = """{"blockedTerms":["违规词"]}""",
-        };
-        var data = new KuaishouPersonalProjectData(
-            _root, _root, "普通剧名", "简介包含违规词", "短标题", [], "", "", "", [], [], []);
-
-        var exception = Assert.Throws<InvalidOperationException>(() =>
-            new KuaishouContentComplianceService().Validate(data, config));
-
-        Assert.Contains("违规词", exception.Message);
-    }
-
-    [Fact]
     public async Task DistributionDryRunDoesNotCallRemoteEndpoint()
     {
         var handler = new CountingHttpHandler();

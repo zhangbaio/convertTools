@@ -46,23 +46,6 @@ public static class KuaishouConfigurationValidator
     }
 }
 
-public sealed class KuaishouContentComplianceService
-{
-    public void Validate(KuaishouPersonalProjectData data, KuaishouPersonalConfig config)
-    {
-        var matches = KuaishouContentPolicyText.EffectiveTerms(
-                config.DramaTitlePolicyJson, KuaishouContentPolicyDefaults.TitlePolicyJson, "categories", "disabled")
-            .Where(term => data.Title.Contains(term, StringComparison.OrdinalIgnoreCase))
-            .Concat(KuaishouContentPolicyText.EffectiveTerms(
-                    config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson, "categories", "disabled")
-                .Where(term => data.Intro.Contains(term, StringComparison.OrdinalIgnoreCase)))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        if (matches.Length > 0)
-            throw new InvalidOperationException($"快手内容合规检查未通过，命中：{string.Join('、', matches)}");
-    }
-}
-
 public sealed class KuaishouDistributionService
 {
     private readonly HttpClient _httpClient;

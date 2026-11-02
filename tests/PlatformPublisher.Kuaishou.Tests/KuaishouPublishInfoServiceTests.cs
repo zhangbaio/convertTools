@@ -47,6 +47,48 @@ public sealed class KuaishouPublishInfoServiceTests
     }
 
     [Fact]
+    public void Compliance_prompt_carries_the_configured_terms_and_combinations()
+    {
+        var config = new KuaishouPersonalConfig
+        {
+            DramaTitlePolicyJson = """{"categories":{"自定义":["剧名禁词"]}}""",
+            SynopsisPolicyJson = """
+                {"categories":{"自定义":["简介禁词"]},"concept_groups":{"甲":["阿一"],"乙":["阿二"]},
+                 "combination_rules":[{"category":"甲乙组合","required_groups":["甲","乙"]}]}
+                """,
+        };
+
+        var json = KuaishouPublishInfoService.BuildCompliance(config).ToJsonString(
+            new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+
+        Assert.Contains("剧名禁词", json);
+        Assert.Contains("简介禁词", json);
+        Assert.Contains("甲乙组合", json);
+        Assert.Contains("阿二", json);
+    }
+
+    [Fact]
+    public void Policy_hits_are_scoped_and_detect_combinations()
+    {
+        var config = new KuaishouPersonalConfig
+        {
+            DramaTitlePolicyJson = """{"categories":{"自定义":["剧名禁词"]}}""",
+            SynopsisPolicyJson = """
+                {"categories":{"自定义":["简介禁词"]},"concept_groups":{"甲":["阿一"],"乙":["阿二"]},
+                 "combination_rules":[{"category":"甲乙组合","required_groups":["甲","乙"]}]}
+                """,
+        };
+        var payload = Json("""{"title":"剧名禁词","short_title":"","description":"阿一遇见了阿二。","tags":[]}""");
+
+        var hits = KuaishouPublishInfoService.PolicyHits(payload, config, rewrite: true);
+        Assert.Contains(hits, hit => hit.Contains("剧名禁词", StringComparison.Ordinal));
+        Assert.Contains(hits, hit => hit.Contains("甲乙组合", StringComparison.Ordinal));
+
+        var keepTitle = KuaishouPublishInfoService.PolicyHits(payload, config, rewrite: false);
+        Assert.DoesNotContain(keepTitle, hit => hit.Contains("剧名禁词", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Upsert_info_writes_publish_fields_and_drops_the_tagline()
     {
         var updated = KuaishouPublishInfoService.UpsertInfo(

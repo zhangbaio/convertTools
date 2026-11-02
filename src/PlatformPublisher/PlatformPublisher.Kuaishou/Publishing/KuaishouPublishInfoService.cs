@@ -74,26 +74,36 @@ public sealed class KuaishouPublishInfoService
             throw new InvalidOperationException("快手新剧名别名过长，标题主体至少要留 2 个字。");
 
         var existingTitle = First(info, "新剧名");
+        var compliance = BuildCompliance(config);
         string? retry = null;
-        JsonElement payload = default;
+        JsonElement? accepted = null;
         IReadOnlyList<string> issues = [];
+        IReadOnlyList<string> policyHits = [];
         for (var attempt = 1; attempt <= MaxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             progress?.Report(attempt == 1
                 ? "快手发布信息：一次请求生成剧名、简介、标签、观众、分类和情节"
                 : $"快手发布信息：第 {attempt} 次重试，{retry}");
-            payload = await RequestAsync(ai, BuildUserPrompt(
-                originalTitle, sourceSynopsis, First(info, "集数"), budget, rewrite, existingTitle, retry), cancellationToken);
+            var payload = await RequestAsync(ai, BuildUserPrompt(
+                originalTitle, sourceSynopsis, First(info, "集数"), budget, rewrite, existingTitle, compliance, retry), cancellationToken);
             issues = Validate(payload, config, originalTitle, sourceSynopsis, budget, rewrite, autoFill, existingTitle);
+            var hits = PolicyHits(payload, config, rewrite);
             if (issues.Count == 0)
-                break;
-            retry = string.Join("；", issues);
+            {
+                accepted = payload;
+                policyHits = hits;
+                if (hits.Count == 0)
+                    break;
+            }
+            retry = string.Join("；", issues.Concat(hits));
         }
-        if (issues.Count > 0)
+        if (accepted is null)
             throw new InvalidOperationException("快手发布信息不合格：" + string.Join("；", issues));
+        if (policyHits.Count > 0)
+            progress?.Report("快手发布信息仍" + string.Join("；", policyHits) + "，已照常写入，请人工确认");
 
-        var draft = ReadDraft(payload);
+        var draft = ReadDraft(accepted.Value);
         if (rewrite)
         {
             var title = ApplyAlias(draft.Title, config);
@@ -171,7 +181,6 @@ public sealed class KuaishouPublishInfoService
                 issues.Add("短标题不能与新剧名或原剧名相同");
             if (tags.Count is < 3 or > 6 || tags.Any(tag => tag.Contains('#')))
                 issues.Add("标签需要 3-6 个，且不带 #");
-            issues.AddRange(PolicyHits(config, title, shortTitle, string.Join(' ', tags)));
         }
         else if (existingTitle.Length > 0 && title.Length > 0 && !SameText(title, existingTitle))
         {
@@ -186,7 +195,6 @@ public sealed class KuaishouPublishInfoService
             issues.Add("简介存在明显重复");
         else if (SameText(description, sourceSynopsis))
             issues.Add("简介不能照抄原文");
-        issues.AddRange(PolicyHits(config, description));
 
         if (autoFill)
         {
@@ -317,10 +325,12 @@ public sealed class KuaishouPublishInfoService
         int titleBudget,
         bool rewrite,
         string existingTitle,
+        JsonObject compliance,
         string? retry)
     {
         var payload = new JsonObject
         {
+            ["compliance"] = compliance.DeepClone(),
             ["original_title"] = originalTitle,
             ["synopsis"] = synopsis,
             ["episode_count"] = episodeCount,
@@ -385,16 +395,67 @@ public sealed class KuaishouPublishInfoService
             .DistinctBy(option => option.Value)
             .ToArray();
 
-    private static IEnumerable<string> PolicyHits(KuaishouPersonalConfig config, params string[] texts)
+    public static JsonObject BuildCompliance(KuaishouPersonalConfig config)
     {
-        var terms = KuaishouContentPolicyText.EffectiveTerms(
-                config.DramaTitlePolicyJson, KuaishouContentPolicyDefaults.TitlePolicyJson, "categories", "disabled")
-            .Concat(KuaishouContentPolicyText.EffectiveTerms(
-                config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson, "categories", "disabled"))
-            .Distinct(StringComparer.OrdinalIgnoreCase);
-        var combined = string.Join('\n', texts);
-        var hits = terms.Where(term => term.Length > 0 && combined.Contains(term, StringComparison.OrdinalIgnoreCase)).Take(8).ToArray();
-        return hits.Length == 0 ? [] : [$"命中禁用词：{string.Join('、', hits)}"];
+        var combinations = new JsonArray();
+        foreach (var (category, groups) in SynopsisCombinations(config))
+        {
+            var groupJson = new JsonObject();
+            foreach (var (group, terms) in groups)
+                groupJson[group] = new JsonArray(terms.Select(term => (JsonNode?)JsonValue.Create(term)).ToArray());
+            combinations.Add(new JsonObject { ["category"] = category, ["groups"] = groupJson });
+        }
+        return new JsonObject
+        {
+            ["rule"] = "title、short_title、tags 不得出现 title_forbidden 中的任何词；description 不得出现 synopsis_forbidden 中的任何词；" +
+                       "词语作为更长词语的一部分出现也算违规。description 不得同时出现 synopsis_forbidden_combinations 同一条规则里每个概念组的说法。" +
+                       "涉及相关剧情时改用平实、中性的说法，不要用近义词规避。输出前逐条自查，命中就重写。",
+            ["title_forbidden"] = CategoryJson(KuaishouContentPolicyText.EffectiveCategoryMap(
+                config.DramaTitlePolicyJson, KuaishouContentPolicyDefaults.TitlePolicyJson, "categories", "disabled")),
+            ["synopsis_forbidden"] = CategoryJson(KuaishouContentPolicyText.EffectiveCategoryMap(
+                config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson, "categories", "disabled")),
+            ["synopsis_forbidden_combinations"] = combinations,
+        };
+    }
+
+    public static IReadOnlyList<string> PolicyHits(JsonElement payload, KuaishouPersonalConfig config, bool rewrite)
+    {
+        var hits = new List<string>();
+        if (rewrite)
+        {
+            var titleText = string.Join('\n', Text(payload, "title"), Text(payload, "short_title"), string.Join(' ', Texts(payload, "tags")));
+            hits.AddRange(Matches(titleText, KuaishouContentPolicyText.EffectiveTerms(
+                config.DramaTitlePolicyJson, KuaishouContentPolicyDefaults.TitlePolicyJson, "categories", "disabled")));
+        }
+        var description = Collapse(Text(payload, "description"));
+        hits.AddRange(Matches(description, KuaishouContentPolicyText.EffectiveTerms(
+            config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson, "categories", "disabled")));
+        var words = hits.Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToArray();
+        var combos = SynopsisCombinations(config)
+            .Where(rule => rule.Groups.All(group => Matches(description, group.Terms).Any()))
+            .Select(rule => rule.Category)
+            .ToArray();
+        var result = new List<string>();
+        if (words.Length > 0)
+            result.Add($"命中禁用词：{string.Join('、', words)}");
+        if (combos.Length > 0)
+            result.Add($"简介命中组合规则：{string.Join('、', combos)}");
+        return result;
+    }
+
+    private static IReadOnlyList<(string Category, IReadOnlyList<(string Group, IReadOnlyList<string> Terms)> Groups)> SynopsisCombinations(
+        KuaishouPersonalConfig config) =>
+        KuaishouContentPolicyText.EffectiveCombinations(config.SynopsisPolicyJson, KuaishouContentPolicyDefaults.SynopsisPolicyJson);
+
+    private static IEnumerable<string> Matches(string text, IEnumerable<string> terms) =>
+        terms.Where(term => term.Length > 0 && text.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+    private static JsonObject CategoryJson(IReadOnlyDictionary<string, List<string>> categories)
+    {
+        var result = new JsonObject();
+        foreach (var (category, terms) in categories)
+            result[category] = new JsonArray(terms.Select(term => (JsonNode?)JsonValue.Create(term)).ToArray());
+        return result;
     }
 
     private static bool HasRepeatedContent(string value)
