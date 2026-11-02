@@ -2713,7 +2713,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var line = $"共享流水线：{label}";
-        SetStatusMessage(line);
+        if (job is null || string.Equals(job.AccountId, _activeGlobalAccount?.Id, StringComparison.OrdinalIgnoreCase))
+            SetStatusMessage(line);
         AppendActivityLog(line);
         await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Running, "正在执行");
         try
@@ -2723,11 +2724,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+            if (job is not null && job.Status == PublishJobStatus.Running)
+            {
+                job.Status = PublishJobStatus.Pending;
+                job.StatusMessage = "已停止，可继续执行";
+            }
             await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Pending, "已停止，可继续执行");
             throw;
         }
         catch (Exception ex)
         {
+            if (job is not null)
+            {
+                job.Status = PublishJobStatus.Failed;
+                job.StatusMessage = ex.Message;
+                job.LastCompletedAt = DateTimeOffset.Now;
+            }
             await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Failed, ex.Message);
             throw;
         }

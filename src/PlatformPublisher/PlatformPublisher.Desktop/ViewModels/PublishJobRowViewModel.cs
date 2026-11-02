@@ -56,7 +56,13 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         get
         {
             if (_kuaishou is null) return ModelStatusText();
-            if (Model.Status == PublishJobStatus.Running) return "执行中";
+            if (Model.Status == PublishJobStatus.Running)
+            {
+                if (Model.StepStates.TryGetValue("weixin-upload", out var upload) &&
+                    upload.Status == PublishJobStepStatus.Failed)
+                    return "失败";
+                return "执行中";
+            }
             if (Model.Status == PublishJobStatus.Failed) return "失败";
             if (!string.IsNullOrWhiteSpace(_kuaishou.OverallStatus) && _kuaishou.OverallStatus != "待执行")
                 return _kuaishou.OverallStatus;
