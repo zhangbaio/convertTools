@@ -318,6 +318,8 @@
                         <TextBlock Text="浏览器" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
                         <CheckBox Content="上传剧集" IsChecked="{Binding PipelineUploadEpisodesEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,2" />
+                        <CheckBox Content="上传后自动归档" IsChecked="{Binding PipelineAutoArchiveAfterUpload}" Margin="0,0,12,2"
+                                  ToolTip.Tip="上传剧集成功后按快手分账规则归档：移动 source/workflow，并删除原视频、转码视频和素材视频。需要先配置归档目录。" />
                     </WrapPanel>
                 </Border>
             </StackPanel>

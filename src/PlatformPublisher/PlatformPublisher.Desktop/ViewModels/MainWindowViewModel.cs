@@ -951,6 +951,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnPipelineRemuxEnabledChanged(bool value) => OnWorkflowStepChanged();
     partial void OnPipelineUploadEpisodesEnabledChanged(bool value) => OnWorkflowStepChanged();
     partial void OnPipelineForceRerunChanged(bool value) => RememberWorkflowSteps();
+    partial void OnPipelineAutoArchiveAfterUploadChanged(bool value) => RememberWorkflowSteps();
 
     private async Task LoadAsync()
     {
@@ -1988,7 +1989,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         bool Upload,
         bool Force,
         int Parallelism,
-        string EditionLabel);
+        string EditionLabel,
+        bool AutoArchive = false);
 
     private KuaishouPipelineRequest CreateKuaishouPipelineRequest()
     {
@@ -2016,7 +2018,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             PipelineUploadEpisodesEnabled,
             PipelineForceRerun,
             KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
-            enterprise ? "企业版" : "个人版");
+            enterprise ? "企业版" : "个人版",
+            PipelineAutoArchiveAfterUpload);
     }
 
     private async Task RunCurrentKuaishouAccountPipelineAsync(IReadOnlyList<string> targets)
@@ -2613,10 +2616,57 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 trackedJob.StatusMessage = "发布流程执行完成";
                 trackedJob.LastCompletedAt = DateTimeOffset.Now;
             });
+            if (request.AutoArchive && !uploadAlreadyDone)
+                await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
         }
         finally
         {
             uploadLease?.Dispose();
+        }
+    }
+
+    private async Task TryAutoArchiveKuaishouProjectAsync(PublishJob job, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var workspace = Directory.GetParent(job.ProjectDirectory)?.FullName ?? "";
+            if (!Directory.Exists(workspace))
+                throw new InvalidOperationException("无法确定快手分账工作目录，未自动归档。");
+            if (!Directory.Exists(job.ProjectDirectory))
+                throw new InvalidOperationException("项目目录不存在，未自动归档。");
+            var config = KuaishouPersonalConfig.Load(job);
+            if (string.IsNullOrWhiteSpace(config.ArchiveRootDirectory))
+                throw new InvalidOperationException($"请先在已归档项目中为快手分账{(job.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版")}配置归档目录。");
+            AppendActivityLog($"上传完成，开始自动归档：{job.ProjectName}", job.ProjectName);
+            KuaishouWorkspaceProjects.Invalidate(job.ProjectDirectory);
+            await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+                workspace,
+                job.ProjectDirectory,
+                config.ArchiveRootDirectory,
+                preserveWorkflowEpisodes: null,
+                deleteSourceVideos: true,
+                deleteWorkflowVideos: true,
+                deleteMaterialVideos: true,
+                source: job.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "kuaishou_enterprise" : "kuaishou_personal",
+                account: new TikTokAccountProfile
+                {
+                    Id = job.AccountId,
+                    Name = job.AccountName,
+                },
+                ct: cancellationToken);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _jobs.Remove(job);
+                RefreshVisibleJobs();
+            });
+            await PersistAsync(cancellationToken);
+            job.StatusMessage = "发布完成并已归档";
+            AppendActivityLog($"已自动归档：{job.ProjectName}", job.ProjectName);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            job.StatusMessage = $"发布完成；自动归档失败：{ex.Message}";
+            AppendActivityLog(job.StatusMessage, job.ProjectName);
         }
     }
 
