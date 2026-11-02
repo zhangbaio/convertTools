@@ -1,4 +1,5 @@
 using PlatformPublisher.Desktop.ViewModels;
+using PlatformPublisher.Desktop.Views;
 using Xunit;
 
 namespace PlatformPublisher.Desktop.Tests;
@@ -30,5 +31,15 @@ public sealed class KuaishouLogProjectTests
         var lines = project.CopyLines();
         Assert.Equal(KuaishouLogProject.MaxLines, lines.Count);
         Assert.Contains("改写信息失败", lines[^1]);
+    }
+
+    [Fact]
+    public void Log_row_uses_this_run_and_keeps_history_for_projects_not_started()
+    {
+        Assert.Equal("ok", KuaishouQueueLogView.RowTone("ok", "failed"));
+        Assert.Equal("failed", KuaishouQueueLogView.RowTone("failed", "ok"));
+        Assert.Equal("running", KuaishouQueueLogView.RowTone("running", "failed"));
+        Assert.Equal("none", KuaishouQueueLogView.RowTone("none", "failed"));
+        Assert.Equal("failed", KuaishouQueueLogView.RowTone("waiting", "failed"));
     }
 }

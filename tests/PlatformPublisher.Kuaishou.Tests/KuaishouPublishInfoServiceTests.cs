@@ -89,6 +89,20 @@ public sealed class KuaishouPublishInfoServiceTests
     }
 
     [Fact]
+    public void Request_timeout_is_a_failure_and_user_stop_stays_a_cancellation()
+    {
+        using var caller = new CancellationTokenSource();
+        var timedOut = new OperationCanceledException();
+        var failure = KuaishouPublishInfoService.RequestFailure(timedOut, caller.Token, 120);
+        var error = Assert.IsType<InvalidOperationException>(failure);
+        Assert.Equal("快手发布信息请求超时（120 秒）", error.Message);
+
+        caller.Cancel();
+        var stopped = KuaishouPublishInfoService.RequestFailure(timedOut, caller.Token, 120);
+        Assert.Same(timedOut, stopped);
+    }
+
+    [Fact]
     public void Upsert_info_writes_publish_fields_and_drops_the_tagline()
     {
         var updated = KuaishouPublishInfoService.UpsertInfo(

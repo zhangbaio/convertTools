@@ -110,7 +110,10 @@ public partial class KuaishouQueueLogView : UserControl
                 if (string.IsNullOrWhiteSpace(project.ProjectName) || rows.Any(row => row.ProjectName == project.ProjectName))
                     continue;
                 var job = FindJob(project.ProjectName, project.ProjectDirectory);
-                rows.Add(new LogProjectRow(project.ProjectName, project.ProjectName, job is null ? project.Tone : ToneFromJob(job)));
+                rows.Add(new LogProjectRow(
+                    project.ProjectName,
+                    project.ProjectName,
+                    RowTone(project.Tone, job is null ? null : ToneFromJob(job))));
             }
         }
         else
@@ -202,6 +205,11 @@ public partial class KuaishouQueueLogView : UserControl
             return false;
         }
     }
+
+    public static string RowTone(string runTone, string? jobTone) =>
+        runTone is "running" or "ok" or "failed" or "none"
+            ? runTone
+            : string.IsNullOrEmpty(jobTone) ? "waiting" : jobTone;
 
     private static string ToneFromJob(PublishJobRowViewModel job)
     {

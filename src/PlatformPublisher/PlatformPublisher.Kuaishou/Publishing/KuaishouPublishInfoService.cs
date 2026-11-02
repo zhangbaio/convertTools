@@ -292,10 +292,12 @@ public sealed class KuaishouPublishInfoService
         string userPrompt,
         CancellationToken cancellationToken)
     {
+        var seconds = Math.Clamp(ai.TimeoutSeconds, 10, 600);
         var body = JsonSerializer.Serialize(new
         {
             model = ai.Model.Trim(),
             temperature = 0.4,
+            thinking = new { type = "disabled" },
             messages = new object[]
             {
                 new { role = "system", content = ai.Prompt },
@@ -308,14 +310,32 @@ public sealed class KuaishouPublishInfoService
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ai.ApiKey.Trim());
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Clamp(ai.TimeoutSeconds, 10, 600)));
-        using var response = await Http.SendAsync(request, timeout.Token);
-        var raw = await response.Content.ReadAsStringAsync(timeout.Token);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"快手发布信息请求失败：HTTP {(int)response.StatusCode} {Trim(raw)}");
-        using var document = JsonDocument.Parse(raw);
-        var content = document.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
-        return ParseContent(content);
+        timeout.CancelAfter(TimeSpan.FromSeconds(seconds));
+        try
+        {
+            using var response = await Http.SendAsync(request, timeout.Token);
+            var raw = await response.Content.ReadAsStringAsync(timeout.Token);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException($"快手发布信息请求失败：HTTP {(int)response.StatusCode} {Trim(raw)}");
+            using var document = JsonDocument.Parse(raw);
+            var content = document.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+            return ParseContent(content);
+        }
+        catch (OperationCanceledException ex)
+        {
+            var failure = RequestFailure(ex, cancellationToken, seconds);
+            if (ReferenceEquals(failure, ex))
+                throw;
+            throw failure;
+        }
+    }
+
+    public static Exception RequestFailure(OperationCanceledException exception, CancellationToken callerToken, int timeoutSeconds)
+    {
+        if (callerToken.IsCancellationRequested)
+            return exception;
+        var seconds = Math.Clamp(timeoutSeconds, 10, 600);
+        return new InvalidOperationException($"快手发布信息请求超时（{seconds} 秒）", exception);
     }
 
     private static string BuildUserPrompt(
