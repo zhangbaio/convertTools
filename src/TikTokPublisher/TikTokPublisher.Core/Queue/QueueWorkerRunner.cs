@@ -105,6 +105,8 @@ public sealed class QueueWorkerRunner
     private readonly object _incomingLock = new();
     private bool _acceptingItems = true;
     private bool _runStarted;
+    private IList<QueueProjectItem>? _runItems;
+    private Action<IReadOnlyList<QueueProjectItem>>? _runPersist;
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
 
     public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null)
@@ -136,6 +138,68 @@ public sealed class QueueWorkerRunner
     {
         _ensureProofMaterial = ensureProofMaterial ?? throw new ArgumentNullException(nameof(ensureProofMaterial));
         _uploadSlots = sharedUploadSlots ?? new UploadSlotCoordinator();
+    }
+
+    /// <summary>
+    /// 取消本次运行里除保留项目以外的勾选。已经开始的项目继续跑完，还没开始的不再执行。
+    /// </summary>
+    public int UncheckExcept(IReadOnlyCollection<string> keepProjectDirs)
+    {
+        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in keepProjectDirs)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            keep.Add(Path.GetFullPath(path));
+        }
+
+        IList<QueueProjectItem>? items;
+        Action<IReadOnlyList<QueueProjectItem>>? persist;
+        int changed;
+        lock (_incomingLock)
+        {
+            items = _runItems;
+            persist = _runPersist;
+            if (items is null)
+                return 0;
+
+            changed = DisableEnabledProjectsExcept(items, keep);
+        }
+
+        if (changed > 0)
+            persist?.Invoke(items.ToList());
+        return changed;
+    }
+
+    public static int DisableEnabledProjectsExcept(
+        IEnumerable<QueueProjectItem> items,
+        IReadOnlyCollection<string> keepProjectDirs)
+    {
+        var keep = keepProjectDirs as HashSet<string>;
+        if (keep is null || keep.Comparer != StringComparer.OrdinalIgnoreCase)
+        {
+            keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in keepProjectDirs)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    continue;
+                keep.Add(Path.GetFullPath(path));
+            }
+        }
+
+        var changed = 0;
+        foreach (var item in items)
+        {
+            if (item is null || string.IsNullOrWhiteSpace(item.ProjectDir) || !item.Enabled)
+                continue;
+            if (keep.Contains(Path.GetFullPath(item.ProjectDir)))
+                continue;
+
+            item.Enabled = false;
+            changed++;
+        }
+
+        return changed;
     }
 
     public int AddItems(IEnumerable<QueueProjectItem> items)
@@ -268,6 +332,8 @@ public sealed class QueueWorkerRunner
 
         try
         {
+            lock (_incomingLock)
+                _runItems = items;
             return await RunCoreAsync(
                 workspaceRoot,
                 items,
@@ -283,6 +349,11 @@ public sealed class QueueWorkerRunner
         finally
         {
             StopAcceptingItems();
+            lock (_incomingLock)
+            {
+                _runItems = null;
+                _runPersist = null;
+            }
         }
     }
 
@@ -299,6 +370,11 @@ public sealed class QueueWorkerRunner
         IReadOnlyCollection<string>? projectDirFilter = null)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
+        lock (_incomingLock)
+        {
+            _runItems = items;
+            _runPersist = onPersist;
+        }
         var filterOrder = BuildProjectDirOrder(projectDirFilter);
         var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
         var orderedSteps = options.OrderedEnabledSteps();
@@ -359,6 +435,8 @@ public sealed class QueueWorkerRunner
                        && preUploadTasks.Count < projectConcurrency)
                 {
                     var (_, item) = pendingPreUpload.Dequeue();
+                    if (!item.Enabled)
+                        continue;
                     var currentSteps = options.OrderedEnabledSteps();
                     MarkQueuedForRun(
                         item,
@@ -416,6 +494,11 @@ public sealed class QueueWorkerRunner
                 while (readyForUpload.Count > 0 && rotations > 0)
                 {
                     var item = readyForUpload.Dequeue();
+                    if (!item.Enabled)
+                    {
+                        rotations = readyForUpload.Count;
+                        continue;
+                    }
                     var account = QueueAccountBindingResolver.Resolve(accountStore, item);
                     if (account is null)
                     {
@@ -493,12 +576,16 @@ public sealed class QueueWorkerRunner
                 while (pendingPreUpload.Count > 0)
                 {
                     var (_, item) = pendingPreUpload.Dequeue();
+                    if (!item.Enabled)
+                        continue;
                     MarkStopped(item, item.CurrentStep);
                 }
 
                 while (readyForUpload.Count > 0)
                 {
                     var item = readyForUpload.Dequeue();
+                    if (!item.Enabled)
+                        continue;
                     MarkStopped(item, QueueStepRegistry.UploadSeries);
                 }
             });

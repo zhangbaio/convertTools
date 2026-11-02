@@ -11,6 +11,7 @@ public static class XingeAutoPublishStatuses
     public const string Running = "running";
     public const string Success = "success";
     public const string Failed = "failed";
+    public const string Interrupted = "interrupted";
 
     public static bool IsTerminal(string status) =>
         status is Success or Failed;
@@ -24,6 +25,8 @@ public static class XingeAutoPublishFailureKinds
     public const string AccountRemoteDisabled = "account_remote_disabled";
     public const string Source = "source";
     public const string Upload = "upload";
+    public const string QueueBusy = "queue_busy";
+    public const string Interrupted = "interrupted";
 }
 
 public sealed record XingeAutoPublishAssignment(
@@ -174,6 +177,11 @@ public static class XingeAutoPublishFailureClassifier
         var text = message ?? "";
         if (text.Contains("未启用远程分发", StringComparison.Ordinal))
             return XingeAutoPublishFailureKinds.AccountRemoteDisabled;
+        if (text.Contains("当前已有 TikTok 队列在执行", StringComparison.Ordinal) ||
+            text.Contains("队列仍在执行", StringComparison.Ordinal) ||
+            text.Contains("队列尚未结束", StringComparison.Ordinal) ||
+            text.Contains("未接纳新项目", StringComparison.Ordinal))
+            return XingeAutoPublishFailureKinds.QueueBusy;
         if (ContainsAny(text, DailyLimitKeywords))
             return XingeAutoPublishFailureKinds.AccountDailyLimit;
         if (ContainsAny(text, AccountLoginKeywords))
@@ -202,4 +210,30 @@ public static class XingeAutoPublishFailureClassifier
 
     private static bool ContainsAny(string text, IEnumerable<string> keywords) =>
         keywords.Any(keyword => text.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+}
+
+public enum XingeAutoPublishRecoveryAction
+{
+    None,
+    Resume,
+    ReportSuccess,
+    ReportInterrupted,
+}
+
+public static class XingeAutoPublishRecovery
+{
+    // 命令还停在 dispatched 时由服务端重投，客户端不用另报。已接收但本地没有项目才回报中断。
+    public static XingeAutoPublishRecoveryAction Decide(string? serverStatus, XingeAutoPublishMarker? marker, bool projectExists)
+    {
+        var status = (serverStatus ?? "").Trim().ToLowerInvariant();
+        if (status is "success" or "failed" or "released")
+            return XingeAutoPublishRecoveryAction.None;
+        if (string.Equals(marker?.FinalStatus, XingeAutoPublishStatuses.Success, StringComparison.OrdinalIgnoreCase))
+            return XingeAutoPublishRecoveryAction.ReportSuccess;
+        if (marker?.IsActive == true && projectExists)
+            return XingeAutoPublishRecoveryAction.Resume;
+        if (status is "accepted" or "running")
+            return XingeAutoPublishRecoveryAction.ReportInterrupted;
+        return XingeAutoPublishRecoveryAction.None;
+    }
 }

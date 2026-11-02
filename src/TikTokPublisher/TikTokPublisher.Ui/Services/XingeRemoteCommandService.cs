@@ -39,7 +39,8 @@ public sealed class XingeRemoteCommandService
     public void Restart(
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
         Func<XingeRemoteRegistrationSnapshot> snapshotProvider,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync = null)
     {
         Stop();
 
@@ -61,7 +62,7 @@ public sealed class XingeRemoteCommandService
         lock (_sync)
         {
             _cts = cts;
-            _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, cts.Token));
+            _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, recoverAsync, cts.Token));
         }
 
         Notify(config.NeedsProvisioning ? "XINGE 正在登录账号..." : "XINGE 正在连接...");
@@ -102,6 +103,7 @@ public sealed class XingeRemoteCommandService
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
         Func<XingeRemoteRegistrationSnapshot> snapshotProvider,
         Action<string>? log,
+        Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync,
         CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
@@ -121,6 +123,11 @@ public sealed class XingeRemoteCommandService
                     lastRegisteredAt = DateTimeOffset.UtcNow;
                     Notify($"XINGE 已在线：{snapshot.AccountProfiles.Count} 个账号");
                     await FlushAutoPublishProgressAsync(log, ct).ConfigureAwait(false);
+                    if (recoverAsync is not null)
+                    {
+                        var open = await ListOpenAutoPublishAsync(http, config, ct).ConfigureAwait(false);
+                        await recoverAsync(open).ConfigureAwait(false);
+                    }
                 }
 
                 var message = await PollAsync(http, config, ct).ConfigureAwait(false);
@@ -264,6 +271,28 @@ public sealed class XingeRemoteCommandService
             await CompleteAsync(http, config, message.ID, result, ct).ConfigureAwait(false);
         }
         log?.Invoke($"XINGE 远程命令完成：{result.SummaryText}");
+        if (string.Equals(result.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+            (result.SummaryText ?? "").Contains("当前已有 TikTok 队列在执行", StringComparison.Ordinal))
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<IReadOnlyList<XingeOpenAutoPublishAssignment>> ListOpenAutoPublishAsync(
+        HttpClient http,
+        XingeRemoteConfig config,
+        CancellationToken ct)
+    {
+        var envelope = await SendAsync<XingeApiEnvelope<XingeOpenAutoPublishList>>(
+            http,
+            config,
+            HttpMethod.Get,
+            "/client-api/tiktok/auto-publish/open",
+            null,
+            ct).ConfigureAwait(false);
+        if (!envelope.Ok)
+            throw new InvalidOperationException(FirstNonEmpty(envelope.Message, "open assignments failed"));
+        return envelope.Data?.Items ?? [];
     }
 
     private static async Task FlushAutoPublishProgressAsync(Action<string>? log, CancellationToken ct)
@@ -436,6 +465,30 @@ public sealed class XingeRemoteCommandService
     }
 
     private sealed class XingeRemoteAuthenticationException(string message) : Exception(message);
+
+    public sealed class XingeOpenAutoPublishAssignment
+    {
+        [JsonPropertyName("id")]
+        public long Id { get; set; }
+
+        [JsonPropertyName("status")]
+        public string Status { get; set; } = "";
+
+        [JsonPropertyName("series_id")]
+        public string SeriesId { get; set; } = "";
+
+        [JsonPropertyName("title")]
+        public string Title { get; set; } = "";
+
+        [JsonPropertyName("account_profile_id")]
+        public string AccountProfileId { get; set; } = "";
+    }
+
+    private sealed class XingeOpenAutoPublishList
+    {
+        [JsonPropertyName("items")]
+        public List<XingeOpenAutoPublishAssignment> Items { get; set; } = [];
+    }
 
     private sealed class XingeApiEnvelope<T>
     {

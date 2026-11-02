@@ -292,6 +292,31 @@ public sealed class XingeAutoPublishTests : IDisposable
         reporter.PendingCount.Should().Be(1);
     }
 
+    [Theory]
+    [InlineData("accepted", true, true, XingeAutoPublishRecoveryAction.Resume)]
+    [InlineData("running", false, false, XingeAutoPublishRecoveryAction.ReportInterrupted)]
+    [InlineData("dispatched", false, false, XingeAutoPublishRecoveryAction.None)]
+    [InlineData("accepted", true, false, XingeAutoPublishRecoveryAction.ReportSuccess)]
+    public void Recovery_DecidesFromServerStatusAndLocalProject(
+        string serverStatus,
+        bool hasMarker,
+        bool projectExists,
+        XingeAutoPublishRecoveryAction expected)
+    {
+        XingeAutoPublishMarker? marker = null;
+        if (hasMarker)
+        {
+            marker = new XingeAutoPublishMarker { AssignmentId = 7, FinalStatus = projectExists ? "" : XingeAutoPublishStatuses.Success };
+        }
+
+        XingeAutoPublishRecovery.Decide(serverStatus, marker, projectExists && hasMarker).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Classify_QueueBusyDoesNotLookLikeAnUploadFailure() =>
+        XingeAutoPublishFailureClassifier.Classify("", "当前已有 TikTok 队列在执行，请等待完成后再发起新任务。")
+            .Should().Be(XingeAutoPublishFailureKinds.QueueBusy);
+
     private (string Dir, QueueProjectItem Item) CreateProject(long assignmentId, DateTimeOffset createdAt, string account = "acc-1")
     {
         var dir = Path.Combine(_root, $"project-{assignmentId}");

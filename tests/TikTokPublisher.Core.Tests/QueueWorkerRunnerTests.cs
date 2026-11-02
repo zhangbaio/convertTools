@@ -1243,6 +1243,75 @@ public sealed class QueueWorkerRunnerTests : IDisposable
     }
 
     [Fact]
+    public void DisableEnabledProjectsExcept_clears_manual_selection_and_keeps_the_dispatch()
+    {
+        var manual = new QueueProjectItem { ProjectDir = @"E:\tiktok\manual", Enabled = true };
+        var another = new QueueProjectItem { ProjectDir = @"E:\tiktok\another", Enabled = true };
+        var dispatched = new QueueProjectItem { ProjectDir = @"E:\tiktok\dispatched", Enabled = true };
+        var alreadyOff = new QueueProjectItem { ProjectDir = @"E:\tiktok\off", Enabled = false };
+
+        var cleared = QueueWorkerRunner.DisableEnabledProjectsExcept(
+            [manual, another, dispatched, alreadyOff],
+            [dispatched.ProjectDir]);
+
+        cleared.Should().Be(2);
+        manual.Enabled.Should().BeFalse();
+        another.Enabled.Should().BeFalse();
+        dispatched.Enabled.Should().BeTrue();
+        alreadyOff.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_skips_unchecked_pending_projects_and_runs_the_appended_dispatch()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-uncheck",
+            Name = "uncheck",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var running = CreateReadyToUploadItem(1, account);
+        var waiting = CreateReadyToUploadItem(2, account);
+        var dispatched = CreateReadyToUploadItem(3, account);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var host = new BlockingPublishHost();
+        var runner = new QueueWorkerRunner();
+        var runTask = runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-uncheck-before-dispatch-test"),
+            [running, waiting],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 1,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            cts.Token);
+
+        await host.WaitForPublishCountAsync(1).WaitAsync(cts.Token);
+        runner.UncheckExcept([dispatched.ProjectDir]).Should().Be(2);
+        running.Enabled.Should().BeFalse();
+        waiting.Enabled.Should().BeFalse();
+        runner.AddItems([dispatched]).Should().Be(1);
+
+        host.ReleaseNext();
+        await host.WaitForPublishCountAsync(2).WaitAsync(cts.Token);
+        host.ReleaseNext();
+
+        var summary = await runTask.WaitAsync(cts.Token);
+        summary.FailedCount.Should().Be(0);
+        host.PublishedProjectDirs.Should().HaveCount(2);
+        host.PublishedProjectDirs.Should().Contain(dispatched.ProjectDir);
+        var skipped = host.PublishedProjectDirs.Contains(running.ProjectDir) ? waiting : running;
+        host.PublishedProjectDirs.Should().Contain(skipped == waiting ? running.ProjectDir : waiting.ProjectDir);
+        skipped.StepStates[QueueStepRegistry.UploadSeries].Should().NotBe(QueueStepStatus.Completed);
+    }
+
+    [Fact]
     public async Task AddItems_returns_zero_after_the_runner_has_closed_its_queue_tail()
     {
         var account = new TikTokAccountProfile

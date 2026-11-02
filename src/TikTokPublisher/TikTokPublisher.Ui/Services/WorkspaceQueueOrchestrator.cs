@@ -263,6 +263,18 @@ public sealed class WorkspaceQueueOrchestrator
         }
     }
 
+    public int UncheckRunningProjectsExcept(string workspaceRoot, IReadOnlyCollection<string> keepProjectDirs)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (_runs.TryGetValue(root, out var run) && !run.Task.IsCompleted)
+                return run.Runner.UncheckExcept(keepProjectDirs);
+        }
+
+        return 0;
+    }
+
     public int TryAppendItemsToRunningWorkspace(string workspaceRoot, IEnumerable<QueueProjectItem> items)
     {
         var root = Path.GetFullPath(workspaceRoot);
