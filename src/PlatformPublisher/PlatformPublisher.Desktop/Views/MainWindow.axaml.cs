@@ -53,7 +53,6 @@ public partial class MainWindow : Window
         KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
         KuaishouWorkflowPage.ViewLogsRequested += (_, _) => ShowKuaishouLogs();
         KuaishouWorkflowPage.ArchiveRequested += (_, _) => _ = ConfirmAndArchiveKuaishouAsync();
-        KuaishouWorkflowPage.OpenArchiveRequested += (_, _) => ShowKuaishouArchive();
         KuaishouLogPage.ReturnRequested += (_, _) => ReturnToKuaishouQueue();
         KuaishouArchivePage.ReturnRequested += (_, _) => ReturnToKuaishouQueue();
         Opened += (_, _) =>

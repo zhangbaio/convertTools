@@ -28,7 +28,6 @@ public partial class WeixinWorkflowView : UserControl
     public event EventHandler? SettingsRequested;
     public event EventHandler? ViewLogsRequested;
     public event EventHandler? ArchiveRequested;
-    public event EventHandler? OpenArchiveRequested;
     public event EventHandler? KuaishouConfigRequested;
     public event EventHandler<KuaishouAdxRequestedEventArgs>? KuaishouAdxRequested;
 
@@ -334,9 +333,6 @@ public partial class WeixinWorkflowView : UserControl
 
     private void OnArchiveCheckedClick(object? sender, RoutedEventArgs e) =>
         ArchiveRequested?.Invoke(this, EventArgs.Empty);
-
-    private void OnOpenArchiveClick(object? sender, RoutedEventArgs e) =>
-        OpenArchiveRequested?.Invoke(this, EventArgs.Empty);
 
     private void OnExportUploadReportClick(object? sender, RoutedEventArgs e)
     {

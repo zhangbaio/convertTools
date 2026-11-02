@@ -275,9 +275,8 @@
                     </Border>
                     <Border Classes="kuaishouButtonGroup" Background="#FFF5F5" BorderBrush="#F3C7C3">
                         <WrapPanel Orientation="Horizontal">
-                            <Button Content="归档勾选" Click="OnArchiveCheckedClick" Classes="dangerSoftAction compactAction" Margin="0,0,6,0"
+                            <Button Content="归档勾选" Click="OnArchiveCheckedClick" Classes="dangerSoftAction compactAction"
                                     ToolTip.Tip="按快手分账规则归档勾选项目：移动 source/workflow，并删除原视频、转码视频和素材视频。" />
-                            <Button Content="已归档项目" Click="OnOpenArchiveClick" Classes="dangerSoftAction compactAction" />
                         </WrapPanel>
                     </Border>
                     <Border Classes="kuaishouButtonGroup" Background="#F3FBF6" BorderBrush="#C6E8D4">
