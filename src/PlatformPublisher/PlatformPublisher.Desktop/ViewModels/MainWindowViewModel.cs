@@ -750,6 +750,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (_kuaishouListingDepth > 0)
             _kuaishouListingDepth--;
+        if (_kuaishouListingDepth == 0)
+            ScheduleKuaishouListedVerification();
     }
 
     private async Task AdoptFreshKuaishouWorkspaceAsync(string workspace, int generation)
@@ -1646,8 +1648,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var targets = targetsOverride ?? ResolveSharedPipelineTargets();
         if (targets.Count == 0)
         {
+            var checkedCount = VisibleJobs.Count(row => row.IsChecked);
             StatusMessage = IsKuaishouPlatform
-                ? "请先勾选要执行的项目。"
+                ? checkedCount > 0
+                    ? $"勾选了 {checkedCount} 个项目，但目录已经不存在，无法执行。"
+                    : "请先勾选要执行的项目。"
                 : "请先勾选或选择要执行的项目。";
             AppendActivityLog(StatusMessage);
             return;
@@ -4323,6 +4328,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private bool IsKuaishouJobListed(string workspace, string projectDirectory)
     {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+            return false;
         if (KuaishouWorkspaceProjects.TryGetListed(workspace, projectDirectory, out var listed))
             return listed;
         var structural = KuaishouWorkspaceProjects.IsStructuralChild(workspace, projectDirectory);
