@@ -68,6 +68,7 @@ public partial class App : Application
             mainWindow.BindAccountDatabase(_services.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>());
             mainWindow.BindLegacySessionImport(_services.GetRequiredService<LegacyAccountSessionImportService>());
             mainWindow.BindSettings(settingsViewModel);
+            mainWindow.BindXinge();
             mainWindow.BindAdxSettings(_services.GetRequiredService<AdxAutomationService>());
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
             mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<ShortDrama.Core.Interfaces.IProjectScanner>(),

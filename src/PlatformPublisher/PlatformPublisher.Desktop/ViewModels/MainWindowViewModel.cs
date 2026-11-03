@@ -2067,7 +2067,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             PrepareKuaishouLogProjects(targets, key);
-            await RunKuaishouCheckedProjectsAsync(targets, key, cts.Token);
+            await RunKuaishouCheckedProjectsAsync(targets, key, CreateKuaishouPipelineRequest(), cts.Token);
         }
         finally
         {
@@ -2115,22 +2115,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedPlatform.Value == request.Platform &&
         string.Equals(_activeGlobalAccount?.Id, request.AccountId, StringComparison.OrdinalIgnoreCase);
 
-    private async Task RunKuaishouCheckedProjectsAsync(
+    private async Task<(int Succeeded, int Failed, string Error)> RunKuaishouCheckedProjectsAsync(
         IReadOnlyList<string> targets,
         string accountKey,
+        KuaishouPipelineRequest request,
         CancellationToken cancellationToken)
     {
-        KuaishouPipelineRequest request;
-        try
-        {
-            request = CreateKuaishouPipelineRequest();
-        }
-        catch (Exception ex)
-        {
-            SetStatusMessage($"快手分账配置读取失败：{ex.Message}");
-            AppendActivityLog($"快手分账配置读取失败：{ex.Message}");
-            return;
-        }
+        var lastError = "";
 
         if (request.Parallelism > 1 && targets.Count > 1)
             AppendActivityLog($"启用快手分账{request.EditionLabel}项目并发执行：{request.Parallelism}");
@@ -2196,6 +2187,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 catch (Exception ex)
                 {
                     Interlocked.Increment(ref counts[1]);
+                    lastError = ex.Message;
                     SetKuaishouLogTone(item.directory, "failed");
                     RememberKuaishouUploadReport(item.directory, request, succeeded: false, error: ex.Message);
                     var message = $"共享项目流水线失败：{ex.Message}";
@@ -2214,20 +2206,21 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             ReportRunStatus("共享项目流水线已停止。");
             AppendActivityLog("共享项目流水线已停止。");
-            return;
+            return (counts[0], counts[1], "已停止");
         }
 
         if (cancellationToken.IsCancellationRequested)
         {
             ReportRunStatus("共享项目流水线已停止。");
             AppendActivityLog("共享项目流水线已停止。");
-            return;
+            return (counts[0], counts[1], "已停止");
         }
 
         var summary = $"勾选队列已停止：成功 {counts[0]}，失败 {counts[1]}。";
         ReportRunStatus(summary);
         AppendActivityLog(summary);
         TryRefreshKuaishouUploadReport(request.Platform, request.AccountId);
+        return (counts[0], counts[1], lastError);
     }
 
     private void RememberKuaishouUploadReport(

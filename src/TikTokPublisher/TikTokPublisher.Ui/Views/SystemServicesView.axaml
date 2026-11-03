@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             xmlns:views="using:TikTokPublisher.Ui.Views"
              x:Class="TikTokPublisher.Ui.Views.SystemServicesView"
              x:DataType="vm:SystemServicesViewModel"
              Background="{StaticResource PythonPageBgBrush}">
@@ -158,57 +159,7 @@
                 </TabItem>
 
                 <TabItem Header="XINGE">
-                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
-                        <TextBlock Text="{Binding XingeRemoteStatus}" Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
-                              RowSpacing="9"
-                              ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="监听开关" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="0" Grid.Column="1" IsChecked="{Binding XingeRemoteEnabled}" Content="启用 XINGE 远程命令" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="XINGE 地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding XingeServerUrl}" Watermark="http://127.0.0.1:8080" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="用户名/邮箱" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding XingeAccount}" Watermark="填写 XINGE 登录账号" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="密码" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding XingePassword}" PasswordChar="*" RevealPassword="False" Watermark="填写 XINGE 登录密码" />
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="客户端名称" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding XingeClientName}" Watermark="TikTokPublisher" />
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="轮询间隔" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="5"
-                                           Grid.Column="1"
-                                           Value="{Binding XingePollIntervalSeconds}"
-                                           Minimum="1"
-                                           Maximum="60"
-                                           Increment="1"
-                                           Width="120"
-                                           HorizontalAlignment="Left"
-                                           FormatString="0 秒" />
-
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="客户端 ID（兼容）" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding XingeClientId}" Watermark="账号登录后自动生成，也可手工填写" />
-
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="客户端 Token（兼容）" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding XingeClientToken}" PasswordChar="*" RevealPassword="False" Watermark="账号登录后自动生成，也可手工填写" />
-                        </Grid>
-
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="测试账号并生成凭证" Command="{Binding TestXingeLoginCommand}" />
-                            <TextBlock Text="保存配置后也会自动登录；账号或密码变化时自动重新签发客户端凭证。"
-                                       Classes="compactHint"
-                                       VerticalAlignment="Center"
-                                       TextWrapping="Wrap" />
-                        </StackPanel>
-
-                        <TextBlock Text="启用后客户端会用账号登录 XINGE，注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的 TikTok 上传命令。客户端 ID/Token 仅用于兼容旧配置。"
-                                   Classes="compactHint"
-                                   TextWrapping="Wrap" />
-                    </StackPanel>
+                    <views:XingeConnectionView x:Name="XingeConnectionHost" />
                 </TabItem>
 
                 <TabItem Header="翻译配置" IsVisible="False">

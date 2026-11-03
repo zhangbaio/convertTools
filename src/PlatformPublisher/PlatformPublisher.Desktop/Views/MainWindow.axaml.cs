@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private PlatformDatabase? _platformDatabase;
     private DatabaseBackupService? _databaseBackupService;
     private IJsonSettingStore? _windowSettings;
+    private YunfanXingeDispatchService? _xingeDispatch;
     private bool _isGlobalSidebarCollapsed;
     private bool _compactLayout;
     private bool _startupLayoutApplied;
@@ -59,7 +60,7 @@ public partial class MainWindow : Window
         {
             if (!_startupLayoutApplied)
                 ApplyStartupLayout();
-            ShowWeixinPage();
+            ShowKuaishouPage();
         };
         Closed += (_, _) => SavePlacement();
         SizeChanged += (_, _) => RememberNormalPlacement();
@@ -457,6 +458,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(WeixinNavButton);
     }
@@ -471,6 +473,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(DramaDownloadNavButton);
     }
@@ -488,6 +491,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(KuaishouNavButton);
     }
@@ -505,6 +509,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(KuaishouNavButton);
     }
@@ -523,6 +528,7 @@ public partial class MainWindow : Window
         KuaishouLogPage.Refresh();
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(KuaishouNavButton);
     }
@@ -541,6 +547,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.Refresh();
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(KuaishouArchiveNavButton);
     }
@@ -644,8 +651,63 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = true;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(SettingsNavButton);
+    }
+
+    private void OnXingeServicesNavClick(object? sender, RoutedEventArgs e) => ShowXingeServicesPage();
+
+    private void ShowXingeServicesPage()
+    {
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = true;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(XingeServicesNavButton);
+    }
+
+    public void BindXinge()
+    {
+        if (ViewModel is null || _xingeDispatch is not null)
+            return;
+        var connection = new XingeConnectionViewModel(
+            PlatformPublisherPaths.SettingsDatabasePath,
+            "云帆",
+            "启用后客户端用账号登录 XINGE，注册当前工作目录和快手分账账号，并接收 XINGE 下发的快手分账上传命令。客户端 ID/Token 仅用于兼容旧配置。")
+        {
+            ShowHeading = true,
+            ShowSaveButton = true,
+            Heading = "系统服务",
+        };
+        connection.Load();
+        connection.StatusRequested += message =>
+        {
+            if (ViewModel is not null)
+                ViewModel.StatusMessage = message;
+        };
+        XingeConnectionView.Bind(connection);
+        _xingeDispatch = new YunfanXingeDispatchService(ViewModel);
+        _xingeDispatch.StatusChanged += message =>
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                connection.Status = message;
+                if (message.Contains("已登录", StringComparison.Ordinal))
+                    connection.RefreshCredentials();
+                if (ViewModel is not null)
+                    ViewModel.StatusMessage = message;
+            });
+        };
+        _xingeDispatch.Start();
+        Closed += (_, _) => _xingeDispatch?.Stop();
     }
 
     private void ShowAnalyticsPage()
@@ -658,6 +720,7 @@ public partial class MainWindow : Window
         KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = true;
         SetActiveNavigation(AnalyticsNavButton);
     }
@@ -673,6 +736,7 @@ public partial class MainWindow : Window
                      KuaishouArchiveNavButton,
                      AnalyticsNavButton,
                      SettingsNavButton,
+                     XingeServicesNavButton,
                  })
         {
             SetActiveNav(button, ReferenceEquals(button, activeButton));
@@ -783,6 +847,7 @@ public partial class MainWindow : Window
         KuaishouLogPage.IsVisible = false;
         KuaishouArchivePage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = true;
         KuaishouConfigPage.LoadAccount(WeixinPublisherView.SelectedAccountProfile, platform);
@@ -910,6 +975,7 @@ public partial class MainWindow : Window
         SetNavLabel(AnalyticsNavButton, "数据统计", "统计", shortenNav);
         SetNavLabel(DatabaseNavButton, "数据库", "数据库", shortenNav);
         SetNavLabel(SettingsNavButton, "系统设置", "设置", shortenNav);
+        SetNavLabel(XingeServicesNavButton, "系统服务", "服务", shortenNav);
     }
 
     private void ApplySidebarWidth()

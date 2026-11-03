@@ -8,9 +8,22 @@ namespace TikTokPublisher.Ui.Views;
 
 public partial class SystemServicesView : UserControl
 {
+    private const string XingeHint =
+        "启用后客户端会用账号登录 XINGE，注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的 TikTok 上传命令。客户端 ID/Token 仅用于兼容旧配置。";
+
+    private readonly XingeConnectionViewModel _xinge;
     private SystemServicesViewModel? _vm;
 
-    public SystemServicesView() => InitializeComponent();
+    public SystemServicesView()
+    {
+        InitializeComponent();
+        _xinge = new XingeConnectionViewModel(null, "TikTokPublisher", XingeHint)
+        {
+            ShowSaveButton = false,
+            ShowHeading = false,
+        };
+        XingeConnectionHost.Bind(_xinge);
+    }
 
     public void Bind(SystemServicesViewModel vm)
     {
@@ -19,6 +32,7 @@ public partial class SystemServicesView : UserControl
 
         _vm = vm;
         DataContext = vm;
+        vm.AttachXinge(_xinge);
         vm.StatusRequested += OnStatusRequested;
         vm.RefreshLicenseSummaryDisplay();
     }

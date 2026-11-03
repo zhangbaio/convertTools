@@ -88,6 +88,7 @@
                         <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
                         <Button x:Name="DatabaseNavButton" Classes="nav" Content="数据库" Click="OnDatabaseClick" />
                         <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
+                        <Button x:Name="XingeServicesNavButton" Classes="nav" Content="系统服务" Click="OnXingeServicesNavClick" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
@@ -362,6 +363,11 @@
                 <views:AdxSettingsView x:Name="AdxSettingsView" />
             </TabItem>
         </TabControl>
+        <Border x:Name="XingeServicesPage" IsVisible="False" Padding="16,14" Background="#F3F6FA">
+            <ScrollViewer>
+                <tiktokViews:XingeConnectionView x:Name="XingeConnectionView" />
+            </ScrollViewer>
+        </Border>
         </Grid>
 
         <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">
