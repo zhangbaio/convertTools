@@ -15,12 +15,15 @@ public sealed record XingeRemoteRegistrationSnapshot(
     string DramaSource,
     IReadOnlyList<XingeRemoteAccountSnapshot> AccountProfiles);
 
+public sealed record XingeRemoteUploadedDrama(string SeriesId, string Title, string CompletedAt);
+
 public sealed record XingeRemoteAccountSnapshot(
     string Id,
     string Name,
     bool AuthReady,
     bool IsCurrent,
-    bool RemoteDispatchEnabled);
+    bool RemoteDispatchEnabled,
+    IReadOnlyList<XingeRemoteUploadedDrama>? UploadedToday = null);
 
 public sealed class XingeRemoteCommandService
 {
@@ -38,7 +41,7 @@ public sealed class XingeRemoteCommandService
 
     public void Restart(
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
-        Func<XingeRemoteRegistrationSnapshot> snapshotProvider,
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
         Action<string>? log = null,
         Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync = null)
     {
@@ -101,7 +104,7 @@ public sealed class XingeRemoteCommandService
     private async Task RunAsync(
         XingeRemoteConfig config,
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
-        Func<XingeRemoteRegistrationSnapshot> snapshotProvider,
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
         Action<string>? log,
         Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync,
         CancellationToken ct)
@@ -118,7 +121,7 @@ public sealed class XingeRemoteCommandService
 
                 if (DateTimeOffset.UtcNow - lastRegisteredAt >= TimeSpan.FromSeconds(30))
                 {
-                    var snapshot = snapshotProvider();
+                    var snapshot = await snapshotProvider(ct).ConfigureAwait(false);
                     await RegisterAsync(http, config, snapshot, ct).ConfigureAwait(false);
                     lastRegisteredAt = DateTimeOffset.UtcNow;
                     Notify($"XINGE 已在线：{snapshot.AccountProfiles.Count} 个账号");
@@ -195,13 +198,26 @@ public sealed class XingeRemoteCommandService
             workspace_path = snapshot.WorkspacePath,
             active_account_profile_id = snapshot.ActiveAccountProfileId,
             drama_source = snapshot.DramaSource,
-            account_profiles = snapshot.AccountProfiles.Select(account => new
+            account_profiles = snapshot.AccountProfiles.Select(account =>
             {
-                id = account.Id,
-                name = account.Name,
-                auth_ready = account.AuthReady,
-                is_current = account.IsCurrent,
-                remote_dispatch_enabled = account.RemoteDispatchEnabled,
+                var profile = new Dictionary<string, object?>
+                {
+                    ["id"] = account.Id,
+                    ["name"] = account.Name,
+                    ["auth_ready"] = account.AuthReady,
+                    ["is_current"] = account.IsCurrent,
+                    ["remote_dispatch_enabled"] = account.RemoteDispatchEnabled,
+                };
+                if (account.UploadedToday is not null)
+                {
+                    profile["uploaded_today"] = account.UploadedToday.Select(item => new
+                    {
+                        series_id = item.SeriesId,
+                        title = item.Title,
+                        completed_at = item.CompletedAt,
+                    }).ToArray();
+                }
+                return profile;
             }).ToArray(),
         };
 
@@ -440,7 +456,7 @@ public sealed class XingeRemoteCommandService
         public static XingeRemoteConfig FromSettings(ClientSettings settings)
         {
             var baseUrl = NormalizeBaseUrl(FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl));
-            var intervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
+            var intervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
             return new XingeRemoteConfig(settings, baseUrl, TimeSpan.FromSeconds(intervalSeconds));
         }
 

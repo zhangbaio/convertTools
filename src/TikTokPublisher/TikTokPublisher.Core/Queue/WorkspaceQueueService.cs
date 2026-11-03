@@ -61,6 +61,23 @@ public static class WorkspaceQueueService
     }
 
     /// <summary>
+    /// 只读队列库里已写完上传时间的条目，不检查项目目录是否还在。
+    /// </summary>
+    public static IReadOnlyList<QueueProjectItem> LoadCompletedUploadItems(string workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return Array.Empty<QueueProjectItem>();
+
+        var root = Path.GetFullPath(workspaceRoot);
+        if (!Directory.Exists(root))
+            return Array.Empty<QueueProjectItem>();
+
+        return WorkspaceQueueDatabase.Load(root).Items
+            .Where(item => !string.IsNullOrWhiteSpace(item.UploadCompletedAt) && !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .ToArray();
+    }
+
+    /// <summary>
     /// Loads the database snapshot without touching project artifact trees. This is suitable
     /// for immediately populating the UI while a full filesystem reconciliation runs.
     /// </summary>

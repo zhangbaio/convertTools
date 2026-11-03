@@ -573,7 +573,7 @@ public static class ClientSettingsStore
         settings.XingeClientToken = (settings.XingeClientToken ?? "").Trim();
         settings.XingeCredentialFingerprint = (settings.XingeCredentialFingerprint ?? "").Trim();
         settings.XingeClientName = DefaultIfBlank(settings.XingeClientName, "TikTokPublisher");
-        settings.XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
+        settings.XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
         return settings;
     }
 

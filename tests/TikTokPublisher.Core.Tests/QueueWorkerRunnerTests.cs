@@ -1243,6 +1243,58 @@ public sealed class QueueWorkerRunnerTests : IDisposable
     }
 
     [Fact]
+    public void FailedRetryProjectDirsBefore_puts_same_account_failures_ahead_of_the_new_drama()
+    {
+        var failedEarlier = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\failed-early",
+            AccountProfileId = "acct",
+            QueuedAt = "2026-11-03T09:00:00",
+            StatusText = QueueStepStatus.Failed,
+        };
+        failedEarlier.StepStates[QueueStepKeys.Download] = QueueStepStatus.Failed;
+        var failedLater = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\failed-late",
+            AccountProfileId = "acct",
+            QueuedAt = "2026-11-03T10:00:00",
+            StatusText = QueueStepStatus.Failed,
+        };
+        failedLater.StepStates[QueueStepKeys.Download] = QueueStepStatus.Failed;
+        var otherAccount = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\other",
+            AccountProfileId = "other",
+            QueuedAt = "2026-11-03T08:00:00",
+            StatusText = QueueStepStatus.Failed,
+        };
+        otherAccount.StepStates[QueueStepKeys.Download] = QueueStepStatus.Failed;
+        var uploaded = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\uploaded",
+            AccountProfileId = "acct",
+            QueuedAt = "2026-11-03T07:00:00",
+            StatusText = QueueStepStatus.Failed,
+        };
+        uploaded.StepStates[QueueStepKeys.Download] = QueueStepStatus.Failed;
+        uploaded.StepStates[QueueStepKeys.UploadSeries] = QueueStepStatus.Completed;
+        var pending = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\pending",
+            AccountProfileId = "acct",
+            QueuedAt = "2026-11-03T06:00:00",
+            StatusText = QueueStepStatus.Pending,
+        };
+
+        var dirs = QueueWorkerRunner.FailedRetryProjectDirsBefore(
+            [failedLater, pending, otherAccount, uploaded, failedEarlier],
+            "acct",
+            [@"E:\tiktok\new-drama"]);
+
+        dirs.Should().Equal(@"E:\tiktok\failed-early", @"E:\tiktok\failed-late");
+    }
+
+    [Fact]
     public void DisableEnabledProjectsExcept_clears_manual_selection_and_keeps_the_dispatch()
     {
         var manual = new QueueProjectItem { ProjectDir = @"E:\tiktok\manual", Enabled = true };

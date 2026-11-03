@@ -171,6 +171,78 @@ public sealed class QueueWorkerRunner
         return changed;
     }
 
+    /// <summary>
+    /// 同一账号里步骤已失败、且上传尚未完成的项目。按加入队列的时间排在新剧前面。
+    /// </summary>
+    public static IReadOnlyList<string> FailedRetryProjectDirsBefore(
+        IEnumerable<QueueProjectItem> items,
+        string? accountProfileId,
+        IEnumerable<string> excludeProjectDirs)
+    {
+        var exclude = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in excludeProjectDirs)
+        {
+            var full = NormalizeProjectDir(dir);
+            if (full.Length > 0)
+                exclude.Add(full);
+        }
+
+        var accountId = (accountProfileId ?? "").Trim();
+        var ordered = new List<(string QueuedAt, string ProjectDir)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            if (item.Archived || !HasRetryableFailure(item))
+                continue;
+            var id = (item.AccountProfileId ?? "").Trim();
+            if (accountId.Length > 0 && id.Length > 0 &&
+                !string.Equals(id, accountId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var full = NormalizeProjectDir(item.ProjectDir);
+            if (full.Length == 0 || exclude.Contains(full) || !seen.Add(full))
+                continue;
+            ordered.Add((string.IsNullOrWhiteSpace(item.QueuedAt) ? "9999" : item.QueuedAt, full));
+        }
+
+        ordered.Sort((left, right) =>
+        {
+            var byTime = string.Compare(left.QueuedAt, right.QueuedAt, StringComparison.Ordinal);
+            return byTime != 0
+                ? byTime
+                : string.Compare(left.ProjectDir, right.ProjectDir, StringComparison.OrdinalIgnoreCase);
+        });
+        return ordered.Select(item => item.ProjectDir).ToArray();
+    }
+
+    public static bool HasRetryableFailure(QueueProjectItem item)
+    {
+        if (item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed)
+            return false;
+        if (item.StatusText == QueueStepStatus.Failed)
+            return true;
+        foreach (var status in item.StepStates.Values)
+        {
+            if (status == QueueStepStatus.Failed)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeProjectDir(string? projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+            return "";
+        try
+        {
+            return Path.GetFullPath(projectDir);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return "";
+        }
+    }
+
     public static int DisableEnabledProjectsExcept(
         IEnumerable<QueueProjectItem> items,
         IReadOnlyCollection<string> keepProjectDirs)

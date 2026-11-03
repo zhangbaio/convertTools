@@ -1,10 +1,133 @@
+using System.Collections.Concurrent;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
 
+public sealed record TikTokUploadedDrama(string AccountProfileId, string SeriesId, string Title, string CompletedAt);
+
 public static class TikTokTodayUploadCountService
 {
+    public static string NormalizeReportedSeriesId(string? bookId)
+    {
+        var text = (bookId ?? "").Trim();
+        var colon = text.LastIndexOf(':');
+        if (colon >= 0 && colon < text.Length - 1)
+            text = text[(colon + 1)..].Trim();
+        return text;
+    }
+
+    public static IReadOnlyList<TikTokUploadedDrama> ListRecentUploads(
+        IEnumerable<QueueProjectItem> queueItems,
+        string? workspaceRoot = null,
+        string? archiveRootDir = null,
+        DateTimeOffset? now = null) =>
+        ListRecentUploads(
+            queueItems,
+            workspaceRoot,
+            archiveRootDir,
+            TikTokExecutionHistoryService.ReadUploadCompletionStamps(),
+            now);
+
+    internal static IReadOnlyList<TikTokUploadedDrama> ListRecentUploads(
+        IEnumerable<QueueProjectItem> queueItems,
+        string? workspaceRoot,
+        string? archiveRootDir,
+        IReadOnlyList<UploadCompletionStamp> completionStamps,
+        DateTimeOffset? now = null)
+    {
+        var since = (now ?? DateTimeOffset.Now).ToLocalTime().Date.AddDays(-1);
+        var workspace = (workspaceRoot ?? "").Trim();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var uploads = new List<TikTokUploadedDrama>();
+
+        void Add(string accountId, string projectDir, string originalTitle, string newTitle, string displayName, string completedAt)
+        {
+            if (!IsOnOrAfter(completedAt, since))
+                return;
+            var account = (accountId ?? "").Trim();
+            var title = FirstNonEmpty(originalTitle, newTitle, displayName);
+            var seriesId = NormalizeReportedSeriesId(ReadProjectBookId(projectDir));
+            var key = $"{account}|{NormalizeToken(FirstNonEmpty(ProjectPathToken(projectDir), originalTitle, newTitle, displayName))}|{NormalizeToken(originalTitle)}|{NormalizeToken(FirstNonEmpty(newTitle, displayName))}";
+            if (!seen.Add(key))
+                return;
+            uploads.Add(new TikTokUploadedDrama(account, seriesId, title, completedAt.Trim()));
+        }
+
+        foreach (var item in queueItems)
+        {
+            if (string.IsNullOrWhiteSpace(item.UploadCompletedAt))
+                continue;
+            Add(item.AccountProfileId, item.ProjectDir, item.OriginalTitle, item.NewTitle, item.DisplayName, item.UploadCompletedAt);
+        }
+
+        if (!string.IsNullOrWhiteSpace(workspace) && Directory.Exists(workspace))
+        {
+            foreach (var item in TikTokArchivedProjectService.ListStored(workspace, archiveRootDir))
+            {
+                var completedAt = FirstNonEmpty(item.UploadCompletedAt, item.ArchivedAt);
+                Add(item.AccountProfileId, FirstNonEmpty(item.SourceProjectDir, item.ArchivedSourceDir, item.ArchiveProjectDir), item.OriginalTitle, item.NewTitle, item.DisplayName, completedAt);
+            }
+        }
+
+        foreach (var stamp in completionStamps)
+        {
+            if (!WorkspaceMatches(workspace, stamp.Workspace))
+                continue;
+            Add(stamp.AccountProfileId, stamp.ProjectDir, stamp.OriginalTitle, stamp.NewTitle, stamp.DisplayName, stamp.UploadCompletedAt);
+        }
+
+        return uploads.Count > 300 ? uploads.Skip(uploads.Count - 300).ToArray() : uploads;
+    }
+
+    private static bool IsOnOrAfter(string value, DateTime since)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !DateTimeOffset.TryParse(value.Trim(), out var timestamp))
+            return false;
+        return timestamp.ToLocalTime().DateTime >= since;
+    }
+
+    private static readonly ConcurrentDictionary<string, (DateTime WriteTimeUtc, string SeriesId)> ProjectBookIdCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private static string ReadProjectBookId(string? projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+            return "";
+        var path = Path.Combine(projectDir, "shortdrama-project.json");
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+                return "";
+            var writeTime = info.LastWriteTimeUtc;
+            if (ProjectBookIdCache.TryGetValue(path, out var cached) && cached.WriteTimeUtc == writeTime)
+                return cached.SeriesId;
+
+            var seriesId = ReadBookIdFromProjectFile(path);
+            ProjectBookIdCache[path] = (writeTime, seriesId);
+            return seriesId;
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static string ReadBookIdFromProjectFile(string path)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            return "";
+        foreach (var name in new[] { "bookId", "book_id" })
+        {
+            if (doc.RootElement.TryGetProperty(name, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String)
+                return value.GetString() ?? "";
+        }
+
+        return "";
+    }
+
     public static int CountTodayUploads(
         IEnumerable<QueueProjectItem> queueItems,
         string? accountProfileId,

@@ -210,7 +210,7 @@ public sealed class ClientSettings
     public string XingeClientToken { get; set; } = "";
     public string XingeCredentialFingerprint { get; set; } = "";
     public string XingeClientName { get; set; } = "TikTokPublisher";
-    public int XingePollIntervalSeconds { get; set; } = 3;
+    public int XingePollIntervalSeconds { get; set; } = ClientSettingsDefaults.XingePollIntervalSeconds;
 
     public ClientSettings Clone() => new()
     {

@@ -46,7 +46,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _xingeClientId = "";
     [ObservableProperty] private string _xingeClientToken = "";
     [ObservableProperty] private string _xingeClientName = "TikTokPublisher";
-    [ObservableProperty] private int _xingePollIntervalSeconds = 3;
+    [ObservableProperty] private int _xingePollIntervalSeconds = ClientSettingsDefaults.XingePollIntervalSeconds;
     [ObservableProperty] private string _xingeRemoteStatus = "未启用";
     [ObservableProperty] private string _remoteCommandPreviewText = "";
     [ObservableProperty] private string _remoteCommandPreviewResult = "";
@@ -108,7 +108,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         XingeClientId = settings.XingeClientId ?? "";
         XingeClientToken = settings.XingeClientToken ?? "";
         XingeClientName = string.IsNullOrWhiteSpace(settings.XingeClientName) ? "TikTokPublisher" : settings.XingeClientName;
-        XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
+        XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
         RemoteAutoArchiveAfterUpload = settings.FeishuTiktokUploadAutoArchiveAfterUpload;
         RemoteForceRerunCompletedSteps = settings.FeishuTiktokUploadForceRerunCompletedSteps;
         RemotePreferUploadWhenReady = settings.FeishuTiktokUploadPreferUploadWhenReady;
@@ -312,7 +312,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.XingeClientId = XingeClientId.Trim();
         settings.XingeClientToken = XingeClientToken.Trim();
         settings.XingeClientName = string.IsNullOrWhiteSpace(XingeClientName) ? "TikTokPublisher" : XingeClientName.Trim();
-        settings.XingePollIntervalSeconds = Math.Clamp(XingePollIntervalSeconds <= 0 ? 3 : XingePollIntervalSeconds, 1, 60);
+        settings.XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(XingePollIntervalSeconds);
     }
 
     private IReadOnlyList<string> ReadRemoteSteps()

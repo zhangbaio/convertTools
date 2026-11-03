@@ -28,6 +28,16 @@ public static class ClientSettingsDefaults
             AiNewTitleRandomnessHigh => 1.1,
             _ => 0.75,
         };
+    public const int XingePollIntervalSeconds = 30;
+
+    // 原先默认 3 秒。读配置时把这个旧默认值抬到 30 秒，手填的其它间隔保持不变。
+    public static int NormalizeXingePollIntervalSeconds(int seconds)
+    {
+        if (seconds <= 0 || seconds == 3)
+            seconds = XingePollIntervalSeconds;
+        return Math.Clamp(seconds, 1, 60);
+    }
+
     public const string TiktokRoleReferenceSelectionMode = "local";
     public const bool TiktokRoleReferenceAiFallbackEnabled = true;
     public const string TiktokRoleVectorViewMode = "multi_angle";
