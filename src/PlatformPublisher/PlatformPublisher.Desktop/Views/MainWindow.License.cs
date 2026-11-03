@@ -42,7 +42,7 @@ public partial class MainWindow
             {
                 YunfanLicenseGate.SaveVerifiedState(state);
                 if (DataContext is MainWindowViewModel viewModel)
-                    viewModel.StatusMessage = "软件授权联网校验通过";
+                    viewModel.PublishActivityNotice("软件授权联网校验通过");
                 return;
             }
 

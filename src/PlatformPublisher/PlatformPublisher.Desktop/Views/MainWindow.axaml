@@ -374,13 +374,24 @@
         </Grid>
 
         <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Text="{Binding StatusMessage}"
+            <Grid ColumnDefinitions="*,*,Auto">
+                <TextBlock Text="{Binding FooterLogText}"
                            VerticalAlignment="Center"
                            FontSize="12"
                            Foreground="#475569"
-                           TextTrimming="CharacterEllipsis" />
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding FooterLogText}" />
                 <TextBlock Grid.Column="1"
+                           Text="{Binding OtherAccountFooterLogText}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Margin="12,0,0,0"
+                           Foreground="#475569"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding OtherAccountFooterLogText}" />
+                <TextBlock Grid.Column="2"
                            Text="{Binding KuaishouTodayUploadText}"
                            IsVisible="{Binding IsKuaishouPlatform}"
                            VerticalAlignment="Center"

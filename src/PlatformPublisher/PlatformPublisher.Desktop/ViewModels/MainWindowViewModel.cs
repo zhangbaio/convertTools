@@ -345,6 +345,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _statusMessage = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
 
     [ObservableProperty]
+    private string _footerLogText = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
+
+    [ObservableProperty]
+    private string _otherAccountFooterLogText = "";
+
+    [ObservableProperty]
     private string _activeWeixinAccountName = "请先在左侧选择账号";
 
     [ObservableProperty]
@@ -435,6 +441,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public void UseGlobalAccount(GlobalAccount? account)
     {
         _activeGlobalAccount = account;
+        ApplyFooterLogs();
         UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
         DraftAccountName = account?.Name ?? string.Empty;
         DraftConfigPath = ResolveGlobalConfigPath(account, SelectedPlatform.Value);
@@ -3876,6 +3883,68 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void SetStatusMessage(string message) => PostUi(() => StatusMessage = message);
 
+    partial void OnStatusMessageChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value == "软件授权联网校验通过")
+            return;
+        FooterLogText = value;
+    }
+
+    public void PublishActivityNotice(string message) => AppendActivityLog(message);
+
+    private readonly Dictionary<string, string> _lastLogByAccount = new(StringComparer.OrdinalIgnoreCase);
+    private string _lastUnaffiliatedLog = "";
+    private string _lastOtherAccountId = "";
+
+    private void NoteFooterLog(string? accountKey, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+        var currentId = _activeGlobalAccount?.Id ?? "";
+        var forCurrent = string.IsNullOrWhiteSpace(accountKey)
+            || string.Equals(accountKey, currentId, StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(accountKey))
+            _lastUnaffiliatedLog = text;
+        else
+            _lastLogByAccount[accountKey] = text;
+
+        if (forCurrent)
+        {
+            FooterLogText = text;
+            return;
+        }
+
+        _lastOtherAccountId = accountKey!;
+        OtherAccountFooterLogText = text;
+    }
+
+    private void ApplyFooterLogs()
+    {
+        var currentId = _activeGlobalAccount?.Id ?? "";
+        if (!string.IsNullOrWhiteSpace(currentId) &&
+            _lastLogByAccount.TryGetValue(currentId, out var owned) &&
+            !string.IsNullOrWhiteSpace(owned))
+            FooterLogText = owned;
+        else if (!string.IsNullOrWhiteSpace(_lastUnaffiliatedLog))
+            FooterLogText = _lastUnaffiliatedLog;
+
+        OtherAccountFooterLogText = "";
+        if (!string.IsNullOrWhiteSpace(_lastOtherAccountId) &&
+            !string.Equals(_lastOtherAccountId, currentId, StringComparison.OrdinalIgnoreCase) &&
+            _lastLogByAccount.TryGetValue(_lastOtherAccountId, out var other))
+        {
+            OtherAccountFooterLogText = other;
+            return;
+        }
+
+        foreach (var pair in _lastLogByAccount)
+        {
+            if (string.Equals(pair.Key, currentId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            OtherAccountFooterLogText = pair.Value;
+        }
+    }
+
     private void AppendActivityLog(string message) => AppendActivityLog(message, null);
 
     private void AppendActivityLog(string message, string? project)
@@ -3947,6 +4016,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ActivityLogs.Add(record.Text);
             ActivityLogRecords.Add(record);
             RememberKuaishouProjectLog(accountKey, record.ProjectName, record.Text);
+            NoteFooterLog(accountKey, record.Text);
         }
 
         while (ActivityLogs.Count > 500)
