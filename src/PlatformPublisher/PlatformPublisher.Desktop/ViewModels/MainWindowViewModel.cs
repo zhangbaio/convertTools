@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -19,6 +21,7 @@ using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Ui.ViewModels;
+using TikTokPublisher.Ui.Views;
 using GlobalAccount = ChannelsPublisher.Core.Models.PublishAccount;
 using GlobalAccountStore = ChannelsPublisher.Core.Services.AccountStore;
 
@@ -3135,13 +3138,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task RemoveCheckedJobsAsync()
     {
         var targets = VisibleJobs.Where(row => row.IsChecked).Select(row => row.Model).ToArray();
+        if (targets.Length == 0)
+        {
+            StatusMessage = "没有勾选任务。";
+            AppendActivityLog(StatusMessage);
+            return;
+        }
+
+        var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "确认删除勾选",
+            $"确认从队列移出 {targets.Length} 条任务？项目文件不会删除。",
+            460,
+            180);
+        if (!confirmed)
+            return;
+
         foreach (var job in targets)
             _jobs.Remove(job);
-        if (targets.Length > 0) await PersistAsync();
+        await PersistAsync();
         RefreshVisibleJobs();
-        StatusMessage = targets.Length == 0
-            ? "没有勾选任务。"
-            : $"已从队列移出 {targets.Length} 条任务，项目文件未删除。";
+        StatusMessage = $"已从队列移出 {targets.Length} 条任务，项目文件未删除。";
         AppendActivityLog(StatusMessage);
     }
 
