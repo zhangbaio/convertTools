@@ -10,7 +10,8 @@ namespace ShortDrama.Infrastructure.Automation;
 /// <summary>
 /// 红果 APP 下载的搜索、剧集和播放地址。
 /// 搜索、剧集和播放优先用本机模拟器 7.4.3.32 的已注册设备，按应用自己的精简查询参数签名。
-/// 模拟器身份不可用或请求失败时，搜索和剧集回退 audit 签名；播放再按勾选走链路 1 和链路 2。
+/// 模拟器身份不可用时，搜索和剧集回退 audit 签名，播放再按勾选走链路 1 和链路 2。
+/// 已有模拟器设备时，播放空包只在这条链路上退避重试，不再注册新设备。
 /// </summary>
 internal sealed class HongguoAppDirectClient
 {
@@ -188,7 +189,6 @@ internal sealed class HongguoAppDirectClient
             streamLink2 = true;
         }
 
-        Exception? emulatorError = null;
         if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
         {
             try
@@ -204,7 +204,7 @@ internal sealed class HongguoAppDirectClient
             }
             catch (Exception ex)
             {
-                emulatorError = ex;
+                throw new HongguoHighException("模拟器链路失败：" + ex.Message, 0, ex);
             }
         }
 
@@ -248,8 +248,7 @@ internal sealed class HongguoAppDirectClient
         }
         catch (Exception ex) when (first is not null)
         {
-            var prefix = emulatorError is null ? "" : $"模拟器链路失败：{emulatorError.Message}；";
-            throw new HongguoHighException($"{prefix}链路 1 失败：{first.Message}；链路 2 失败：{ex.Message}", 0, ex);
+            throw new HongguoHighException($"链路 1 失败：{first.Message}；链路 2 失败：{ex.Message}", 0, ex);
         }
     }
 
@@ -383,16 +382,7 @@ internal sealed class HongguoAppDirectClient
         {
             try
             {
-                var root = await SendEmulatorAsync(
-                    HttpMethod.Post,
-                    PlaybackHost,
-                    PlaybackPath,
-                    EmulatorPlaybackBody(videoId),
-                    null,
-                    did,
-                    iid,
-                    cancellationToken);
-                var model = EmulatorModel(root, videoId) ?? throw new HongguoHighException("播放地址为空");
+                var model = await FetchEmulatorModelAsync(videoId, did, iid, cancellationToken);
                 EmulatorChainUses++;
                 Remember(deviceId, installId, did, iid, persist);
                 return HongguoGuestPlayback.DescribeTracks(model);
@@ -446,17 +436,60 @@ internal sealed class HongguoAppDirectClient
         string installId,
         CancellationToken cancellationToken)
     {
-        var root = await SendEmulatorAsync(
-            HttpMethod.Post,
-            PlaybackHost,
-            PlaybackPath,
-            EmulatorPlaybackBody(videoId),
-            null,
-            deviceId,
-            installId,
-            cancellationToken);
-        var model = EmulatorModel(root, videoId) ?? throw new HongguoHighException("播放地址为空");
+        var model = await FetchEmulatorModelAsync(videoId, deviceId, installId, cancellationToken);
         return HongguoGuestPlayback.Pick(model, quality);
+    }
+
+    private async Task<JsonObject> FetchEmulatorModelAsync(
+        string videoId,
+        string deviceId,
+        string installId,
+        CancellationToken cancellationToken)
+    {
+        Exception? last = null;
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            try
+            {
+                var root = await SendEmulatorAsync(
+                    HttpMethod.Post,
+                    PlaybackHost,
+                    PlaybackPath,
+                    EmulatorPlaybackBody(videoId),
+                    null,
+                    deviceId,
+                    installId,
+                    cancellationToken,
+                    attempts: 1);
+                return EmulatorModel(root, videoId) ?? throw new HongguoHighException("播放地址为空");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                if (attempt == 7 || !IsTransientPlaybackFailure(ex))
+                    break;
+                await Task.Delay(EmulatorPlaybackRetryDelay(attempt), cancellationToken);
+            }
+        }
+
+        throw last ?? new HongguoHighException("播放地址为空");
+    }
+
+    internal static bool IsTransientPlaybackFailure(Exception exception)
+    {
+        var message = exception.Message ?? "";
+        return message.Contains("empty body", StringComparison.OrdinalIgnoreCase)
+               || message.Contains("播放地址为空", StringComparison.Ordinal);
+    }
+
+    internal static TimeSpan EmulatorPlaybackRetryDelay(int attempt)
+    {
+        var shift = Math.Clamp(attempt, 0, 4);
+        return TimeSpan.FromMilliseconds(400 * (1 << shift));
     }
 
     internal static byte[] EmulatorPlaybackBody(string videoId)
