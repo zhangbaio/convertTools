@@ -14,11 +14,11 @@ public partial class WeixinWorkflowView : UserControl
 {
     private static readonly double[] KuaishouColumnMinWidths =
     {
-        36, 40, 88, 88, 44, 84, 60, 72, 72, 80, 64, 72, 56,
+        36, 40, 88, 88, 44, 84, 60, 72, 72, 80, 64, 72,
     };
     private readonly double[] _kuaishouColumnWidths =
     {
-        44, 48, 168, 168, 56, 100, 72, 84, 84, 92, 76, 84, 72,
+        44, 48, 168, 168, 56, 100, 72, 84, 84, 92, 76, 84,
     };
     private int _kuaishouResizeColumn = -1;
     private double _kuaishouResizeStartX;

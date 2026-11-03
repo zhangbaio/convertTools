@@ -500,7 +500,7 @@
                 <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <Grid x:Name="KuaishouTableRoot" RowDefinitions="Auto,*" HorizontalAlignment="Left">
                         <Border x:Name="KuaishouQueueHeader" Background="#EDF3F9" BorderBrush="#DCE7F3" BorderThickness="0,0,0,1" Padding="0" IsVisible="False">
-                            <views:QueueTableGrid x:Name="KuaishouQueueHeaderGrid" ColumnDefinitions="44,48,168,168,56,100,72,84,84,92,76,84,72">
+                            <views:QueueTableGrid x:Name="KuaishouQueueHeaderGrid" ColumnDefinitions="44,48,168,168,56,100,72,84,84,92,76,84">
                                 <TextBlock Text="序号" Classes="kuaishouTableHeader" />
                                 <TextBlock Grid.Column="1" Text="执行" Classes="kuaishouTableHeader" />
                                 <TextBlock Grid.Column="2" Text="原剧名" Classes="kuaishouTableHeader" />
@@ -513,7 +513,6 @@
                                 <TextBlock Grid.Column="9" Text="生成工程图" Classes="kuaishouTableHeader kuaishouStepHeader" />
                                 <TextBlock Grid.Column="10" Text="补齐字段" Classes="kuaishouTableHeader kuaishouStepHeader" />
                                 <TextBlock Grid.Column="11" Text="上传剧集" Classes="kuaishouTableHeader kuaishouStepHeader" />
-                                <TextBlock Grid.Column="12" Text="状态" Classes="kuaishouTableHeader kuaishouStepHeader" />
                                 <Border Grid.Column="0" Classes="kuaishouColumnResizer" Tag="0" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                                 <Border Grid.Column="1" Classes="kuaishouColumnResizer" Tag="1" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                                 <Border Grid.Column="2" Classes="kuaishouColumnResizer" Tag="2" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
@@ -526,7 +525,6 @@
                                 <Border Grid.Column="9" Classes="kuaishouColumnResizer" Tag="9" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                                 <Border Grid.Column="10" Classes="kuaishouColumnResizer" Tag="10" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                                 <Border Grid.Column="11" Classes="kuaishouColumnResizer" Tag="11" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
-                                <Border Grid.Column="12" Classes="kuaishouColumnResizer" Tag="12" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                             </views:QueueTableGrid>
                         </Border>
                         <ListBox x:Name="KuaishouQueueList" Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
@@ -534,7 +532,7 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
                                     <Border Classes="queueTableRow" Height="32">
-                                        <views:QueueTableGrid ColumnDefinitions="44,48,168,168,56,100,72,84,84,92,76,84,72">
+                                        <views:QueueTableGrid ColumnDefinitions="44,48,168,168,56,100,72,84,84,92,76,84">
                                             <TextBlock Text="{Binding QueueIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center" />
                                             <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" />
                                             <Button Grid.Column="2" Classes="queueLink" Click="OnOpenSourceDirectoryClick" ToolTip.Tip="{Binding SourceDirectory}">
@@ -562,9 +560,6 @@
                                             </Border>
                                             <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding UploadStepBackgroundBrush}" BorderBrush="{Binding UploadStepBorderBrush}" ToolTip.Tip="{Binding UploadStepStatus}">
                                                 <TextBlock Text="{Binding UploadStepStatus}" Foreground="{Binding UploadStepBrush}" Classes="stepStatusText" />
-                                            </Border>
-                                            <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding StatusBackgroundBrush}" BorderBrush="{Binding StatusBorderBrush}" ToolTip.Tip="{Binding StatusText}">
-                                                <TextBlock Text="{Binding StatusText}" Foreground="{Binding StatusBrushValue}" Classes="stepStatusText" />
                                             </Border>
                                         </views:QueueTableGrid>
                                     </Border>
