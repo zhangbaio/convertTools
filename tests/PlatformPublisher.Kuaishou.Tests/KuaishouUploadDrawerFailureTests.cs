@@ -19,4 +19,31 @@ public sealed class KuaishouUploadDrawerFailureTests
         Assert.Null(KuaishouPersonalEpisodeUploadService.ReadFinishedFailure("为避免上传失败，请检查网络"));
         Assert.Null(KuaishouPersonalEpisodeUploadService.ReadFinishedFailure("上传进度 46%"));
     }
+
+    [Fact]
+    public void Stale_failure_summary_does_not_fail_before_this_upload_starts()
+    {
+        var stale = KuaishouPersonalEpisodeUploadService.ReadFinishedFailure("上传完成 0集成功，152集失败");
+        Assert.False(KuaishouPersonalEpisodeUploadService.ShouldStopForUploadFailure(
+            stale,
+            baselineFailure: stale,
+            sawThisUpload: false,
+            stillUploading: false));
+    }
+
+    [Fact]
+    public void Failure_summary_after_this_upload_stops_the_wait()
+    {
+        var failure = KuaishouPersonalEpisodeUploadService.ReadFinishedFailure("上传完成 0集成功，152集失败");
+        Assert.True(KuaishouPersonalEpisodeUploadService.ShouldStopForUploadFailure(
+            failure,
+            baselineFailure: null,
+            sawThisUpload: true,
+            stillUploading: false));
+        Assert.False(KuaishouPersonalEpisodeUploadService.ShouldStopForUploadFailure(
+            failure,
+            baselineFailure: null,
+            sawThisUpload: true,
+            stillUploading: true));
+    }
 }

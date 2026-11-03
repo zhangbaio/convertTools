@@ -31,7 +31,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
             await ConfirmUploadPositionAsync(page, cancellationToken);
             if (!await ClickDrawerStartUploadAsync(page))
                 throw new InvalidOperationException("未找到本地视频抽屉里的“开始上传”。不要点“视频链接”页的上传按钮。");
-            await WaitForUploadsAsync(page, data.VideoPaths.Count, config.UploadTimeoutMinutes, progress, cancellationToken);
+            await WaitForUploadsAsync(page, data.VideoPaths.Count, data.Title, config.UploadTimeoutMinutes, progress, cancellationToken);
             if (stageChanged is not null) await stageChanged("videos_uploaded");
         }
         else
@@ -635,31 +635,48 @@ public sealed class KuaishouPersonalEpisodeUploadService
     private static async Task WaitForUploadsAsync(
         IPage page,
         int expected,
+        string title,
         int timeoutMinutes,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
         var deadline = DateTimeOffset.UtcNow.AddMinutes(Math.Clamp(timeoutMinutes, 5, 240));
         var last = string.Empty;
+        var baselineCaptured = false;
+        string? baselineFailure = null;
+        var sawThisUpload = false;
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var body = (await page.Locator("body").InnerTextAsync()).Replace("为避免上传失败", string.Empty, StringComparison.Ordinal);
             var drawerDone = body.Contains("全部上传完成", StringComparison.Ordinal)
                 || System.Text.RegularExpressions.Regex.IsMatch(body, $"{expected}\\s*集成功\\s*[，,]\\s*0\\s*集失败");
-            var stillUploading = body.Contains("上传中", StringComparison.Ordinal)
-                || body.Contains("等待上传", StringComparison.Ordinal)
-                || body.Contains("解析中", StringComparison.Ordinal);
+            var stillUploading = IndicatesActiveUpload(body);
+            var finishedFailure = ReadFinishedFailure(body);
+            if (!baselineCaptured)
+            {
+                baselineFailure = finishedFailure;
+                baselineCaptured = true;
+            }
+            else if (stillUploading)
+            {
+                sawThisUpload = true;
+            }
+
+            if (await HasReviewingRowAsync(page, title) || ReviewSucceeded(body))
+            {
+                progress?.Report("快手分账个人版：剧集已在审核中，视为上传成功。 ");
+                return;
+            }
             if (drawerDone && !stillUploading)
             {
                 progress?.Report($"快手分账个人版：{expected} 集视频上传完成。 ");
                 await ClickDrawerConfirmAsync(page);
                 return;
             }
-            var finishedFailure = ReadFinishedFailure(body);
-            if (finishedFailure is not null)
+            if (ShouldStopForUploadFailure(finishedFailure, baselineFailure, sawThisUpload, stillUploading))
                 throw new InvalidOperationException(finishedFailure);
-            if (body.Contains("上传失败", StringComparison.Ordinal) || body.Contains("校验失败", StringComparison.Ordinal))
+            if (sawThisUpload && (body.Contains("上传失败", StringComparison.Ordinal) || body.Contains("校验失败", StringComparison.Ordinal)))
                 throw new InvalidOperationException("快手个人版视频上传出现失败条目，请检查上传抽屉。");
             var progressText = ExtractProgress(body);
             if (!string.IsNullOrWhiteSpace(progressText) && progressText != last)
@@ -670,6 +687,26 @@ public sealed class KuaishouPersonalEpisodeUploadService
             await Task.Delay(1000, cancellationToken);
         }
         throw new TimeoutException($"等待 {expected} 集视频上传完成超时。");
+    }
+
+    public static bool IndicatesActiveUpload(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        return text.Contains("上传中", StringComparison.Ordinal)
+            || text.Contains("等待上传", StringComparison.Ordinal)
+            || text.Contains("解析中", StringComparison.Ordinal);
+    }
+
+    public static bool ShouldStopForUploadFailure(
+        string? finishedFailure,
+        string? baselineFailure,
+        bool sawThisUpload,
+        bool stillUploading)
+    {
+        if (string.IsNullOrWhiteSpace(finishedFailure) || stillUploading || !sawThisUpload)
+            return false;
+        return !string.Equals(finishedFailure, baselineFailure, StringComparison.Ordinal);
     }
 
     public static string? ReadFinishedFailure(string? text)
