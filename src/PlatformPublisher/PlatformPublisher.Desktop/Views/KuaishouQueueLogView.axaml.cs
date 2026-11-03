@@ -111,7 +111,7 @@ public partial class KuaishouQueueLogView : UserControl
                     continue;
                 var job = FindJob(project.ProjectName, project.ProjectDirectory);
                 rows.Add(new LogProjectRow(
-                    project.ProjectName,
+                    ProjectListTitle(job?.NewTitle, project.ProjectName),
                     project.ProjectName,
                     RowTone(project.Tone, job is null ? null : ToneFromJob(job))));
             }
@@ -123,7 +123,7 @@ public partial class KuaishouQueueLogView : UserControl
                 var name = job.ProjectName;
                 if (string.IsNullOrWhiteSpace(name) || rows.Any(row => row.ProjectName == name))
                     continue;
-                rows.Add(new LogProjectRow(name, name, ToneFromJob(job)));
+                rows.Add(new LogProjectRow(ProjectListTitle(job.NewTitle, name), name, ToneFromJob(job)));
             }
         }
 
@@ -206,6 +206,12 @@ public partial class KuaishouQueueLogView : UserControl
         }
     }
 
+    public static string ProjectListTitle(string? newTitle, string projectName)
+    {
+        var title = newTitle?.Trim();
+        return string.IsNullOrWhiteSpace(title) ? projectName : title;
+    }
+
     public static string RowTone(string runTone, string? jobTone) =>
         runTone is "running" or "ok" or "failed" or "none"
             ? runTone
@@ -275,9 +281,10 @@ public partial class KuaishouQueueLogView : UserControl
         var failed = _projects.Count(row => row.Tone == "failed");
         var checkedCount = Math.Max(0, _projects.Count - 1);
         var counts = $"勾选 {checkedCount} | 运行中 {running} | 成功 {succeeded} | 失败 {failed}";
+        var selectedTitle = _projects.FirstOrDefault(row => row.ProjectName == _selectedProject)?.Title;
         SummaryLabel.Text = string.IsNullOrEmpty(_selectedProject)
             ? $"{counts} · 日志 {lines.Count} 条"
-            : $"{counts} · {_selectedProject} · 日志 {lines.Count} 条";
+            : $"{counts} · {ProjectListTitle(selectedTitle, _selectedProject)} · 日志 {lines.Count} 条";
         var atEnd = LogScrollViewer.Offset.Y >=
                     Math.Max(0, LogScrollViewer.Extent.Height - LogScrollViewer.Viewport.Height - 8);
         _logText = string.Join(Environment.NewLine, lines);

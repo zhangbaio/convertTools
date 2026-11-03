@@ -34,6 +34,14 @@ public sealed class KuaishouLogProjectTests
     }
 
     [Fact]
+    public void Project_list_shows_the_new_title_and_keeps_the_folder_name_when_it_is_missing()
+    {
+        Assert.Equal("晚灯归人", KuaishouQueueLogView.ProjectListTitle(" 晚灯归人 ", "凰权若梦"));
+        Assert.Equal("凰权若梦", KuaishouQueueLogView.ProjectListTitle("  ", "凰权若梦"));
+        Assert.Equal("凰权若梦", KuaishouQueueLogView.ProjectListTitle(null, "凰权若梦"));
+    }
+
+    [Fact]
     public void Log_row_uses_this_run_and_keeps_history_for_projects_not_started()
     {
         Assert.Equal("ok", KuaishouQueueLogView.RowTone("ok", "failed"));
