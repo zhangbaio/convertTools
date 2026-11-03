@@ -1,6 +1,9 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PlatformPublisher.Common.Models;
@@ -41,6 +44,46 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            YunfanLicenseGate.Configure();
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Dispatcher.UIThread.Post(async () =>
+            {
+                try
+                {
+                    if (!await YunfanLicenseGate.EnsureBeforeMainWindowAsync())
+                    {
+                        desktop.Shutdown();
+                        return;
+                    }
+
+                    StartMainWindow(desktop);
+                }
+                catch (Exception ex)
+                {
+                    var window = new Window
+                    {
+                        Title = "云帆启动失败",
+                        Width = 720,
+                        Height = 420,
+                        Content = new TextBlock
+                        {
+                            Text = ex.ToString(),
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(16),
+                        },
+                    };
+                    desktop.MainWindow = window;
+                    desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+                    window.Show();
+                }
+            });
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private void StartMainWindow(IClassicDesktopStyleApplicationLifetime desktop)
+    {
             ShortDramaDramaServices.UseSettingsDatabase(PlatformPublisherPaths.SettingsDatabasePath);
             _services = BuildServices();
             _ = _services.GetRequiredService<AnalyticsRepository>();
@@ -86,15 +129,16 @@ public partial class App : Application
             var highlightScheduler = _services.GetRequiredService<WeixinHighlightScheduleService>();
             highlightScheduler.Start();
             desktop.MainWindow = mainWindow;
+            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             desktop.Exit += (_, _) =>
             {
+                mainWindow.StopYunfanLicenseVerifyTimer();
                 highlightScheduler.Dispose();
                 kuaishouOnlineWorker.Dispose();
                 viewModel.Shutdown();
             };
-        }
-
-        base.OnFrameworkInitializationCompleted();
+            mainWindow.Show();
+            mainWindow.StartYunfanLicenseVerifyTimer();
     }
 
     private static ServiceProvider BuildServices()

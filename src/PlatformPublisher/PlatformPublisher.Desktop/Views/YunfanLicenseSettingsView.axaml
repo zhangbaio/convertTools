@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PlatformPublisher.Desktop.Views.YunfanLicenseSettingsView">
+    <ScrollViewer>
+        <StackPanel Margin="28,22" Spacing="16" MaxWidth="920" HorizontalAlignment="Left">
+            <StackPanel Spacing="5">
+                <TextBlock Text="SOFTWARE LICENSE" FontSize="11" FontWeight="Bold" Foreground="#2563EB" />
+                <TextBlock Text="软件授权" FontSize="24" FontWeight="Bold" Foreground="#101828" />
+                <TextBlock Text="使用管理系统里的快手授权账号登录。未登录、授权过期、设备被解绑或服务器拒绝时，软件会退出。"
+                           Foreground="#667085"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Background="#FFFFFF" BorderBrush="#D8E2EC" BorderThickness="1" CornerRadius="9" Padding="22">
+                <StackPanel Spacing="12">
+                    <TextBlock x:Name="LicenseSummaryText"
+                               Text="未登录"
+                               TextWrapping="Wrap"
+                               Foreground="#101828" />
+                    <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="10">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="服务器地址" VerticalAlignment="Center" />
+                        <TextBox x:Name="ServerUrlBox" Grid.Row="0" Grid.Column="1" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="联网校验" VerticalAlignment="Center" />
+                        <TextBlock x:Name="VerifyIntervalText" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="登录 / 更换账号" Click="OnLoginClick" Classes="primaryAction" />
+                        <Button Content="退出登录 / 清除本机登录" Click="OnLogoutClick" />
+                        <Button Content="保存服务器地址" Click="OnSaveServerClick" />
+                    </StackPanel>
+                    <TextBlock x:Name="LicenseStatusText" Foreground="#667085" TextWrapping="Wrap" />
+                    <TextBlock Text="登录信息保存在本机云帆数据目录的 license_state.bin，和 TikTok 助手的登录互不影响。启动时以及之后每小时都会联网校验。"
+                               Foreground="#667085"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

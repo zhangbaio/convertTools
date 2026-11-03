@@ -359,6 +359,9 @@
             <TabItem Header="通用配置">
                 <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" />
             </TabItem>
+            <TabItem Header="软件授权">
+                <views:YunfanLicenseSettingsView x:Name="LicenseSettingsView" />
+            </TabItem>
             <TabItem Header="ADX素材服务">
                 <views:AdxSettingsView x:Name="AdxSettingsView" />
             </TabItem>

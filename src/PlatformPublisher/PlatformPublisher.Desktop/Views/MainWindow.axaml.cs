@@ -62,7 +62,11 @@ public partial class MainWindow : Window
                 ApplyStartupLayout();
             ShowKuaishouPage();
         };
-        Closed += (_, _) => SavePlacement();
+        Closed += (_, _) =>
+        {
+            StopYunfanLicenseVerifyTimer();
+            SavePlacement();
+        };
         SizeChanged += (_, _) => RememberNormalPlacement();
         PositionChanged += (_, _) => RememberNormalPlacement();
     }
