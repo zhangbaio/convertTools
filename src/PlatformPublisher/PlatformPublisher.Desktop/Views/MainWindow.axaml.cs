@@ -165,6 +165,12 @@ public partial class MainWindow : Window
     public void BindAccountDatabase(ChannelsPublisher.Core.Services.AccountStore accountStore)
     {
         WeixinPublisherView.UseAccountStore(accountStore);
+        KuaishouConfigPage.UseAccountStore(accountStore);
+        KuaishouConfigPage.AccountsImported += accounts =>
+        {
+            WeixinPublisherView.RefreshImportedAccounts(accounts);
+            ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, WeixinPublisherView.SelectedAccountProfile);
+        };
         GlobalAccountSidebar.DataContext = WeixinPublisherView.DataContext;
         CancellationTokenSource? accountSwitchDelay = null;
         WeixinPublisherView.SelectedAccountChanged += async account =>

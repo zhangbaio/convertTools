@@ -5,9 +5,11 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using ChannelsAccount = ChannelsPublisher.Core.Models.PublishAccount;
 using PlatformPublisher.Common.Models;
+using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Views;
+using AccountStore = ChannelsPublisher.Core.Services.AccountStore;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -22,7 +24,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
     public event Func<ChannelsAccount, string, Task<bool>>? ConfirmAccountEdition;
     public event Func<ChannelsAccount, string, Task>? AccountEditionApplied;
+    public event Action<IReadOnlyList<ChannelsAccount>>? AccountsImported;
     private readonly ObservableCollection<DistributorAccountEditorRow> _distributorAccounts = [];
+    private AccountStore? _accountStore;
 
     public KuaishouPersonalConfigDialog()
     {
@@ -33,6 +37,8 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         CaptureClean();
         UpdateHeading();
     }
+
+    public void UseAccountStore(AccountStore accountStore) => _accountStore = accountStore;
 
     public async Task<bool> TryLeaveAsync(Window owner)
     {
@@ -292,6 +298,56 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         {
             ValidationText.Foreground = Avalonia.Media.Brushes.Red;
             ValidationText.Text = "旧版配置导入失败：" + ex.Message;
+        }
+    }
+
+    private async void ImportExportedSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_accountStore is null)
+        {
+            ValidationText.Text = "账号库尚未就绪，不能导入配置。";
+            return;
+        }
+        if (HasUnsavedChanges())
+        {
+            ValidationText.Text = "请先保存或放弃当前修改，再导入微信工具配置。";
+            return;
+        }
+
+        var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择微信工具导出的快手分账配置",
+            AllowMultiple = false,
+            FileTypeFilter = [new FilePickerFileType("微信工具配置") { Patterns = ["*.json", "*.zip"] }],
+        });
+        if (files.Count == 0) return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        try
+        {
+            using var package = KuaishouSettingsExportPackage.Open(files[0].Path.LocalPath);
+            var importer = new KuaishouExportedSettingsImporter(_accountStore);
+            var preview = importer.Preview(package);
+            if (preview.Accounts.Count == 0)
+            {
+                ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+                ValidationText.Text = importer.Describe(preview);
+                return;
+            }
+            var confirmed = await ConfirmDialog.ShowAsync(owner, "导入微信工具配置", importer.Describe(preview), 680, 460);
+            if (!confirmed) return;
+            var result = await importer.ApplyAsync(package);
+            AccountsImported?.Invoke(result.Accounts);
+            LoadAccount(_account, _platform);
+            ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
+            ValidationText.Text = $"已导入快手分账配置：新建 {result.Created} 个，更新 {result.Updated} 个，登录态 {result.AuthFiles} 份，附件 {result.Assets} 个。";
+            if (result.MissingPaths.Count > 0)
+                ValidationText.Text += $" 有 {result.MissingPaths.Count} 个路径在这台电脑上不存在。";
+        }
+        catch (Exception ex)
+        {
+            ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+            ValidationText.Text = "导入微信工具配置失败：" + ex.Message;
         }
     }
 

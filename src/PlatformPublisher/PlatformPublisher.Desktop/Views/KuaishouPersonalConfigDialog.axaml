@@ -398,11 +398,12 @@
             </TabItem>
         </TabControl>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="10">
             <TextBlock x:Name="ValidationText" Foreground="#DC2626" VerticalAlignment="Center" TextWrapping="Wrap" />
-            <Button Grid.Column="1" Content="导入旧版配置" Click="ImportLegacy_Click" />
-            <Button Grid.Column="2" Content="放弃修改" Click="Cancel_Click" />
-            <Button Grid.Column="3" Classes="primary" Content="保存配置" Click="Save_Click" />
+            <Button Grid.Column="1" Content="导入微信工具配置" Click="ImportExportedSettings_Click" />
+            <Button Grid.Column="2" Content="导入旧版配置" Click="ImportLegacy_Click" />
+            <Button Grid.Column="3" Content="放弃修改" Click="Cancel_Click" />
+            <Button Grid.Column="4" Classes="primary" Content="保存配置" Click="Save_Click" />
         </Grid>
     </Grid>
 </UserControl>
