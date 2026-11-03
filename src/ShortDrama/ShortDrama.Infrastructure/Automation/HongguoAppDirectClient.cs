@@ -8,11 +8,42 @@ using ShortDrama.Core.Models;
 namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
-/// 红果 APP 下载的搜索、剧集和播放地址。搜索与剧集用进程内 PureSign。
-/// 播放地址按勾选先走链路 1（匿名注册、无签名），失败再走链路 2（同一身份的兼容签名）。
+/// 红果 APP 下载的搜索、剧集和播放地址。
+/// 搜索、剧集和播放优先用本机模拟器 7.4.3.32 的已注册设备，按应用自己的精简查询参数签名。
+/// 模拟器身份不可用或请求失败时，搜索和剧集回退 audit 签名；播放再按勾选走链路 1 和链路 2。
 /// </summary>
 internal sealed class HongguoAppDirectClient
 {
+    internal const string PlaybackHost = "https://api5-normal-sinfonlineb.fqnovel.com";
+    internal const string ReadingHost = "https://reading.snssdk.com";
+    private const string SearchPath = "/reading/bookapi/search/tab/v";
+    private const string EpisodePath = "/novel/player/multi_video_detail/preload/v1";
+    private const string PlaybackPath = "/novel/player/multi_video_model/preload/v1/";
+    private const string EmulatorUserAgent =
+        "com.phoenix.read/74332 (Linux; U; Android 13; zh_CN; sdk_gphone64_arm64; Build/TE1A.220922.034)";
+
+    private static readonly (string Key, string Value)[] EmulatorQuery =
+    [
+        ("device_platform", "android"),
+        ("channel", "update_64"),
+        ("aid", "8662"),
+        ("app_name", "novelread"),
+        ("version_code", "74332"),
+        ("version_name", "7.4.3.32"),
+        ("manifest_version_code", "74332"),
+        ("update_version_code", "74332"),
+        ("resolution", "1080*2337"),
+        ("dpi", "420"),
+        ("device_type", "sdk_gphone64_arm64"),
+        ("device_brand", "google"),
+        ("os_api", "33"),
+        ("os_version", "13"),
+        ("ac", "wifi"),
+        ("pv_player", "74332"),
+    ];
+
+    internal static int EmulatorChainUses;
+
     private readonly HttpClient _httpClient;
     private readonly HongguoGuestPlayback _playback;
     private readonly HongguoSignedPlayback _signed;
@@ -28,7 +59,10 @@ internal sealed class HongguoAppDirectClient
         string keyword,
         int page,
         CancellationToken cancellationToken,
-        string? searchCategory = null)
+        string? searchCategory = null,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null)
     {
         var trimmed = (keyword ?? "").Trim();
         if (trimmed.Length == 0)
@@ -50,18 +84,42 @@ internal sealed class HongguoAppDirectClient
             new("count", "10"),
             new("use_correct", "true"),
         };
-        JsonNode root;
-        try
+        JsonNode? root = null;
+        Exception? emulatorError = null;
+        if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
         {
-            root = await SendAsync(HttpMethod.Get, "/reading/bookapi/search/tab/v", null, extra, cancellationToken);
+            try
+            {
+                root = await SendEmulatorAsync(
+                    HttpMethod.Get, PlaybackHost, SearchPath, null, extra, did, iid, cancellationToken);
+                EmulatorChainUses++;
+                Remember(deviceId, installId, did, iid, persist);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                emulatorError = ex;
+            }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+
+        if (root is null)
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new HongguoHighException("红果搜索失败", 0, ex);
+            try
+            {
+                root = await SendAsync(HttpMethod.Get, SearchPath, null, extra, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var detail = emulatorError is null ? "红果搜索失败" : $"红果搜索失败：{emulatorError.Message}";
+                throw new HongguoHighException(detail, 0, ex);
+            }
         }
 
         var results = new List<DramaSearchItem>();
@@ -79,46 +137,37 @@ internal sealed class HongguoAppDirectClient
 
     internal async Task<IReadOnlyList<HongguoNewApiService.HongguoEpisodeInfo>> GetEpisodesAsync(
         string bookId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null)
     {
         var seriesId = RawSeriesId(bookId);
         if (seriesId.Length == 0)
             return [];
 
-        Exception? last = null;
-        for (var attempt = 0; attempt < 3; attempt++)
+        var body = HongguoPureSign.EpisodesBody(seriesId);
+        if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
         {
-            try
+            var episodes = await ReadEpisodesAttempts(
+                () => SendEmulatorAsync(HttpMethod.Post, ReadingHost, EpisodePath, body, null, did, iid, cancellationToken, attempts: 1),
+                seriesId,
+                cancellationToken);
+            if (episodes.Count > 0)
             {
-                var root = await SendAsync(
-                    HttpMethod.Post,
-                    "/novel/player/multi_video_detail/preload/v1",
-                    HongguoPureSign.EpisodesBody(seriesId),
-                    null,
-                    cancellationToken);
-                var episodes = ReadEpisodes(root, seriesId);
-                if (episodes.Count > 0)
-                    return episodes;
-                last = new HongguoHighException("剧集列表为空");
+                EmulatorChainUses++;
+                Remember(deviceId, installId, did, iid, persist);
+                return episodes;
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                last = ex;
-            }
-
-            if (attempt < 2)
-                await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationToken);
         }
 
-        throw last switch
-        {
-            HongguoHighException high => high,
-            _ => new HongguoHighException("剧集列表获取失败", 0, last)
-        };
+        var audit = await ReadEpisodesAttempts(
+            () => SendAsync(HttpMethod.Post, EpisodePath, body, null, cancellationToken, attempts: 1),
+            seriesId,
+            cancellationToken);
+        if (audit.Count > 0)
+            return audit;
+        throw new HongguoHighException("剧集列表获取失败");
     }
 
     internal async Task<HongguoHighVideoPlayback> GetVideoPlaybackAsync(
@@ -131,12 +180,45 @@ internal sealed class HongguoAppDirectClient
         bool streamLink1 = true,
         bool streamLink2 = true)
     {
-        if (!HongguoHighCrypto.TryDecodeEpisodeId(videoId, out _, out _, out var rawVideoId))
+        if (!HongguoHighCrypto.TryDecodeEpisodeId(videoId, out var seriesId, out _, out var rawVideoId))
             throw new HongguoHighException("剧集标识无效");
         if (!streamLink1 && !streamLink2)
         {
             streamLink1 = true;
             streamLink2 = true;
+        }
+
+        Exception? emulatorError = null;
+        if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
+        {
+            try
+            {
+                var playback = await GetEmulatorPlaybackAsync(rawVideoId, quality, did, iid, cancellationToken);
+                EmulatorChainUses++;
+                Remember(deviceId, installId, did, iid, persist);
+                return playback;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                emulatorError = ex;
+            }
+        }
+
+        try
+        {
+            return await GetAuditVideoModelAsync(seriesId, rawVideoId, quality, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception) when (streamLink1 || streamLink2)
+        {
+            // 单集接口失败时再试原来的两条播放链路。
         }
 
         Exception? first = null;
@@ -166,7 +248,8 @@ internal sealed class HongguoAppDirectClient
         }
         catch (Exception ex) when (first is not null)
         {
-            throw new HongguoHighException($"链路 1 失败：{first.Message}；链路 2 失败：{ex.Message}", 0, ex);
+            var prefix = emulatorError is null ? "" : $"模拟器链路失败：{emulatorError.Message}；";
+            throw new HongguoHighException($"{prefix}链路 1 失败：{first.Message}；链路 2 失败：{ex.Message}", 0, ex);
         }
     }
 
@@ -251,13 +334,293 @@ internal sealed class HongguoAppDirectClient
         };
     }
 
-    internal Task<HongguoGuestPlayback.TrackProbe> ProbePlaybackAsync(
+    private async Task<HongguoHighVideoPlayback> GetAuditVideoModelAsync(
+        string seriesId,
+        string videoId,
+        string quality,
+        CancellationToken cancellationToken)
+    {
+        var root = await SendAsync(
+            HttpMethod.Post,
+            "/novel/player/video_model/v1/",
+            VideoModelBody(seriesId, videoId),
+            null,
+            cancellationToken);
+        var model = HongguoGuestPlayback.ModelOf(root["data"]?["video_model"]);
+        if (model is null)
+            throw new HongguoHighException("播放地址为空");
+        return HongguoGuestPlayback.Pick(model, quality);
+    }
+
+    private static byte[] VideoModelBody(string seriesId, string videoId)
+    {
+        var body = new JsonObject
+        {
+            ["biz_param"] = new JsonObject
+            {
+                ["detail_page_version"] = 0,
+                ["device_level"] = 2,
+                ["need_all_video_definition"] = true,
+                ["need_mp4_align"] = false,
+                ["use_os_player"] = false,
+                ["video_platform"] = 1024,
+                ["video_id"] = videoId,
+            },
+            ["series_id"] = seriesId,
+            ["video_id"] = videoId,
+        };
+        return Encoding.UTF8.GetBytes(body.ToJsonString(HongguoGuestPlayback.CompactJson));
+    }
+
+    internal async Task<HongguoGuestPlayback.TrackProbe> ProbePlaybackAsync(
         string videoId,
         CancellationToken cancellationToken,
         string? deviceId = null,
         string? installId = null,
-        Action<string, string>? persist = null) =>
-        _playback.ProbeAsync(videoId, cancellationToken, deviceId, installId, persist);
+        Action<string, string>? persist = null)
+    {
+        if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
+        {
+            try
+            {
+                var root = await SendEmulatorAsync(
+                    HttpMethod.Post,
+                    PlaybackHost,
+                    PlaybackPath,
+                    EmulatorPlaybackBody(videoId),
+                    null,
+                    did,
+                    iid,
+                    cancellationToken);
+                var model = EmulatorModel(root, videoId) ?? throw new HongguoHighException("播放地址为空");
+                EmulatorChainUses++;
+                Remember(deviceId, installId, did, iid, persist);
+                return HongguoGuestPlayback.DescribeTracks(model);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new HongguoHighException("模拟器播放探测失败", 0, ex);
+            }
+        }
+
+        return await _playback.ProbeAsync(videoId, cancellationToken, deviceId, installId, persist);
+    }
+
+    private async Task<List<HongguoNewApiService.HongguoEpisodeInfo>> ReadEpisodesAttempts(
+        Func<Task<JsonNode>> send,
+        string seriesId,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                var episodes = ReadEpisodes(await send(), seriesId);
+                if (episodes.Count > 0)
+                    return episodes;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                // 空包或签名软失败时换票据再试。
+            }
+
+            if (attempt < 2)
+                await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationToken);
+        }
+
+        return [];
+    }
+
+    private async Task<HongguoHighVideoPlayback> GetEmulatorPlaybackAsync(
+        string videoId,
+        string quality,
+        string deviceId,
+        string installId,
+        CancellationToken cancellationToken)
+    {
+        var root = await SendEmulatorAsync(
+            HttpMethod.Post,
+            PlaybackHost,
+            PlaybackPath,
+            EmulatorPlaybackBody(videoId),
+            null,
+            deviceId,
+            installId,
+            cancellationToken);
+        var model = EmulatorModel(root, videoId) ?? throw new HongguoHighException("播放地址为空");
+        return HongguoGuestPlayback.Pick(model, quality);
+    }
+
+    internal static byte[] EmulatorPlaybackBody(string videoId)
+    {
+        var body = new JsonObject
+        {
+            ["biz_param"] = new JsonObject
+            {
+                ["detail_page_version"] = 0,
+                ["device_level"] = 2,
+                ["disable_video_relate_book"] = false,
+                ["need_all_video_definition"] = true,
+                ["video_platform"] = 1024,
+            },
+            ["dr_scene"] = "preload",
+            ["mixed_video_id_map"] = new JsonObject
+            {
+                ["1004"] = new JsonArray(JsonValue.Create(videoId)),
+            },
+        };
+        return Encoding.UTF8.GetBytes(body.ToJsonString(HongguoGuestPlayback.CompactJson));
+    }
+
+    internal static string BuildEmulatorUrl(
+        string host,
+        string path,
+        IReadOnlyList<KeyValuePair<string, string>>? extra,
+        string deviceId,
+        string installId,
+        long rticket)
+    {
+        var parts = new List<string>();
+        foreach (var (key, value) in EmulatorQuery)
+            parts.Add(key + "=" + Uri.EscapeDataString(value));
+        if (extra is not null)
+        {
+            foreach (var pair in extra)
+                parts.Add(pair.Key + "=" + Uri.EscapeDataString(pair.Value));
+        }
+
+        parts.Add("device_id=" + Uri.EscapeDataString(deviceId));
+        parts.Add("iid=" + Uri.EscapeDataString(installId));
+        parts.Add("_rticket=" + rticket);
+        return host + path + "?" + string.Join("&", parts);
+    }
+
+    private static bool TryResolveIdentity(string? deviceId, string? installId, out string did, out string iid)
+    {
+        if (HongguoAppEmulatorIdentity.TryRead(out did, out iid))
+            return true;
+        if (HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
+        {
+            did = deviceId!.Trim();
+            iid = installId!.Trim();
+            return true;
+        }
+
+        did = "";
+        iid = "";
+        return false;
+    }
+
+    private static void Remember(
+        string? givenDevice,
+        string? givenInstall,
+        string deviceId,
+        string installId,
+        Action<string, string>? persist)
+    {
+        if (persist is null)
+            return;
+        if (string.Equals(givenDevice?.Trim(), deviceId, StringComparison.Ordinal) &&
+            string.Equals(givenInstall?.Trim(), installId, StringComparison.Ordinal))
+            return;
+        persist(deviceId, installId);
+    }
+
+    private static JsonObject? EmulatorModel(JsonNode root, string videoId)
+    {
+        if (root["data"] is not JsonObject data)
+            return null;
+        if (data[videoId] is JsonObject entry)
+        {
+            var direct = HongguoGuestPlayback.ModelOf(entry["video_model"]);
+            if (direct is not null)
+                return direct;
+        }
+
+        foreach (var pair in data)
+        {
+            if (pair.Value is not JsonObject any)
+                continue;
+            var model = HongguoGuestPlayback.ModelOf(any["video_model"]);
+            if (model is not null)
+                return model;
+        }
+
+        return HongguoGuestPlayback.ModelOf(data["video_model"]);
+    }
+
+    private async Task<JsonNode> SendEmulatorAsync(
+        HttpMethod method,
+        string host,
+        string path,
+        byte[]? body,
+        IReadOnlyList<KeyValuePair<string, string>>? extra,
+        string deviceId,
+        string installId,
+        CancellationToken cancellationToken,
+        int attempts = 3)
+    {
+        Exception? last = null;
+        var rticket = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var maxAttempts = Math.Clamp(attempts, 1, 8);
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var khronos = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var url = BuildEmulatorUrl(host, path, extra, deviceId, installId, rticket);
+            for (var guard = 0; HongguoPureSign.BranchOf(url, body, khronos) == 1 && guard < 32; guard++)
+            {
+                rticket++;
+                url = BuildEmulatorUrl(host, path, extra, deviceId, installId, rticket);
+            }
+
+            using var request = new HttpRequestMessage(method, url);
+            request.Headers.TryAddWithoutValidation("user-agent", EmulatorUserAgent);
+            request.Headers.TryAddWithoutValidation("passport-sdk-version", "5051452");
+            request.Headers.TryAddWithoutValidation("sdk-version", "2");
+            if (body is { Length: > 0 })
+            {
+                request.Content = new ByteArrayContent(body);
+                request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+                request.Headers.TryAddWithoutValidation("x-ss-stub", Convert.ToHexString(MD5.HashData(body)));
+            }
+
+            foreach (var header in HongguoPureSign.Sign(url, body, khronos))
+                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+
+            try
+            {
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                if (bytes.Length == 0 || bytes.All(b => b is (byte)' ' or (byte)'\n' or (byte)'\r' or (byte)'\t'))
+                    throw new InvalidOperationException("empty body");
+                var node = JsonNode.Parse(bytes) ?? throw new InvalidOperationException("empty body");
+                if (node is JsonObject obj && CodeOf(obj) is not (0 or null))
+                    throw new InvalidOperationException("rejected");
+                return node;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                rticket++;
+                if (attempt < maxAttempts - 1)
+                    await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationToken);
+            }
+        }
+
+        throw last ?? new InvalidOperationException("红果请求失败");
+    }
 
     private async Task<JsonNode> SendAsync(
         HttpMethod method,

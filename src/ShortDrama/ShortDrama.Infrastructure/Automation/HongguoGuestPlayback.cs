@@ -18,7 +18,7 @@ internal sealed class HongguoGuestPlayback
         "https://log5-applog-lf.fqnovel.com/service/2/device_register/?tt_data=a&cronet_version=8d40f833_2026-03-03&ttnet_version=4.2.243.31-douyin&use_store_region_cookie=1";
     private const string VideoApi = "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/";
     private const string RegisterUserAgent =
-        "com.phoenix.read/73932 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
+        "com.phoenix.read/74332 (Linux; U; Android 13; zh_CN; Pixel 6; Build/TE1A.240213.009)";
     private const string PlaybackUserAgent =
         "com.phoenix.read/71532 (Linux; U; Android 9; SM-N9860; Build/PQ3A.190705.10241111;tt-ok/3.12.13.20)";
 
@@ -85,6 +85,11 @@ internal sealed class HongguoGuestPlayback
         Action<string, string>? persist = null)
     {
         var model = await ModelAsync(videoId, deviceId, installId, persist, cancellationToken);
+        return DescribeTracks(model);
+    }
+
+    internal static TrackProbe DescribeTracks(JsonObject model)
+    {
         var tracks = TracksOf(model);
         var count = 0;
         var allUrl = tracks.Count > 0;
@@ -288,28 +293,28 @@ internal sealed class HongguoGuestPlayback
         var header = new JsonObject
         {
             ["display_name"] = "红果免费短剧",
-            ["update_version_code"] = 73932,
-            ["manifest_version_code"] = 73932,
-            ["app_version_minor"] = "7.3.9.32",
+            ["update_version_code"] = 74332,
+            ["manifest_version_code"] = 74332,
+            ["app_version_minor"] = "7.4.3.32",
             ["aid"] = 8662,
             ["channel"] = "update_64",
             ["package"] = "com.phoenix.read",
-            ["app_version"] = "7.3.9.32",
-            ["version_code"] = 73932,
+            ["app_version"] = "7.4.3.32",
+            ["version_code"] = 74332,
             ["sdk_version"] = "3.7.0-rc.34-fanqie-xiaoshuo",
             ["sdk_target_version"] = 29,
             ["git_hash"] = "3a88f4e",
             ["os"] = "Android",
-            ["os_version"] = "16",
-            ["os_api"] = 36,
-            ["device_model"] = "25053RT47C",
-            ["device_brand"] = "Redmi",
-            ["device_manufacturer"] = "Redmi",
+            ["os_version"] = "13",
+            ["os_api"] = 33,
+            ["device_model"] = "Pixel 6",
+            ["device_brand"] = "google",
+            ["device_manufacturer"] = "google",
             ["cpu_abi"] = "arm64-v8a",
             ["release_build"] = "b5e187f",
-            ["density_dpi"] = 520,
+            ["density_dpi"] = 420,
             ["display_density"] = "mdpi",
-            ["resolution"] = "1280x2772",
+            ["resolution"] = "1080x2400",
             ["language"] = "zh",
             ["timezone"] = 8,
             ["access"] = "wifi",

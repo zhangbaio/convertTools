@@ -14,8 +14,12 @@ public sealed class HongguoAppDirectClientTests
         if (!string.Equals(Environment.GetEnvironmentVariable("HONGUO_LIVE"), "1", StringComparison.Ordinal))
             return;
 
+        Assert.True(HongguoAppEmulatorIdentity.TryRead(out var deviceId, out var installId));
+        Assert.InRange(deviceId.Length, 10, 24);
+        Assert.InRange(installId.Length, 10, 24);
         using var http = new HttpClient();
         var client = new HongguoAppDirectClient(http);
+        var used = HongguoAppDirectClient.EmulatorChainUses;
         var items = await client.SearchAsync("长公主", 1, CancellationToken.None);
         Assert.True(items.Count > 0);
         var item = items.FirstOrDefault(candidate => candidate.Title.Contains("长公主", StringComparison.Ordinal)) ?? items[0];
@@ -33,6 +37,7 @@ public sealed class HongguoAppDirectClientTests
         Assert.True(playback.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
 #pragma warning restore xUnit2009
         Assert.True(playback.EncryptedUrls.Count > 0);
+        Assert.True(HongguoAppDirectClient.EmulatorChainUses >= used + 4);
     }
 
     [Fact]
@@ -121,6 +126,63 @@ public sealed class HongguoAppDirectClientTests
         var cursor = HongguoAppDirectClient.ReadLandpagePaging(root, 0, items.Count);
         Assert.False(cursor.HasMore);
         Assert.Equal(items.Count, cursor.NextOffset);
+    }
+
+    [Fact]
+    public void EmulatorChainUsesInstalledVersionAndEncodedResolution()
+    {
+        var url = HongguoAppDirectClient.BuildEmulatorUrl(
+            HongguoAppDirectClient.PlaybackHost,
+            "/novel/player/multi_video_model/preload/v1/",
+            null,
+            "1234567890123456",
+            "1234567890123457",
+            1700000000000);
+        Assert.StartsWith(
+            "https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/preload/v1/?",
+            url,
+            StringComparison.Ordinal);
+        Assert.Contains("version_code=74332", url, StringComparison.Ordinal);
+        Assert.Contains("version_name=7.4.3.32", url, StringComparison.Ordinal);
+        Assert.Contains("device_type=sdk_gphone64_arm64", url, StringComparison.Ordinal);
+        Assert.Contains("os_version=13", url, StringComparison.Ordinal);
+        Assert.Contains("resolution=1080%2A2337", url, StringComparison.Ordinal);
+        Assert.Contains("device_id=1234567890123456", url, StringComparison.Ordinal);
+        Assert.Contains("iid=1234567890123457", url, StringComparison.Ordinal);
+        Assert.EndsWith("_rticket=1700000000000", url, StringComparison.Ordinal);
+        Assert.DoesNotContain('*', url);
+
+        var episodes = HongguoAppDirectClient.BuildEmulatorUrl(
+            HongguoAppDirectClient.ReadingHost,
+            "/novel/player/multi_video_detail/preload/v1",
+            null,
+            "1234567890123456",
+            "1234567890123457",
+            1700000000000);
+        Assert.StartsWith("https://reading.snssdk.com/novel/player/multi_video_detail/preload/v1?", episodes, StringComparison.Ordinal);
+
+        var body = Encoding.UTF8.GetString(HongguoAppDirectClient.EmulatorPlaybackBody("7600111222333444555"));
+        Assert.Contains("\"dr_scene\":\"preload\"", body, StringComparison.Ordinal);
+        Assert.Contains("\"1004\":[\"7600111222333444555\"]", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EmulatorPrefsKeepACompleteIdentity()
+    {
+        const string xml = """
+            <map>
+              <string name="device_id">1234567890123456</string>
+              <string name="install_id">1234567890123457</string>
+              <string name="klink_egdi">hidden</string>
+            </map>
+            """;
+        Assert.True(HongguoAppEmulatorIdentity.TryParse(xml, out var deviceId, out var installId));
+        Assert.Equal("1234567890123456", deviceId);
+        Assert.Equal("1234567890123457", installId);
+        Assert.False(HongguoAppEmulatorIdentity.TryParse(
+            "<map><string name=\"device_id\">0</string><string name=\"install_id\">1234567890123457</string></map>",
+            out _,
+            out _));
     }
 
     [Fact]
