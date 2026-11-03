@@ -8,8 +8,8 @@ using ShortDrama.Core.Models;
 namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
-/// 红果 APP 下载的搜索、剧集和播放地址。搜索与剧集用进程内 PureSign。
-/// 播放地址按勾选先走链路 1（匿名注册、无签名），失败再走链路 2（同一身份的兼容签名）。
+/// 红果 APP 下载的搜索、剧集和播放地址。搜索、剧集和单集播放地址用进程内 PureSign。
+/// 单集地址失败时，再按勾选走链路 1（匿名注册、无签名）和链路 2（同一身份的兼容签名）。
 /// </summary>
 internal sealed class HongguoAppDirectClient
 {
@@ -131,12 +131,25 @@ internal sealed class HongguoAppDirectClient
         bool streamLink1 = true,
         bool streamLink2 = true)
     {
-        if (!HongguoHighCrypto.TryDecodeEpisodeId(videoId, out _, out _, out var rawVideoId))
+        if (!HongguoHighCrypto.TryDecodeEpisodeId(videoId, out var seriesId, out _, out var rawVideoId))
             throw new HongguoHighException("剧集标识无效");
         if (!streamLink1 && !streamLink2)
         {
             streamLink1 = true;
             streamLink2 = true;
+        }
+
+        try
+        {
+            return await GetAuditVideoModelAsync(seriesId, rawVideoId, quality, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception) when (streamLink1 || streamLink2)
+        {
+            // 单集接口失败时再试原来的两条播放链路。
         }
 
         Exception? first = null;
@@ -249,6 +262,44 @@ internal sealed class HongguoAppDirectClient
                 || string.Equals(value.GetValue<string>(), "1", StringComparison.Ordinal),
             _ => false
         };
+    }
+
+    private async Task<HongguoHighVideoPlayback> GetAuditVideoModelAsync(
+        string seriesId,
+        string videoId,
+        string quality,
+        CancellationToken cancellationToken)
+    {
+        var root = await SendAsync(
+            HttpMethod.Post,
+            "/novel/player/video_model/v1/",
+            VideoModelBody(seriesId, videoId),
+            null,
+            cancellationToken);
+        var model = HongguoGuestPlayback.ModelOf(root["data"]?["video_model"]);
+        if (model is null)
+            throw new HongguoHighException("播放地址为空");
+        return HongguoGuestPlayback.Pick(model, quality);
+    }
+
+    private static byte[] VideoModelBody(string seriesId, string videoId)
+    {
+        var body = new JsonObject
+        {
+            ["biz_param"] = new JsonObject
+            {
+                ["detail_page_version"] = 0,
+                ["device_level"] = 2,
+                ["need_all_video_definition"] = true,
+                ["need_mp4_align"] = false,
+                ["use_os_player"] = false,
+                ["video_platform"] = 1024,
+                ["video_id"] = videoId,
+            },
+            ["series_id"] = seriesId,
+            ["video_id"] = videoId,
+        };
+        return Encoding.UTF8.GetBytes(body.ToJsonString(HongguoGuestPlayback.CompactJson));
     }
 
     internal Task<HongguoGuestPlayback.TrackProbe> ProbePlaybackAsync(
