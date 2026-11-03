@@ -656,6 +656,9 @@ public sealed class KuaishouPersonalEpisodeUploadService
                 await ClickDrawerConfirmAsync(page);
                 return;
             }
+            var finishedFailure = ReadFinishedFailure(body);
+            if (finishedFailure is not null)
+                throw new InvalidOperationException(finishedFailure);
             if (body.Contains("上传失败", StringComparison.Ordinal) || body.Contains("校验失败", StringComparison.Ordinal))
                 throw new InvalidOperationException("快手个人版视频上传出现失败条目，请检查上传抽屉。");
             var progressText = ExtractProgress(body);
@@ -667,6 +670,21 @@ public sealed class KuaishouPersonalEpisodeUploadService
             await Task.Delay(1000, cancellationToken);
         }
         throw new TimeoutException($"等待 {expected} 集视频上传完成超时。");
+    }
+
+    public static string? ReadFinishedFailure(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        var match = System.Text.RegularExpressions.Regex.Match(
+            text,
+            @"上传完成\s*(\d+)\s*集成功\s*[，,]?\s*(\d+)\s*集失败");
+        if (!match.Success ||
+            !int.TryParse(match.Groups[2].Value, out var failed) ||
+            failed <= 0 ||
+            !int.TryParse(match.Groups[1].Value, out var succeeded))
+            return null;
+        return $"快手个人版视频上传结束：{succeeded} 集成功，{failed} 集失败。";
     }
 
     private static string ExtractProgress(string text)
