@@ -112,6 +112,9 @@ public sealed partial class MainWindowViewModel
                 case KsSettleAutoPublishRecovery.Action.ReportInterrupted:
                     await reportAsync(item.Id, "interrupted", "", "客户端未找到本地项目").ConfigureAwait(false);
                     break;
+                case KsSettleAutoPublishRecovery.Action.ReportFailed:
+                    await reportAsync(item.Id, "failed", "", "上次执行已经失败，不再自动重试").ConfigureAwait(false);
+                    break;
                 case KsSettleAutoPublishRecovery.Action.Resume when located.Directory is not null && located.Account is not null:
                     await ResumeMarkedProjectAsync(item, located.Account, located.Directory, reportAsync, cancellationToken).ConfigureAwait(false);
                     break;
@@ -227,28 +230,31 @@ public sealed partial class MainWindowViewModel
         KsSettleCommand command,
         Func<string, string, string, string, Task> reportAsync)
     {
+        // 派单是从界面线程发起的。先离开界面线程，下载和上传才不会把窗口卡死。
+        await Task.Delay(1).ConfigureAwait(false);
         if (command.AssignmentId > 0)
-            await reportAsync("running", "download", $"开始执行「{command.Title}」", "").ConfigureAwait(true);
+            await reportAsync("running", "download", $"开始执行「{command.Title}」", "").ConfigureAwait(false);
         try
         {
             PrepareKuaishouLogProjects(targets, key);
             var (succeeded, failed, error) = await RunKuaishouCheckedProjectsAsync(targets, key, request, cts.Token)
-                .ConfigureAwait(true);
+                .ConfigureAwait(false);
             if (failed > 0 || succeeded == 0)
             {
                 foreach (var dir in targets)
-                    KsSettleMarker.WriteFinal(dir, command.AssignmentId, "");
-                await reportAsync("failed", "", string.IsNullOrWhiteSpace(error) ? "快手分账执行失败" : error, "")
-                    .ConfigureAwait(true);
+                    KsSettleMarker.WriteFinal(dir, command.AssignmentId, "failed");
+                await reportAsync("failed", "", ShortDispatchFailure(error), "").ConfigureAwait(false);
                 return;
             }
             foreach (var dir in targets)
                 KsSettleMarker.WriteFinal(dir, command.AssignmentId, "success");
-            await reportAsync("success", "upload_series", $"上传完成：{command.Title}", "").ConfigureAwait(true);
+            await reportAsync("success", "upload_series", $"上传完成：{command.Title}", "").ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await reportAsync("failed", "", ex.Message, "").ConfigureAwait(true);
+            foreach (var dir in targets)
+                KsSettleMarker.WriteFinal(dir, command.AssignmentId, "failed");
+            await reportAsync("failed", "", ShortDispatchFailure(ex.Message), "").ConfigureAwait(false);
         }
         finally
         {
@@ -258,9 +264,18 @@ public sealed partial class MainWindowViewModel
                     _kuaishouAccountRuns.Remove(key);
             }
             cts.Dispose();
-            NotifyCommands();
+            PostUi(NotifyCommands);
             NotifyKuaishouLogProjectsChanged();
         }
+    }
+
+    private static string ShortDispatchFailure(string? error)
+    {
+        var text = (error ?? "").Trim();
+        if (text.Length == 0)
+            return "快手分账执行失败";
+        var line = text.Split('；', ';')[0].Trim();
+        return line.Length <= 180 ? line : line[..180];
     }
 
     private async Task ResumeMarkedProjectAsync(

@@ -10,6 +10,7 @@ public static class KsSettleAutoPublishRecovery
         Resume,
         ReportSuccess,
         ReportInterrupted,
+        ReportFailed,
     }
 
     public static Action Decide(string? serverStatus, bool markerActive, string? markerFinalStatus, bool projectExists)
@@ -19,6 +20,9 @@ public static class KsSettleAutoPublishRecovery
             return Action.None;
         if (string.Equals(markerFinalStatus, "success", StringComparison.OrdinalIgnoreCase))
             return Action.ReportSuccess;
+        // 已经失败过的本地项目不能再拉起来。否则下载账号失效时，启动后会每隔几分钟重跑同一部，界面一直停住。
+        if (string.Equals(markerFinalStatus, "failed", StringComparison.OrdinalIgnoreCase))
+            return Action.ReportFailed;
         if (markerActive && projectExists)
             return Action.Resume;
         if (status is "accepted" or "running")

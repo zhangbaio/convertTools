@@ -317,7 +317,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             return RetargetRankPageAsync(category, board, offset, cancellationToken);
         if (string.Equals(chain, "hghigh", StringComparison.OrdinalIgnoreCase))
             return _hghighApiService.GetRankPageAsync(settings, category, board, offset, cancellationToken);
-        throw new InvalidOperationException("榜单接入红果高码率标准版、红果短剧下载器和红果APP下载。请先切换到其中一条数据链路。");
+        throw new InvalidOperationException("榜单接入红果高码率标准版、红果短剧下载器和红果APP。请先切换到其中一条数据链路。");
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> EnrichHighNewReleaseItemsAsync(
@@ -885,6 +885,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             concurrency);
         using var downloadSemaphore = new SemaphoreSlim(concurrency);
         using var resolveSemaphore = resolveConcurrency > 0 ? new SemaphoreSlim(resolveConcurrency) : null;
+        using var accountFailureStop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         var downloads = tasks.Select(task => DownloadEpisodeAsync(
             request.OutputDir,
@@ -901,11 +902,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             downloadFileSegments,
             downloadTimeoutSeconds,
             downloadAttempts,
-            cancellationToken,
+            accountFailureStop.Token,
             pieceSize,
             pieceWorkers,
-            prepareDownloadedFile));
-        await Task.WhenAll(downloads);
+            prepareDownloadedFile,
+            accountFailureStop));
+        try
+        {
+            await Task.WhenAll(downloads);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
 
         var posterUrl = ReadPosterUrlFromProject(request.OutputDir);
         if (!LooksLikeHttpUrl(posterUrl))
@@ -927,7 +935,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var videoCount = CountVideoFiles(request.OutputDir);
         if (failures.Count > 0)
         {
-            var failed = new DramaDownloadResult(false, request.OutputDir, videoCount, string.Join("；", failures.Distinct(StringComparer.Ordinal)));
+            var accountFailure = failures.FirstOrDefault(IsAccountLevelDownloadFailure);
+            var failureMessage = accountFailure ?? string.Join("；", failures.Distinct(StringComparer.Ordinal));
+            var failed = new DramaDownloadResult(false, request.OutputDir, videoCount, failureMessage);
             WriteDownloadState(request, failed, tasks, failures, episodeNumberMode);
             PersistEpisodeNumberMode(request.ProjectDir, episodeNumberMode);
             return failed;
@@ -966,7 +976,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken,
         int pieceSize = 0,
         int pieceWorkers = 0,
-        Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null)
+        Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null,
+        CancellationTokenSource? accountFailureStop = null)
     {
         var lifecycleSlotHeld = false;
         if (resolveSemaphore is null)
@@ -1091,10 +1102,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 catch (Exception ex)
                 {
                     CleanupDownloadArtifacts(finalPath, keepVideo: true);
-                    lock (failures)
-                    {
-                        failures.Add($"第{task.EpisodeNumber:00}集 {ex.Message}");
-                    }
+                    RememberEpisodeFailure(failures, task, ex, accountFailureStop);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
                     return;
                 }
@@ -1114,10 +1122,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             catch (Exception ex)
             {
                 CleanupDownloadArtifacts(finalPath, keepVideo: true);
-                lock (failures)
-                {
-                    failures.Add($"第{task.EpisodeNumber:00}集 {ex.Message}");
-                }
+                RememberEpisodeFailure(failures, task, ex, accountFailureStop);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
             }
         }
@@ -2246,8 +2251,36 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return unit == 0 ? $"{value:0} {units[unit]}" : $"{value:0.#} {units[unit]}";
     }
 
+    internal static bool IsAccountLevelDownloadFailure(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+        return message.Contains("未授权", StringComparison.Ordinal)
+               || message.Contains("积分不足", StringComparison.Ordinal)
+               || message.Contains("请授权账号", StringComparison.Ordinal);
+    }
+
+    private static void RememberEpisodeFailure(
+        ICollection<string> failures,
+        EpisodeTask task,
+        Exception exception,
+        CancellationTokenSource? accountFailureStop)
+    {
+        var accountLevel = IsAccountLevelDownloadFailure(exception.Message);
+        lock (failures)
+        {
+            if (!(accountLevel && failures.Any(IsAccountLevelDownloadFailure)))
+                failures.Add($"第{task.EpisodeNumber:00}集 {exception.Message}");
+        }
+
+        if (accountLevel)
+            accountFailureStop?.Cancel();
+    }
+
     internal static bool ShouldRetryDownload(Exception exception)
     {
+        if (IsAccountLevelDownloadFailure(exception.Message))
+            return false;
         if (exception is HongguoHighException highException)
         {
             if (highException.Code is 401 or 403)
