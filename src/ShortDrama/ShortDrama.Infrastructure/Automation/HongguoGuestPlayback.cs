@@ -85,6 +85,11 @@ internal sealed class HongguoGuestPlayback
         Action<string, string>? persist = null)
     {
         var model = await ModelAsync(videoId, deviceId, installId, persist, cancellationToken);
+        return DescribeTracks(model);
+    }
+
+    internal static TrackProbe DescribeTracks(JsonObject model)
+    {
         var tracks = TracksOf(model);
         var count = 0;
         var allUrl = tracks.Count > 0;

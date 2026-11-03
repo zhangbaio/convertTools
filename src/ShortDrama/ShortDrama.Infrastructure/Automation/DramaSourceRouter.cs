@@ -2340,7 +2340,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken,
         string? searchCategory = null)
     {
-        var items = await _hongguoApp.SearchAsync(keyword, page, cancellationToken, searchCategory);
+        var items = await _hongguoApp.SearchAsync(
+            keyword,
+            page,
+            cancellationToken,
+            searchCategory,
+            settings.HongguoAppDeviceId,
+            settings.HongguoAppInstallId,
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId));
         return items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray();
     }
 
@@ -2758,7 +2765,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var bookId = prefixedBookId.StartsWith(HongguoAppBookPrefix, StringComparison.OrdinalIgnoreCase)
             ? prefixedBookId[HongguoAppBookPrefix.Length..]
             : prefixedBookId;
-        var items = await _hongguoApp.GetEpisodesAsync(bookId, cancellationToken);
+        var items = await _hongguoApp.GetEpisodesAsync(
+            bookId,
+            cancellationToken,
+            settings.HongguoAppDeviceId,
+            settings.HongguoAppInstallId,
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId));
         return items
             .Select(item => new SourceEpisode(item.EpisodeNumber, item.Title, item.VideoId, item.PosterUrl))
             .ToArray();
