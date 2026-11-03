@@ -14,7 +14,8 @@ public static class ProjectImageAdvancedTrackRenderer
     public static void RenderStrip(
         Image<Rgba32> canvas,
         ProjectImageTemplateRegion rect,
-        IReadOnlyList<Image<Rgba32>> frames)
+        IReadOnlyList<Image<Rgba32>> frames,
+        IReadOnlyList<Image<Rgba32>>? segmentMaterialFrames = null)
     {
         ArgumentNullException.ThrowIfNull(canvas);
         ArgumentNullException.ThrowIfNull(rect);
@@ -80,12 +81,88 @@ public static class ProjectImageAdvancedTrackRenderer
             strip.Mutate(context => context.DrawImage(partial, new Point(x, thumbnailY), 1f));
         }
 
+        if (segmentMaterialFrames is { Count: > 0 })
+        {
+            PaintSegmentFirstFrames(strip, rect, segmentMaterialFrames);
+        }
+
         // Match the source renderer's restoration order: text, segment
         // boundaries, then the playhead as the top-most timeline decoration.
         DrawOverlay(strip, textOverlay);
         DrawOverlay(strip, boundaryOverlay);
         DrawOverlay(strip, playheadOverlay);
         canvas.Mutate(context => context.DrawImage(strip, new Point(rect.X, rect.Y), 1f));
+    }
+
+    private static void PaintSegmentFirstFrames(
+        Image<Rgba32> strip,
+        ProjectImageTemplateRegion rect,
+        IReadOnlyList<Image<Rgba32>> materialFrames)
+    {
+        if (rect.Width < rect.Height * 3 || materialFrames.Count == 0)
+        {
+            return;
+        }
+
+        var materialIndexes = (NoteValue(rect, "segment_material_indexes") ?? string.Empty)
+            .Split(['|', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value => int.TryParse(value, out var index) ? (int?)index : null)
+            .Where(static index => index.HasValue)
+            .Select(static index => index!.Value)
+            .ToArray();
+        if (materialIndexes.Length == 0)
+        {
+            return;
+        }
+
+        var boundaries = (NoteValue(rect, "preserve_boundary_xs") ?? string.Empty)
+            .Split(['|', '/'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value => int.TryParse(value, out var position) ? (int?)position : null)
+            .Where(static position => position.HasValue)
+            .Select(static position => position!.Value)
+            .Where(position => position > rect.X && position < rect.X + rect.Width)
+            .Select(position => position - rect.X)
+            .Distinct()
+            .Order()
+            .ToArray();
+        var segmentStarts = new[] { 0 }.Concat(boundaries).ToArray();
+        var segmentEnds = boundaries.Append(rect.Width).ToArray();
+        var thumbnailHeight = ResolveThumbnailHeight(rect);
+        var thumbnailY = NoteInt(
+            rect,
+            "thumbnail_y",
+            Math.Max(0, (rect.Height - thumbnailHeight) / 2),
+            0,
+            Math.Max(0, rect.Height - thumbnailHeight));
+        var clipWidth = Math.Clamp((int)Math.Round(thumbnailHeight * 1.35), 28, 72);
+        var inset = NoteInt(rect, "segment_first_inset", 3, 0, 12);
+
+        for (var index = 0; index < materialIndexes.Length && index < segmentStarts.Length; index++)
+        {
+            var materialIndex = materialIndexes[index];
+            if (materialIndex < 1 || materialIndex > materialFrames.Count)
+            {
+                continue;
+            }
+
+            var targetX = segmentStarts[index] + inset;
+            var width = Math.Min(clipWidth, segmentEnds[index] - targetX);
+            width = Math.Min(width, strip.Width - targetX);
+            if (width <= 0 || targetX < 0 || thumbnailY < 0 || thumbnailY >= strip.Height)
+            {
+                continue;
+            }
+
+            using var thumbnail = ResizeCrop(materialFrames[materialIndex - 1], clipWidth, thumbnailHeight);
+            if (width == clipWidth)
+            {
+                strip.Mutate(context => context.DrawImage(thumbnail, new Point(targetX, thumbnailY), 1f));
+                continue;
+            }
+
+            using var partial = thumbnail.Clone(context => context.Crop(new Rectangle(0, 0, width, thumbnailHeight)));
+            strip.Mutate(context => context.DrawImage(partial, new Point(targetX, thumbnailY), 1f));
+        }
     }
 
     private static Image<Rgba32>? CaptureTextOverlay(

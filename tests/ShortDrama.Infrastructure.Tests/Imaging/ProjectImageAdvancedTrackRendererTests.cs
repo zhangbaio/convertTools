@@ -71,6 +71,27 @@ public sealed class ProjectImageAdvancedTrackRendererTests
     }
 
     [Fact]
+    public void RenderStrip_segment_material_indexes_paint_the_numbered_material_frame()
+    {
+        using var canvas = new Image<Rgba32>(200, 80, new Rgba32(18, 22, 26, 255));
+        var rect = new ProjectImageTemplateRegion(
+            10,
+            10,
+            160,
+            50,
+            "thumbnail_y=10;thumbnail_height=30;segment_material_indexes=2|1;preserve_boundary_xs=90;preserve_boundary_width=3");
+        using var stripFrame = new Image<Rgba32>(20, 20, new Rgba32(20, 40, 220, 255));
+        using var firstMaterial = new Image<Rgba32>(20, 20, new Rgba32(230, 210, 20, 255));
+        using var secondMaterial = new Image<Rgba32>(20, 20, new Rgba32(20, 200, 60, 255));
+
+        ProjectImageAdvancedTrackRenderer.RenderStrip(canvas, rect, [stripFrame], [firstMaterial, secondMaterial]);
+
+        canvas[16, 28].Should().Be(new Rgba32(20, 200, 60, 255));
+        canvas[96, 28].Should().Be(new Rgba32(230, 210, 20, 255));
+        canvas[90, 28].Should().Be(canvas[90, 12], "the segment boundary stays above the replaced thumbnail");
+    }
+
+    [Fact]
     public void RenderStrip_with_no_frames_is_a_no_op()
     {
         using var canvas = BuildPatternedCanvas(40, 30);

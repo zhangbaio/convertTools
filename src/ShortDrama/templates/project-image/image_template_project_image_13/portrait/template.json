@@ -1,0 +1,115 @@
+{
+  "id": "image-template-project-image-13",
+  "name": "图片模板工程图13（竖屏）",
+  "mode": "image_template",
+  "extract_dialogue": true,
+  "require_player_subtitle": true,
+  "material_subtitle_cleanup": true,
+  "asset_version": 2026091310,
+  "count": 4,
+  "description": "图片模板工程图13的竖屏底图；由视频方向自动选择，替换草稿信息、自动保存时间、播放器、可见素材卡和主视频轨画面。",
+  "templates": [
+    {
+      "file": "template1.png",
+      "regions": {
+        "autosave_status": {"x": 175, "y": 7, "width": 145, "height": 22, "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE"},
+        "top_title": {"x": 780, "y": 7, "width": 360, "height": 20, "note": "title_mode=project;fixed_width=1;text_overflow=clip_left;padding_x=0;font_size=11"},
+        "draft_name": {"x": 1634, "y": 91, "width": 271, "height": 23, "note": "title_mode=project"},
+        "player_canvas": {"x": 686, "y": 79, "width": 821, "height": 425, "note": "fill=#262626"},
+        "player": {"x": 976, "y": 79, "width": 240, "height": 425},
+        "player_canvas_landscape": {"x": 686, "y": 79, "width": 821, "height": 425, "note": "fill=#262626"},
+        "player_landscape": {"x": 719, "y": 79, "width": 757, "height": 425},
+        "material_video_images": [
+          {"x": 118, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 526, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 526, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 374, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 374, "width": 120, "height": 80, "note": "duration=00:01"}
+        ],
+        "subtitle_track_texts": [{"x": 918, "y": 768, "width": 94, "height": 22, "note": "playhead_x=960;playhead_width=3;preserve_left=21;font_size=11;backdrop_alpha=24"}],
+        "video_track_images": [{"x": 134, "y": 793, "width": 1772, "height": 75, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=19;thumbnail_height=39;preserve_text_height=19;preserve_boundary_xs=384|914|1443;preserve_boundary_width=3;clip_count=4;single_episode_track=1;track_episode_index=1;segment_material_indexes=4|5|6|7;playhead_x=960;playhead_brightness=255;playhead_alpha=255"}]
+      }
+    },
+    {
+      "file": "template2.png",
+      "regions": {
+        "autosave_status": {"x": 175, "y": 7, "width": 145, "height": 22, "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE"},
+        "top_title": {"x": 780, "y": 7, "width": 360, "height": 20, "note": "title_mode=project;fixed_width=1;text_overflow=clip_left;padding_x=0;font_size=11"},
+        "draft_name": {"x": 1634, "y": 91, "width": 271, "height": 23, "note": "title_mode=project"},
+        "player_canvas": {"x": 686, "y": 79, "width": 821, "height": 425, "note": "fill=#262626"},
+        "player": {"x": 976, "y": 79, "width": 240, "height": 425},
+        "player_canvas_landscape": {"x": 686, "y": 79, "width": 821, "height": 425, "note": "fill=#262626"},
+        "player_landscape": {"x": 719, "y": 79, "width": 757, "height": 425},
+        "material_video_images": [
+          {"x": 118, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 526, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 526, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 374, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 374, "width": 120, "height": 80, "note": "duration=00:02"}
+        ],
+        "subtitle_track_texts": [{"x": 1364, "y": 768, "width": 88, "height": 22, "note": "playhead_x=1408;playhead_width=3;preserve_left=21;font_size=11;backdrop_alpha=24"}],
+        "video_track_images": [{"x": 134, "y": 793, "width": 1772, "height": 75, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=19;thumbnail_height=39;preserve_text_height=19;preserve_boundary_xs=584|1097|1609;preserve_boundary_width=3;clip_count=4;single_episode_track=1;track_episode_index=2;segment_material_indexes=3|4|5|6;playhead_x=1408;playhead_brightness=255;playhead_alpha=255"}]
+      }
+    },
+    {
+      "file": "template3.png",
+      "regions": {
+        "autosave_status": {"x": 175, "y": 7, "width": 145, "height": 22, "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE"},
+        "top_title": {"x": 780, "y": 7, "width": 360, "height": 20, "note": "title_mode=project;fixed_width=1;text_overflow=clip_left;padding_x=0;font_size=11"},
+        "draft_name": {"x": 1634, "y": 91, "width": 271, "height": 23, "note": "title_mode=project"},
+        "player_canvas": {"x": 686, "y": 79, "width": 821, "height": 425, "note": "fill=#262626"},
+        "player": {"x": 976, "y": 79, "width": 240, "height": 425},
+        "player_canvas_landscape": {"x": 686, "y": 79, "width": 821, "height": 425, "note": "fill=#262626"},
+        "player_landscape": {"x": 719, "y": 79, "width": 757, "height": 425},
+        "material_video_images": [
+          {"x": 118, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 526, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 526, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 374, "width": 120, "height": 80, "note": "duration=00:04"}
+        ],
+        "subtitle_track_texts": [{"x": 834, "y": 768, "width": 94, "height": 22, "note": "playhead_x=871;playhead_width=3;preserve_left=21;font_size=11;backdrop_alpha=24"}],
+        "video_track_images": [{"x": 134, "y": 793, "width": 1772, "height": 75, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=19;thumbnail_height=39;preserve_text_height=19;preserve_boundary_xs=526|1075|1625;preserve_boundary_width=3;clip_count=4;single_episode_track=1;track_episode_index=3;segment_material_indexes=5|6|7|8;playhead_x=871;playhead_brightness=255;playhead_alpha=255"}]
+      }
+    },
+    {
+      "file": "template4.png",
+      "regions": {
+        "autosave_status": {"x": 175, "y": 7, "width": 145, "height": 22, "note": "format=%H:%M:%S;suffix=自动保存本地;font_size=12;color=#A4A9AE"},
+        "top_title": {"x": 780, "y": 7, "width": 360, "height": 20, "note": "title_mode=project;fixed_width=1;text_overflow=clip_left;padding_x=0;font_size=11"},
+        "draft_name": {"x": 1634, "y": 91, "width": 271, "height": 23, "note": "title_mode=project"},
+        "player_canvas": {"x": 686, "y": 79, "width": 821, "height": 425, "note": "fill=#262626"},
+        "player": {"x": 976, "y": 79, "width": 240, "height": 425},
+        "player_canvas_landscape": {"x": 686, "y": 79, "width": 821, "height": 425, "note": "fill=#262626"},
+        "player_landscape": {"x": 719, "y": 79, "width": 757, "height": 425},
+        "material_video_images": [
+          {"x": 118, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 526, "y": 150, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 254, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 390, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 526, "y": 262, "width": 120, "height": 80, "note": "duration=00:05"},
+          {"x": 118, "y": 374, "width": 120, "height": 80, "note": "duration=00:04"}
+        ],
+        "subtitle_track_texts": [{"x": 473, "y": 768, "width": 125, "height": 22, "note": "playhead_x=532;playhead_width=3;preserve_left=21;font_size=11;backdrop_alpha=24"}],
+        "video_track_images": [{"x": 180, "y": 793, "width": 1726, "height": 75, "note": "replace_image_only=1;sample_scope=full_episode;thumbnail_y=19;thumbnail_height=39;preserve_text_height=19;preserve_boundary_xs=733|1286|1837;preserve_boundary_width=3;clip_count=4;single_episode_track=1;track_episode_index=4;segment_material_indexes=1|2|3|4;playhead_x=532;playhead_brightness=255;playhead_alpha=255"}]
+      }
+    }
+  ]
+}

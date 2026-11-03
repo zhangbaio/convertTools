@@ -134,4 +134,48 @@ public sealed class ProjectImageTemplateBundlingTests
                 .And.Contain("replace_image_only=1");
         }
     }
+
+    [Fact]
+    public void Template_13_publishes_landscape_and_portrait_three_track_pages()
+    {
+        var templateDirectory = Path.Combine(
+            AppContext.BaseDirectory,
+            "templates",
+            "project-image",
+            "image_template_project_image_13");
+        using var manifest = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(templateDirectory, "template.json")));
+        using var portraitManifest = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(templateDirectory, "portrait", "template.json")));
+
+        manifest.RootElement.GetProperty("id").GetString()
+            .Should().Be("image-template-project-image-13");
+        manifest.RootElement.GetProperty("name").GetString()
+            .Should().Be("图片模板工程图13");
+        portraitManifest.RootElement.GetProperty("name").GetString()
+            .Should().Be("图片模板工程图13（竖屏）");
+        manifest.RootElement.GetProperty("asset_version").GetInt64().Should().Be(2026091310);
+        portraitManifest.RootElement.GetProperty("asset_version").GetInt64().Should().Be(2026091310);
+        manifest.RootElement.GetProperty("require_player_subtitle").GetBoolean().Should().BeTrue();
+        manifest.RootElement.GetProperty("material_subtitle_cleanup").GetBoolean().Should().BeTrue();
+        manifest.RootElement.GetProperty("extract_dialogue").GetBoolean().Should().BeTrue();
+
+        var expectedIndexes = new[] { "5|6|7|8|9", "1|2|3|4", "6|7|8", "9|10|11" };
+        var pages = manifest.RootElement.GetProperty("templates").EnumerateArray().ToArray();
+        pages.Should().HaveCount(4);
+        for (var index = 0; index < pages.Length; index++)
+        {
+            var regions = pages[index].GetProperty("regions");
+            regions.GetProperty("top_title").GetProperty("note").GetString()
+                .Should().Contain("title_mode=project");
+            regions.GetProperty("video_track_images")[0].GetProperty("note").GetString()
+                .Should().Contain($"segment_material_indexes={expectedIndexes[index]}");
+            var pagePath = Path.Combine(templateDirectory, $"template{index + 1}.png");
+            var portraitPath = Path.Combine(templateDirectory, "portrait", $"template{index + 1}.png");
+            File.Exists(pagePath).Should().BeTrue();
+            File.Exists(portraitPath).Should().BeTrue();
+            Image.Identify(pagePath)!.Width.Should().Be(1920);
+            Image.Identify(portraitPath)!.Width.Should().Be(1920);
+        }
+    }
 }

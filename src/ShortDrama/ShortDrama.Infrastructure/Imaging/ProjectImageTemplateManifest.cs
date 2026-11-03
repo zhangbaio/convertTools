@@ -38,7 +38,9 @@ public sealed record ProjectImageTemplateManifest(
     IReadOnlyList<ProjectImageTemplatePage> Templates,
     bool RenderTimelineOverlay = false,
     long AssetVersion = 0,
-    bool ExtractDialogue = true)
+    bool ExtractDialogue = true,
+    bool RequirePlayerSubtitle = false,
+    bool MaterialSubtitleCleanup = false)
 {
     public static ProjectImageTemplateManifest Load(string templateDirectory)
     {
@@ -56,6 +58,8 @@ public sealed record ProjectImageTemplateManifest(
         var renderTimelineOverlay = GetBool(root, "render_timeline_overlay");
         var assetVersion = GetLong(root, "asset_version") ?? GetLong(root, "version") ?? 0;
         var extractDialogue = GetBool(root, "extract_dialogue", defaultValue: true);
+        var requirePlayerSubtitle = GetBool(root, "require_player_subtitle");
+        var materialSubtitleCleanup = GetBool(root, "material_subtitle_cleanup");
 
         if (!root.TryGetProperty("templates", out var templatesElement) || templatesElement.ValueKind != JsonValueKind.Array)
         {
@@ -99,7 +103,9 @@ public sealed record ProjectImageTemplateManifest(
             pages,
             renderTimelineOverlay,
             assetVersion,
-            extractDialogue);
+            extractDialogue,
+            requirePlayerSubtitle,
+            materialSubtitleCleanup);
     }
 
     private static IReadOnlyList<ProjectImageTemplateRegion> ParseRegions(JsonElement element)
