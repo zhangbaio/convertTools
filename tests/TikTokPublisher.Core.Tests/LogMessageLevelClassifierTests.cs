@@ -31,6 +31,14 @@ public sealed class LogMessageLevelClassifierTests
         LogMessageLevelClassifier.InferLevel(message).Should().Be("error");
     }
 
+    [Fact]
+    public void Headless_submit_notice_is_info()
+    {
+        LogMessageLevelClassifier.InferLevel(
+                "当前使用外部浏览器无头模式提交。提交后会校验原创管理状态，并保留无头设置，不自动打开可见浏览器。")
+            .Should().Be("info");
+    }
+
     [Theory]
     [InlineData("角色参考图：正在用视觉模型匹配性别并排除重复人物。")]
     [InlineData("开始避免重复角色并选择清晰单人图")]
