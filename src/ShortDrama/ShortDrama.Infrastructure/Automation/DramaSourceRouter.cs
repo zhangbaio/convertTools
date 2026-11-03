@@ -693,7 +693,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 validateVideoEncoding: ShouldValidateVideoEncodingForSource("hongguoapp"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
-                downloadAttempts: downloadAttempts);
+                downloadAttempts: downloadAttempts,
+                separateResolveConcurrency: 1);
         }
 
         if (bookId.StartsWith(PlayletDramaClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -2271,7 +2272,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                message.Contains("504", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("超时", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("解析超过", StringComparison.OrdinalIgnoreCase);
+               message.Contains("解析超过", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("empty body", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("播放地址为空", StringComparison.Ordinal) ||
+               message.Contains("设备注册失败", StringComparison.Ordinal);
     }
 
     internal static TimeSpan ResolveDownloadRetryDelay(Exception exception, int attempt)
