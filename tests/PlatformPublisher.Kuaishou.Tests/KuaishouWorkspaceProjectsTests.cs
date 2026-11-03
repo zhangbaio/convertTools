@@ -24,10 +24,16 @@ public sealed class KuaishouWorkspaceProjectsTests
             Path.Combine(root.FullName, "workflow", "别的项目")));
         var videosOnly = Directory.CreateDirectory(Path.Combine(root.FullName, "红果_只有视频"));
         File.WriteAllBytes(Path.Combine(videosOnly.FullName, "1.mp4"), [1]);
-        Assert.True(KuaishouWorkspaceProjects.IsListed(root.FullName, videosOnly.FullName));
+        Assert.False(KuaishouWorkspaceProjects.IsListed(root.FullName, videosOnly.FullName));
+        var imported = Directory.CreateDirectory(Path.Combine(root.FullName, "红果_已导入"));
+        File.WriteAllText(
+            Path.Combine(imported.FullName, KuaishouWorkspaceProjects.ProjectFileName),
+            """{"localImported":true,"importMode":"local"}""");
+        Assert.True(KuaishouWorkspaceProjects.IsListed(root.FullName, imported.FullName));
         var listed = KuaishouWorkspaceProjects.List(root.FullName);
         Assert.Contains(project.FullName, listed);
-        Assert.Contains(videosOnly.FullName, listed);
+        Assert.Contains(imported.FullName, listed);
+        Assert.DoesNotContain(videosOnly.FullName, listed);
         Assert.DoesNotContain(empty.FullName, listed);
     }
 

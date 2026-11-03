@@ -1142,7 +1142,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 try
                 {
-                    imported.Add(KuaishouLocalDramaImportService.Bootstrap(directory).ProjectDirectory);
+                    var projectDirectory = KuaishouLocalDramaImportService.Bootstrap(directory).ProjectDirectory;
+                    KuaishouWorkspaceProjects.Invalidate(projectDirectory);
+                    imported.Add(projectDirectory);
                 }
                 catch (Exception ex)
                 {
@@ -4381,10 +4383,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return false;
         if (KuaishouWorkspaceProjects.TryGetListed(workspace, projectDirectory, out var listed))
             return listed;
-        var structural = KuaishouWorkspaceProjects.IsStructuralChild(workspace, projectDirectory);
-        if (structural)
+        if (KuaishouWorkspaceProjects.IsStructuralChild(workspace, projectDirectory))
             _kuaishouListedMisses.Add(projectDirectory);
-        return structural;
+        return false;
     }
 
     private void ScheduleKuaishouListedVerification()
@@ -4399,9 +4400,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var changed = false;
             foreach (var directory in pending)
             {
-                var optimistic = KuaishouWorkspaceProjects.IsStructuralChild(workspace, directory);
-                var listed = KuaishouWorkspaceProjects.IsListed(workspace, directory);
-                if (optimistic != listed)
+                if (KuaishouWorkspaceProjects.IsListed(workspace, directory))
                     changed = true;
             }
 

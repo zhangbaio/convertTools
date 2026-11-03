@@ -3,8 +3,8 @@ using System.Collections.Concurrent;
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 /// <summary>
-/// 与短剧助手快手个人版、企业版相同：列出当前工作目录下的项目。
-/// 有项目文件、短剧信息，或目录里已经有剧集视频，都会出现在列表中。
+/// 列出当前工作目录下要显示的快手分账项目。
+/// 只有导入过或已经有项目文件的目录才出现；仅有剧集视频的目录不显示。
 /// </summary>
 public static class KuaishouWorkspaceProjects
 {
@@ -91,11 +91,8 @@ public static class KuaishouWorkspaceProjects
             return false;
         if (IsArchiveRoot(project) || !Directory.Exists(project))
             return false;
-        if (File.Exists(Path.Combine(project, ProjectFileName)) ||
-            File.Exists(Path.Combine(project, "短剧信息.txt")))
-            return true;
-
-        return HasEpisodeVideo(project);
+        return File.Exists(Path.Combine(project, ProjectFileName)) ||
+               File.Exists(Path.Combine(project, "短剧信息.txt"));
     }
 
     private static bool TryCacheKey(string? workspaceRoot, string? projectDirectory, out string key)
@@ -142,55 +139,6 @@ public static class KuaishouWorkspaceProjects
         name.Equals("workflow", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("archive", StringComparison.OrdinalIgnoreCase) ||
         name.Equals("config", StringComparison.OrdinalIgnoreCase);
-
-    private static bool HasEpisodeVideo(string directory)
-    {
-        var pending = new Stack<string>();
-        pending.Push(directory);
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-            IEnumerable<string> files;
-            IEnumerable<string> children;
-            try
-            {
-                files = Directory.EnumerateFiles(current);
-                children = Directory.EnumerateDirectories(current);
-            }
-            catch (IOException)
-            {
-                continue;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                continue;
-            }
-
-            foreach (var file in files)
-            {
-                var extension = Path.GetExtension(file);
-                if (extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
-                    extension.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
-                    extension.Equals(".m4v", StringComparison.OrdinalIgnoreCase) ||
-                    extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase) ||
-                    extension.Equals(".avi", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            foreach (var child in children)
-            {
-                var childName = Path.GetFileName(child);
-                if (childName.StartsWith('.') ||
-                    childName.Equals("material-videos", StringComparison.OrdinalIgnoreCase) ||
-                    childName.Equals("material-clip-output", StringComparison.OrdinalIgnoreCase) ||
-                    childName.Equals("素材剪辑输出", StringComparison.OrdinalIgnoreCase))
-                    continue;
-                pending.Push(child);
-            }
-        }
-
-        return false;
-    }
 
     private static bool IsArchiveRoot(string directory)
     {
