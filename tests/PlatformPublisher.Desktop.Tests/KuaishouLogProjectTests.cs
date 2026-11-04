@@ -42,26 +42,22 @@ public sealed class KuaishouLogProjectTests
     }
 
     [Fact]
-    public void Failed_projects_stay_in_the_log_list_when_a_later_run_starts()
+    public void A_later_run_lists_only_the_projects_checked_for_that_run()
     {
-        var failed = new KuaishouLogProject("万兽认我当干妈", @"E:\kuaishou4\万兽认我当干妈", "failed");
-        failed.AppendLine("共享项目流水线失败：文件被占用");
-        var finished = new KuaishouLogProject("偷我外卖", @"E:\kuaishou4\偷我外卖", "ok");
         var next = new KuaishouLogProject("烟火照青云", @"E:\kuaishou4\烟火照青云", "waiting");
 
-        var kept = KuaishouLogProject.RetainFailures([failed, finished], [next]);
+        var kept = KuaishouLogProject.ForThisRun([next]);
 
-        Assert.Equal(["烟火照青云", "万兽认我当干妈"], kept.Select(item => item.ProjectName).ToArray());
-        Assert.Contains("文件被占用", kept[1].CopyLines()[0]);
+        var only = Assert.Single(kept);
+        Assert.Equal("烟火照青云", only.ProjectName);
     }
 
     [Fact]
     public void Retrying_a_failed_project_replaces_the_old_log_entry()
     {
-        var failed = new KuaishouLogProject("万兽认我当干妈", @"E:\kuaishou4\万兽认我当干妈", "failed");
         var retry = new KuaishouLogProject("万兽认我当干妈", @"E:\kuaishou4\万兽认我当干妈", "waiting");
 
-        var kept = KuaishouLogProject.RetainFailures([failed], [retry]);
+        var kept = KuaishouLogProject.ForThisRun([retry]);
 
         Assert.Single(kept);
         Assert.Equal("waiting", kept[0].Tone);

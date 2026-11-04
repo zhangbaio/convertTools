@@ -309,13 +309,12 @@
                 </Grid>
                 <Border Classes="kuaishouStepFrame">
                     <WrapPanel Orientation="Horizontal">
-                        <TextBlock Text="本地" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
+                        <TextBlock Text="启用步骤" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
                         <CheckBox Content="下载" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,12,2" />
-                        <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,16,2" />
-                        <TextBlock Text="浏览器" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
+                        <CheckBox Content="补齐字段" IsChecked="{Binding PipelineAutoFillEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="上传剧集" IsChecked="{Binding PipelineUploadEpisodesEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="强制重跑已完成步骤" IsChecked="{Binding PipelineForceRerun}" Margin="0,0,12,2" />
                         <CheckBox Content="上传后自动归档" IsChecked="{Binding PipelineAutoArchiveAfterUpload}" Margin="0,0,12,2"

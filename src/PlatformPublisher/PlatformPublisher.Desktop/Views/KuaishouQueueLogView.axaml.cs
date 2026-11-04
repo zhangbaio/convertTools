@@ -128,13 +128,6 @@ public partial class KuaishouQueueLogView : UserControl
                 Add(ProjectListTitle(job.NewTitle, job.ProjectName), job.ProjectName, ToneFromJob(job));
         }
 
-        foreach (var job in _vm.VisibleJobs)
-        {
-            if (ToneFromJob(job) != "failed")
-                continue;
-            Add(ProjectListTitle(job.NewTitle, job.ProjectName), job.ProjectName, "failed");
-        }
-
         ApplyProjectRows(rows);
     }
 
@@ -271,16 +264,7 @@ public partial class KuaishouQueueLogView : UserControl
 
         if (projects.Count > 0 && projects.Any(project => project.CopyLines().Count > 0))
         {
-            var lines = projects.SelectMany(project => project.CopyLines()).ToList();
-            var known = projects.Select(project => project.ProjectName).ToHashSet(StringComparer.Ordinal);
-            foreach (var job in _vm.VisibleJobs)
-            {
-                if (ToneFromJob(job) != "failed" || known.Contains(job.ProjectName))
-                    continue;
-                lines.AddRange(ActivityLines(job.ProjectName));
-            }
-
-            return lines;
+            return projects.SelectMany(project => project.CopyLines());
         }
 
         return ActivityLines("");

@@ -3792,7 +3792,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void PrepareKuaishouLogProjects(IReadOnlyList<string> directories, string accountKey)
     {
-        _kuaishouLogsByAccount.TryGetValue(accountKey, out var previous);
         var projects = new List<KuaishouLogProject>();
         foreach (var directory in directories)
         {
@@ -3806,7 +3805,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             projects.Add(new KuaishouLogProject(name, normalized, "waiting"));
         }
 
-        _kuaishouLogsByAccount[accountKey] = KuaishouLogProject.RetainFailures(previous, projects);
+        _kuaishouLogsByAccount[accountKey] = KuaishouLogProject.ForThisRun(projects);
         NotifyKuaishouLogProjectsChanged();
     }
 
@@ -4486,15 +4485,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
                                        (_materialWorkflowActive
                                            ? job.Kind != PublishJobKind.Series
                                            : job.Kind == PublishJobKind.Series))
-                         .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
-                                       string.IsNullOrWhiteSpace(WorkflowFilterText) ||
-                                       job.ProjectName.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
-                                       job.AccountName.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
-                                       job.ProjectDirectory.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
-                                       job.StatusMessage.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase))
                          .OrderByDescending(job => job.CreatedAt))
             {
-                rows.Add(RowForJob(job));
+                var row = RowForJob(job);
+                if (!MatchesWorkflowFilter(row))
+                    continue;
+                rows.Add(row);
             }
 
             var liveIds = jobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -4514,6 +4510,29 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Refresh();
         else
             Dispatcher.UIThread.Post(Refresh);
+    }
+
+    private bool MatchesWorkflowFilter(PublishJobRowViewModel row)
+    {
+        if (string.IsNullOrWhiteSpace(WorkflowFilterText))
+            return true;
+        if (row.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+            row.LoadTableInfo();
+        return WorkflowJobFilter.Matches(
+            WorkflowFilterText,
+            row.ProjectName,
+            row.AccountName,
+            row.ProjectDirectory,
+            row.StatusMessage,
+            row.OriginalTitle,
+            row.NewTitle,
+            row.StatusText,
+            row.DownloadStepStatus,
+            row.RewriteStepStatus,
+            row.PosterStepStatus,
+            row.ProjectImageStepStatus,
+            row.AutoFillStepStatus,
+            row.UploadStepStatus);
     }
 
     private bool IsKuaishouJobListed(string workspace, string projectDirectory)
