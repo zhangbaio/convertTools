@@ -2564,7 +2564,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         if (!request.Upload)
+        {
+            if (trackedJob is not null &&
+                KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, KuaishouUploadCompleted(trackedJob, projectDirectory, request)))
+                await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
             return;
+        }
         if (trackedJob is null || trackedRow is null)
             throw new InvalidOperationException("上传剧集需要先把项目加入队列。");
 
@@ -2621,13 +2626,34 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 trackedJob.StatusMessage = "发布流程执行完成";
                 trackedJob.LastCompletedAt = DateTimeOffset.Now;
             });
-            if (request.AutoArchive && !uploadAlreadyDone)
+            if (KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, uploadCompleted: true))
                 await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
         }
         finally
         {
             uploadLease?.Dispose();
         }
+    }
+
+    private static bool KuaishouUploadCompleted(PublishJob job, string projectDirectory, KuaishouPipelineRequest request)
+    {
+        var stepSucceeded = job.StepStates.TryGetValue("weixin-upload", out var state)
+            && state.Status == PublishJobStepStatus.Succeeded;
+        string? artifactStatus = null;
+        try
+        {
+            if (Directory.Exists(projectDirectory))
+            {
+                artifactStatus = KuaishouArtifactColumnStatusReader.Read(
+                    projectDirectory,
+                    request.Platform == PublishPlatform.KuaishouEnterpriseRevenue).UploadStatus;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            artifactStatus = null;
+        }
+        return KuaishouAutoArchivePolicy.UploadCompleted(stepSucceeded, artifactStatus);
     }
 
     private async Task TryAutoArchiveKuaishouProjectAsync(PublishJob job, CancellationToken cancellationToken)
