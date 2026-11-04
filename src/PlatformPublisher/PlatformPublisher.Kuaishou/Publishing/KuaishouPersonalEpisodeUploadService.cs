@@ -4,6 +4,15 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 
 public sealed class KuaishouPersonalEpisodeUploadService
 {
+    public enum UploadAction
+    {
+        UploadAll,
+        FillMissing,
+        Skip,
+    }
+
+    public readonly record struct EpisodeVideoSlot(int Number, bool Uploaded);
+
     public async Task UploadAsync(
         IPage page,
         KuaishouPersonalProjectData data,
@@ -27,11 +36,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
 
         if (!videosAlreadyUploaded)
         {
-            await SelectBatchVideoFilesAsync(page, data.VideoPaths, progress);
-            await ConfirmUploadPositionAsync(page, cancellationToken);
-            if (!await ClickDrawerStartUploadAsync(page))
-                throw new InvalidOperationException("未找到本地视频抽屉里的“开始上传”。不要点“视频链接”页的上传按钮。");
-            await WaitForUploadsAsync(page, data.VideoPaths.Count, data.Title, config.UploadTimeoutMinutes, progress, cancellationToken);
+            await EnsureEpisodeVideosUploadedAsync(page, data, config, progress, cancellationToken);
             if (stageChanged is not null) await stageChanged("videos_uploaded");
         }
         else
@@ -434,6 +439,346 @@ public sealed class KuaishouPersonalEpisodeUploadService
 
     private static string First(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
+
+    public static UploadAction ChooseUploadAction(IReadOnlyList<EpisodeVideoSlot> slots)
+    {
+        if (slots.Count == 0 || slots.All(slot => !slot.Uploaded))
+            return UploadAction.UploadAll;
+        if (slots.All(slot => slot.Uploaded))
+            return UploadAction.Skip;
+        return UploadAction.FillMissing;
+    }
+
+    public static bool CardShowsUploadedVideo(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        return Compact(text).Contains("视频预览", StringComparison.Ordinal);
+    }
+
+    public static IReadOnlyList<EpisodeVideoSlot> NormalizeEpisodeSlots(IEnumerable<EpisodeVideoSlot> slots)
+    {
+        var uploadedByNumber = new Dictionary<int, bool>();
+        foreach (var slot in slots)
+        {
+            if (slot.Number <= 0)
+                continue;
+            uploadedByNumber[slot.Number] = uploadedByNumber.TryGetValue(slot.Number, out var uploaded)
+                ? uploaded || slot.Uploaded
+                : slot.Uploaded;
+        }
+
+        if (uploadedByNumber.Count == 0)
+            return [];
+        var max = uploadedByNumber.Keys.Max();
+        var normalized = new EpisodeVideoSlot[max];
+        for (var number = 1; number <= max; number++)
+            normalized[number - 1] = new EpisodeVideoSlot(number, uploadedByNumber.TryGetValue(number, out var uploaded) && uploaded);
+        return normalized;
+    }
+
+    public static string? MatchEpisodeFile(IEnumerable<string> paths, int episode)
+    {
+        foreach (var path in paths)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(
+                Path.GetFileNameWithoutExtension(path),
+                @"第\s*(\d+)\s*集");
+            if (match.Success &&
+                int.TryParse(match.Groups[1].Value, out var number) &&
+                number == episode)
+                return path;
+        }
+
+        return null;
+    }
+
+    private static async Task EnsureEpisodeVideosUploadedAsync(
+        IPage page,
+        KuaishouPersonalProjectData data,
+        KuaishouPersonalConfig config,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var slots = await ReadEpisodeVideoSlotsAsync(page);
+        var action = ChooseUploadAction(slots);
+        if (action == UploadAction.Skip)
+        {
+            progress?.Report("快手分账个人版：页面上的剧集视频已齐全，跳过重复上传。 ");
+        }
+        else if (action == UploadAction.FillMissing)
+        {
+            await UploadMissingEpisodesAsync(page, data, slots, config.UploadTimeoutMinutes, progress, cancellationToken);
+        }
+        else
+        {
+            try
+            {
+                await SelectBatchVideoFilesAsync(page, data.VideoPaths, progress);
+                await ConfirmUploadPositionAsync(page, cancellationToken);
+                if (!await ClickDrawerStartUploadAsync(page))
+                    throw new InvalidOperationException("未找到本地视频抽屉里的“开始上传”。不要点“视频链接”页的上传按钮。");
+                await WaitForUploadsAsync(page, data.VideoPaths.Count, data.Title, config.UploadTimeoutMinutes, progress, cancellationToken);
+            }
+            catch (Exception ex) when (CanFillAfterInterruptedUpload(ex))
+            {
+                progress?.Report($"{ex.Message} 将补传未成功的剧集。 ");
+                await CloseUploadDrawerIfOpenAsync(page);
+                var after = await ReadEpisodeVideoSlotsAsync(page);
+                var retry = ChooseUploadAction(after);
+                if (retry == UploadAction.UploadAll)
+                    throw;
+                if (retry == UploadAction.FillMissing)
+                    await UploadMissingEpisodesAsync(page, data, after, config.UploadTimeoutMinutes, progress, cancellationToken);
+            }
+        }
+
+        var finalSlots = await ReadEpisodeVideoSlotsAsync(page);
+        var missing = finalSlots.Where(slot => !slot.Uploaded).Select(slot => slot.Number).ToArray();
+        if (missing.Length > 0)
+            throw new InvalidOperationException($"快手个人版仍有未上传剧集：{FormatEpisodeList(missing)}。");
+    }
+
+    private static bool CanFillAfterInterruptedUpload(Exception exception) =>
+        exception is TimeoutException ||
+        (exception is InvalidOperationException &&
+         (exception.Message.Contains("集失败", StringComparison.Ordinal) ||
+          exception.Message.Contains("失败条目", StringComparison.Ordinal)));
+
+    private static async Task UploadMissingEpisodesAsync(
+        IPage page,
+        KuaishouPersonalProjectData data,
+        IReadOnlyList<EpisodeVideoSlot> slots,
+        int timeoutMinutes,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var missing = slots.Where(slot => !slot.Uploaded).Select(slot => slot.Number).Distinct().Order().ToArray();
+        var files = new List<(int Episode, string Path)>(missing.Length);
+        foreach (var episode in missing)
+        {
+            var path = MatchEpisodeFile(data.VideoPaths, episode);
+            if (string.IsNullOrWhiteSpace(path))
+                throw new InvalidOperationException($"未找到第{episode}集的本地视频，无法补传。");
+            files.Add((episode, path));
+        }
+
+        progress?.Report($"快手分账个人版：发现未上传剧集，开始补传 {FormatEpisodeList(missing)}。 ");
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(Math.Clamp(timeoutMinutes, 5, 240));
+        foreach (var (episode, path) in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken);
+            progress?.Report($"快手分账个人版：第{episode}集已补传。 ");
+        }
+    }
+
+    private static async Task UploadOneMissingEpisodeAsync(
+        IPage page,
+        int episode,
+        string path,
+        DateTimeOffset deadline,
+        CancellationToken cancellationToken)
+    {
+        await OpenEpisodeTabAsync(page, episode);
+        var marked = await page.EvaluateAsync<string>(
+            """
+            episode => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              document.querySelectorAll('[data-kuaishou-gap-upload]').forEach(element => element.removeAttribute('data-kuaishou-gap-upload'));
+              const card = Array.from(document.querySelectorAll('.episode-video')).find(element =>
+                compact(element.querySelector('.episode-video__header__index')?.innerText) === `第${episode}集`);
+              if (!card) return 'no-card';
+              const text = compact(card.innerText);
+              if (text.includes('视频预览') || card.querySelector('label[for^="replace-video-"]')) return 'already';
+              const input = Array.from(card.querySelectorAll('input.ks-upload__input')).find(element =>
+                !String(element.id || '').startsWith('replace-video-'));
+              if (!input) return 'no-input';
+              input.setAttribute('data-kuaishou-gap-upload', '1');
+              return 'ok';
+            }
+            """,
+            episode);
+        if (marked == "already")
+            return;
+        if (marked != "ok")
+            throw new InvalidOperationException($"第{episode}集未找到可补传的上传框。");
+
+        await page.Locator("input[data-kuaishou-gap-upload='1']").First.SetInputFilesAsync(path);
+        if (await TryConfirmUploadPositionAsync(page, episode, cancellationToken) ||
+            await UploadDrawerVisibleAsync(page))
+        {
+            if (!await ClickDrawerStartUploadAsync(page))
+                throw new InvalidOperationException($"第{episode}集补传时未找到“开始上传”。");
+        }
+
+        await WaitForGapEpisodeAsync(page, episode, deadline, cancellationToken);
+    }
+
+    private static async Task WaitForGapEpisodeAsync(
+        IPage page,
+        int episode,
+        DateTimeOffset deadline,
+        CancellationToken cancellationToken)
+    {
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await OpenEpisodeTabAsync(page, episode);
+            var state = await page.EvaluateAsync<string>(
+                """
+                episode => {
+                  const compact = value => String(value || '').replace(/\s+/g, '');
+                  const card = Array.from(document.querySelectorAll('.episode-video')).find(element =>
+                    compact(element.querySelector('.episode-video__header__index')?.innerText) === `第${episode}集`);
+                  if (!card) return 'pending';
+                  const text = compact(card.innerText);
+                  if (text.includes('视频预览') || card.querySelector('label[for^="replace-video-"]')) return 'uploaded';
+                  if (text.includes('上传失败') || text.includes('校验失败')) return 'failed';
+                  return 'pending';
+                }
+                """,
+                episode);
+            if (state == "uploaded")
+                return;
+            if (state == "failed")
+                throw new InvalidOperationException($"快手个人版第{episode}集补传失败。");
+            var body = (await page.Locator("body").InnerTextAsync()).Replace("为避免上传失败", string.Empty, StringComparison.Ordinal);
+            if (!string.IsNullOrWhiteSpace(ReadFinishedFailure(body)))
+                throw new InvalidOperationException($"快手个人版第{episode}集补传失败。");
+            await Task.Delay(1000, cancellationToken);
+        }
+
+        throw new TimeoutException($"等待第{episode}集补传完成超时。");
+    }
+
+    private static async Task<IReadOnlyList<EpisodeVideoSlot>> ReadEpisodeVideoSlotsAsync(IPage page)
+    {
+        var tabs = page.Locator(".set-list li");
+        var tabCount = 0;
+        try { tabCount = await tabs.CountAsync(); }
+        catch (PlaywrightException) { tabCount = 0; }
+        if (tabCount <= 1)
+            return NormalizeEpisodeSlots(await ReadVisibleEpisodeVideoSlotsAsync(page));
+
+        var slots = new List<EpisodeVideoSlot>();
+        for (var index = 0; index < tabCount; index++)
+        {
+            var tab = tabs.Nth(index);
+            try
+            {
+                if (!await tab.IsVisibleAsync()) continue;
+                await tab.ClickAsync(new LocatorClickOptions { Timeout = 3_000 });
+                await page.WaitForTimeoutAsync(400);
+            }
+            catch (PlaywrightException)
+            {
+                throw new InvalidOperationException("未能切换剧集分页，无法确认哪些视频还未上传。");
+            }
+
+            slots.AddRange(await ReadVisibleEpisodeVideoSlotsAsync(page));
+        }
+
+        return NormalizeEpisodeSlots(slots);
+    }
+
+    private static async Task<IReadOnlyList<EpisodeVideoSlot>> ReadVisibleEpisodeVideoSlotsAsync(IPage page)
+    {
+        var values = await page.EvaluateAsync<int[]>(
+            """
+            () => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const pairs = [];
+              for (const card of document.querySelectorAll('.episode-video')) {
+                const match = compact(card.querySelector('.episode-video__header__index')?.innerText).match(/^第(\d+)集$/);
+                if (!match) continue;
+                const text = compact(card.innerText);
+                const uploaded = text.includes('视频预览') || Boolean(card.querySelector('label[for^="replace-video-"]'));
+                pairs.push(Number(match[1]), uploaded ? 1 : 0);
+              }
+              return pairs;
+            }
+            """);
+        var slots = new List<EpisodeVideoSlot>(values.Length / 2);
+        for (var index = 0; index + 1 < values.Length; index += 2)
+            slots.Add(new EpisodeVideoSlot(values[index], values[index + 1] == 1));
+        return slots;
+    }
+
+    private static async Task OpenEpisodeTabAsync(IPage page, int episode)
+    {
+        var clicked = await page.EvaluateAsync<bool>(
+            """
+            episode => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const tab = Array.from(document.querySelectorAll('.set-list li')).find(item => {
+                const match = compact(item.innerText).match(/(\d+)\s*-\s*(\d+)集/);
+                if (!match) return false;
+                return episode >= Number(match[1]) && episode <= Number(match[2]);
+              });
+              if (!tab) return false;
+              tab.click();
+              return true;
+            }
+            """,
+            episode);
+        if (clicked)
+            await page.WaitForTimeoutAsync(400);
+    }
+
+    private static async Task<bool> TryConfirmUploadPositionAsync(
+        IPage page,
+        int episode,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var dialog = page.Locator(".ks-dialog:visible, .ant-modal:visible, [role=dialog]:visible")
+                .Filter(new LocatorFilterOptions { HasText = "请选择批量上传位置" });
+            if (await dialog.CountAsync() == 0)
+            {
+                await page.WaitForTimeoutAsync(200);
+                continue;
+            }
+
+            var input = dialog.Last.Locator("input").First;
+            if (await input.CountAsync() > 0)
+                await input.FillAsync(episode.ToString());
+            await ClickDialogConfirmAsync(dialog.Last);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static async Task CloseUploadDrawerIfOpenAsync(IPage page)
+    {
+        if (await UploadDrawerVisibleAsync(page))
+            await ClickDrawerConfirmAsync(page);
+    }
+
+    private static Task<bool> UploadDrawerVisibleAsync(IPage page) =>
+        page.EvaluateAsync<bool>(
+            """
+            () => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const visible = element => {
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+              };
+              return Array.from(document.querySelectorAll('.ks-drawer,.ks-drawer-content,[class*="drawer"]'))
+                .some(element => visible(element) && compact(element.innerText).includes('批量上传视频'));
+            }
+            """);
+
+    private static string FormatEpisodeList(IReadOnlyList<int> episodes) =>
+        string.Join("、", episodes.Select(episode => $"第{episode}集"));
+
+    private static string Compact(string value) =>
+        System.Text.RegularExpressions.Regex.Replace(value, @"\s+", "");
 
     private static async Task SelectBatchVideoFilesAsync(IPage page, IReadOnlyList<string> paths, IProgress<string>? progress)
     {
