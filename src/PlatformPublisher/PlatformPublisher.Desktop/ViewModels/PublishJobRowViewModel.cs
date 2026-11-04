@@ -360,7 +360,9 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
             var metadataPath = Path.Combine(selected, "shortdrama-project.json");
             if (File.Exists(metadataPath))
             {
-                using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+                using var stream = new FileStream(metadataPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                using var document = JsonDocument.Parse(reader.ReadToEnd());
                 var root = document.RootElement;
                 original = JsonText(root, "originalTitle", "title", "sourceName") ?? original;
                 source = JsonText(root, "sourceType", "queueEntrySource") ?? source;

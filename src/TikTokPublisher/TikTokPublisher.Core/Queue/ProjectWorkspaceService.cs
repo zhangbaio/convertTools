@@ -840,10 +840,20 @@ public static class ProjectWorkspaceService
     }
 
     private static string ReadAllTextResilient(string path) =>
-        InvokeSharingRetry(() => File.ReadAllText(path), path);
+        InvokeSharingRetry(() =>
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }, path);
 
     private static void WriteAllTextResilient(string path, string contents) =>
-        InvokeSharingRetry(() => File.WriteAllText(path, contents), path);
+        InvokeSharingRetry(() =>
+        {
+            using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite);
+            using var writer = new StreamWriter(stream);
+            writer.Write(contents);
+        }, path);
 
     private static void WriteAllLinesResilient(string path, IEnumerable<string> lines) =>
         InvokeSharingRetry(() => File.WriteAllLines(path, lines), path);

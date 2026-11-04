@@ -3045,14 +3045,47 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
             await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var target = File.Create(targetPath);
-            await source.CopyToAsync(target, cancellationToken);
-            await target.FlushAsync(cancellationToken);
+            await WriteReleasedFileAsync(targetPath, source, cancellationToken);
             progress?.Report($"海报下载完成: {Path.GetFileName(targetPath)}");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             progress?.Report($"海报下载失败: {ex.Message}");
+        }
+    }
+
+    private static async Task WriteReleasedFileAsync(string targetPath, Stream source, CancellationToken cancellationToken)
+    {
+        var tempPath = targetPath + ".part";
+        try
+        {
+            await using (var target = new FileStream(
+                             tempPath,
+                             FileMode.Create,
+                             FileAccess.Write,
+                             FileShare.None,
+                             81920,
+                             useAsync: true))
+            {
+                await source.CopyToAsync(target, cancellationToken);
+                await target.FlushAsync(cancellationToken);
+            }
+
+            File.Move(tempPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch
+            {
+                // 临时文件清不掉时保留现场，正式海报文件没有被独占打开。
+            }
+
+            throw;
         }
     }
 

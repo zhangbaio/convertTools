@@ -361,6 +361,35 @@ public sealed class ProjectWorkspaceServiceTests
         }
     }
 
+    [Fact]
+    public void Workflow_sync_copies_the_poster_while_this_process_is_reading_it()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"poster-lock-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "万兽认我当干妈");
+        Directory.CreateDirectory(source);
+        var poster = Path.Combine(source, "万兽认我当干妈.jpg");
+        File.WriteAllText(poster, "poster");
+        WriteMetadata(source, source, Path.Combine(workspace, "workflow", "_万兽认我当干妈"));
+        try
+        {
+            using var posterHandle = new FileStream(poster, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var metadataHandle = new FileStream(
+                Path.Combine(source, "shortdrama-project.json"),
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite);
+
+            var workflow = ProjectWorkspaceService.PrepareWorkflowProject(source);
+
+            File.ReadAllText(Path.Combine(workflow, "万兽认我当干妈.jpg")).Should().Be("poster");
+        }
+        finally
+        {
+            if (Directory.Exists(workspace))
+                Directory.Delete(workspace, recursive: true);
+        }
+    }
+
     private static void WriteMetadata(string directory, string sourceProjectDir, string workflowProjectDir)
     {
         File.WriteAllText(

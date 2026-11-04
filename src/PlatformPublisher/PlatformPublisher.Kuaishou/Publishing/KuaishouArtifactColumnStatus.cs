@@ -488,7 +488,9 @@ public static class KuaishouArtifactColumnStatusReader
             try
             {
                 if (!File.Exists(path)) return default;
-                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                using var document = JsonDocument.Parse(reader.ReadToEnd());
                 return document.RootElement.ValueKind == JsonValueKind.Object
                     ? new JsonMap(document.RootElement.Clone(), true)
                     : default;

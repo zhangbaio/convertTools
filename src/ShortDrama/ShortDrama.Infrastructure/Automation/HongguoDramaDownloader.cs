@@ -358,9 +358,37 @@ public sealed class HongguoDramaDownloader : IDramaDownloader
             var targetPath = Path.Combine(outputDir, $"{SanitizeFileStem(displayName)}{extension}");
 
             await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var file = File.Create(targetPath);
-            await source.CopyToAsync(file, cancellationToken);
-            await file.FlushAsync(cancellationToken);
+            var tempPath = targetPath + ".part";
+            try
+            {
+                await using (var file = new FileStream(
+                                 tempPath,
+                                 FileMode.Create,
+                                 FileAccess.Write,
+                                 FileShare.None,
+                                 81920,
+                                 useAsync: true))
+                {
+                    await source.CopyToAsync(file, cancellationToken);
+                    await file.FlushAsync(cancellationToken);
+                }
+
+                File.Move(tempPath, targetPath, overwrite: true);
+            }
+            catch
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+                catch
+                {
+                    // 临时文件清不掉时保留现场，正式海报文件没有被独占打开。
+                }
+
+                throw;
+            }
 
             progress?.Report($"海报下载完成: {Path.GetFileName(targetPath)}");
             return PosterEnsureResult.Success(targetPath);
