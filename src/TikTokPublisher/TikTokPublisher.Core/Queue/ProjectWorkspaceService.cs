@@ -614,10 +614,10 @@ public static class ProjectWorkspaceService
         {
             try
             {
-                payload = JsonSerializer.Deserialize<Dictionary<string, object?>>(File.ReadAllText(metadataPath))
+                payload = JsonSerializer.Deserialize<Dictionary<string, object?>>(ReadAllTextResilient(metadataPath))
                           ?? new Dictionary<string, object?>(StringComparer.Ordinal);
             }
-            catch
+            catch (Exception ex) when (ex is not IOException)
             {
                 payload = new Dictionary<string, object?>(StringComparer.Ordinal);
             }
@@ -637,7 +637,7 @@ public static class ProjectWorkspaceService
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(metadataPath)!);
-        File.WriteAllText(metadataPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        WriteAllTextResilient(metadataPath, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static string SanitizeWorkflowName(string? name)
@@ -783,7 +783,7 @@ public static class ProjectWorkspaceService
             $"集数: {episodeCount}",
             "制作公司: 未填写公司",
         ]);
-        File.WriteAllText(infoPath, string.Join(Environment.NewLine, lines) + Environment.NewLine);
+        WriteAllTextResilient(infoPath, string.Join(Environment.NewLine, lines) + Environment.NewLine);
     }
 
     public static void UpdateProjectInfoField(string infoPath, string key, string value)
@@ -799,13 +799,13 @@ public static class ProjectWorkspaceService
                 trimmed.StartsWith(prefixColon, StringComparison.Ordinal))
             {
                 lines[i] = $"{key}: {value}";
-                File.WriteAllLines(infoPath, lines);
+                WriteAllLinesResilient(infoPath, lines);
                 return;
             }
         }
 
         lines.Add($"{key}: {value}");
-        File.WriteAllLines(infoPath, lines);
+        WriteAllLinesResilient(infoPath, lines);
     }
 
     internal static void UpdateProjectInfoFieldIfBlank(string infoPath, string key, string value)
@@ -819,18 +819,66 @@ public static class ProjectWorkspaceService
         UpdateProjectInfoField(infoPath, key, value);
     }
 
+    public static void CopyFileResilient(string sourcePath, string targetPath, bool overwrite = false)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+        InvokeSharingRetry(() => File.Copy(sourcePath, targetPath, overwrite), sourcePath);
+    }
+
     private static void LinkOrCopy(string sourcePath, string targetPath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
         if (File.Exists(targetPath)) return;
         try
         {
-            File.Copy(sourcePath, targetPath, overwrite: false);
+            CopyFileResilient(sourcePath, targetPath);
         }
-        catch
+        catch (IOException)
         {
-            File.Copy(sourcePath, targetPath, overwrite: true);
+            CopyFileResilient(sourcePath, targetPath, overwrite: true);
         }
+    }
+
+    private static string ReadAllTextResilient(string path) =>
+        InvokeSharingRetry(() => File.ReadAllText(path), path);
+
+    private static void WriteAllTextResilient(string path, string contents) =>
+        InvokeSharingRetry(() => File.WriteAllText(path, contents), path);
+
+    private static void WriteAllLinesResilient(string path, IEnumerable<string> lines) =>
+        InvokeSharingRetry(() => File.WriteAllLines(path, lines), path);
+
+    private static T InvokeSharingRetry<T>(Func<T> action, string path)
+    {
+        const int attempts = 6;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return action();
+            }
+            catch (IOException ex) when (IsFileLocked(ex) && attempt < attempts)
+            {
+                Thread.Sleep(150 * attempt);
+            }
+            catch (IOException ex) when (IsFileLocked(ex))
+            {
+                throw new IOException($"文件被其他程序占用：{Path.GetFileName(path)}", ex);
+            }
+        }
+    }
+
+    private static void InvokeSharingRetry(Action action, string path) =>
+        InvokeSharingRetry(() =>
+        {
+            action();
+            return 0;
+        }, path);
+
+    private static bool IsFileLocked(IOException ex)
+    {
+        var code = ex.HResult & 0xFFFF;
+        return code is 32 or 33;
     }
 
     private static string FirstNonEmpty(params string?[] values)

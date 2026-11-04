@@ -35,4 +35,26 @@ public sealed class KuaishouLogProject
     }
 
     public IReadOnlyList<string> CopyLines() => _lines.ToArray();
+
+    public static List<KuaishouLogProject> RetainFailures(
+        IReadOnlyList<KuaishouLogProject>? previous,
+        IReadOnlyList<KuaishouLogProject> current)
+    {
+        var merged = new List<KuaishouLogProject>(current);
+        if (previous is null)
+            return merged;
+
+        foreach (var old in previous)
+        {
+            if (!string.Equals(old.Tone, "failed", StringComparison.Ordinal))
+                continue;
+            if (merged.Any(item =>
+                    string.Equals(item.ProjectDirectory, old.ProjectDirectory, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(item.ProjectName, old.ProjectName, StringComparison.Ordinal)))
+                continue;
+            merged.Add(old);
+        }
+
+        return merged;
+    }
 }

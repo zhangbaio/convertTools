@@ -2681,7 +2681,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var sourceInfo = Path.Combine(sourceDirectory, "短剧信息.txt");
         var workflowInfo = Path.Combine(workflowDirectory, "短剧信息.txt");
         if (File.Exists(sourceInfo) && !File.Exists(workflowInfo))
-            File.Copy(sourceInfo, workflowInfo);
+            ProjectWorkspaceService.CopyFileResilient(sourceInfo, workflowInfo);
         var episodeCount = Math.Max(1, ProjectWorkspaceService.ResolveSourceEpisodeCount(sourceDirectory));
         ProjectWorkspaceService.EnsureWorkflowInfo(sourceDirectory, episodeCount, message => AppendActivityLog(message, projectName));
     }
@@ -3759,6 +3759,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void PrepareKuaishouLogProjects(IReadOnlyList<string> directories, string accountKey)
     {
+        _kuaishouLogsByAccount.TryGetValue(accountKey, out var previous);
         var projects = new List<KuaishouLogProject>();
         foreach (var directory in directories)
         {
@@ -3772,7 +3773,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             projects.Add(new KuaishouLogProject(name, normalized, "waiting"));
         }
 
-        _kuaishouLogsByAccount[accountKey] = projects;
+        _kuaishouLogsByAccount[accountKey] = KuaishouLogProject.RetainFailures(previous, projects);
         NotifyKuaishouLogProjectsChanged();
     }
 

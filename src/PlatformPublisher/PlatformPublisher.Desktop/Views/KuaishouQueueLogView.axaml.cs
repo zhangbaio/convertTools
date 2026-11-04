@@ -103,28 +103,36 @@ public partial class KuaishouQueueLogView : UserControl
     {
         if (_vm is null) return;
         var rows = new List<LogProjectRow> { new("全部项目", "", "none") };
+        var listed = new HashSet<string>(StringComparer.Ordinal);
+        void Add(string title, string name, string tone)
+        {
+            if (string.IsNullOrWhiteSpace(name) || !listed.Add(name))
+                return;
+            rows.Add(new LogProjectRow(title, name, tone));
+        }
+
         if (_vm.KuaishouLogProjects.Count > 0)
         {
             foreach (var project in _vm.KuaishouLogProjects)
             {
-                if (string.IsNullOrWhiteSpace(project.ProjectName) || rows.Any(row => row.ProjectName == project.ProjectName))
-                    continue;
                 var job = FindJob(project.ProjectName, project.ProjectDirectory);
-                rows.Add(new LogProjectRow(
+                Add(
                     ProjectListTitle(job?.NewTitle, project.ProjectName),
                     project.ProjectName,
-                    RowTone(project.Tone, job is null ? null : ToneFromJob(job))));
+                    RowTone(project.Tone, job is null ? null : ToneFromJob(job)));
             }
         }
         else
         {
             foreach (var job in _vm.VisibleJobs.Where(job => job.IsChecked))
-            {
-                var name = job.ProjectName;
-                if (string.IsNullOrWhiteSpace(name) || rows.Any(row => row.ProjectName == name))
-                    continue;
-                rows.Add(new LogProjectRow(ProjectListTitle(job.NewTitle, name), name, ToneFromJob(job)));
-            }
+                Add(ProjectListTitle(job.NewTitle, job.ProjectName), job.ProjectName, ToneFromJob(job));
+        }
+
+        foreach (var job in _vm.VisibleJobs)
+        {
+            if (ToneFromJob(job) != "failed")
+                continue;
+            Add(ProjectListTitle(job.NewTitle, job.ProjectName), job.ProjectName, "failed");
         }
 
         ApplyProjectRows(rows);
@@ -253,19 +261,41 @@ public partial class KuaishouQueueLogView : UserControl
         if (_vm is null)
             return [];
         var projects = _vm.KuaishouLogProjects;
-        if (projects.Count > 0 && projects.Any(project => project.CopyLines().Count > 0))
+        if (!string.IsNullOrEmpty(_selectedProject))
         {
-            if (string.IsNullOrEmpty(_selectedProject))
-                return projects.SelectMany(project => project.CopyLines());
-            return projects.FirstOrDefault(project => project.ProjectName == _selectedProject)?.CopyLines() ?? [];
+            var match = projects.FirstOrDefault(project => project.ProjectName == _selectedProject);
+            if (match is not null && match.CopyLines().Count > 0)
+                return match.CopyLines();
+            return ActivityLines(_selectedProject);
         }
 
+        if (projects.Count > 0 && projects.Any(project => project.CopyLines().Count > 0))
+        {
+            var lines = projects.SelectMany(project => project.CopyLines()).ToList();
+            var known = projects.Select(project => project.ProjectName).ToHashSet(StringComparer.Ordinal);
+            foreach (var job in _vm.VisibleJobs)
+            {
+                if (ToneFromJob(job) != "failed" || known.Contains(job.ProjectName))
+                    continue;
+                lines.AddRange(ActivityLines(job.ProjectName));
+            }
+
+            return lines;
+        }
+
+        return ActivityLines("");
+    }
+
+    private IEnumerable<string> ActivityLines(string projectName)
+    {
+        if (_vm is null)
+            return [];
         var platform = _vm.SelectedPlatform.Value;
         return _vm.ActivityLogRecords
             .Where(record => record.Platform == platform)
-            .Where(record => string.IsNullOrEmpty(_selectedProject) ||
-                             string.Equals(record.ProjectName, _selectedProject, StringComparison.Ordinal) ||
-                             record.Text.Contains(_selectedProject, StringComparison.Ordinal))
+            .Where(record => string.IsNullOrEmpty(projectName) ||
+                             string.Equals(record.ProjectName, projectName, StringComparison.Ordinal) ||
+                             record.Text.Contains(projectName, StringComparison.Ordinal))
             .Select(record => record.Text);
     }
 
