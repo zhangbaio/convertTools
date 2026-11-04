@@ -84,6 +84,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private int _kuaishouListingDepth;
     private int _listedVerifyGeneration;
     private int _archiveListGeneration;
+    private IReadOnlyList<ArchivedProjectRowViewModel> _kuaishouArchivedRows = [];
     private readonly List<string> _kuaishouListedMisses = [];
     private string _kuaishouScannedWorkspace = "";
     private long _kuaishouScannedTick;
@@ -381,6 +382,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private string _kuaishouTodayUploadText = "";
     [ObservableProperty] private bool _kuaishouArchiveIsPersonal = true;
     [ObservableProperty] private string _kuaishouArchiveRootText = "";
+    [ObservableProperty] private string _kuaishouArchiveFilterText = "";
     [ObservableProperty] private string _workflowFilterText = string.Empty;
     [ObservableProperty] private string _draftNewProjectName = string.Empty;
     [ObservableProperty] private int _workflowPageSize = 20;
@@ -399,6 +401,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string WorkflowPageSummary => $"第 {WorkflowCurrentPage}/{WorkflowPageCount} 页，共 {VisibleJobs.Count} 条";
 
     public string ArchivedProjectsSummary => $"已归档 {ArchivedProjects.Count} 个项目";
+
+    public string KuaishouArchivedProjectsSummary =>
+        string.IsNullOrWhiteSpace(KuaishouArchiveFilterText)
+            ? $"已归档 {_kuaishouArchivedRows.Count} 个项目"
+            : $"已归档 {ArchivedProjects.Count} / {_kuaishouArchivedRows.Count} 个项目";
 
     [ObservableProperty]
     private bool _isBusy;
@@ -4197,6 +4204,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     partial void OnKuaishouArchiveIsPersonalChanged(bool value) => RefreshKuaishouArchivedProjects();
 
+    partial void OnKuaishouArchiveFilterTextChanged(string value) =>
+        ShowKuaishouArchivedProjects(SelectedArchivedProject?.ProjectKey);
+
     public void SelectKuaishouArchiveEdition(bool personal) => KuaishouArchiveIsPersonal = personal;
 
     public async Task SaveKuaishouArchiveRootAsync(string directory)
@@ -4295,21 +4305,35 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (generation != _archiveListGeneration)
             return;
-        ArchivedProjects.Clear();
+        _kuaishouArchivedRows = rows;
         KuaishouArchiveRootText = archiveRoot;
-        if (rows.Count == 0)
+        ShowKuaishouArchivedProjects(selectedKey);
+    }
+
+    private void ShowKuaishouArchivedProjects(string? selectedKey)
+    {
+        ArchivedProjects.Clear();
+        foreach (var row in _kuaishouArchivedRows)
         {
-            SelectedArchivedProject = null;
-            OnPropertyChanged(nameof(ArchivedProjectsSummary));
-            return;
+            if (ArchivedProjectSearch.Matches(
+                    KuaishouArchiveFilterText,
+                    row.DisplayName,
+                    row.OriginalTitle,
+                    row.NewTitle,
+                    row.AccountName,
+                    row.ArchiveProjectDirectory,
+                    row.ArchivedSourceDirectory,
+                    row.ArchivedWorkflowDirectory))
+                ArchivedProjects.Add(row);
         }
 
-        foreach (var row in rows)
-            ArchivedProjects.Add(row);
-        SelectedArchivedProject = selectedKey is null
-            ? ArchivedProjects.FirstOrDefault()
-            : ArchivedProjects.FirstOrDefault(item => item.ProjectKey == selectedKey) ?? ArchivedProjects.FirstOrDefault();
+        SelectedArchivedProject = string.IsNullOrWhiteSpace(selectedKey)
+            ? null
+            : ArchivedProjects.FirstOrDefault(item => item.ProjectKey == selectedKey);
+        if (SelectedArchivedProject is null && string.IsNullOrWhiteSpace(KuaishouArchiveFilterText))
+            SelectedArchivedProject = ArchivedProjects.FirstOrDefault();
         OnPropertyChanged(nameof(ArchivedProjectsSummary));
+        OnPropertyChanged(nameof(KuaishouArchivedProjectsSummary));
     }
 
     private PublishPlatform KuaishouArchivePlatform() =>

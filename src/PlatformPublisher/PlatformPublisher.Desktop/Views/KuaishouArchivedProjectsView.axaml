@@ -4,12 +4,27 @@
              x:Class="PlatformPublisher.Desktop.Views.KuaishouArchivedProjectsView"
              x:DataType="vm:MainWindowViewModel"
              Background="#F3F6FA">
-    <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10" Margin="12">
+    <UserControl.Styles>
+        <Style Selector="Button.archiveLink">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.archiveLink:pointerover TextBlock">
+            <Setter Property="TextDecorations" Value="Underline" />
+        </Style>
+    </UserControl.Styles>
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10" Margin="12">
         <Border Classes="panel" Padding="12">
             <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <TextBlock Text="{Binding KuaishouEditionHeading}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    <TextBlock Text="{Binding ArchivedProjectsSummary}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding KuaishouArchivedProjectsSummary}" VerticalAlignment="Center" />
                 </StackPanel>
                 <Button Grid.Column="1" x:Name="ReturnButton" Content="返回快手分账" Click="OnReturnClick" Classes="secondaryAction" />
                 <Button Grid.Column="2" Content="刷新" Click="OnRefreshClick" Classes="secondaryAction" />
@@ -27,7 +42,13 @@
             <TextBlock Text="归档目录跟当前账号类型走。目录结构为 source、workflow、meta。回退会把目录移回原来的工作区，原位置已有同名目录时不会覆盖。"
                        TextWrapping="Wrap" Foreground="#64748B" />
         </Border>
-        <Border Grid.Row="3" Classes="panel" ClipToBounds="True">
+        <Border Grid.Row="3" Classes="panel" Padding="12">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                <TextBlock Text="搜索" VerticalAlignment="Center" FontWeight="SemiBold" />
+                <TextBox Grid.Column="1" Text="{Binding KuaishouArchiveFilterText}" Watermark="搜索项目 / 原剧名 / 新剧名 / 账号 / 目录" />
+            </Grid>
+        </Border>
+        <Border Grid.Row="4" Classes="panel" ClipToBounds="True">
             <Grid RowDefinitions="Auto,*">
                 <Border Background="#EDF3F9" BorderBrush="#D9E2EC" BorderThickness="0,0,0,1" Padding="10,7">
                     <Grid ColumnDefinitions="1.2*,1.1*,1.1*,140,160,2*" ColumnSpacing="10">
@@ -45,8 +66,12 @@
                         <DataTemplate x:DataType="vm:ArchivedProjectRowViewModel">
                             <Grid ColumnDefinitions="1.2*,1.1*,1.1*,140,160,2*" ColumnSpacing="10" Margin="10,8">
                                 <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="1" Text="{Binding OriginalTitle}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="2" Text="{Binding NewTitle}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Classes="archiveLink" Click="OnOpenSourceDirectoryClick" ToolTip.Tip="{Binding ArchivedSourceDirectory}">
+                                    <TextBlock Text="{Binding OriginalTitle}" Foreground="#047857" TextTrimming="CharacterEllipsis" />
+                                </Button>
+                                <Button Grid.Column="2" Classes="archiveLink" Click="OnOpenWorkflowDirectoryClick" ToolTip.Tip="{Binding ArchivedWorkflowDirectory}">
+                                    <TextBlock Text="{Binding NewTitle}" Foreground="#0369A1" TextTrimming="CharacterEllipsis" />
+                                </Button>
                                 <TextBlock Grid.Column="3" Text="{Binding AccountName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 <TextBlock Grid.Column="4" Text="{Binding ArchivedAtText}" VerticalAlignment="Center" />
                                 <TextBlock Grid.Column="5" Text="{Binding ArchiveProjectDirectory}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />

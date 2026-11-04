@@ -40,6 +40,26 @@ public partial class KuaishouArchivedProjectsView : UserControl
         await viewModel.SaveKuaishouArchiveRootAsync(folders[0].Path.LocalPath);
     }
 
+    private void OnOpenSourceDirectoryClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        OpenRowDirectory(sender, workflow: false);
+    }
+
+    private void OnOpenWorkflowDirectoryClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        OpenRowDirectory(sender, workflow: true);
+    }
+
+    private void OpenRowDirectory(object? sender, bool workflow)
+    {
+        if ((sender as Control)?.DataContext is not ArchivedProjectRowViewModel row ||
+            DataContext is not MainWindowViewModel viewModel)
+            return;
+        viewModel.StatusMessage = workflow ? row.OpenWorkflowDirectory() : row.OpenSourceDirectory();
+    }
+
     private void OnReturnClick(object? sender, RoutedEventArgs e) =>
         ReturnRequested?.Invoke(this, EventArgs.Empty);
 
