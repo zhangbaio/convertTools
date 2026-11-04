@@ -138,10 +138,37 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _playletDeviceId = "";
     [ObservableProperty] private string _hongguoAppDeviceId = "";
     [ObservableProperty] private string _hongguoAppInstallId = "";
+    [ObservableProperty] private string _hongguoAppPlan = "1";
     [ObservableProperty] private bool _hongguoAppStreamLink1 = true;
     [ObservableProperty] private bool _hongguoAppStreamLink2 = true;
     private string _hongguoAppPlaybackLoadedDeviceId = "";
     private bool _hongguoAppStreamLinkGuard;
+
+    public bool HongguoAppPlanIsCurrent
+    {
+        get => !string.Equals(HongguoAppPlan, "2", StringComparison.Ordinal);
+        set
+        {
+            if (value)
+                HongguoAppPlan = "1";
+        }
+    }
+
+    public bool HongguoAppPlanIsDesktop
+    {
+        get => string.Equals(HongguoAppPlan, "2", StringComparison.Ordinal);
+        set
+        {
+            if (value)
+                HongguoAppPlan = "2";
+        }
+    }
+
+    partial void OnHongguoAppPlanChanged(string value)
+    {
+        OnPropertyChanged(nameof(HongguoAppPlanIsCurrent));
+        OnPropertyChanged(nameof(HongguoAppPlanIsDesktop));
+    }
 
     partial void OnHongguoAppStreamLink1Changed(bool value)
     {
@@ -385,6 +412,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(HghighStandardPlaybackMode);
         settings.HongguoAppDeviceId = HongguoAppDeviceId.Trim();
         settings.HongguoAppInstallId = HongguoAppInstallId.Trim();
+        settings.HongguoAppPlan = ClientSettings.NormalizeHongguoAppPlan(HongguoAppPlan);
         settings.HongguoAppStreamLink1 = HongguoAppStreamLink1;
         settings.HongguoAppStreamLink2 = HongguoAppStreamLink2;
         if (!settings.HongguoAppStreamLink1 && !settings.HongguoAppStreamLink2)
@@ -1375,6 +1403,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode);
         HongguoAppDeviceId = settings.HongguoAppDeviceId ?? "";
         HongguoAppInstallId = settings.HongguoAppInstallId ?? "";
+        HongguoAppPlan = ClientSettings.NormalizeHongguoAppPlan(settings.HongguoAppPlan);
         HongguoAppStreamLink1 = settings.HongguoAppStreamLink1;
         HongguoAppStreamLink2 = settings.HongguoAppStreamLink2;
         _hongguoAppPlaybackLoadedDeviceId = HongguoAppDeviceId;

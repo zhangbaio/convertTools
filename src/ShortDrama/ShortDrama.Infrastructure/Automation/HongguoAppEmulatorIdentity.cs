@@ -10,8 +10,14 @@ namespace ShortDrama.Infrastructure.Automation;
 internal static class HongguoAppEmulatorIdentity
 {
     private const string PrefsPath = "/data/data/com.phoenix.read/shared_prefs/applog_stats.xml";
+    internal readonly record struct DeviceProfile(string Model, string Brand, string OsApi, string OsVersion)
+    {
+        internal static DeviceProfile Installed { get; } = new("sdk_gphone64_arm64", "google", "33", "13");
+    }
+
     private static readonly object Gate = new();
     private static (string DeviceId, string InstallId)? Cached;
+    private static DeviceProfile? CachedProfile;
 
     internal static bool TryRead(out string deviceId, out string installId)
     {
@@ -47,6 +53,80 @@ internal static class HongguoAppEmulatorIdentity
         deviceId = "";
         installId = "";
         return false;
+    }
+
+    internal static DeviceProfile CurrentProfile()
+    {
+        lock (Gate)
+        {
+            if (CachedProfile is { } saved && IsProfile(saved))
+                return saved;
+        }
+
+        try
+        {
+            var adb = AdbPath();
+            var serial = adb is null ? null : EmulatorSerial(adb);
+            if (adb is not null && serial is not null)
+            {
+                var text = Run(adb, ["-s", serial, "shell", "getprop"], 4000);
+                if (TryParseProfile(text, out var profile))
+                {
+                    lock (Gate)
+                        CachedProfile = profile;
+                    return profile;
+                }
+            }
+        }
+        catch
+        {
+            // 读不到机型时用这台模拟器已经验证过的默认值。
+        }
+
+        return DeviceProfile.Installed;
+    }
+
+    internal static bool TryParseProfile(string? text, out DeviceProfile profile)
+    {
+        profile = DeviceProfile.Installed;
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        var props = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var line in text.Split('\n'))
+        {
+            var open = line.IndexOf('[');
+            var close = line.IndexOf(']');
+            var second = close < 0 ? -1 : line.IndexOf('[', close + 1);
+            var end = second < 0 ? -1 : line.IndexOf(']', second + 1);
+            if (open < 0 || close <= open || second < 0 || end <= second)
+                continue;
+            props[line[(open + 1)..close]] = line[(second + 1)..end].Trim();
+        }
+
+        if (!props.TryGetValue("ro.product.model", out var model) ||
+            !props.TryGetValue("ro.product.brand", out var brand) ||
+            !props.TryGetValue("ro.build.version.sdk", out var api) ||
+            !props.TryGetValue("ro.build.version.release", out var release) ||
+            !IsToken(model) || !IsToken(brand) || !IsToken(api) || !IsToken(release))
+            return false;
+        profile = new DeviceProfile(model, brand, api, release);
+        return true;
+    }
+
+    private static bool IsProfile(DeviceProfile profile) =>
+        IsToken(profile.Model) && IsToken(profile.Brand) && IsToken(profile.OsApi) && IsToken(profile.OsVersion);
+
+    private static bool IsToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 64)
+            return false;
+        foreach (var ch in value)
+        {
+            if (ch is '&' or '=' or '?' or '#' or '\r' or '\n')
+                return false;
+        }
+
+        return true;
     }
 
     internal static bool TryParse(string? xml, out string deviceId, out string installId)

@@ -27,6 +27,7 @@ public static class DramaSourceSettingsMapping
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode),
         HongguoAppDeviceId = settings.HongguoAppDeviceId ?? "",
         HongguoAppInstallId = settings.HongguoAppInstallId ?? "",
+        HongguoAppPlan = ClientSettings.NormalizeHongguoAppPlan(settings.HongguoAppPlan),
         HongguoAppStreamLink1 = settings.HongguoAppStreamLink1,
         HongguoAppStreamLink2 = settings.HongguoAppStreamLink2,
         MapleleafAccount = settings.MapleleafAccount ?? "",
