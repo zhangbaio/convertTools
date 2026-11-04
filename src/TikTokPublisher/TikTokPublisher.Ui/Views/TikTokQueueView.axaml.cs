@@ -4001,7 +4001,7 @@ public partial class TikTokQueueView : UserControl
 
     private async void OnStartQueueClick(object? sender, RoutedEventArgs e)
     {
-        await StartQueueRunAsync(confirmForceRerun: true);
+        await StartQueueRunAsync(confirmForceRerun: true, localCheckedQueue: true);
     }
 
     public async Task<bool> StartQueueRunFromRemoteAsync(
@@ -4058,7 +4058,8 @@ public partial class TikTokQueueView : UserControl
         bool confirmForceRerun = false,
         Action? onWorkerStarted = null,
         WorkspaceQueueTarget? targetOverride = null,
-        DateTime? preserveProjectLogsSince = null)
+        DateTime? preserveProjectLogsSince = null,
+        bool localCheckedQueue = false)
     {
         var vm = _vm;
         if (vm is null) return false;
@@ -4150,6 +4151,7 @@ public partial class TikTokQueueView : UserControl
         }
 
         var queueRunStarted = false;
+        var notedLocalCheckedQueue = false;
         var workerReturnedSummary = false;
         var displayOptions = optionsOverride ?? vm.CreateCurrentQueueRunOptionsSnapshot();
         var isEditRun = string.Equals(displayOptions.UploadEntryMode, "edit", StringComparison.OrdinalIgnoreCase);
@@ -4181,6 +4183,11 @@ public partial class TikTokQueueView : UserControl
             var host = CreateQueuePublishHost();
             var ct = vm.BeginQueueRun();
             queueRunStarted = true;
+            if (localCheckedQueue)
+            {
+                vm.NoteLocalCheckedQueue(runWorkspaceRoot, true);
+                notedLocalCheckedQueue = true;
+            }
             vm.AppendLog(clearedOldLogCount > 0
                 ? $"开始新一轮 TikTok 队列执行，已清理上一轮界面日志 {clearedOldLogCount} 条。"
                 : "开始新一轮 TikTok 队列执行。");
@@ -4215,6 +4222,8 @@ public partial class TikTokQueueView : UserControl
         }
         finally
         {
+            if (notedLocalCheckedQueue)
+                vm.NoteLocalCheckedQueue(runWorkspaceRoot, false);
             _activeQueueRunWorkspaces.Remove(runWorkspaceRoot);
             if (queueRunStarted)
                 vm.EndQueueRun();

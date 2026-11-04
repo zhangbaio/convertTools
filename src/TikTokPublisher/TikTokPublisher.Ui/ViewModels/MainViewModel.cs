@@ -86,6 +86,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private CancellationTokenSource? _queueCts;
     private readonly Dictionary<string, CancellationTokenSource> _workspaceQueueRunCancellations =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _localCheckedQueueLock = new();
+    private readonly HashSet<string> _localCheckedQueueWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private string? _manualInterventionWorkspaceRoot;
     private bool _applyingQueueStepToggles;
     private bool _queueRunActive;
@@ -398,6 +400,11 @@ public sealed partial class MainViewModel : ViewModelBase
                 await ReportRecoveredAutoPublishAsync(model, XingeAutoPublishStatuses.Interrupted, "import", "客户端未找到本地项目");
                 break;
             case XingeAutoPublishRecoveryAction.Resume:
+                if (IsLocalCheckedQueueRunning(located.Workspace))
+                {
+                    AppendLog($"本地正在执行勾选队列，自动上新恢复等到该队列结束后再继续：{located.Workspace}");
+                    break;
+                }
                 if (string.IsNullOrWhiteSpace(located.Workspace) || IsWorkspaceQueueRunning(located.Workspace))
                     break;
                 XingeAutoPublishProgressReporter.Shared.Enqueue(XingeAutoPublishProgress.For(
@@ -1410,6 +1417,47 @@ public sealed partial class MainViewModel : ViewModelBase
         return _queueOrchestrator.Snapshot().Any(item =>
             item.IsRunning &&
             string.Equals(Path.GetFullPath(item.WorkspaceRoot), normalized, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public void NoteLocalCheckedQueue(string workspace, bool active)
+    {
+        if (string.IsNullOrWhiteSpace(workspace))
+            return;
+        string root;
+        try
+        {
+            root = Path.GetFullPath(workspace);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return;
+        }
+
+        lock (_localCheckedQueueLock)
+        {
+            if (active)
+                _localCheckedQueueWorkspaces.Add(root);
+            else
+                _localCheckedQueueWorkspaces.Remove(root);
+        }
+    }
+
+    public bool IsLocalCheckedQueueRunning(string workspace)
+    {
+        if (string.IsNullOrWhiteSpace(workspace))
+            return false;
+        string root;
+        try
+        {
+            root = Path.GetFullPath(workspace);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+
+        lock (_localCheckedQueueLock)
+            return _localCheckedQueueWorkspaces.Contains(root);
     }
 
     public bool IsWorkspaceQueueBusy(string workspaceRoot) =>
@@ -2688,7 +2736,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private async Task<TikTokRemoteCommandResult> ExecuteRemoteStartQueueAsync(TikTokRemoteCommand command)
     {
         if (IsQueueRunning)
-            return TikTokRemoteCommandResult.Failed(command.Command, "当前已有 TikTok 队列在执行，请等待完成后再发起新任务。");
+            return TikTokRemoteCommandResult.Failed(command.Command, XingeAutoPublishFailureClassifier.TikTokQueueBusyDetail);
         if (command.HasMultiAccountSelection)
             return await ExecuteRemoteStartMultiAccountQueueAsync(command);
 
@@ -2740,6 +2788,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
             return TikTokRemoteCommandResult.Failed(command.Command, $"账号「{account.DisplayName}」没有配置有效工作目录。");
         var root = Path.GetFullPath(workspace);
+        if (IsLocalCheckedQueueRunning(root))
+            return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, root);
 
         var projectDirs = new List<string>();
         var missing = new List<string>();
@@ -3027,8 +3077,14 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             // 多账号远程运行仍沿用原有的全局互斥语义；单账号命令则可以追加到目标工作目录的运行队列。
             if (IsQueueRunning)
-                return TikTokRemoteCommandResult.Failed(command.Command, "当前已有 TikTok 队列在执行，请等待完成后再发起新任务。");
+                return TikTokRemoteCommandResult.Failed(command.Command, XingeAutoPublishFailureClassifier.TikTokQueueBusyDetail);
             return await ExecuteRemoteUploadSeriesMultiAccountAsync(command, titles);
+        }
+
+        if (TryPeekRemoteCommandWorkspace(command, out var blockedWorkspace) &&
+            IsLocalCheckedQueueRunning(blockedWorkspace))
+        {
+            return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, blockedWorkspace);
         }
 
         var hasExplicitAccount = command.HasExplicitAccountSelection;
@@ -3041,6 +3097,8 @@ public sealed partial class MainViewModel : ViewModelBase
 
         // 后续导入会跨越网络与磁盘 await。必须在 await 前固定目标，不能在完成后再读取可能已被用户切换的 UI 状态。
         var targetWorkspace = Path.GetFullPath(workspace);
+        if (IsLocalCheckedQueueRunning(targetWorkspace))
+            return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, targetWorkspace);
         var targetAccount = SelectedAccount?.Model;
         var finalAction = SelectedFinalAction?.Value ?? FinalAction.None;
         var runQueueRequested = RemoteQueueRunRequested;
@@ -3067,6 +3125,9 @@ public sealed partial class MainViewModel : ViewModelBase
             allowAppendToRunningQueue: command.AutoRun,
             CancellationToken.None,
             autoPublish: autoPublish);
+
+        if (command.AutoRun && IsLocalCheckedQueueRunning(targetWorkspace))
+            return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, targetWorkspace);
 
         var result = importOutcome.ImportResult;
         if (result.ProjectDirs.Count == 0)
@@ -3447,6 +3508,49 @@ public sealed partial class MainViewModel : ViewModelBase
         accounts = resolved;
         error = "";
         return true;
+    }
+
+    private TikTokRemoteCommandResult DeferRemoteCommandWhileLocalCheckedQueueRuns(
+        TikTokRemoteCommand command,
+        string workspace)
+    {
+        AppendLog($"本地正在执行勾选队列，已跳过本次远程命令，等待该队列结束后再派发：{workspace}");
+        return TikTokRemoteCommandResult.Failed(command.Command, XingeAutoPublishFailureClassifier.TikTokQueueBusyDetail);
+    }
+
+    private bool TryPeekRemoteCommandWorkspace(TikTokRemoteCommand command, out string workspace)
+    {
+        workspace = "";
+        var account = FindAccountById(command.AccountProfileId)?.Model;
+        if (account is null && !string.IsNullOrWhiteSpace(command.AccountProfileName))
+            account = FindAccount(command.AccountProfileName)?.Model;
+        if (account is null && command.AccountSelectors is { Count: > 0 })
+            account = FindAccount(command.AccountSelectors.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item)) ?? "")?.Model;
+        var candidates = new[]
+        {
+            account?.ResolveWorkspacePath(),
+            command.WorkspacePath,
+        };
+        foreach (var candidate in candidates)
+        {
+            var path = (candidate ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            try
+            {
+                var full = Path.GetFullPath(Environment.ExpandEnvironmentVariables(path));
+                if (Directory.Exists(full))
+                {
+                    workspace = full;
+                    return true;
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+            }
+        }
+
+        return false;
     }
 
     private bool TryResolveRemoteWorkspace(TikTokRemoteCommand command, out string workspace, out string error)
@@ -5133,6 +5237,21 @@ public sealed partial class MainViewModel : ViewModelBase
                 XingeAutoPublishMarkerStore.Write(projectDir, autoPublish.Assignment);
                 autoPublish.ProjectDirs.Add(projectDir);
             }
+        }
+
+        // 用户正在执行勾选队列时不改勾选、不追加。命令按队列忙交还，等这轮结束后再派发。
+        if (IsLocalCheckedQueueRunning(root))
+        {
+            var ordered = BuildOrderedDistinctProjectDirs(result.ProjectDirs);
+            return new UploadTitleImportOutcome(
+                result,
+                new WorkspaceQueueTarget(
+                    root,
+                    $"{account?.DisplayName ?? "当前账号"} · {root}",
+                    account?.Id,
+                    ordered,
+                    finalActionOverride),
+                new UploadTitleImportApplyOutcome(ordered, QueueWasRunning: true, [], 0));
         }
 
         // 派发只决定剧目和步骤。勾选、搜索和下载与本地「上传短剧」相同，不按剧目 ID 另开播放链路，也不取消本次项目的勾选。

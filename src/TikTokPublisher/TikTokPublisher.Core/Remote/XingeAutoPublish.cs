@@ -161,6 +161,8 @@ public static class XingeAutoPublishMarkerStore
 
 public static class XingeAutoPublishFailureClassifier
 {
+    public const string TikTokQueueBusyDetail = "当前已有 TikTok 队列在执行，请等待完成后再发起新任务。";
+
     private static readonly string[] AccountLoginKeywords =
     [
         "自动登录失败", "未登录", "登录已失效", "登录失效", "重新登录", "未找到账号", "CDP 端点", "login required", "not logged in",
