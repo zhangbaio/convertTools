@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using ShortDrama.Core.Models;
@@ -146,6 +147,46 @@ public sealed class HongguoAppDirectClientTests
         Assert.Contains("version_name=7.4.3.32", url, StringComparison.Ordinal);
         Assert.Contains("device_type=sdk_gphone64_arm64", url, StringComparison.Ordinal);
         Assert.Contains("os_version=13", url, StringComparison.Ordinal);
+        Assert.DoesNotContain("25053RT47C", url, StringComparison.Ordinal);
+        Assert.DoesNotContain("os_version=16", url, StringComparison.Ordinal);
+        var emulator = HongguoAppDirectClient.BuildEmulatorUrl(
+            HongguoAppDirectClient.PlaybackHost,
+            "/novel/player/multi_video_model/preload/v1/",
+            null,
+            "1234567890123456",
+            "1234567890123457",
+            1700000000000,
+            new HongguoAppEmulatorIdentity.DeviceProfile("sdk_gphone64_arm64", "google", "33", "13"));
+        Assert.Contains("device_type=sdk_gphone64_arm64", emulator, StringComparison.Ordinal);
+        Assert.Contains("device_brand=google", emulator, StringComparison.Ordinal);
+        Assert.Contains("os_api=33", emulator, StringComparison.Ordinal);
+        Assert.Contains("os_version=13", emulator, StringComparison.Ordinal);
+        Assert.Contains(
+            "Android 13; zh_CN; sdk_gphone64_arm64",
+            HongguoAppDirectClient.UserAgent(HongguoAppEmulatorIdentity.DeviceProfile.Installed),
+            StringComparison.Ordinal);
+
+        var desktop = HongguoAppDirectClient.BuildDesktopUrl(
+            HongguoAppDirectClient.PlaybackHost,
+            "/novel/player/multi_video_model/preload/v1/",
+            null,
+            "1234567890123456",
+            "1234567890123457",
+            1700000000000);
+        Assert.Contains("version_code=74232", desktop, StringComparison.Ordinal);
+        Assert.Contains("version_name=7.4.2.32", desktop, StringComparison.Ordinal);
+        Assert.Contains("device_type=25053RT47C", desktop, StringComparison.Ordinal);
+        Assert.Contains("device_brand=Redmi", desktop, StringComparison.Ordinal);
+        Assert.Contains("os_version=16", desktop, StringComparison.Ordinal);
+        Assert.Contains("os_api=36", desktop, StringComparison.Ordinal);
+        Assert.Contains("resolution=1280%2A2772", desktop, StringComparison.Ordinal);
+        Assert.Contains("dpi=520", desktop, StringComparison.Ordinal);
+        Assert.Contains("ssmix=a", desktop, StringComparison.Ordinal);
+        Assert.Contains("dragon_device_type=phone", desktop, StringComparison.Ordinal);
+        Assert.DoesNotContain("74332", desktop, StringComparison.Ordinal);
+        Assert.False(HongguoAppDirectClient.IsDesktopPlan(null));
+        Assert.False(HongguoAppDirectClient.IsDesktopPlan("1"));
+        Assert.True(HongguoAppDirectClient.IsDesktopPlan("2"));
         Assert.Contains("resolution=1080%2A2337", url, StringComparison.Ordinal);
         Assert.Contains("device_id=1234567890123456", url, StringComparison.Ordinal);
         Assert.Contains("iid=1234567890123457", url, StringComparison.Ordinal);
@@ -183,6 +224,18 @@ public sealed class HongguoAppDirectClientTests
             "<map><string name=\"device_id\">0</string><string name=\"install_id\">1234567890123457</string></map>",
             out _,
             out _));
+        const string props = """
+            [ro.product.model]: [sdk_gphone64_arm64]
+            [ro.product.brand]: [google]
+            [ro.build.version.release]: [13]
+            [ro.build.version.sdk]: [33]
+            """;
+        Assert.True(HongguoAppEmulatorIdentity.TryParseProfile(props, out var profile));
+        Assert.Equal("sdk_gphone64_arm64", profile.Model);
+        Assert.Equal("google", profile.Brand);
+        Assert.Equal("33", profile.OsApi);
+        Assert.Equal("13", profile.OsVersion);
+        Assert.False(HongguoAppEmulatorIdentity.TryParseProfile("[ro.product.model]: [25053RT47C]", out _));
     }
 
     [Fact]
@@ -203,6 +256,140 @@ public sealed class HongguoAppDirectClientTests
         Assert.True(cursor.HasMore);
         Assert.Equal(20, cursor.NextOffset);
         Assert.Equal("20261101161659E2CC17C340F09FAB0FB3", cursor.SessionId);
+    }
+
+    [Fact]
+    public async Task SavedIdentityDoesNotUseEmulatorPlayback()
+    {
+        var urls = new List<string>();
+        using var http = new HttpClient(Script(urls, _ => Json(AuditModel)));
+        var client = new HongguoAppDirectClient(http);
+        HongguoAppDirectClient.ReadEmulatorDevice = NoEmulator;
+        try
+        {
+            var playback = await client.GetVideoPlaybackAsync(
+                HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, "7600111222333444555"),
+                "1080",
+                CancellationToken.None,
+                "1234567890123456",
+                "1234567890123457");
+            Assert.Equal("https://example.test/a", playback.Url);
+            Assert.Contains(urls, url => url.Contains("/novel/player/video_model/v1/", StringComparison.Ordinal));
+            Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/preload/", StringComparison.Ordinal));
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+        }
+    }
+
+    [Fact]
+    public async Task EmulatorEmptyFallsBackToAuditWithoutRegistering()
+    {
+        var urls = new List<string>();
+        using var http = new HttpClient(Script(urls, request =>
+        {
+            var url = request.RequestUri?.AbsoluteUri ?? "";
+            if (url.Contains("/multi_video_model/preload/", StringComparison.Ordinal))
+                return Json("""{"code":1}""");
+            if (url.Contains("/novel/player/video_model/v1/", StringComparison.Ordinal))
+                return Json(AuditModel);
+            return Json("""{"code":0,"data":{}}""");
+        }));
+        var client = new HongguoAppDirectClient(http);
+        HongguoAppDirectClient.ReadEmulatorDevice = EmulatorPair;
+        try
+        {
+            var playback = await client.GetVideoPlaybackAsync(
+                HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, "7600111222333444555"),
+                "1080",
+                CancellationToken.None,
+                "9999999999999999",
+                "8888888888888888");
+            Assert.Equal("https://example.test/a", playback.Url);
+            Assert.Contains(urls, url => url.Contains("/multi_video_model/preload/", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("/novel/player/video_model/v1/", StringComparison.Ordinal));
+            Assert.DoesNotContain(urls, url => url.Contains("/service/2/device_register/", StringComparison.Ordinal));
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+        }
+    }
+
+    [Fact]
+    public async Task EmulatorAndAuditFailureDoesNotRegister()
+    {
+        var urls = new List<string>();
+        using var http = new HttpClient(Script(urls, request =>
+        {
+            var url = request.RequestUri?.AbsoluteUri ?? "";
+            if (url.Contains("/novel/player/video_model/v1/", StringComparison.Ordinal))
+                return Json("""{"code":0,"data":{}}""");
+            return Json("""{"code":1}""");
+        }));
+        var client = new HongguoAppDirectClient(http);
+        HongguoAppDirectClient.ReadEmulatorDevice = EmulatorPair;
+        try
+        {
+            var error = await Assert.ThrowsAsync<HongguoHighException>(() => client.GetVideoPlaybackAsync(
+                HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, "7600111222333444555"),
+                "1080",
+                CancellationToken.None));
+            Assert.Contains("模拟器链路失败", error.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain(urls, url => url.Contains("/service/2/device_register/", StringComparison.Ordinal));
+            Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/v1/", StringComparison.Ordinal)
+                && !url.Contains("/preload/", StringComparison.Ordinal));
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+        }
+    }
+
+    private const string AuditModel = """
+        {"code":0,"data":{"video_model":{"video_list":[{"main_url":"https://example.test/a","video_meta":{"definition":"1080p","size":12},"encrypt_info":{"spade_a":"abc"}}]}}}
+        """;
+
+    private static bool NoEmulator(out string deviceId, out string installId)
+    {
+        deviceId = "";
+        installId = "";
+        return false;
+    }
+
+    private static bool EmulatorPair(out string deviceId, out string installId)
+    {
+        deviceId = "1234567890123456";
+        installId = "1234567890123457";
+        return true;
+    }
+
+    private static HttpMessageHandler Script(List<string> urls, Func<HttpRequestMessage, HttpResponseMessage> respond) =>
+        new RecordingHandler(urls, respond);
+
+    private static HttpResponseMessage Json(string body) =>
+        new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+
+    private sealed class RecordingHandler : HttpMessageHandler
+    {
+        private readonly List<string> _urls;
+        private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond;
+
+        internal RecordingHandler(List<string> urls, Func<HttpRequestMessage, HttpResponseMessage> respond)
+        {
+            _urls = urls;
+            _respond = respond;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            _urls.Add(request.RequestUri?.AbsoluteUri ?? "");
+            return Task.FromResult(_respond(request));
+        }
     }
 
 }

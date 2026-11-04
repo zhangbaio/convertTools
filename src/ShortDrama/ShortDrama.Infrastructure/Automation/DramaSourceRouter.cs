@@ -2384,7 +2384,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             searchCategory,
             settings.HongguoAppDeviceId,
             settings.HongguoAppInstallId,
-            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId));
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+            settings.HongguoAppPlan);
         return items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray();
     }
 
@@ -2807,7 +2808,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             cancellationToken,
             settings.HongguoAppDeviceId,
             settings.HongguoAppInstallId,
-            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId));
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+            settings.HongguoAppPlan);
         return items
             .Select(item => new SourceEpisode(item.EpisodeNumber, item.Title, item.VideoId, item.PosterUrl))
             .ToArray();
@@ -2828,7 +2830,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             current.HongguoAppInstallId,
             (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
             current.HongguoAppStreamLink1,
-            current.HongguoAppStreamLink2);
+            current.HongguoAppStreamLink2,
+            current.HongguoAppPlan);
         return new SourceVideoDetail(
             detail.Url,
             HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),

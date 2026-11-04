@@ -9,9 +9,11 @@ namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
 /// 红果 APP 下载的搜索、剧集和播放地址。
-/// 搜索、剧集和播放优先用本机模拟器 7.4.3.32 的已注册设备，按应用自己的精简查询参数签名。
-/// 模拟器身份不可用时，搜索和剧集回退 audit 签名，播放再按勾选走链路 1 和链路 2。
-/// 已有模拟器设备时，播放空包只在这条链路上退避重试，不再注册新设备。
+/// 方案1：只有本机模拟器里读到的设备号才走 preload。设置里保存或自动注册的号不走这条链路。
+/// 查询保持已安装的 7.4.3.32 精简参数；机型、品牌和系统版本读模拟器自身。
+/// 没有模拟器设备时，播放直接用单集接口，失败再按勾选走链路 1 和链路 2。
+/// 模拟器设备在时，播放空包只在 preload 上退避重试，仍失败再试一次单集接口，不再注册新设备。
+/// 方案2：按桌面版 2.0.0 的 7.4.2.32、红米 Android 16 和扩展字段请求，设备号用设置里保存的一对，不读模拟器，播放失败不再改走其它链路。
 /// </summary>
 internal sealed class HongguoAppDirectClient
 {
@@ -20,8 +22,7 @@ internal sealed class HongguoAppDirectClient
     private const string SearchPath = "/reading/bookapi/search/tab/v";
     private const string EpisodePath = "/novel/player/multi_video_detail/preload/v1";
     private const string PlaybackPath = "/novel/player/multi_video_model/preload/v1/";
-    private const string EmulatorUserAgent =
-        "com.phoenix.read/74332 (Linux; U; Android 13; zh_CN; sdk_gphone64_arm64; Build/TE1A.220922.034)";
+    private const string EmulatorBuildId = "TE1A.220922.034";
 
     private static readonly (string Key, string Value)[] EmulatorQuery =
     [
@@ -43,7 +44,47 @@ internal sealed class HongguoAppDirectClient
         ("pv_player", "74332"),
     ];
 
+    private const string DesktopUserAgent =
+        "com.phoenix.read/74232 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
+
+    private static readonly (string Key, string Value)[] DesktopQuery =
+    [
+        ("device_platform", "android"),
+        ("channel", "update_64"),
+        ("aid", "8662"),
+        ("app_name", "novelread"),
+        ("os", "android"),
+        ("ssmix", "a"),
+        ("language", "zh"),
+        ("version_code", "74232"),
+        ("version_name", "7.4.2.32"),
+        ("manifest_version_code", "74232"),
+        ("update_version_code", "74232"),
+        ("resolution", "1280*2772"),
+        ("dpi", "520"),
+        ("device_type", "25053RT47C"),
+        ("device_brand", "Redmi"),
+        ("os_api", "36"),
+        ("os_version", "16"),
+        ("ac", "wifi"),
+        ("pv_player", "74232"),
+        ("host_abi", "arm64-v8a"),
+        ("dragon_device_type", "phone"),
+        ("compliance_status", "0"),
+        ("need_personal_recommend", "1"),
+        ("player_so_load", "1"),
+        ("is_android_pad_screen", "0"),
+    ];
+
+    internal static bool IsDesktopPlan(string? plan) =>
+        string.Equals(plan?.Trim(), "2", StringComparison.Ordinal);
+
     internal static int EmulatorChainUses;
+
+    internal delegate bool EmulatorDeviceReader(out string deviceId, out string installId);
+
+    /// <summary>测试注入。为空时读本机模拟器的 applog。</summary>
+    internal static EmulatorDeviceReader? ReadEmulatorDevice;
 
     private readonly HttpClient _httpClient;
     private readonly HongguoGuestPlayback _playback;
@@ -63,7 +104,8 @@ internal sealed class HongguoAppDirectClient
         string? searchCategory = null,
         string? deviceId = null,
         string? installId = null,
-        Action<string, string>? persist = null)
+        Action<string, string>? persist = null,
+        string? plan = null)
     {
         var trimmed = (keyword ?? "").Trim();
         if (trimmed.Length == 0)
@@ -87,7 +129,25 @@ internal sealed class HongguoAppDirectClient
         };
         JsonNode? root = null;
         Exception? emulatorError = null;
-        if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
+        var desktop = IsDesktopPlan(plan);
+        if (desktop && HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
+        {
+            try
+            {
+                root = await SendEmulatorAsync(
+                    HttpMethod.Get, PlaybackHost, SearchPath, null, extra, deviceId!.Trim(), installId!.Trim(), cancellationToken, desktop: true);
+                EmulatorChainUses++;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                emulatorError = ex;
+            }
+        }
+        else if (!desktop && TryReadEmulator(out var did, out var iid))
         {
             try
             {
@@ -141,14 +201,28 @@ internal sealed class HongguoAppDirectClient
         CancellationToken cancellationToken,
         string? deviceId = null,
         string? installId = null,
-        Action<string, string>? persist = null)
+        Action<string, string>? persist = null,
+        string? plan = null)
     {
         var seriesId = RawSeriesId(bookId);
         if (seriesId.Length == 0)
             return [];
 
         var body = HongguoPureSign.EpisodesBody(seriesId);
-        if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
+        var desktop = IsDesktopPlan(plan);
+        if (desktop && HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
+        {
+            var episodes = await ReadEpisodesAttempts(
+                () => SendEmulatorAsync(HttpMethod.Post, ReadingHost, EpisodePath, body, null, deviceId!.Trim(), installId!.Trim(), cancellationToken, attempts: 1, desktop: true),
+                seriesId,
+                cancellationToken);
+            if (episodes.Count > 0)
+            {
+                EmulatorChainUses++;
+                return episodes;
+            }
+        }
+        else if (!desktop && TryReadEmulator(out var did, out var iid))
         {
             var episodes = await ReadEpisodesAttempts(
                 () => SendEmulatorAsync(HttpMethod.Post, ReadingHost, EpisodePath, body, null, did, iid, cancellationToken, attempts: 1),
@@ -179,7 +253,8 @@ internal sealed class HongguoAppDirectClient
         string? installId = null,
         Action<string, string>? persist = null,
         bool streamLink1 = true,
-        bool streamLink2 = true)
+        bool streamLink2 = true,
+        string? plan = null)
     {
         if (!HongguoHighCrypto.TryDecodeEpisodeId(videoId, out var seriesId, out _, out var rawVideoId))
             throw new HongguoHighException("剧集标识无效");
@@ -189,7 +264,28 @@ internal sealed class HongguoAppDirectClient
             streamLink2 = true;
         }
 
-        if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
+        if (IsDesktopPlan(plan))
+        {
+            if (!HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
+                throw new HongguoHighException("缺少播放设备号和安装号");
+            try
+            {
+                var playback = await GetEmulatorPlaybackAsync(
+                    rawVideoId, quality, deviceId!.Trim(), installId!.Trim(), cancellationToken, desktop: true);
+                EmulatorChainUses++;
+                return playback;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new HongguoHighException("桌面链路失败：" + ex.Message, 0, ex);
+            }
+        }
+
+        if (TryReadEmulator(out var did, out var iid))
         {
             try
             {
@@ -204,7 +300,18 @@ internal sealed class HongguoAppDirectClient
             }
             catch (Exception ex)
             {
-                throw new HongguoHighException("模拟器链路失败：" + ex.Message, 0, ex);
+                try
+                {
+                    return await GetAuditVideoModelAsync(seriesId, rawVideoId, quality, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    throw new HongguoHighException("模拟器链路失败：" + ex.Message, 0, ex);
+                }
             }
         }
 
@@ -378,7 +485,7 @@ internal sealed class HongguoAppDirectClient
         string? installId = null,
         Action<string, string>? persist = null)
     {
-        if (TryResolveIdentity(deviceId, installId, out var did, out var iid))
+        if (TryReadEmulator(out var did, out var iid))
         {
             try
             {
@@ -434,9 +541,10 @@ internal sealed class HongguoAppDirectClient
         string quality,
         string deviceId,
         string installId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool desktop = false)
     {
-        var model = await FetchEmulatorModelAsync(videoId, deviceId, installId, cancellationToken);
+        var model = await FetchEmulatorModelAsync(videoId, deviceId, installId, cancellationToken, desktop);
         return HongguoGuestPlayback.Pick(model, quality);
     }
 
@@ -444,7 +552,8 @@ internal sealed class HongguoAppDirectClient
         string videoId,
         string deviceId,
         string installId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool desktop = false)
     {
         Exception? last = null;
         for (var attempt = 0; attempt < 8; attempt++)
@@ -460,7 +569,8 @@ internal sealed class HongguoAppDirectClient
                     deviceId,
                     installId,
                     cancellationToken,
-                    attempts: 1);
+                    attempts: 1,
+                    desktop: desktop);
                 return EmulatorModel(root, videoId) ?? throw new HongguoHighException("播放地址为空");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -519,10 +629,45 @@ internal sealed class HongguoAppDirectClient
         IReadOnlyList<KeyValuePair<string, string>>? extra,
         string deviceId,
         string installId,
+        long rticket,
+        HongguoAppEmulatorIdentity.DeviceProfile? profile = null)
+    {
+        var device = profile ?? HongguoAppEmulatorIdentity.DeviceProfile.Installed;
+        var parts = new List<string>();
+        foreach (var (key, value) in EmulatorQuery)
+        {
+            var text = key switch
+            {
+                "device_type" => device.Model,
+                "device_brand" => device.Brand,
+                "os_api" => device.OsApi,
+                "os_version" => device.OsVersion,
+                _ => value,
+            };
+            parts.Add(key + "=" + Uri.EscapeDataString(text));
+        }
+        if (extra is not null)
+        {
+            foreach (var pair in extra)
+                parts.Add(pair.Key + "=" + Uri.EscapeDataString(pair.Value));
+        }
+
+        parts.Add("device_id=" + Uri.EscapeDataString(deviceId));
+        parts.Add("iid=" + Uri.EscapeDataString(installId));
+        parts.Add("_rticket=" + rticket);
+        return host + path + "?" + string.Join("&", parts);
+    }
+
+    internal static string BuildDesktopUrl(
+        string host,
+        string path,
+        IReadOnlyList<KeyValuePair<string, string>>? extra,
+        string deviceId,
+        string installId,
         long rticket)
     {
         var parts = new List<string>();
-        foreach (var (key, value) in EmulatorQuery)
+        foreach (var (key, value) in DesktopQuery)
             parts.Add(key + "=" + Uri.EscapeDataString(value));
         if (extra is not null)
         {
@@ -536,20 +681,14 @@ internal sealed class HongguoAppDirectClient
         return host + path + "?" + string.Join("&", parts);
     }
 
-    private static bool TryResolveIdentity(string? deviceId, string? installId, out string did, out string iid)
-    {
-        if (HongguoAppEmulatorIdentity.TryRead(out did, out iid))
-            return true;
-        if (HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
-        {
-            did = deviceId!.Trim();
-            iid = installId!.Trim();
-            return true;
-        }
+    internal static string UserAgent(HongguoAppEmulatorIdentity.DeviceProfile profile) =>
+        "com.phoenix.read/74332 (Linux; U; Android " + profile.OsVersion
+        + "; zh_CN; " + profile.Model + "; Build/" + EmulatorBuildId + ")";
 
-        did = "";
-        iid = "";
-        return false;
+    private static bool TryReadEmulator(out string deviceId, out string installId)
+    {
+        EmulatorDeviceReader read = ReadEmulatorDevice ?? HongguoAppEmulatorIdentity.TryRead;
+        return read(out deviceId, out installId);
     }
 
     private static void Remember(
@@ -599,24 +738,30 @@ internal sealed class HongguoAppDirectClient
         string deviceId,
         string installId,
         CancellationToken cancellationToken,
-        int attempts = 3)
+        int attempts = 3,
+        bool desktop = false)
     {
         Exception? last = null;
         var rticket = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var maxAttempts = Math.Clamp(attempts, 1, 8);
+        var profile = desktop ? default : HongguoAppEmulatorIdentity.CurrentProfile();
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
             var khronos = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            var url = BuildEmulatorUrl(host, path, extra, deviceId, installId, rticket);
+            var url = desktop
+                ? BuildDesktopUrl(host, path, extra, deviceId, installId, rticket)
+                : BuildEmulatorUrl(host, path, extra, deviceId, installId, rticket, profile);
             for (var guard = 0; HongguoPureSign.BranchOf(url, body, khronos) == 1 && guard < 32; guard++)
             {
                 rticket++;
-                url = BuildEmulatorUrl(host, path, extra, deviceId, installId, rticket);
+                url = desktop
+                    ? BuildDesktopUrl(host, path, extra, deviceId, installId, rticket)
+                    : BuildEmulatorUrl(host, path, extra, deviceId, installId, rticket, profile);
             }
 
             using var request = new HttpRequestMessage(method, url);
-            request.Headers.TryAddWithoutValidation("user-agent", EmulatorUserAgent);
-            request.Headers.TryAddWithoutValidation("passport-sdk-version", "5051452");
+            request.Headers.TryAddWithoutValidation("user-agent", desktop ? DesktopUserAgent : UserAgent(profile));
+            request.Headers.TryAddWithoutValidation("passport-sdk-version", desktop ? "50561" : "5051452");
             request.Headers.TryAddWithoutValidation("sdk-version", "2");
             if (body is { Length: > 0 })
             {

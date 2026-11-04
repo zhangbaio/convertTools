@@ -334,21 +334,26 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果APP下载" FontWeight="Bold" />
-                        <TextBlock Text="搜索、分集、漫剧上新、AI短剧上新和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单仍使用上面的红果短剧助手账号。漫剧上新和 AI短剧上新固定为最新上架、7天内上新。播放地址按勾选的链路获取，至少选择一条；两条都选时先走链路 1，失败再走链路 2。播放设备号和安装号在软件第一次启动时自动生成并保存，之后继续使用；清空两个号码并重新打开助手后会重新生成。"
+                        <TextBlock Text="搜索、分集、漫剧上新、AI短剧上新和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单仍使用上面的红果短剧助手账号。漫剧上新和 AI短剧上新固定为最新上架、7天内上新。方案1用本机模拟器里已注册的设备和已安装版本。方案2按桌面版 2.0.0 的 7.4.2.32、红米 Android 16 请求，并使用下面保存的播放设备号和安装号。默认方案1。方案1的播放地址按勾选的链路获取，至少选择一条；两条都选时先走链路 1，失败再走链路 2。播放设备号和安装号在软件第一次启动时自动生成并保存，之后继续使用；清空两个号码并重新打开助手后会重新生成。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="取流链路" VerticalAlignment="Center" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="下载方案" VerticalAlignment="Center" />
                             <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                                <RadioButton Content="方案1" GroupName="HongguoAppPlan" IsChecked="{Binding HongguoAppPlanIsCurrent}" />
+                                <RadioButton Content="方案2" GroupName="HongguoAppPlan" IsChecked="{Binding HongguoAppPlanIsDesktop}" />
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="取流链路" VerticalAlignment="Center" IsEnabled="{Binding HongguoAppPlanIsCurrent}" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="16" IsEnabled="{Binding HongguoAppPlanIsCurrent}">
                                 <CheckBox Content="链路 1" IsChecked="{Binding HongguoAppStreamLink1}" />
                                 <CheckBox Content="链路 2" IsChecked="{Binding HongguoAppStreamLink2}" />
                             </StackPanel>
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="播放设备号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1"
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="播放设备号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1"
                                      Text="{Binding HongguoAppDeviceId}"
                                      Watermark="首次启动时自动生成" />
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="播放安装号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1"
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="播放安装号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1"
                                      Text="{Binding HongguoAppInstallId}"
                                      Watermark="首次启动时与设备号成对生成" />
                         </Grid>
