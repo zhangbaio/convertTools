@@ -33,6 +33,12 @@ public sealed class KuaishouPersonalEpisodeUploadService
         await WaitForUploadPageAsync(page, progress, cancellationToken);
         if (stageChanged is not null) await stageChanged("first_page_completed");
         progress?.Report("快手分账个人版：已进入剧集视频上传步骤。 ");
+        if (await SeriesAuditMeansUploadCompleteAsync(page))
+        {
+            progress?.Report("快手分账个人版：平台状态为审核中，本地记为上传完成。 ");
+            if (stageChanged is not null) await stageChanged("review_submitted");
+            return;
+        }
 
         if (!videosAlreadyUploaded)
         {
@@ -453,7 +459,12 @@ public sealed class KuaishouPersonalEpisodeUploadService
     {
         if (string.IsNullOrWhiteSpace(text))
             return false;
-        return Compact(text).Contains("视频预览", StringComparison.Ordinal);
+        var compact = Compact(text);
+        if (compact.Contains("视频无法正常播放", StringComparison.Ordinal) ||
+            compact.Contains("建议重新制作", StringComparison.Ordinal) ||
+            compact.Contains("请重新上传", StringComparison.Ordinal))
+            return false;
+        return compact.Contains("视频预览", StringComparison.Ordinal);
     }
 
     public static IReadOnlyList<EpisodeVideoSlot> NormalizeEpisodeSlots(IEnumerable<EpisodeVideoSlot> slots)
@@ -563,17 +574,17 @@ public sealed class KuaishouPersonalEpisodeUploadService
             files.Add((episode, path));
         }
 
-        progress?.Report($"快手分账个人版：发现未上传剧集，开始补传 {FormatEpisodeList(missing)}。 ");
+        progress?.Report($"快手分账个人版：发现需要补传的剧集，开始补传 {FormatEpisodeList(missing)}。 ");
         var deadline = DateTimeOffset.UtcNow.AddMinutes(Math.Clamp(timeoutMinutes, 5, 240));
         foreach (var (episode, path) in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken);
-            progress?.Report($"快手分账个人版：第{episode}集已补传。 ");
+            if (await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken))
+                progress?.Report($"快手分账个人版：第{episode}集已补传。 ");
         }
     }
 
-    private static async Task UploadOneMissingEpisodeAsync(
+    private static async Task<bool> UploadOneMissingEpisodeAsync(
         IPage page,
         int episode,
         string path,
@@ -585,14 +596,23 @@ public sealed class KuaishouPersonalEpisodeUploadService
             """
             episode => {
               const compact = value => String(value || '').replace(/\s+/g, '');
+              const needsUpload = card => {
+                const text = compact(card.innerText);
+                const error = card.classList.contains('episode-video_error')
+                  || Boolean(card.querySelector('.handle-error'))
+                  || text.includes('视频无法正常播放')
+                  || text.includes('建议重新制作')
+                  || text.includes('请重新上传');
+                return error || !text.includes('视频预览');
+              };
               document.querySelectorAll('[data-kuaishou-gap-upload]').forEach(element => element.removeAttribute('data-kuaishou-gap-upload'));
               const card = Array.from(document.querySelectorAll('.episode-video')).find(element =>
                 compact(element.querySelector('.episode-video__header__index')?.innerText) === `第${episode}集`);
               if (!card) return 'no-card';
-              const text = compact(card.innerText);
-              if (text.includes('视频预览') || card.querySelector('label[for^="replace-video-"]')) return 'already';
-              const input = Array.from(card.querySelectorAll('input.ks-upload__input')).find(element =>
-                !String(element.id || '').startsWith('replace-video-'));
+              if (!needsUpload(card)) return 'already';
+              const inputs = Array.from(card.querySelectorAll('input.ks-upload__input'));
+              const fresh = inputs.find(element => !String(element.id || '').startsWith('replace-video-'));
+              const input = fresh || inputs.find(element => String(element.id || '').startsWith('replace-video-')) || inputs[0];
               if (!input) return 'no-input';
               input.setAttribute('data-kuaishou-gap-upload', '1');
               return 'ok';
@@ -600,7 +620,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
             """,
             episode);
         if (marked == "already")
-            return;
+            return false;
         if (marked != "ok")
             throw new InvalidOperationException($"第{episode}集未找到可补传的上传框。");
 
@@ -613,6 +633,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
         }
 
         await WaitForGapEpisodeAsync(page, episode, deadline, cancellationToken);
+        return true;
     }
 
     private static async Task WaitForGapEpisodeAsync(
@@ -633,8 +654,13 @@ public sealed class KuaishouPersonalEpisodeUploadService
                     compact(element.querySelector('.episode-video__header__index')?.innerText) === `第${episode}集`);
                   if (!card) return 'pending';
                   const text = compact(card.innerText);
-                  if (text.includes('视频预览') || card.querySelector('label[for^="replace-video-"]')) return 'uploaded';
-                  if (text.includes('上传失败') || text.includes('校验失败')) return 'failed';
+                  const error = card.classList.contains('episode-video_error')
+                    || Boolean(card.querySelector('.handle-error'))
+                    || text.includes('视频无法正常播放')
+                    || text.includes('建议重新制作')
+                    || text.includes('请重新上传');
+                  if (!error && text.includes('视频预览')) return 'uploaded';
+                  if (text.includes('校验失败')) return 'failed';
                   return 'pending';
                 }
                 """,
@@ -676,7 +702,15 @@ public sealed class KuaishouPersonalEpisodeUploadService
                 throw new InvalidOperationException("未能切换剧集分页，无法确认哪些视频还未上传。");
             }
 
-            slots.AddRange(await ReadVisibleEpisodeVideoSlotsAsync(page));
+            var visible = await ReadVisibleEpisodeVideoSlotsAsync(page);
+            if (visible.Count == 0)
+            {
+                await page.WaitForTimeoutAsync(800);
+                visible = await ReadVisibleEpisodeVideoSlotsAsync(page);
+            }
+            if (visible.Count == 0)
+                throw new InvalidOperationException("有一页剧集没有读到卡片，无法确认哪些视频需要补传。");
+            slots.AddRange(visible);
         }
 
         return NormalizeEpisodeSlots(slots);
@@ -693,7 +727,12 @@ public sealed class KuaishouPersonalEpisodeUploadService
                 const match = compact(card.querySelector('.episode-video__header__index')?.innerText).match(/^第(\d+)集$/);
                 if (!match) continue;
                 const text = compact(card.innerText);
-                const uploaded = text.includes('视频预览') || Boolean(card.querySelector('label[for^="replace-video-"]'));
+                const error = card.classList.contains('episode-video_error')
+                  || Boolean(card.querySelector('.handle-error'))
+                  || text.includes('视频无法正常播放')
+                  || text.includes('建议重新制作')
+                  || text.includes('请重新上传');
+                const uploaded = !error && text.includes('视频预览');
                 pairs.push(Number(match[1]), uploaded ? 1 : 0);
               }
               return pairs;
@@ -1418,12 +1457,18 @@ public sealed class KuaishouPersonalEpisodeUploadService
             var body = (await ReadAllBodyTextAsync(page)).Replace("为避免上传失败", string.Empty, StringComparison.Ordinal);
             if (!string.IsNullOrWhiteSpace(body)) lastText = body;
             var leftEditPage = !page.Url.Contains("content-management/edit", StringComparison.OrdinalIgnoreCase);
+            var auditComplete = await SeriesAuditMeansUploadCompleteAsync(page);
             // 列表页的「审核状态」筛选项本身就包含“审核中”，不能拿整页文字判断。
-            // 与 weixin-channel-tool 一致：成功文案，或确认弹窗已点且已离开编辑页，或标题所在行是审核中。
-            if (ReviewSucceeded(body) ||
+            // 平台列表已经是审核中或审核通过时，提交已经成功，本地直接记为上传完成。
+            if (auditComplete ||
+                ReviewSucceeded(body) ||
                 (confirmClicked && leftEditPage) ||
                 await HasReviewingRowAsync(page, title))
+            {
+                if (auditComplete)
+                    progress?.Report("快手分账个人版：平台状态为审核中，本地记为上传完成。 ");
                 return;
+            }
             if (new[] { "发布失败", "上传失败", "校验失败", "请重新上传", "提交失败", "审核提交失败" }.Any(body.Contains))
                 throw new InvalidOperationException("快手个人版提交审核失败，平台页面返回失败提示。");
             await Task.Delay(1500, cancellationToken);
@@ -1431,6 +1476,47 @@ public sealed class KuaishouPersonalEpisodeUploadService
 
         var detail = string.IsNullOrWhiteSpace(lastText) ? string.Empty : $"最近页面：{TrimForError(lastText)}";
         throw new TimeoutException($"等待提交审核成功提示超时。{detail}");
+    }
+
+    public static bool AuditStatusMeansUploadComplete(int auditStatus) => auditStatus is 2 or 3;
+
+    private static async Task<bool> SeriesAuditMeansUploadCompleteAsync(IPage page)
+    {
+        var seriesId = ReadMiniSeriesId(page.Url);
+        if (string.IsNullOrWhiteSpace(seriesId))
+            return false;
+        try
+        {
+            var auditStatus = await page.EvaluateAsync<int>(
+                """
+                async (seriesId) => {
+                  const response = await fetch('https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/queryList', {
+                    method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pageNum: 1, pageSize: 10, episodeTitle: '', sellingStatus: 0,
+                      queryType: 0, sortParam: {}, miniSeriesTitle: '', auditStatus: 0, saleType: null,
+                      seriesIdList: [Number(seriesId)], createDateFrom: '', createDateTo: '', sourceType4Filter: null })
+                  });
+                  if (!response.ok) return -1;
+                  const payload = await response.json();
+                  const rows = payload?.data?.data || [];
+                  const row = rows.find(item => String(item.miniSeriesId) === String(seriesId));
+                  const status = Number(row?.auditStatus);
+                  return Number.isFinite(status) ? status : -1;
+                }
+                """,
+                seriesId);
+            return AuditStatusMeansUploadComplete(auditStatus);
+        }
+        catch (PlaywrightException)
+        {
+            return false;
+        }
+    }
+
+    private static string ReadMiniSeriesId(string url)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(url ?? string.Empty, @"miniSeriesId=(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : string.Empty;
     }
 
     private static bool ReviewSucceeded(string body) =>

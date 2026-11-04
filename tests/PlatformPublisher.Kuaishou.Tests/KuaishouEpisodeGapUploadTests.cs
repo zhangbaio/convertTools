@@ -55,6 +55,7 @@ public sealed class KuaishouEpisodeGapUploadTests
     [Theory]
     [InlineData("第4集微光映归途上传视频上传链接", false)]
     [InlineData("第1集 微光映归途 上传视频 链接上传 视频预览", true)]
+    [InlineData("第42集鹿鸣引路采药养家视频无法正常播放，建议重新制作上传视频链接上传", false)]
     [InlineData("为避免上传失败，请检查网络", false)]
     public void Uploaded_card_is_recognized_by_preview_text(string text, bool uploaded)
     {
@@ -73,5 +74,16 @@ public sealed class KuaishouEpisodeGapUploadTests
 
         Assert.Equal(@"E:\videos\微光映归途-第4集.mp4", KuaishouPersonalEpisodeUploadService.MatchEpisodeFile(paths, 4));
         Assert.Null(KuaishouPersonalEpisodeUploadService.MatchEpisodeFile(paths, 6));
+    }
+
+    [Theory]
+    [InlineData(2, true)]
+    [InlineData(3, true)]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(4, false)]
+    public void Reviewing_or_approved_series_counts_as_upload_complete(int auditStatus, bool complete)
+    {
+        Assert.Equal(complete, KuaishouPersonalEpisodeUploadService.AuditStatusMeansUploadComplete(auditStatus));
     }
 }
