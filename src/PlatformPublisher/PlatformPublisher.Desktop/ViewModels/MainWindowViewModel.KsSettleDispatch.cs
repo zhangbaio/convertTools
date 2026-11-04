@@ -25,7 +25,8 @@ public sealed partial class MainWindowViewModel
         string Edition,
         string Workspace,
         bool AuthReady,
-        bool RemoteDispatchEnabled);
+        bool RemoteDispatchEnabled,
+        bool QueueRunning = false);
 
     public sealed record KsSettleCommand(
         string Command,
@@ -34,7 +35,8 @@ public sealed partial class MainWindowViewModel
         string AccountProfileId,
         string Edition,
         string Title,
-        IReadOnlyList<string> EnabledSteps);
+        IReadOnlyList<string> EnabledSteps,
+        bool? ForceRerun = null);
 
     public sealed record YunfanRemoteCommandResult(string Status, string Summary, string FailureKind = "");
 
@@ -62,7 +64,8 @@ public sealed partial class MainWindowViewModel
                 edition,
                 workspace,
                 !string.IsNullOrWhiteSpace(authPath) && File.Exists(authPath),
-                true));
+                account.ParticipatesInXingeRemoteDispatch,
+                IsKuaishouAccountRunning(KuaishouRunKey(account.Id, platform))));
         }
         return accounts;
     }
@@ -131,6 +134,8 @@ public sealed partial class MainWindowViewModel
             string.Equals(item.Id, command.AccountProfileId, StringComparison.OrdinalIgnoreCase));
         if (account is null)
             return new YunfanRemoteCommandResult("failed", "客户端没有这个快手分账账号");
+        if (!account.ParticipatesInXingeRemoteDispatch)
+            return new YunfanRemoteCommandResult("failed", "账号未启用远程分发", "account_remote_disabled");
         if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var accountPlatform))
             return new YunfanRemoteCommandResult("failed", "账号还没有选择快手分账类型");
         var edition = string.Equals(command.Edition, "enterprise", StringComparison.OrdinalIgnoreCase)
@@ -143,15 +148,10 @@ public sealed partial class MainWindowViewModel
             return new YunfanRemoteCommandResult("failed", $"账号「{account.Name}」是{KuaishouAccountEdition.Label(account.KuaishouAccountEdition)}，不能执行另一版本");
 
         var key = KuaishouRunKey(account.Id, commandPlatform);
-        var cleared = UncheckKuaishouJobsExcept(account.Id, commandPlatform, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-        if (cleared > 0)
-        {
-            await PersistAsync(cancellationToken).ConfigureAwait(true);
-            RefreshVisibleJobs();
-            AppendActivityLog($"分发前已取消勾选 {cleared} 个手动选择的项目。");
-        }
-        if (IsKuaishouAccountRunning(key))
+        if (command.AssignmentId <= 0 && IsKuaishouAccountRunning(key))
             return new YunfanRemoteCommandResult("failed", "当前已有快手分账队列在执行，请等待完成后再发起新任务。", "queue_busy");
+        while (command.AssignmentId > 0 && IsManualKuaishouRun(key))
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(true);
 
         var workspace = ResolveKuaishouWorkRoot(account, commandPlatform);
         if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
@@ -181,6 +181,12 @@ public sealed partial class MainWindowViewModel
         var dirs = outcome.ProjectDirectories
             .Select(Path.GetFullPath)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var keep = new HashSet<string>(dirs, StringComparer.OrdinalIgnoreCase);
+        if (command.AssignmentId > 0)
+        {
+            foreach (var dir in LaneDirectories(key))
+                keep.Add(dir);
+        }
         await AddImportedProjectJobsAsync(
             dirs,
             account.Id,
@@ -188,7 +194,9 @@ public sealed partial class MainWindowViewModel
             account.ProfileDir,
             commandPlatform,
             ResolveGlobalConfigPath(account, commandPlatform)).ConfigureAwait(true);
-        UncheckKuaishouJobsExcept(account.Id, commandPlatform, dirs);
+        var cleared = UncheckKuaishouJobsExcept(account.Id, commandPlatform, keep);
+        if (cleared > 0)
+            AppendActivityLog($"分发前已取消勾选 {cleared} 个手动选择的项目。");
         await PersistAsync(cancellationToken).ConfigureAwait(true);
         RefreshVisibleJobs();
         var steps = command.EnabledSteps.Count == 0
@@ -199,25 +207,40 @@ public sealed partial class MainWindowViewModel
         KuaishouPipelineRequest request;
         try
         {
-            request = CreateDispatchPipelineRequest(account, commandPlatform, steps);
+            request = CreateDispatchPipelineRequest(account, commandPlatform, steps, command.AssignmentId > 0 ? command.ForceRerun : null, command.AssignmentId > 0);
         }
         catch (Exception ex)
         {
             return new YunfanRemoteCommandResult("failed", "快手分账配置读取失败：" + ex.Message);
         }
 
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        lock (_kuaishouRunGate)
+        if (command.AssignmentId <= 0)
         {
-            if (_kuaishouAccountRuns.ContainsKey(key))
+            CancellationTokenSource cts;
+            while (true)
             {
+                cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var started = false;
+                lock (_kuaishouRunGate)
+                {
+                    if (!_kuaishouAccountRuns.ContainsKey(key))
+                    {
+                        _kuaishouAccountRuns[key] = cts;
+                        started = true;
+                    }
+                }
+                if (started)
+                    break;
                 cts.Dispose();
                 return new YunfanRemoteCommandResult("failed", "当前已有快手分账队列在执行，请等待完成后再发起新任务。", "queue_busy");
             }
-            _kuaishouAccountRuns[key] = cts;
+            NotifyCommands();
+            _ = RunDispatchPipelineAsync(account, key, cts, dirs.ToArray(), request, command, reportAsync);
+            return new YunfanRemoteCommandResult("accepted", $"已开始执行「{command.Title}」");
         }
-        NotifyCommands();
-        _ = RunDispatchPipelineAsync(account, key, cts, dirs.ToArray(), request, command, reportAsync);
+
+        EnqueueKsSettleLane(account, key, dirs.ToArray(), request, command, reportAsync);
+        AppendActivityLog($"快手分账{request.EditionLabel}已加入执行队列「{command.Title}」，按任务队列并发数同时执行 {request.Parallelism} 部。");
         return new YunfanRemoteCommandResult("accepted", $"已开始执行「{command.Title}」");
     }
 
@@ -318,7 +341,7 @@ public sealed partial class MainWindowViewModel
             return new YunfanRemoteCommandResult("failed", "本地项目所在账号版本与派单不一致");
 
         var key = KuaishouRunKey(account.Id, platform);
-        if (IsKuaishouAccountRunning(key))
+        if (IsManualKuaishouRun(key))
         {
             AppendActivityLog($"快手分账派单 {item.Id} 的本地项目还在，当前队列仍在执行，稍后再继续。");
             return new YunfanRemoteCommandResult("skipped", "");
@@ -335,7 +358,8 @@ public sealed partial class MainWindowViewModel
             account.ProfileDir,
             platform,
             ResolveGlobalConfigPath(account, platform)).ConfigureAwait(true);
-        UncheckKuaishouJobsExcept(account.Id, platform, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { directory });
+        var keep = new HashSet<string>(LaneDirectories(key), StringComparer.OrdinalIgnoreCase) { directory };
+        UncheckKuaishouJobsExcept(account.Id, platform, keep);
         await PersistAsync(cancellationToken).ConfigureAwait(true);
         RefreshVisibleJobs();
         var saved = KsSettleMarker.Read(directory);
@@ -344,7 +368,7 @@ public sealed partial class MainWindowViewModel
         KuaishouPipelineRequest request;
         try
         {
-            request = CreateDispatchPipelineRequest(account, platform, steps);
+            request = CreateDispatchPipelineRequest(account, platform, steps, null, true);
         }
         catch (Exception ex)
         {
@@ -359,23 +383,10 @@ public sealed partial class MainWindowViewModel
             edition,
             string.IsNullOrWhiteSpace(item.Title) ? Path.GetFileName(directory) : item.Title,
             steps);
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        lock (_kuaishouRunGate)
-        {
-            if (_kuaishouAccountRuns.ContainsKey(key))
-            {
-                cts.Dispose();
-                AppendActivityLog($"快手分账派单 {item.Id} 的本地项目还在，当前队列仍在执行，稍后再继续。");
-                return new YunfanRemoteCommandResult("skipped", "");
-            }
-            _kuaishouAccountRuns[key] = cts;
-        }
-        NotifyCommands();
         AppendActivityLog($"快手分账派单从本地项目继续，不重新导入：{directory}");
-        _ = RunDispatchPipelineAsync(
+        EnqueueKsSettleLane(
             account,
             key,
-            cts,
             new[] { directory },
             request,
             command,
@@ -383,13 +394,203 @@ public sealed partial class MainWindowViewModel
         return new YunfanRemoteCommandResult("accepted", $"已从本地项目继续「{command.Title}」");
     }
 
+    private readonly object _ksSettleLaneGate = new();
+    private readonly Dictionary<string, KsSettleAccountLane> _ksSettleLanes = new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed class KsSettleAccountLane
+    {
+        public CancellationTokenSource Cts { get; } = new();
+        public KuaishouUploadSlot UploadSlot { get; } = new();
+        public KuaishouDispatchLane<KsSettleLaneWork> Scheduler { get; } = new();
+        public HashSet<string> Directories { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public int Parallelism { get; set; } = 1;
+    }
+
+    private sealed class KsSettleLaneWork
+    {
+        public required GlobalAccount Account;
+        public required string Key;
+        public required IReadOnlyList<string> Directories;
+        public required KuaishouPipelineRequest Request;
+        public required KsSettleCommand Command;
+        public required Func<string, string, string, string, Task> ReportAsync;
+    }
+
+    private bool IsManualKuaishouRun(string key)
+    {
+        lock (_ksSettleLaneGate)
+        {
+            if (_ksSettleLanes.ContainsKey(key))
+                return false;
+        }
+        return IsKuaishouAccountRunning(key);
+    }
+
+    private IReadOnlyCollection<string> LaneDirectories(string key)
+    {
+        lock (_ksSettleLaneGate)
+        {
+            return _ksSettleLanes.TryGetValue(key, out var lane)
+                ? lane.Directories.ToArray()
+                : [];
+        }
+    }
+
+    private void EnqueueKsSettleLane(
+        GlobalAccount account,
+        string key,
+        IReadOnlyList<string> directories,
+        KuaishouPipelineRequest request,
+        KsSettleCommand command,
+        Func<string, string, string, string, Task> reportAsync)
+    {
+        var work = new KsSettleLaneWork
+        {
+            Account = account,
+            Key = key,
+            Directories = directories,
+            Request = request,
+            Command = command,
+            ReportAsync = reportAsync,
+        };
+        IReadOnlyList<KsSettleLaneWork> started;
+        lock (_ksSettleLaneGate)
+        {
+            if (!_ksSettleLanes.TryGetValue(key, out var lane) || lane.Cts.IsCancellationRequested)
+            {
+                lane = new KsSettleAccountLane { Parallelism = request.Parallelism };
+                _ksSettleLanes[key] = lane;
+                lock (_kuaishouRunGate)
+                    _kuaishouAccountRuns[key] = lane.Cts;
+                NotifyCommands();
+            }
+            else
+            {
+                lane.Parallelism = request.Parallelism;
+            }
+            foreach (var dir in directories)
+                lane.Directories.Add(dir);
+            started = lane.Scheduler.Enqueue(work, lane.Parallelism);
+        }
+        foreach (var item in started)
+            _ = RunKsSettleLaneItemAsync(item);
+    }
+
+    private async Task RunKsSettleLaneItemAsync(KsSettleLaneWork work)
+    {
+        KsSettleAccountLane? lane;
+        lock (_ksSettleLaneGate)
+            _ksSettleLanes.TryGetValue(work.Key, out lane);
+        if (lane is null)
+            return;
+        await Task.Delay(1).ConfigureAwait(false);
+        var token = lane.Cts.Token;
+        try
+        {
+            if (work.Command.AssignmentId > 0)
+                await work.ReportAsync("running", "download", $"开始执行「{work.Command.Title}」", "").ConfigureAwait(false);
+            PrepareKuaishouLogProjects(work.Directories, work.Key);
+            foreach (var directory in work.Directories)
+            {
+                token.ThrowIfCancellationRequested();
+                var trackedJob = _jobs.FirstOrDefault(job =>
+                    job.Platform == work.Request.Platform &&
+                    !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
+                    string.Equals(Path.GetFullPath(job.ProjectDirectory), directory, StringComparison.OrdinalIgnoreCase));
+                if (trackedJob is not null)
+                    EnsureStepStates(trackedJob);
+                var projectName = string.IsNullOrWhiteSpace(trackedJob?.ProjectName)
+                    ? Path.GetFileName(directory)
+                    : trackedJob!.ProjectName;
+                ActivityLogProjectScope.Value = projectName;
+                ActivityLogAccountScope.Value = work.Key;
+                ActivityLogPlatformScope.Value = work.Request.Platform;
+                try
+                {
+                    await RunKuaishouSettlementPipelineAsync(
+                        directory,
+                        trackedJob,
+                        trackedJob is null ? null : RowForJob(trackedJob),
+                        work.Request,
+                        lane.UploadSlot,
+                        token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    ActivityLogProjectScope.Value = null;
+                    ActivityLogAccountScope.Value = null;
+                    ActivityLogPlatformScope.Value = null;
+                }
+            }
+            foreach (var dir in work.Directories)
+                KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "success");
+            await work.ReportAsync("success", "upload_series", $"上传完成：{work.Command.Title}", "").ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            foreach (var dir in work.Directories)
+                KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
+            await work.ReportAsync("failed", "", ShortDispatchFailure(ex.Message), "").ConfigureAwait(false);
+        }
+        finally
+        {
+            ReleaseKsSettleLaneItem(work.Key, lane, token.IsCancellationRequested);
+        }
+    }
+
+    private void ReleaseKsSettleLaneItem(string key, KsSettleAccountLane lane, bool stopStarting)
+    {
+        IReadOnlyList<KsSettleLaneWork> next;
+        var idle = false;
+        lock (_ksSettleLaneGate)
+        {
+            if (!_ksSettleLanes.TryGetValue(key, out var current) || !ReferenceEquals(current, lane))
+                return;
+            next = lane.Scheduler.Completed(lane.Parallelism, stopStarting);
+            idle = lane.Scheduler.Idle;
+            if (idle)
+                _ksSettleLanes.Remove(key);
+        }
+        if (idle)
+        {
+            lock (_kuaishouRunGate)
+            {
+                if (_kuaishouAccountRuns.TryGetValue(key, out var cts) && ReferenceEquals(cts, lane.Cts))
+                    _kuaishouAccountRuns.Remove(key);
+            }
+            lane.Cts.Dispose();
+            PostUi(NotifyCommands);
+        }
+        foreach (var item in next)
+            _ = RunKsSettleLaneItemAsync(item);
+    }
+
     private KuaishouPipelineRequest CreateDispatchPipelineRequest(
         GlobalAccount account,
         PublishPlatform platform,
-        IReadOnlyList<string> steps)
+        IReadOnlyList<string> steps,
+        bool? forceRerun,
+        bool applyVisible)
     {
+        if (applyVisible)
+            ApplyVisibleKuaishouSteps(steps, forceRerun);
         var selected = new HashSet<string>(steps.Select(step => step.Trim()), StringComparer.OrdinalIgnoreCase);
-        bool Has(string step) => selected.Contains(step);
+        bool Has(string step) => applyVisible
+            ? step switch
+            {
+                "download" => PipelineDownloadEnabled,
+                "rewrite_info" => PipelineRewriteEnabled,
+                "generate_poster" => PipelinePosterEnabled,
+                "generate_project_images" => PipelineProjectImageEnabled,
+                "auto_fill_info" => PipelineAutoFillEnabled,
+                "upload_series" => PipelineUploadEpisodesEnabled,
+                "auto_archive" => PipelineAutoArchiveAfterUpload,
+                _ => false,
+            }
+            : selected.Contains(step);
         var configPath = ResolveGlobalConfigPath(account, platform);
         var config = KuaishouPersonalConfig.Load(new PublishJob
         {
@@ -408,10 +609,34 @@ public sealed partial class MainWindowViewModel
             Has("generate_project_images"),
             Has("auto_fill_info"),
             Has("upload_series"),
-            false,
+            applyVisible ? PipelineForceRerun : false,
             KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
             platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版",
             Has("auto_archive"));
+    }
+
+    private void ApplyVisibleKuaishouSteps(IReadOnlyList<string> steps, bool? forceRerun)
+    {
+        var selected = new HashSet<string>(steps.Select(step => step.Trim()), StringComparer.OrdinalIgnoreCase);
+        PipelineDownloadEnabled = selected.Contains("download");
+        PipelineRewriteEnabled = selected.Contains("rewrite_info");
+        PipelinePosterEnabled = selected.Contains("generate_poster");
+        PipelineProjectImageEnabled = selected.Contains("generate_project_images");
+        PipelineAutoFillEnabled = selected.Contains("auto_fill_info");
+        PipelineUploadEpisodesEnabled = selected.Contains("upload_series");
+        PipelineAutoArchiveAfterUpload = selected.Contains("auto_archive");
+        if (forceRerun is bool force)
+            PipelineForceRerun = force;
+        var names = new List<string>();
+        if (PipelineDownloadEnabled) names.Add("下载");
+        if (PipelineRewriteEnabled) names.Add("改写信息");
+        if (PipelinePosterEnabled) names.Add("生成海报");
+        if (PipelineProjectImageEnabled) names.Add("生成工程图");
+        if (PipelineAutoFillEnabled) names.Add("补齐字段");
+        if (PipelineUploadEpisodesEnabled) names.Add("上传剧集");
+        if (PipelineForceRerun) names.Add("强制重跑已完成步骤");
+        if (PipelineAutoArchiveAfterUpload) names.Add("上传后自动归档");
+        AppendActivityLog("已按分发配置勾选步骤：" + (names.Count == 0 ? "（无）" : string.Join("、", names)));
     }
 
     private int UncheckKuaishouJobsExcept(string accountId, PublishPlatform platform, IReadOnlySet<string> keepDirs)
