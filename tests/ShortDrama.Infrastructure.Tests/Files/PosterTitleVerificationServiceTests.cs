@@ -162,6 +162,25 @@ public sealed class PosterTitleVerificationServiceTests
     }
 
     [Fact]
+    public void MergeResidualTextEvidence_keeps_cropped_missing_character_when_full_image_passes()
+    {
+        var cropped = new PosterTitleVerifyResult(
+            false,
+            "迟来告白",
+            "识别标题为“迟来告白”");
+        var fullImage = new PosterTitleVerifyResult(
+            true,
+            "迟来的告白",
+            "");
+
+        var result = PosterRenamer.MergeResidualTextEvidence(cropped, fullImage);
+
+        result.Ok.Should().BeFalse();
+        result.DetectedTitle.Should().Be("迟来告白");
+        result.Reason.Should().Contain("迟来告白");
+    }
+
+    [Fact]
     public void MergeResidualTextEvidence_accepts_full_image_pass_when_crop_only_misses_title()
     {
         var cropped = PosterTitleVerifyResult.Inconclusive("标题裁剪未检测到文字");

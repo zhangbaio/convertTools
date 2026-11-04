@@ -800,7 +800,15 @@ public sealed partial class PosterRenamer
         PosterTitleVerifyResult fullImageVerify)
     {
         if (!croppedVerify.HasResidualText && !fullImageVerify.HasResidualText)
+        {
+            // 标题区域已经读出具体文字时，以这块放大图为准。全图复核常把提示里的目标剧名原样回传，
+            // 会把「迟来告白」这种漏字当成「迟来的告白」。
+            if (!croppedVerify.Ok &&
+                !croppedVerify.IsInconclusive &&
+                !string.IsNullOrWhiteSpace(croppedVerify.DetectedTitle))
+                return croppedVerify;
             return fullImageVerify;
+        }
 
         var residualText = string.Join(
             '；',
