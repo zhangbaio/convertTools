@@ -685,35 +685,77 @@ public sealed class KuaishouPersonalEpisodeUploadService
         try { tabCount = await tabs.CountAsync(); }
         catch (PlaywrightException) { tabCount = 0; }
         if (tabCount <= 1)
-            return NormalizeEpisodeSlots(await ReadVisibleEpisodeVideoSlotsAsync(page));
+            return NormalizeEpisodeSlots(await WaitForVisibleEpisodeCardsAsync(page, 0, 0, 15_000));
 
         var slots = new List<EpisodeVideoSlot>();
         for (var index = 0; index < tabCount; index++)
         {
             var tab = tabs.Nth(index);
+            string label;
             try
             {
                 if (!await tab.IsVisibleAsync()) continue;
-                await tab.ClickAsync(new LocatorClickOptions { Timeout = 3_000 });
-                await page.WaitForTimeoutAsync(400);
+                label = Compact(await tab.InnerTextAsync());
+                if (!TryReadEpisodeTabRange(label, out var start, out var end)) continue;
+                var selected = await tab.EvaluateAsync<bool>(
+                    "element => /active|current|selected/i.test(element.className || '') || element.getAttribute('aria-selected') === 'true'");
+                if (!selected)
+                    await tab.ClickAsync(new LocatorClickOptions { Timeout = 3_000 });
+                var visible = await WaitForVisibleEpisodeCardsAsync(page, start, end, 12_000);
+                if (visible.Count == 0)
+                    throw new InvalidOperationException($"剧集分页「{label}」没有读到卡片，无法确认哪些视频需要补传。");
+                slots.AddRange(visible);
             }
             catch (PlaywrightException)
             {
                 throw new InvalidOperationException("未能切换剧集分页，无法确认哪些视频还未上传。");
             }
-
-            var visible = await ReadVisibleEpisodeVideoSlotsAsync(page);
-            if (visible.Count == 0)
-            {
-                await page.WaitForTimeoutAsync(800);
-                visible = await ReadVisibleEpisodeVideoSlotsAsync(page);
-            }
-            if (visible.Count == 0)
-                throw new InvalidOperationException("有一页剧集没有读到卡片，无法确认哪些视频需要补传。");
-            slots.AddRange(visible);
         }
 
+        if (slots.Count == 0)
+            throw new InvalidOperationException("没有读到剧集卡片，无法确认哪些视频需要补传。");
         return NormalizeEpisodeSlots(slots);
+    }
+
+    private static bool TryReadEpisodeTabRange(string label, out int start, out int end)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(label, @"(\d+)-(\d+)集");
+        start = 0;
+        end = 0;
+        if (!match.Success) return false;
+        start = int.Parse(match.Groups[1].Value);
+        end = int.Parse(match.Groups[2].Value);
+        return start > 0 && end >= start;
+    }
+
+    private static async Task<IReadOnlyList<EpisodeVideoSlot>> WaitForVisibleEpisodeCardsAsync(
+        IPage page,
+        int start,
+        int end,
+        int timeoutMs)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs);
+        var stableReads = 0;
+        var lastCount = -1;
+        IReadOnlyList<EpisodeVideoSlot> pageSlots = [];
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var visible = await ReadVisibleEpisodeVideoSlotsAsync(page);
+            pageSlots = start <= 0
+                ? visible
+                : visible.Where(slot => slot.Number >= start && slot.Number <= end).ToArray();
+            if (pageSlots.Count > 0 && pageSlots.Count == lastCount)
+                stableReads++;
+            else
+                stableReads = 0;
+            lastCount = pageSlots.Count;
+            var coversRange = end > 0 && pageSlots.Any(slot => slot.Number >= end - 1);
+            if (pageSlots.Count > 0 && (coversRange || stableReads >= 2))
+                return pageSlots;
+            await page.WaitForTimeoutAsync(400);
+        }
+
+        return pageSlots;
     }
 
     private static async Task<IReadOnlyList<EpisodeVideoSlot>> ReadVisibleEpisodeVideoSlotsAsync(IPage page)
@@ -724,7 +766,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
               const compact = value => String(value || '').replace(/\s+/g, '');
               const pairs = [];
               for (const card of document.querySelectorAll('.episode-video')) {
-                const match = compact(card.querySelector('.episode-video__header__index')?.innerText).match(/^第(\d+)集$/);
+                const match = compact(card.querySelector('.episode-video__header__index')?.innerText).match(/第(\d+)集/);
                 if (!match) continue;
                 const text = compact(card.innerText);
                 const error = card.classList.contains('episode-video_error')
