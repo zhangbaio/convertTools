@@ -42,6 +42,45 @@ public sealed class HongguoAppDirectClientTests
     }
 
     [Fact]
+    public async Task LiveFreshComputerPlaybackWithoutEmulator()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable("HONGUO_LIVE"), "1", StringComparison.Ordinal))
+            return;
+
+        var devicePath = Path.Combine(Path.GetTempPath(), "hongguo-fresh-" + Guid.NewGuid().ToString("N") + ".json");
+        HongguoAppDirectClient.ReadEmulatorDevice = (out string deviceId, out string installId) =>
+        {
+            deviceId = "";
+            installId = "";
+            return false;
+        };
+        HongguoAppDirectClient.AuditDevicePathOverride = devicePath;
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(40) };
+            var client = new HongguoAppDirectClient(http);
+            var before = HongguoAppDirectClient.EmulatorChainUses;
+            var items = await client.SearchAsync("无价先生", 1, CancellationToken.None);
+            Assert.True(items.Count > 0);
+            var episodes = await client.GetEpisodesAsync(items[0].BookId, CancellationToken.None);
+            Assert.True(episodes.Count >= 3);
+            for (var index = 0; index < 3; index++)
+            {
+                var playback = await client.GetVideoPlaybackAsync(episodes[index].VideoId, "1080", CancellationToken.None);
+                Assert.StartsWith("https://", playback.Url, StringComparison.OrdinalIgnoreCase);
+            }
+
+            Assert.Equal(before, HongguoAppDirectClient.EmulatorChainUses);
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+            HongguoAppDirectClient.AuditDevicePathOverride = null;
+            try { File.Delete(devicePath); } catch { /* 临时身份用完即删。 */ }
+        }
+    }
+
+    [Fact]
     public void SignedMediaUrlRejectsBadCiphertext()
     {
         var shortCipher = Assert.Throws<HongguoHighException>(() =>
@@ -329,7 +368,10 @@ public sealed class HongguoAppDirectClientTests
             return Json("""{"code":1}""");
         }));
         var client = new HongguoAppDirectClient(http);
+        var devicePath = Path.Combine(Path.GetTempPath(), "hongguo-audit-" + Guid.NewGuid().ToString("N") + ".json");
         HongguoAppDirectClient.ReadEmulatorDevice = EmulatorPair;
+        HongguoAppDirectClient.AuditRetryDelayOverride = _ => TimeSpan.Zero;
+        HongguoAppDirectClient.AuditDevicePathOverride = devicePath;
         try
         {
             var error = await Assert.ThrowsAsync<HongguoHighException>(() => client.GetVideoPlaybackAsync(
@@ -344,6 +386,53 @@ public sealed class HongguoAppDirectClientTests
         finally
         {
             HongguoAppDirectClient.ReadEmulatorDevice = null;
+            HongguoAppDirectClient.AuditRetryDelayOverride = null;
+            HongguoAppDirectClient.AuditDevicePathOverride = null;
+            try { File.Delete(devicePath); } catch { /* 测试身份用完即删。 */ }
+        }
+    }
+
+    [Fact]
+    public async Task FreshComputerRetriesEmptyAuditUntilPlayback()
+    {
+        var urls = new List<string>();
+        var videoCalls = 0;
+        using var http = new HttpClient(Script(urls, request =>
+        {
+            var url = request.RequestUri?.AbsoluteUri ?? "";
+            if (!url.Contains("/novel/player/video_model/v1/", StringComparison.Ordinal))
+                return Json("""{"code":1}""");
+            videoCalls++;
+            return videoCalls < 3
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([]) }
+                : Json(AuditModel);
+        }));
+        var client = new HongguoAppDirectClient(http);
+        var devicePath = Path.Combine(Path.GetTempPath(), "hongguo-audit-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(devicePath, "{\"device_id\":\"1000000000000001\"}");
+        HongguoAppDirectClient.ReadEmulatorDevice = NoEmulator;
+        HongguoAppDirectClient.AuditRetryDelayOverride = _ => TimeSpan.Zero;
+        HongguoAppDirectClient.AuditDevicePathOverride = devicePath;
+        try
+        {
+            var playback = await client.GetVideoPlaybackAsync(
+                HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, "7600111222333444555"),
+                "1080",
+                CancellationToken.None,
+                "1234567890123456",
+                "1234567890123457");
+            Assert.Equal("https://example.test/a", playback.Url);
+            Assert.Equal(3, videoCalls);
+            Assert.DoesNotContain("1000000000000001", File.ReadAllText(devicePath), StringComparison.Ordinal);
+            Assert.DoesNotContain(urls, url => url.Contains("/service/2/device_register/", StringComparison.Ordinal));
+            Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/", StringComparison.Ordinal));
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+            HongguoAppDirectClient.AuditRetryDelayOverride = null;
+            HongguoAppDirectClient.AuditDevicePathOverride = null;
+            try { File.Delete(devicePath); } catch { /* 测试身份用完即删。 */ }
         }
     }
 

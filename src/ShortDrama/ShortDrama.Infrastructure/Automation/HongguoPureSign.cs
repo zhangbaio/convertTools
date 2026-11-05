@@ -63,6 +63,13 @@ internal static class HongguoPureSign
             // 损坏的本地身份重新生成。
         }
 
+        return WriteDeviceId(path);
+    }
+
+    internal static void ReplaceDeviceId(string path) => WriteDeviceId(path);
+
+    private static string WriteDeviceId(string path)
+    {
         var deviceId = Random.Shared.NextInt64(1_000_000_000_000_000, 10_000_000_000_000_000).ToString();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var tmp = path + ".tmp";
