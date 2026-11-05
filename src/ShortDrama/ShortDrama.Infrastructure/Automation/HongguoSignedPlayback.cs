@@ -62,6 +62,9 @@ internal sealed class HongguoSignedPlayback
         Timeout = TimeSpan.FromSeconds(20)
     };
 
+    /// <summary>测试注入。为空时用上面这条不跟随跳转的客户端。</summary>
+    internal static HttpMessageHandler? Transport;
+
     private readonly HongguoGuestPlayback _playback;
 
     internal HongguoSignedPlayback(HongguoGuestPlayback playback) => _playback = playback;
@@ -182,7 +185,8 @@ internal sealed class HongguoSignedPlayback
 
     private static async Task<JsonObject> ReadObjectAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        using var response = await Direct.SendAsync(request, cancellationToken);
+        using var owned = Transport is null ? null : new HttpClient(Transport, disposeHandler: false);
+        using var response = await (owned ?? Direct).SendAsync(request, cancellationToken);
         if ((int)response.StatusCode is >= 300 and < 400)
             throw new HongguoHighException("链路 2 不接受接口跳转");
         var bytes = await HongguoGuestPlayback.ReadBodyAsync(response, cancellationToken);

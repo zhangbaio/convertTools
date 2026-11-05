@@ -13,7 +13,8 @@ namespace ShortDrama.Infrastructure.Automation;
 /// 查询保持已安装的 7.4.3.32 精简参数；机型、品牌和系统版本读模拟器自身。
 /// 没有模拟器设备时，播放直接用单集接口，失败再按勾选走链路 1 和链路 2。
 /// 模拟器设备在时，播放空包只在 preload 上退避重试，仍失败再试一次单集接口，不再注册新设备。
-/// 方案2：按桌面版 2.0.0 的 7.4.2.32、红米 Android 16 和扩展字段请求，设备号用设置里保存的一对，不读模拟器，播放失败不再改走其它链路。
+/// 方案2：设备号用设置里保存的一对，不读模拟器。剧集仍走桌面 7.4.2.32。
+/// 播放 preload 在 fqnovel 和 reading 上都会回 HTTP 200 空包，所以播放改走已能取出地址的红米签名链路。
 /// </summary>
 internal sealed class HongguoAppDirectClient
 {
@@ -270,10 +271,8 @@ internal sealed class HongguoAppDirectClient
                 throw new HongguoHighException("缺少播放设备号和安装号");
             try
             {
-                var playback = await GetEmulatorPlaybackAsync(
-                    rawVideoId, quality, deviceId!.Trim(), installId!.Trim(), cancellationToken, desktop: true);
-                EmulatorChainUses++;
-                return playback;
+                return await _signed.GetAsync(
+                    rawVideoId, quality, cancellationToken, deviceId!.Trim(), installId!.Trim(), persist);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -562,7 +561,7 @@ internal sealed class HongguoAppDirectClient
             {
                 var root = await SendEmulatorAsync(
                     HttpMethod.Post,
-                    PlaybackHost,
+                    desktop ? ReadingHost : PlaybackHost,
                     PlaybackPath,
                     EmulatorPlaybackBody(videoId),
                     null,
