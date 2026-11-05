@@ -5210,8 +5210,7 @@ public sealed partial class MainViewModel : ViewModelBase
         bool allowAppendToRunningQueue,
         CancellationToken ct,
         Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null,
-        RemoteAutoPublishContext? autoPublish = null,
-        string? seriesId = null)
+        RemoteAutoPublishContext? autoPublish = null)
     {
         var root = Path.GetFullPath(workspaceRoot);
         var settings = ClientSettingsStore.Load();
@@ -5226,8 +5225,7 @@ public sealed partial class MainViewModel : ViewModelBase
             AppendLog,
             ct,
             addProjectsToQueue: false,
-            confirmUnknownAuthor: confirmUnknownAuthor,
-            seriesId: seriesId);
+            confirmUnknownAuthor: confirmUnknownAuthor);
 
         // 标记必须在项目进入运行队列之前写好，队列观察者才能从第一条进度起识别派单。
         if (autoPublish is not null)
