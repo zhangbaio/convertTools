@@ -6,18 +6,10 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 
 internal static class KuaishouUploadReportWorkbook
 {
-    private static readonly string[] TimelineHeaders =
+    private static readonly string[] Headers =
     [
-        "记录时间", "日期", "上传状态", "执行模式", "执行步骤", "项目名称", "原剧名", "新剧名", "作者",
-        "项目路径", "剧集数", "已上传集数", "第一页提交动作", "当前阶段", "下载", "改写信息", "生成海报",
-        "生成工程图", "补齐字段", "上传剧集", "账号档案", "本机设备名", "失败原因", "prepare_state_path", "upload_state_path",
-    ];
-
-    private static readonly string[] DashboardHeaders =
-    [
-        "记录时间", "账号档案", "项目名称", "原剧名", "新剧名", "作者", "上传状态", "第一页提交动作",
-        "当前阶段", "剧集数", "上传进度", "下载", "改写信息", "生成海报", "生成工程图", "补齐字段",
-        "失败原因", "项目路径",
+        "记录时间", "日期", "账号档案", "快手昵称", "项目名称", "原剧名", "新剧名", "作者",
+        "集数", "上传状态", "失败原因", "项目路径",
     ];
 
     public static void Write(IReadOnlyList<Dictionary<string, string>> records, string path, bool enterprise)
@@ -34,71 +26,12 @@ internal static class KuaishouUploadReportWorkbook
             styles.Stylesheet = CreateStylesheet();
             styles.Stylesheet.Save();
             var sheets = workbookPart.Workbook.AppendChild(new Sheets());
-            var dashboardName = enterprise ? "快手分账企业版看板" : "快手分账个人版看板";
-            AddSheet(workbookPart, sheets, dashboardName, DashboardHeaders, DashboardRows(records), 1u);
-            AddSheet(workbookPart, sheets, "执行流水", TimelineHeaders, records.Select(record =>
-                TimelineHeaders.Select(header => record.GetValueOrDefault(header) ?? "").ToArray()).ToArray(), 2u);
+            var sheetName = enterprise ? "快手分账企业版" : "快手分账个人版";
+            var rows = records.Select(record => Headers.Select(header => record.GetValueOrDefault(header) ?? "").ToArray()).ToArray();
+            AddSheet(workbookPart, sheets, sheetName, Headers, rows, 1u);
             workbookPart.Workbook.Save();
         }
         File.Move(temporary, path, overwrite: true);
-    }
-
-    private static IReadOnlyList<string[]> DashboardRows(IReadOnlyList<Dictionary<string, string>> records)
-    {
-        var merged = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
-        var order = new List<string>();
-        foreach (var record in records.OrderBy(item => item.GetValueOrDefault("记录时间") ?? "", StringComparer.Ordinal))
-        {
-            var key = First(
-                record.GetValueOrDefault("项目路径"),
-                string.Join("|", record.GetValueOrDefault("原剧名") ?? "", record.GetValueOrDefault("新剧名") ?? ""),
-                record.GetValueOrDefault("项目名称"));
-            if (string.IsNullOrWhiteSpace(key.Replace("|", "", StringComparison.Ordinal)))
-                key = Guid.NewGuid().ToString("N");
-            if (!merged.TryGetValue(key, out var current))
-            {
-                current = new Dictionary<string, string>(StringComparer.Ordinal);
-                merged[key] = current;
-                order.Add(key);
-            }
-            foreach (var pair in record)
-            {
-                if (!string.IsNullOrWhiteSpace(pair.Value))
-                    current[pair.Key] = pair.Value;
-            }
-        }
-
-        return order.Select(key => DashboardRow(merged[key])).ToArray();
-    }
-
-    private static string[] DashboardRow(Dictionary<string, string> record)
-    {
-        var uploaded = record.GetValueOrDefault("已上传集数") ?? "";
-        var total = record.GetValueOrDefault("剧集数") ?? "";
-        var progress = !string.IsNullOrWhiteSpace(uploaded) && !string.IsNullOrWhiteSpace(total)
-            ? $"{uploaded}/{total}"
-            : First(uploaded, total);
-        return
-        [
-            record.GetValueOrDefault("记录时间") ?? "",
-            record.GetValueOrDefault("账号档案") ?? "",
-            record.GetValueOrDefault("项目名称") ?? "",
-            record.GetValueOrDefault("原剧名") ?? "",
-            record.GetValueOrDefault("新剧名") ?? "",
-            record.GetValueOrDefault("作者") ?? "",
-            record.GetValueOrDefault("上传状态") ?? "",
-            record.GetValueOrDefault("第一页提交动作") ?? "",
-            record.GetValueOrDefault("当前阶段") ?? "",
-            total,
-            progress,
-            record.GetValueOrDefault("下载") ?? "",
-            record.GetValueOrDefault("改写信息") ?? "",
-            record.GetValueOrDefault("生成海报") ?? "",
-            record.GetValueOrDefault("生成工程图") ?? "",
-            record.GetValueOrDefault("补齐字段") ?? "",
-            record.GetValueOrDefault("失败原因") ?? "",
-            record.GetValueOrDefault("项目路径") ?? "",
-        ];
     }
 
     private static void AddSheet(
@@ -192,7 +125,4 @@ internal static class KuaishouUploadReportWorkbook
         while (value >= 0);
         return name;
     }
-
-    private static string First(params string?[] values) =>
-        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
 }

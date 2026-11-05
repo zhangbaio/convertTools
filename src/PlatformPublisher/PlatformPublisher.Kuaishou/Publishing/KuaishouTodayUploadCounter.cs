@@ -11,29 +11,36 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 public static class KuaishouTodayUploadCounter
 {
     private static readonly object Gate = new();
-    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     public static void RecordSuccess(
         PublishPlatform platform,
         string accountId,
         string projectDirectory,
         DateTimeOffset? recordedAt = null,
-        string? storeRoot = null)
+        string? storeRoot = null,
+        string? nickname = null)
     {
         if (string.IsNullOrWhiteSpace(projectDirectory))
             return;
         var edition = Edition(platform);
-        if (edition is null)
+        if (edition is null || string.IsNullOrWhiteSpace(accountId))
             return;
+        EnsureMigrated(storeRoot);
         var at = recordedAt ?? DateTimeOffset.Now;
-        Append(platform, new Dictionary<string, string>
-        {
-            ["记录时间"] = at.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-            ["日期"] = at.ToLocalTime().ToString("yyyy-MM-dd"),
-            ["上传状态"] = "成功",
-            ["账号档案"] = accountId?.Trim() ?? "",
-            ["项目路径"] = Path.GetFullPath(projectDirectory),
-        }, storeRoot);
+        var title = Path.GetFileName(projectDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        KuaishouUploadRecordStore.Upsert(new KuaishouUploadRecord(
+            edition,
+            accountId.Trim(),
+            nickname ?? "",
+            at,
+            "成功",
+            title,
+            title,
+            title,
+            ReadInfoValue(projectDirectory, "作者"),
+            0,
+            Path.GetFullPath(projectDirectory),
+            ""), storeRoot);
     }
 
     public static void AppendRun(
@@ -43,10 +50,14 @@ public static class KuaishouTodayUploadCounter
         string projectDirectory,
         bool succeeded,
         string? error,
-        string? storeRoot = null)
+        string? storeRoot = null,
+        string? nickname = null)
     {
-        if (string.IsNullOrWhiteSpace(projectDirectory) || Edition(platform) is null)
+        var edition = Edition(platform);
+        var account = FirstText(accountId, accountName);
+        if (string.IsNullOrWhiteSpace(projectDirectory) || edition is null || string.IsNullOrWhiteSpace(account))
             return;
+        EnsureMigrated(storeRoot);
         var enterprise = platform == PublishPlatform.KuaishouEnterpriseRevenue;
         KuaishouArtifactColumnStatus? artifacts = null;
         try
@@ -60,55 +71,36 @@ public static class KuaishouTodayUploadCounter
         }
 
         var stateName = enterprise ? ".kuaishou-enterprise-upload-state.json" : ".kuaishou-personal-upload-state.json";
-        var prepareName = enterprise ? ".kuaishou-enterprise-prepare-state.json" : ".kuaishou-personal-prepare-state.json";
-        var statePath = FindStateFile(projectDirectory, stateName);
-        var preparePath = FindStateFile(projectDirectory, prepareName);
-        var state = ReadObject(statePath);
-        var now = DateTimeOffset.Now;
+        var state = ReadObject(FindStateFile(projectDirectory, stateName));
         var rawStatus = succeeded
             ? FirstText(ReadString(state, "Status"), ReadString(state, "status"), "completed")
             : "failed";
         if (succeeded && IsInProgressStatus(rawStatus))
             rawStatus = "completed";
-        var uploaded = ReadBool(state, "ReviewSubmitted") || ReadBool(state, "review_submitted")
-            ? artifacts?.EpisodeCount.ToString() ?? ""
-            : "";
         var originalTitle = artifacts?.OriginalTitle ?? Path.GetFileName(projectDirectory);
-        var newTitle = artifacts?.NewTitle ?? originalTitle;
-        Append(platform, new Dictionary<string, string>
-        {
-            ["记录时间"] = now.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-            ["日期"] = now.ToLocalTime().ToString("yyyy-MM-dd"),
-            ["上传状态"] = StatusLabel(rawStatus),
-            ["执行模式"] = "执行勾选步骤",
-            ["执行步骤"] = StepText(artifacts),
-            ["项目名称"] = string.IsNullOrWhiteSpace(newTitle) ? originalTitle : newTitle,
-            ["原剧名"] = originalTitle,
-            ["新剧名"] = newTitle,
-            ["作者"] = ReadInfoValue(projectDirectory, "作者"),
-            ["项目路径"] = Path.GetFullPath(projectDirectory),
-            ["剧集数"] = artifacts is { EpisodeCount: > 0 } ? artifacts.EpisodeCount.ToString() : "",
-            ["已上传集数"] = uploaded,
-            ["第一页提交动作"] = FirstPageActionLabel(ReadString(state, "CurrentStage")),
-            ["当前阶段"] = FirstText(ReadString(state, "CurrentStage"), ReadString(state, "current_stage")),
-            ["下载"] = artifacts?.DownloadStatus ?? "",
-            ["改写信息"] = artifacts?.RewriteStatus ?? "",
-            ["生成海报"] = artifacts?.PosterStatus ?? "",
-            ["生成工程图"] = artifacts?.ProjectImageStatus ?? "",
-            ["补齐字段"] = artifacts?.AutoFillStatus ?? "",
-            ["上传剧集"] = artifacts?.UploadStatus ?? "",
-            ["账号档案"] = FirstText(accountId, accountName),
-            ["本机设备名"] = Environment.MachineName,
-            ["失败原因"] = succeeded ? "" : error?.Trim() ?? "",
-            ["prepare_state_path"] = preparePath,
-            ["upload_state_path"] = statePath,
-        }, storeRoot);
+        var newTitle = string.IsNullOrWhiteSpace(artifacts?.NewTitle) ? originalTitle : artifacts!.NewTitle;
+        KuaishouUploadRecordStore.Upsert(new KuaishouUploadRecord(
+            edition,
+            account,
+            nickname ?? "",
+            DateTimeOffset.Now,
+            StatusLabel(rawStatus),
+            string.IsNullOrWhiteSpace(newTitle) ? originalTitle : newTitle,
+            originalTitle,
+            newTitle,
+            ReadInfoValue(projectDirectory, "作者"),
+            artifacts?.EpisodeCount ?? 0,
+            Path.GetFullPath(projectDirectory),
+            succeeded ? "" : error?.Trim() ?? ""), storeRoot);
     }
 
     public static string ExportExcel(PublishPlatform platform, string? storeRoot = null)
     {
         var edition = Edition(platform) ?? throw new InvalidOperationException("只有快手分账可以导出上传记录。");
-        var records = Read(StorePath(edition, storeRoot));
+        EnsureMigrated(storeRoot);
+        var records = KuaishouUploadRecordStore.List(edition, storeRoot)
+            .Select(ToRow)
+            .ToList();
         var xlsxPath = ExcelPath(edition, storeRoot);
         try
         {
@@ -138,7 +130,8 @@ public static class KuaishouTodayUploadCounter
         DateTime? today = null,
         string? storeRoot = null,
         IEnumerable<string>? projectDirectories = null,
-        string? archiveRoot = null)
+        string? archiveRoot = null,
+        string? nickname = null)
     {
         _ = workspaceDirectory;
         var edition = Edition(platform);
@@ -148,43 +141,44 @@ public static class KuaishouTodayUploadCounter
         var account = accountId?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(account))
             return 0;
+        EnsureMigrated(storeRoot);
+        if (!string.IsNullOrWhiteSpace(nickname))
+            KuaishouUploadRecordStore.FillEmptyNicknames(edition, account, nickname, storeRoot);
         var counted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var record in Read(StorePath(edition, storeRoot)))
-        {
-            if (!string.Equals(Field(record, "上传状态", "Status"), "成功", StringComparison.Ordinal))
-                continue;
-            if (!IsSameDay(record, day))
-                continue;
-            if (!string.Equals(Field(record, "账号档案", "AccountId"), account, StringComparison.OrdinalIgnoreCase))
-                continue;
-            Remember(counted, names, Field(record, "项目路径", "ProjectDirectory"));
-        }
+        foreach (var record in KuaishouUploadRecordStore.ListSuccess(edition, account, day, storeRoot))
+            Remember(counted, names, string.IsNullOrWhiteSpace(record.ProjectDirectory) ? record.ProjectName : record.ProjectDirectory);
 
-        AddCompletedProjects(counted, names, platform, day, projectDirectories);
-        AddArchivedProjects(counted, names, platform, account, day, archiveRoot);
+        var observation = new UploadObservation(platform, account, nickname, storeRoot);
+        AddCompletedProjects(counted, names, observation, day, projectDirectories);
+        AddArchivedProjects(counted, names, observation, day, archiveRoot);
         return counted.Count;
     }
+
+    private readonly record struct UploadObservation(
+        PublishPlatform Platform,
+        string AccountId,
+        string? Nickname,
+        string? StoreRoot);
 
     private static void AddCompletedProjects(
         HashSet<string> counted,
         HashSet<string> names,
-        PublishPlatform platform,
+        UploadObservation observation,
         DateTime day,
         IEnumerable<string>? projectDirectories)
     {
         if (projectDirectories is null)
             return;
-        var stateName = StateFileName(platform);
+        var stateName = StateFileName(observation.Platform);
         foreach (var directory in projectDirectories)
-            CountIfCompletedToday(counted, names, directory, stateName, day);
+            CountIfCompletedToday(counted, names, observation, directory, stateName, day);
     }
 
     private static void AddArchivedProjects(
         HashSet<string> counted,
         HashSet<string> names,
-        PublishPlatform platform,
-        string accountId,
+        UploadObservation observation,
         DateTime day,
         string? archiveRoot)
     {
@@ -193,7 +187,7 @@ public static class KuaishouTodayUploadCounter
         var metaRoot = Path.Combine(archiveRoot, "meta");
         if (!Directory.Exists(metaRoot))
             return;
-        var stateName = StateFileName(platform);
+        var stateName = StateFileName(observation.Platform);
         foreach (var file in Directory.EnumerateFiles(metaRoot, "*.json"))
         {
             JsonElement meta;
@@ -206,21 +200,28 @@ public static class KuaishouTodayUploadCounter
                 continue;
             }
 
-            var owner = FirstText(ReadString(meta, "account_profile_id"), ReadString(meta, "AccountProfileId"));
+            var owner = FirstText(
+                ReadString(meta, "accountProfileId"),
+                ReadString(meta, "account_profile_id"),
+                ReadString(meta, "AccountProfileId"));
             if (!string.IsNullOrWhiteSpace(owner) &&
-                !string.Equals(owner, accountId, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(owner, observation.AccountId, StringComparison.OrdinalIgnoreCase))
                 continue;
             var directory = FirstText(
+                ReadString(meta, "archivedWorkflowDir"),
                 ReadString(meta, "archived_workflow_dir"),
-                ReadString(meta, "workflow_project_dir"),
-                ReadString(meta, "archived_source_dir"));
-            CountIfCompletedToday(counted, names, directory, stateName, day);
+                ReadString(meta, "archivedSourceDir"),
+                ReadString(meta, "archived_source_dir"),
+                ReadString(meta, "workflowProjectDir"),
+                ReadString(meta, "workflow_project_dir"));
+            CountIfCompletedToday(counted, names, observation, directory, stateName, day);
         }
     }
 
     private static void CountIfCompletedToday(
         HashSet<string> counted,
         HashSet<string> names,
+        UploadObservation observation,
         string? directory,
         string stateName,
         DateTime day)
@@ -231,9 +232,47 @@ public static class KuaishouTodayUploadCounter
         var name = ProjectName(key);
         if (!string.IsNullOrWhiteSpace(name) && names.Contains(name))
             return;
-        if (!CompletedToday(key, stateName, day))
+        if (!TryCompletedToday(key, stateName, day, out var completedAt))
             return;
+        PersistObserved(observation, key, completedAt);
         Remember(counted, names, key);
+    }
+
+    private static void PersistObserved(UploadObservation observation, string directory, DateTimeOffset completedAt)
+    {
+        var edition = Edition(observation.Platform);
+        if (edition is null)
+            return;
+        KuaishouArtifactColumnStatus? artifacts = null;
+        try
+        {
+            if (Directory.Exists(directory))
+                artifacts = KuaishouArtifactColumnStatusReader.Read(
+                    directory,
+                    observation.Platform == PublishPlatform.KuaishouEnterpriseRevenue);
+        }
+        catch
+        {
+            artifacts = null;
+        }
+
+        var original = string.IsNullOrWhiteSpace(artifacts?.OriginalTitle)
+            ? ProjectName(directory).TrimStart('_')
+            : artifacts!.OriginalTitle;
+        var newer = string.IsNullOrWhiteSpace(artifacts?.NewTitle) ? original : artifacts!.NewTitle;
+        KuaishouUploadRecordStore.Upsert(new KuaishouUploadRecord(
+            edition,
+            observation.AccountId,
+            observation.Nickname ?? "",
+            completedAt,
+            "成功",
+            string.IsNullOrWhiteSpace(newer) ? original : newer,
+            original,
+            newer,
+            ReadInfoValue(directory, "作者"),
+            artifacts?.EpisodeCount ?? 0,
+            directory,
+            ""), observation.StoreRoot);
     }
 
     private static void Remember(HashSet<string> counted, HashSet<string> names, string? path)
@@ -267,8 +306,9 @@ public static class KuaishouTodayUploadCounter
             ? ".kuaishou-enterprise-upload-state.json"
             : ".kuaishou-personal-upload-state.json";
 
-    private static bool CompletedToday(string projectDirectory, string stateName, DateTime day)
+    private static bool TryCompletedToday(string projectDirectory, string stateName, DateTime day, out DateTimeOffset completedAt)
     {
+        completedAt = default;
         if (!Directory.Exists(projectDirectory))
             return false;
         string workflow;
@@ -294,8 +334,11 @@ public static class KuaishouTodayUploadCounter
         if (status is not ("completed" or "success") && !submitted)
             return false;
         var raw = FirstText(ReadString(state, "UpdatedAt"), ReadString(state, "updatedAt"), ReadString(state, "updated_at"));
-        return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
-            && at.ToLocalTime().Date == day.Date;
+        if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
+            || at.ToLocalTime().Date != day.Date)
+            return false;
+        completedAt = at;
+        return true;
     }
 
     private static bool ReadBool(JsonElement root, string name) =>
@@ -327,25 +370,92 @@ public static class KuaishouTodayUploadCounter
         return Path.Combine(root, name);
     }
 
-    private static void Append(PublishPlatform platform, Dictionary<string, string> record, string? storeRoot)
+    private static void EnsureMigrated(string? storeRoot)
     {
-        var edition = Edition(platform);
-        if (edition is null)
+        if (KuaishouUploadRecordStore.IsMigrated(storeRoot))
             return;
         lock (Gate)
         {
-            var path = StorePath(edition, storeRoot);
-            var records = Read(path);
-            records.Add(NormalizeRecord(record));
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(path, JsonSerializer.Serialize(records, JsonOptions));
+            if (KuaishouUploadRecordStore.IsMigrated(storeRoot))
+                return;
+            foreach (var edition in new[] { "personal", "enterprise" })
+            {
+                var imported = new List<(DateTime At, KuaishouUploadRecord Record)>();
+                foreach (var row in Read(StorePath(edition, storeRoot)))
+                {
+                    var directory = Field(row, "项目路径", "ProjectDirectory");
+                    var key = KuaishouUploadRecordStore.ProjectKey(directory);
+                    if (string.IsNullOrWhiteSpace(key))
+                        key = Field(row, "项目名称", "新剧名", "原剧名");
+                    if (string.IsNullOrWhiteSpace(key))
+                        continue;
+                    var account = Field(row, "账号档案", "AccountId");
+                    if (string.IsNullOrWhiteSpace(account))
+                        continue;
+                    var recorded = FirstText(Field(row, "记录时间", "RecordedAt"), Field(row, "日期"));
+                    var at = ParseRecordedAt(recorded);
+                    int.TryParse(Field(row, "剧集数", "集数"), out var episodes);
+                    imported.Add((at.UtcDateTime, new KuaishouUploadRecord(
+                        edition,
+                        account,
+                        Field(row, "快手昵称"),
+                        at,
+                        FirstText(Field(row, "上传状态", "Status"), "失败"),
+                        FirstText(Field(row, "项目名称"), Field(row, "新剧名"), Field(row, "原剧名"), key),
+                        Field(row, "原剧名"),
+                        Field(row, "新剧名"),
+                        Field(row, "作者"),
+                        episodes,
+                        directory,
+                        Field(row, "失败原因"))));
+                }
+
+                foreach (var item in imported.OrderBy(item => item.At))
+                    KuaishouUploadRecordStore.Upsert(item.Record, storeRoot);
+            }
+
+            KuaishouUploadRecordStore.MarkMigrated(storeRoot);
         }
+    }
+
+    private static Dictionary<string, string> ToRow(KuaishouUploadRecord record)
+    {
+        var local = record.RecordedAt.ToLocalTime();
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["记录时间"] = local.ToString("yyyy-MM-dd HH:mm:ss"),
+            ["日期"] = local.ToString("yyyy-MM-dd"),
+            ["账号档案"] = record.AccountId,
+            ["快手昵称"] = record.Nickname,
+            ["项目名称"] = record.ProjectName,
+            ["原剧名"] = record.OriginalTitle,
+            ["新剧名"] = record.NewTitle,
+            ["作者"] = record.Author,
+            ["集数"] = record.EpisodeCount > 0 ? record.EpisodeCount.ToString() : "",
+            ["上传状态"] = record.Status,
+            ["失败原因"] = record.Error,
+            ["项目路径"] = record.ProjectDirectory,
+        };
+    }
+
+    private static DateTimeOffset ParseRecordedAt(string raw)
+    {
+        if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var offset)
+            && offset.Offset != TimeSpan.Zero)
+            return offset;
+        if (DateTime.TryParseExact(raw, ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var wall)
+            || DateTime.TryParse(raw, CultureInfo.CurrentCulture, DateTimeStyles.None, out wall))
+            return new DateTimeOffset(DateTime.SpecifyKind(wall, DateTimeKind.Local));
+        return DateTimeOffset.Now;
     }
 
     internal static List<Dictionary<string, string>> ReadRecords(PublishPlatform platform, string? storeRoot = null)
     {
         var edition = Edition(platform);
-        return edition is null ? [] : Read(StorePath(edition, storeRoot));
+        if (edition is null)
+            return [];
+        EnsureMigrated(storeRoot);
+        return KuaishouUploadRecordStore.List(edition, storeRoot).Select(ToRow).ToList();
     }
 
     private static List<Dictionary<string, string>> Read(string path)
@@ -401,22 +511,6 @@ public static class KuaishouTodayUploadCounter
         return "";
     }
 
-    private static bool IsSameDay(IReadOnlyDictionary<string, string> record, DateTime day)
-    {
-        var date = Field(record, "日期");
-        if (date.Length >= 10 &&
-            DateTime.TryParseExact(
-                date[..10],
-                "yyyy-MM-dd",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out var parsedDate))
-            return parsedDate.Date == day.Date;
-        var time = Field(record, "记录时间", "RecordedAt");
-        return DateTimeOffset.TryParse(time, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed)
-            && parsed.ToLocalTime().Date == day.Date;
-    }
-
     private static string Normalize(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -456,23 +550,6 @@ public static class KuaishouTodayUploadCounter
             "materials_ready" => "本地材料已就绪",
             _ => string.IsNullOrWhiteSpace(status) ? "未知" : status.Trim(),
         };
-    }
-
-    private static string FirstPageActionLabel(string stage) =>
-        stage.Contains("review", StringComparison.OrdinalIgnoreCase) ? "下一步" : "";
-
-    private static string StepText(KuaishouArtifactColumnStatus? artifacts)
-    {
-        if (artifacts is null)
-            return "-";
-        var parts = new List<string>();
-        if (artifacts.DownloadStatus.StartsWith("已完成", StringComparison.Ordinal)) parts.Add("下载");
-        if (artifacts.RewriteStatus.StartsWith("已完成", StringComparison.Ordinal)) parts.Add("改写信息");
-        if (artifacts.PosterStatus.StartsWith("已完成", StringComparison.Ordinal)) parts.Add("生成海报");
-        if (artifacts.ProjectImageStatus.StartsWith("已完成", StringComparison.Ordinal)) parts.Add("生成工程图");
-        if (artifacts.AutoFillStatus.StartsWith("已完成", StringComparison.Ordinal)) parts.Add("补齐字段");
-        if (artifacts.UploadStatus.StartsWith("已完成", StringComparison.Ordinal)) parts.Add("上传剧集");
-        return parts.Count == 0 ? "-" : string.Join("、", parts);
     }
 
     private static string FindStateFile(string projectDirectory, string fileName)

@@ -207,7 +207,7 @@ public sealed class KuaishouTodayUploadCounterTests
         Directory.CreateDirectory(Path.Combine(archive, "meta"));
         File.WriteAllText(
             Path.Combine(archive, "meta", name + ".json"),
-            JsonSerializer.Serialize(new { account_profile_id = accountId, archived_workflow_dir = workflow.FullName }));
+            JsonSerializer.Serialize(new { accountProfileId = accountId, archivedWorkflowDir = workflow.FullName }));
     }
 
     [Fact]
@@ -225,9 +225,37 @@ public sealed class KuaishouTodayUploadCounterTests
         var names = workbook.WorkbookPart!.Workbook.Sheets!.Elements<DocumentFormat.OpenXml.Spreadsheet.Sheet>()
             .Select(sheet => sheet.Name?.Value)
             .ToArray();
-        Assert.Equal(new[] { "快手分账个人版看板", "执行流水" }, names);
+        Assert.Equal(new[] { "快手分账个人版" }, names);
         Assert.Equal(
             Path.Combine(store, "kuaishou_personal_upload_records.xlsx"),
             path);
+    }
+
+    [Fact]
+    public void Json_ledger_collapses_to_one_row_and_keeps_author_episode_count_and_nickname()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        Directory.CreateDirectory(store);
+        var project = Path.Combine(root.FullName, "旧名");
+        File.WriteAllText(Path.Combine(store, "kuaishou_personal_upload_records.json"),
+            """
+            [
+              {"记录时间":"2026-11-05 09:00:00","日期":"2026-11-05","上传状态":"成功","账号档案":"acct-a","项目名称":"旧名","原剧名":"旧名","新剧名":"","作者":"","项目路径":"PROJECT","剧集数":"","下载":"已完成","第一页提交动作":"下一步"},
+              {"记录时间":"2026-11-05 10:00:00","日期":"2026-11-05","上传状态":"成功","账号档案":"acct-a","项目名称":"新名","原剧名":"旧名","新剧名":"新名","作者":"星燃","项目路径":"PROJECT","剧集数":"80","当前阶段":"review"}
+            ]
+            """.Replace("PROJECT", project.Replace("\\", "\\\\"), StringComparison.Ordinal));
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", null, new DateTime(2026, 11, 5), store, nickname: "星燃漫剧"));
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", null, new DateTime(2026, 11, 5), store, nickname: "后来改的昵称"));
+
+        var record = Assert.Single(KuaishouUploadRecordStore.List("personal", store));
+        Assert.Equal("星燃", record.Author);
+        Assert.Equal(80, record.EpisodeCount);
+        Assert.Equal("新名", record.NewTitle);
+        Assert.Equal("星燃漫剧", record.Nickname);
+        Assert.True(File.Exists(Path.Combine(store, "kuaishou_personal_upload_records.json")));
     }
 }

@@ -2261,7 +2261,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 request.AccountName,
                 projectDirectory,
                 succeeded,
-                error);
+                error,
+                nickname: KuaishouNickname(request.Platform, request.AccountId));
         }
         catch (Exception ex)
         {
@@ -2269,18 +2270,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private void TryRefreshKuaishouUploadReport(PublishPlatform platform, string accountId)
+    private string KuaishouNickname(PublishPlatform platform, string accountId)
     {
+        if (string.IsNullOrWhiteSpace(accountId))
+            return "";
         try
         {
-            var path = KuaishouTodayUploadCounter.ExportExcel(platform);
-            AppendActivityLog($"快手分账上传记录 Excel 已刷新：{path}");
+            return KuaishouPersonalConfig.Load(new PublishJob
+            {
+                Platform = platform,
+                AccountId = accountId,
+                ProjectName = "上传记录",
+            }).KuaishouNickname?.Trim() ?? "";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
         {
-            AppendActivityLog($"快手分账上传记录 Excel 刷新失败：{ex.Message}");
+            return "";
         }
+    }
 
+    private void TryRefreshKuaishouUploadReport(PublishPlatform platform, string accountId)
+    {
         if (SelectedPlatform.Value == platform &&
             string.Equals(_activeGlobalAccount?.Id, accountId, StringComparison.OrdinalIgnoreCase))
             RefreshKuaishouTodayUploadCount();
@@ -2299,10 +2309,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (!IsKuaishouPlatform)
             return;
-        var path = KuaishouTodayUploadCounter.ExportExcel(SelectedPlatform.Value);
+        var path = KuaishouTodayUploadCounter.ExcelPath(SelectedPlatform.Value);
         if (!File.Exists(path))
         {
-            StatusMessage = "上传记录 Excel 不存在。";
+            StatusMessage = "还没有导出过上传记录，请先点「导出上传记录」。";
             return;
         }
         Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
@@ -4215,6 +4225,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToArray();
         string? archiveRoot = null;
+        string? nickname = null;
         try
         {
             if (!string.IsNullOrWhiteSpace(accountId))
@@ -4223,6 +4234,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 if (!string.IsNullOrWhiteSpace(config.ArchiveRootDirectory) &&
                     Directory.Exists(config.ArchiveRootDirectory))
                     archiveRoot = config.ArchiveRootDirectory;
+                nickname = config.KuaishouNickname;
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
@@ -4233,7 +4245,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _ = Task.Run(() =>
         {
             var count = KuaishouTodayUploadCounter.CountToday(
-                platform, accountId, workspace, projectDirectories: directories, archiveRoot: archiveRoot);
+                platform, accountId, workspace, projectDirectories: directories, archiveRoot: archiveRoot, nickname: nickname);
             PostUi(() =>
             {
                 if (generation != _todayUploadGeneration || !IsKuaishouPlatform)
