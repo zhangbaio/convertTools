@@ -1,3 +1,4 @@
+using System.Text.Json;
 using DocumentFormat.OpenXml.Packaging;
 using PlatformPublisher.Common.Models;
 using Xunit;
@@ -157,6 +158,56 @@ public sealed class KuaishouTodayUploadCounterTests
             today.Date,
             store,
             [finished.FullName, yesterday.FullName]));
+    }
+
+    [Fact]
+    public void Archived_upload_completed_today_still_counts_for_the_same_account()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var today = new DateTimeOffset(2026, 11, 5, 12, 40, 0, TimeSpan.FromHours(8));
+        var archive = Path.Combine(root.FullName, "archive");
+        WriteArchivedUpload(archive, "acct-a", "_娘家第二季", today);
+        WriteArchivedUpload(archive, "acct-a", "_昨天完成", new DateTimeOffset(2026, 11, 4, 18, 0, 0, TimeSpan.FromHours(8)));
+        WriteArchivedUpload(archive, "acct-b", "_别人的剧", today);
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue,
+            "acct-a",
+            root.FullName,
+            today.Date,
+            store,
+            archiveRoot: archive));
+        KuaishouTodayUploadCounter.RecordSuccess(
+            PublishPlatform.KuaishouPersonalRevenue,
+            "acct-a",
+            Path.Combine(root.FullName, "workflow", "_娘家第二季"),
+            today,
+            store);
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue,
+            "acct-a",
+            root.FullName,
+            today.Date,
+            store,
+            archiveRoot: archive));
+    }
+
+    private static void WriteArchivedUpload(string archive, string accountId, string name, DateTimeOffset updatedAt)
+    {
+        var workflow = Directory.CreateDirectory(Path.Combine(archive, "workflow", name));
+        var state = Path.Combine(workflow.FullName, ".kuaishou-personal-upload-state.json");
+        File.WriteAllText(state, $$"""
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "UpdatedAt": "{{updatedAt:O}}"
+            }
+            """);
+        Directory.CreateDirectory(Path.Combine(archive, "meta"));
+        File.WriteAllText(
+            Path.Combine(archive, "meta", name + ".json"),
+            JsonSerializer.Serialize(new { account_profile_id = accountId, archived_workflow_dir = workflow.FullName }));
     }
 
     [Fact]

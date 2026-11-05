@@ -137,7 +137,8 @@ public static class KuaishouTodayUploadCounter
         string? workspaceDirectory,
         DateTime? today = null,
         string? storeRoot = null,
-        IEnumerable<string>? projectDirectories = null)
+        IEnumerable<string>? projectDirectories = null,
+        string? archiveRoot = null)
     {
         _ = workspaceDirectory;
         var edition = Edition(platform);
@@ -148,6 +149,7 @@ public static class KuaishouTodayUploadCounter
         if (string.IsNullOrWhiteSpace(account))
             return 0;
         var counted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var record in Read(StorePath(edition, storeRoot)))
         {
             if (!string.Equals(Field(record, "上传状态", "Status"), "成功", StringComparison.Ordinal))
@@ -156,35 +158,114 @@ public static class KuaishouTodayUploadCounter
                 continue;
             if (!string.Equals(Field(record, "账号档案", "AccountId"), account, StringComparison.OrdinalIgnoreCase))
                 continue;
-            var key = Normalize(Field(record, "项目路径", "ProjectDirectory"));
-            if (!string.IsNullOrWhiteSpace(key))
-                counted.Add(key);
+            Remember(counted, names, Field(record, "项目路径", "ProjectDirectory"));
         }
 
-        AddCompletedProjects(counted, platform, day, projectDirectories);
+        AddCompletedProjects(counted, names, platform, day, projectDirectories);
+        AddArchivedProjects(counted, names, platform, account, day, archiveRoot);
         return counted.Count;
     }
 
     private static void AddCompletedProjects(
         HashSet<string> counted,
+        HashSet<string> names,
         PublishPlatform platform,
         DateTime day,
         IEnumerable<string>? projectDirectories)
     {
         if (projectDirectories is null)
             return;
-        var stateName = platform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? ".kuaishou-enterprise-upload-state.json"
-            : ".kuaishou-personal-upload-state.json";
+        var stateName = StateFileName(platform);
         foreach (var directory in projectDirectories)
+            CountIfCompletedToday(counted, names, directory, stateName, day);
+    }
+
+    private static void AddArchivedProjects(
+        HashSet<string> counted,
+        HashSet<string> names,
+        PublishPlatform platform,
+        string accountId,
+        DateTime day,
+        string? archiveRoot)
+    {
+        if (string.IsNullOrWhiteSpace(archiveRoot) || !Directory.Exists(archiveRoot))
+            return;
+        var metaRoot = Path.Combine(archiveRoot, "meta");
+        if (!Directory.Exists(metaRoot))
+            return;
+        var stateName = StateFileName(platform);
+        foreach (var file in Directory.EnumerateFiles(metaRoot, "*.json"))
         {
-            var key = Normalize(directory);
-            if (string.IsNullOrWhiteSpace(key) || !counted.Add(key))
+            JsonElement meta;
+            try
+            {
+                meta = ReadObject(file);
+            }
+            catch (IOException)
+            {
                 continue;
-            if (!CompletedToday(directory, stateName, day))
-                counted.Remove(key);
+            }
+
+            var owner = FirstText(ReadString(meta, "account_profile_id"), ReadString(meta, "AccountProfileId"));
+            if (!string.IsNullOrWhiteSpace(owner) &&
+                !string.Equals(owner, accountId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var directory = FirstText(
+                ReadString(meta, "archived_workflow_dir"),
+                ReadString(meta, "workflow_project_dir"),
+                ReadString(meta, "archived_source_dir"));
+            CountIfCompletedToday(counted, names, directory, stateName, day);
         }
     }
+
+    private static void CountIfCompletedToday(
+        HashSet<string> counted,
+        HashSet<string> names,
+        string? directory,
+        string stateName,
+        DateTime day)
+    {
+        var key = Normalize(directory);
+        if (string.IsNullOrWhiteSpace(key) || counted.Contains(key))
+            return;
+        var name = ProjectName(key);
+        if (!string.IsNullOrWhiteSpace(name) && names.Contains(name))
+            return;
+        if (!CompletedToday(key, stateName, day))
+            return;
+        Remember(counted, names, key);
+    }
+
+    private static void Remember(HashSet<string> counted, HashSet<string> names, string? path)
+    {
+        var key = Normalize(path);
+        if (string.IsNullOrWhiteSpace(key) || !counted.Add(key))
+            return;
+        var name = ProjectName(key);
+        if (!string.IsNullOrWhiteSpace(name))
+            names.Add(name);
+    }
+
+    private static string ProjectName(string path)
+    {
+        var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var timeDash = name.LastIndexOf('-');
+        if (timeDash <= 0 || name.Length - timeDash != 7)
+            return name;
+        var time = name[(timeDash + 1)..];
+        if (time.Length != 6 || !time.All(char.IsDigit))
+            return name;
+        var dateDash = name.LastIndexOf('-', timeDash - 1);
+        if (dateDash < 0 || timeDash - dateDash != 9)
+            return name;
+        var date = name[(dateDash + 1)..timeDash];
+        return date.Length == 8 && date.All(char.IsDigit) ? name[..dateDash] : name;
+    }
+
+    private static string StateFileName(PublishPlatform platform) =>
+        platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? ".kuaishou-enterprise-upload-state.json"
+            : ".kuaishou-personal-upload-state.json";
 
     private static bool CompletedToday(string projectDirectory, string stateName, DateTime day)
     {

@@ -2705,6 +2705,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await PersistAsync(cancellationToken);
             job.StatusMessage = "发布完成并已归档";
             AppendActivityLog($"已自动归档：{job.ProjectName}", job.ProjectName);
+            RefreshKuaishouTodayUploadCount();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -4213,10 +4214,26 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .Select(job => job.ProjectDirectory)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToArray();
+        string? archiveRoot = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(accountId))
+            {
+                var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, "今日上传"));
+                if (!string.IsNullOrWhiteSpace(config.ArchiveRootDirectory) &&
+                    Directory.Exists(config.ArchiveRootDirectory))
+                    archiveRoot = config.ArchiveRootDirectory;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            archiveRoot = null;
+        }
+
         _ = Task.Run(() =>
         {
             var count = KuaishouTodayUploadCounter.CountToday(
-                platform, accountId, workspace, projectDirectories: directories);
+                platform, accountId, workspace, projectDirectories: directories, archiveRoot: archiveRoot);
             PostUi(() =>
             {
                 if (generation != _todayUploadGeneration || !IsKuaishouPlatform)
@@ -4300,6 +4317,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             await PersistAsync(cancellationToken);
             RefreshVisibleJobs();
+            RefreshKuaishouTodayUploadCount();
             StatusMessage = failures.Count == 0
                 ? $"归档结束：成功 {succeeded}。原视频、转码视频和素材视频已按快手分账规则清理。"
                 : $"归档结束：成功 {succeeded}，失败 {failures.Count}。";
