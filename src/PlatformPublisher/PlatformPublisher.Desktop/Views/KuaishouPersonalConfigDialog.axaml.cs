@@ -348,7 +348,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             AccountsImported?.Invoke(result.Accounts);
             LoadAccount(_account, _platform);
             ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
-            ValidationText.Text = $"已导入快手分账配置：新建 {result.Created} 个，更新 {result.Updated} 个，登录态 {result.AuthFiles} 份，附件 {result.Assets} 个。";
+            ValidationText.Text = $"已导入快手分账配置：新建 {result.Created} 个，更新 {result.Updated} 个，登录态 {result.AuthFiles} 份，附件 {result.Assets} 个。上传记录新导入 {result.ImportedUploads} 部，合并 {result.MergedUploads} 部，跳过重复 {result.SkippedUploads} 部，无法归类 {result.UnmatchedUploads} 部。";
             if (result.MissingPaths.Count > 0)
                 ValidationText.Text += $" 有 {result.MissingPaths.Count} 个路径在这台电脑上不存在。";
         }

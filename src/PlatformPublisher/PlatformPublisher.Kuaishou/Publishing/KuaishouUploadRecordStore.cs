@@ -3,6 +3,13 @@ using PlatformPublisher.Common.Services;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
 
+public enum KuaishouUploadImportResult
+{
+    Inserted,
+    Updated,
+    Unchanged,
+}
+
 public sealed record KuaishouUploadRecord(
     string Edition,
     string AccountId,
@@ -44,6 +51,53 @@ public static class KuaishouUploadRecordStore
             using var connection = Open(storeRoot);
             EnsureSchema(connection);
             Write(connection, record, projectKey);
+        }
+    }
+
+    /// <summary>
+    /// 导入一条成功记录。同一部剧已有更新的记录时保留原记录，只补空着的作者、集数和昵称。
+    /// </summary>
+    public static KuaishouUploadImportResult ImportSuccess(KuaishouUploadRecord record, string? storeRoot = null)
+    {
+        if (!string.Equals(record.Status, "成功", StringComparison.Ordinal))
+            return KuaishouUploadImportResult.Unchanged;
+        var projectKey = ProjectKey(record.ProjectDirectory);
+        if (string.IsNullOrWhiteSpace(projectKey))
+            projectKey = FirstFilled(record.NewTitle, record.OriginalTitle, record.ProjectName);
+        if (string.IsNullOrWhiteSpace(record.Edition) || string.IsNullOrWhiteSpace(record.AccountId) || string.IsNullOrWhiteSpace(projectKey))
+            return KuaishouUploadImportResult.Unchanged;
+
+        lock (Gate)
+        {
+            using var connection = Open(storeRoot);
+            EnsureSchema(connection);
+            var existing = Find(connection, record.Edition, record.AccountId.Trim(), projectKey);
+            var incomingStamp = record.RecordedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+            if (existing is null)
+            {
+                Write(connection, record with { ProjectName = FirstFilled(record.ProjectName, projectKey) }, projectKey);
+                return KuaishouUploadImportResult.Inserted;
+            }
+
+            var incomingNewer = string.CompareOrdinal(incomingStamp, existing.Value.RecordedAt) >= 0;
+            var primary = incomingNewer ? record : existing.Value.Record;
+            var secondary = incomingNewer ? existing.Value.Record : record;
+            var merged = primary with
+            {
+                Nickname = FirstFilled(primary.Nickname, secondary.Nickname),
+                ProjectName = FirstFilled(primary.ProjectName, secondary.ProjectName, projectKey),
+                OriginalTitle = FirstFilled(primary.OriginalTitle, secondary.OriginalTitle),
+                NewTitle = FirstFilled(primary.NewTitle, secondary.NewTitle),
+                Author = FirstFilled(primary.Author, secondary.Author),
+                EpisodeCount = primary.EpisodeCount > 0 ? primary.EpisodeCount : secondary.EpisodeCount,
+                ProjectDirectory = FirstFilled(primary.ProjectDirectory, secondary.ProjectDirectory),
+                Error = incomingNewer ? record.Error : existing.Value.Record.Error,
+                Status = "成功",
+            };
+            if (SameRecord(existing.Value.Record, merged) && string.Equals(existing.Value.RecordedAt, merged.RecordedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"), StringComparison.Ordinal))
+                return KuaishouUploadImportResult.Unchanged;
+            Write(connection, merged, projectKey);
+            return KuaishouUploadImportResult.Updated;
         }
     }
 
@@ -166,6 +220,63 @@ public static class KuaishouUploadRecordStore
         var date = name[(dateDash + 1)..timeDash];
         return date.Length == 8 && date.All(char.IsDigit) ? name[..dateDash] : name;
     }
+
+    private readonly record struct StoredUpload(KuaishouUploadRecord Record, string RecordedAt);
+
+    private static StoredUpload? Find(SqliteConnection connection, string edition, string accountId, string projectKey)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT nickname,recorded_at,status,project_name,original_title,new_title,author,episode_count,project_directory,error
+            FROM kuaishou_upload_records
+            WHERE edition=$edition AND account_id=$account AND project_key=$key
+            """;
+        command.Parameters.AddWithValue("$edition", edition);
+        command.Parameters.AddWithValue("$account", accountId);
+        command.Parameters.AddWithValue("$key", projectKey);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+            return null;
+        var recorded = reader.GetString(1);
+        return new StoredUpload(new KuaishouUploadRecord(
+            edition,
+            accountId,
+            reader.GetString(0),
+            ParseStamp(recorded),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetInt32(7),
+            reader.GetString(8),
+            reader.GetString(9)), recorded);
+    }
+
+    private static DateTimeOffset ParseStamp(string recorded)
+    {
+        return DateTime.TryParseExact(
+            recorded,
+            "yyyy-MM-dd HH:mm:ss",
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None,
+            out var wall)
+            ? new DateTimeOffset(DateTime.SpecifyKind(wall, DateTimeKind.Local))
+            : DateTimeOffset.Now;
+    }
+
+    private static string FirstFilled(params string?[] values) =>
+        values.Select(value => value?.Trim() ?? "").FirstOrDefault(value => value.Length > 0) ?? "";
+
+    private static bool SameRecord(KuaishouUploadRecord left, KuaishouUploadRecord right) =>
+        left.Nickname == right.Nickname &&
+        left.ProjectName == right.ProjectName &&
+        left.OriginalTitle == right.OriginalTitle &&
+        left.NewTitle == right.NewTitle &&
+        left.Author == right.Author &&
+        left.EpisodeCount == right.EpisodeCount &&
+        left.ProjectDirectory == right.ProjectDirectory &&
+        left.Status == right.Status;
 
     private static void Write(SqliteConnection connection, KuaishouUploadRecord record, string projectKey)
     {

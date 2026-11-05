@@ -370,6 +370,8 @@ public static class KuaishouTodayUploadCounter
         return Path.Combine(root, name);
     }
 
+    public static void EnsureStore(string? storeRoot = null) => EnsureMigrated(storeRoot);
+
     private static void EnsureMigrated(string? storeRoot)
     {
         if (KuaishouUploadRecordStore.IsMigrated(storeRoot))

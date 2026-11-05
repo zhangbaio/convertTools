@@ -15,7 +15,8 @@ public sealed class KuaishouSettingsExportPackage : IDisposable
         JsonElement settings,
         IReadOnlyList<JsonElement> profiles,
         IReadOnlyDictionary<string, byte[]> authFiles,
-        IReadOnlyDictionary<string, ExportedKuaishouAsset> assetsByOriginalPath)
+        IReadOnlyDictionary<string, ExportedKuaishouAsset> assetsByOriginalPath,
+        IReadOnlyDictionary<string, byte[]> uploadRecords)
     {
         _document = document;
         ExportMode = exportMode;
@@ -23,6 +24,7 @@ public sealed class KuaishouSettingsExportPackage : IDisposable
         Profiles = profiles;
         AuthFiles = authFiles;
         AssetsByOriginalPath = assetsByOriginalPath;
+        UploadRecords = uploadRecords;
     }
 
     public string ExportMode { get; }
@@ -30,6 +32,10 @@ public sealed class KuaishouSettingsExportPackage : IDisposable
     public IReadOnlyList<JsonElement> Profiles { get; }
     public IReadOnlyDictionary<string, byte[]> AuthFiles { get; }
     public IReadOnlyDictionary<string, ExportedKuaishouAsset> AssetsByOriginalPath { get; }
+    public IReadOnlyDictionary<string, byte[]> UploadRecords { get; }
+
+    public byte[]? FindUploadRecord(string fileName) =>
+        UploadRecords.TryGetValue(fileName, out var bytes) ? bytes : null;
 
     public static KuaishouSettingsExportPackage Open(string path)
     {
@@ -76,7 +82,11 @@ public sealed class KuaishouSettingsExportPackage : IDisposable
     private static KuaishouSettingsExportPackage OpenJson(string path)
     {
         var document = JsonDocument.Parse(File.ReadAllText(path));
-        return Create(document, new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase), new Dictionary<string, ExportedKuaishouAsset>(StringComparer.OrdinalIgnoreCase));
+        return Create(
+            document,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, ExportedKuaishouAsset>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase));
     }
 
     private static KuaishouSettingsExportPackage OpenZip(string path)
@@ -95,6 +105,17 @@ public sealed class KuaishouSettingsExportPackage : IDisposable
             if (string.IsNullOrEmpty(entry.Name))
                 continue;
             auth[name["data/auth/".Length..]] = ReadEntry(entry);
+        }
+
+        var uploads = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in archive.Entries)
+        {
+            var name = entry.FullName.Replace('\\', '/');
+            if (entry.Name is not ("kuaishou_personal_upload_records.json" or "kuaishou_enterprise_upload_records.json" or "kuaishou-account-index.json"))
+                continue;
+            if (!string.Equals(name, "data/upload-records/" + entry.Name, StringComparison.OrdinalIgnoreCase))
+                continue;
+            uploads[entry.Name] = ReadEntry(entry);
         }
 
         var assets = new Dictionary<string, ExportedKuaishouAsset>(StringComparer.OrdinalIgnoreCase);
@@ -128,13 +149,14 @@ public sealed class KuaishouSettingsExportPackage : IDisposable
             }
         }
 
-        return Create(document, auth, assets);
+        return Create(document, auth, assets, uploads);
     }
 
     private static KuaishouSettingsExportPackage Create(
         JsonDocument document,
         IReadOnlyDictionary<string, byte[]> authFiles,
-        IReadOnlyDictionary<string, ExportedKuaishouAsset> assets)
+        IReadOnlyDictionary<string, ExportedKuaishouAsset> assets,
+        IReadOnlyDictionary<string, byte[]> uploadRecords)
     {
         var root = document.RootElement;
         if (root.ValueKind != JsonValueKind.Object)
@@ -145,7 +167,7 @@ public sealed class KuaishouSettingsExportPackage : IDisposable
         if (!root.TryGetProperty("settings", out var settings) || settings.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException("配置文件格式错误：缺少 settings 对象。");
         var profiles = ReadProfiles(settings);
-        return new KuaishouSettingsExportPackage(document, Text(root, "export_mode"), settings, profiles, authFiles, assets);
+        return new KuaishouSettingsExportPackage(document, Text(root, "export_mode"), settings, profiles, authFiles, assets, uploadRecords);
     }
 
     private static IReadOnlyList<JsonElement> ReadProfiles(JsonElement settings)
