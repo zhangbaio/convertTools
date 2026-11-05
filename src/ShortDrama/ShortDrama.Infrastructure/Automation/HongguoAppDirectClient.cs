@@ -11,7 +11,7 @@ namespace ShortDrama.Infrastructure.Automation;
 /// 红果 APP 下载的搜索、剧集和播放地址。
 /// 方案1：只有本机模拟器里读到的设备号才走 preload。设置里保存或自动注册的号不走这条链路。
 /// 查询保持已安装的 7.4.3.32 精简参数；机型、品牌和系统版本读模拟器自身。
-/// 没有模拟器设备时，播放直接用单集接口，失败再按勾选走链路 1 和链路 2。
+/// 没有模拟器设备时，播放用单集接口。连续空包就更换本机 audit 设备号并马上重试，仍失败再按勾选走链路 1 和链路 2。
 /// 模拟器设备在时，播放空包只在 preload 上退避重试，仍失败再试一次单集接口，不再注册新设备。
 /// 方案2：设备号用设置里保存的一对，不读模拟器。剧集仍走桌面 7.4.2.32。
 /// 播放 preload 在 fqnovel 和 reading 上都会回 HTTP 200 空包，所以播放改走已能取出地址的红米签名链路。
@@ -86,6 +86,12 @@ internal sealed class HongguoAppDirectClient
 
     /// <summary>测试注入。为空时读本机模拟器的 applog。</summary>
     internal static EmulatorDeviceReader? ReadEmulatorDevice;
+
+    /// <summary>测试注入。为空时用本机保存的 audit 设备号。</summary>
+    internal static string? AuditDevicePathOverride;
+
+    /// <summary>测试注入。为空时用播放空包的退避间隔。</summary>
+    internal static Func<int, TimeSpan>? AuditRetryDelayOverride;
 
     private readonly HttpClient _httpClient;
     private readonly HongguoGuestPlayback _playback;
@@ -445,16 +451,42 @@ internal sealed class HongguoAppDirectClient
         string quality,
         CancellationToken cancellationToken)
     {
-        var root = await SendAsync(
-            HttpMethod.Post,
-            "/novel/player/video_model/v1/",
-            VideoModelBody(seriesId, videoId),
-            null,
-            cancellationToken);
-        var model = HongguoGuestPlayback.ModelOf(root["data"]?["video_model"]);
-        if (model is null)
-            throw new HongguoHighException("播放地址为空");
-        return HongguoGuestPlayback.Pick(model, quality);
+        Exception? last = null;
+        var empties = 0;
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            try
+            {
+                var root = await SendAsync(
+                    HttpMethod.Post,
+                    "/novel/player/video_model/v1/",
+                    VideoModelBody(seriesId, videoId),
+                    null,
+                    cancellationToken,
+                    attempts: 1);
+                var model = HongguoGuestPlayback.ModelOf(root["data"]?["video_model"]);
+                if (model is null)
+                    throw new HongguoHighException("播放地址为空");
+                return HongguoGuestPlayback.Pick(model, quality);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                if (attempt == 7 || !IsTransientPlaybackFailure(ex))
+                    break;
+                empties++;
+                if (empties == 2)
+                    HongguoPureSign.ReplaceDeviceId(AuditDevicePathOverride ?? HongguoPureSign.DefaultDevicePath());
+                var delay = AuditRetryDelayOverride?.Invoke(attempt) ?? TimeSpan.FromMilliseconds(200);
+                await Task.Delay(delay, cancellationToken);
+            }
+        }
+
+        throw last ?? new HongguoHighException("播放地址为空");
     }
 
     private static byte[] VideoModelBody(string seriesId, string videoId)
@@ -511,7 +543,7 @@ internal sealed class HongguoAppDirectClient
         string seriesId,
         CancellationToken cancellationToken)
     {
-        for (var attempt = 0; attempt < 3; attempt++)
+        for (var attempt = 0; attempt < 8; attempt++)
         {
             try
             {
@@ -528,8 +560,11 @@ internal sealed class HongguoAppDirectClient
                 // 空包或签名软失败时换票据再试。
             }
 
-            if (attempt < 2)
-                await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationToken);
+            if (attempt < 7)
+            {
+                var delay = AuditRetryDelayOverride?.Invoke(attempt) ?? EmulatorPlaybackRetryDelay(attempt);
+                await Task.Delay(delay, cancellationToken);
+            }
         }
 
         return [];
@@ -807,7 +842,7 @@ internal sealed class HongguoAppDirectClient
         CancellationToken cancellationToken,
         int attempts = 3)
     {
-        var deviceId = HongguoPureSign.LoadDeviceId(HongguoPureSign.DefaultDevicePath());
+        var deviceId = HongguoPureSign.LoadDeviceId(AuditDevicePathOverride ?? HongguoPureSign.DefaultDevicePath());
         Exception? last = null;
         var rticket = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var maxAttempts = Math.Clamp(attempts, 1, 8);
