@@ -169,6 +169,12 @@ public sealed class KuaishouPersonalConfig
     public bool DistributionLoginNotifyEnabled { get; set; } = true;
     public bool DistributionFeishuNotifyEnabled { get; set; }
     public bool AutoOnlineEnabled { get; set; } = true;
+    public bool ScheduledShelfEnabled { get; set; }
+    public string ScheduledShelfMode { get; set; } = "interval";
+    public int ScheduledShelfIntervalHours { get; set; } = 1;
+    public string ScheduledShelfDailyTime { get; set; } = "10:00";
+    public bool ScheduledShelfOnlyWhenIdle { get; set; } = true;
+    public int ScheduledShelfMaxItemsPerRound { get; set; } = 50;
     public int AutoOnlineIntervalMinutes { get; set; } = 30;
     public int AutoOnlineMaxItemsPerRound { get; set; } = 30;
     public int AutoOnlineMaxWaitDays { get; set; } = 14;

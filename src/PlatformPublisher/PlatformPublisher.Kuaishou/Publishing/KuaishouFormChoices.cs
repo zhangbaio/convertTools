@@ -125,6 +125,12 @@ public static class KuaishouFormChoices
         new("网页自动化（原方案）", "browser"),
     ];
 
+    public static IReadOnlyList<KuaishouFormChoice> ScheduledShelfModes { get; } =
+    [
+        new("固定时间间隔", "interval"),
+        new("每天固定时间", "daily"),
+    ];
+
     public static string CanonicalValue(IReadOnlyList<KuaishouFormChoice> choices, string? raw, string fallback)
     {
         var text = (raw ?? string.Empty).Trim();

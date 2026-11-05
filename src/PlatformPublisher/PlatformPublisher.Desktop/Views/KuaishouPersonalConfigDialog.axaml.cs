@@ -158,6 +158,14 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         OssMaxAttemptsBox.Text = _config.OssCleanupMaxAttempts.ToString();
         OssDeleteOnProjectDeleteBox.IsChecked = _config.OssCleanupDeleteOnProjectDelete;
 
+        ScheduledShelfBox.IsChecked = _config.ScheduledShelfEnabled;
+        FillChoice(ScheduledShelfModeBox, KuaishouFormChoices.ScheduledShelfModes, _config.ScheduledShelfMode, "interval");
+        ScheduledShelfIntervalBox.Text = _config.ScheduledShelfIntervalHours.ToString();
+        ScheduledShelfDailyBox.Text = KuaishouScheduledShelfSchedule.NormalizeClock(_config.ScheduledShelfDailyTime);
+        ScheduledShelfOnlyWhenIdleBox.IsChecked = _config.ScheduledShelfOnlyWhenIdle;
+        ScheduledShelfMaxBox.Text = _config.ScheduledShelfMaxItemsPerRound.ToString();
+        UpdateScheduledShelfModeRows();
+
         AutoOnlineBox.IsChecked = _config.AutoOnlineEnabled;
         AutoOnlineIntervalBox.Text = _config.AutoOnlineIntervalMinutes.ToString();
         AutoOnlineMaxItemsBox.Text = _config.AutoOnlineMaxItemsPerRound.ToString();
@@ -455,6 +463,12 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.OssCleanupMaxAttempts = Positive(OssMaxAttemptsBox.Text, 5);
         _config.OssCleanupDeleteOnProjectDelete = OssDeleteOnProjectDeleteBox.IsChecked == true;
 
+        _config.ScheduledShelfEnabled = ScheduledShelfBox.IsChecked == true;
+        _config.ScheduledShelfMode = ChoiceValue(ScheduledShelfModeBox, "interval");
+        _config.ScheduledShelfIntervalHours = Math.Clamp(Positive(ScheduledShelfIntervalBox.Text, 1), 1, 24);
+        _config.ScheduledShelfDailyTime = KuaishouScheduledShelfSchedule.NormalizeClock(ScheduledShelfDailyBox.Text);
+        _config.ScheduledShelfOnlyWhenIdle = ScheduledShelfOnlyWhenIdleBox.IsChecked == true;
+        _config.ScheduledShelfMaxItemsPerRound = Math.Clamp(Positive(ScheduledShelfMaxBox.Text, 50), 1, 200);
         _config.AutoOnlineEnabled = AutoOnlineBox.IsChecked == true;
         _config.AutoOnlineIntervalMinutes = Positive(AutoOnlineIntervalBox.Text, 30);
         _config.AutoOnlineMaxItemsPerRound = Positive(AutoOnlineMaxItemsBox.Text, 30);
@@ -527,6 +541,19 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     {
         if (BroadcastDateBox is null || BroadcastTimeModeBox is null) return;
         BroadcastDateBox.IsVisible = ChoiceValue(BroadcastTimeModeBox, "today") == "fixed";
+    }
+
+    private void ScheduledShelfModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        UpdateScheduledShelfModeRows();
+
+    private void UpdateScheduledShelfModeRows()
+    {
+        if (ScheduledShelfModeBox is null) return;
+        var daily = ChoiceValue(ScheduledShelfModeBox, "interval") == "daily";
+        ScheduledShelfIntervalLabel.IsVisible = !daily;
+        ScheduledShelfIntervalBox.IsVisible = !daily;
+        ScheduledShelfDailyLabel.IsVisible = daily;
+        ScheduledShelfDailyBox.IsVisible = daily;
     }
 
     private void DistributionModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateDistributionModeRows();

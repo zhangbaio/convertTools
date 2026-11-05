@@ -263,16 +263,6 @@
                                     ToolTip.Tip="只从任务队列删除，保留项目目录和文件" />
                         </WrapPanel>
                     </Border>
-                    <Border Classes="kuaishouButtonGroup" Background="#FFF9EE" BorderBrush="#F3D7A1">
-                        <WrapPanel Orientation="Horizontal">
-                            <TextBlock Text="自动上架" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#B45309" />
-                            <NumericUpDown Width="60" Value="{Binding AutoShelfMaxPages}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
-                            <TextBlock Text="页" VerticalAlignment="Center" Margin="0,0,6,0" />
-                            <NumericUpDown Width="60" Value="{Binding AutoShelfMaxRounds}" Minimum="1" Maximum="100" Margin="0,0,4,0" />
-                            <TextBlock Text="轮" VerticalAlignment="Center" Margin="0,0,6,0" />
-                            <Button Content="开始" Command="{Binding AutoShelfCommand}" Classes="repairAction compactAction" />
-                        </WrapPanel>
-                    </Border>
                     <Border Classes="kuaishouButtonGroup" Background="#FFF5F5" BorderBrush="#F3C7C3">
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="归档勾选" Click="OnArchiveCheckedClick" Classes="dangerSoftAction compactAction"

@@ -233,7 +233,24 @@
 
             <TabItem Header="剧集上架">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                    <StackPanel Margin="16" Spacing="16">
+                    <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="定时扫描上架" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <CheckBox x:Name="ScheduledShelfBox" Grid.Column="1" Content="到点后上架「已下架 + 发布成功」且有上架按钮的短剧。平台风控下架不点。" />
+                        <TextBlock Grid.Row="1" Text="上架方式" VerticalAlignment="Center" />
+                        <ComboBox x:Name="ScheduledShelfModeBox" Grid.Row="1" Grid.Column="1" SelectionChanged="ScheduledShelfModeBox_SelectionChanged" />
+                        <TextBlock x:Name="ScheduledShelfIntervalLabel" Grid.Row="2" Text="检查间隔(小时)" VerticalAlignment="Center" />
+                        <TextBox x:Name="ScheduledShelfIntervalBox" Grid.Row="2" Grid.Column="1" Watermark="1 到 24，例如 1 表示每小时" />
+                        <TextBlock x:Name="ScheduledShelfDailyLabel" Grid.Row="3" Text="每天时刻" VerticalAlignment="Center" />
+                        <TextBox x:Name="ScheduledShelfDailyBox" Grid.Row="3" Grid.Column="1" Watermark="例如 10:00" />
+                        <TextBlock Grid.Row="4" Text="上传中跳过" VerticalAlignment="Center" />
+                        <CheckBox x:Name="ScheduledShelfOnlyWhenIdleBox" Grid.Row="4" Grid.Column="1" Content="该账号正在上传时跳过本轮，上传结束后再检查" />
+                        <TextBlock Grid.Row="5" Text="每轮最多上架" VerticalAlignment="Center" />
+                        <TextBox x:Name="ScheduledShelfMaxBox" Grid.Row="5" Grid.Column="1" Watermark="例如 50" />
+                        <TextBlock Grid.Row="6" Grid.ColumnSpan="2" TextWrapping="Wrap" Foreground="#64748B"
+                                   Text="固定间隔在开启后的下一次检查先跑一轮，之后按间隔计算。每天固定时间过了今天的时刻且今天还没跑过，会补跑一次。登录失效时本轮停止，并记入日志。" />
+                    </Grid>
+                    <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
                         <TextBlock Text="启用自动上架" VerticalAlignment="Center" />
                         <CheckBox x:Name="AutoOnlineBox" Grid.Column="1" Content="提交短剧后登记待上架队列，并定时查询审核状态" />
                         <TextBlock Grid.Row="1" Text="检查间隔" VerticalAlignment="Center" />
@@ -264,6 +281,7 @@
                         <TextBlock Grid.Row="12" Text="打回/异常记录保留" VerticalAlignment="Center" />
                         <TextBox x:Name="KeepRejectedDaysBox" Grid.Row="12" Grid.Column="1" />
                     </Grid>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

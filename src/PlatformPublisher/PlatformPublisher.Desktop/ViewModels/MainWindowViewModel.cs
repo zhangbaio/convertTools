@@ -68,6 +68,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly KuaishouPersonalProjectDataService _kuaishouPersonalProjectDataService;
     private readonly KuaishouPersonalPreparationService _kuaishouPersonalPreparationService;
     private readonly DramaTitleImportService _dramaTitleImportService;
+    private readonly KuaishouScheduledShelfService _scheduledShelfService;
+    private int _scheduledShelfGate;
+    private readonly HashSet<string> _scheduledShelfIdleAnnounced = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PublishJob> _jobs = [];
     private readonly List<GlobalAccount> _globalAccounts = [];
     private readonly DispatcherTimer _scheduleTimer;
@@ -119,7 +122,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         WeixinProofArtifactsService proofArtifactsService,
         KuaishouPersonalProjectDataService kuaishouPersonalProjectDataService,
         KuaishouPersonalPreparationService kuaishouPersonalPreparationService,
-        DramaTitleImportService dramaTitleImportService)
+        DramaTitleImportService dramaTitleImportService,
+        KuaishouScheduledShelfService scheduledShelfService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -138,6 +142,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _kuaishouPersonalProjectDataService = kuaishouPersonalProjectDataService;
         _kuaishouPersonalPreparationService = kuaishouPersonalPreparationService;
         _dramaTitleImportService=dramaTitleImportService;
+        _scheduledShelfService = scheduledShelfService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -3592,10 +3597,102 @@ public sealed partial class MainWindowViewModel : ObservableObject
         };
     }
 
+    private void KickKuaishouScheduledShelf()
+    {
+        if (Interlocked.CompareExchange(ref _scheduledShelfGate, 1, 0) != 0)
+            return;
+        var accounts = _globalAccounts
+            .Where(account => !string.IsNullOrWhiteSpace(account.Id))
+            .Select(account => (account.Id, account.Name, account.KuaishouAccountEdition))
+            .ToArray();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await RunDueKuaishouScheduledShelvesAsync(accounts);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                AppendActivityLog($"定时上架检查失败：{ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _scheduledShelfGate, 0);
+            }
+        });
+    }
+
+    private async Task RunDueKuaishouScheduledShelvesAsync(
+        (string Id, string Name, string Edition)[] accounts)
+    {
+        foreach (var account in accounts)
+        {
+            if (!KuaishouAccountEdition.TryGetPlatform(account.Edition, out var platform))
+                continue;
+            var job = new PublishJob
+            {
+                AccountId = account.Id,
+                AccountName = account.Name,
+                Platform = platform,
+            };
+            var config = KuaishouPersonalConfig.Load(job);
+            var key = KuaishouRunKey(account.Id, platform);
+            var label = string.IsNullOrWhiteSpace(account.Name) ? account.Id : account.Name;
+            var lastRun = KuaishouScheduledShelfStateStore.ReadLastRun(config);
+            var due = KuaishouScheduledShelfSchedule.IsDue(
+                config.ScheduledShelfEnabled,
+                config.ScheduledShelfMode,
+                config.ScheduledShelfIntervalHours,
+                config.ScheduledShelfDailyTime,
+                lastRun,
+                DateTimeOffset.Now);
+            if (!due)
+            {
+                _scheduledShelfIdleAnnounced.Remove(key);
+                continue;
+            }
+
+            if (config.ScheduledShelfOnlyWhenIdle && IsKuaishouPublishRunning(account.Id, platform))
+            {
+                if (_scheduledShelfIdleAnnounced.Add(key))
+                    AppendActivityLog($"{label}：定时上架已到点，上传进行中，本轮跳过。");
+                continue;
+            }
+
+            _scheduledShelfIdleAnnounced.Remove(key);
+            KuaishouScheduledShelfStateStore.WriteLastRun(config, DateTimeOffset.Now);
+            var progress = new Progress<string>(message =>
+            {
+                ActivityLogAccountScope.Value = key;
+                ActivityLogPlatformScope.Value = platform;
+                AppendActivityLog($"{label}：{message}");
+            });
+            try
+            {
+                ActivityLogAccountScope.Value = key;
+                ActivityLogPlatformScope.Value = platform;
+                AppendActivityLog($"{label}：开始定时上架，筛选已下架且发布成功的短剧。");
+                await _scheduledShelfService.RunAsync(job, progress, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                ActivityLogAccountScope.Value = key;
+                ActivityLogPlatformScope.Value = platform;
+                AppendActivityLog($"{label}：定时上架失败：{ex.Message}");
+            }
+            finally
+            {
+                ActivityLogAccountScope.Value = null;
+                ActivityLogPlatformScope.Value = null;
+            }
+        }
+    }
+
     private async void OnScheduleTimerTick(object? sender, EventArgs e)
     {
         if (IsKuaishouPlatform)
             RefreshKuaishouTodayUploadCount();
+        KickKuaishouScheduledShelf();
         if (_scheduleTickRunning || IsBusy)
             return;
 
