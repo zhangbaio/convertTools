@@ -124,6 +124,42 @@ public sealed class KuaishouTodayUploadCounterTests
     }
 
     [Fact]
+    public void Upload_state_completed_today_counts_without_a_ledger_row()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var today = new DateTimeOffset(2026, 11, 5, 9, 19, 0, TimeSpan.FromHours(8));
+        var finished = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_娘家第二季"));
+        var yesterday = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_昨天完成"));
+        File.WriteAllText(
+            Path.Combine(finished.FullName, ".kuaishou-personal-upload-state.json"),
+            $$"""
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "UpdatedAt": "{{today:O}}"
+            }
+            """);
+        File.WriteAllText(
+            Path.Combine(yesterday.FullName, ".kuaishou-personal-upload-state.json"),
+            """
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "UpdatedAt": "2026-11-04T18:00:00+08:00"
+            }
+            """);
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue,
+            "acct-a",
+            root.FullName,
+            today.Date,
+            store,
+            [finished.FullName, yesterday.FullName]));
+    }
+
+    [Fact]
     public void Excel_has_dashboard_and_timeline_sheets_for_the_current_edition()
     {
         var root = Directory.CreateTempSubdirectory();

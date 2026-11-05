@@ -514,6 +514,9 @@ public sealed partial class MainWindowViewModel
                         work.Request,
                         lane.UploadSlot,
                         token).ConfigureAwait(false);
+                    RememberKuaishouUploadReport(directory, work.Request, succeeded: true, error: "");
+                    if (IsViewingKuaishouRun(work.Request))
+                        RefreshKuaishouTodayUploadCount();
                 }
                 finally
                 {

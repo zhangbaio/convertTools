@@ -136,7 +136,8 @@ public static class KuaishouTodayUploadCounter
         string accountId,
         string? workspaceDirectory,
         DateTime? today = null,
-        string? storeRoot = null)
+        string? storeRoot = null,
+        IEnumerable<string>? projectDirectories = null)
     {
         _ = workspaceDirectory;
         var edition = Edition(platform);
@@ -160,7 +161,60 @@ public static class KuaishouTodayUploadCounter
                 counted.Add(key);
         }
 
+        AddCompletedProjects(counted, platform, day, projectDirectories);
         return counted.Count;
+    }
+
+    private static void AddCompletedProjects(
+        HashSet<string> counted,
+        PublishPlatform platform,
+        DateTime day,
+        IEnumerable<string>? projectDirectories)
+    {
+        if (projectDirectories is null)
+            return;
+        var stateName = platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? ".kuaishou-enterprise-upload-state.json"
+            : ".kuaishou-personal-upload-state.json";
+        foreach (var directory in projectDirectories)
+        {
+            var key = Normalize(directory);
+            if (string.IsNullOrWhiteSpace(key) || !counted.Add(key))
+                continue;
+            if (!CompletedToday(directory, stateName, day))
+                counted.Remove(key);
+        }
+    }
+
+    private static bool CompletedToday(string projectDirectory, string stateName, DateTime day)
+    {
+        if (!Directory.Exists(projectDirectory))
+            return false;
+        string workflow;
+        try
+        {
+            workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+        }
+        catch (IOException)
+        {
+            workflow = projectDirectory;
+        }
+
+        var path = Path.Combine(workflow, stateName);
+        if (!File.Exists(path))
+            path = Path.Combine(projectDirectory, stateName);
+        if (!File.Exists(path))
+            return false;
+        var state = ReadObject(path);
+        var status = FirstText(ReadString(state, "Status"), ReadString(state, "status")).ToLowerInvariant();
+        if (status is "failed" or "error" or "stopped" or "draft_saved" or "manual_hold" or "final_hold")
+            return false;
+        var submitted = ReadBool(state, "ReviewSubmitted") || ReadBool(state, "review_submitted");
+        if (status is not ("completed" or "success") && !submitted)
+            return false;
+        var raw = FirstText(ReadString(state, "UpdatedAt"), ReadString(state, "updatedAt"), ReadString(state, "updated_at"));
+        return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
+            && at.ToLocalTime().Date == day.Date;
     }
 
     private static bool ReadBool(JsonElement root, string name) =>

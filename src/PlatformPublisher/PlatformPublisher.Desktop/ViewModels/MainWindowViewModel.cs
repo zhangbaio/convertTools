@@ -2808,6 +2808,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             existing.Status == PublishJobStepStatus.Succeeded && !force)
         {
             AppendActivityLog($"共享流水线：{label}已完成，跳过。");
+            if (key == "weixin-upload")
+                RefreshKuaishouTodayUploadCount();
             return;
         }
 
@@ -2865,6 +2867,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             step.UpdatedAt = DateTimeOffset.Now;
             job.UpdatedAt = DateTimeOffset.Now;
             await _store.SaveAsync(_jobs).ConfigureAwait(false);
+            if (key == "weixin-upload" && status == PublishJobStepStatus.Succeeded)
+                RefreshKuaishouTodayUploadCount();
         }
         finally
         {
@@ -3590,8 +3594,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async void OnScheduleTimerTick(object? sender, EventArgs e)
     {
-        var today = DateTime.Now.Date;
-        if (today != _countedUploadDay)
+        if (IsKuaishouPlatform)
             RefreshKuaishouTodayUploadCount();
         if (_scheduleTickRunning || IsBusy)
             return;
@@ -4107,9 +4110,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var platform = SelectedPlatform.Value;
         var accountId = _activeGlobalAccount?.Id ?? "";
         var workspace = Directory.Exists(DraftProjectDirectory) ? DraftProjectDirectory : null;
+        var directories = _jobs
+            .Where(job => job.Platform == platform &&
+                          string.Equals(job.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
+            .Select(job => job.ProjectDirectory)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
         _ = Task.Run(() =>
         {
-            var count = KuaishouTodayUploadCounter.CountToday(platform, accountId, workspace);
+            var count = KuaishouTodayUploadCounter.CountToday(
+                platform, accountId, workspace, projectDirectories: directories);
             PostUi(() =>
             {
                 if (generation != _todayUploadGeneration || !IsKuaishouPlatform)
