@@ -56,6 +56,10 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         get
         {
             var kuaishou = Model.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue;
+            if (kuaishou &&
+                Model.StepStates.TryGetValue("weixin-upload", out var uploadStep) &&
+                uploadStep.Status == PublishJobStepStatus.Running)
+                return string.Equals(uploadStep.Message, "等待槽位", StringComparison.Ordinal) ? "等待槽位" : "执行中";
             if (kuaishou && Model.Status == PublishJobStatus.Running)
             {
                 if (StepFailed("weixin-upload") || StepFailed("rewrite") || StepFailed("auto-fill-info"))

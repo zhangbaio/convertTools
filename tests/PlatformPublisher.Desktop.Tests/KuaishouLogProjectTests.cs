@@ -72,4 +72,23 @@ public sealed class KuaishouLogProjectTests
         Assert.Equal("none", KuaishouQueueLogView.RowTone("none", "failed"));
         Assert.Equal("failed", KuaishouQueueLogView.RowTone("waiting", "failed"));
     }
+
+    [Fact]
+    public void A_project_waiting_for_the_upload_slot_stays_on_the_log_list_and_is_not_failed()
+    {
+        var existing = new List<KuaishouLogProject>
+        {
+            new("渔村炊烟起，闺女笑声甜", @"E:\kuaishou4\渔村炊烟起，闺女笑声甜", "running"),
+        };
+        existing[0].AppendLine("[09:42:46] 上传进度：94%");
+        KuaishouLogProject.MergeInto(existing,
+        [
+            new KuaishouLogProject("这碗面八万", @"E:\kuaishou4\这碗面八万", "running"),
+        ]);
+
+        Assert.Equal(2, existing.Count);
+        Assert.Contains("94%", existing[0].CopyLines()[0]);
+        Assert.Equal("running", KuaishouQueueLogView.ToneFromStatuses("失败", "等待槽位", ["失败", "已完成", "等待槽位"]));
+        Assert.Equal("running", KuaishouQueueLogView.RowTone("waiting", "running"));
+    }
 }

@@ -489,7 +489,7 @@ public sealed partial class MainWindowViewModel
         {
             if (work.Command.AssignmentId > 0)
                 await work.ReportAsync("running", "download", $"开始执行「{work.Command.Title}」", "").ConfigureAwait(false);
-            PrepareKuaishouLogProjects(work.Directories, work.Key);
+            AppendKuaishouLogProjects(work.Directories, work.Key);
             foreach (var directory in work.Directories)
             {
                 token.ThrowIfCancellationRequested();
@@ -514,6 +514,7 @@ public sealed partial class MainWindowViewModel
                         work.Request,
                         lane.UploadSlot,
                         token).ConfigureAwait(false);
+                    SetKuaishouLogTone(directory, "ok");
                     RememberKuaishouUploadReport(directory, work.Request, succeeded: true, error: "");
                     if (IsViewingKuaishouRun(work.Request))
                         RefreshKuaishouTodayUploadCount();
@@ -531,11 +532,16 @@ public sealed partial class MainWindowViewModel
         }
         catch (OperationCanceledException)
         {
+            foreach (var dir in work.Directories)
+                SetKuaishouLogTone(dir, "none");
         }
         catch (Exception ex)
         {
             foreach (var dir in work.Directories)
+            {
+                SetKuaishouLogTone(dir, "failed");
                 KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
+            }
             await work.ReportAsync("failed", "", ShortDispatchFailure(ex.Message), "").ConfigureAwait(false);
         }
         finally

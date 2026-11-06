@@ -230,11 +230,16 @@ public partial class KuaishouQueueLogView : UserControl
             job.AutoFillStepStatus,
             job.UploadStepStatus,
         };
-        if (statuses.Any(IsFailedStatus))
-            return "failed";
+        return ToneFromStatuses(job.StatusText, job.UploadStepStatus, statuses);
+    }
+
+    public static string ToneFromStatuses(string statusText, string uploadStatus, IReadOnlyList<string> statuses)
+    {
         if (statuses.Any(IsRunningStatus))
             return "running";
-        if (IsSuccessStatus(job.StatusText) || IsSuccessStatus(job.UploadStepStatus))
+        if (statuses.Any(IsFailedStatus))
+            return "failed";
+        if (IsSuccessStatus(statusText) || IsSuccessStatus(uploadStatus))
             return "ok";
         return "waiting";
     }

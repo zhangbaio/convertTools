@@ -2427,8 +2427,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         continue;
                     preserved.Add(step.YunfanKey);
                     if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var running) == true
-                        && running.Status == PublishJobStepStatus.Running)
+                        && running.Status is PublishJobStepStatus.Running or PublishJobStepStatus.Failed)
                         await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "已完成，跳过");
+                }
+
+                if (preserved.Count > 0)
+                {
+                    var skipped = string.Join("、", enabled.Where(step => preserved.Contains(step.YunfanKey)).Select(step => step.Label));
+                    AppendActivityLog($"已完成的步骤跳过：{skipped}。", projectName);
                 }
             }
 
@@ -3901,7 +3907,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
         };
     }
 
-    private void PrepareKuaishouLogProjects(IReadOnlyList<string> directories, string accountKey)
+    private void PrepareKuaishouLogProjects(IReadOnlyList<string> directories, string accountKey) =>
+        StoreKuaishouLogProjects(directories, accountKey, "waiting", replace: true);
+
+    private void AppendKuaishouLogProjects(IReadOnlyList<string> directories, string accountKey) =>
+        StoreKuaishouLogProjects(directories, accountKey, "running", replace: false);
+
+    private void StoreKuaishouLogProjects(
+        IReadOnlyList<string> directories,
+        string accountKey,
+        string tone,
+        bool replace)
     {
         var projects = new List<KuaishouLogProject>();
         foreach (var directory in directories)
@@ -3913,10 +3929,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
             var name = string.IsNullOrWhiteSpace(job?.ProjectName)
                 ? Path.GetFileName(normalized)
                 : job.ProjectName;
-            projects.Add(new KuaishouLogProject(name, normalized, "waiting"));
+            projects.Add(new KuaishouLogProject(name, normalized, tone));
         }
 
-        _kuaishouLogsByAccount[accountKey] = KuaishouLogProject.ForThisRun(projects);
+        if (!replace && _kuaishouLogsByAccount.TryGetValue(accountKey, out var existing))
+            KuaishouLogProject.MergeInto(existing, projects);
+        else
+            _kuaishouLogsByAccount[accountKey] = projects;
         NotifyKuaishouLogProjectsChanged();
     }
 

@@ -38,4 +38,21 @@ public sealed class KuaishouLogProject
 
     public static List<KuaishouLogProject> ForThisRun(IReadOnlyList<KuaishouLogProject> current) =>
         [..current];
+
+    public static void MergeInto(List<KuaishouLogProject> existing, IReadOnlyList<KuaishouLogProject> incoming)
+    {
+        foreach (var project in incoming)
+        {
+            var match = existing.FirstOrDefault(item =>
+                string.Equals(item.ProjectDirectory, project.ProjectDirectory, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                existing.Add(project);
+                continue;
+            }
+
+            if (project.Tone == "running")
+                match.Tone = "running";
+        }
+    }
 }
