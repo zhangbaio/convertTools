@@ -150,15 +150,28 @@ public sealed class TikTokProofMaterialService
                 sourceInfoSelection))
         {
             var renderer = GetStateString(checkpoint, "renderer");
-            log?.Invoke($"[合作协议（核心）] 复用现有文件：{request.OutputPdfPath}。");
+            if (request.GenerateProductionAgreement)
+            {
+                log?.Invoke($"[合作协议（核心）] 复用现有文件：{request.OutputPdfPath}。");
+            }
+            else
+            {
+                log?.Invoke("[合作协议（核心）] 未选择。");
+            }
+
+            // 未勾选「原始文件或素材文件信息」时不能整理上传包。
+            // 两项辅助材料本身已满足平台要求，这里若按未启用的大纲/剧本去校验，
+            // 会误报“至少需要 4 个文件，当前只能生成 2 个”。
             LogExistingMaterial(
                 log,
                 "原始文件或素材文件信息",
                 request.GenerateSourceFileScreenshots,
-                TikTokSourceFileInfoUploadPackageService.ListFiles(
-                    context.WorkflowProjectDir,
-                    request.IncludeSourceInfoRoleSceneScreenshot,
-                    sourceInfoSelection));
+                request.GenerateSourceFileScreenshots
+                    ? TikTokSourceFileInfoUploadPackageService.ListFiles(
+                        context.WorkflowProjectDir,
+                        request.IncludeSourceInfoRoleSceneScreenshot,
+                        sourceInfoSelection)
+                    : []);
             LogExistingMaterial(
                 log,
                 "AI 生成过程截图",

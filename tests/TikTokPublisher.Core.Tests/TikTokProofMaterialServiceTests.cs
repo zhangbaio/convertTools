@@ -945,6 +945,113 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
+    public async Task Auxiliary_only_materials_reuse_existing_outputs_without_source_info_package()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"proof-auxiliary-{Guid.NewGuid():N}");
+        var workflow = Path.Combine(workspace, "workflow", "辅助材料剧");
+        Directory.CreateDirectory(workflow);
+        var png = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+        foreach (var path in TikTokAiGenerationScreenshotService.GetExpectedOutputPaths(workflow))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, png);
+        }
+
+        var frames = TikTokAiGenerationScreenshotService.GetRetainedFramesDirectory(workflow);
+        Directory.CreateDirectory(frames);
+        File.WriteAllBytes(Path.Combine(frames, "frame-01.jpg"), png);
+        File.WriteAllText(
+            TikTokAiGenerationScreenshotService.GetRetainedFramesManifestPath(workflow),
+            JsonSerializer.Serialize(new
+            {
+                version = TikTokAiGenerationScreenshotService.RetainedFramesVersion,
+                screenshot_version = TikTokAiGenerationScreenshotService.ScreenshotVersion,
+                frame_count = 1,
+                frames = new[] { new { file = "frame-01.jpg" } },
+            }));
+
+        var projectImages = TikTokProjectImageService.GetOutputDirectory(workflow);
+        Directory.CreateDirectory(projectImages);
+        for (var index = 1; index <= 4; index++)
+            File.WriteAllBytes(Path.Combine(projectImages, $"工程图_{index}.png"), png);
+
+        var item = new QueueProjectItem
+        {
+            ProjectDir = workflow,
+            NewTitle = "辅助材料剧",
+            ProofMaterialStatementDate = "2026-11-06",
+        };
+        var account = new TikTokAccountProfile
+        {
+            TiktokProofAccountConfigMigrated = true,
+            TiktokCopyrightMaterialTypes =
+            [
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                TikTokPublishConstants.EditingProjectFilesMaterialType,
+            ],
+        };
+        var settings = new ClientSettings { TiktokProjectImageCount = 4 };
+        var runOptions = new QueueRunOptions
+        {
+            EnabledSteps =
+            [
+                QueueStepRegistry.Download,
+                QueueStepRegistry.RewriteInfo,
+                QueueStepRegistry.GenerateProofMaterial,
+                QueueStepRegistry.UploadSeries,
+            ],
+        };
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            settings,
+            account,
+            workflow,
+            new DateOnly(2026, 11, 6));
+        var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+            runOptions.EnabledSteps,
+            request.IncludeSourceInfoRoleVector,
+            request.IncludeSourceInfoRoleSceneScreenshot);
+        TikTokProofMaterialService.SaveState(
+            ProjectWorkspaceService.LoadContext(workflow),
+            request,
+            TikTokProofMaterialService.ComputeComponentFingerprints(request, selection),
+            new TikTokProofMaterialResult(
+                string.Empty,
+                null,
+                string.Empty,
+                new TikTokProofMaterialReplacementCounts(0, 0, 0, 0, 0)),
+            coreCompleted: false,
+            sourceFileScreenshotsCompleted: false,
+            aiGenerationScreenshotsCompleted: true,
+            editingProjectFilesCompleted: true);
+
+        var logs = new List<string>();
+        try
+        {
+            var result = await TikTokProofMaterialService.GenerateAsync(
+                item,
+                settings,
+                account,
+                forceRerun: false,
+                logs.Add,
+                CancellationToken.None,
+                runOptions: runOptions);
+
+            result.PdfPath.Should().BeEmpty();
+            logs.Should().Contain(line => line.Contains("原始文件或素材文件信息") && line.Contains("未选择"));
+            logs.Should().Contain(line => line.Contains("证明材料任务完成"));
+            logs.Should().NotContain(line => line.Contains("至少需要 4 个文件"));
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(workspace))
+                Directory.Delete(workspace, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Queue_request_does_not_require_agreement_inputs_for_auxiliary_only_materials()
     {
         var item = new QueueProjectItem { NewTitle = "辅助材料剧名" };
