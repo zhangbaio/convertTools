@@ -298,35 +298,30 @@ public sealed class HongguoAppDirectClientTests
     }
 
     [Fact]
-    public async Task DesktopPlanPlaybackUsesSignedModel()
+    public async Task DesktopPlanPlaybackUsesVideoTabModel()
     {
         var urls = new List<string>();
         const string videoId = "7600111222333444555";
         var model = """
-            {"code":0,"data":{"7600111222333444555":{"video_model":{"video_list":[{"main_url":"https://v.fqnovelvod.com/a","video_meta":{"definition":"1080p","size":12}}]}}}}
+            {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/a\",\"video_meta\":{\"definition\":\"1080p\",\"size\":12}}]}"}}
             """;
-        HongguoSignedPlayback.Transport = Script(urls, _ => Json(model));
-        try
-        {
-            using var http = new HttpClient();
-            var client = new HongguoAppDirectClient(http);
-            var playback = await client.GetVideoPlaybackAsync(
-                HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, videoId),
-                "1080",
-                CancellationToken.None,
-                "2855907370751180",
-                "2855907370755276",
-                plan: "2");
-            Assert.StartsWith("https://v.fqnovelvod.com/a", playback.Url, StringComparison.Ordinal);
-            Assert.Contains(urls, url => url.Contains("https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/", StringComparison.Ordinal));
-            Assert.Contains(urls, url => url.Contains("version_name=7.1.3.32", StringComparison.Ordinal));
-            Assert.Contains(urls, url => url.Contains("device_id=2855907370751180", StringComparison.Ordinal));
-            Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/preload/", StringComparison.Ordinal));
-        }
-        finally
-        {
-            HongguoSignedPlayback.Transport = null;
-        }
+        using var http = new HttpClient(Script(urls, _ => Json(model)));
+        var client = new HongguoAppDirectClient(http);
+        var playback = await client.GetVideoPlaybackAsync(
+            HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, videoId),
+            "1080",
+            CancellationToken.None,
+            "2855907370751180",
+            "2855907370755276",
+            plan: "2");
+
+        Assert.StartsWith("https://v.fqnovelvod.com/a", playback.Url, StringComparison.Ordinal);
+        Assert.Contains(urls, url => url.Contains("https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/video_model/v1/?", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("version_name=7.4.2.32", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("device_level=3", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("video_platform=1024", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("video_id=" + videoId, StringComparison.Ordinal));
+        Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/", StringComparison.Ordinal));
     }
 
     [Fact]
