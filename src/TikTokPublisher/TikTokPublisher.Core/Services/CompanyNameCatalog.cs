@@ -19,6 +19,12 @@ public static class CompanyNameLibraries
     public static CompanyNameChoice TakeTemplate2(Random? random = null) =>
         CompanyNameCatalog.Take("template2", CompanyNameCatalog.Kentucky, random ?? Random.Shared);
 
+    public static bool TryImportTemplate1(string sourcePath, out string message) =>
+        CompanyNameCatalog.TryImport("template1", sourcePath, null, true, true, out message);
+
+    public static bool TryImportTemplate2(string sourcePath, out string message) =>
+        CompanyNameCatalog.TryImport("template2", sourcePath, null, true, true, out message);
+
     public static string? StartupNotice
     {
         get
@@ -39,8 +45,8 @@ internal static class CompanyNameCatalog
     internal const string Template1FileName = "company-names-template1.json";
     internal const string Template2FileName = "company-names-template2.json";
 
-    private static readonly CompanyLibrary MississippiLibrary = Open(Template1FileName);
-    private static readonly CompanyLibrary KentuckyLibrary = Open(Template2FileName);
+    private static CompanyLibrary MississippiLibrary = Open(Template1FileName);
+    private static CompanyLibrary KentuckyLibrary = Open(Template2FileName);
 
     internal static CompanyName[] Mississippi => MississippiLibrary.Names;
 
@@ -53,6 +59,50 @@ internal static class CompanyNameCatalog
     internal static CompanyName PickMississippi(Random random) => Mississippi[random.Next(Mississippi.Length)];
 
     internal static CompanyName PickKentucky(Random random) => Kentucky[random.Next(Kentucky.Length)];
+
+    internal static bool TryImport(
+        string key,
+        string sourcePath,
+        string? userDirectory,
+        bool replaceMemory,
+        bool updateBesideApp,
+        out string message)
+    {
+        var fileName = key == "template2" ? Template2FileName : Template1FileName;
+        var label = key == "template2" ? "模板2" : "模板1";
+        if (!TryRead(sourcePath, out var names, out var reason))
+        {
+            message = $"公司库无法使用（{reason}）。";
+            return false;
+        }
+
+        var directory = userDirectory ?? UserDirectory;
+        var json = JsonSerializer.Serialize(names.Select(item => item.English).ToArray(), WriteOptions);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, fileName), json);
+        if (updateBesideApp)
+        {
+            var besideApp = Path.Combine(AppContext.BaseDirectory, "articles-of-incorporation", fileName);
+            if (File.Exists(besideApp))
+                File.WriteAllText(besideApp, json);
+        }
+
+        if (replaceMemory)
+        {
+            var library = new CompanyLibrary(names, null);
+            if (key == "template2")
+                KentuckyLibrary = library;
+            else
+                MississippiLibrary = library;
+        }
+
+        message = $"已导入{label}公司库，共 {names.Length} 个名称。";
+        return true;
+    }
+
+    internal static void SetMississippi(CompanyLibrary library) => MississippiLibrary = library;
+
+    internal static void SetKentucky(CompanyLibrary library) => KentuckyLibrary = library;
 
     internal static CompanyNameChoice Take(string key, CompanyName[] catalog, Random random, string? storePath = null)
     {
@@ -124,10 +174,7 @@ internal static class CompanyNameCatalog
                 }
 
                 if (!seen.Add(english))
-                {
-                    reason = $"英文名重复：{english}";
-                    return false;
-                }
+                    continue;
 
                 list.Add(new CompanyName(english));
             }
@@ -220,6 +267,11 @@ internal static class CompanyNameCatalog
             // Remembering a drawn name should not block the next random generation.
         }
     }
+
+    private static readonly JsonSerializerOptions WriteOptions = new()
+    {
+        WriteIndented = true,
+    };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

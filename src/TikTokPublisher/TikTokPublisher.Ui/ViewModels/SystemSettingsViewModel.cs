@@ -18,13 +18,18 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private static readonly HttpClient ProbeHttp = CreateProbeHttpClient();
     private readonly string? _settingsDatabasePath;
 
-    public SystemSettingsViewModel(string? settingsDatabasePath = null)
+    public SystemSettingsViewModel(string? settingsDatabasePath = null, bool kuaishouPublishPrompts = false)
     {
         _settingsDatabasePath = string.IsNullOrWhiteSpace(settingsDatabasePath)
             ? null
             : Path.GetFullPath(settingsDatabasePath);
         MainDatabasePath = _settingsDatabasePath ?? ClientSettingsStore.MainDatabasePath;
+        ShowsKuaishouPublishPrompt = kuaishouPublishPrompts;
+        ShowsTikTokPublishPrompt = !kuaishouPublishPrompts;
     }
+
+    public bool ShowsKuaishouPublishPrompt { get; }
+    public bool ShowsTikTokPublishPrompt { get; }
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
@@ -131,6 +136,57 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _isPikachuBusy;
     [ObservableProperty] private string _playletServerUrl = PlayletDramaClient.DefaultServerUrl;
     [ObservableProperty] private string _playletDeviceId = "";
+    [ObservableProperty] private string _hongguoAppDeviceId = "";
+    [ObservableProperty] private string _hongguoAppInstallId = "";
+    [ObservableProperty] private string _hongguoAppPlan = "1";
+    [ObservableProperty] private bool _hongguoAppStreamLink1 = true;
+    [ObservableProperty] private bool _hongguoAppStreamLink2 = true;
+    private string _hongguoAppPlaybackLoadedDeviceId = "";
+    private bool _hongguoAppStreamLinkGuard;
+
+    public bool HongguoAppPlanIsCurrent
+    {
+        get => !string.Equals(HongguoAppPlan, "2", StringComparison.Ordinal);
+        set
+        {
+            if (value)
+                HongguoAppPlan = "1";
+        }
+    }
+
+    public bool HongguoAppPlanIsDesktop
+    {
+        get => string.Equals(HongguoAppPlan, "2", StringComparison.Ordinal);
+        set
+        {
+            if (value)
+                HongguoAppPlan = "2";
+        }
+    }
+
+    partial void OnHongguoAppPlanChanged(string value)
+    {
+        OnPropertyChanged(nameof(HongguoAppPlanIsCurrent));
+        OnPropertyChanged(nameof(HongguoAppPlanIsDesktop));
+    }
+
+    partial void OnHongguoAppStreamLink1Changed(bool value)
+    {
+        if (_hongguoAppStreamLinkGuard || value || HongguoAppStreamLink2)
+            return;
+        _hongguoAppStreamLinkGuard = true;
+        HongguoAppStreamLink1 = true;
+        _hongguoAppStreamLinkGuard = false;
+    }
+
+    partial void OnHongguoAppStreamLink2Changed(bool value)
+    {
+        if (_hongguoAppStreamLinkGuard || value || HongguoAppStreamLink1)
+            return;
+        _hongguoAppStreamLinkGuard = true;
+        HongguoAppStreamLink2 = true;
+        _hongguoAppStreamLinkGuard = false;
+    }
     [ObservableProperty] private string _dramaBoxApiBaseUrl = DramaBoxApiService.DefaultBaseUrl;
     [ObservableProperty] private string _dramaBoxDeviceId = DramaBoxApiService.DefaultDeviceId;
     [ObservableProperty] private string _dramaBoxProbeStatus = "";
@@ -166,17 +222,19 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _aiTextApiKey = "";
     [ObservableProperty] private string _aiTextModel = ClientSettingsDefaults.AiTextModel;
     [ObservableProperty] private int _aiTextTimeoutSeconds = ClientSettingsDefaults.AiTextTimeoutSeconds;
-    [ObservableProperty] private int _aiTextMaxBatchSize = ClientSettingsDefaults.AiTextMaxBatchSize;
     [ObservableProperty] private string _tiktokRoleReferenceSelectionMode =
         ClientSettingsDefaults.TiktokRoleReferenceSelectionMode;
     [ObservableProperty] private bool _tiktokRoleReferenceAiFallbackEnabled =
         ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     [ObservableProperty] private string _tiktokRoleVectorViewMode = ClientSettingsDefaults.TiktokRoleVectorViewMode;
-    [ObservableProperty] private string _aiTagSystemPrompt = "";
-    [ObservableProperty] private string _aiTagBatchPrompt = "";
-    [ObservableProperty] private string _aiFullInfoSystemPrompt = "";
-    [ObservableProperty] private string _aiFullInfoBatchPrompt = "";
-    [ObservableProperty] private string _aiFullInfoRetryPrompt = "";
+    [ObservableProperty] private string _aiPublishInfoPrompt = ClientSettingsDefaults.AiPublishInfoPrompt;
+    [ObservableProperty] private string _kuaishouPublishInfoPrompt = ClientSettingsDefaults.KuaishouPublishInfoPrompt;
+    [ObservableProperty] private string _kuaishouPosterVerticalPrompt = ClientSettingsDefaults.KuaishouPosterVerticalDirectPrompt;
+    [ObservableProperty] private string _kuaishouPosterHorizontalPrompt = ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt;
+    private string _kuaishouPosterVerticalDirectPrompt = ClientSettingsDefaults.KuaishouPosterVerticalDirectPrompt;
+    private string _kuaishouPosterVerticalErasePrompt = ClientSettingsDefaults.KuaishouPosterVerticalErasePrompt;
+    private string _kuaishouPosterHorizontalDirectPrompt = ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt;
+    private string _kuaishouPosterHorizontalErasePrompt = ClientSettingsDefaults.KuaishouPosterHorizontalErasePrompt;
 
     [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
     [ObservableProperty] private string _posterLayoutRequestMode = ClientSettingsDefaults.PosterLayoutRequestMode;
@@ -199,14 +257,9 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private double _frameExtractTime = ClientSettingsDefaults.FrameExtractTime;
     [ObservableProperty] private string _frameExtractNeighborOffsetsSeconds = ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds;
     [ObservableProperty] private string _frameExtractFallbackPercents = ClientSettingsDefaults.FrameExtractFallbackPercents;
-    [ObservableProperty] private string _frameCoverPrompt = "";
-    [ObservableProperty] private string _posterLayoutDetectPrompt = "";
-    [ObservableProperty] private string _posterInpaintPrompt = "";
-    [ObservableProperty] private string _posterInpaintSafeRetryPrompt = "";
-    [ObservableProperty] private string _posterGenerationPrompt = "";
-    [ObservableProperty] private string _posterGenerationSafeRetryPrompt = "";
-    [ObservableProperty] private string _posterNameSystemPrompt = "";
-    [ObservableProperty] private string _posterNameUserPrompt = "";
+    [ObservableProperty] private string _posterAgentPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
+    private string _posterAgentDirectPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
+    private string _posterAgentErasePrompt = ClientSettingsDefaults.PosterAgentErasePrompt;
     [ObservableProperty] private string _tiktokProjectImageGenerationMode = ClientSettingsDefaults.TiktokProjectImageGenerationMode;
     [ObservableProperty] private string _tiktokProjectImageTemplateRoot = "";
     [ObservableProperty] private string _tiktokProjectImageTemplateId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
@@ -223,6 +276,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _tiktokProofKeepDocx = ClientSettingsDefaults.TiktokProofKeepDocx;
     [ObservableProperty] private bool _tiktokExcelAutoExportEnabled = true;
     [ObservableProperty] private bool _tiktokAccountAnalyticsEnabled = ClientSettingsDefaults.TiktokAccountAnalyticsEnabled;
+    [ObservableProperty] private string _tiktokSyncWorkspaceRoot = "";
     [ObservableProperty] private bool _managementDedupEnabled;
     [ObservableProperty] private string _managementDedupScope = "tiktok_username";
     [ObservableProperty] private bool _tiktokAllowOverLimitUploadImport = ClientSettingsDefaults.TiktokAllowOverLimitUploadImport;
@@ -235,6 +289,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         "hglocal",
         "pikachu",
         "playlet",
+        "hongguoapp",
         "dramabox"
     ];
 
@@ -266,130 +321,216 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         RefreshDatabaseStats();
     }
 
-    public ClientSettings ToSettings() => new()
+    private int _hongguoPlaybackIdentityStarted;
+
+    /// <summary>
+    /// 第一次打开助手时，若还没有成对的播放设备号和安装号，向红果注册一对并写入设置。
+    /// </summary>
+    public void BeginHongguoAppPlaybackIdentity()
     {
-        DramaSourceChain = DramaSourceChain,
-        DramaDownloadDefaultQuality = DramaDownloadDefaultQuality,
-        DramaDownloadConcurrent = DramaDownloadConcurrent,
-        DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects,
-        DownloadFileSegments = DownloadFileSegments,
-        DownloaderApiBaseUrl = DownloaderApiBaseUrl.Trim(),
-        DownloaderApiKey = DownloaderApiKey.Trim(),
-        HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds,
-        HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts,
-        HgnewAccount = HgnewAccount.Trim(),
-        HgnewPassword = HgnewPassword,
-        HgnewUdid = ClientSettingsStore.NormalizeUdid(HgnewUdid),
-        HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion),
-        HghighAccount = HghighAccount.Trim(),
-        HghighPassword = HghighPassword,
-        HghighEdition = HongguoClientProfile.NormalizeEdition(HghighEdition),
-        HghighDeviceId = HghighDeviceId.Trim(),
-        HghighClientExe = HghighClientExe.Trim(),
-        HghighClientVersion = NormalizeHghighClientVersion(HghighClientVersion, HongguoClientProfile.High.ClientVersion),
-        HghighStandardDeviceId = HghighStandardDeviceId.Trim(),
-        HghighStandardClientExe = HghighStandardClientExe.Trim(),
-        HghighStandardClientVersion = NormalizeHghighClientVersion(HghighStandardClientVersion, HongguoClientProfile.Standard.ClientVersion),
-        HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(HghighStandardPlaybackMode),
-        MapleleafAccount = MapleleafAccount.Trim(),
-        MapleleafPassword = MapleleafPassword,
-        MapleleafUdid = MapleleafUdid.Trim(),
-        HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim(),
-        HongguoLocalApiKey = HongguoLocalApiKey.Trim(),
-        HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(HongguoLocalDownloadMode),
-        HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(HongguoLocalTranscodeEngine),
-        PikachuServerUrl = PikachuServerUrl.Trim(),
-        PikachuFanqieCookie = PikachuFanqieCookie.Trim(),
-        PikachuDramaType = NormalizePikachuDramaType(PikachuDramaType),
-        PikachuDeviceId = PikachuDeviceId.Trim(),
-        PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim(),
-        PlayletServerUrl = string.IsNullOrWhiteSpace(PlayletServerUrl) ? PlayletDramaClient.DefaultServerUrl : PlayletServerUrl.Trim(),
-        PlayletDeviceId = PlayletDeviceId.Trim().ToUpperInvariant(),
-        ForeignServerUrl = string.IsNullOrWhiteSpace(ForeignServerUrl) ? ForeignPlayletClient.DefaultServerUrl : ForeignServerUrl.Trim(),
-        ForeignDeviceId = ForeignDeviceId.Trim().ToUpperInvariant(),
-        ForeignSearchSource = ForeignPlayletClient.NormalizeSource(ForeignSearchSource),
-        ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(ForeignLanguage),
-        DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(DramaBoxApiBaseUrl) ? DramaBoxApiService.DefaultBaseUrl : DramaBoxApiBaseUrl.Trim().TrimEnd('/'),
-        DramaBoxDeviceId = string.IsNullOrWhiteSpace(DramaBoxDeviceId) ? DramaBoxApiService.DefaultDeviceId : DramaBoxDeviceId.Trim(),
-        TiktokAsrLocalModelDir = TiktokAsrLocalModelDir.Trim(),
-        TiktokAsrLocalVadPath = TiktokAsrLocalVadPath.Trim(),
-        TiktokAsrAppId = TiktokAsrAppId.Trim(),
-        TiktokAsrAccessToken = TiktokAsrAccessToken,
-        TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency,
-        TiktokGenerationPerProjectConcurrency = TiktokGenerationPerProjectConcurrency,
-        TiktokAiTextConcurrency = TiktokAiTextConcurrency,
-        TiktokAsrConcurrency = TiktokAsrConcurrency,
-        TiktokFfmpegConcurrency = TiktokFfmpegConcurrency,
-        TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency,
-        TiktokVisualConcurrency = TiktokVisualConcurrency,
-        TiktokDocumentConcurrency = TiktokDocumentConcurrency,
-        TiktokAsrLanguage = TiktokAsrLanguage.Trim(),
-        TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
-        AiTextEndpoint = AiTextEndpoint.Trim(),
-        AiTextApiKey = AiTextApiKey,
-        AiTextModel = AiTextModel.Trim(),
-        AiTextTimeoutSeconds = AiTextTimeoutSeconds,
-        AiTextMaxBatchSize = AiTextMaxBatchSize,
-        TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode,
-        TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
-        TiktokRoleVectorViewMode = TiktokRoleVectorViewMode,
-        AiTagSystemPrompt = AiTagSystemPrompt,
-        AiTagBatchPrompt = AiTagBatchPrompt,
-        AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,
-        AiFullInfoBatchPrompt = AiFullInfoBatchPrompt,
-        AiFullInfoRetryPrompt = AiFullInfoRetryPrompt,
-        PosterMode = PosterMode,
-        PosterLayoutRequestMode = PosterLayoutRequestMode,
-        NetworkAddressPreference = NetworkAddressPreference,
-        ImageProvider = ImageProvider,
-        ImageModelId = ClientSettingsDefaults.NormalizeImageModelId(ImageModelId),
-        ImageModelApiKey = ImageModelApiKey,
-        ImageModelEndpoint = ImageModelEndpoint.Trim(),
-        DoubaoImageResolution = PosterImageConfigHelper.NormalizeDoubaoImageResolution(DoubaoImageResolution),
-        DoubaoImageRatio = DoubaoImageRatio,
-        OfoxImage2ModelId = OfoxImage2ModelId.Trim(),
-        OfoxImage2ApiKey = OfoxImage2ApiKey,
-        OfoxImage2Endpoint = OfoxImage2Endpoint.Trim(),
-        OfoxImage2Quality = OfoxImage2Quality,
-        OfoxImage2Size = OfoxImage2Size.Trim(),
-        PosterTitleVerifyEnabled = PosterTitleVerifyEnabled,
-        PosterTitleVerifyMode = PosterTitleVerifyMode,
-        PosterTitleVerifyAiRetryCount = PosterTitleVerifyAiRetryCount,
-        FrameExtractEpisodeIndex = FrameExtractEpisodeIndex,
-        FrameExtractTime = FrameExtractTime,
-        FrameExtractNeighborOffsetsSeconds = FrameExtractNeighborOffsetsSeconds,
-        FrameExtractFallbackPercents = FrameExtractFallbackPercents,
-        FrameCoverPrompt = FrameCoverPrompt,
-        PosterLayoutDetectPrompt = PosterLayoutDetectPrompt,
-        PosterInpaintPrompt = PosterInpaintPrompt,
-        PosterInpaintSafeRetryPrompt = PosterInpaintSafeRetryPrompt,
-        PosterGenerationPrompt = PosterGenerationPrompt,
-        PosterGenerationSafeRetryPrompt = PosterGenerationSafeRetryPrompt,
-        PosterNameSystemPrompt = PosterNameSystemPrompt,
-        PosterNameUserPrompt = PosterNameUserPrompt,
-        TiktokProjectImageGenerationMode = TiktokProjectImageGenerationMode,
-        TiktokProjectImageTemplateRoot = TiktokProjectImageTemplateRoot.Trim(),
-        TiktokProjectImageTemplateId = TiktokProjectImageTemplateId.Trim(),
-        TiktokProjectImageCount = TiktokProjectImageCount,
-        TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit,
-        TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode,
-        TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot.Trim(),
-        TiktokProjectImageFableCutClipCount = Math.Clamp(TiktokProjectImageFableCutClipCount, 12, 36),
-        TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath.Trim(),
-        TiktokProofWpsPath = TiktokProofWpsPath.Trim(),
-        TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName.Trim(),
-        TiktokProofSealPath = TiktokProofSealPath.Trim(),
-        TiktokProofPdfRenderer = TiktokProofPdfRenderer,
-        TiktokProofKeepDocx = TiktokProofKeepDocx,
-        TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled,
-        TiktokAccountAnalyticsEnabled = TiktokAccountAnalyticsEnabled,
-        ManagementDedupEnabled = ManagementDedupEnabled,
-        ManagementDedupScope = ManagementDedupScope,
-        TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport,
-        TiktokMinimumEpisodeCount = TiktokMinimumEpisodeCount,
-        TiktokMaximumEpisodeCount = TiktokMaximumEpisodeCount,
-        TiktokOverLimitDownloadEpisodeCount = TiktokMaximumEpisodeCount,
-    };
+        if (HongguoAppPlaybackIdentity.IsComplete(HongguoAppDeviceId, HongguoAppInstallId))
+            return;
+        if (Interlocked.CompareExchange(ref _hongguoPlaybackIdentityStarted, 1, 0) != 0)
+            return;
+        _ = RegisterHongguoAppPlaybackIdentityAsync();
+    }
+
+    private async Task RegisterHongguoAppPlaybackIdentityAsync()
+    {
+        try
+        {
+            var loaded = ClientSettingsStore.Load(_settingsDatabasePath);
+            if (HongguoAppPlaybackIdentity.IsComplete(loaded.HongguoAppDeviceId, loaded.HongguoAppInstallId))
+            {
+                PublishHongguoAppPlaybackIdentity(loaded.HongguoAppDeviceId, loaded.HongguoAppInstallId);
+                return;
+            }
+
+            var created = await HongguoAppPlaybackIdentity.RegisterAsync(ProbeHttp, CancellationToken.None);
+            if (!HongguoAppPlaybackIdentity.IsComplete(created.DeviceId, created.InstallId))
+                return;
+
+            ClientSettingsStore.PatchHongguoAppPlaybackIdentity(
+                created.DeviceId,
+                created.InstallId,
+                _settingsDatabasePath);
+            PublishHongguoAppPlaybackIdentity(created.DeviceId, created.InstallId);
+        }
+        catch (Exception)
+        {
+            Interlocked.Exchange(ref _hongguoPlaybackIdentityStarted, 0);
+        }
+    }
+
+    private void PublishHongguoAppPlaybackIdentity(string deviceId, string installId)
+    {
+        void Apply()
+        {
+            if (!string.IsNullOrWhiteSpace(HongguoAppDeviceId) || !string.IsNullOrWhiteSpace(HongguoAppInstallId))
+                return;
+            HongguoAppDeviceId = deviceId;
+            HongguoAppInstallId = installId;
+            _hongguoAppPlaybackLoadedDeviceId = deviceId;
+        }
+
+        if (Dispatcher.UIThread.CheckAccess())
+            Apply();
+        else
+            Dispatcher.UIThread.Post(Apply);
+    }
+
+    public ClientSettings ToSettings() => ApplySystemSettingsForm(new ClientSettings());
+
+    /// <summary>
+    /// 只写入系统设置页上的字段。必须落在已加载的配置上，
+    /// 否则未出现在本页的 XINGE、飞书和授权字段会被默认空值覆盖。
+    /// </summary>
+    private ClientSettings ApplySystemSettingsForm(ClientSettings settings)
+    {
+        settings.DramaSourceChain = DramaSourceChain;
+        settings.DramaDownloadDefaultQuality = DramaDownloadDefaultQuality;
+        settings.DramaDownloadConcurrent = DramaDownloadConcurrent;
+        settings.DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects;
+        settings.DownloadFileSegments = DownloadFileSegments;
+        settings.DownloaderApiBaseUrl = DownloaderApiBaseUrl.Trim();
+        settings.DownloaderApiKey = DownloaderApiKey.Trim();
+        settings.HongguoDownloadTimeoutSeconds = HongguoDownloadTimeoutSeconds;
+        settings.HongguoEpisodeDownloadAttempts = HongguoEpisodeDownloadAttempts;
+        settings.HgnewAccount = HgnewAccount.Trim();
+        settings.HgnewPassword = HgnewPassword;
+        settings.HgnewUdid = ClientSettingsStore.NormalizeUdid(HgnewUdid);
+        settings.HgnewClientVersion = HongguoClientVersion.Normalize(HgnewClientVersion);
+        settings.HghighAccount = HghighAccount.Trim();
+        settings.HghighPassword = HghighPassword;
+        settings.HghighEdition = HongguoClientProfile.StandardEdition;
+        settings.HghighDeviceId = HghighDeviceId.Trim();
+        settings.HghighClientExe = HghighClientExe.Trim();
+        settings.HghighClientVersion = NormalizeHghighClientVersion(HghighClientVersion, HongguoClientProfile.High.ClientVersion);
+        settings.HghighStandardDeviceId = HghighStandardDeviceId.Trim();
+        settings.HghighStandardClientExe = HghighStandardClientExe.Trim();
+        settings.HghighStandardClientVersion = NormalizeHghighClientVersion(HghighStandardClientVersion, HongguoClientProfile.Standard.ClientVersion);
+        settings.HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(HghighStandardPlaybackMode);
+        settings.HongguoAppDeviceId = HongguoAppDeviceId.Trim();
+        settings.HongguoAppInstallId = HongguoAppInstallId.Trim();
+        settings.HongguoAppPlan = ClientSettings.NormalizeHongguoAppPlan(HongguoAppPlan);
+        settings.HongguoAppStreamLink1 = HongguoAppStreamLink1;
+        settings.HongguoAppStreamLink2 = HongguoAppStreamLink2;
+        if (!settings.HongguoAppStreamLink1 && !settings.HongguoAppStreamLink2)
+        {
+            settings.HongguoAppStreamLink1 = true;
+            settings.HongguoAppStreamLink2 = true;
+        }
+        settings.MapleleafAccount = MapleleafAccount.Trim();
+        settings.MapleleafPassword = MapleleafPassword;
+        settings.MapleleafUdid = MapleleafUdid.Trim();
+        settings.HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim();
+        settings.HongguoLocalApiKey = HongguoLocalApiKey.Trim();
+        settings.HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(HongguoLocalDownloadMode);
+        settings.HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(HongguoLocalTranscodeEngine);
+        settings.PikachuServerUrl = PikachuServerUrl.Trim();
+        settings.PikachuFanqieCookie = PikachuFanqieCookie.Trim();
+        settings.PikachuDramaType = NormalizePikachuDramaType(PikachuDramaType);
+        settings.PikachuDeviceId = PikachuDeviceId.Trim();
+        settings.PikachuClientVersion = string.IsNullOrWhiteSpace(PikachuClientVersion) ? "1.4.4" : PikachuClientVersion.Trim();
+        settings.PlayletServerUrl = string.IsNullOrWhiteSpace(PlayletServerUrl) ? PlayletDramaClient.DefaultServerUrl : PlayletServerUrl.Trim();
+        settings.PlayletDeviceId = PlayletDeviceId.Trim().ToUpperInvariant();
+        settings.ForeignServerUrl = string.IsNullOrWhiteSpace(ForeignServerUrl) ? ForeignPlayletClient.DefaultServerUrl : ForeignServerUrl.Trim();
+        settings.ForeignDeviceId = ForeignDeviceId.Trim().ToUpperInvariant();
+        settings.ForeignSearchSource = ForeignPlayletClient.NormalizeSource(ForeignSearchSource);
+        settings.ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(ForeignLanguage);
+        settings.DramaBoxApiBaseUrl = string.IsNullOrWhiteSpace(DramaBoxApiBaseUrl) ? DramaBoxApiService.DefaultBaseUrl : DramaBoxApiBaseUrl.Trim().TrimEnd('/');
+        settings.DramaBoxDeviceId = string.IsNullOrWhiteSpace(DramaBoxDeviceId) ? DramaBoxApiService.DefaultDeviceId : DramaBoxDeviceId.Trim();
+        settings.TiktokAsrLocalModelDir = TiktokAsrLocalModelDir.Trim();
+        settings.TiktokAsrLocalVadPath = TiktokAsrLocalVadPath.Trim();
+        settings.TiktokAsrAppId = TiktokAsrAppId.Trim();
+        settings.TiktokAsrAccessToken = TiktokAsrAccessToken;
+        settings.TiktokMaterialValidateConcurrency = TiktokMaterialValidateConcurrency;
+        settings.TiktokGenerationPerProjectConcurrency = TiktokGenerationPerProjectConcurrency;
+        settings.TiktokAiTextConcurrency = TiktokAiTextConcurrency;
+        settings.TiktokAsrConcurrency = TiktokAsrConcurrency;
+        settings.TiktokFfmpegConcurrency = TiktokFfmpegConcurrency;
+        settings.TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency;
+        settings.TiktokVisualConcurrency = TiktokVisualConcurrency;
+        settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
+        settings.TiktokAsrLanguage = TiktokAsrLanguage.Trim();
+        settings.TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure;
+        settings.AiTextEndpoint = AiTextEndpoint.Trim();
+        settings.AiTextApiKey = AiTextApiKey;
+        settings.AiTextModel = AiTextModel.Trim();
+        settings.AiTextTimeoutSeconds = AiTextTimeoutSeconds;
+        settings.TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode;
+        settings.TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled;
+        settings.TiktokRoleVectorViewMode = TiktokRoleVectorViewMode;
+        settings.AiPublishInfoPrompt = AiPublishInfoPrompt;
+        settings.KuaishouPublishInfoPrompt = KuaishouPublishInfoPrompt;
+        settings.PosterMode = PosterMode;
+        settings.PosterLayoutRequestMode = PosterLayoutRequestMode;
+        settings.NetworkAddressPreference = NetworkAddressPreference;
+        settings.ImageProvider = ImageProvider;
+        settings.ImageModelId = ClientSettingsDefaults.NormalizeImageModelId(ImageModelId);
+        settings.ImageModelApiKey = ImageModelApiKey;
+        settings.ImageModelEndpoint = ImageModelEndpoint.Trim();
+        settings.DoubaoImageResolution = PosterImageConfigHelper.NormalizeDoubaoImageResolution(DoubaoImageResolution);
+        settings.DoubaoImageRatio = DoubaoImageRatio;
+        settings.OfoxImage2ModelId = OfoxImage2ModelId.Trim();
+        settings.OfoxImage2ApiKey = OfoxImage2ApiKey;
+        settings.OfoxImage2Endpoint = OfoxImage2Endpoint.Trim();
+        settings.OfoxImage2Quality = OfoxImage2Quality;
+        settings.OfoxImage2Size = OfoxImage2Size.Trim();
+        settings.PosterTitleVerifyEnabled = PosterTitleVerifyEnabled;
+        settings.PosterTitleVerifyMode = PosterTitleVerifyMode;
+        settings.PosterTitleVerifyAiRetryCount = PosterTitleVerifyAiRetryCount;
+        settings.FrameExtractEpisodeIndex = FrameExtractEpisodeIndex;
+        settings.FrameExtractTime = FrameExtractTime;
+        settings.FrameExtractNeighborOffsetsSeconds = FrameExtractNeighborOffsetsSeconds;
+        settings.FrameExtractFallbackPercents = FrameExtractFallbackPercents;
+        settings.PosterAgentDirectPrompt = ClientSettingsStore.StoredPosterAgentPrompt(
+            _posterAgentDirectPrompt,
+            ClientSettingsDefaults.PosterModeDirect);
+        settings.PosterAgentErasePrompt = ClientSettingsStore.StoredPosterAgentPrompt(
+            _posterAgentErasePrompt,
+            ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        settings.KuaishouPosterVerticalDirectPrompt = ClientSettingsStore.StoredKuaishouPosterPrompt(
+            _kuaishouPosterVerticalDirectPrompt,
+            horizontal: false,
+            ClientSettingsDefaults.PosterModeDirect);
+        settings.KuaishouPosterVerticalErasePrompt = ClientSettingsStore.StoredKuaishouPosterPrompt(
+            _kuaishouPosterVerticalErasePrompt,
+            horizontal: false,
+            ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        settings.KuaishouPosterHorizontalDirectPrompt = ClientSettingsStore.StoredKuaishouPosterPrompt(
+            _kuaishouPosterHorizontalDirectPrompt,
+            horizontal: true,
+            ClientSettingsDefaults.PosterModeDirect);
+        settings.KuaishouPosterHorizontalErasePrompt = ClientSettingsStore.StoredKuaishouPosterPrompt(
+            _kuaishouPosterHorizontalErasePrompt,
+            horizontal: true,
+            ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        settings.TiktokProjectImageGenerationMode = TiktokProjectImageGenerationMode;
+        settings.TiktokProjectImageTemplateRoot = TiktokProjectImageTemplateRoot.Trim();
+        settings.TiktokProjectImageTemplateId = TiktokProjectImageTemplateId.Trim();
+        settings.TiktokProjectImageCount = TiktokProjectImageCount;
+        settings.TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit;
+        settings.TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode;
+        settings.TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot.Trim();
+        settings.TiktokProjectImageFableCutClipCount = Math.Clamp(TiktokProjectImageFableCutClipCount, 12, 36);
+        settings.TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath.Trim();
+        settings.TiktokProofWpsPath = TiktokProofWpsPath.Trim();
+        settings.TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName.Trim();
+        settings.TiktokProofSealPath = TiktokProofSealPath.Trim();
+        settings.TiktokProofPdfRenderer = TiktokProofPdfRenderer;
+        settings.TiktokProofKeepDocx = TiktokProofKeepDocx;
+        settings.TiktokExcelAutoExportEnabled = TiktokExcelAutoExportEnabled;
+        settings.TiktokAccountAnalyticsEnabled = TiktokAccountAnalyticsEnabled;
+        settings.TiktokSyncWorkspaceRoot = TiktokSyncWorkspaceRoot.Trim();
+        settings.ManagementDedupEnabled = ManagementDedupEnabled;
+        settings.ManagementDedupScope = ManagementDedupScope;
+        settings.TiktokAllowOverLimitUploadImport = TiktokAllowOverLimitUploadImport;
+        settings.TiktokMinimumEpisodeCount = TiktokMinimumEpisodeCount;
+        settings.TiktokMaximumEpisodeCount = TiktokMaximumEpisodeCount;
+        settings.TiktokOverLimitDownloadEpisodeCount = TiktokMaximumEpisodeCount;
+        return settings;
+    }
 
     [RelayCommand]
     private async Task ReadPikachuCookieAsync()
@@ -592,7 +733,19 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     {
         try
         {
-            var settings = ToSettings();
+            var loaded = ClientSettingsStore.Load(_settingsDatabasePath);
+            var storedDeviceId = loaded.HongguoAppDeviceId;
+            var storedInstallId = loaded.HongguoAppInstallId;
+            var settings = ApplySystemSettingsForm(loaded);
+            if (string.IsNullOrWhiteSpace(HongguoAppDeviceId) &&
+                string.IsNullOrWhiteSpace(HongguoAppInstallId) &&
+                string.IsNullOrWhiteSpace(_hongguoAppPlaybackLoadedDeviceId) &&
+                !string.IsNullOrWhiteSpace(storedDeviceId) &&
+                !string.IsNullOrWhiteSpace(storedInstallId))
+            {
+                settings.HongguoAppDeviceId = storedDeviceId;
+                settings.HongguoAppInstallId = storedInstallId;
+            }
             PersistHghighMastersFromForm();
             ClientSettingsStore.Save(settings, _settingsDatabasePath);
             ApplyFromSettings(settings);
@@ -606,6 +759,67 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             StatusRequested?.Invoke(SaveMessage);
         }
     }
+
+    [RelayCommand]
+    private void ResetAiPublishInfoPrompt() => AiPublishInfoPrompt = ClientSettingsDefaults.AiPublishInfoPrompt;
+
+    [RelayCommand]
+    private void ResetKuaishouPublishInfoPrompt() =>
+        KuaishouPublishInfoPrompt = ClientSettingsDefaults.KuaishouPublishInfoPrompt;
+
+    [RelayCommand]
+    private void ResetPosterAgentPrompt() =>
+        PosterAgentPrompt = ClientSettingsDefaults.DefaultPosterAgentPrompt(PosterMode);
+
+    [RelayCommand]
+    private void ResetKuaishouPosterVerticalPrompt() =>
+        KuaishouPosterVerticalPrompt = ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal: false, PosterMode);
+
+    [RelayCommand]
+    private void ResetKuaishouPosterHorizontalPrompt() =>
+        KuaishouPosterHorizontalPrompt = ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal: true, PosterMode);
+
+    partial void OnPosterModeChanged(string value)
+    {
+        ShowPosterAgentPromptForCurrentMode();
+        ShowKuaishouPosterPromptsForCurrentMode();
+    }
+
+    partial void OnKuaishouPosterVerticalPromptChanged(string value)
+    {
+        if (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode))
+            _kuaishouPosterVerticalErasePrompt = value;
+        else
+            _kuaishouPosterVerticalDirectPrompt = value;
+    }
+
+    partial void OnKuaishouPosterHorizontalPromptChanged(string value)
+    {
+        if (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode))
+            _kuaishouPosterHorizontalErasePrompt = value;
+        else
+            _kuaishouPosterHorizontalDirectPrompt = value;
+    }
+
+    private void ShowKuaishouPosterPromptsForCurrentMode()
+    {
+        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode);
+        KuaishouPosterVerticalPrompt = erase ? _kuaishouPosterVerticalErasePrompt : _kuaishouPosterVerticalDirectPrompt;
+        KuaishouPosterHorizontalPrompt = erase ? _kuaishouPosterHorizontalErasePrompt : _kuaishouPosterHorizontalDirectPrompt;
+    }
+
+    partial void OnPosterAgentPromptChanged(string value)
+    {
+        if (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode))
+            _posterAgentErasePrompt = value;
+        else
+            _posterAgentDirectPrompt = value;
+    }
+
+    private void ShowPosterAgentPromptForCurrentMode() =>
+        PosterAgentPrompt = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(PosterMode)
+            ? _posterAgentErasePrompt
+            : _posterAgentDirectPrompt;
 
     [RelayCommand]
     private void ReadHgnewUdid()
@@ -685,7 +899,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     {
         if (string.IsNullOrWhiteSpace(HghighAccount) || string.IsNullOrWhiteSpace(HghighPassword))
         {
-            HghighProbeStatus = "请先填写红果高码率账号和密码。";
+            HghighProbeStatus = "请先填写红果短剧助手账号和密码。";
             return;
         }
 
@@ -1173,7 +1387,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HgnewClientVersion = settings.HgnewClientVersion;
         HghighAccount = settings.HghighAccount;
         HghighPassword = settings.HghighPassword;
-        HghighEdition = HongguoClientProfile.NormalizeEdition(settings.HghighEdition);
+        HghighEdition = HongguoClientProfile.StandardEdition;
         HghighDeviceId = string.IsNullOrWhiteSpace(settings.HghighDeviceId)
             ? HongguoHighDeviceStore.TryReadDeviceId(HongguoClientProfile.High)
             : settings.HghighDeviceId;
@@ -1187,6 +1401,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             settings.HghighStandardClientVersion,
             HongguoClientProfile.Standard.ClientVersion);
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode);
+        HongguoAppDeviceId = settings.HongguoAppDeviceId ?? "";
+        HongguoAppInstallId = settings.HongguoAppInstallId ?? "";
+        HongguoAppPlan = ClientSettings.NormalizeHongguoAppPlan(settings.HongguoAppPlan);
+        HongguoAppStreamLink1 = settings.HongguoAppStreamLink1;
+        HongguoAppStreamLink2 = settings.HongguoAppStreamLink2;
+        _hongguoAppPlaybackLoadedDeviceId = HongguoAppDeviceId;
         MapleleafAccount = settings.MapleleafAccount;
         MapleleafPassword = settings.MapleleafPassword;
         MapleleafUdid = string.IsNullOrWhiteSpace(settings.MapleleafUdid)
@@ -1239,15 +1459,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         AiTextApiKey = settings.AiTextApiKey;
         AiTextModel = settings.AiTextModel;
         AiTextTimeoutSeconds = settings.AiTextTimeoutSeconds;
-        AiTextMaxBatchSize = settings.AiTextMaxBatchSize;
         TiktokRoleReferenceSelectionMode = settings.TiktokRoleReferenceSelectionMode;
         TiktokRoleReferenceAiFallbackEnabled = settings.TiktokRoleReferenceAiFallbackEnabled;
         TiktokRoleVectorViewMode = settings.TiktokRoleVectorViewMode;
-        AiTagSystemPrompt = settings.AiTagSystemPrompt;
-        AiTagBatchPrompt = settings.AiTagBatchPrompt;
-        AiFullInfoSystemPrompt = settings.AiFullInfoSystemPrompt;
-        AiFullInfoBatchPrompt = settings.AiFullInfoBatchPrompt;
-        AiFullInfoRetryPrompt = settings.AiFullInfoRetryPrompt;
+        AiPublishInfoPrompt = ClientSettingsStore.ResolvePublishInfoPrompt(settings);
+        KuaishouPublishInfoPrompt = ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(settings);
         PosterMode = settings.PosterMode;
         PosterLayoutRequestMode = settings.PosterLayoutRequestMode;
         NetworkAddressPreference = settings.NetworkAddressPreference;
@@ -1269,14 +1485,22 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         FrameExtractTime = settings.FrameExtractTime;
         FrameExtractNeighborOffsetsSeconds = settings.FrameExtractNeighborOffsetsSeconds;
         FrameExtractFallbackPercents = settings.FrameExtractFallbackPercents;
-        FrameCoverPrompt = settings.FrameCoverPrompt;
-        PosterLayoutDetectPrompt = settings.PosterLayoutDetectPrompt;
-        PosterInpaintPrompt = settings.PosterInpaintPrompt;
-        PosterInpaintSafeRetryPrompt = settings.PosterInpaintSafeRetryPrompt;
-        PosterGenerationPrompt = settings.PosterGenerationPrompt;
-        PosterGenerationSafeRetryPrompt = settings.PosterGenerationSafeRetryPrompt;
-        PosterNameSystemPrompt = settings.PosterNameSystemPrompt;
-        PosterNameUserPrompt = settings.PosterNameUserPrompt;
+        _posterAgentDirectPrompt = ClientSettingsStore.ResolvePosterAgentPrompt(
+            settings,
+            ClientSettingsDefaults.PosterModeDirect);
+        _posterAgentErasePrompt = ClientSettingsStore.ResolvePosterAgentPrompt(
+            settings,
+            ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        ShowPosterAgentPromptForCurrentMode();
+        _kuaishouPosterVerticalDirectPrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
+            settings, horizontal: false, ClientSettingsDefaults.PosterModeDirect);
+        _kuaishouPosterVerticalErasePrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
+            settings, horizontal: false, ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        _kuaishouPosterHorizontalDirectPrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
+            settings, horizontal: true, ClientSettingsDefaults.PosterModeDirect);
+        _kuaishouPosterHorizontalErasePrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
+            settings, horizontal: true, ClientSettingsDefaults.PosterModeEraseFixedTitle);
+        ShowKuaishouPosterPromptsForCurrentMode();
         TiktokProjectImageGenerationMode = settings.TiktokProjectImageGenerationMode;
         TiktokProjectImageTemplateRoot = settings.TiktokProjectImageTemplateRoot;
         TiktokProjectImageTemplateId = settings.TiktokProjectImageTemplateId;
@@ -1293,6 +1517,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProofKeepDocx = settings.TiktokProofKeepDocx;
         TiktokExcelAutoExportEnabled = settings.TiktokExcelAutoExportEnabled;
         TiktokAccountAnalyticsEnabled = settings.TiktokAccountAnalyticsEnabled;
+        TiktokSyncWorkspaceRoot = settings.TiktokSyncWorkspaceRoot;
         ManagementDedupEnabled = settings.ManagementDedupEnabled;
         ManagementDedupScope = settings.ManagementDedupScope;
         TiktokAllowOverLimitUploadImport = settings.TiktokAllowOverLimitUploadImport;

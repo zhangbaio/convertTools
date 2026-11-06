@@ -8,9 +8,22 @@ namespace TikTokPublisher.Ui.Views;
 
 public partial class SystemServicesView : UserControl
 {
+    private const string XingeHint =
+        "启用后客户端会用账号登录 XINGE，注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的 TikTok 上传命令。客户端 ID/Token 仅用于兼容旧配置。";
+
+    private readonly XingeConnectionViewModel _xinge;
     private SystemServicesViewModel? _vm;
 
-    public SystemServicesView() => InitializeComponent();
+    public SystemServicesView()
+    {
+        InitializeComponent();
+        _xinge = new XingeConnectionViewModel(null, "TikTokPublisher", XingeHint)
+        {
+            ShowSaveButton = false,
+            ShowHeading = false,
+        };
+        XingeConnectionHost.Bind(_xinge);
+    }
 
     public void Bind(SystemServicesViewModel vm)
     {
@@ -19,6 +32,7 @@ public partial class SystemServicesView : UserControl
 
         _vm = vm;
         DataContext = vm;
+        vm.AttachXinge(_xinge);
         vm.StatusRequested += OnStatusRequested;
         vm.RefreshLicenseSummaryDisplay();
     }
@@ -153,6 +167,98 @@ public partial class SystemServicesView : UserControl
         catch (Exception ex)
         {
             await InfoDialog.ShowAsync(owner, ex.Message, "导入配置失败", 520, 200);
+        }
+    }
+
+    private async void OnUploadCloudConfigClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SystemServicesViewModel vm || vm.IsBusy)
+            return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var service = new TikTokManagementConfigSyncService();
+        vm.IsBusy = true;
+        TikTokConfigUploadPackage? package = null;
+        try
+        {
+            package = await Task.Run(service.PrepareUpload);
+            if (!package.Ok)
+            {
+                await InfoDialog.ShowAsync(owner, package.Message, "上传配置失败", 520, 180);
+                return;
+            }
+
+            var confirmed = await ConfirmDialog.ShowAsync(owner, "上传配置到云端", package.Summary, 560, 340);
+            if (!confirmed)
+                return;
+
+            var result = await service.UploadAsync(package);
+            await InfoDialog.ShowAsync(
+                owner,
+                result.Message,
+                result.Ok ? "上传配置" : "上传配置失败",
+                560,
+                result.Ok ? 180 : 220);
+        }
+        catch (Exception ex)
+        {
+            await InfoDialog.ShowAsync(owner, ex.Message, "上传配置失败", 520, 180);
+        }
+        finally
+        {
+            package?.Dispose();
+            vm.IsBusy = false;
+        }
+    }
+
+    private async void OnDownloadCloudConfigClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not SystemServicesViewModel vm || vm.IsBusy)
+            return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var service = new TikTokManagementConfigSyncService();
+        vm.IsBusy = true;
+        try
+        {
+            var meta = await service.FetchMetaAsync();
+            if (!meta.Ok || !meta.Exists || meta.Meta is null)
+            {
+                await InfoDialog.ShowAsync(
+                    owner,
+                    meta.Message,
+                    meta.Ok ? "从云端下载配置" : "下载配置失败",
+                    520,
+                    180);
+                return;
+            }
+
+            var confirmed = await ConfirmDialog.ShowAsync(
+                owner,
+                "从云端下载配置",
+                meta.Meta.BuildConfirmationText(),
+                560,
+                380);
+            if (!confirmed)
+                return;
+
+            var result = await service.DownloadAndImportAsync(meta.Meta);
+            if (result.Ok)
+                vm.NotifyConfigImported();
+            await InfoDialog.ShowAsync(
+                owner,
+                result.Message,
+                result.Ok ? "下载配置" : "下载配置失败",
+                560,
+                result.Ok ? 360 : 220);
+        }
+        catch (Exception ex)
+        {
+            await InfoDialog.ShowAsync(owner, ex.Message, "下载配置失败", 520, 200);
+        }
+        finally
+        {
+            vm.IsBusy = false;
         }
     }
 }

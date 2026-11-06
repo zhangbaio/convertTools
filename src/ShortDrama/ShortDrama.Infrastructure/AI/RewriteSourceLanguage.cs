@@ -47,6 +47,15 @@ public static class RewriteSourceLanguage
         return Classify($"{title}\n{synopsis}");
     }
 
+    /// <summary>本地能确定是中文时返回 true；本地规则分不出的文字（拉丁字母、天城文等）返回 false。</summary>
+    public static bool IsClearlyChinese(string? title, string? synopsis)
+    {
+        if (!IsChinese(Detect(title, synopsis)))
+            return false;
+        var cjk = $"{title}{synopsis}".Count(static ch => ch is >= '\u4E00' and <= '\u9FFF');
+        return cjk >= 2;
+    }
+
     /// <summary>
     /// 读取导入时保存的原剧名和原简介。短剧信息里的简介可能已经被改写成中文。
     /// </summary>

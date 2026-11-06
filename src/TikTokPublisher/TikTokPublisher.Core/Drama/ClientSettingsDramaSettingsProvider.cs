@@ -17,7 +17,7 @@ public static class DramaSourceSettingsMapping
         HgnewClientVersion = settings.HgnewClientVersion ?? ClientSettings.DefaultHongguoClientVersion,
         HghighAccount = settings.HghighAccount ?? "",
         HghighPassword = settings.HghighPassword ?? "",
-        HghighEdition = HongguoClientProfile.NormalizeEdition(settings.HghighEdition),
+        HghighEdition = HongguoClientProfile.StandardEdition,
         HghighDeviceId = settings.HghighDeviceId ?? "",
         HghighClientExe = settings.HghighClientExe ?? "",
         HghighClientVersion = settings.HghighClientVersion ?? "",
@@ -25,6 +25,11 @@ public static class DramaSourceSettingsMapping
         HghighStandardClientExe = settings.HghighStandardClientExe ?? "",
         HghighStandardClientVersion = settings.HghighStandardClientVersion ?? "",
         HghighStandardPlaybackMode = HongguoClientProfile.NormalizeStandardPlaybackMode(settings.HghighStandardPlaybackMode),
+        HongguoAppDeviceId = settings.HongguoAppDeviceId ?? "",
+        HongguoAppInstallId = settings.HongguoAppInstallId ?? "",
+        HongguoAppPlan = ClientSettings.NormalizeHongguoAppPlan(settings.HongguoAppPlan),
+        HongguoAppStreamLink1 = settings.HongguoAppStreamLink1,
+        HongguoAppStreamLink2 = settings.HongguoAppStreamLink2,
         MapleleafAccount = settings.MapleleafAccount ?? "",
         MapleleafPassword = settings.MapleleafPassword ?? "",
         MapleleafUdid = settings.MapleleafUdid ?? "",
@@ -128,6 +133,19 @@ public sealed class ClientSettingsDramaSettingsProvider : IDramaSettingsProvider
         {
             _settings.PikachuDeviceId = deviceId.Trim();
             ClientSettingsStore.PatchPikachuRuntimeFields(_settings.PikachuFanqieCookie, _settings.PikachuDeviceId, _databasePath);
+        }
+    }
+
+    public void SaveHongguoAppPlaybackIdentity(string deviceId, string installId)
+    {
+        lock (_gate)
+        {
+            _settings.HongguoAppDeviceId = deviceId.Trim();
+            _settings.HongguoAppInstallId = installId.Trim();
+            ClientSettingsStore.PatchHongguoAppPlaybackIdentity(
+                _settings.HongguoAppDeviceId,
+                _settings.HongguoAppInstallId,
+                _databasePath);
         }
     }
 

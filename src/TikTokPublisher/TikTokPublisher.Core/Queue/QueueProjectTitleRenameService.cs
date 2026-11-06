@@ -83,6 +83,8 @@ public static class QueueProjectTitleRenameService
         ProjectWorkspaceService.RefreshQueueItemMetadata(target);
         target.NewTitle = title;
         var reset = ResetDependentStepStates(target, renamedUploadVideoPaths.Count > 0);
+        if (reset.Poster)
+            DeletePosterOutput(newWorkflowDir);
         if (reset.ProofMaterial)
             DeleteProofMaterialOutput(newWorkflowDir);
         target.NormalizeStepStates();
@@ -389,6 +391,16 @@ public static class QueueProjectTitleRenameService
         }
 
         return (resetPoster, resetMaterialValidate, resetProofMaterial, false);
+    }
+
+    private static void DeletePosterOutput(string workflowDir)
+    {
+        foreach (var name in new[] { "海报图片.png", "海报图片.jpg" })
+        {
+            var path = Path.Combine(workflowDir, name);
+            if (File.Exists(path))
+                File.Delete(path);
+        }
     }
 
     private static void DeleteProofMaterialOutput(string workflowDir)

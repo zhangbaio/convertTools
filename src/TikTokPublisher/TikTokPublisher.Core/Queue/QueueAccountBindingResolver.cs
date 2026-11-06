@@ -26,6 +26,24 @@ public static class QueueAccountBindingResolver
                ?? store.Accounts.FirstOrDefault();
     }
 
+    public static bool AlignToEffectiveAccount(QueueProjectItem item, TikTokAccountProfile effectiveAccount)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(effectiveAccount);
+
+        var accountId = (effectiveAccount.Id ?? "").Trim();
+        var accountName = (effectiveAccount.DisplayName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(accountName))
+            return false;
+        if (string.Equals((item.AccountProfileId ?? "").Trim(), accountId, StringComparison.Ordinal) &&
+            string.Equals((item.AccountProfileName ?? "").Trim(), accountName, StringComparison.Ordinal))
+            return false;
+
+        item.AccountProfileId = accountId;
+        item.AccountProfileName = accountName;
+        return true;
+    }
+
     public static bool RepairForWorkspaceDefault(
         AccountStore store,
         QueueProjectItem item,

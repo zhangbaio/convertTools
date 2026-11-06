@@ -8,9 +8,15 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
-public sealed class QueueWorkerRunnerTests
+public sealed class QueueWorkerRunnerTests : IDisposable
 {
     private static readonly Lazy<byte[]> TinyMp4Bytes = new(CreateTinyMp4Bytes);
+
+    // 测试项目只有 1 集；集数下限来自系统设置（默认 30），不能读用户真实的 app.db。
+    private readonly IDisposable _settingsScope = ClientSettingsStore.UseSettingsForTests(
+        () => new ClientSettings { TiktokMinimumEpisodeCount = 1 });
+
+    public void Dispose() => _settingsScope.Dispose();
 
     [Fact]
     public void ValidateRunSelection_Reruns_Completed_Repair_When_Transferred_Upload_Is_Small()
@@ -1234,6 +1240,127 @@ public sealed class QueueWorkerRunnerTests
             firstBatch[1].ProjectDir,
             secondBatch[0].ProjectDir,
             secondBatch[1].ProjectDir);
+    }
+
+    [Fact]
+    public void FailedRetryProjectDirsBefore_puts_same_account_failures_ahead_of_the_new_drama()
+    {
+        var failedEarlier = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\failed-early",
+            AccountProfileId = "acct",
+            QueuedAt = "2026-11-03T09:00:00",
+            StatusText = QueueStepStatus.Failed,
+        };
+        failedEarlier.StepStates[QueueStepKeys.Download] = QueueStepStatus.Failed;
+        var failedLater = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\failed-late",
+            AccountProfileId = "acct",
+            QueuedAt = "2026-11-03T10:00:00",
+            StatusText = QueueStepStatus.Failed,
+        };
+        failedLater.StepStates[QueueStepKeys.Download] = QueueStepStatus.Failed;
+        var otherAccount = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\other",
+            AccountProfileId = "other",
+            QueuedAt = "2026-11-03T08:00:00",
+            StatusText = QueueStepStatus.Failed,
+        };
+        otherAccount.StepStates[QueueStepKeys.Download] = QueueStepStatus.Failed;
+        var uploaded = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\uploaded",
+            AccountProfileId = "acct",
+            QueuedAt = "2026-11-03T07:00:00",
+            StatusText = QueueStepStatus.Failed,
+        };
+        uploaded.StepStates[QueueStepKeys.Download] = QueueStepStatus.Failed;
+        uploaded.StepStates[QueueStepKeys.UploadSeries] = QueueStepStatus.Completed;
+        var pending = new QueueProjectItem
+        {
+            ProjectDir = @"E:\tiktok\pending",
+            AccountProfileId = "acct",
+            QueuedAt = "2026-11-03T06:00:00",
+            StatusText = QueueStepStatus.Pending,
+        };
+
+        var dirs = QueueWorkerRunner.FailedRetryProjectDirsBefore(
+            [failedLater, pending, otherAccount, uploaded, failedEarlier],
+            "acct",
+            [@"E:\tiktok\new-drama"]);
+
+        dirs.Should().Equal(@"E:\tiktok\failed-early", @"E:\tiktok\failed-late");
+    }
+
+    [Fact]
+    public void DisableEnabledProjectsExcept_clears_manual_selection_and_keeps_the_dispatch()
+    {
+        var manual = new QueueProjectItem { ProjectDir = @"E:\tiktok\manual", Enabled = true };
+        var another = new QueueProjectItem { ProjectDir = @"E:\tiktok\another", Enabled = true };
+        var dispatched = new QueueProjectItem { ProjectDir = @"E:\tiktok\dispatched", Enabled = true };
+        var alreadyOff = new QueueProjectItem { ProjectDir = @"E:\tiktok\off", Enabled = false };
+
+        var cleared = QueueWorkerRunner.DisableEnabledProjectsExcept(
+            [manual, another, dispatched, alreadyOff],
+            [dispatched.ProjectDir]);
+
+        cleared.Should().Be(2);
+        manual.Enabled.Should().BeFalse();
+        another.Enabled.Should().BeFalse();
+        dispatched.Enabled.Should().BeTrue();
+        alreadyOff.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_skips_unchecked_pending_projects_and_runs_the_appended_dispatch()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-uncheck",
+            Name = "uncheck",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var running = CreateReadyToUploadItem(1, account);
+        var waiting = CreateReadyToUploadItem(2, account);
+        var dispatched = CreateReadyToUploadItem(3, account);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var host = new BlockingPublishHost();
+        var runner = new QueueWorkerRunner();
+        var runTask = runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-uncheck-before-dispatch-test"),
+            [running, waiting],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 1,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: null,
+            cts.Token);
+
+        await host.WaitForPublishCountAsync(1).WaitAsync(cts.Token);
+        runner.UncheckExcept([dispatched.ProjectDir]).Should().Be(2);
+        running.Enabled.Should().BeFalse();
+        waiting.Enabled.Should().BeFalse();
+        runner.AddItems([dispatched]).Should().Be(1);
+
+        host.ReleaseNext();
+        await host.WaitForPublishCountAsync(2).WaitAsync(cts.Token);
+        host.ReleaseNext();
+
+        var summary = await runTask.WaitAsync(cts.Token);
+        summary.FailedCount.Should().Be(0);
+        host.PublishedProjectDirs.Should().HaveCount(2);
+        host.PublishedProjectDirs.Should().Contain(dispatched.ProjectDir);
+        var skipped = host.PublishedProjectDirs.Contains(running.ProjectDir) ? waiting : running;
+        host.PublishedProjectDirs.Should().Contain(skipped == waiting ? running.ProjectDir : waiting.ProjectDir);
+        skipped.StepStates[QueueStepRegistry.UploadSeries].Should().NotBe(QueueStepStatus.Completed);
     }
 
     [Fact]

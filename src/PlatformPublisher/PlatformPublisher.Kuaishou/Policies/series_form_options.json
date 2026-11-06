@@ -1,0 +1,737 @@
+{
+  "version": 1,
+  "fields": {
+    "audience_gender": {
+      "label": "男女频",
+      "type": "single",
+      "default": 1,
+      "options": [
+        {
+          "label": "男频",
+          "value": 1
+        },
+        {
+          "label": "女频",
+          "value": 2
+        },
+        {
+          "label": "不限",
+          "value": 3
+        }
+      ]
+    },
+    "plot_list": {
+      "label": "情节",
+      "type": "multi",
+      "default": [],
+      "options": [
+        {
+          "label": "豪门赘婿",
+          "value": 1
+        },
+        {
+          "label": "职场社畜",
+          "value": 2
+        },
+        {
+          "label": "异能奇遇",
+          "value": 3
+        },
+        {
+          "label": "麻雀变凤凰",
+          "value": 4
+        },
+        {
+          "label": "灰姑娘",
+          "value": 5
+        },
+        {
+          "label": "破镜重圆",
+          "value": 6
+        },
+        {
+          "label": "总裁追爱",
+          "value": 7
+        },
+        {
+          "label": "三教九流",
+          "value": 8
+        },
+        {
+          "label": "契约爱情",
+          "value": 9
+        },
+        {
+          "label": "总裁除恶",
+          "value": 10
+        },
+        {
+          "label": "战神归来",
+          "value": 11
+        },
+        {
+          "label": "守护家人",
+          "value": 12
+        },
+        {
+          "label": "东山再起",
+          "value": 13
+        },
+        {
+          "label": "世道人伦",
+          "value": 14
+        },
+        {
+          "label": "生活喜剧",
+          "value": 15
+        },
+        {
+          "label": "家庭伦理",
+          "value": 16
+        },
+        {
+          "label": "商海谍战",
+          "value": 17
+        },
+        {
+          "label": "江湖帮派",
+          "value": 18
+        },
+        {
+          "label": "乡村喜剧",
+          "value": 19
+        },
+        {
+          "label": "乡村文艺",
+          "value": 20
+        },
+        {
+          "label": "懵懂纯爱",
+          "value": 21
+        },
+        {
+          "label": "成长奋斗",
+          "value": 22
+        },
+        {
+          "label": "民国爱情",
+          "value": 23
+        },
+        {
+          "label": "战争谍报",
+          "value": 24
+        },
+        {
+          "label": "家宅传承",
+          "value": 25
+        },
+        {
+          "label": "军阀乱世",
+          "value": 26
+        },
+        {
+          "label": "正史传记",
+          "value": 27
+        },
+        {
+          "label": "传奇演义",
+          "value": 28
+        },
+        {
+          "label": "王朝架空",
+          "value": 29
+        },
+        {
+          "label": "门阀宅斗",
+          "value": 30
+        },
+        {
+          "label": "浪漫爱情",
+          "value": 31
+        },
+        {
+          "label": "修仙",
+          "value": 32
+        },
+        {
+          "label": "武侠",
+          "value": 33
+        },
+        {
+          "label": "西方魔幻",
+          "value": 34
+        },
+        {
+          "label": "东方魔幻",
+          "value": 35
+        },
+        {
+          "label": "重生转世",
+          "value": 36
+        },
+        {
+          "label": "穿越",
+          "value": 37
+        },
+        {
+          "label": "系统流",
+          "value": 38
+        },
+        {
+          "label": "空间流",
+          "value": 39
+        },
+        {
+          "label": "末世流",
+          "value": 40
+        },
+        {
+          "label": "灾难流",
+          "value": 41
+        },
+        {
+          "label": "星际流",
+          "value": 42
+        },
+        {
+          "label": "机甲流",
+          "value": 43
+        },
+        {
+          "label": "野村志怪",
+          "value": 44
+        },
+        {
+          "label": "探险生存",
+          "value": 45
+        },
+        {
+          "label": "诡秘悬疑",
+          "value": 46
+        },
+        {
+          "label": "警匪探案",
+          "value": 47
+        },
+        {
+          "label": "豪门儿媳",
+          "value": 48
+        },
+        {
+          "label": "其他",
+          "value": 49
+        }
+      ]
+    },
+    "content_type": {
+      "label": "内容类型",
+      "type": "single",
+      "default": "漫剧",
+      "options": [
+        {
+          "label": "短剧",
+          "value": "短剧"
+        },
+        {
+          "label": "漫剧",
+          "value": "漫剧"
+        }
+      ]
+    },
+    "comic_product_method": {
+      "label": "漫剧制作方式",
+      "type": "single",
+      "default": 3,
+      "options": [
+        {
+          "label": "简笔动画",
+          "value": 1
+        },
+        {
+          "label": "小说剧",
+          "value": 2
+        },
+        {
+          "label": "AIGC剧",
+          "value": 3
+        },
+        {
+          "label": "沙雕动画",
+          "value": 4
+        },
+        {
+          "label": "3D动画",
+          "value": 5
+        },
+        {
+          "label": "2D动画",
+          "value": 6
+        }
+      ]
+    },
+    "author_declaration": {
+      "label": "作者声明",
+      "type": "single",
+      "default": 1,
+      "options": [
+        {
+          "label": "含AI生成内容",
+          "value": 1
+        },
+        {
+          "label": "内容无需添加声明（作品不涉及AI生成）",
+          "value": 0
+        }
+      ]
+    },
+    "copyright_proof_type": {
+      "label": "版权证明类型",
+      "type": "single",
+      "default": 1,
+      "options": [
+        {
+          "label": "自有版权",
+          "value": 1
+        },
+        {
+          "label": "授权版权",
+          "value": 2
+        }
+      ]
+    },
+    "production_form": {
+      "label": "制作形式",
+      "type": "single",
+      "default": "auto",
+      "options": [
+        {
+          "label": "自动识别",
+          "value": "auto"
+        },
+        {
+          "label": "横屏",
+          "value": "横屏"
+        },
+        {
+          "label": "竖屏",
+          "value": "竖屏"
+        }
+      ]
+    },
+    "sale_type": {
+      "label": "售卖类型",
+      "type": "single",
+      "default": 3,
+      "options": [
+        {
+          "label": "全剧付费",
+          "value": 0
+        },
+        {
+          "label": "单集+全剧付费",
+          "value": 2
+        },
+        {
+          "label": "观看广告解锁",
+          "value": 3
+        }
+      ]
+    },
+    "boolean": {
+      "label": "是否",
+      "type": "single",
+      "default": true,
+      "options": [
+        {
+          "label": "是",
+          "value": true
+        },
+        {
+          "label": "否",
+          "value": false
+        }
+      ]
+    },
+    "tag_list": {
+      "label": "短剧标签列表",
+      "type": "multi",
+      "default": [],
+      "max_count": 3,
+      "options": [
+        {
+          "label": "脑洞",
+          "value": 1,
+          "keywords": [
+            "脑洞",
+            "奇幻",
+            "异能",
+            "系统"
+          ]
+        },
+        {
+          "label": "甜宠",
+          "value": 2,
+          "keywords": [
+            "甜宠",
+            "爱情",
+            "婚姻",
+            "恋爱",
+            "闪婚",
+            "萌宝",
+            "总裁",
+            "豪门"
+          ]
+        },
+        {
+          "label": "逆袭",
+          "value": 3,
+          "keywords": [
+            "逆袭",
+            "翻身",
+            "重生"
+          ]
+        },
+        {
+          "label": "热血",
+          "value": 4,
+          "keywords": [
+            "热血",
+            "战神",
+            "兵王",
+            "护国"
+          ]
+        },
+        {
+          "label": "复仇",
+          "value": 5,
+          "keywords": [
+            "复仇",
+            "报仇",
+            "雪恨"
+          ]
+        },
+        {
+          "label": "家庭",
+          "value": 6,
+          "keywords": [
+            "家庭",
+            "亲情",
+            "婆媳",
+            "孩子",
+            "家人"
+          ]
+        },
+        {
+          "label": "乡村",
+          "value": 7,
+          "keywords": [
+            "乡村",
+            "村",
+            "返乡",
+            "助农"
+          ]
+        },
+        {
+          "label": "古风",
+          "value": 8,
+          "keywords": [
+            "古风",
+            "古代",
+            "宫廷",
+            "王妃",
+            "皇帝"
+          ]
+        },
+        {
+          "label": "年代",
+          "value": 9,
+          "keywords": [
+            "年代",
+            "民国",
+            "七零",
+            "八零",
+            "九零"
+          ]
+        },
+        {
+          "label": "穿越",
+          "value": 10,
+          "keywords": [
+            "穿越",
+            "时空",
+            "异世"
+          ]
+        },
+        {
+          "label": "悬疑",
+          "value": 11,
+          "keywords": [
+            "悬疑",
+            "秘密",
+            "疑云",
+            "真相",
+            "谜"
+          ]
+        },
+        {
+          "label": "武侠",
+          "value": 12,
+          "keywords": [
+            "武侠",
+            "江湖",
+            "侠客",
+            "武林"
+          ]
+        },
+        {
+          "label": "校园",
+          "value": 13,
+          "keywords": [
+            "校园",
+            "学生",
+            "同学",
+            "青春"
+          ]
+        },
+        {
+          "label": "搞笑",
+          "value": 14,
+          "keywords": [
+            "搞笑",
+            "喜剧",
+            "爆笑",
+            "欢乐"
+          ]
+        },
+        {
+          "label": "都市",
+          "value": 15,
+          "keywords": [
+            "都市",
+            "职场",
+            "公司",
+            "创业"
+          ]
+        }
+      ]
+    },
+    "material_type": {
+      "label": "材料类型",
+      "type": "single",
+      "default": 4,
+      "options": [
+        {
+          "label": "现场拍摄图/短剧工程文件",
+          "value": 4
+        }
+      ]
+    },
+    "mini_series_tag_id_list": {
+      "label": "短剧标签列表",
+      "type": "multi",
+      "default": [],
+      "max_count": 3,
+      "options": [
+        {
+          "label": "脑洞",
+          "value": 1,
+          "keywords": [
+            "脑洞",
+            "奇幻",
+            "异能",
+            "系统"
+          ]
+        },
+        {
+          "label": "甜宠",
+          "value": 2,
+          "keywords": [
+            "甜宠",
+            "爱情",
+            "婚姻",
+            "恋爱",
+            "闪婚",
+            "萌宝",
+            "总裁",
+            "豪门"
+          ]
+        },
+        {
+          "label": "逆袭",
+          "value": 3,
+          "keywords": [
+            "逆袭",
+            "翻身",
+            "重生"
+          ]
+        },
+        {
+          "label": "热血",
+          "value": 4,
+          "keywords": [
+            "热血",
+            "战神",
+            "兵王",
+            "护国"
+          ]
+        },
+        {
+          "label": "复仇",
+          "value": 5,
+          "keywords": [
+            "复仇",
+            "报仇",
+            "雪恨"
+          ]
+        },
+        {
+          "label": "家庭",
+          "value": 6,
+          "keywords": [
+            "家庭",
+            "亲情",
+            "婆媳",
+            "孩子",
+            "家人"
+          ]
+        },
+        {
+          "label": "乡村",
+          "value": 7,
+          "keywords": [
+            "乡村",
+            "村",
+            "返乡",
+            "助农"
+          ]
+        },
+        {
+          "label": "古风",
+          "value": 8,
+          "keywords": [
+            "古风",
+            "古代",
+            "宫廷",
+            "王妃",
+            "皇帝"
+          ]
+        },
+        {
+          "label": "年代",
+          "value": 9,
+          "keywords": [
+            "年代",
+            "民国",
+            "七零",
+            "八零",
+            "九零"
+          ]
+        },
+        {
+          "label": "穿越",
+          "value": 10,
+          "keywords": [
+            "穿越",
+            "时空",
+            "异世"
+          ]
+        },
+        {
+          "label": "悬疑",
+          "value": 11,
+          "keywords": [
+            "悬疑",
+            "秘密",
+            "疑云",
+            "真相",
+            "谜"
+          ]
+        },
+        {
+          "label": "武侠",
+          "value": 12,
+          "keywords": [
+            "武侠",
+            "江湖",
+            "侠客",
+            "武林"
+          ]
+        },
+        {
+          "label": "校园",
+          "value": 13,
+          "keywords": [
+            "校园",
+            "学生",
+            "同学",
+            "青春"
+          ]
+        },
+        {
+          "label": "搞笑",
+          "value": 14,
+          "keywords": [
+            "搞笑",
+            "喜剧",
+            "爆笑",
+            "欢乐"
+          ]
+        },
+        {
+          "label": "都市",
+          "value": 15,
+          "keywords": [
+            "都市",
+            "职场",
+            "公司",
+            "创业"
+          ]
+        }
+      ]
+    }
+  },
+  "category_tree": {
+    "男频": {
+      "都市": [
+        "赘婿",
+        "战神",
+        "逆袭",
+        "职场"
+      ],
+      "玄幻": [
+        "修仙",
+        "异能",
+        "系统",
+        "重生"
+      ],
+      "历史": [
+        "军阀",
+        "权谋",
+        "传奇"
+      ]
+    },
+    "女频": {
+      "情感": [
+        "甜宠",
+        "虐恋",
+        "复仇",
+        "错嫁"
+      ],
+      "家庭": [
+        "萌宝",
+        "婆媳",
+        "婚恋"
+      ],
+      "古装": [
+        "宅斗",
+        "穿越",
+        "重生"
+      ]
+    },
+    "不限": {
+      "通用": [
+        "其他"
+      ]
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "authServerUrl": "",
+  "llmBaseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+  "llmModel": "doubao-seed-2-1-lite-260915",
+  "llmApiKey": ""
+}

@@ -50,12 +50,13 @@ public sealed class KuaishouPersonalSessionService
         PublishJob job,
         Func<IPage, KuaishouPersonalConfig, CancellationToken, Task> action,
         CancellationToken cancellationToken,
-        bool holdUntilClosed = false)
+        bool holdUntilClosed = false,
+        bool? headless = null)
     {
         var config = KuaishouPersonalConfig.Load(job);
         var label = job.Platform.DisplayName();
         var timeout = Math.Clamp(config.LoginTimeoutSeconds, 30, 900) * 1000;
-        await RunBrowserAsync(config, config.RevenueShareHeadless, async (page, context, ct) =>
+        await RunBrowserAsync(config, headless ?? config.RevenueShareHeadless, async (page, context, ct) =>
         {
             await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
             await page.WaitForTimeoutAsync(1200);

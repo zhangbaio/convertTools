@@ -1,23 +1,29 @@
 using PlatformPublisher.Analytics.Models;
+using PlatformPublisher.Common.Models;
+using PlatformPublisher.Kuaishou.Publishing;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
     public IReadOnlyList<AnalyticsAccount> ListAnalyticsAccounts() => _globalAccounts
-        .SelectMany(account => new AnalyticsAccount?[]
+        .Select(account =>
         {
-            string.IsNullOrWhiteSpace(account.KuaishouPersonalAccount) && string.IsNullOrWhiteSpace(account.KuaishouPersonalConfigPath)
-                ? null
-                : new AnalyticsAccount(account.Id, PlatformPublisher.Common.Models.PublishPlatform.KuaishouPersonalRevenue,
-                    account.Name, Path.GetDirectoryName(account.KuaishouPersonalConfigPath) ?? string.Empty,
-                    account.KuaishouPersonalConfigPath),
-            string.IsNullOrWhiteSpace(account.KuaishouEnterpriseAccount) && string.IsNullOrWhiteSpace(account.KuaishouEnterpriseConfigPath)
-                ? null
-                : new AnalyticsAccount(account.Id, PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue,
-                    account.Name, Path.GetDirectoryName(account.KuaishouEnterpriseConfigPath) ?? string.Empty,
-                    account.KuaishouEnterpriseConfigPath),
+            if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var platform))
+                return null;
+            var configPath = platform == PublishPlatform.KuaishouEnterpriseRevenue
+                ? FirstConfigured(account.KuaishouEnterpriseConfigPath, account.KuaishouPersonalConfigPath)
+                : FirstConfigured(account.KuaishouPersonalConfigPath, account.KuaishouEnterpriseConfigPath);
+            return new AnalyticsAccount(
+                account.Id,
+                platform,
+                account.Name,
+                Path.GetDirectoryName(configPath) ?? string.Empty,
+                configPath);
         })
         .OfType<AnalyticsAccount>()
         .ToArray();
+
+    private static string FirstConfigured(string? preferred, string? fallback) =>
+        string.IsNullOrWhiteSpace(preferred) ? fallback ?? string.Empty : preferred;
 }

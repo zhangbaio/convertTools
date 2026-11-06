@@ -30,6 +30,10 @@
                         </StackPanel>
                         <TextBox x:Name="DownloadWorkspaceBox" Watermark="下载工作目录（last_download_workspace，可选）" />
                         <CheckBox x:Name="DeleteVideosOnArchiveBox" Content="归档时删除视频文件" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="远程分发" VerticalAlignment="Center" />
+                            <CheckBox x:Name="RemoteDispatchBox" VerticalAlignment="Center" />
+                        </StackPanel>
                         <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Foreground="#6B7280" />
                     </StackPanel>
                 </ScrollViewer>
@@ -110,18 +114,11 @@
                                 <CheckBox x:Name="AiRewriteSynopsisBox" Content="启用" />
                                 <CheckBox x:Name="RewriteFollowsSourceLanguageBox"
                                           Content="改写信息跟随源语言"
-                                          ToolTip.Tip="开启后，标题、推荐语和简介按导入短剧的语言生成。英文剧生成英文，不再固定写成中文。" />
+                                          ToolTip.Tip="开启后，标题和简介按导入短剧的语言生成。英文剧生成英文，不再固定写成中文。" />
                             </StackPanel>
 
                             <TextBlock Grid.Row="12" Grid.Column="0" Text="新剧名随机度" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="12" Grid.Column="1" x:Name="AiNewTitleRandomnessCombo" Width="160" HorizontalAlignment="Left">
-                                <ComboBoxItem Tag="low">低</ComboBoxItem>
-                                <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
-                                <ComboBoxItem Tag="high">高</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Grid.Row="13" Grid.Column="0" Text="简介随机度" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="13" Grid.Column="1" x:Name="AiSynopsisRandomnessCombo" Width="160" HorizontalAlignment="Left">
                                 <ComboBoxItem Tag="low">低</ComboBoxItem>
                                 <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
                                 <ComboBoxItem Tag="high">高</ComboBoxItem>

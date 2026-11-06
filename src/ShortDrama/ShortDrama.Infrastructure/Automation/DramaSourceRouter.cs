@@ -15,8 +15,10 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
-    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "playlet", "hghigh", "mapleleaf", "downloader", "dramabox", "foreign"];
+    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "playlet", "hongguoapp", "hghigh", "mapleleaf", "downloader", "dramabox", "foreign"];
     private static readonly string[] NewReleaseServices = ["hgnew", "hglocal", "hghigh", "mapleleaf", "downloader"];
+    private const string HongguoAppBookPrefix = "hongguoapp:";
+    private const string HongguoAppEpisodePrefix = "hongguoapp_ep:";
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
     private const string EpisodeNumberModeContinuous = "continuous";
     private const int DownloadBufferSize = 128 * 1024;
@@ -46,6 +48,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private readonly HongguoDramaDownloader _hgnewDownloader;
     private readonly HongguoMemoryReaderService _hongguoMemoryReaderService;
     private readonly HongguoHighApiService _hghighApiService;
+    private readonly HongguoAppDirectClient _hongguoApp;
     private readonly MapleleafApiService _mapleleafApiService;
     private readonly DownloaderGatewayApiService _downloaderApiService;
     private readonly DramaBoxApiService _dramaBoxApiService;
@@ -112,6 +115,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         _hgnewDownloader = hgnewDownloader;
         _hongguoMemoryReaderService = hongguoMemoryReaderService;
         _hghighApiService = hghighApiService;
+        _hongguoApp = new HongguoAppDirectClient(httpClient);
         _mapleleafApiService = mapleleafApiService;
         _downloaderApiService = new DownloaderGatewayApiService(httpClient);
         _dramaBoxApiService = new DramaBoxApiService(httpClient);
@@ -137,6 +141,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
             "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken, searchCategory),
             "playlet" => await SearchPlayletAsync(keyword, page, settings, cancellationToken, searchCategory),
+            "hongguoapp" => await SearchHongguoAppAsync(keyword, page, settings, cancellationToken, searchCategory),
             "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken, searchCategory),
             "mapleleaf" => await _mapleleafApiService.SearchAsync(settings, keyword, page, cancellationToken),
             "downloader" => await _downloaderApiService.SearchAsync(settings, keyword, page, cancellationToken),
@@ -194,6 +199,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         ThrowIfForeignCatalogUnsupported(settings);
         if (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
             return await PlayletDramaClient.GetComicNewTodayAsync(_httpClient, cancellationToken);
+        if (string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
+            return await GetHongguoAppNewReleaseAsync("comic_series", partialResults, cancellationToken);
 
         return await LoadNewReleaseAsync(
             settings,
@@ -227,6 +234,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             return FilterByRecentDays(items, days);
         }
 
+        if (string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
+            return await GetHongguoAppNewReleaseAsync("ai_series", partialResults, cancellationToken);
+
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
@@ -237,6 +247,30 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "aiju", days, ct),
             downloaderLoader: ct => _downloaderApiService.GetLatestAsync(settings, "ai", days, ct));
     }
+
+    public async Task<HongguoAppReleasePage> GetHongguoAppNewReleasePageAsync(
+        bool ai,
+        int offset,
+        string? sessionId,
+        CancellationToken cancellationToken)
+    {
+        var settings = _settingsProvider.Get();
+        if (!string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
+            return new HongguoAppReleasePage([], false, Math.Max(0, offset), sessionId ?? "");
+
+        var page = await _hongguoApp.GetNewReleasePageAsync(
+            ai ? "ai_series" : "comic_series",
+            offset,
+            sessionId,
+            cancellationToken);
+        return page with
+        {
+            Items = page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray()
+        };
+    }
+
+    public bool IsHongguoAppSourceSelected() =>
+        string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase);
 
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
@@ -251,7 +285,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     {
         var chain = _settingsProvider.Get().DramaSourceChain?.Trim();
         return string.Equals(chain, "hghigh", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(chain, "playlet", StringComparison.OrdinalIgnoreCase);
+               string.Equals(chain, "playlet", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(chain, "hongguoapp", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> GetRankAsync(
@@ -278,9 +313,11 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var chain = settings.DramaSourceChain?.Trim();
         if (string.Equals(chain, "playlet", StringComparison.OrdinalIgnoreCase))
             return PlayletDramaClient.GetRankPageAsync(_httpClient, category, board, offset, cancellationToken);
+        if (string.Equals(chain, "hongguoapp", StringComparison.OrdinalIgnoreCase))
+            return RetargetRankPageAsync(category, board, offset, cancellationToken);
         if (string.Equals(chain, "hghigh", StringComparison.OrdinalIgnoreCase))
             return _hghighApiService.GetRankPageAsync(settings, category, board, offset, cancellationToken);
-        throw new InvalidOperationException("榜单接入红果高码率标准版和红果短剧下载器。请先切换到其中一条数据链路。");
+        throw new InvalidOperationException("榜单接入红果高码率标准版、红果短剧下载器和红果APP。请先切换到其中一条数据链路。");
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> EnrichHighNewReleaseItemsAsync(
@@ -638,6 +675,28 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadAttempts: downloadAttempts);
         }
 
+        if (bookId.StartsWith(HongguoAppBookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            bookId.StartsWith(HongguoAppEpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase) &&
+             string.IsNullOrWhiteSpace(bookId)))
+        {
+            var appBookId = bookId.StartsWith(HongguoAppBookPrefix, StringComparison.OrdinalIgnoreCase)
+                ? bookId
+                : HongguoAppBookPrefix + bookId;
+            return await DownloadWithProviderAsync(
+                request,
+                progress,
+                cancellationToken,
+                resolveEpisodes: ct => GetHongguoAppEpisodesAsync(appBookId, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetHongguoAppVideoUrlAsync(videoId, quality, settings, ct),
+                posterPrefix: HongguoAppBookPrefix,
+                validateVideoEncoding: ShouldValidateVideoEncodingForSource("hongguoapp"),
+                downloadFileSegments: downloadFileSegments,
+                downloadTimeoutSeconds: downloadTimeoutSeconds,
+                downloadAttempts: downloadAttempts,
+                separateResolveConcurrency: 1);
+        }
+
         if (bookId.StartsWith(PlayletDramaClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
             bookId.StartsWith(PlayletDramaClient.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
             (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase) &&
@@ -827,6 +886,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             concurrency);
         using var downloadSemaphore = new SemaphoreSlim(concurrency);
         using var resolveSemaphore = resolveConcurrency > 0 ? new SemaphoreSlim(resolveConcurrency) : null;
+        using var accountFailureStop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         var downloads = tasks.Select(task => DownloadEpisodeAsync(
             request.OutputDir,
@@ -843,20 +903,32 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             downloadFileSegments,
             downloadTimeoutSeconds,
             downloadAttempts,
-            cancellationToken,
+            accountFailureStop.Token,
             pieceSize,
             pieceWorkers,
-            prepareDownloadedFile));
-        await Task.WhenAll(downloads);
-
-        var posterUrl = ReadPosterUrlFromProject(request.ProjectDir);
-        if (string.IsNullOrWhiteSpace(posterUrl))
+            prepareDownloadedFile,
+            accountFailureStop));
+        try
         {
-            posterUrl = tasks.Select(item => item.PosterUrl).FirstOrDefault(url => !string.IsNullOrWhiteSpace(url)) ?? string.Empty;
+            await Task.WhenAll(downloads);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
         }
 
-        if (!string.IsNullOrWhiteSpace(posterUrl))
+        var posterUrl = ReadPosterUrlFromProject(request.OutputDir);
+        if (!LooksLikeHttpUrl(posterUrl))
+            posterUrl = ReadPosterUrlFromProject(request.ProjectDir);
+        if (!LooksLikeHttpUrl(posterUrl))
+            posterUrl = tasks.Select(item => item.PosterUrl).FirstOrDefault(url => LooksLikeHttpUrl(url)) ?? string.Empty;
+
+        if (!LooksLikeHttpUrl(posterUrl))
         {
+            progress?.Report("未找到海报 URL，跳过海报下载。");
+        }
+        else
+        {
+            RememberPosterUrl(request.OutputDir, posterUrl);
             RememberPosterUrl(request.ProjectDir, posterUrl);
             await EnsurePosterAsync(request.OutputDir, request.DisplayName, posterUrl, progress, cancellationToken);
         }
@@ -864,7 +936,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var videoCount = CountVideoFiles(request.OutputDir);
         if (failures.Count > 0)
         {
-            var failed = new DramaDownloadResult(false, request.OutputDir, videoCount, string.Join("；", failures.Distinct(StringComparer.Ordinal)));
+            var accountFailure = failures.FirstOrDefault(IsAccountLevelDownloadFailure);
+            var failureMessage = accountFailure ?? string.Join("；", failures.Distinct(StringComparer.Ordinal));
+            var failed = new DramaDownloadResult(false, request.OutputDir, videoCount, failureMessage);
             WriteDownloadState(request, failed, tasks, failures, episodeNumberMode);
             PersistEpisodeNumberMode(request.ProjectDir, episodeNumberMode);
             return failed;
@@ -903,7 +977,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken,
         int pieceSize = 0,
         int pieceWorkers = 0,
-        Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null)
+        Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null,
+        CancellationTokenSource? accountFailureStop = null)
     {
         var lifecycleSlotHeld = false;
         if (resolveSemaphore is null)
@@ -1028,10 +1103,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 catch (Exception ex)
                 {
                     CleanupDownloadArtifacts(finalPath, keepVideo: true);
-                    lock (failures)
-                    {
-                        failures.Add($"第{task.EpisodeNumber:00}集 {ex.Message}");
-                    }
+                    RememberEpisodeFailure(failures, task, ex, accountFailureStop);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
                     return;
                 }
@@ -1051,10 +1123,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             catch (Exception ex)
             {
                 CleanupDownloadArtifacts(finalPath, keepVideo: true);
-                lock (failures)
-                {
-                    failures.Add($"第{task.EpisodeNumber:00}集 {ex.Message}");
-                }
+                RememberEpisodeFailure(failures, task, ex, accountFailureStop);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
             }
         }
@@ -2183,8 +2252,36 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return unit == 0 ? $"{value:0} {units[unit]}" : $"{value:0.#} {units[unit]}";
     }
 
+    internal static bool IsAccountLevelDownloadFailure(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+        return message.Contains("未授权", StringComparison.Ordinal)
+               || message.Contains("积分不足", StringComparison.Ordinal)
+               || message.Contains("请授权账号", StringComparison.Ordinal);
+    }
+
+    private static void RememberEpisodeFailure(
+        ICollection<string> failures,
+        EpisodeTask task,
+        Exception exception,
+        CancellationTokenSource? accountFailureStop)
+    {
+        var accountLevel = IsAccountLevelDownloadFailure(exception.Message);
+        lock (failures)
+        {
+            if (!(accountLevel && failures.Any(IsAccountLevelDownloadFailure)))
+                failures.Add($"第{task.EpisodeNumber:00}集 {exception.Message}");
+        }
+
+        if (accountLevel)
+            accountFailureStop?.Cancel();
+    }
+
     internal static bool ShouldRetryDownload(Exception exception)
     {
+        if (IsAccountLevelDownloadFailure(exception.Message))
+            return false;
         if (exception is HongguoHighException highException)
         {
             if (highException.Code is 401 or 403)
@@ -2208,7 +2305,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                message.Contains("504", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
                message.Contains("超时", StringComparison.OrdinalIgnoreCase) ||
-               message.Contains("解析超过", StringComparison.OrdinalIgnoreCase);
+               message.Contains("解析超过", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("empty body", StringComparison.OrdinalIgnoreCase) ||
+               message.Contains("播放地址为空", StringComparison.Ordinal) ||
+               message.Contains("设备注册失败", StringComparison.Ordinal);
     }
 
     internal static TimeSpan ResolveDownloadRetryDelay(Exception exception, int attempt)
@@ -2257,6 +2357,62 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             cancellationToken,
             allowMissingCookie: true);
         return ReadFanqieSearchItems(document, PlayletDramaClient.BookPrefix);
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> GetHongguoAppNewReleaseAsync(
+        string genre,
+        IProgress<IReadOnlyList<DramaSearchItem>>? partialResults,
+        CancellationToken cancellationToken)
+    {
+        var page = await _hongguoApp.GetNewReleasePageAsync(genre, 0, null, cancellationToken);
+        var items = page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray();
+        partialResults?.Report(items);
+        return items;
+    }
+
+    private async Task<IReadOnlyList<DramaSearchItem>> SearchHongguoAppAsync(
+        string keyword,
+        int page,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken,
+        string? searchCategory = null)
+    {
+        var items = await _hongguoApp.SearchAsync(
+            keyword,
+            page,
+            cancellationToken,
+            searchCategory,
+            settings.HongguoAppDeviceId,
+            settings.HongguoAppInstallId,
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+            settings.HongguoAppPlan);
+        return items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray();
+    }
+
+    private async Task<HongguoRankPage> RetargetRankPageAsync(
+        string category,
+        string board,
+        int offset,
+        CancellationToken cancellationToken)
+    {
+        var page = await _hghighApiService.GetRankPageAsync(
+            ForHongguoApp(_settingsProvider.Get()),
+            category,
+            board,
+            offset,
+            cancellationToken);
+        return new HongguoRankPage(
+            page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray(),
+            page.HasMore,
+            page.NextOffset);
+    }
+
+    private static DramaSearchItem RetargetBook(DramaSearchItem item, string bookPrefix)
+    {
+        var id = item.BookId ?? string.Empty;
+        var colon = id.IndexOf(':');
+        var raw = colon >= 0 ? id[(colon + 1)..] : id;
+        return item with { BookId = bookPrefix + raw };
     }
 
     private static IReadOnlyList<DramaSearchItem> ReadFanqieSearchItems(JsonDocument document, string bookPrefix)
@@ -2639,6 +2795,55 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return new SourceVideoDetail(video.Url, video.Key);
     }
 
+    private async Task<IReadOnlyList<SourceEpisode>> GetHongguoAppEpisodesAsync(
+        string prefixedBookId,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var bookId = prefixedBookId.StartsWith(HongguoAppBookPrefix, StringComparison.OrdinalIgnoreCase)
+            ? prefixedBookId[HongguoAppBookPrefix.Length..]
+            : prefixedBookId;
+        var items = await _hongguoApp.GetEpisodesAsync(
+            bookId,
+            cancellationToken,
+            settings.HongguoAppDeviceId,
+            settings.HongguoAppInstallId,
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+            settings.HongguoAppPlan);
+        return items
+            .Select(item => new SourceEpisode(item.EpisodeNumber, item.Title, item.VideoId, item.PosterUrl))
+            .ToArray();
+    }
+
+    private async Task<SourceVideoDetail> GetHongguoAppVideoUrlAsync(
+        string prefixedVideoId,
+        string quality,
+        DramaSourceSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var current = _settingsProvider.Get();
+        var detail = await _hongguoApp.GetVideoPlaybackAsync(
+            prefixedVideoId,
+            quality,
+            cancellationToken,
+            current.HongguoAppDeviceId,
+            current.HongguoAppInstallId,
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+            current.HongguoAppStreamLink1,
+            current.HongguoAppStreamLink2,
+            current.HongguoAppPlan);
+        return new SourceVideoDetail(
+            detail.Url,
+            HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),
+            ExpectedSize: detail.Size);
+    }
+
+    private static DramaSourceSettings ForHongguoApp(DramaSourceSettings settings) => settings with
+    {
+        HghighEdition = HongguoClientProfile.StandardEdition,
+        HghighStandardPlaybackMode = HongguoClientProfile.StandardPlaybackSingle,
+    };
+
     private async Task<IReadOnlyList<SourceEpisode>> GetHgnewEpisodesAsync(string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
         var items = await _hgnewApiService.GetEpisodesAsync(settings, bookId, cancellationToken);
@@ -2825,11 +3030,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         var extension = ResolveImageExtensionFromUrl(posterUrl);
         var targetPath = Path.Combine(outputDir, $"{SanitizeFileStem(displayName)}{extension}");
-        if (File.Exists(targetPath))
+        if (File.Exists(targetPath) && new FileInfo(targetPath).Length > 0)
         {
+            progress?.Report($"海报已存在，跳过: {Path.GetFileName(targetPath)}");
             return;
         }
 
+        progress?.Report("开始下载海报...");
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, posterUrl);
@@ -2838,14 +3045,47 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
             await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using var target = File.Create(targetPath);
-            await source.CopyToAsync(target, cancellationToken);
-            await target.FlushAsync(cancellationToken);
+            await WriteReleasedFileAsync(targetPath, source, cancellationToken);
             progress?.Report($"海报下载完成: {Path.GetFileName(targetPath)}");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             progress?.Report($"海报下载失败: {ex.Message}");
+        }
+    }
+
+    private static async Task WriteReleasedFileAsync(string targetPath, Stream source, CancellationToken cancellationToken)
+    {
+        var tempPath = targetPath + ".part";
+        try
+        {
+            await using (var target = new FileStream(
+                             tempPath,
+                             FileMode.Create,
+                             FileAccess.Write,
+                             FileShare.None,
+                             81920,
+                             useAsync: true))
+            {
+                await source.CopyToAsync(target, cancellationToken);
+                await target.FlushAsync(cancellationToken);
+            }
+
+            File.Move(tempPath, targetPath, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                    File.Delete(tempPath);
+            }
+            catch
+            {
+                // 临时文件清不掉时保留现场，正式海报文件没有被独占打开。
+            }
+
+            throw;
         }
     }
 

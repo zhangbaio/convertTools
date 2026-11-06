@@ -36,6 +36,16 @@ public static class LicenseAuthService
         if (!string.IsNullOrWhiteSpace(appVersion))
             AppVersion = appVersion.Trim();
     }
+
+    public static string AccountApiPrefix { get; private set; } = "tt";
+
+    public static void UseAccountApi(string prefix)
+    {
+        var value = (prefix ?? "").Trim().Trim('/');
+        if (value.Length == 0 || value.Contains('/'))
+            throw new ArgumentException("授权接口前缀无效。", nameof(prefix));
+        AccountApiPrefix = value;
+    }
     public const int NetworkRetryAttempts = 3;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
@@ -217,7 +227,7 @@ public static class LicenseAuthService
         try
         {
             var payload = await PostJsonAsync(
-                $"{baseUrl}/tt/account/logout",
+                AccountEndpoint(baseUrl, "logout"),
                 new Dictionary<string, object?>
                 {
                     ["machine_id"] = state.MachineId.Trim(),
@@ -258,7 +268,7 @@ public static class LicenseAuthService
             throw new LicenseServiceException("请输入密码");
 
         var payload = await PostJsonAsync(
-            $"{baseUrl}/tt/account/login",
+            AccountEndpoint(baseUrl, "login"),
             new Dictionary<string, object?>
             {
                 ["account"] = account.Trim(),
@@ -337,7 +347,7 @@ public static class LicenseAuthService
             throw new LicenseServiceException("当前没有可校验的登录信息");
 
         var payload = PostJsonAsync(
-            $"{baseUrl}/tt/account/verify",
+            AccountEndpoint(baseUrl, "verify"),
             new Dictionary<string, object?>
             {
                 ["account"] = account,
@@ -555,4 +565,7 @@ public static class LicenseAuthService
 
     private static string CleanBaseUrl(string? serverUrl) =>
         (serverUrl ?? "").Trim().TrimEnd('/');
+
+    private static string AccountEndpoint(string baseUrl, string action) =>
+        $"{baseUrl}/{AccountApiPrefix}/account/{action}";
 }

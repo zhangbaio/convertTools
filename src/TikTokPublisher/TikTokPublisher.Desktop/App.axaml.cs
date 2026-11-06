@@ -53,19 +53,7 @@ public partial class App : Application
     private static async Task<bool> EnsureLicenseBeforeMainWindowAsync()
     {
         if (LicenseGate.GetStartupAction() == LicenseStartupAction.PromptLogin)
-        {
-            var login = LicenseGate.GetLoginDefaults();
-            var result = await LicenseLoginDialog.ShowStandaloneAsync(
-                login.ServerUrl,
-                login.Account,
-                login.Password,
-                "首次使用或本机尚未登录，请联网登录并获取授权后继续使用。");
-            if (result is null)
-                return false;
-
-            LicenseGate.SaveLoginResult(result);
-            return true;
-        }
+            return await PromptLicenseLoginAsync("首次使用或本机尚未登录，请联网登录并获取授权后继续使用。");
 
         var state = await LicenseGate.VerifyAsync(forceVerify: true);
         if (state is not null)
@@ -74,6 +62,21 @@ public partial class App : Application
             return true;
         }
 
-        return false;
+        return await PromptLicenseLoginAsync("软件授权联网校验失败，请重新登录后继续使用。");
+    }
+
+    private static async Task<bool> PromptLicenseLoginAsync(string message)
+    {
+        var login = LicenseGate.GetLoginDefaults();
+        var result = await LicenseLoginDialog.ShowStandaloneAsync(
+            login.ServerUrl,
+            login.Account,
+            login.Password,
+            message);
+        if (result is null)
+            return false;
+
+        LicenseGate.SaveLoginResult(result);
+        return true;
     }
 }

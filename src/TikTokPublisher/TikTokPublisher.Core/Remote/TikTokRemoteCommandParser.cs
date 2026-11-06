@@ -190,7 +190,10 @@ public static class TikTokRemoteCommandParser
             var workspacePath = FirstString(root, "workspace_path", "workspace");
             var accountProfileId = FirstString(root, "account_profile_id", "profile_id");
             var accountProfileName = FirstString(root, "account_profile_name", "account", "profile");
-            var accountSelectors = ReadJsonAccountSelectors(root, accountProfileId, accountProfileName);
+            // 账号 ID 和名称描述的是同一个账号。两个都传时不能当成多账号，否则队列已在跑时后续派单会被拒绝。
+            var accountSelectors = ReadJsonAccountSelectors(
+                root,
+                string.IsNullOrWhiteSpace(accountProfileId) ? accountProfileName : accountProfileId);
             var allAccounts = IsAllAccountsSelector(accountProfileId) ||
                               IsAllAccountsSelector(accountProfileName) ||
                               accountSelectors.Any(IsAllAccountsSelector) ||
@@ -230,7 +233,9 @@ public static class TikTokRemoteCommandParser
                     AutoRun: autoRun,
                     QueueOptions: queueOptions,
                     MatchMode: matchMode,
-                    Series: series.Count > 0 ? series : null);
+                    Series: series.Count > 0 ? series : null,
+                    AutoPublishAssignmentId: GetPositiveLong(root, "auto_publish_assignment_id"),
+                    AutoPublishProgressPath: FirstString(root, "auto_publish_progress_path"));
             }
 
             if (commandName is "tiktok_start_queue" or "start_tiktok_queue")
@@ -245,6 +250,17 @@ public static class TikTokRemoteCommandParser
                     EnabledSteps: EmptyToNull(enabledSteps),
                     AutoRun: true,
                     QueueOptions: queueOptions);
+            }
+
+            if (commandName == TikTokRemoteCommandNames.RetryQueue)
+            {
+                return new TikTokRemoteCommand(
+                    TikTokRemoteCommandNames.RetryQueue,
+                    AccountProfileId: accountProfileId,
+                    AccountProfileName: accountProfileName,
+                    RetryItems: TryGetProperty(root, "items", out var itemsElement)
+                        ? RetryItemsFromJsonElement(itemsElement)
+                        : Array.Empty<TikTokRetryQueueItem>());
             }
 
             return commandName switch
@@ -453,6 +469,20 @@ public static class TikTokRemoteCommandParser
         return false;
     }
 
+    private static long GetPositiveLong(JsonElement element, string propertyName)
+    {
+        if (!TryGetProperty(element, propertyName, out var value))
+            return 0;
+        long parsed = 0;
+        var ok = value.ValueKind switch
+        {
+            JsonValueKind.Number => value.TryGetInt64(out parsed),
+            JsonValueKind.String => long.TryParse(value.GetString(), out parsed),
+            _ => false,
+        };
+        return ok && parsed > 0 ? parsed : 0;
+    }
+
     private static bool GetBool(JsonElement element, bool fallback)
     {
         return element.ValueKind switch
@@ -540,6 +570,29 @@ public static class TikTokRemoteCommandParser
             }
 
             list.Add(new TikTokUploadSeriesSpec(title, episodeCnt < 0 ? 0 : episodeCnt, GetString(entry, "series_id").Trim()));
+        }
+
+        return list;
+    }
+
+    private static IReadOnlyList<TikTokRetryQueueItem> RetryItemsFromJsonElement(JsonElement element)
+    {
+        var list = new List<TikTokRetryQueueItem>();
+        if (element.ValueKind != JsonValueKind.Array)
+            return list;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in element.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object)
+                continue;
+            var projectPath = GetString(entry, "project_path").Trim();
+            if (projectPath.Length == 0 || !seen.Add(projectPath))
+                continue;
+            list.Add(new TikTokRetryQueueItem(
+                projectPath,
+                GetPositiveLong(entry, "task_id"),
+                GetPositiveLong(entry, "auto_publish_assignment_id")));
         }
 
         return list;

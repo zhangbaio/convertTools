@@ -104,11 +104,12 @@ public partial class SystemSettingsView : UserControl
     private void InitializeComboBoxes()
     {
         DramaSourceCombo.Items.Clear();
-        DramaSourceCombo.Items.Add(CreateItem("红果高码率", "hghigh"));
+        DramaSourceCombo.Items.Add(CreateItem("红果短剧助手", "hghigh"));
         DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
         DramaSourceCombo.Items.Add(CreateItem("统一下载器", "downloader"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
+        DramaSourceCombo.Items.Add(CreateItem("红果APP下载", "hongguoapp"));
         DramaSourceCombo.Items.Add(CreateItem("DramaBox", "dramabox"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
 
@@ -159,8 +160,8 @@ public partial class SystemSettingsView : UserControl
         RoleVectorViewModeCombo.SelectionChanged += OnRoleVectorViewModeChanged;
 
         PosterModeCombo.Items.Clear();
-        PosterModeCombo.Items.Add(CreateItem("原始海报AI改标题并校验", "original"));
-        PosterModeCombo.Items.Add(CreateItem("AI清除原文字并固定字体写入", "erase_fixed_lower_title"));
+        PosterModeCombo.Items.Add(CreateItem("AI 直接生成", ClientSettingsDefaults.PosterModeDirect));
+        PosterModeCombo.Items.Add(CreateItem("AI 消除文字后固定字体写入", ClientSettingsDefaults.PosterModeEraseFixedTitle));
         PosterModeCombo.SelectionChanged += OnPosterModeChanged;
 
         NetworkAddressPreferenceCombo.Items.Clear();
@@ -388,8 +389,8 @@ public partial class SystemSettingsView : UserControl
                    ?? "original";
         FrameExtractSettingsPanel.IsVisible = string.Equals(mode, "video_frame", StringComparison.OrdinalIgnoreCase);
         PosterModeHintText.Text = string.Equals(mode, "erase_fixed_lower_title", StringComparison.OrdinalIgnoreCase)
-            ? "AI 只清除封面上的原文字，然后在下半部分用固定黄字黑边写入新剧名。不改变「原始海报AI改标题并校验」。"
-            : "替换原海报标题，清除人物名、作者说明等其他文字，并进行全图校验。";
+            ? "AI 只清除封面上的全部原文字，然后在下半部分用固定黄字黑边写入新剧名。"
+            : "AI 重新设计海报：更换背景、构图和人物动作服饰，只写一次新剧名，并进行标题校验。";
     }
 
     private void OnImageProviderChanged(object? sender, SelectionChangedEventArgs e)
@@ -451,6 +452,21 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || ProofPdfRendererCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokProofPdfRenderer = item.Tag as string ?? ClientSettingsDefaults.TiktokProofPdfRenderer;
+    }
+
+    private async void OnBrowseSyncWorkspaceRootClick(object? sender, RoutedEventArgs e)
+    {
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage is null || _vm is null)
+            return;
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择账号同步工作根目录",
+            AllowMultiple = false,
+        });
+        var path = folders.FirstOrDefault()?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(path))
+            _vm.TiktokSyncWorkspaceRoot = path;
     }
 
     private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e)

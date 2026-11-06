@@ -7,15 +7,13 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Playwright" Version="1.52.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
     <PackageReference Include="DocumentFormat.OpenXml" Version="3.0.2" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Policies\kuaishou-title-policy.json" />
     <EmbeddedResource Include="Policies\kuaishou-synopsis-policy.json" />
-    <Content Include="Tools\kuaishou_prepare_bridge.py">
-      <Link>tools\kuaishou\kuaishou_prepare_bridge.py</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
+    <EmbeddedResource Include="Policies\series_form_options.json" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\PlatformPublisher.Common\PlatformPublisher.Common.csproj" />

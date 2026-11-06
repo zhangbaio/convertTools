@@ -209,6 +209,18 @@ public sealed class DramaSourceRouterDownloadTests
         DramaSourceRouter.ShouldRetryDownload(
                 new HongguoHighException("token 已失效", 401))
             .Should().BeFalse();
+        DramaSourceRouter.ShouldRetryDownload(
+                new HongguoHighException("模拟器链路失败：empty body"))
+            .Should().BeTrue();
+        DramaSourceRouter.ShouldRetryDownload(
+                new HongguoHighException("播放地址为空"))
+            .Should().BeTrue();
+        HongguoAppDirectClient.EmulatorPlaybackRetryDelay(0).Should().Be(TimeSpan.FromMilliseconds(400));
+        HongguoAppDirectClient.EmulatorPlaybackRetryDelay(1).Should().Be(TimeSpan.FromMilliseconds(800));
+        HongguoAppDirectClient.EmulatorPlaybackRetryDelay(2).Should().Be(TimeSpan.FromMilliseconds(1600));
+        HongguoAppDirectClient.EmulatorPlaybackRetryDelay(8).Should().Be(TimeSpan.FromMilliseconds(6400));
+        HongguoAppDirectClient.IsTransientPlaybackFailure(new InvalidOperationException("empty body"))
+            .Should().BeTrue();
     }
 
     [Fact]

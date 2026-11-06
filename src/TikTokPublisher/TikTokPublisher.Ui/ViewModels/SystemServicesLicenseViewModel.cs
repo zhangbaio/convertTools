@@ -32,6 +32,7 @@ public sealed partial class SystemServicesViewModel
     public void RefreshLicenseSummaryDisplay()
     {
         var state = LicenseStore.Load();
+        CloudConfigSyncEnabled = state.IsActivated();
         if (!state.IsActivated())
         {
             LicenseSummary = "未登录";

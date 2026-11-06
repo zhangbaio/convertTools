@@ -80,14 +80,15 @@
             <Grid>
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel Orientation="Horizontal" Margin="10,0">
-                        <Button x:Name="WeixinNavButton" Classes="nav navActive" Content="视频号助手" Click="OnWeixinNavClick" />
+                        <Button x:Name="WeixinNavButton" Classes="nav" Content="视频号助手" Click="OnWeixinNavClick" />
                         <Button x:Name="DramaDownloadNavButton" Classes="nav" Content="短剧下载" Click="OnDramaDownloadNavClick" />
-                        <Button x:Name="KuaishouPersonalNavButton" Classes="nav" Content="快手分账 · 个人" Click="OnKuaishouPersonalNavClick" />
-                        <Button x:Name="KuaishouEnterpriseNavButton" Classes="nav" Content="快手分账 · 企业" Click="OnKuaishouEnterpriseNavClick" />
+                        <Button x:Name="KuaishouNavButton" Classes="nav navActive" Content="快手分账" Click="OnKuaishouNavClick" />
                         <Button x:Name="KuaishouConfigNavButton" Classes="nav" Content="快手分账配置" Click="OnKuaishouConfigNavClick" />
+                        <Button x:Name="KuaishouArchiveNavButton" Classes="nav" Content="已归档项目" Click="OnKuaishouArchiveNavClick" />
                         <Button x:Name="AnalyticsNavButton" Classes="nav" Content="数据统计" Click="OnAnalyticsNavClick" />
                         <Button x:Name="DatabaseNavButton" Classes="nav" Content="数据库" Click="OnDatabaseClick" />
                         <Button x:Name="SettingsNavButton" Classes="nav" Content="系统设置" Click="OnSettingsNavClick" />
+                        <Button x:Name="XingeServicesNavButton" Classes="nav" Content="系统服务" Click="OnXingeServicesNavClick" />
                     </StackPanel>
                 </ScrollViewer>
             </Grid>
@@ -344,6 +345,9 @@
             <views:KuaishouQueueLogView x:Name="KuaishouLogPage"
                                         IsVisible="False"
                                         DataContext="{Binding}" />
+            <views:KuaishouArchivedProjectsView x:Name="KuaishouArchivePage"
+                                                IsVisible="False"
+                                                DataContext="{Binding}" />
         </Grid>
         <channelsViews:MaterialPublishView x:Name="WeixinPublisherView" />
         <Border x:Name="DramaDownloadPage" IsVisible="False" Padding="16,14" Background="#F3F6FA">
@@ -355,18 +359,46 @@
             <TabItem Header="通用配置">
                 <tiktokViews:SystemSettingsView x:Name="SharedSettingsView" />
             </TabItem>
+            <TabItem Header="软件授权">
+                <views:YunfanLicenseSettingsView x:Name="LicenseSettingsView" />
+            </TabItem>
             <TabItem Header="ADX素材服务">
                 <views:AdxSettingsView x:Name="AdxSettingsView" />
             </TabItem>
         </TabControl>
+        <Border x:Name="XingeServicesPage" IsVisible="False" Padding="16,14" Background="#F3F6FA">
+            <ScrollViewer>
+                <tiktokViews:XingeConnectionView x:Name="XingeConnectionView" />
+            </ScrollViewer>
+        </Border>
         </Grid>
 
         <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#EEF3F8" BorderBrush="#D8E2EC" BorderThickness="0,1,0,0" Padding="12,0">
-            <TextBlock Text="{Binding StatusMessage}"
-                       VerticalAlignment="Center"
-                       FontSize="12"
-                       Foreground="#475569"
-                       TextTrimming="CharacterEllipsis" />
+            <Grid ColumnDefinitions="*,*,Auto">
+                <TextBlock Text="{Binding FooterLogText}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Foreground="#475569"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding FooterLogText}" />
+                <TextBlock Grid.Column="1"
+                           Text="{Binding OtherAccountFooterLogText}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Margin="12,0,0,0"
+                           Foreground="#475569"
+                           TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis"
+                           ToolTip.Tip="{Binding OtherAccountFooterLogText}" />
+                <TextBlock Grid.Column="2"
+                           Text="{Binding KuaishouTodayUploadText}"
+                           IsVisible="{Binding IsKuaishouPlatform}"
+                           VerticalAlignment="Center"
+                           FontSize="12"
+                           Margin="16,0,0,0"
+                           Foreground="#0F4F86" />
+            </Grid>
         </Border>
     </Grid>
 </Window>

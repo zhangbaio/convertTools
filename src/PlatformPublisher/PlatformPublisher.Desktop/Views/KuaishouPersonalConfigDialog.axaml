@@ -6,18 +6,24 @@
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
             <StackPanel Spacing="3">
                 <TextBlock x:Name="AccountHeading" Text="快手分账配置" FontSize="20" FontWeight="Bold" Foreground="#0B74D1" />
-                <TextBlock x:Name="AccountHint" Text="配置按左侧账号独立保存。切换账号前如有修改，会先询问是否保存。" Foreground="#64748B" TextWrapping="Wrap" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button x:Name="PersonalEditionButton" Content="个人版" Click="OnPersonalEditionClick" />
-                <Button x:Name="EnterpriseEditionButton" Content="企业版" Click="OnEnterpriseEditionClick" />
+                <TextBlock x:Name="AccountHint" Text="每个账号只保存一份快手分账配置。账号类型决定生成产物和上传走个人版还是企业版。" Foreground="#64748B" TextWrapping="Wrap" />
             </StackPanel>
         </Grid>
 
         <TabControl Grid.Row="1">
             <TabItem Header="登录授权">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                    <StackPanel Margin="16" Spacing="14">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="账号类型" FontWeight="SemiBold" />
+                        <StackPanel Orientation="Horizontal" Spacing="18">
+                            <RadioButton x:Name="EditionPersonalBox" Content="个人版" GroupName="KuaishouAccountEdition" />
+                            <RadioButton x:Name="EditionEnterpriseBox" Content="企业版" GroupName="KuaishouAccountEdition" />
+                        </StackPanel>
+                        <TextBlock Text="未选择时不能生成产物或上传。改成另一种类型会删除另一版本的任务记录，不删除项目文件。"
+                                   Foreground="#64748B" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
                         <TextBlock Text="API Base URL" VerticalAlignment="Center" />
                         <TextBox x:Name="ApiBaseUrlBox" Grid.Column="1" />
                         <TextBlock Grid.Row="1" Text="用户快手号 ID" VerticalAlignment="Center" />
@@ -46,6 +52,7 @@
                         <TextBlock Grid.Row="13" Text="Token Header" VerticalAlignment="Center" />
                         <TextBox x:Name="TokenHeaderBox" Grid.Row="13" Grid.Column="1" />
                     </Grid>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
@@ -151,8 +158,10 @@
                         <ComboBox x:Name="NewTitleAliasPositionBox" Grid.Row="1" Grid.Column="1" />
                         <TextBlock Grid.Row="2" Text="别名值" VerticalAlignment="Center" />
                         <TextBox x:Name="NewTitleAliasValueBox" Grid.Row="2" Grid.Column="1" Watermark="例如 2" />
-                        <TextBlock Grid.Row="3" Text="任务队列并发数" VerticalAlignment="Center" />
-                        <TextBox x:Name="QueueParallelBox" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="3" Text="任务队列并发数" VerticalAlignment="Center"
+                                   ToolTip.Tip="同时执行的项目数，范围 1 到 5。本地步骤并行；浏览器上传共用登录态，同一时间只上传一个项目。" />
+                        <TextBox x:Name="QueueParallelBox" Grid.Row="3" Grid.Column="1"
+                                 ToolTip.Tip="同时执行的项目数，范围 1 到 5。本地步骤并行；浏览器上传共用登录态，同一时间只上传一个项目。" />
                         <TextBlock Grid.Row="4" Text="素材上传接口路径" VerticalAlignment="Center" />
                         <TextBox x:Name="MaterialUploadPathBox" Grid.Row="4" Grid.Column="1" />
                         <TextBlock Grid.Row="5" Text="创建短剧接口路径" VerticalAlignment="Center" />
@@ -191,10 +200,9 @@
                             <Button Grid.Column="2" Content="浏览" Click="PickProjectImageRoot_Click" />
                             <TextBlock Grid.Row="1" Text="快手上传模板" VerticalAlignment="Center" />
                             <ComboBox x:Name="UploadTemplateBox" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" />
-                            <TextBlock Grid.Row="2" Text="分账个人版模板" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="2" Text="分账工程图模板" VerticalAlignment="Center" />
                             <ComboBox x:Name="PersonalTemplateBox" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" />
-                            <TextBlock Grid.Row="3" Text="分账企业版模板" VerticalAlignment="Center" />
-                            <ComboBox x:Name="EnterpriseTemplateBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" />
+                            <ComboBox x:Name="EnterpriseTemplateBox" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" IsVisible="False" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>
@@ -225,7 +233,24 @@
 
             <TabItem Header="剧集上架">
                 <ScrollViewer>
-                    <Grid Margin="16" ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                    <StackPanel Margin="16" Spacing="16">
+                    <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
+                        <TextBlock Text="定时扫描上架" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <CheckBox x:Name="ScheduledShelfBox" Grid.Column="1" Content="到点后上架「已下架 + 发布成功」且有上架按钮的短剧。平台风控下架不点。" />
+                        <TextBlock Grid.Row="1" Text="上架方式" VerticalAlignment="Center" />
+                        <ComboBox x:Name="ScheduledShelfModeBox" Grid.Row="1" Grid.Column="1" SelectionChanged="ScheduledShelfModeBox_SelectionChanged" />
+                        <TextBlock x:Name="ScheduledShelfIntervalLabel" Grid.Row="2" Text="检查间隔(小时)" VerticalAlignment="Center" />
+                        <TextBox x:Name="ScheduledShelfIntervalBox" Grid.Row="2" Grid.Column="1" Watermark="1 到 24，例如 1 表示每小时" />
+                        <TextBlock x:Name="ScheduledShelfDailyLabel" Grid.Row="3" Text="每天时刻" VerticalAlignment="Center" />
+                        <TextBox x:Name="ScheduledShelfDailyBox" Grid.Row="3" Grid.Column="1" Watermark="例如 10:00" />
+                        <TextBlock Grid.Row="4" Text="上传中跳过" VerticalAlignment="Center" />
+                        <CheckBox x:Name="ScheduledShelfOnlyWhenIdleBox" Grid.Row="4" Grid.Column="1" Content="该账号正在上传时跳过本轮，上传结束后再检查" />
+                        <TextBlock Grid.Row="5" Text="每轮最多上架" VerticalAlignment="Center" />
+                        <TextBox x:Name="ScheduledShelfMaxBox" Grid.Row="5" Grid.Column="1" Watermark="例如 50" />
+                        <TextBlock Grid.Row="6" Grid.ColumnSpan="2" TextWrapping="Wrap" Foreground="#64748B"
+                                   Text="固定间隔在开启后的下一次检查先跑一轮，之后按间隔计算。每天固定时间过了今天的时刻且今天还没跑过，会补跑一次。登录失效时本轮停止，并记入日志。" />
+                    </Grid>
+                    <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
                         <TextBlock Text="启用自动上架" VerticalAlignment="Center" />
                         <CheckBox x:Name="AutoOnlineBox" Grid.Column="1" Content="提交短剧后登记待上架队列，并定时查询审核状态" />
                         <TextBlock Grid.Row="1" Text="检查间隔" VerticalAlignment="Center" />
@@ -256,6 +281,7 @@
                         <TextBlock Grid.Row="12" Text="打回/异常记录保留" VerticalAlignment="Center" />
                         <TextBox x:Name="KeepRejectedDaysBox" Grid.Row="12" Grid.Column="1" />
                     </Grid>
+                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
@@ -325,11 +351,11 @@
                     <StackPanel Margin="16" Spacing="14">
                         <Border BorderBrush="#D8C3A8" BorderThickness="1" CornerRadius="8" Background="#FFFAF5" Padding="12">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="个人版配置" FontWeight="SemiBold" />
-                                <TextBlock Text="仅用于快手分账个人版：入口地址、人员姓名/性别，以及固定复用的承诺函 PDF 文件。企业版使用本页企业版入口和承诺函。"
+                                <TextBlock Text="分账配置" FontWeight="SemiBold" />
+                                <TextBlock Text="入口地址、人员姓名/性别，以及固定复用的承诺函 PDF。个人版和企业版队列共用。"
                                            TextWrapping="Wrap" Foreground="#665A4B" />
                                 <Grid ColumnDefinitions="160,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                                    <TextBlock Text="个人版入口URL" VerticalAlignment="Center" />
+                                    <TextBlock Text="入口 URL" VerticalAlignment="Center" />
                                     <TextBox x:Name="EntryUrlBox" Grid.Column="1" Grid.ColumnSpan="2" />
                                     <TextBlock Grid.Row="1" Text="用户名" VerticalAlignment="Center" />
                                     <TextBox x:Name="UsernameBox" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Watermark="导演 / 编剧 / 制片人统一使用此用户名" />
@@ -343,12 +369,12 @@
                         </Border>
                         <Border BorderBrush="#AEBFD2" BorderThickness="1" CornerRadius="8" Background="#F7FBFF" Padding="12">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="共用配置（个人版 / 企业版）" FontWeight="SemiBold" />
-                                <TextBlock Text="同时影响快手分账个人版和企业版：上传浏览器模式、全场景展示、登录等待、出错保留浏览器、第一页和最终提交动作。"
+                                <TextBlock Text="上传与提交" FontWeight="SemiBold" />
+                                <TextBlock Text="上传浏览器模式、全场景展示、登录等待、出错保留浏览器、第一页和最终提交动作。"
                                            TextWrapping="Wrap" Foreground="#536171" />
                                 <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                     <TextBlock Text="登录超时(秒)" VerticalAlignment="Center" />
-                                    <TextBox x:Name="LoginTimeoutBox" Grid.Column="1" Watermark="登录等待秒数，默认 300（个人版/企业版共用）" />
+                                    <TextBox x:Name="LoginTimeoutBox" Grid.Column="1" Watermark="登录等待秒数，默认 300" />
                                     <TextBlock Grid.Row="1" Text="上传浏览器模式" VerticalAlignment="Center" />
                                     <ComboBox x:Name="RevenueShareBrowserModeBox" Grid.Row="1" Grid.Column="1" />
                                     <TextBlock Grid.Row="2" Text="全场景展示" VerticalAlignment="Center" />
@@ -369,7 +395,7 @@
             <TabItem Header="内容合规配置">
                 <ScrollViewer>
                     <StackPanel Margin="16" Spacing="12">
-                        <TextBlock Text="下方展示当前完整有效词库，可直接增加、修改或删除词语。每行格式：分类：词1、词2。保存后参与合规校验；软件升级新增的系统词会自动合并。"
+                        <TextBlock Text="下方展示当前完整有效词库，可直接增加、修改或删除词语。每行格式：分类：词1、词2。保存后会写进生成新剧名、短标题和简介的提示词，由 AI 生成时直接避开；生成后若仍命中会自动重写，上传时不再拦截。软件升级新增的系统词会自动合并。"
                                    TextWrapping="Wrap" Foreground="#64748B" />
                         <TextBlock Text="快手新剧名敏感词（普通上传、分账个人版、分账企业版）" FontWeight="SemiBold" />
                         <TextBlock x:Name="TitlePolicySummary" Foreground="#64748B" />
@@ -383,7 +409,6 @@
                         <TextBlock Text="快手简介组合语义规则" FontWeight="SemiBold" />
                         <TextBlock Text="每行格式：风险分类：概念组1+概念组2；删除整行即可停用该组合。" Foreground="#64748B" TextWrapping="Wrap" />
                         <TextBox x:Name="CombinationRulesBox" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
-                        <CheckBox x:Name="AiComplianceBox" Content="启用独立 AI 语义审核（推荐；会增加一次或多次 AI 请求）" />
                         <CheckBox x:Name="SynopsisRewriteBox" Content="默认使用 AI 改写简介（关闭时保留合规原简介；命中风险仍强制改写）" />
                         <Button Content="恢复系统默认词库" Click="RestoreContentPolicy_Click" HorizontalAlignment="Left" />
                     </StackPanel>
@@ -391,11 +416,12 @@
             </TabItem>
         </TabControl>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="10">
             <TextBlock x:Name="ValidationText" Foreground="#DC2626" VerticalAlignment="Center" TextWrapping="Wrap" />
-            <Button Grid.Column="1" Content="导入旧版配置" Click="ImportLegacy_Click" />
-            <Button Grid.Column="2" Content="放弃修改" Click="Cancel_Click" />
-            <Button Grid.Column="3" Classes="primary" Content="保存配置" Click="Save_Click" />
+            <Button Grid.Column="1" Content="导入微信工具配置" Click="ImportExportedSettings_Click" />
+            <Button Grid.Column="2" Content="导入旧版配置" Click="ImportLegacy_Click" />
+            <Button Grid.Column="3" Content="放弃修改" Click="Cancel_Click" />
+            <Button Grid.Column="4" Classes="primary" Content="保存配置" Click="Save_Click" />
         </Grid>
     </Grid>
 </UserControl>

@@ -9,17 +9,20 @@ public sealed class KuaishouOnlineQueueWorker : IDisposable
     private readonly PublishAccountStore _accountStore;
     private readonly KuaishouOnlineQueueProcessor _processor;
     private readonly ILogger<KuaishouOnlineQueueWorker> _logger;
+    private readonly IKuaishouAccountEditionCatalog? _editions;
     private readonly CancellationTokenSource _stop = new();
     private Task? _loop;
 
     public KuaishouOnlineQueueWorker(
         PublishAccountStore accountStore,
         KuaishouOnlineQueueProcessor processor,
-        ILogger<KuaishouOnlineQueueWorker> logger)
+        ILogger<KuaishouOnlineQueueWorker> logger,
+        IKuaishouAccountEditionCatalog? editions = null)
     {
         _accountStore = accountStore;
         _processor = processor;
         _logger = logger;
+        _editions = editions;
     }
 
     public void Start() => _loop ??= Task.Run(() => RunAsync(_stop.Token));
@@ -45,12 +48,15 @@ public sealed class KuaishouOnlineQueueWorker : IDisposable
     private async Task ProcessAllAccountsAsync(CancellationToken cancellationToken)
     {
         var accounts = await _accountStore.LoadAsync(cancellationToken);
-        foreach (var accountId in accounts.Select(account => account.Id).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct())
-        foreach (var platform in new[]
-                 {
-                     PublishPlatform.KuaishouPersonalRevenue,
-                     PublishPlatform.KuaishouEnterpriseRevenue,
-                 })
+        var accountIds = accounts.Select(account => account.Id).Where(id => !string.IsNullOrWhiteSpace(id)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (_editions is not null)
+        {
+            foreach (var accountId in _editions.AccountIds)
+                accountIds.Add(accountId);
+        }
+
+        foreach (var accountId in accountIds)
+        foreach (var platform in PlatformsFor(accountId))
         {
             try { await _processor.ProcessDueAsync(accountId, platform, null, cancellationToken); }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
@@ -60,5 +66,17 @@ public sealed class KuaishouOnlineQueueWorker : IDisposable
                     accountId, platform);
             }
         }
+    }
+
+    private IEnumerable<PublishPlatform> PlatformsFor(string accountId)
+    {
+        var both = new[]
+        {
+            PublishPlatform.KuaishouPersonalRevenue,
+            PublishPlatform.KuaishouEnterpriseRevenue,
+        };
+        if (_editions is null || !_editions.TryGetEdition(accountId, out var platform))
+            return both;
+        return platform is null ? [] : [platform.Value];
     }
 }

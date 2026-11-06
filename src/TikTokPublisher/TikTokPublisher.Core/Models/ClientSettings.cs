@@ -22,7 +22,7 @@ public sealed class ClientSettings
 
     public string HghighAccount { get; set; } = "";
     public string HghighPassword { get; set; } = "";
-    public string HghighEdition { get; set; } = "high";
+    public string HghighEdition { get; set; } = "standard";
     public string HghighDeviceId { get; set; } = "";
     public string HghighClientExe { get; set; } = "";
     public string HghighClientVersion { get; set; } = "2.1.6";
@@ -30,6 +30,14 @@ public sealed class ClientSettings
     public string HghighStandardClientExe { get; set; } = "";
     public string HghighStandardClientVersion { get; set; } = "2.2.1";
     public string HghighStandardPlaybackMode { get; set; } = "single";
+    public string HongguoAppDeviceId { get; set; } = "";
+    public string HongguoAppInstallId { get; set; } = "";
+    public string HongguoAppPlan { get; set; } = "1";
+    public bool HongguoAppStreamLink1 { get; set; } = true;
+    public bool HongguoAppStreamLink2 { get; set; } = true;
+
+    public static string NormalizeHongguoAppPlan(string? plan) =>
+        string.Equals(plan?.Trim(), "2", StringComparison.Ordinal) ? "2" : "1";
     public string MapleleafAccount { get; set; } = "";
     public string MapleleafPassword { get; set; } = "";
     public string MapleleafUdid { get; set; } = "";
@@ -95,6 +103,17 @@ public sealed class ClientSettings
     public bool TiktokRoleReferenceAiFallbackEnabled { get; set; } =
         ClientSettingsDefaults.TiktokRoleReferenceAiFallbackEnabled;
     public string TiktokRoleVectorViewMode { get; set; } = ClientSettingsDefaults.TiktokRoleVectorViewMode;
+    public string AiPublishInfoPrompt { get; set; } = "";
+    /// <summary>快手一次请求生成的发布信息提示词；为空表示使用默认值。</summary>
+    public string KuaishouPublishInfoPrompt { get; set; } = "";
+    /// <summary>快手竖屏海报直接生成提示词；为空表示使用当前模式的默认值。</summary>
+    public string KuaishouPosterVerticalDirectPrompt { get; set; } = "";
+    /// <summary>快手竖屏海报去字提示词；为空表示使用默认值。</summary>
+    public string KuaishouPosterVerticalErasePrompt { get; set; } = "";
+    /// <summary>快手横屏封面直接生成提示词；为空表示使用默认值。</summary>
+    public string KuaishouPosterHorizontalDirectPrompt { get; set; } = "";
+    /// <summary>快手横屏封面去字提示词；为空表示使用默认值。</summary>
+    public string KuaishouPosterHorizontalErasePrompt { get; set; } = "";
     public string AiTagSystemPrompt { get; set; } = ClientSettingsDefaults.AiTagSystemPrompt;
     public string AiTagBatchPrompt { get; set; } = ClientSettingsDefaults.AiTagBatchPrompt;
     public string AiFullInfoSystemPrompt { get; set; } = ClientSettingsDefaults.AiFullInfoSystemPrompt;
@@ -123,6 +142,10 @@ public sealed class ClientSettings
     public double FrameExtractTime { get; set; } = ClientSettingsDefaults.FrameExtractTime;
     public string FrameExtractNeighborOffsetsSeconds { get; set; } = ClientSettingsDefaults.FrameExtractNeighborOffsetsSeconds;
     public string FrameExtractFallbackPercents { get; set; } = ClientSettingsDefaults.FrameExtractFallbackPercents;
+    /// <summary>「AI 直接生成」海报提示词；为空表示使用默认值。</summary>
+    public string PosterAgentDirectPrompt { get; set; } = "";
+    /// <summary>「AI 消除文字后固定字体写入」去字提示词；为空表示使用默认值。</summary>
+    public string PosterAgentErasePrompt { get; set; } = "";
     public string FrameCoverPrompt { get; set; } = ClientSettingsDefaults.FrameCoverPrompt;
     public string PosterLayoutDetectPrompt { get; set; } = ClientSettingsDefaults.PosterLayoutDetectPrompt;
     public string PosterInpaintPrompt { get; set; } = ClientSettingsDefaults.PosterInpaintPrompt;
@@ -151,6 +174,8 @@ public sealed class ClientSettings
 
     public string LastDownloadWorkspace { get; set; } = "";
     public string ArchiveRootDir { get; set; } = "";
+    /// <summary>新电脑同步下来的 TikTok 账号没有本机工作目录时，使用「根目录\账号名」。</summary>
+    public string TiktokSyncWorkspaceRoot { get; set; } = "";
     public string AuthServerUrl { get; set; } = "";
     public string AuthAccount { get; set; } = "";
     public string AuthPassword { get; set; } = "";
@@ -189,7 +214,7 @@ public sealed class ClientSettings
     public string XingeClientToken { get; set; } = "";
     public string XingeCredentialFingerprint { get; set; } = "";
     public string XingeClientName { get; set; } = "TikTokPublisher";
-    public int XingePollIntervalSeconds { get; set; } = 3;
+    public int XingePollIntervalSeconds { get; set; } = ClientSettingsDefaults.XingePollIntervalSeconds;
 
     public ClientSettings Clone() => new()
     {
@@ -216,6 +241,11 @@ public sealed class ClientSettings
         HghighStandardClientExe = HghighStandardClientExe,
         HghighStandardClientVersion = HghighStandardClientVersion,
         HghighStandardPlaybackMode = HghighStandardPlaybackMode,
+        HongguoAppDeviceId = HongguoAppDeviceId,
+        HongguoAppInstallId = HongguoAppInstallId,
+        HongguoAppPlan = NormalizeHongguoAppPlan(HongguoAppPlan),
+        HongguoAppStreamLink1 = HongguoAppStreamLink1,
+        HongguoAppStreamLink2 = HongguoAppStreamLink2,
         MapleleafAccount = MapleleafAccount,
         MapleleafPassword = MapleleafPassword,
         MapleleafUdid = MapleleafUdid,
@@ -274,6 +304,12 @@ public sealed class ClientSettings
         TiktokRoleReferenceSelectionMode = TiktokRoleReferenceSelectionMode,
         TiktokRoleReferenceAiFallbackEnabled = TiktokRoleReferenceAiFallbackEnabled,
         TiktokRoleVectorViewMode = TiktokRoleVectorViewMode,
+        AiPublishInfoPrompt = AiPublishInfoPrompt,
+        KuaishouPublishInfoPrompt = KuaishouPublishInfoPrompt,
+        KuaishouPosterVerticalDirectPrompt = KuaishouPosterVerticalDirectPrompt,
+        KuaishouPosterVerticalErasePrompt = KuaishouPosterVerticalErasePrompt,
+        KuaishouPosterHorizontalDirectPrompt = KuaishouPosterHorizontalDirectPrompt,
+        KuaishouPosterHorizontalErasePrompt = KuaishouPosterHorizontalErasePrompt,
         AiTagSystemPrompt = AiTagSystemPrompt,
         AiTagBatchPrompt = AiTagBatchPrompt,
         AiFullInfoSystemPrompt = AiFullInfoSystemPrompt,
@@ -301,6 +337,8 @@ public sealed class ClientSettings
         FrameExtractTime = FrameExtractTime,
         FrameExtractNeighborOffsetsSeconds = FrameExtractNeighborOffsetsSeconds,
         FrameExtractFallbackPercents = FrameExtractFallbackPercents,
+        PosterAgentDirectPrompt = PosterAgentDirectPrompt,
+        PosterAgentErasePrompt = PosterAgentErasePrompt,
         FrameCoverPrompt = FrameCoverPrompt,
         PosterLayoutDetectPrompt = PosterLayoutDetectPrompt,
         PosterInpaintPrompt = PosterInpaintPrompt,
@@ -326,6 +364,7 @@ public sealed class ClientSettings
         TiktokProofKeepDocx = TiktokProofKeepDocx,
         LastDownloadWorkspace = LastDownloadWorkspace,
         ArchiveRootDir = ArchiveRootDir,
+        TiktokSyncWorkspaceRoot = TiktokSyncWorkspaceRoot,
         AuthServerUrl = AuthServerUrl,
         AuthAccount = AuthAccount,
         AuthPassword = AuthPassword,

@@ -73,11 +73,24 @@ public static class QueueMaterialStepService
 
         var episodes = LimitEpisodesToKeptPrefix(metadata.Episodes, item, settings, context.SourceProjectDir);
         if (OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(context.SourceProjectDir, out var originalEpisodeCount))
+        {
+            var keep = OverLimitEpisodePolicy.ResolveKeepCount(settings);
+            var hadOldKeep = OverLimitEpisodePolicy.TryReadKeepCount(context.SourceProjectDir, out var storedKeep);
             OverLimitEpisodePolicy.MarkTruncated(
                 context.SourceProjectDir,
                 originalEpisodeCount,
                 settings,
                 log);
+            if (hadOldKeep && storedKeep != keep)
+            {
+                var shown = originalEpisodeCount <= keep ? originalEpisodeCount : keep;
+                item.EpisodeCount = shown;
+                if (item.SourceEpisodeCount < originalEpisodeCount)
+                    item.SourceEpisodeCount = originalEpisodeCount;
+                if (originalEpisodeCount <= keep)
+                    log($"当前最大集数是 {keep}，不再沿用之前的前 {storedKeep} 集，改为下载全部 {originalEpisodeCount} 集。");
+            }
+        }
 
         var request = BuildDownloadRequest(
             context,
@@ -944,6 +957,14 @@ public static class QueueMaterialStepService
         if (IsBookIdForSource(metadataBookId, selectedSource))
             return metadataBookId;
 
+        var adoptedBookId = AdoptHongguoAppBookId(selectedSource, metadataBookId);
+        if (!string.IsNullOrWhiteSpace(adoptedBookId))
+        {
+            log($"项目书号带有红果短剧助手前缀，当前链路是红果APP，按同一书号下载：{adoptedBookId}");
+            PersistProjectBookId(sourceProjectDir, adoptedBookId);
+            return adoptedBookId;
+        }
+
         if (ShouldKeepRetiredBookId(selectedSource, metadataBookId))
         {
             log($"该剧书号属于{DramaSourceLabel(metadataSource)}，按原书号继续下载。");
@@ -1056,6 +1077,32 @@ public static class QueueMaterialStepService
         return OverLimitEpisodePolicy.ResolveDownloadSelection(selection, keep + 1, settings);
     }
 
+    internal static string? AdoptHongguoAppBookId(string? selectedSource, string? bookId)
+    {
+        if (!string.Equals(NormalizeDramaSource(selectedSource), "hongguoapp", StringComparison.Ordinal))
+            return null;
+
+        var id = (bookId ?? string.Empty).Trim();
+        string raw;
+        string prefix;
+        if (id.StartsWith("hghigh_ep:", StringComparison.OrdinalIgnoreCase))
+        {
+            raw = id["hghigh_ep:".Length..];
+            prefix = "hongguoapp_ep:";
+        }
+        else if (id.StartsWith("hghigh:", StringComparison.OrdinalIgnoreCase))
+        {
+            raw = id["hghigh:".Length..];
+            prefix = "hongguoapp:";
+        }
+        else
+        {
+            return null;
+        }
+
+        return string.IsNullOrWhiteSpace(raw) ? null : prefix + raw;
+    }
+
     internal static bool ShouldKeepRetiredBookId(string? selectedSource, string? bookId)
     {
         var selected = (selectedSource ?? string.Empty).Trim().ToLowerInvariant();
@@ -1068,7 +1115,7 @@ public static class QueueMaterialStepService
     internal static string NormalizeDramaSource(string? source)
     {
         var value = (source ?? string.Empty).Trim().ToLowerInvariant();
-        return value is "hgnew" or "hglocal" or "pikachu" or "playlet" or "hghigh" or "mapleleaf" or "downloader" or "dramabox" or "foreign"
+        return value is "hgnew" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "hghigh" or "mapleleaf" or "downloader" or "dramabox" or "foreign"
             ? value
             : "hgnew";
     }
@@ -1087,6 +1134,8 @@ public static class QueueMaterialStepService
         if (id.StartsWith("pikachu:", StringComparison.OrdinalIgnoreCase)) return "pikachu";
         if (id.StartsWith("playlet:", StringComparison.OrdinalIgnoreCase) ||
             id.StartsWith("playlet_ep:", StringComparison.OrdinalIgnoreCase)) return "playlet";
+        if (id.StartsWith("hongguoapp:", StringComparison.OrdinalIgnoreCase) ||
+            id.StartsWith("hongguoapp_ep:", StringComparison.OrdinalIgnoreCase)) return "hongguoapp";
         if (id.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase) ||
             id.StartsWith("dramabox_ep:", StringComparison.OrdinalIgnoreCase)) return "dramabox";
         if (id.StartsWith("foreign:", StringComparison.OrdinalIgnoreCase) ||
@@ -1107,11 +1156,12 @@ public static class QueueMaterialStepService
     private static string DramaSourceLabel(string? source) =>
         NormalizeDramaSource(source) switch
         {
-            "hghigh" => "红果高码率",
+            "hghigh" => "红果短剧助手",
             "mapleleaf" => "Mapleleaf",
             "hglocal" => "本地直连",
             "pikachu" => "皮卡丘",
             "playlet" => "红果短剧下载器",
+            "hongguoapp" => "红果APP下载",
             "dramabox" => "DramaBox",
             "foreign" => "海外短剧下载器",
             _ => "红果新接口",
@@ -1131,6 +1181,30 @@ public static class QueueMaterialStepService
         catch
         {
             return string.Empty;
+        }
+    }
+
+    internal static void PersistProjectBookId(string sourceProjectDir, string bookId)
+    {
+        var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
+        if (!File.Exists(path) || string.IsNullOrWhiteSpace(bookId))
+            return;
+
+        var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+        if (root is null)
+            return;
+        root["bookId"] = bookId.Trim();
+        root["book_id"] = bookId.Trim();
+        var temporary = path + ".book-id.tmp";
+        try
+        {
+            File.WriteAllText(temporary, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary))
+                File.Delete(temporary);
         }
     }
 
@@ -1616,7 +1690,7 @@ public static class QueueMaterialStepService
             {
                 var detected = RewriteSourceLanguage.ReadCached(workflowDir);
                 if (detected is not null)
-                    log($"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题、推荐语和简介使用该语言。");
+                    log($"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题和简介使用该语言。");
             }
             log($"改写完成：{generatedResult.Title}");
         }
@@ -1628,7 +1702,15 @@ public static class QueueMaterialStepService
             infoPath = Path.Combine(workflowDir, "短剧信息.txt");
         }
 
-        await WriteTikTokPublishFieldsAsync(item, settings, account, episodeCount, workflowDir, log, ct);
+        await WriteTikTokPublishFieldsAsync(
+            item,
+            settings,
+            account,
+            episodeCount,
+            workflowDir,
+            allowAi: generatedResult is null,
+            log,
+            ct);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
 
@@ -1908,6 +1990,7 @@ public static class QueueMaterialStepService
         TikTokAccountProfile? account,
         int episodeCount,
         string workflowDir,
+        bool allowAi,
         Action<string> log,
         CancellationToken ct)
     {
@@ -1958,7 +2041,8 @@ public static class QueueMaterialStepService
             settings,
             options,
             log,
-            ct);
+            ct,
+            allowAi);
 
         ProjectInfoTextHelper.UpdateFields(infoPath, new Dictionary<string, string>
         {
@@ -2592,7 +2676,6 @@ public static class QueueMaterialStepService
             item.Title);
         var originalTitle = NormalizeComparableTitle(rawOriginalTitle);
         var title = NormalizeComparableTitle(rawTitle);
-        var tagline = FirstNonEmpty(info.GetValueOrDefault("推荐语"));
         var synopsis = FirstNonEmpty(
             info.GetValueOrDefault("简介"),
             info.GetValueOrDefault("描述"),
@@ -2601,7 +2684,6 @@ public static class QueueMaterialStepService
         if (string.IsNullOrWhiteSpace(title)) return false;
         if (!string.IsNullOrWhiteSpace(originalTitle) && string.Equals(title, originalTitle, StringComparison.OrdinalIgnoreCase))
             return false;
-        if (string.IsNullOrWhiteSpace(tagline)) return false;
         if (rewriteSynopsis &&
             IsDefaultSynopsis(synopsis, rawTitle, rawOriginalTitle, Path.GetFileName(context.SourceProjectDir)))
             return false;

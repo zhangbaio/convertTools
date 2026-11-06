@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -13,10 +15,13 @@ using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Drama;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Ui.ViewModels;
+using TikTokPublisher.Ui.Views;
 using GlobalAccount = ChannelsPublisher.Core.Models.PublishAccount;
 using GlobalAccountStore = ChannelsPublisher.Core.Services.AccountStore;
 
@@ -63,10 +68,36 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly KuaishouPersonalProjectDataService _kuaishouPersonalProjectDataService;
     private readonly KuaishouPersonalPreparationService _kuaishouPersonalPreparationService;
     private readonly DramaTitleImportService _dramaTitleImportService;
+    private readonly KuaishouScheduledShelfService _scheduledShelfService;
+    private int _scheduledShelfGate;
+    private readonly HashSet<string> _scheduledShelfIdleAnnounced = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PublishJob> _jobs = [];
     private readonly List<GlobalAccount> _globalAccounts = [];
     private readonly DispatcherTimer _scheduleTimer;
     private CancellationTokenSource? _operationCts;
+    private readonly Dictionary<string, CancellationTokenSource> _kuaishouAccountRuns = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _kuaishouRunGate = new();
+    private readonly Dictionary<string, PublishJobRowViewModel> _jobRowCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<KuaishouLogProject>> _kuaishouLogsByAccount = new(StringComparer.OrdinalIgnoreCase);
+    private int _visibleJobGeneration;
+    private int _todayUploadGeneration;
+    private DateTime _countedUploadDay = DateTime.MinValue;
+    private int _logRefreshPosted;
+    private int _workspaceLoadGeneration;
+    private int _kuaishouListingDepth;
+    private int _listedVerifyGeneration;
+    private int _archiveListGeneration;
+    private IReadOnlyList<ArchivedProjectRowViewModel> _kuaishouArchivedRows = [];
+    private readonly List<string> _kuaishouListedMisses = [];
+    private string _kuaishouScannedWorkspace = "";
+    private long _kuaishouScannedTick;
+    private const int KuaishouWorkspaceFreshMilliseconds = 30_000;
+    private readonly Queue<(string? AccountKey, ActivityLogRecord Record)> _pendingActivityLogs = new();
+    private int _activityLogFlushScheduled;
+    private long _nextActivityLogFlushTick;
+    private int _kuaishouLogNotifyPending;
+    private long _nextKuaishouLogNotifyTick;
+    private Task? _managementBrowserTask;
     private bool _scheduleTickRunning;
     private CancellationTokenSource? _episodeLoadCts;
     private WorkflowInteractionRequest? _currentInteractionRequest;
@@ -91,7 +122,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         WeixinProofArtifactsService proofArtifactsService,
         KuaishouPersonalProjectDataService kuaishouPersonalProjectDataService,
         KuaishouPersonalPreparationService kuaishouPersonalPreparationService,
-        DramaTitleImportService dramaTitleImportService)
+        DramaTitleImportService dramaTitleImportService,
+        KuaishouScheduledShelfService scheduledShelfService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -110,6 +142,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _kuaishouPersonalProjectDataService = kuaishouPersonalProjectDataService;
         _kuaishouPersonalPreparationService = kuaishouPersonalPreparationService;
         _dramaTitleImportService=dramaTitleImportService;
+        _scheduledShelfService = scheduledShelfService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -137,12 +170,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _selectedJobKind = JobKinds[0];
         _selectedJobStatusChoice = JobStatusChoices[0];
         AddJobCommand = new AsyncRelayCommand(AddJobAsync, CanAddJob);
-        RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected);
+        RunSelectedCommand = new AsyncRelayCommand(RunSelectedAsync, CanRunSelected, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         RunRunnableCommand = new AsyncRelayCommand(RunRunnableAsync, CanRunRunnable);
         RetryFailedCommand = new AsyncRelayCommand(RetryFailedAsync, CanRetryFailed);
         OpenLoginCommand = new AsyncRelayCommand(OpenLoginAsync, CanOpenLogin);
         RemoveSelectedCommand = new AsyncRelayCommand(RemoveSelectedAsync, () => SelectedJob is not null && !IsBusy);
-        StopCommand = new RelayCommand(Stop, () => IsBusy);
+        StopCommand = new RelayCommand(Stop, CanStopCurrentWork);
         TakeoverInteractionCommand = new RelayCommand(() => ResolveInteraction("manual"), () => CanResolveInteraction("manual"));
         ResumeInteractionCommand = new RelayCommand(() => ResolveInteraction("resume"), () => CanResolveInteraction("resume"));
         SkipCurrentVideoCommand = new RelayCommand(() => ResolveInteraction("skip_video"), () => CanResolveInteraction("skip_video"));
@@ -151,13 +184,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ClearActivityLogsCommand = new RelayCommand(ClearActivityLogs);
         RefreshSelectedEpisodesCommand = new AsyncRelayCommand(() => LoadSelectedProjectEpisodesAsync(SelectedJob));
         OpenSelectedEpisodeDirectoryCommand = new RelayCommand(OpenSelectedEpisodeDirectory, () => SelectedEpisode is not null);
-        RunSharedPipelineCommand = new AsyncRelayCommand(RunSharedPipelineAsync, CanRunSharedPipeline);
+        RunSharedPipelineCommand = new AsyncRelayCommand(RunSharedPipelineAsync, CanRunSharedPipeline, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         ScanWorkspaceCommand = new AsyncRelayCommand(ScanWorkspaceAsync, CanScanWorkspace);
         RefreshArchivedProjectsCommand = new RelayCommand(RefreshArchivedProjects);
         ResetSelectedJobCommand = new AsyncRelayCommand(ResetSelectedJobAsync, () => SelectedJob is not null && !IsBusy);
         SaveWorkflowSettingsCommand = new AsyncRelayCommand(SaveWorkflowSettingsAsync, () => !IsBusy);
         CreateNamedProjectCommand = new AsyncRelayCommand(CreateNamedProjectAsync, CanCreateNamedProject);
-        RunCheckedCommand = new AsyncRelayCommand(RunCheckedAsync, () => !IsBusy);
+        RunCheckedCommand = new AsyncRelayCommand(RunCheckedAsync, CanRunChecked, AsyncRelayCommandOptions.AllowConcurrentExecutions);
         CheckAllVisibleCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(_ => true), () => !IsBusy);
         CheckPendingCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(row => row.Model.Status is PublishJobStatus.Pending or PublishJobStatus.Failed), () => !IsBusy);
         UncheckAllVisibleCommand = new AsyncRelayCommand(() => SetVisibleCheckedAsync(_ => false), () => !IsBusy);
@@ -188,7 +221,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<PublishAccountItemViewModel> VisibleAccounts { get; } = [];
     public ObservableCollection<string> ActivityLogs { get; } = [];
     public ObservableCollection<ActivityLogRecord> ActivityLogRecords { get; } = [];
+    private static readonly AsyncLocal<PublishPlatform?> ActivityLogPlatformScope = new();
+    public IReadOnlyList<KuaishouLogProject> KuaishouLogProjects =>
+        CurrentKuaishouRunKey() is { } key && _kuaishouLogsByAccount.TryGetValue(key, out var projects)
+            ? projects
+            : Array.Empty<KuaishouLogProject>();
+    public event EventHandler? KuaishouLogProjectsChanged;
     private string _activityLogProject = "";
+    private static readonly AsyncLocal<string?> ActivityLogProjectScope = new();
+    private static readonly AsyncLocal<string?> ActivityLogAccountScope = new();
+    private readonly SemaphoreSlim _persistGate = new(1, 1);
     public ObservableCollection<string> FilteredActivityLogs { get; } = [];
     public ObservableCollection<EpisodeRowViewModel> SelectedProjectEpisodes { get; } = [];
     public ObservableCollection<ArchivedProjectRowViewModel> ArchivedProjects { get; } = [];
@@ -312,6 +354,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private string _statusMessage = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
 
     [ObservableProperty]
+    private string _footerLogText = "多平台发布助手已启动，数据与 TikTok 助手完全隔离。";
+
+    [ObservableProperty]
+    private string _otherAccountFooterLogText = "";
+
+    [ObservableProperty]
     private string _activeWeixinAccountName = "请先在左侧选择账号";
 
     [ObservableProperty]
@@ -336,6 +384,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty] private string _archiveRootDirectory = string.Empty;
     [ObservableProperty] private ArchivedProjectRowViewModel? _selectedArchivedProject;
+    [ObservableProperty] private string _kuaishouTodayUploadText = "";
+    [ObservableProperty] private bool _kuaishouArchiveIsPersonal = true;
+    [ObservableProperty] private string _kuaishouArchiveRootText = "";
+    [ObservableProperty] private string _kuaishouArchiveFilterText = "";
     [ObservableProperty] private string _workflowFilterText = string.Empty;
     [ObservableProperty] private string _draftNewProjectName = string.Empty;
     [ObservableProperty] private int _workflowPageSize = 20;
@@ -354,6 +406,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public string WorkflowPageSummary => $"第 {WorkflowCurrentPage}/{WorkflowPageCount} 页，共 {VisibleJobs.Count} 条";
 
     public string ArchivedProjectsSummary => $"已归档 {ArchivedProjects.Count} 个项目";
+
+    public string KuaishouArchivedProjectsSummary =>
+        string.IsNullOrWhiteSpace(KuaishouArchiveFilterText)
+            ? $"已归档 {_kuaishouArchivedRows.Count} 个项目"
+            : $"已归档 {ArchivedProjects.Count} / {_kuaishouArchivedRows.Count} 个项目";
 
     [ObservableProperty]
     private bool _isBusy;
@@ -399,12 +456,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public void UseGlobalAccount(GlobalAccount? account)
     {
         _activeGlobalAccount = account;
+        ApplyFooterLogs();
         UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
         DraftAccountName = account?.Name ?? string.Empty;
         DraftConfigPath = ResolveGlobalConfigPath(account, SelectedPlatform.Value);
         if (IsKuaishouPlatform)
+        {
+            AlignKuaishouPlatformToAccount();
             ApplyKuaishouWorkspace(account);
-        RefreshVisibleJobs();
+            _ = EnsureWorkspaceProjectsLoadedAsync();
+        }
+        else
+        {
+            RefreshVisibleJobs();
+        }
+        NotifyKuaishouEditionState();
+        RefreshKuaishouTodayUploadCount();
+        RefreshKuaishouArchivedProjects();
+        NotifyKuaishouLogProjectsChanged();
         RefreshVisibleAccounts(account?.Id);
         OnPropertyChanged(nameof(QueueSummary));
         NotifyCommands();
@@ -424,6 +493,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             StatusMessage = "请先在左侧选择账号。";
             return false;
         }
+        if (IsKuaishouPlatform && !HasKuaishouEdition)
+        {
+            StatusMessage = "请先在快手分账配置中选择账号类型。";
+            return false;
+        }
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
         {
             StatusMessage = $"请选择有效的{SelectedPlatform.Name}工作目录。";
@@ -431,7 +505,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var normalized = Path.GetFullPath(directory);
-        _activeGlobalAccount.WorkRootDirectory = normalized;
+        if (SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue)
+            _activeGlobalAccount.KuaishouPersonalWorkRootDirectory = normalized;
+        else if (SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue)
+            _activeGlobalAccount.KuaishouEnterpriseWorkRootDirectory = normalized;
+        else
+            _activeGlobalAccount.WorkRootDirectory = normalized;
+        if (string.IsNullOrWhiteSpace(_activeGlobalAccount.WorkRootDirectory))
+            _activeGlobalAccount.WorkRootDirectory = normalized;
         _globalAccountStore.Update(_activeGlobalAccount);
         DraftProjectDirectory = normalized;
         StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的{SelectedPlatform.Name}工作目录：{normalized}";
@@ -448,20 +529,284 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _ = EnsureWorkspaceProjectsLoadedAsync();
     }
 
+    public void EnterKuaishouPage()
+    {
+        if (!IsKuaishouPlatform)
+            SelectPlatform(PublishPlatform.KuaishouPersonalRevenue);
+        AlignKuaishouPlatformToAccount();
+        NotifyKuaishouEditionState();
+        LoadKuaishouWorkspace();
+    }
+
+    public bool HasKuaishouEdition =>
+        KuaishouAccountEdition.TryGetPlatform(_activeGlobalAccount?.KuaishouAccountEdition, out _);
+
+    public bool ShowKuaishouEditionPrompt => IsKuaishouPlatform && !HasKuaishouEdition;
+
+    public string KuaishouEditionHeading =>
+        KuaishouAccountEdition.TryGetPlatform(_activeGlobalAccount?.KuaishouAccountEdition, out var platform)
+            ? platform == PublishPlatform.KuaishouEnterpriseRevenue ? "快手分账 · 企业版" : "快手分账 · 个人版"
+            : "快手分账";
+
+    public async Task<bool> ConfirmKuaishouEditionChangeAsync(
+        GlobalAccount account,
+        string edition,
+        Func<string, Task<bool>> confirm)
+    {
+        if (!KuaishouAccountEdition.TryGetPlatform(edition, out var platform))
+        {
+            StatusMessage = "请选择个人版或企业版。";
+            return false;
+        }
+
+        if (string.Equals(account.KuaishouAccountEdition, edition, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (IsKuaishouPublishRunning(account.Id, PublishPlatform.KuaishouPersonalRevenue) ||
+            IsKuaishouPublishRunning(account.Id, PublishPlatform.KuaishouEnterpriseRevenue))
+        {
+            StatusMessage = $"账号「{account.Name}」的快手队列正在执行，不能修改账号类型。";
+            return false;
+        }
+
+        var other = KuaishouAccountEdition.Other(platform);
+        var otherLabel = KuaishouAccountEdition.Label(other == PublishPlatform.KuaishouEnterpriseRevenue
+            ? KuaishouAccountEdition.Enterprise
+            : KuaishouAccountEdition.Personal);
+        var count = _jobs.Count(job =>
+            job.Platform == other &&
+            string.Equals(job.AccountId, account.Id, StringComparison.OrdinalIgnoreCase));
+        var message = count == 0
+            ? $"将把账号「{account.Name}」设为{KuaishouAccountEdition.Label(edition)}。没有需要删除的{otherLabel}任务记录。是否继续？"
+            : $"将把账号「{account.Name}」设为{KuaishouAccountEdition.Label(edition)}，并删除 {count} 个{otherLabel}任务记录（不删除文件）。是否继续？";
+        return await confirm(message);
+    }
+
+    public async Task ApplyKuaishouEditionAsync(GlobalAccount account, string edition)
+    {
+        if (!KuaishouAccountEdition.TryGetPlatform(edition, out var platform))
+            return;
+        var canonical = platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? KuaishouAccountEdition.Enterprise
+            : KuaishouAccountEdition.Personal;
+        account.KuaishouAccountEdition = canonical;
+        var tracked = _globalAccounts.FirstOrDefault(item =>
+            string.Equals(item.Id, account.Id, StringComparison.OrdinalIgnoreCase));
+        if (tracked is not null)
+            tracked.KuaishouAccountEdition = canonical;
+        _globalAccountStore.Update(tracked ?? account);
+
+        var other = KuaishouAccountEdition.Other(platform);
+        var workspace = ResolveKuaishouWorkRoot(account, platform);
+        var added = 0;
+        if (Directory.Exists(workspace))
+        {
+            var fullWorkspace = Path.GetFullPath(workspace);
+            var existing = KuaishouJobDirectories(platform);
+            added = AddKuaishouJobs(
+                platform,
+                SeedKuaishouProjectsFromOtherEdition(fullWorkspace, platform, existing),
+                existing,
+                account.Id,
+                account.Name);
+            IReadOnlyList<string> directories;
+            try
+            {
+                directories = await Task.Run(() => KuaishouWorkspaceProjects.List(fullWorkspace));
+            }
+            catch (Exception ex)
+            {
+                directories = [];
+                AppendActivityLog($"扫描工作目录失败：{ex.Message}");
+            }
+
+            added += AddKuaishouJobs(
+                platform,
+                directories.Select(directory => (directory, Path.GetFileName(directory))),
+                existing,
+                account.Id,
+                account.Name);
+        }
+
+        var removedJobs = _jobs.Where(job =>
+            job.Platform == other &&
+            string.Equals(job.AccountId, account.Id, StringComparison.OrdinalIgnoreCase)).ToArray();
+        foreach (var job in removedJobs)
+        {
+            _jobs.Remove(job);
+            _jobRowCache.Remove(job.Id);
+        }
+
+        await PersistAsync();
+        var viewing = IsKuaishouPlatform &&
+                      string.Equals(_activeGlobalAccount?.Id, account.Id, StringComparison.OrdinalIgnoreCase);
+        if (viewing)
+        {
+            KuaishouArchiveIsPersonal = platform != PublishPlatform.KuaishouEnterpriseRevenue;
+            if (SelectedPlatform.Value != platform)
+                SelectPlatform(platform);
+            ApplyKuaishouWorkspace(account);
+            RefreshVisibleJobs();
+            RefreshKuaishouTodayUploadCount();
+        }
+
+        NotifyKuaishouEditionState();
+        StatusMessage = removedJobs.Length == 0
+            ? $"已将账号「{account.Name}」设为{KuaishouAccountEdition.Label(canonical)}，新增 {added} 个任务。"
+            : $"已将账号「{account.Name}」设为{KuaishouAccountEdition.Label(canonical)}，新增 {added} 个任务，删除 {removedJobs.Length} 个另一版本任务记录。";
+        AppendActivityLog(StatusMessage);
+    }
+
+    private void AlignKuaishouPlatformToAccount()
+    {
+        if (!TryGetActiveKuaishouPlatform(out var platform))
+            return;
+        KuaishouArchiveIsPersonal = platform != PublishPlatform.KuaishouEnterpriseRevenue;
+        if (SelectedPlatform.Value != platform)
+            SelectPlatform(platform);
+    }
+
+    private bool TryGetActiveKuaishouPlatform(out PublishPlatform platform) =>
+        KuaishouAccountEdition.TryGetPlatform(_activeGlobalAccount?.KuaishouAccountEdition, out platform);
+
+    private bool AllowsKuaishouWork() => !IsKuaishouPlatform || HasKuaishouEdition;
+
+    private void NotifyKuaishouEditionState()
+    {
+        OnPropertyChanged(nameof(HasKuaishouEdition));
+        OnPropertyChanged(nameof(ShowKuaishouEditionPrompt));
+        OnPropertyChanged(nameof(KuaishouEditionHeading));
+        NotifyCommands();
+    }
+
     private void ApplyKuaishouWorkspace(GlobalAccount? account)
     {
-        if (string.IsNullOrWhiteSpace(account?.WorkRootDirectory) || !Directory.Exists(account.WorkRootDirectory))
+        var workspace = ResolveKuaishouWorkRoot(account);
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
             return;
-        DraftProjectDirectory = Path.GetFullPath(account.WorkRootDirectory);
+        DraftProjectDirectory = Path.GetFullPath(workspace);
+    }
+
+    private string ResolveKuaishouWorkRoot(GlobalAccount? account) =>
+        ResolveKuaishouWorkRoot(account, SelectedPlatform.Value);
+
+    private static string ResolveKuaishouWorkRoot(GlobalAccount? account, PublishPlatform platform)
+    {
+        if (account is null)
+            return string.Empty;
+        var editionRoot = platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? account.KuaishouEnterpriseWorkRootDirectory
+            : account.KuaishouPersonalWorkRootDirectory;
+        return string.IsNullOrWhiteSpace(editionRoot) ? account.WorkRootDirectory ?? string.Empty : editionRoot;
     }
 
     private async Task EnsureWorkspaceProjectsLoadedAsync()
     {
-        if (!IsKuaishouPlatform || !CanScanWorkspace() || _activeGlobalAccount is null)
+        var generation = Interlocked.Increment(ref _workspaceLoadGeneration);
+        if (!IsKuaishouPlatform || _activeGlobalAccount is null)
             return;
-        // 快手个人版和企业版共用同一工作目录。短剧助手每次进入都会按磁盘重扫；
-        // 这里不能因为已有旧任务就跳过，否则后加入的项目只会出现在后扫描的那一版。
-        await ScanWorkspaceAsync();
+        if (!HasKuaishouEdition)
+        {
+            RefreshVisibleJobs();
+            StatusMessage = "请先在快手分账配置中选择账号类型。";
+            return;
+        }
+        // 个人版和企业版各自记住工作目录。没单独配过的版本仍沿用原来的工作目录。
+        var workspace = ResolveKuaishouWorkRoot(_activeGlobalAccount);
+        if (!IsWorkspaceLoadCurrent(generation))
+            return;
+        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
+        {
+            DraftProjectDirectory = string.Empty;
+            RefreshVisibleJobs();
+            return;
+        }
+
+        var fullWorkspace = Path.GetFullPath(workspace);
+        DraftProjectDirectory = fullWorkspace;
+        ArchiveRootDirectory = fullWorkspace;
+        BeginKuaishouListing();
+        try
+        {
+            RefreshVisibleJobs();
+            if (!CanScanWorkspace() || !IsWorkspaceLoadCurrent(generation))
+                return;
+            if (IsKuaishouWorkspaceFresh(fullWorkspace))
+            {
+                await AdoptFreshKuaishouWorkspaceAsync(fullWorkspace, generation);
+                return;
+            }
+
+            ArchiveRootDirectory = fullWorkspace;
+            await ScanKuaishouWorkspaceAsync(fullWorkspace, SelectedPlatform.Value, CancellationToken.None, generation);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!IsWorkspaceLoadCurrent(generation))
+                return;
+            StatusMessage = "扫描工作目录已停止。";
+            AppendActivityLog(StatusMessage);
+        }
+        catch (Exception ex)
+        {
+            if (!IsWorkspaceLoadCurrent(generation))
+                return;
+            StatusMessage = $"扫描工作目录失败：{ex.Message}";
+            AppendActivityLog(StatusMessage);
+        }
+        finally
+        {
+            EndKuaishouListing();
+        }
+    }
+
+    private bool IsWorkspaceLoadCurrent(int generation) =>
+        generation == 0 || generation == Volatile.Read(ref _workspaceLoadGeneration);
+
+    private bool IsKuaishouWorkspaceFresh(string workspace) =>
+        string.Equals(_kuaishouScannedWorkspace, workspace, StringComparison.OrdinalIgnoreCase) &&
+        Environment.TickCount64 - _kuaishouScannedTick < KuaishouWorkspaceFreshMilliseconds;
+
+    private void BeginKuaishouListing() => _kuaishouListingDepth++;
+
+    private void EndKuaishouListing()
+    {
+        if (_kuaishouListingDepth > 0)
+            _kuaishouListingDepth--;
+        if (_kuaishouListingDepth == 0)
+            ScheduleKuaishouListedVerification();
+    }
+
+    private async Task AdoptFreshKuaishouWorkspaceAsync(string workspace, int generation)
+    {
+        var platform = SelectedPlatform.Value;
+        var existing = KuaishouJobDirectories(platform);
+        var added = AddKuaishouJobs(platform, SeedKuaishouProjectsFromOtherEdition(workspace, platform, existing), existing);
+        if (!IsWorkspaceLoadCurrent(generation))
+            return;
+        if (added > 0)
+            await PersistAsync();
+        if (!IsWorkspaceLoadCurrent(generation))
+            return;
+        RefreshVisibleJobs();
+    }
+
+    private HashSet<string> KuaishouJobDirectories(PublishPlatform platform)
+    {
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var job in _jobs.ToArray())
+        {
+            if (job.Platform != platform || job.Kind != PublishJobKind.Series || string.IsNullOrWhiteSpace(job.ProjectDirectory))
+                continue;
+            try
+            {
+                directories.Add(Path.GetFullPath(job.ProjectDirectory));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+            {
+            }
+        }
+
+        return directories;
     }
 
     public DramaSourceConfigurationStatus GetDramaSourceConfigurationStatus()
@@ -489,6 +834,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public void ActivateSeriesWorkflow()
     {
+        if (!_materialWorkflowActive && SelectedJobKindValue == PublishJobKind.Series)
+            return;
         _materialWorkflowActive = false;
         SelectedJobKind = JobKinds.First(item => item.Value == PublishJobKind.Series);
         RefreshVisibleJobs();
@@ -522,6 +869,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OnPropertyChanged(nameof(IsWeixinPlatform));
         OnPropertyChanged(nameof(IsKuaishouPersonalPlatform));
         OnPropertyChanged(nameof(IsKuaishouPlatform));
+        NotifyKuaishouEditionState();
+        RefreshKuaishouTodayUploadCount();
         NotifyCommands();
     }
 
@@ -531,45 +880,32 @@ public sealed partial class MainWindowViewModel : ObservableObject
             string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase));
         if (account is null) return;
         var fullPath = Path.GetFullPath(path);
-        if (platform == PublishPlatform.KuaishouEnterpriseRevenue)
-        {
-            account.KuaishouEnterpriseConfigPath = fullPath;
-            if (string.IsNullOrWhiteSpace(account.KuaishouEnterpriseAccount))
-                account.KuaishouEnterpriseAccount = account.Name;
-        }
-        else
-        {
-            account.KuaishouPersonalConfigPath = fullPath;
-            if (string.IsNullOrWhiteSpace(account.KuaishouPersonalAccount))
-                account.KuaishouPersonalAccount = account.Name;
-        }
+        account.KuaishouPersonalConfigPath = fullPath;
+        account.KuaishouEnterpriseConfigPath = fullPath;
+        if (string.IsNullOrWhiteSpace(account.KuaishouPersonalAccount))
+            account.KuaishouPersonalAccount = account.Name;
+        if (string.IsNullOrWhiteSpace(account.KuaishouEnterpriseAccount))
+            account.KuaishouEnterpriseAccount = account.Name;
         _globalAccountStore.Update(account);
-        StatusMessage = $"{platform.DisplayName()}配置已保存到账号「{account.Name}」。";
+        StatusMessage = $"快手分账配置已保存到账号「{account.Name}」。";
     }
 
     public async Task UpdateSelectedAccountConfigPathAsync(string configPath)
     {
         if (_activeGlobalAccount is null) throw new InvalidOperationException("请先在左侧选择全局账号。");
         var path = Path.GetFullPath(configPath);
-        switch (SelectedPlatform.Value)
-        {
-            case PublishPlatform.KuaishouPersonalRevenue:
-                _activeGlobalAccount.KuaishouPersonalConfigPath = path;
-                if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouPersonalAccount))
-                    _activeGlobalAccount.KuaishouPersonalAccount = _activeGlobalAccount.Name;
-                break;
-            case PublishPlatform.KuaishouEnterpriseRevenue:
-                _activeGlobalAccount.KuaishouEnterpriseConfigPath = path;
-                if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouEnterpriseAccount))
-                    _activeGlobalAccount.KuaishouEnterpriseAccount = _activeGlobalAccount.Name;
-                break;
-            default:
-                throw new InvalidOperationException("当前平台不使用独立配置文件。");
-        }
+        if (SelectedPlatform.Value is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue))
+            throw new InvalidOperationException("当前平台不使用独立配置文件。");
+        _activeGlobalAccount.KuaishouPersonalConfigPath = path;
+        _activeGlobalAccount.KuaishouEnterpriseConfigPath = path;
+        if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouPersonalAccount))
+            _activeGlobalAccount.KuaishouPersonalAccount = _activeGlobalAccount.Name;
+        if (string.IsNullOrWhiteSpace(_activeGlobalAccount.KuaishouEnterpriseAccount))
+            _activeGlobalAccount.KuaishouEnterpriseAccount = _activeGlobalAccount.Name;
         _globalAccountStore.Update(_activeGlobalAccount);
         DraftConfigPath = path;
         RefreshVisibleAccounts(_activeGlobalAccount.Id);
-        StatusMessage = $"{SelectedPlatform.Name}配置已保存到全局账号「{_activeGlobalAccount.Name}」：{path}";
+        StatusMessage = $"快手分账配置已保存到全局账号「{_activeGlobalAccount.Name}」：{path}";
         await Task.CompletedTask;
     }
 
@@ -637,6 +973,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     partial void OnPipelineRemuxEnabledChanged(bool value) => OnWorkflowStepChanged();
     partial void OnPipelineUploadEpisodesEnabledChanged(bool value) => OnWorkflowStepChanged();
     partial void OnPipelineForceRerunChanged(bool value) => RememberWorkflowSteps();
+    partial void OnPipelineAutoArchiveAfterUploadChanged(bool value) => RememberWorkflowSteps();
 
     private async Task LoadAsync()
     {
@@ -682,6 +1019,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     private bool CanAddJob() =>
+        AllowsKuaishouWork() &&
         !IsBusy &&
         _activeGlobalAccount is not null &&
         HasValidDraftSource() &&
@@ -792,10 +1130,56 @@ public sealed partial class MainWindowViewModel : ObservableObject
             StatusMessage = "请先在左侧选择账号。";
             return 0;
         }
+        if (!AllowsKuaishouWork())
+        {
+            StatusMessage = "请先在快手分账配置中选择账号类型。";
+            return 0;
+        }
         var added = await AddImportedProjectJobsAsync(directories, platform: SelectedPlatform.Value);
         StatusMessage = $"导入{SelectedPlatform.Name}本地项目完成：新增 {added} 个任务。";
         AppendActivityLog(StatusMessage);
         return added;
+    }
+
+    public IReadOnlyList<KuaishouLocalDramaCandidate> ListKuaishouLocalImportCandidates()
+    {
+        if (!Directory.Exists(DraftProjectDirectory))
+            return [];
+        return KuaishouLocalDramaImportService.ListCandidates(DraftProjectDirectory);
+    }
+
+    public async Task<int> ImportKuaishouLocalDramasAsync(IEnumerable<string> directories)
+    {
+        if (_activeGlobalAccount is null)
+        {
+            StatusMessage = "请先在左侧选择账号。";
+            return 0;
+        }
+
+        var imported = new List<string>();
+        var failed = new List<string>();
+        await Task.Run(() =>
+        {
+            foreach (var directory in directories)
+            {
+                try
+                {
+                    var projectDirectory = KuaishouLocalDramaImportService.Bootstrap(directory).ProjectDirectory;
+                    KuaishouWorkspaceProjects.Invalidate(projectDirectory);
+                    imported.Add(projectDirectory);
+                }
+                catch (Exception ex)
+                {
+                    failed.Add($"{Path.GetFileName(directory)}：{ex.Message}");
+                }
+            }
+        });
+        var added = await AddImportedProjectJobsAsync(imported, platform: SelectedPlatform.Value);
+        StatusMessage = $"导入本地短剧完成：成功 {imported.Count} 个，新增 {added} 个，失败 {failed.Count} 个。";
+        AppendActivityLog(StatusMessage);
+        foreach (var message in failed.Take(20))
+            AppendActivityLog($"导入失败：{message}");
+        return imported.Count;
     }
 
     public Task<int> ImportVideoChannelProjectDirectoriesAsync(TikTokQueueImportRequest request) =>
@@ -804,23 +1188,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public async Task<int> ImportDownloadedProjectsAsync(TikTokQueueImportRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var platform = request.Target.PlatformKey switch
-        {
-            DramaQueuePlatforms.KuaishouPersonal => PublishPlatform.KuaishouPersonalRevenue,
-            DramaQueuePlatforms.KuaishouEnterprise => PublishPlatform.KuaishouEnterpriseRevenue,
-            _ => PublishPlatform.WeixinChannel,
-        };
-        var platformLabel = string.IsNullOrWhiteSpace(request.Target.PlatformLabel)
-            ? platform.DisplayName()
-            : request.Target.PlatformLabel;
         var account = _globalAccounts.FirstOrDefault(item =>
             string.Equals(item.Id, request.Target.AccountProfileId, StringComparison.OrdinalIgnoreCase));
+        var platformLabel = string.IsNullOrWhiteSpace(request.Target.PlatformLabel)
+            ? "队列"
+            : request.Target.PlatformLabel;
         if (account is null)
         {
             StatusMessage = $"{platformLabel}队列导入失败：账号「{request.Target.AccountProfileName}」已不存在。";
             AppendActivityLog(StatusMessage);
             return 0;
         }
+
+        if (!TryResolveImportPlatform(request.Target.PlatformKey, account, out var platform, out var resolveError))
+        {
+            StatusMessage = resolveError;
+            AppendActivityLog(StatusMessage);
+            return 0;
+        }
+        platformLabel = string.IsNullOrWhiteSpace(request.Target.PlatformLabel)
+            ? platform.DisplayName()
+            : request.Target.PlatformLabel;
 
         var added = await AddImportedProjectJobsAsync(
             request.ProjectDirs,
@@ -834,9 +1222,48 @@ public sealed partial class MainWindowViewModel : ObservableObject
         return added;
     }
 
+    private static bool TryResolveImportPlatform(
+        string platformKey,
+        GlobalAccount account,
+        out PublishPlatform platform,
+        out string error)
+    {
+        error = "";
+        if (platformKey == DramaQueuePlatforms.Kuaishou)
+        {
+            if (KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out platform))
+                return true;
+            platform = default;
+            error = $"「{account.Name}」还没有选择快手分账账号类型。";
+            return false;
+        }
+
+        platform = platformKey switch
+        {
+            DramaQueuePlatforms.KuaishouPersonal => PublishPlatform.KuaishouPersonalRevenue,
+            DramaQueuePlatforms.KuaishouEnterprise => PublishPlatform.KuaishouEnterpriseRevenue,
+            _ => PublishPlatform.WeixinChannel,
+        };
+        if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue &&
+            KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var edition) &&
+            edition != platform)
+        {
+            error = $"「{account.Name}」是{KuaishouAccountEdition.Label(account.KuaishouAccountEdition)}，不能导入到另一版本。";
+            return false;
+        }
+        if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue &&
+            !KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out _))
+        {
+            error = $"「{account.Name}」还没有选择快手分账账号类型。";
+            return false;
+        }
+        return true;
+    }
+
     public async Task<string> ImportDramaTitlesAsync(string titlesText)
     {
         if(_activeGlobalAccount is null){StatusMessage="请先在左侧选择账号。";return StatusMessage;}
+        if(!AllowsKuaishouWork()){StatusMessage="请先在快手分账配置中选择账号类型。";return StatusMessage;}
         if(!Directory.Exists(DraftProjectDirectory)){StatusMessage="请先选择有效的工作目录。";return StatusMessage;}
         var sourceStatus=GetDramaSourceConfigurationStatus();
         if(!sourceStatus.IsConfigured){StatusMessage=sourceStatus.Message;AppendActivityLog(StatusMessage);return StatusMessage;}
@@ -926,83 +1353,214 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     private bool CanRunSharedPipeline() =>
-        !IsBusy &&
+        AllowsKuaishouWork() &&
+        (IsKuaishouPlatform ? !IsKuaishouAccountRunning(CurrentKuaishouRunKey()) : !IsBusy) &&
         Directory.Exists(DraftProjectDirectory) &&
         (PipelineDownloadEnabled || PipelineSmartRecutEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
          PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineGenerateAiProofEnabled ||
          PipelineGenerateTimestampCertificateEnabled || PipelineMaterialValidateEnabled ||
-         PipelineRemuxEnabled);
+         PipelineRemuxEnabled || PipelineUploadEpisodesEnabled);
 
     private bool CanScanWorkspace() =>
-        !IsBusy && _activeGlobalAccount is not null && Directory.Exists(DraftProjectDirectory);
+        AllowsKuaishouWork() &&
+        _activeGlobalAccount is not null && Directory.Exists(DraftProjectDirectory) &&
+        (IsKuaishouPlatform || !IsBusy);
 
     private async Task ScanWorkspaceAsync()
     {
         var rootDirectory = Path.GetFullPath(DraftProjectDirectory);
         var platform = SelectedPlatform.Value;
         ArchiveRootDirectory = rootDirectory;
-        await RunBusyAsync(async cancellationToken =>
+        if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
         {
+            await ScanWorkspaceCoreAsync(rootDirectory, platform, CancellationToken.None);
+            return;
+        }
+
+        await RunBusyAsync(cancellationToken => ScanWorkspaceCoreAsync(rootDirectory, platform, cancellationToken));
+    }
+
+    private async Task ScanWorkspaceCoreAsync(string rootDirectory, PublishPlatform platform, CancellationToken cancellationToken)
+    {
+        try
+        {
+            StatusMessage = $"正在扫描{platform.DisplayName()}工作目录：{rootDirectory}";
+            AppendActivityLog(StatusMessage);
+            if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+            {
+                await ScanKuaishouWorkspaceAsync(rootDirectory, platform, cancellationToken, generation: 0);
+                return;
+            }
+
+            var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
+            var projects = result.Projects;
+
+            var existing = _jobs
+                .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
+                .Select(job => Path.GetFullPath(job.ProjectDirectory))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var added = 0;
+            foreach (var project in projects)
+            {
+                var sourceDirectory = Path.GetFullPath(project.SourceProjectDir);
+                if (!existing.Add(sourceDirectory)) continue;
+                var job = new PublishJob
+                {
+                    Platform = platform,
+                    Kind = PublishJobKind.Series,
+                    ProjectName = project.DisplayName,
+                    ProjectDirectory = sourceDirectory,
+                    ConfigPath = platform == PublishPlatform.WeixinChannel
+                        ? ResolveScannedWeixinConfig(project.WorkflowProjectDir)
+                        : ResolveGlobalConfigPath(_activeGlobalAccount, platform),
+                    AccountId = _activeWeixinAccountId,
+                    AccountName = ActiveWeixinAccountName,
+                    AccountSessionDirectory = platform == PublishPlatform.WeixinChannel
+                        ? _activeWeixinAccountSessionDirectory
+                        : string.Empty,
+                    Status = PublishJobStatus.Pending,
+                    StatusMessage = "扫描导入，等待执行",
+                };
+                EnsureStepStates(job);
+                _jobs.Add(job);
+                added++;
+            }
+            await PersistAsync(cancellationToken);
+            RefreshVisibleJobs();
+            StatusMessage = $"扫描完成：发现 {projects.Count} 个项目，新增 {added} 个任务。";
+            AppendActivityLog(StatusMessage);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "扫描工作目录已停止。";
+            AppendActivityLog(StatusMessage);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            StatusMessage = $"扫描工作目录失败：{ex.Message}";
+            AppendActivityLog(StatusMessage);
+        }
+    }
+
+    private async Task ScanKuaishouWorkspaceAsync(
+        string rootDirectory,
+        PublishPlatform platform,
+        CancellationToken cancellationToken,
+        int generation)
+    {
+        if (!IsWorkspaceLoadCurrent(generation))
+            return;
+
+        BeginKuaishouListing();
+        try
+        {
+            var existing = KuaishouJobDirectories(platform);
+            var added = AddKuaishouJobs(platform, SeedKuaishouProjectsFromOtherEdition(rootDirectory, platform, existing), existing);
+            if (added > 0 && IsWorkspaceLoadCurrent(generation))
+            {
+                RefreshVisibleJobs();
+                StatusMessage = $"已显示同目录另一版本的 {added} 个剧集，正在核对 {platform.DisplayName()} 工作目录…";
+            }
+
+            var directories = await Task.Run(
+                () => KuaishouWorkspaceProjects.List(rootDirectory),
+                cancellationToken);
+            if (!IsWorkspaceLoadCurrent(generation))
+                return;
+
+            added += AddKuaishouJobs(
+                platform,
+                directories.Select(directory => (directory, Path.GetFileName(directory))),
+                existing);
+            if (added > 0)
+                await PersistAsync(cancellationToken);
+            if (!IsWorkspaceLoadCurrent(generation))
+                return;
+
+            _kuaishouScannedWorkspace = rootDirectory;
+            _kuaishouScannedTick = Environment.TickCount64;
+            RefreshVisibleJobs();
+            StatusMessage = $"扫描完成：发现 {directories.Count} 个项目，新增 {added} 个任务。";
+            AppendActivityLog(StatusMessage);
+        }
+        finally
+        {
+            EndKuaishouListing();
+        }
+    }
+
+    private List<(string Directory, string Name)> SeedKuaishouProjectsFromOtherEdition(
+        string rootDirectory,
+        PublishPlatform platform,
+        HashSet<string> existing)
+    {
+        var seeded = new List<(string Directory, string Name)>();
+        var other = platform == PublishPlatform.KuaishouEnterpriseRevenue
+            ? PublishPlatform.KuaishouPersonalRevenue
+            : PublishPlatform.KuaishouEnterpriseRevenue;
+        var root = rootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // 先复制再添加。添加时会改 _jobs，不能边遍历边写。
+        foreach (var job in _jobs.ToArray())
+        {
+            if (job.Platform != other || job.Kind != PublishJobKind.Series)
+                continue;
+            string directory;
             try
             {
-                StatusMessage = $"正在扫描{platform.DisplayName()}工作目录：{rootDirectory}";
-                AppendActivityLog(StatusMessage);
-                var result = await _projectScanner.ScanAsync(rootDirectory, null, cancellationToken);
-                var projects = result.Projects;
-                if (platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
-                {
-                    projects = projects
-                        .Where(project => KuaishouWorkspaceProjects.IsListed(rootDirectory, project.SourceProjectDir))
-                        .ToList();
-                }
+                directory = Path.GetFullPath(job.ProjectDirectory)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                continue;
+            }
 
-                var existing = _jobs
-                    .Where(job => job.Platform == platform && job.Kind == PublishJobKind.Series)
-                    .Select(job => Path.GetFullPath(job.ProjectDirectory))
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var added = 0;
-                foreach (var project in projects)
-                {
-                    var sourceDirectory = Path.GetFullPath(project.SourceProjectDir);
-                    if (!existing.Add(sourceDirectory)) continue;
-                    var job = new PublishJob
-                    {
-                        Platform = platform,
-                        Kind = PublishJobKind.Series,
-                        ProjectName = project.DisplayName,
-                        ProjectDirectory = sourceDirectory,
-                        ConfigPath = platform == PublishPlatform.WeixinChannel
-                            ? ResolveScannedWeixinConfig(project.WorkflowProjectDir)
-                            : ResolveGlobalConfigPath(_activeGlobalAccount, platform),
-                        AccountId = _activeWeixinAccountId,
-                        AccountName = ActiveWeixinAccountName,
-                        AccountSessionDirectory = platform == PublishPlatform.WeixinChannel
-                            ? _activeWeixinAccountSessionDirectory
-                            : string.Empty,
-                        Status = PublishJobStatus.Pending,
-                        StatusMessage = "扫描导入，等待执行",
-                    };
-                    EnsureStepStates(job);
-                    _jobs.Add(job);
-                    added++;
-                }
-                await PersistAsync(cancellationToken);
-                RefreshVisibleJobs();
-                StatusMessage = $"扫描完成：发现 {projects.Count} 个项目，新增 {added} 个任务。";
-                AppendActivityLog(StatusMessage);
-            }
-            catch (OperationCanceledException)
+            if (!string.Equals(Path.GetDirectoryName(directory), root, StringComparison.OrdinalIgnoreCase) ||
+                existing.Contains(directory))
             {
-                StatusMessage = "扫描工作目录已停止。";
-                AppendActivityLog(StatusMessage);
+                continue;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+
+            seeded.Add((directory, string.IsNullOrWhiteSpace(job.ProjectName) ? Path.GetFileName(directory) : job.ProjectName));
+        }
+
+        return seeded;
+    }
+
+    private int AddKuaishouJobs(
+        PublishPlatform platform,
+        IEnumerable<(string Directory, string Name)> projects,
+        HashSet<string> existing,
+        string? accountId = null,
+        string? accountName = null)
+    {
+        var added = 0;
+        foreach (var project in projects)
+        {
+            var directory = Path.GetFullPath(project.Directory);
+            if (!existing.Add(directory))
+                continue;
+            var owner = _globalAccounts.FirstOrDefault(item =>
+                string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase));
+            var job = new PublishJob
             {
-                StatusMessage = $"扫描工作目录失败：{ex.Message}";
-                AppendActivityLog(StatusMessage);
-            }
-        });
+                Platform = platform,
+                Kind = PublishJobKind.Series,
+                ProjectName = project.Name,
+                ProjectDirectory = directory,
+                ConfigPath = ResolveGlobalConfigPath(owner ?? _activeGlobalAccount, platform),
+                AccountId = string.IsNullOrWhiteSpace(accountId) ? _activeWeixinAccountId : accountId,
+                AccountName = string.IsNullOrWhiteSpace(accountName) ? ActiveWeixinAccountName : accountName,
+                Status = PublishJobStatus.Pending,
+                StatusMessage = "扫描导入，等待执行",
+            };
+            EnsureStepStates(job);
+            _jobs.Add(job);
+            added++;
+        }
+
+        return added;
     }
 
     private bool _applyingWorkflowSettings;
@@ -1041,6 +1599,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PipelineProjectImageEnabled = settings.ProjectImageEnabled;
         PipelineMaterialValidateEnabled = settings.MaterialValidateEnabled;
         PipelineRemuxEnabled = settings.RemuxEnabled;
+        PipelineUploadEpisodesEnabled = settings.UploadEpisodesEnabled;
         PipelineForceRerun = settings.ForceRerun;
         PipelineAutoArchiveAfterUpload = settings.AutoArchiveAfterUpload;
         PipelinePreferUploadWhenReady = settings.PreferUploadWhenReady;
@@ -1076,6 +1635,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ProjectImageEnabled = PipelineProjectImageEnabled,
         MaterialValidateEnabled = PipelineMaterialValidateEnabled,
         RemuxEnabled = PipelineRemuxEnabled,
+        UploadEpisodesEnabled = PipelineUploadEpisodesEnabled,
         ForceRerun = PipelineForceRerun,
         AutoArchiveAfterUpload = PipelineAutoArchiveAfterUpload,
         PreferUploadWhenReady = PipelinePreferUploadWhenReady,
@@ -1113,8 +1673,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var targets = targetsOverride ?? ResolveSharedPipelineTargets();
         if (targets.Count == 0)
         {
+            var checkedCount = VisibleJobs.Count(row => row.IsChecked);
             StatusMessage = IsKuaishouPlatform
-                ? "请先勾选要执行的项目。"
+                ? checkedCount > 0
+                    ? $"勾选了 {checkedCount} 个项目，但目录已经不存在，无法执行。"
+                    : "请先勾选要执行的项目。"
                 : "请先勾选或选择要执行的项目。";
             AppendActivityLog(StatusMessage);
             return;
@@ -1122,33 +1685,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var steps = new List<(string Key, string Label)>();
         if (PipelineDownloadEnabled) steps.Add(("download", "下载剧集"));
-        if (PipelineSmartRecutEnabled) steps.Add(("smart-recut", "智能重剪"));
+        if (!IsKuaishouPlatform && PipelineSmartRecutEnabled) steps.Add(("smart-recut", "智能重剪"));
         if (PipelineRewriteEnabled) steps.Add(("rewrite", "改写信息"));
         if (PipelinePosterEnabled) steps.Add(("poster-rename", "生成海报"));
-        if (PipelineTranscodeEnabled && !PipelineSmartRecutEnabled) steps.Add(("transcode", "素材转码"));
-        if (PipelineCostReportEnabled) steps.Add(("cost-report", "生成成本报表"));
+        if (!IsKuaishouPlatform && PipelineTranscodeEnabled && !PipelineSmartRecutEnabled) steps.Add(("transcode", "素材转码"));
+        if (!IsKuaishouPlatform && PipelineCostReportEnabled) steps.Add(("cost-report", "生成成本报表"));
         if (PipelineProjectImageEnabled) steps.Add(("project-image", "生成工程图"));
-        if (PipelineGenerateAiProofEnabled) steps.Add(("ai-proof", "生成AI制作证明"));
-        if (PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
+        if (!IsKuaishouPlatform && PipelineGenerateAiProofEnabled) steps.Add(("ai-proof", "生成AI制作证明"));
+        if (!IsKuaishouPlatform && PipelineGenerateTimestampCertificateEnabled) steps.Add(("timestamp-certificate", "生成可信时间戳"));
 
         var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+        if (IsKuaishouPlatform)
+        {
+            await RunCurrentKuaishouAccountPipelineAsync(targets);
+            return;
+        }
         await RunBusyAsync(async cancellationToken =>
         {
             var progress = new Progress<WorkRunEvent>(item =>
             {
                 if (string.IsNullOrWhiteSpace(item.Message)) return;
-                StatusMessage = $"[{item.DisplayName}] {item.Message}";
-                AppendActivityLog(StatusMessage);
+                var line = string.Equals(item.StepType, "download", StringComparison.Ordinal)
+                    ? item.Message
+                    : $"[{item.DisplayName}] {item.Message}";
+                StatusMessage = line;
+                AppendActivityLog(line);
             });
             var succeeded = 0;
             var failed = 0;
             var stepNames = steps.Select(step => step.Label).ToList();
-            if (PipelineAutoRepairEnabled) stepNames.Add("一键修复");
+            if (!IsKuaishouPlatform && PipelineAutoRepairEnabled) stepNames.Add("一键修复");
             if (PipelineAutoFillEnabled) stepNames.Add("补齐字段");
-            if (PipelineRemuxEnabled) stepNames.Add("无损重封装");
+            if (!IsKuaishouPlatform && PipelineRemuxEnabled) stepNames.Add("无损重封装");
+            if (IsKuaishouPlatform && PipelineUploadEpisodesEnabled) stepNames.Add("上传剧集");
             AppendActivityLog($"执行勾选步骤：{targets.Count} 个项目，步骤：{(stepNames.Count == 0 ? "无" : string.Join("、", stepNames))}。已完成的步骤会跳过。");
             foreach (var projectDirectory in targets)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var trackedJob = _jobs.FirstOrDefault(job =>
                     !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
                     string.Equals(Path.GetFullPath(job.ProjectDirectory), projectDirectory, StringComparison.OrdinalIgnoreCase));
@@ -1158,19 +1731,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 _activityLogProject = trackedJob?.ProjectName ?? Path.GetFileName(projectDirectory);
                 try
                 {
-                    if (IsKuaishouPlatform)
-                    {
-                        await RunKuaishouSettlementPipelineAsync(projectDirectory, trackedJob, trackedRow, cancellationToken);
-                        StatusMessage = $"共享项目流水线完成：{Path.GetFileName(projectDirectory)}";
-                        AppendActivityLog(StatusMessage);
-                        succeeded++;
-                        continue;
-                    }
                     foreach (var (key, label) in steps)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         await RunTrackedStepAsync(trackedJob, trackedRow, key, label, PipelineForceRerun, async () =>
                         {
+                            if (key == "download")
+                            {
+                                var concurrent = Math.Clamp(runtimeSettings.DramaDownloadConcurrent, 1, 10);
+                                var segments = Math.Clamp(runtimeSettings.DownloadFileSegments <= 0 ? 4 : runtimeSettings.DownloadFileSegments, 1, 8);
+                                var parallel = Math.Clamp(
+                                    runtimeSettings.DramaDownloadMaxParallelProjects <= 0 ? 1 : runtimeSettings.DramaDownloadMaxParallelProjects,
+                                    1,
+                                    4);
+                                var timeoutSeconds = Math.Clamp(runtimeSettings.HongguoDownloadTimeoutSeconds, 10, 600);
+                                var attempts = Math.Clamp(runtimeSettings.HongguoEpisodeDownloadAttempts, 1, 20);
+                                AppendActivityLog($"分集下载并发: {concurrent}，单集分块连接数: {segments}，同时下载剧数: {parallel}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
+                            }
                             if (key == "smart-recut")
                             {
                                 await _smartRecutService.RunAsync(
@@ -1210,6 +1787,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                                         cancellationToken);
                                 return;
                             }
+                            if (key == "project-image" && IsKuaishouPlatform)
+                            {
+                                await GenerateKuaishouProjectImagesAsync(projectDirectory, trackedJob, cancellationToken);
+                                return;
+                            }
                             var result = await _workService.RunProjectStepAsync(
                                 projectDirectory, null, key, PipelineForceRerun, progress, cancellationToken, runtimeConfigPath);
                             if (!result.Ok)
@@ -1217,7 +1799,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         });
                     }
 
-                    if (PipelineAutoRepairEnabled)
+                    if (!IsKuaishouPlatform && PipelineAutoRepairEnabled)
                     {
                         await RunTrackedStepAsync(trackedJob, trackedRow, "material-auto-repair", "一键修复", PipelineForceRerun,
                             () => RunMaterialAutoRepairAsync(projectDirectory, runtimeConfigPath, progress, cancellationToken));
@@ -1229,7 +1811,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             async () => await _workService.AutoFillProjectInfoAsync(projectDirectory, null, cancellationToken));
                     }
 
-                    if (PipelineRemuxEnabled)
+                    if (!IsKuaishouPlatform && PipelineRemuxEnabled)
                     {
                         await RunTrackedStepAsync(trackedJob, trackedRow, "upload-remux", "无损重封装", PipelineForceRerun, async () =>
                         {
@@ -1269,6 +1851,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 catch (OperationCanceledException)
                 {
+                    if (IsKuaishouPlatform)
+                        SetKuaishouLogTone(projectDirectory, "none");
                     StatusMessage = "共享项目流水线已停止。";
                     AppendActivityLog(StatusMessage);
                     return;
@@ -1276,6 +1860,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 catch (Exception ex)
                 {
                     failed++;
+                    if (IsKuaishouPlatform)
+                        SetKuaishouLogTone(projectDirectory, "failed");
                     StatusMessage = $"共享项目流水线失败：{ex.Message}";
                     AppendActivityLog(StatusMessage);
                 }
@@ -1294,11 +1880,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
             }
 
-            if (targets.Count > 1)
+            if (IsKuaishouPlatform || targets.Count > 1)
             {
-                StatusMessage = $"勾选步骤结束：成功 {succeeded}，失败 {failed}。";
+                StatusMessage = IsKuaishouPlatform
+                    ? $"勾选队列已停止：成功 {succeeded}，失败 {failed}。"
+                    : $"勾选步骤结束：成功 {succeeded}，失败 {failed}。";
                 AppendActivityLog(StatusMessage);
             }
+            if (IsKuaishouPlatform)
+                RefreshKuaishouTodayUploadCount();
         });
     }
 
@@ -1410,72 +2000,587 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(source) && File.Exists(source)) File.Copy(source, target, true);
     }
 
+    private readonly record struct KuaishouPipelineRequest(
+        PublishPlatform Platform,
+        string AccountId,
+        string AccountName,
+        string ConfigPath,
+        bool Download,
+        bool Rewrite,
+        bool Poster,
+        bool ProjectImages,
+        bool AutoFill,
+        bool Upload,
+        bool Force,
+        int Parallelism,
+        string EditionLabel,
+        bool AutoArchive = false);
+
+    private KuaishouPipelineRequest CreateKuaishouPipelineRequest()
+    {
+        var platform = SelectedPlatform.Value;
+        var accountId = _activeGlobalAccount?.Id ?? SelectedAccount?.Model.Id ?? string.Empty;
+        var accountName = _activeGlobalAccount?.Name ?? SelectedAccount?.Model.Name ?? string.Empty;
+        var configPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath;
+        var config = KuaishouPersonalConfig.Load(new PublishJob
+        {
+            Platform = platform,
+            AccountId = accountId,
+            ConfigPath = configPath,
+        });
+        var enterprise = platform == PublishPlatform.KuaishouEnterpriseRevenue;
+        return new KuaishouPipelineRequest(
+            platform,
+            accountId,
+            accountName,
+            configPath,
+            PipelineDownloadEnabled,
+            PipelineRewriteEnabled,
+            PipelinePosterEnabled,
+            PipelineProjectImageEnabled,
+            PipelineAutoFillEnabled,
+            PipelineUploadEpisodesEnabled,
+            PipelineForceRerun,
+            KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
+            enterprise ? "企业版" : "个人版",
+            PipelineAutoArchiveAfterUpload);
+    }
+
+    private async Task RunCurrentKuaishouAccountPipelineAsync(IReadOnlyList<string> targets)
+    {
+        var account = _activeGlobalAccount;
+        if (account is null)
+        {
+            StatusMessage = "请先在左侧选择账号。";
+            return;
+        }
+        if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var editionPlatform))
+        {
+            StatusMessage = "请先在快手分账配置中选择账号类型。";
+            return;
+        }
+        if (editionPlatform != SelectedPlatform.Value)
+        {
+            var taskLabel = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版";
+            StatusMessage = $"当前任务是{taskLabel}，账号「{account.Name}」是{KuaishouAccountEdition.Label(account.KuaishouAccountEdition)}，不能执行。";
+            return;
+        }
+
+        var key = KuaishouRunKey(account.Id, SelectedPlatform.Value);
+        CancellationTokenSource cts;
+        lock (_kuaishouRunGate)
+        {
+            if (_kuaishouAccountRuns.ContainsKey(key))
+            {
+                StatusMessage = $"账号「{account.Name}」的勾选队列已在执行。";
+                return;
+            }
+
+            cts = new CancellationTokenSource();
+            _kuaishouAccountRuns[key] = cts;
+        }
+
+        NotifyCommands();
+        var otherPlatform = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
+            ? PublishPlatform.KuaishouPersonalRevenue
+            : PublishPlatform.KuaishouEnterpriseRevenue;
+        var otherRunning = IsKuaishouAccountRunning(KuaishouRunKey(account.Id, otherPlatform));
+        StatusMessage = otherRunning
+            ? $"账号「{account.Name}」的{SelectedPlatform.Name}开始执行。另一版本的队列继续执行。"
+            : $"账号「{account.Name}」开始执行勾选队列。其他账号和个人版、企业版可以同时执行。";
+        try
+        {
+            PrepareKuaishouLogProjects(targets, key);
+            await RunKuaishouCheckedProjectsAsync(targets, key, CreateKuaishouPipelineRequest(), cts.Token);
+        }
+        finally
+        {
+            lock (_kuaishouRunGate)
+            {
+                if (_kuaishouAccountRuns.TryGetValue(key, out var current) && ReferenceEquals(current, cts))
+                    _kuaishouAccountRuns.Remove(key);
+            }
+
+            cts.Dispose();
+            NotifyCommands();
+            NotifyKuaishouLogProjectsChanged();
+        }
+    }
+
+    private static string KuaishouRunKey(string accountId, PublishPlatform platform) =>
+        accountId + "|" + (int)platform;
+
+    private string? CurrentKuaishouRunKey() =>
+        IsKuaishouPlatform && _activeGlobalAccount is not null
+            ? KuaishouRunKey(_activeGlobalAccount.Id, SelectedPlatform.Value)
+            : null;
+
+    public bool IsKuaishouPublishRunning(string accountId, PublishPlatform platform) =>
+        IsKuaishouAccountRunning(KuaishouRunKey(accountId, platform));
+
+    private bool IsKuaishouAccountRunning(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return false;
+        lock (_kuaishouRunGate)
+            return _kuaishouAccountRuns.ContainsKey(key);
+    }
+
+    private bool CanRunChecked() =>
+        AllowsKuaishouWork() &&
+        (IsKuaishouPlatform ? !IsKuaishouAccountRunning(CurrentKuaishouRunKey()) : !IsBusy);
+
+    private bool CanStopCurrentWork() =>
+        IsBusy || IsKuaishouAccountRunning(CurrentKuaishouRunKey());
+
+    public bool IsCurrentWorkStoppable => CanStopCurrentWork();
+
+    private bool IsViewingKuaishouRun(KuaishouPipelineRequest request) =>
+        SelectedPlatform.Value == request.Platform &&
+        string.Equals(_activeGlobalAccount?.Id, request.AccountId, StringComparison.OrdinalIgnoreCase);
+
+    private async Task<(int Succeeded, int Failed, string Error)> RunKuaishouCheckedProjectsAsync(
+        IReadOnlyList<string> targets,
+        string accountKey,
+        KuaishouPipelineRequest request,
+        CancellationToken cancellationToken)
+    {
+        var lastError = "";
+
+        if (request.Parallelism > 1 && targets.Count > 1)
+            AppendActivityLog($"启用快手分账{request.EditionLabel}项目并发执行：{request.Parallelism}");
+
+        void ReportRunStatus(string message)
+        {
+            if (IsViewingKuaishouRun(request))
+                SetStatusMessage(message);
+        }
+
+        var counts = new int[2];
+        var work = targets.Select(directory =>
+        {
+            var trackedJob = _jobs.FirstOrDefault(job =>
+                job.Platform == request.Platform &&
+                !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
+                string.Equals(Path.GetFullPath(job.ProjectDirectory), directory, StringComparison.OrdinalIgnoreCase));
+            if (trackedJob is not null)
+                EnsureStepStates(trackedJob);
+            var trackedRow = trackedJob is null
+                ? null
+                : RowForJob(trackedJob);
+            return (directory, trackedJob, trackedRow);
+        }).ToArray();
+        var uploadSlot = new KuaishouUploadSlot();
+
+        try
+        {
+            await KuaishouProjectQueue.RunAsync(work.Length, request.Parallelism, async (index, ct) =>
+            {
+                var item = work[index];
+                var projectName = string.IsNullOrWhiteSpace(item.trackedJob?.ProjectName)
+                    ? Path.GetFileName(item.directory)
+                    : item.trackedJob!.ProjectName;
+                ActivityLogProjectScope.Value = projectName;
+                ActivityLogAccountScope.Value = accountKey;
+                ActivityLogPlatformScope.Value = request.Platform;
+                try
+                {
+                    SetKuaishouLogTone(item.directory, "running");
+                    AppendActivityLog($"快手分账{request.EditionLabel} {index + 1}/{work.Length}：{projectName}", projectName);
+                    await RunKuaishouSettlementPipelineAsync(
+                        item.directory,
+                        item.trackedJob,
+                        item.trackedRow,
+                        request,
+                        uploadSlot,
+                        ct);
+                    SetKuaishouLogTone(item.directory, "ok");
+                    RememberKuaishouUploadReport(item.directory, request, succeeded: true, error: "");
+                    if (IsViewingKuaishouRun(request))
+                        RefreshKuaishouTodayUploadCount();
+                    var done = $"共享项目流水线完成：{Path.GetFileName(item.directory)}";
+                    ReportRunStatus(done);
+                    AppendActivityLog(done, projectName);
+                    Interlocked.Increment(ref counts[0]);
+                }
+                catch (OperationCanceledException)
+                {
+                    SetKuaishouLogTone(item.directory, "none");
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref counts[1]);
+                    lastError = ex.Message;
+                    SetKuaishouLogTone(item.directory, "failed");
+                    RememberKuaishouUploadReport(item.directory, request, succeeded: false, error: ex.Message);
+                    var message = $"共享项目流水线失败：{ex.Message}";
+                    ReportRunStatus(message);
+                    AppendActivityLog(message, projectName);
+                }
+                finally
+                {
+                    ActivityLogProjectScope.Value = null;
+                    ActivityLogAccountScope.Value = null;
+                    ActivityLogPlatformScope.Value = null;
+                }
+            }, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            ReportRunStatus("共享项目流水线已停止。");
+            AppendActivityLog("共享项目流水线已停止。");
+            return (counts[0], counts[1], "已停止");
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            ReportRunStatus("共享项目流水线已停止。");
+            AppendActivityLog("共享项目流水线已停止。");
+            return (counts[0], counts[1], "已停止");
+        }
+
+        var summary = $"勾选队列已停止：成功 {counts[0]}，失败 {counts[1]}。";
+        ReportRunStatus(summary);
+        AppendActivityLog(summary);
+        TryRefreshKuaishouUploadReport(request.Platform, request.AccountId);
+        return (counts[0], counts[1], lastError);
+    }
+
+    private void RememberKuaishouUploadReport(
+        string projectDirectory,
+        KuaishouPipelineRequest request,
+        bool succeeded,
+        string error)
+    {
+        try
+        {
+            KuaishouTodayUploadCounter.AppendRun(
+                request.Platform,
+                request.AccountId,
+                request.AccountName,
+                projectDirectory,
+                succeeded,
+                error,
+                nickname: KuaishouNickname(request.Platform, request.AccountId));
+        }
+        catch (Exception ex)
+        {
+            AppendActivityLog($"上传记录写入失败：{ex.Message}");
+        }
+    }
+
+    private string KuaishouNickname(PublishPlatform platform, string accountId)
+    {
+        if (string.IsNullOrWhiteSpace(accountId))
+            return "";
+        try
+        {
+            return KuaishouPersonalConfig.Load(new PublishJob
+            {
+                Platform = platform,
+                AccountId = accountId,
+                ProjectName = "上传记录",
+            }).KuaishouNickname?.Trim() ?? "";
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            return "";
+        }
+    }
+
+    private void TryRefreshKuaishouUploadReport(PublishPlatform platform, string accountId)
+    {
+        if (SelectedPlatform.Value == platform &&
+            string.Equals(_activeGlobalAccount?.Id, accountId, StringComparison.OrdinalIgnoreCase))
+            RefreshKuaishouTodayUploadCount();
+    }
+
+    public void ExportKuaishouUploadReport()
+    {
+        if (!IsKuaishouPlatform)
+            return;
+        var path = KuaishouTodayUploadCounter.ExportExcel(SelectedPlatform.Value);
+        StatusMessage = $"上传记录 Excel 已保存：{path}";
+        AppendActivityLog(StatusMessage);
+    }
+
+    public void OpenKuaishouUploadReport()
+    {
+        if (!IsKuaishouPlatform)
+            return;
+        var path = KuaishouTodayUploadCounter.ExcelPath(SelectedPlatform.Value);
+        if (!File.Exists(path))
+        {
+            StatusMessage = "还没有导出过上传记录，请先点「导出上传记录」。";
+            return;
+        }
+        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        StatusMessage = $"已打开上传记录 Excel：{path}";
+        AppendActivityLog(StatusMessage);
+    }
+
+    private static KuaishouPosterSettings CreateKuaishouPosterSettings(ClientSettings settings)
+    {
+        var erase = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(settings.PosterMode);
+        var vertical = ClientSettingsStore.ResolveKuaishouPosterPrompt(settings, horizontal: false, settings.PosterMode);
+        var horizontal = ClientSettingsStore.ResolveKuaishouPosterPrompt(settings, horizontal: true, settings.PosterMode);
+        if (!erase)
+        {
+            vertical = ClientSettingsStore.WithPosterTitlePlaceholder(vertical);
+            horizontal = ClientSettingsStore.WithPosterTitlePlaceholder(horizontal);
+        }
+
+        var prefix = ClientSettingsDefaults.PosterAgentSafeRetryPrefix;
+        var provider = PosterImageConfigHelper.NormalizeImageProvider(settings.ImageProvider);
+        var payload = new Dictionary<string, object?>(StringComparer.Ordinal);
+        PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
+        string Value(string key) => payload.TryGetValue(key, out var value) ? value?.ToString()?.Trim() ?? "" : "";
+        var endpoint = FirstPosterSetting(Value("ImageEditEndpoint"), settings.ImageModelEndpoint);
+        return new KuaishouPosterSettings(
+            settings.PosterMode,
+            erase,
+            vertical,
+            prefix + vertical,
+            horizontal,
+            prefix + horizontal,
+            provider,
+            FirstPosterSetting(Value("ImageEditModelId"), settings.ImageModelId),
+            FirstPosterSetting(Value("ImageEditApiKey"), settings.ImageModelApiKey),
+            endpoint,
+            FirstPosterSetting(Value("ImageEditPath"), PosterImageConfigHelper.DefaultImageEditPath(endpoint)),
+            Value("ImageSize"),
+            Value("ImageQuality"),
+            KuaishouPosterService.HorizontalRequestSize(provider),
+            settings.AiTextEndpoint,
+            settings.AiTextApiKey,
+            settings.AiTextModel,
+            settings.PosterTitleVerifyEnabled,
+            settings.PosterTitleVerifyMode,
+            settings.PosterTitleVerifyAiRetryCount,
+            ClientSettingsDefaults.PosterLayoutDetectPrompt);
+    }
+
+    private static string FirstPosterSetting(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "";
+
     private async Task RunKuaishouSettlementPipelineAsync(
         string projectDirectory,
         PublishJob? trackedJob,
         PublishJobRowViewModel? trackedRow,
+        KuaishouPipelineRequest request,
+        KuaishouUploadSlot uploadSlot,
         CancellationToken cancellationToken)
     {
         var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
         {
-            ("download", "download", "下载剧集", PipelineDownloadEnabled),
-            ("rewrite", "rewrite_info", "改写信息", PipelineRewriteEnabled),
-            ("poster-rename", "generate_poster", "生成海报", PipelinePosterEnabled),
-            ("project-image", "generate_project_images", "生成工程图", PipelineProjectImageEnabled),
-            ("auto-fill-info", "auto_fill_info", "补齐字段", PipelineAutoFillEnabled),
+            ("download", "download", "下载剧集", request.Download),
+            ("rewrite", "rewrite_info", "改写信息", request.Rewrite),
+            ("poster-rename", "generate_poster", "生成海报", request.Poster),
+            ("project-image", "generate_project_images", "生成工程图", request.ProjectImages),
+            ("auto-fill-info", "auto_fill_info", "补齐字段", request.AutoFill),
         };
+        var projectName = string.IsNullOrWhiteSpace(trackedJob?.ProjectName)
+            ? Path.GetFileName(projectDirectory)
+            : trackedJob.ProjectName;
         var enabled = steps.Where(step => step.Enabled).ToArray();
         if (enabled.Length > 0)
         {
             var config = KuaishouPersonalConfig.Load(new PublishJob
             {
-                Platform = SelectedPlatform.Value,
-                AccountId = SelectedAccount?.Model.Id ?? string.Empty,
-                ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
+                Platform = request.Platform,
+                AccountId = request.AccountId,
+                ConfigPath = request.ConfigPath,
                 ProjectDirectory = projectDirectory,
             });
-            var templateId = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
-                ? config.EnterpriseProjectImageTemplateId
-                : config.PersonalProjectImageTemplateId;
-            if (string.IsNullOrWhiteSpace(templateId))
-                templateId = config.ProjectImageTemplateId;
-            foreach (var step in enabled)
-                await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Running, "正在执行");
-            try
+            var preserved = new HashSet<string>(StringComparer.Ordinal);
+            if (!request.Force)
             {
-                var prepared = await KuaishouSettlementPrepareRunner.RunAsync(
-                    projectDirectory,
-                    config,
-                    new KuaishouSettlementPrepareOptions(
-                        PipelineDownloadEnabled,
-                        PipelineRewriteEnabled,
-                        PipelinePosterEnabled,
-                        PipelineProjectImageEnabled,
-                        PipelineAutoFillEnabled,
-                        PipelineForceRerun,
-                        templateId,
-                        config.ProjectImageTemplateRoot),
-                    new Progress<string>(AppendActivityLog),
-                    cancellationToken);
-                var completed = prepared.CompletedSteps.ToHashSet(StringComparer.Ordinal);
+                KuaishouArtifactColumnStatus? artifacts = null;
+                try
+                {
+                    if (Directory.Exists(projectDirectory))
+                        artifacts = KuaishouArtifactColumnStatusReader.Read(
+                            projectDirectory,
+                            request.Platform == PublishPlatform.KuaishouEnterpriseRevenue);
+                }
+                catch
+                {
+                    artifacts = null;
+                }
+
                 foreach (var step in enabled)
                 {
-                    if (completed.Contains(step.AssistantKey))
-                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "执行完成");
-                    else
-                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Failed, "短剧助手未完成该步骤");
+                    var artifactStatus = step.AssistantKey switch
+                    {
+                        "download" => artifacts?.DownloadStatus,
+                        "rewrite_info" => artifacts?.RewriteStatus,
+                        "generate_poster" => artifacts?.PosterStatus,
+                        "generate_project_images" => artifacts?.ProjectImageStatus,
+                        "auto_fill_info" => artifacts?.AutoFillStatus,
+                        _ => null,
+                    };
+                    var alreadyCompleted = artifactStatus?.StartsWith("已完成", StringComparison.Ordinal) == true
+                        || (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var existing) == true
+                            && existing.Status == PublishJobStepStatus.Succeeded);
+                    if (!alreadyCompleted)
+                        continue;
+                    preserved.Add(step.YunfanKey);
+                    if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var running) == true
+                        && running.Status is PublishJobStepStatus.Running or PublishJobStepStatus.Failed)
+                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "已完成，跳过");
                 }
-                if (enabled.Any(step => !completed.Contains(step.AssistantKey)))
-                    throw new InvalidOperationException("快手分账有步骤未完成。");
+
+                if (preserved.Count > 0)
+                {
+                    var skipped = string.Join("、", enabled.Where(step => preserved.Contains(step.YunfanKey)).Select(step => step.Label));
+                    AppendActivityLog($"已完成的步骤跳过：{skipped}。", projectName);
+                }
+            }
+
+            foreach (var step in enabled)
+            {
+                if (preserved.Contains(step.YunfanKey))
+                    continue;
+                if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var stale) == true &&
+                    stale.Status == PublishJobStepStatus.Running)
+                    await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Pending, "等待执行");
+            }
+
+            try
+            {
+                void MarkPrepareStep(string step)
+                {
+                    var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+                    if (Directory.Exists(workflow))
+                        KuaishouPrepareStateStore.Mark(
+                            workflow,
+                            request.Platform == PublishPlatform.KuaishouEnterpriseRevenue,
+                            step);
+                }
+
+                if (request.Download && !preserved.Contains("download"))
+                {
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在下载剧集");
+                    var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+                    SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
+                    if (KuaishouDownloadPolicy.ShouldSkip(projectDirectory))
+                    {
+                        AppendActivityLog("本地导入项目已有视频，跳过下载。", projectName);
+                    }
+                    else
+                    {
+                        var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                        var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, directories.SourceDirectory, "");
+                        try
+                        {
+                            var downloadProgress = new Progress<WorkRunEvent>(item =>
+                            {
+                                if (!string.IsNullOrWhiteSpace(item.Message))
+                                    AppendActivityLog(item.Message, projectName);
+                            });
+                            var downloaded = await _workService.RunProjectStepAsync(
+                                directories.SourceDirectory,
+                                null,
+                                "download",
+                                request.Force,
+                                downloadProgress,
+                                cancellationToken,
+                                runtimeConfigPath);
+                            if (!downloaded.Ok)
+                                throw new InvalidOperationException(downloaded.Message ?? "下载剧集失败。");
+                        }
+                        finally
+                        {
+                            TryDeleteKuaishouRuntimeConfig(runtimeConfigPath);
+                        }
+
+                        SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
+                    }
+
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Succeeded, "执行完成");
+                    MarkPrepareStep("download");
+                }
+                if ((request.Rewrite && !preserved.Contains("rewrite")) ||
+                    (request.AutoFill && !preserved.Contains("auto-fill-info")))
+                {
+                    if (request.Rewrite && !preserved.Contains("rewrite"))
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "rewrite", "改写信息", PublishJobStepStatus.Running, "正在生成快手发布信息");
+                    if (request.AutoFill && !preserved.Contains("auto-fill-info"))
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PublishJobStepStatus.Running, "正在补齐快手字段");
+                    var ai = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                    await new KuaishouPublishInfoService().PrepareAsync(
+                        projectDirectory,
+                        config,
+                        new KuaishouPublishInfoAiSettings(
+                            ai.AiTextEndpoint,
+                            ai.AiTextApiKey,
+                            ai.AiTextModel,
+                            ai.AiTextTimeoutSeconds,
+                            ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(ai)),
+                        request.Rewrite && !preserved.Contains("rewrite"),
+                        request.AutoFill && !preserved.Contains("auto-fill-info"),
+                        request.Platform == PublishPlatform.KuaishouEnterpriseRevenue,
+                        new Progress<string>(message => AppendActivityLog(message, projectName)),
+                        cancellationToken);
+                    if (request.Rewrite && !preserved.Contains("rewrite"))
+                    {
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "rewrite", "改写信息", PublishJobStepStatus.Succeeded, "执行完成");
+                        MarkPrepareStep("rewrite_info");
+                    }
+                    if (request.AutoFill && !preserved.Contains("auto-fill-info"))
+                    {
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PublishJobStepStatus.Succeeded, "执行完成");
+                        MarkPrepareStep("auto_fill_info");
+                    }
+                }
+                if (request.Poster && !preserved.Contains("poster-rename"))
+                {
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Running, "正在生成快手海报");
+                    var imageSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                    await new KuaishouPosterService().PrepareAsync(
+                        projectDirectory,
+                        CreateKuaishouPosterSettings(imageSettings),
+                        new Progress<string>(message => AppendActivityLog(message, projectName)),
+                        cancellationToken);
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Succeeded, "执行完成");
+                    MarkPrepareStep("generate_poster");
+                }
+                if (request.ProjectImages && !preserved.Contains("project-image"))
+                {
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Running, "正在生成工程图");
+                    await GenerateKuaishouProjectImagesAsync(
+                        projectDirectory,
+                        trackedJob,
+                        cancellationToken,
+                        request.Platform,
+                        request.AccountId,
+                        request.ConfigPath,
+                        request.Force);
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Succeeded, "执行完成");
+                    MarkPrepareStep("generate_project_images");
+                }
             }
             catch (OperationCanceledException)
             {
                 foreach (var step in enabled)
-                    await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Pending, "已停止，可继续执行");
+                {
+                    if (preserved.Contains(step.YunfanKey))
+                        continue;
+                    if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var state) == true &&
+                        state.Status == PublishJobStepStatus.Running)
+                        await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Pending, "已停止，可继续执行");
+                }
                 throw;
             }
             catch (Exception ex)
             {
+                if (trackedJob is not null)
+                {
+                    trackedJob.Status = PublishJobStatus.Failed;
+                    trackedJob.StatusMessage = ex.Message;
+                    trackedJob.LastCompletedAt = DateTimeOffset.Now;
+                }
                 foreach (var step in enabled)
                 {
                     if (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var state) == true &&
@@ -1486,54 +2591,200 @@ public sealed partial class MainWindowViewModel : ObservableObject
             }
         }
 
-        if (!PipelineUploadEpisodesEnabled)
+        if (!request.Upload)
+        {
+            if (trackedJob is not null &&
+                KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, KuaishouUploadCompleted(trackedJob, projectDirectory, request)))
+                await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
             return;
+        }
         if (trackedJob is null || trackedRow is null)
             throw new InvalidOperationException("上传剧集需要先把项目加入队列。");
-        await RunTrackedStepAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PipelineForceRerun, async () =>
+
+        var uploadAlreadyDone = !request.Force
+            && trackedJob.StepStates.TryGetValue("weixin-upload", out var existingUpload)
+            && existingUpload.Status == PublishJobStepStatus.Succeeded;
+        if (!uploadAlreadyDone && request.Parallelism > 1)
         {
-            var adapter = _coordinator.GetAdapter(trackedJob.Platform);
-            if (!adapter.IsAvailable)
-                throw new InvalidOperationException(adapter.AvailabilityMessage);
-            trackedJob.AttemptCount++;
-            trackedJob.LastStartedAt = DateTimeOffset.Now;
-            trackedJob.Status = PublishJobStatus.Running;
-            var uploadProgress = new Progress<string>(message =>
+            AppendActivityLog("等待浏览器上传槽位：上传剧集", projectName);
+            await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Running, "等待槽位");
+        }
+
+        IDisposable? uploadLease = null;
+        if (!uploadAlreadyDone)
+        {
+            try
             {
-                trackedJob.StatusMessage = message;
-                trackedRow.Refresh();
-                StatusMessage = $"[{trackedJob.ProjectName}] {message}";
-                AppendActivityLog(StatusMessage);
+                uploadLease = await uploadSlot.AcquireAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                if (request.Parallelism > 1)
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Pending, "已停止，可继续执行");
+                throw;
+            }
+        }
+
+        try
+        {
+            await RunTrackedStepAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", request.Force, async () =>
+            {
+                var adapter = _coordinator.GetAdapter(trackedJob.Platform);
+                if (!adapter.IsAvailable)
+                    throw new InvalidOperationException(adapter.AvailabilityMessage);
+                trackedJob.AttemptCount++;
+                trackedJob.LastStartedAt = DateTimeOffset.Now;
+                trackedJob.Status = PublishJobStatus.Running;
+                var uploadProgress = new Progress<string>(message =>
+                {
+                    trackedJob.StatusMessage = message;
+                    var line = $"[{projectName}] {message}";
+                    PostUi(() =>
+                    {
+                        if (!IsViewingKuaishouRun(request))
+                            return;
+                        if (PagedJobs.Contains(trackedRow))
+                            trackedRow.Refresh(reloadArtifacts: false);
+                        StatusMessage = line;
+                    });
+                    AppendActivityLog(line, projectName);
+                });
+                await adapter.RunAsync(trackedJob, uploadProgress, cancellationToken);
+                trackedJob.Status = PublishJobStatus.Succeeded;
+                trackedJob.StatusMessage = "发布流程执行完成";
+                trackedJob.LastCompletedAt = DateTimeOffset.Now;
             });
-            await adapter.RunAsync(trackedJob, uploadProgress, cancellationToken);
-            trackedJob.Status = PublishJobStatus.Succeeded;
-            trackedJob.StatusMessage = "发布流程执行完成";
-            trackedJob.LastCompletedAt = DateTimeOffset.Now;
-        });
+            if (KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, uploadCompleted: true))
+                await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
+        }
+        finally
+        {
+            uploadLease?.Dispose();
+        }
+    }
+
+    private static bool KuaishouUploadCompleted(PublishJob job, string projectDirectory, KuaishouPipelineRequest request)
+    {
+        var stepSucceeded = job.StepStates.TryGetValue("weixin-upload", out var state)
+            && state.Status == PublishJobStepStatus.Succeeded;
+        string? artifactStatus = null;
+        try
+        {
+            if (Directory.Exists(projectDirectory))
+            {
+                artifactStatus = KuaishouArtifactColumnStatusReader.Read(
+                    projectDirectory,
+                    request.Platform == PublishPlatform.KuaishouEnterpriseRevenue).UploadStatus;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            artifactStatus = null;
+        }
+        return KuaishouAutoArchivePolicy.UploadCompleted(stepSucceeded, artifactStatus);
+    }
+
+    private async Task TryAutoArchiveKuaishouProjectAsync(PublishJob job, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var workspace = Directory.GetParent(job.ProjectDirectory)?.FullName ?? "";
+            if (!Directory.Exists(workspace))
+                throw new InvalidOperationException("无法确定快手分账工作目录，未自动归档。");
+            if (!Directory.Exists(job.ProjectDirectory))
+                throw new InvalidOperationException("项目目录不存在，未自动归档。");
+            var config = KuaishouPersonalConfig.Load(job);
+            if (string.IsNullOrWhiteSpace(config.ArchiveRootDirectory))
+                throw new InvalidOperationException($"请先在已归档项目中为快手分账{(job.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版")}配置归档目录。");
+            AppendActivityLog($"上传完成，开始自动归档：{job.ProjectName}", job.ProjectName);
+            KuaishouWorkspaceProjects.Invalidate(job.ProjectDirectory);
+            await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+                workspace,
+                job.ProjectDirectory,
+                config.ArchiveRootDirectory,
+                preserveWorkflowEpisodes: null,
+                deleteSourceVideos: true,
+                deleteWorkflowVideos: true,
+                deleteMaterialVideos: true,
+                source: job.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "kuaishou_enterprise" : "kuaishou_personal",
+                account: new TikTokAccountProfile
+                {
+                    Id = job.AccountId,
+                    Name = job.AccountName,
+                },
+                ct: cancellationToken);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _jobs.Remove(job);
+                RefreshVisibleJobs();
+            });
+            await PersistAsync(cancellationToken);
+            job.StatusMessage = "发布完成并已归档";
+            AppendActivityLog($"已自动归档：{job.ProjectName}", job.ProjectName);
+            RefreshKuaishouTodayUploadCount();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            job.StatusMessage = $"发布完成；自动归档失败：{ex.Message}";
+            AppendActivityLog(job.StatusMessage, job.ProjectName);
+        }
+    }
+
+    private void SyncKuaishouWorkflow(string sourceDirectory, string projectName)
+    {
+        var workflowDirectory = ProjectWorkspaceService.PrepareWorkflowProject(sourceDirectory, message => AppendActivityLog(message, projectName));
+        var sourceInfo = Path.Combine(sourceDirectory, "短剧信息.txt");
+        var workflowInfo = Path.Combine(workflowDirectory, "短剧信息.txt");
+        if (File.Exists(sourceInfo) && !File.Exists(workflowInfo))
+            ProjectWorkspaceService.CopyFileResilient(sourceInfo, workflowInfo);
+        var episodeCount = Math.Max(1, ProjectWorkspaceService.ResolveSourceEpisodeCount(sourceDirectory));
+        ProjectWorkspaceService.EnsureWorkflowInfo(sourceDirectory, episodeCount, message => AppendActivityLog(message, projectName));
+    }
+
+    private static void TryDeleteKuaishouRuntimeConfig(string runtimeConfigPath)
+    {
+        try
+        {
+            var runtimeDir = Path.GetDirectoryName(runtimeConfigPath);
+            if (runtimeDir is not null && Path.GetFileName(runtimeDir).StartsWith("weixin-runtime-", StringComparison.Ordinal))
+                Directory.Delete(runtimeDir, true);
+            else
+                File.Delete(runtimeConfigPath);
+        }
+        catch
+        {
+            // 临时配置清理由下次系统临时目录维护。
+        }
     }
 
     private async Task GenerateKuaishouProjectImagesAsync(
         string projectDirectory,
         PublishJob? job,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PublishPlatform? platform = null,
+        string? accountId = null,
+        string? configPath = null,
+        bool? force = null)
     {
         var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath).Clone();
+        var selectedPlatform = platform ?? SelectedPlatform.Value;
         var config = KuaishouPersonalConfig.Load(new PublishJob
         {
-            Platform = SelectedPlatform.Value,
-            AccountId = SelectedAccount?.Model.Id ?? string.Empty,
-            ConfigPath = SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
+            Platform = selectedPlatform,
+            AccountId = accountId ?? SelectedAccount?.Model.Id ?? string.Empty,
+            ConfigPath = configPath ?? SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
             ProjectDirectory = projectDirectory,
         });
         if (!string.IsNullOrWhiteSpace(config.ProjectImageTemplateRoot))
             settings.TiktokProjectImageTemplateRoot = config.ProjectImageTemplateRoot.Trim();
-        var templateId = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue
+        var templateId = selectedPlatform == PublishPlatform.KuaishouEnterpriseRevenue
             ? config.EnterpriseProjectImageTemplateId
             : config.PersonalProjectImageTemplateId;
         if (string.IsNullOrWhiteSpace(templateId))
             templateId = config.ProjectImageTemplateId;
         if (!string.IsNullOrWhiteSpace(templateId))
             settings.TiktokProjectImageTemplateId = templateId.Trim();
+        settings.TiktokProjectImageGenerationMode = TikTokProjectImageService.ImageTemplateMode;
 
         var title = string.IsNullOrWhiteSpace(job?.ProjectName)
             ? Path.GetFileName(projectDirectory)
@@ -1546,14 +2797,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 EpisodeCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(projectDirectory),
             },
             settings,
-            PipelineForceRerun,
+            force ?? PipelineForceRerun,
             AppendActivityLog,
             cancellationToken);
 
         var context = ProjectWorkspaceService.LoadContext(projectDirectory);
         var generatedDir = TikTokProjectImageService.GetOutputDirectory(context.WorkflowProjectDir);
         if (!Directory.Exists(generatedDir))
-            return;
+            throw new InvalidOperationException("工程图目录没有生成。");
 
         var copied = 0;
         foreach (var file in Directory.EnumerateFiles(generatedDir, "工程图_*.png"))
@@ -1562,6 +2813,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             copied++;
         }
 
+        if (copied == 0)
+            throw new InvalidOperationException("没有生成可上传的工程图。");
         AppendActivityLog($"快手工程图已同步到工作目录：{copied} 张。");
     }
 
@@ -1577,11 +2830,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
             existing.Status == PublishJobStepStatus.Succeeded && !force)
         {
             AppendActivityLog($"共享流水线：{label}已完成，跳过。");
+            if (key == "weixin-upload")
+                RefreshKuaishouTodayUploadCount();
             return;
         }
 
-        StatusMessage = $"共享流水线：{label}";
-        AppendActivityLog(StatusMessage);
+        var line = $"共享流水线：{label}";
+        if (job is null || string.Equals(job.AccountId, _activeGlobalAccount?.Id, StringComparison.OrdinalIgnoreCase))
+            SetStatusMessage(line);
+        AppendActivityLog(line);
         await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Running, "正在执行");
         try
         {
@@ -1590,11 +2847,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+            if (job is not null && job.Status == PublishJobStatus.Running)
+            {
+                job.Status = PublishJobStatus.Pending;
+                job.StatusMessage = "已停止，可继续执行";
+            }
             await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Pending, "已停止，可继续执行");
             throw;
         }
         catch (Exception ex)
         {
+            if (job is not null)
+            {
+                job.Status = PublishJobStatus.Failed;
+                job.StatusMessage = ex.Message;
+                job.LastCompletedAt = DateTimeOffset.Now;
+            }
             await UpdateStepStateAsync(job, row, key, label, PublishJobStepStatus.Failed, ex.Message);
             throw;
         }
@@ -1609,16 +2877,37 @@ public sealed partial class MainWindowViewModel : ObservableObject
         string message)
     {
         if (job is null) return;
-        EnsureStepStates(job);
-        var step = job.StepStates[key];
-        step.Key = key;
-        step.Label = label;
-        step.Status = status;
-        step.Message = message;
-        step.UpdatedAt = DateTimeOffset.Now;
-        job.UpdatedAt = DateTimeOffset.Now;
-        row?.Refresh();
-        await PersistAsync();
+        await _persistGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            EnsureStepStates(job);
+            var step = job.StepStates[key];
+            step.Key = key;
+            step.Label = label;
+            step.Status = status;
+            step.Message = message;
+            step.UpdatedAt = DateTimeOffset.Now;
+            job.UpdatedAt = DateTimeOffset.Now;
+            await _store.SaveAsync(_jobs).ConfigureAwait(false);
+            if (key == "weixin-upload" && status == PublishJobStepStatus.Succeeded)
+                RefreshKuaishouTodayUploadCount();
+        }
+        finally
+        {
+            _persistGate.Release();
+        }
+
+        if (row is not null)
+        {
+            var kuaishou = job.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue;
+            var reloadTitle = status == PublishJobStepStatus.Succeeded && kuaishou;
+            PostUi(() =>
+            {
+                row.Refresh(reloadArtifacts: reloadTitle);
+                if (kuaishou)
+                    NotifyKuaishouLogProjectsChanged();
+            });
+        }
     }
 
     private async Task RunMaterialAutoRepairAsync(
@@ -1674,12 +2963,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AppendActivityLog("一键修复完成。");
     }
 
-    private bool CanRunSelected() => SelectedJob is not null && !IsBusy;
+    private bool CanRunSelected() =>
+        AllowsKuaishouWork() &&
+        SelectedJob is not null && (IsKuaishouPlatform ? !IsKuaishouAccountRunning(CurrentKuaishouRunKey()) : !IsBusy);
     private bool CanRunRunnable() => !IsBusy && VisibleJobs.Any(row =>
         PublishSchedulePolicy.CanRunNow(row.Model, DateTimeOffset.Now) &&
         _coordinator.GetAdapter(row.Platform).IsAvailable);
     private bool CanRetryFailed() => !IsBusy && VisibleJobs.Any(row => row.Model.Status == PublishJobStatus.Failed);
-    private bool CanOpenLogin() => SelectedJob is not null && !IsBusy;
+    private bool CanOpenLogin() => IsKuaishouPlatform
+        ? ResolveOperatorPlatformJob() is not null
+        : SelectedJob is not null && !IsBusy;
 
     private async Task RunSelectedAsync()
     {
@@ -1904,13 +3197,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private async Task RemoveCheckedJobsAsync()
     {
         var targets = VisibleJobs.Where(row => row.IsChecked).Select(row => row.Model).ToArray();
+        if (targets.Length == 0)
+        {
+            StatusMessage = "没有勾选任务。";
+            AppendActivityLog(StatusMessage);
+            return;
+        }
+
+        var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "确认删除勾选",
+            $"确认从队列移出 {targets.Length} 条任务？项目文件不会删除。",
+            460,
+            180);
+        if (!confirmed)
+            return;
+
         foreach (var job in targets)
             _jobs.Remove(job);
-        if (targets.Length > 0) await PersistAsync();
+        await PersistAsync();
         RefreshVisibleJobs();
-        StatusMessage = targets.Length == 0
-            ? "没有勾选任务。"
-            : $"已从队列移出 {targets.Length} 条任务，项目文件未删除。";
+        StatusMessage = $"已从队列移出 {targets.Length} 条任务，项目文件未删除。";
         AppendActivityLog(StatusMessage);
     }
 
@@ -2077,6 +3385,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private async Task OpenLoginAsync()
     {
+        if (IsKuaishouPlatform)
+        {
+            await OpenKuaishouManagementPlatformAsync();
+            return;
+        }
+
         if (SelectedJob is null)
             return;
 
@@ -2105,6 +3419,88 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 StatusMessage = $"[{job.ProjectName}] 打开登录窗口失败：{ex.Message}";
             }
         });
+    }
+
+    private PublishJob? ResolveOperatorPlatformJob()
+    {
+        if (SelectedJob is not null)
+            return SelectedJob.Model;
+        var running = _jobs.FirstOrDefault(job =>
+            job.Platform == SelectedPlatform.Value && job.Status == PublishJobStatus.Running);
+        if (running is not null)
+            return running;
+        if (_activeGlobalAccount is not null)
+        {
+            return new PublishJob
+            {
+                Platform = SelectedPlatform.Value,
+                AccountId = _activeGlobalAccount.Id,
+                AccountName = _activeGlobalAccount.Name,
+                ConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, SelectedPlatform.Value),
+                ProjectDirectory = DraftProjectDirectory,
+                ProjectName = string.IsNullOrWhiteSpace(_activeGlobalAccount.Name) ? "经营者管理平台" : _activeGlobalAccount.Name,
+            };
+        }
+        var account = SelectedAccount?.Model;
+        if (account is null)
+            return null;
+        return new PublishJob
+        {
+            Platform = SelectedPlatform.Value,
+            AccountId = account.Id,
+            AccountName = account.Name,
+            ConfigPath = string.IsNullOrWhiteSpace(account.BaseConfigPath) ? DraftConfigPath : account.BaseConfigPath,
+            ProjectDirectory = DraftProjectDirectory,
+            ProjectName = string.IsNullOrWhiteSpace(account.Name) ? "经营者管理平台" : account.Name,
+        };
+    }
+
+    private Task OpenKuaishouManagementPlatformAsync()
+    {
+        if (_managementBrowserTask is { IsCompleted: false })
+        {
+            StatusMessage = "经营者管理平台已打开，请先在该浏览器中操作。";
+            AppendActivityLog(StatusMessage);
+            return Task.CompletedTask;
+        }
+
+        var job = ResolveOperatorPlatformJob();
+        if (job is null)
+        {
+            StatusMessage = "请先选择账号后再打开经营者管理平台。";
+            return Task.CompletedTask;
+        }
+
+        var adapter = _coordinator.GetAdapter(job.Platform);
+        if (!adapter.IsAvailable)
+        {
+            StatusMessage = adapter.AvailabilityMessage;
+            return Task.CompletedTask;
+        }
+
+        StatusMessage = "已打开经营者管理平台。关闭该浏览器后保存登录态，不影响当前队列。";
+        AppendActivityLog(StatusMessage);
+        _managementBrowserTask = Task.Run(async () =>
+        {
+            try
+            {
+                await adapter.OpenLoginAsync(job, CancellationToken.None);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    StatusMessage = "经营者管理平台已关闭，登录态已保存。";
+                    AppendActivityLog(StatusMessage);
+                });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    StatusMessage = $"打开经营者管理平台失败：{ex.Message}";
+                    AppendActivityLog(StatusMessage);
+                });
+            }
+        });
+        return Task.CompletedTask;
     }
 
     private async Task RemoveSelectedAsync()
@@ -2166,7 +3562,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    public void Stop() => _operationCts?.Cancel();
+    public void Stop()
+    {
+        _operationCts?.Cancel();
+        var key = CurrentKuaishouRunKey();
+        if (key is null)
+            return;
+        lock (_kuaishouRunGate)
+        {
+            if (_kuaishouAccountRuns.TryGetValue(key, out var cts))
+                cts.Cancel();
+        }
+    }
 
     public void Shutdown()
     {
@@ -2207,8 +3614,102 @@ public sealed partial class MainWindowViewModel : ObservableObject
         };
     }
 
+    private void KickKuaishouScheduledShelf()
+    {
+        if (Interlocked.CompareExchange(ref _scheduledShelfGate, 1, 0) != 0)
+            return;
+        var accounts = _globalAccounts
+            .Where(account => !string.IsNullOrWhiteSpace(account.Id))
+            .Select(account => (account.Id, account.Name, account.KuaishouAccountEdition))
+            .ToArray();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await RunDueKuaishouScheduledShelvesAsync(accounts);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                AppendActivityLog($"定时上架检查失败：{ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _scheduledShelfGate, 0);
+            }
+        });
+    }
+
+    private async Task RunDueKuaishouScheduledShelvesAsync(
+        (string Id, string Name, string Edition)[] accounts)
+    {
+        foreach (var account in accounts)
+        {
+            if (!KuaishouAccountEdition.TryGetPlatform(account.Edition, out var platform))
+                continue;
+            var job = new PublishJob
+            {
+                AccountId = account.Id,
+                AccountName = account.Name,
+                Platform = platform,
+            };
+            var config = KuaishouPersonalConfig.Load(job);
+            var key = KuaishouRunKey(account.Id, platform);
+            var label = string.IsNullOrWhiteSpace(account.Name) ? account.Id : account.Name;
+            var lastRun = KuaishouScheduledShelfStateStore.ReadLastRun(config);
+            var due = KuaishouScheduledShelfSchedule.IsDue(
+                config.ScheduledShelfEnabled,
+                config.ScheduledShelfMode,
+                config.ScheduledShelfIntervalHours,
+                config.ScheduledShelfDailyTime,
+                lastRun,
+                DateTimeOffset.Now);
+            if (!due)
+            {
+                _scheduledShelfIdleAnnounced.Remove(key);
+                continue;
+            }
+
+            if (config.ScheduledShelfOnlyWhenIdle && IsKuaishouPublishRunning(account.Id, platform))
+            {
+                if (_scheduledShelfIdleAnnounced.Add(key))
+                    AppendActivityLog($"{label}：定时上架已到点，上传进行中，本轮跳过。");
+                continue;
+            }
+
+            _scheduledShelfIdleAnnounced.Remove(key);
+            KuaishouScheduledShelfStateStore.WriteLastRun(config, DateTimeOffset.Now);
+            var progress = new Progress<string>(message =>
+            {
+                ActivityLogAccountScope.Value = key;
+                ActivityLogPlatformScope.Value = platform;
+                AppendActivityLog($"{label}：{message}");
+            });
+            try
+            {
+                ActivityLogAccountScope.Value = key;
+                ActivityLogPlatformScope.Value = platform;
+                AppendActivityLog($"{label}：开始定时上架，筛选已下架且发布成功的短剧。");
+                await _scheduledShelfService.RunAsync(job, progress, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                ActivityLogAccountScope.Value = key;
+                ActivityLogPlatformScope.Value = platform;
+                AppendActivityLog($"{label}：定时上架失败：{ex.Message}");
+            }
+            finally
+            {
+                ActivityLogAccountScope.Value = null;
+                ActivityLogPlatformScope.Value = null;
+            }
+        }
+    }
+
     private async void OnScheduleTimerTick(object? sender, EventArgs e)
     {
+        if (IsKuaishouPlatform)
+            RefreshKuaishouTodayUploadCount();
+        KickKuaishouScheduledShelf();
         if (_scheduleTickRunning || IsBusy)
             return;
 
@@ -2234,8 +3735,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    private async Task PersistAsync(CancellationToken cancellationToken = default) =>
-        await _store.SaveAsync(_jobs, cancellationToken);
+    private async Task PersistAsync(CancellationToken cancellationToken = default)
+    {
+        await _persistGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _store.SaveAsync(_jobs, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _persistGate.Release();
+        }
+    }
 
     private async Task LoadSelectedProjectEpisodesAsync(PublishJobRowViewModel? row)
     {
@@ -2253,6 +3764,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         IsEpisodeListLoading = true;
         EpisodeListSummary = $"正在读取《{row.ProjectName}》剧集…";
+        if (IsBusy)
+        {
+            IsEpisodeListLoading = false;
+            EpisodeListSummary = "任务执行中，返回队列后暂不读取剧集信息";
+            return;
+        }
         try
         {
             var paths = await Task.Run(() => ResolveEpisodeVideoPaths(row.ProjectDirectory), cancellationToken);
@@ -2390,32 +3907,648 @@ public sealed partial class MainWindowViewModel : ObservableObject
         };
     }
 
-    private void AppendActivityLog(string message)
+    private void PrepareKuaishouLogProjects(IReadOnlyList<string> directories, string accountKey) =>
+        StoreKuaishouLogProjects(directories, accountKey, "waiting", replace: true);
+
+    private void AppendKuaishouLogProjects(IReadOnlyList<string> directories, string accountKey) =>
+        StoreKuaishouLogProjects(directories, accountKey, "running", replace: false);
+
+    private void StoreKuaishouLogProjects(
+        IReadOnlyList<string> directories,
+        string accountKey,
+        string tone,
+        bool replace)
     {
-        var project = _activityLogProject;
+        var projects = new List<KuaishouLogProject>();
+        foreach (var directory in directories)
+        {
+            var normalized = NormalizeLogDirectory(directory);
+            var job = _jobs.FirstOrDefault(item =>
+                !string.IsNullOrWhiteSpace(item.ProjectDirectory) &&
+                string.Equals(NormalizeLogDirectory(item.ProjectDirectory), normalized, StringComparison.OrdinalIgnoreCase));
+            var name = string.IsNullOrWhiteSpace(job?.ProjectName)
+                ? Path.GetFileName(normalized)
+                : job.ProjectName;
+            projects.Add(new KuaishouLogProject(name, normalized, tone));
+        }
+
+        if (!replace && _kuaishouLogsByAccount.TryGetValue(accountKey, out var existing))
+            KuaishouLogProject.MergeInto(existing, projects);
+        else
+            _kuaishouLogsByAccount[accountKey] = projects;
+        NotifyKuaishouLogProjectsChanged();
+    }
+
+    private void SetKuaishouLogTone(string directory, string tone)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            var directoryCopy = directory;
+            var toneCopy = tone;
+            Dispatcher.UIThread.Post(() => SetKuaishouLogTone(directoryCopy, toneCopy));
+            return;
+        }
+
+        var normalized = NormalizeLogDirectory(directory);
+        var project = _kuaishouLogsByAccount.Values
+            .SelectMany(list => list)
+            .FirstOrDefault(item => string.Equals(item.ProjectDirectory, normalized, StringComparison.OrdinalIgnoreCase));
+        if (project is null || project.Tone == tone)
+            return;
+        project.Tone = tone;
+        if (CurrentKuaishouRunKey() is { } key &&
+            _kuaishouLogsByAccount.TryGetValue(key, out var visible) &&
+            visible.Contains(project))
+            NotifyKuaishouLogProjectsChanged();
+    }
+
+    private void RememberKuaishouProjectLog(string? accountKey, string projectName, string text)
+    {
+        if (string.IsNullOrWhiteSpace(projectName) || _kuaishouLogsByAccount.Count == 0)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(accountKey) &&
+            _kuaishouLogsByAccount.TryGetValue(accountKey, out var scoped) &&
+            AppendKuaishouProjectLog(scoped, projectName, text))
+            return;
+
+        KuaishouLogProject? fallback = null;
+        foreach (var projects in _kuaishouLogsByAccount.Values)
+        {
+            foreach (var project in projects)
+            {
+                if (!string.Equals(project.ProjectName, projectName, StringComparison.Ordinal))
+                    continue;
+                if (project.Tone == "running")
+                {
+                    project.AppendLine(text);
+                    return;
+                }
+
+                fallback ??= project;
+            }
+        }
+
+        fallback?.AppendLine(text);
+    }
+
+    private static bool AppendKuaishouProjectLog(List<KuaishouLogProject> projects, string projectName, string text)
+    {
+        var project = projects.FirstOrDefault(item =>
+            string.Equals(item.ProjectName, projectName, StringComparison.Ordinal));
+        if (project is null)
+            return false;
+        project.AppendLine(text);
+        return true;
+    }
+
+    private void NotifyKuaishouLogProjectsChanged()
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(NotifyKuaishouLogProjectsChanged);
+            return;
+        }
+
+        var now = Environment.TickCount64;
+        if (now >= _nextKuaishouLogNotifyTick)
+        {
+            _nextKuaishouLogNotifyTick = now + 250;
+            KuaishouLogProjectsChanged?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _kuaishouLogNotifyPending, 1) == 1)
+            return;
+        var wait = (int)Math.Max(1, _nextKuaishouLogNotifyTick - now);
+        _ = NotifyKuaishouLogProjectsAfterDelayAsync(wait);
+    }
+
+    private async Task NotifyKuaishouLogProjectsAfterDelayAsync(int wait)
+    {
+        try
+        {
+            await Task.Delay(wait).ConfigureAwait(false);
+            Dispatcher.UIThread.Post(() =>
+            {
+                Interlocked.Exchange(ref _kuaishouLogNotifyPending, 0);
+                _nextKuaishouLogNotifyTick = Environment.TickCount64 + 250;
+                KuaishouLogProjectsChanged?.Invoke(this, EventArgs.Empty);
+            });
+        }
+        catch (Exception)
+        {
+            Interlocked.Exchange(ref _kuaishouLogNotifyPending, 0);
+        }
+    }
+
+    private static string NormalizeLogDirectory(string directory)
+    {
+        try
+        {
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        }
+        catch
+        {
+            return directory.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+    }
+
+    private void PostUi(Action action)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            action();
+        else
+            Dispatcher.UIThread.Post(action);
+    }
+
+    private void SetStatusMessage(string message) => PostUi(() => StatusMessage = message);
+
+    partial void OnStatusMessageChanged(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value == "软件授权联网校验通过")
+            return;
+        FooterLogText = value;
+    }
+
+    public void PublishActivityNotice(string message) => AppendActivityLog(message);
+
+    private readonly Dictionary<string, string> _lastLogByAccount = new(StringComparer.OrdinalIgnoreCase);
+    private string _lastUnaffiliatedLog = "";
+    private string _lastOtherAccountId = "";
+
+    private void NoteFooterLog(string? accountKey, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+        var currentId = _activeGlobalAccount?.Id ?? "";
+        var forCurrent = string.IsNullOrWhiteSpace(accountKey)
+            || string.Equals(accountKey, currentId, StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(accountKey))
+            _lastUnaffiliatedLog = text;
+        else
+            _lastLogByAccount[accountKey] = text;
+
+        if (forCurrent)
+        {
+            FooterLogText = text;
+            return;
+        }
+
+        _lastOtherAccountId = accountKey!;
+        OtherAccountFooterLogText = text;
+    }
+
+    private void ApplyFooterLogs()
+    {
+        var currentId = _activeGlobalAccount?.Id ?? "";
+        if (!string.IsNullOrWhiteSpace(currentId) &&
+            _lastLogByAccount.TryGetValue(currentId, out var owned) &&
+            !string.IsNullOrWhiteSpace(owned))
+            FooterLogText = owned;
+        else if (!string.IsNullOrWhiteSpace(_lastUnaffiliatedLog))
+            FooterLogText = _lastUnaffiliatedLog;
+
+        OtherAccountFooterLogText = "";
+        if (!string.IsNullOrWhiteSpace(_lastOtherAccountId) &&
+            !string.Equals(_lastOtherAccountId, currentId, StringComparison.OrdinalIgnoreCase) &&
+            _lastLogByAccount.TryGetValue(_lastOtherAccountId, out var other))
+        {
+            OtherAccountFooterLogText = other;
+            return;
+        }
+
+        foreach (var pair in _lastLogByAccount)
+        {
+            if (string.Equals(pair.Key, currentId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            OtherAccountFooterLogText = pair.Value;
+        }
+    }
+
+    private void AppendActivityLog(string message) => AppendActivityLog(message, null);
+
+    private void AppendActivityLog(string message, string? project)
+    {
+        if (string.IsNullOrWhiteSpace(project))
+            project = ActivityLogProjectScope.Value;
+        if (string.IsNullOrWhiteSpace(project))
+            project = _activityLogProject;
         if (string.IsNullOrWhiteSpace(project))
             project = ExtractLeadingProject(message);
+        var accountKey = ActivityLogAccountScope.Value;
         var record = new ActivityLogRecord
         {
             Text = $"[{DateTime.Now:HH:mm:ss}] {message}",
             ProjectName = project,
-            Platform = SelectedPlatform.Value,
+            Platform = ActivityLogPlatformScope.Value ?? SelectedPlatform.Value,
         };
-        void Append()
+        EnqueueActivityLog(accountKey, record);
+    }
+
+    private void EnqueueActivityLog(string? accountKey, ActivityLogRecord record)
+    {
+        var start = false;
+        lock (_pendingActivityLogs)
+        {
+            _pendingActivityLogs.Enqueue((accountKey, record));
+            if (_activityLogFlushScheduled == 0)
+            {
+                _activityLogFlushScheduled = 1;
+                start = true;
+            }
+        }
+
+        if (!start)
+            return;
+        var wait = (int)Math.Max(0, _nextActivityLogFlushTick - Environment.TickCount64);
+        if (wait == 0)
+            Dispatcher.UIThread.Post(FlushActivityLogs, DispatcherPriority.Background);
+        else
+            _ = FlushActivityLogsAfterDelayAsync(wait);
+    }
+
+    private async Task FlushActivityLogsAfterDelayAsync(int wait)
+    {
+        try
+        {
+            await Task.Delay(wait).ConfigureAwait(false);
+            Dispatcher.UIThread.Post(FlushActivityLogs, DispatcherPriority.Background);
+        }
+        catch (Exception)
+        {
+            lock (_pendingActivityLogs)
+                _activityLogFlushScheduled = 0;
+        }
+    }
+
+    private void FlushActivityLogs()
+    {
+        List<(string? AccountKey, ActivityLogRecord Record)> batch;
+        lock (_pendingActivityLogs)
+        {
+            batch = _pendingActivityLogs.ToList();
+            _pendingActivityLogs.Clear();
+            _activityLogFlushScheduled = 0;
+        }
+
+        foreach (var (accountKey, record) in batch)
         {
             ActivityLogs.Add(record.Text);
             ActivityLogRecords.Add(record);
-            while (ActivityLogs.Count > 500)
-                ActivityLogs.RemoveAt(0);
-            while (ActivityLogRecords.Count > 500)
-                ActivityLogRecords.RemoveAt(0);
-            RefreshFilteredActivityLogs();
+            RememberKuaishouProjectLog(accountKey, record.ProjectName, record.Text);
+            NoteFooterLog(accountKey, record.Text);
         }
 
-        if (Dispatcher.UIThread.CheckAccess())
-            Append();
-        else
-            Dispatcher.UIThread.Post(Append);
+        while (ActivityLogs.Count > 500)
+            ActivityLogs.RemoveAt(0);
+        while (ActivityLogRecords.Count > 500)
+            ActivityLogRecords.RemoveAt(0);
+        if (batch.Count > 0)
+        {
+            _nextActivityLogFlushTick = Environment.TickCount64 + 200;
+            ScheduleFilteredLogRefresh();
+        }
+
+        var more = false;
+        lock (_pendingActivityLogs)
+        {
+            if (_pendingActivityLogs.Count > 0 && _activityLogFlushScheduled == 0)
+            {
+                _activityLogFlushScheduled = 1;
+                more = true;
+            }
+        }
+
+        if (more)
+            _ = FlushActivityLogsAfterDelayAsync(200);
+    }
+
+    public void RefreshKuaishouTodayUploadCount()
+    {
+        if (!IsKuaishouPlatform)
+        {
+            KuaishouTodayUploadText = "";
+            return;
+        }
+
+        var generation = Interlocked.Increment(ref _todayUploadGeneration);
+        _countedUploadDay = DateTime.Now.Date;
+        var platform = SelectedPlatform.Value;
+        var accountId = _activeGlobalAccount?.Id ?? "";
+        var workspace = Directory.Exists(DraftProjectDirectory) ? DraftProjectDirectory : null;
+        var directories = _jobs
+            .Where(job => job.Platform == platform &&
+                          string.Equals(job.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
+            .Select(job => job.ProjectDirectory)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
+        string? archiveRoot = null;
+        string? nickname = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(accountId))
+            {
+                var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, "今日上传"));
+                if (!string.IsNullOrWhiteSpace(config.ArchiveRootDirectory) &&
+                    Directory.Exists(config.ArchiveRootDirectory))
+                    archiveRoot = config.ArchiveRootDirectory;
+                nickname = config.KuaishouNickname;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            archiveRoot = null;
+        }
+
+        _ = Task.Run(() =>
+        {
+            var count = KuaishouTodayUploadCounter.CountToday(
+                platform, accountId, workspace, projectDirectories: directories, archiveRoot: archiveRoot, nickname: nickname);
+            PostUi(() =>
+            {
+                if (generation != _todayUploadGeneration || !IsKuaishouPlatform)
+                    return;
+                KuaishouTodayUploadText = $"今日已上传剧集：{count}";
+            });
+        });
+    }
+
+    private void ScheduleFilteredLogRefresh()
+    {
+        if (Interlocked.Exchange(ref _logRefreshPosted, 1) == 1)
+            return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            Interlocked.Exchange(ref _logRefreshPosted, 0);
+            RefreshFilteredActivityLogs();
+        }, DispatcherPriority.Background);
+    }
+
+    public async Task<IReadOnlyList<string>> ArchiveCheckedKuaishouAsync()
+    {
+        if (!IsKuaishouPlatform)
+            return ["当前不是快手分账页面。"];
+        var rows = VisibleJobs.Where(row => row.IsChecked && Directory.Exists(row.Model.ProjectDirectory)).ToArray();
+        if (rows.Length == 0)
+        {
+            StatusMessage = "请先勾选要归档的项目。";
+            return ["请先勾选要归档的项目。"];
+        }
+
+        var workspace = Path.GetFullPath(DraftProjectDirectory);
+        if (!Directory.Exists(workspace))
+        {
+            StatusMessage = "请先选择快手分账工作目录。";
+            return ["请先选择快手分账工作目录。"];
+        }
+
+        var failures = new List<string>();
+        var source = IsKuaishouPersonalPlatform ? "kuaishou_personal" : "kuaishou_enterprise";
+        await RunBusyAsync(async cancellationToken =>
+        {
+            var succeeded = 0;
+            foreach (var row in rows)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var config = KuaishouPersonalConfig.Load(row.Model);
+                    if (string.IsNullOrWhiteSpace(config.ArchiveRootDirectory))
+                        throw new InvalidOperationException($"请先在已归档项目中为快手分账{(row.Model.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版")}配置归档目录。");
+                    var archiveRoot = config.ArchiveRootDirectory;
+                    AppendActivityLog($"准备归档：{row.ProjectName}");
+                    KuaishouWorkspaceProjects.Invalidate(row.Model.ProjectDirectory);
+                    await TikTokArchivedProjectService.ArchiveQueueProjectAsync(
+                        workspace,
+                        row.Model.ProjectDirectory,
+                        archiveRoot,
+                        preserveWorkflowEpisodes: null,
+                        deleteSourceVideos: true,
+                        deleteWorkflowVideos: true,
+                        deleteMaterialVideos: true,
+                        source: source,
+                        account: new TikTokAccountProfile
+                        {
+                            Id = _activeGlobalAccount?.Id ?? row.Model.AccountId,
+                            Name = _activeGlobalAccount?.Name ?? row.Model.AccountName,
+                        },
+                        ct: cancellationToken);
+                    _jobs.Remove(row.Model);
+                    succeeded++;
+                    AppendActivityLog($"已归档：{row.ProjectName}");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var reason = $"{row.ProjectName}：{ex.Message}";
+                    failures.Add(reason);
+                    AppendActivityLog($"归档失败：{reason}");
+                }
+            }
+
+            await PersistAsync(cancellationToken);
+            RefreshVisibleJobs();
+            RefreshKuaishouTodayUploadCount();
+            StatusMessage = failures.Count == 0
+                ? $"归档结束：成功 {succeeded}。原视频、转码视频和素材视频已按快手分账规则清理。"
+                : $"归档结束：成功 {succeeded}，失败 {failures.Count}。";
+            AppendActivityLog(StatusMessage);
+        });
+        return failures;
+    }
+
+    partial void OnKuaishouArchiveIsPersonalChanged(bool value) => RefreshKuaishouArchivedProjects();
+
+    partial void OnKuaishouArchiveFilterTextChanged(string value) =>
+        ShowKuaishouArchivedProjects(SelectedArchivedProject?.ProjectKey);
+
+    public void SelectKuaishouArchiveEdition(bool personal) => KuaishouArchiveIsPersonal = personal;
+
+    public async Task SaveKuaishouArchiveRootAsync(string directory)
+    {
+        if (_activeGlobalAccount is null)
+        {
+            StatusMessage = "请先在左侧选择账号。";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            StatusMessage = "请选择有效的归档目录。";
+            return;
+        }
+
+        var platform = KuaishouArchivePlatform();
+        var normalized = Path.GetFullPath(directory);
+        var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, "归档目录"));
+        config.ArchiveRootDirectory = normalized;
+        await config.SaveAsync(KuaishouPersonalConfig.DefaultConfigPath(_activeGlobalAccount.Id, platform));
+        KuaishouArchiveRootText = normalized;
+        StatusMessage = $"已保存账号「{_activeGlobalAccount.Name}」的{(KuaishouArchiveIsPersonal ? "个人版" : "企业版")}归档目录：{normalized}";
+        AppendActivityLog(StatusMessage);
+        RefreshKuaishouArchivedProjects();
+    }
+
+    public void RefreshKuaishouArchivedProjects()
+    {
+        var generation = Interlocked.Increment(ref _archiveListGeneration);
+        var selectedKey = SelectedArchivedProject?.ProjectKey;
+        var account = _activeGlobalAccount;
+        var platform = KuaishouArchivePlatform();
+        var personal = KuaishouArchiveIsPersonal;
+        var workspaceDraft = DraftProjectDirectory;
+        var accountName = account?.Name ?? "";
+        if (account is null)
+        {
+            ApplyKuaishouArchivedProjects(generation, selectedKey, "", []);
+            return;
+        }
+
+        var configJob = CreateKuaishouArchiveJob(platform, "已归档");
+        _ = Task.Run(() =>
+        {
+            string archiveRoot;
+            IReadOnlyList<ArchivedProjectRowViewModel> rows;
+            try
+            {
+                var config = KuaishouPersonalConfig.Load(configJob);
+                archiveRoot = config.ArchiveRootDirectory?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(archiveRoot) || !Directory.Exists(archiveRoot))
+                {
+                    rows = [];
+                }
+                else
+                {
+                    var workspace = Directory.Exists(workspaceDraft) ? Path.GetFullPath(workspaceDraft) : archiveRoot;
+                    var source = personal ? "kuaishou_personal" : "kuaishou_enterprise";
+                    rows = TikTokArchivedProjectService.ListBySource(workspace, archiveRoot, source)
+                        .Select(item =>
+                        {
+                            DateTimeOffset? archivedAt = DateTimeOffset.TryParse(item.ArchivedAt, out var parsed) ? parsed : null;
+                            var title = FirstArchiveTitle(item);
+                            return new ArchivedProjectRowViewModel(
+                                item.ProjectKey,
+                                title,
+                                item.MetadataPath,
+                                item.ArchivedSourceDir,
+                                item.ArchivedWorkflowDir,
+                                archivedAt,
+                                0,
+                                0,
+                                item.OriginalTitle,
+                                string.IsNullOrWhiteSpace(item.NewTitle) ? title : item.NewTitle,
+                                string.IsNullOrWhiteSpace(item.AccountProfileName) ? accountName : item.AccountProfileName);
+                        })
+                        .ToArray();
+                }
+            }
+            catch (Exception ex)
+            {
+                archiveRoot = "";
+                rows = [];
+                PostUi(() => AppendActivityLog($"读取快手归档项目失败：{ex.Message}"));
+            }
+
+            PostUi(() => ApplyKuaishouArchivedProjects(generation, selectedKey, archiveRoot, rows));
+        });
+    }
+
+    private void ApplyKuaishouArchivedProjects(
+        int generation,
+        string? selectedKey,
+        string archiveRoot,
+        IReadOnlyList<ArchivedProjectRowViewModel> rows)
+    {
+        if (generation != _archiveListGeneration)
+            return;
+        _kuaishouArchivedRows = rows;
+        KuaishouArchiveRootText = archiveRoot;
+        ShowKuaishouArchivedProjects(selectedKey);
+    }
+
+    private void ShowKuaishouArchivedProjects(string? selectedKey)
+    {
+        ArchivedProjects.Clear();
+        foreach (var row in _kuaishouArchivedRows)
+        {
+            if (ArchivedProjectSearch.Matches(
+                    KuaishouArchiveFilterText,
+                    row.DisplayName,
+                    row.OriginalTitle,
+                    row.NewTitle,
+                    row.AccountName,
+                    row.ArchiveProjectDirectory,
+                    row.ArchivedSourceDirectory,
+                    row.ArchivedWorkflowDirectory))
+                ArchivedProjects.Add(row);
+        }
+
+        SelectedArchivedProject = string.IsNullOrWhiteSpace(selectedKey)
+            ? null
+            : ArchivedProjects.FirstOrDefault(item => item.ProjectKey == selectedKey);
+        if (SelectedArchivedProject is null && string.IsNullOrWhiteSpace(KuaishouArchiveFilterText))
+            SelectedArchivedProject = ArchivedProjects.FirstOrDefault();
+        OnPropertyChanged(nameof(ArchivedProjectsSummary));
+        OnPropertyChanged(nameof(KuaishouArchivedProjectsSummary));
+    }
+
+    private PublishPlatform KuaishouArchivePlatform() =>
+        KuaishouArchiveIsPersonal
+            ? PublishPlatform.KuaishouPersonalRevenue
+            : PublishPlatform.KuaishouEnterpriseRevenue;
+
+    private PublishJob CreateKuaishouArchiveJob(PublishPlatform platform, string projectName) => new()
+    {
+        Platform = platform,
+        AccountId = _activeGlobalAccount?.Id ?? string.Empty,
+        ConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, platform),
+        ProjectDirectory = Directory.Exists(DraftProjectDirectory) ? DraftProjectDirectory : string.Empty,
+        ProjectName = projectName,
+    };
+
+    public async Task RestoreSelectedKuaishouArchiveAsync()
+    {
+        if (!IsKuaishouPlatform || SelectedArchivedProject is not { } row)
+        {
+            StatusMessage = "请先选择要回退的归档项目。";
+            return;
+        }
+
+        if (!Directory.Exists(DraftProjectDirectory))
+        {
+            StatusMessage = "请先选择当前账号的工作目录，再回退归档项目。";
+            return;
+        }
+        var workspace = Path.GetFullPath(DraftProjectDirectory);
+        var platform = KuaishouArchivePlatform();
+        var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, row.DisplayName));
+        if (string.IsNullOrWhiteSpace(config.ArchiveRootDirectory))
+        {
+            StatusMessage = "请先配置当前版本的归档目录。";
+            return;
+        }
+        var archiveRoot = config.ArchiveRootDirectory;
+        await RunBusyAsync(cancellationToken =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TikTokArchivedProjectService.Restore(workspace, row.ArchiveProjectDirectory, archiveRoot);
+            StatusMessage = $"已回退归档项目：{row.DisplayName}";
+            AppendActivityLog(StatusMessage);
+            return Task.CompletedTask;
+        });
+        RefreshKuaishouArchivedProjects();
+        if (!IsBusy)
+            await ScanWorkspaceAsync();
+    }
+
+    private static string FirstArchiveTitle(ArchivedProjectItem item)
+    {
+        foreach (var value in new[] { item.NewTitle, item.DisplayName, item.OriginalTitle, item.ProjectKey })
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value.Trim();
+        }
+
+        return item.ProjectKey;
     }
 
     public void RefreshArchivedProjects()
@@ -2494,36 +4627,154 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         void Refresh()
         {
-            VisibleJobs.Clear();
-            foreach (var job in _jobs
+            _kuaishouListedMisses.Clear();
+            var jobs = _jobs.ToArray();
+            var rows = new List<PublishJobRowViewModel>();
+            foreach (var job in jobs
                          .Where(job => job.Platform == SelectedPlatform.Value)
+                         .Where(job => !IsKuaishouPlatform || HasKuaishouEdition)
                          .Where(job => !IsKuaishouPlatform ||
-                                       KuaishouWorkspaceProjects.IsListed(DraftProjectDirectory, job.ProjectDirectory))
-                         .Where(job => _activeGlobalAccount is null ||
+                                       IsKuaishouJobListed(DraftProjectDirectory, job.ProjectDirectory))
+                         .Where(job => IsKuaishouPlatform || _activeGlobalAccount is null ||
                                        string.Equals(job.AccountId, _activeGlobalAccount.Id, StringComparison.OrdinalIgnoreCase))
                          .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
                                        (_materialWorkflowActive
                                            ? job.Kind != PublishJobKind.Series
                                            : job.Kind == PublishJobKind.Series))
-                         .Where(job => SelectedPlatform.Value != PublishPlatform.WeixinChannel ||
-                                       string.IsNullOrWhiteSpace(WorkflowFilterText) ||
-                                       job.ProjectName.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
-                                       job.AccountName.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
-                                       job.ProjectDirectory.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase) ||
-                                       job.StatusMessage.Contains(WorkflowFilterText, StringComparison.CurrentCultureIgnoreCase))
                          .OrderByDescending(job => job.CreatedAt))
             {
-                VisibleJobs.Add(new PublishJobRowViewModel(job));
+                var row = RowForJob(job);
+                if (!MatchesWorkflowFilter(row))
+                    continue;
+                rows.Add(row);
             }
+
+            var liveIds = jobs.Select(job => job.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var stale in _jobRowCache.Keys.Where(id => !liveIds.Contains(id)).ToArray())
+                _jobRowCache.Remove(stale);
+
+            VisibleJobs.Clear();
+            foreach (var row in rows)
+                VisibleJobs.Add(row);
 
             RefreshPagedJobs(selectId);
             OnPropertyChanged(nameof(QueueSummary));
+            ScheduleKuaishouListedVerification();
         }
 
         if (Dispatcher.UIThread.CheckAccess())
             Refresh();
         else
             Dispatcher.UIThread.Post(Refresh);
+    }
+
+    private bool MatchesWorkflowFilter(PublishJobRowViewModel row)
+    {
+        if (string.IsNullOrWhiteSpace(WorkflowFilterText))
+            return true;
+        if (row.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+            row.LoadTableInfo();
+        return WorkflowJobFilter.Matches(
+            WorkflowFilterText,
+            row.ProjectName,
+            row.AccountName,
+            row.ProjectDirectory,
+            row.StatusMessage,
+            row.OriginalTitle,
+            row.NewTitle,
+            row.StatusText,
+            row.DownloadStepStatus,
+            row.RewriteStepStatus,
+            row.PosterStepStatus,
+            row.ProjectImageStepStatus,
+            row.AutoFillStepStatus,
+            row.UploadStepStatus);
+    }
+
+    private bool IsKuaishouJobListed(string workspace, string projectDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+            return false;
+        if (KuaishouWorkspaceProjects.TryGetListed(workspace, projectDirectory, out var listed))
+            return listed;
+        if (KuaishouWorkspaceProjects.IsStructuralChild(workspace, projectDirectory))
+            _kuaishouListedMisses.Add(projectDirectory);
+        return false;
+    }
+
+    private void ScheduleKuaishouListedVerification()
+    {
+        if (_kuaishouListingDepth > 0 || !IsKuaishouPlatform || _kuaishouListedMisses.Count == 0)
+            return;
+        var workspace = DraftProjectDirectory;
+        var pending = _kuaishouListedMisses.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var generation = Interlocked.Increment(ref _listedVerifyGeneration);
+        _ = Task.Run(() =>
+        {
+            var changed = false;
+            foreach (var directory in pending)
+            {
+                if (KuaishouWorkspaceProjects.IsListed(workspace, directory))
+                    changed = true;
+            }
+
+            if (!changed)
+                return;
+            PostUi(() =>
+            {
+                if (generation != _listedVerifyGeneration || _kuaishouListingDepth > 0)
+                    return;
+                if (!string.Equals(DraftProjectDirectory, workspace, StringComparison.OrdinalIgnoreCase))
+                    return;
+                RefreshVisibleJobs();
+            });
+        });
+    }
+
+    private PublishJobRowViewModel RowForJob(PublishJob job)
+    {
+        if (_jobRowCache.TryGetValue(job.Id, out var row))
+            return row;
+        var deferTable = job.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue;
+        row = new PublishJobRowViewModel(job, loadArtifacts: false, loadTableInfo: !deferTable);
+        _jobRowCache[job.Id] = row;
+        return row;
+    }
+
+    private void LoadVisibleKuaishouArtifacts(IReadOnlyList<PublishJobRowViewModel> rows, int generation)
+    {
+        if (!IsKuaishouPlatform || rows.Count == 0)
+            return;
+        var snapshot = rows.ToArray();
+        _ = Task.Run(() =>
+        {
+            var loaded = new List<(PublishJobRowViewModel Row, KuaishouArtifactColumnStatus? Artifacts)>(snapshot.Length);
+            foreach (var row in snapshot)
+            {
+                KuaishouArtifactColumnStatus? artifacts = null;
+                try
+                {
+                    row.LoadTableInfo();
+                    if (Directory.Exists(row.ProjectDirectory))
+                        artifacts = KuaishouArtifactColumnStatusReader.Read(
+                            row.ProjectDirectory,
+                            row.Platform == PublishPlatform.KuaishouEnterpriseRevenue);
+                }
+                catch
+                {
+                    artifacts = null;
+                }
+                loaded.Add((row, artifacts));
+            }
+
+            PostUi(() =>
+            {
+                if (generation != _visibleJobGeneration)
+                    return;
+                foreach (var item in loaded)
+                    item.Row.ApplyKuaishouArtifacts(item.Artifacts);
+            });
+        });
     }
 
     private void RefreshPagedJobs(string? selectId = null)
@@ -2554,6 +4805,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         NextWorkflowPageCommand.NotifyCanExecuteChanged();
         AutoShelfCommand.NotifyCanExecuteChanged();
         SyncCheckedManagementCommand.NotifyCanExecuteChanged();
+        LoadVisibleKuaishouArtifacts(PagedJobs.ToArray(), ++_visibleJobGeneration);
     }
 
     private void PreviousWorkflowPage()
@@ -2598,12 +4850,16 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Dispatcher.UIThread.Post(Refresh);
     }
 
-    private static string ResolveGlobalConfigPath(GlobalAccount? account, PublishPlatform platform) => platform switch
+    private static string ResolveGlobalConfigPath(GlobalAccount? account, PublishPlatform platform)
     {
-        PublishPlatform.KuaishouPersonalRevenue => account?.KuaishouPersonalConfigPath?.Trim() ?? string.Empty,
-        PublishPlatform.KuaishouEnterpriseRevenue => account?.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty,
-        _ => string.Empty,
-    };
+        if (platform is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue))
+            return string.Empty;
+        var personal = account?.KuaishouPersonalConfigPath?.Trim() ?? string.Empty;
+        var enterprise = account?.KuaishouEnterpriseConfigPath?.Trim() ?? string.Empty;
+        if (File.Exists(personal)) return personal;
+        if (File.Exists(enterprise)) return enterprise;
+        return string.IsNullOrWhiteSpace(personal) ? enterprise : personal;
+    }
 
     private async Task MigrateLegacyPlatformAccountsAsync(IReadOnlyList<PublishAccount> legacyAccounts)
     {

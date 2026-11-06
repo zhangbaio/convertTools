@@ -5,9 +5,11 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using ChannelsAccount = ChannelsPublisher.Core.Models.PublishAccount;
 using PlatformPublisher.Common.Models;
+using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Views;
+using AccountStore = ChannelsPublisher.Core.Services.AccountStore;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -17,9 +19,14 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private PublishPlatform _platform = PublishPlatform.KuaishouPersonalRevenue;
     private ChannelsAccount? _account;
     private string _cleanJson = "";
+    private string _cleanEdition = "";
     private bool _suspendDirty;
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
+    public event Func<ChannelsAccount, string, Task<bool>>? ConfirmAccountEdition;
+    public event Func<ChannelsAccount, string, Task>? AccountEditionApplied;
+    public event Action<IReadOnlyList<ChannelsAccount>>? AccountsImported;
     private readonly ObservableCollection<DistributorAccountEditorRow> _distributorAccounts = [];
+    private AccountStore? _accountStore;
 
     public KuaishouPersonalConfigDialog()
     {
@@ -31,11 +38,13 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         UpdateHeading();
     }
 
+    public void UseAccountStore(AccountStore accountStore) => _accountStore = accountStore;
+
     public async Task<bool> TryLeaveAsync(Window owner)
     {
         if (!HasUnsavedChanges()) return true;
         var save = await ConfirmDialog.ShowAsync(owner, "保存快手分账配置",
-            $"「{_account?.Name ?? "当前账号"}」的{_platform.DisplayName()}配置已修改，是否保存？");
+            $"「{_account?.Name ?? "当前账号"}」的快手分账配置已修改，是否保存？");
         if (!save)
         {
             LoadAccount(_account, _platform);
@@ -60,6 +69,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void LoadValues()
     {
+        var edition = _account?.KuaishouAccountEdition ?? "";
+        EditionPersonalBox.IsChecked = string.Equals(edition, "personal", StringComparison.OrdinalIgnoreCase);
+        EditionEnterpriseBox.IsChecked = string.Equals(edition, "enterprise", StringComparison.OrdinalIgnoreCase);
         ApiBaseUrlBox.Text = _config.ApiBaseUrl;
         AdvertiserIdBox.Text = FirstNonEmpty(_config.AdvertiserId, _config.KuaishouId);
         NicknameBox.Text = _config.KuaishouNickname;
@@ -132,12 +144,10 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         ProjectImageRootBox.Text = _config.ProjectImageTemplateRoot;
         FillTemplate(UploadTemplateBox, FirstNonEmpty(_config.UploadProjectImageTemplateId, _config.ProjectImageTemplateId));
-        FillTemplate(PersonalTemplateBox, _platform == PublishPlatform.KuaishouPersonalRevenue
-            ? FirstNonEmpty(_config.PersonalProjectImageTemplateId, _config.ProjectImageTemplateId)
-            : _config.PersonalProjectImageTemplateId);
-        FillTemplate(EnterpriseTemplateBox, _platform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? FirstNonEmpty(_config.EnterpriseProjectImageTemplateId, _config.ProjectImageTemplateId)
-            : _config.EnterpriseProjectImageTemplateId);
+        FillTemplate(PersonalTemplateBox, FirstNonEmpty(
+            _config.PersonalProjectImageTemplateId,
+            _config.EnterpriseProjectImageTemplateId,
+            _config.ProjectImageTemplateId));
 
         FillChoice(VideoStorageProviderBox, KuaishouFormChoices.VideoStorageProviders, _config.VideoStorageProvider, "aliyun_oss");
         StorageConcurrencyBox.Text = _config.PublicStorageUploadConcurrency.ToString();
@@ -147,6 +157,14 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         OssIntervalBox.Text = _config.OssCleanupIntervalMinutes.ToString();
         OssMaxAttemptsBox.Text = _config.OssCleanupMaxAttempts.ToString();
         OssDeleteOnProjectDeleteBox.IsChecked = _config.OssCleanupDeleteOnProjectDelete;
+
+        ScheduledShelfBox.IsChecked = _config.ScheduledShelfEnabled;
+        FillChoice(ScheduledShelfModeBox, KuaishouFormChoices.ScheduledShelfModes, _config.ScheduledShelfMode, "interval");
+        ScheduledShelfIntervalBox.Text = _config.ScheduledShelfIntervalHours.ToString();
+        ScheduledShelfDailyBox.Text = KuaishouScheduledShelfSchedule.NormalizeClock(_config.ScheduledShelfDailyTime);
+        ScheduledShelfOnlyWhenIdleBox.IsChecked = _config.ScheduledShelfOnlyWhenIdle;
+        ScheduledShelfMaxBox.Text = _config.ScheduledShelfMaxItemsPerRound.ToString();
+        UpdateScheduledShelfModeRows();
 
         AutoOnlineBox.IsChecked = _config.AutoOnlineEnabled;
         AutoOnlineIntervalBox.Text = _config.AutoOnlineIntervalMinutes.ToString();
@@ -190,7 +208,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         FillChoice(FirstPageActionBox, KuaishouFormChoices.FirstPageActions, _config.FirstPageAction, "next");
         FillChoice(FinalActionBox, KuaishouFormChoices.FinalActions, _config.FinalAction, "submit_review");
 
-        AiComplianceBox.IsChecked = _config.AiComplianceReviewEnabled;
         SynopsisRewriteBox.IsChecked = _config.SynopsisAiRewriteEnabled;
         LoadContentPolicy();
     }
@@ -292,6 +309,56 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         }
     }
 
+    private async void ImportExportedSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_accountStore is null)
+        {
+            ValidationText.Text = "账号库尚未就绪，不能导入配置。";
+            return;
+        }
+        if (HasUnsavedChanges())
+        {
+            ValidationText.Text = "请先保存或放弃当前修改，再导入微信工具配置。";
+            return;
+        }
+
+        var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择微信工具导出的快手分账配置",
+            AllowMultiple = false,
+            FileTypeFilter = [new FilePickerFileType("微信工具配置") { Patterns = ["*.json", "*.zip"] }],
+        });
+        if (files.Count == 0) return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        try
+        {
+            using var package = KuaishouSettingsExportPackage.Open(files[0].Path.LocalPath);
+            var importer = new KuaishouExportedSettingsImporter(_accountStore);
+            var preview = importer.Preview(package);
+            if (preview.Accounts.Count == 0)
+            {
+                ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+                ValidationText.Text = importer.Describe(preview);
+                return;
+            }
+            var confirmed = await ConfirmDialog.ShowAsync(owner, "导入微信工具配置", importer.Describe(preview), 680, 460);
+            if (!confirmed) return;
+            var result = await importer.ApplyAsync(package);
+            AccountsImported?.Invoke(result.Accounts);
+            LoadAccount(_account, _platform);
+            ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
+            ValidationText.Text = $"已导入快手分账配置：新建 {result.Created} 个，更新 {result.Updated} 个，登录态 {result.AuthFiles} 份，附件 {result.Assets} 个。上传记录新导入 {result.ImportedUploads} 部，合并 {result.MergedUploads} 部，跳过重复 {result.SkippedUploads} 部，无法归类 {result.UnmatchedUploads} 部。";
+            if (result.MissingPaths.Count > 0)
+                ValidationText.Text += $" 有 {result.MissingPaths.Count} 个路径在这台电脑上不存在。";
+        }
+        catch (Exception ex)
+        {
+            ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+            ValidationText.Text = "导入微信工具配置失败：" + ex.Message;
+        }
+    }
+
     private async void Save_Click(object? sender, RoutedEventArgs e) => await SaveCurrentAsync();
 
     private bool ApplyToConfig()
@@ -382,11 +449,10 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         _config.ProjectImageTemplateRoot = ProjectImageRootBox.Text?.Trim() ?? string.Empty;
         _config.UploadProjectImageTemplateId = TemplateValue(UploadTemplateBox);
-        _config.PersonalProjectImageTemplateId = TemplateValue(PersonalTemplateBox);
-        _config.EnterpriseProjectImageTemplateId = TemplateValue(EnterpriseTemplateBox);
-        _config.ProjectImageTemplateId = _platform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? _config.EnterpriseProjectImageTemplateId
-            : _config.PersonalProjectImageTemplateId;
+        var settlementTemplate = TemplateValue(PersonalTemplateBox);
+        _config.PersonalProjectImageTemplateId = settlementTemplate;
+        _config.EnterpriseProjectImageTemplateId = settlementTemplate;
+        _config.ProjectImageTemplateId = settlementTemplate;
 
         _config.VideoStorageProvider = ChoiceValue(VideoStorageProviderBox, "aliyun_oss");
         _config.PublicStorageUploadConcurrency = Math.Clamp(Positive(StorageConcurrencyBox.Text, 2), 1, 8);
@@ -397,6 +463,12 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.OssCleanupMaxAttempts = Positive(OssMaxAttemptsBox.Text, 5);
         _config.OssCleanupDeleteOnProjectDelete = OssDeleteOnProjectDeleteBox.IsChecked == true;
 
+        _config.ScheduledShelfEnabled = ScheduledShelfBox.IsChecked == true;
+        _config.ScheduledShelfMode = ChoiceValue(ScheduledShelfModeBox, "interval");
+        _config.ScheduledShelfIntervalHours = Math.Clamp(Positive(ScheduledShelfIntervalBox.Text, 1), 1, 24);
+        _config.ScheduledShelfDailyTime = KuaishouScheduledShelfSchedule.NormalizeClock(ScheduledShelfDailyBox.Text);
+        _config.ScheduledShelfOnlyWhenIdle = ScheduledShelfOnlyWhenIdleBox.IsChecked == true;
+        _config.ScheduledShelfMaxItemsPerRound = Math.Clamp(Positive(ScheduledShelfMaxBox.Text, 50), 1, 200);
         _config.AutoOnlineEnabled = AutoOnlineBox.IsChecked == true;
         _config.AutoOnlineIntervalMinutes = Positive(AutoOnlineIntervalBox.Text, 30);
         _config.AutoOnlineMaxItemsPerRound = Positive(AutoOnlineMaxItemsBox.Text, 30);
@@ -440,7 +512,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.FirstPageAction = ChoiceValue(FirstPageActionBox, "next");
         _config.FinalAction = ChoiceValue(FinalActionBox, "submit_review");
 
-        _config.AiComplianceReviewEnabled = AiComplianceBox.IsChecked == true;
         _config.SynopsisAiRewriteEnabled = SynopsisRewriteBox.IsChecked == true;
         _config.DramaTitlePolicyJson = KuaishouContentPolicyText.BuildTitlePolicy(
             TitlePolicyBox.Text ?? string.Empty, KuaishouContentPolicyDefaults.TitlePolicyJson);
@@ -470,6 +541,19 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     {
         if (BroadcastDateBox is null || BroadcastTimeModeBox is null) return;
         BroadcastDateBox.IsVisible = ChoiceValue(BroadcastTimeModeBox, "today") == "fixed";
+    }
+
+    private void ScheduledShelfModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        UpdateScheduledShelfModeRows();
+
+    private void UpdateScheduledShelfModeRows()
+    {
+        if (ScheduledShelfModeBox is null) return;
+        var daily = ChoiceValue(ScheduledShelfModeBox, "interval") == "daily";
+        ScheduledShelfIntervalLabel.IsVisible = !daily;
+        ScheduledShelfIntervalBox.IsVisible = !daily;
+        ScheduledShelfDailyLabel.IsVisible = daily;
+        ScheduledShelfDailyBox.IsVisible = daily;
     }
 
     private void DistributionModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateDistributionModeRows();
@@ -660,19 +744,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void Cancel_Click(object? sender, RoutedEventArgs e) => LoadAccount(_account, _platform);
 
-    private async void OnPersonalEditionClick(object? sender, RoutedEventArgs e) =>
-        await SwitchEditionAsync(PublishPlatform.KuaishouPersonalRevenue);
-
-    private async void OnEnterpriseEditionClick(object? sender, RoutedEventArgs e) =>
-        await SwitchEditionAsync(PublishPlatform.KuaishouEnterpriseRevenue);
-
-    private async Task SwitchEditionAsync(PublishPlatform platform)
-    {
-        if (platform == _platform) return;
-        if (TopLevel.GetTopLevel(this) is Window owner && !await TryLeaveAsync(owner)) return;
-        LoadAccount(_account, platform);
-    }
-
     private async Task<bool> SaveCurrentAsync()
     {
         if (_account is null)
@@ -681,6 +752,23 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             return false;
         }
         if (!ApplyToConfig()) return false;
+        var edition = SelectedEdition();
+        var editionChanged = !string.Equals(edition, _account.KuaishouAccountEdition ?? "", StringComparison.OrdinalIgnoreCase);
+        if (editionChanged)
+        {
+            if (string.IsNullOrWhiteSpace(edition))
+            {
+                ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+                ValidationText.Text = "请选择账号类型。";
+                return false;
+            }
+            if (ConfirmAccountEdition is null || !await ConfirmAccountEdition(_account, edition))
+            {
+                ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+                ValidationText.Text = "账号类型未保存。";
+                return false;
+            }
+        }
         var issues = KuaishouConfigurationValidator.Validate(_config);
         if (issues.Count > 0)
         {
@@ -694,6 +782,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
         ValidationText.Text = "已保存。";
         if (ConfigSaved is not null) await ConfigSaved(_account.Id, _platform, path);
+        if (editionChanged && AccountEditionApplied is not null)
+            await AccountEditionApplied(_account, edition);
+        _cleanEdition = edition;
         return true;
     }
 
@@ -711,33 +802,43 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private string ResolveConfigPath(bool createDefault)
     {
-        var configured = _platform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? _account?.KuaishouEnterpriseConfigPath
-            : _account?.KuaishouPersonalConfigPath;
-        if (!string.IsNullOrWhiteSpace(configured)) return Path.GetFullPath(configured);
+        var personal = _account?.KuaishouPersonalConfigPath?.Trim();
+        var enterprise = _account?.KuaishouEnterpriseConfigPath?.Trim();
+        if (!string.IsNullOrWhiteSpace(personal) && File.Exists(personal)) return Path.GetFullPath(personal);
+        if (!string.IsNullOrWhiteSpace(enterprise) && File.Exists(enterprise)) return Path.GetFullPath(enterprise);
+        if (!string.IsNullOrWhiteSpace(personal)) return Path.GetFullPath(personal);
+        if (!string.IsNullOrWhiteSpace(enterprise)) return Path.GetFullPath(enterprise);
         return createDefault && _account is not null
-            ? KuaishouPersonalConfig.DefaultConfigPath(_account.Id, _platform)
+            ? KuaishouPersonalConfig.DefaultConfigPath(_account.Id, PublishPlatform.KuaishouPersonalRevenue)
             : string.Empty;
     }
 
     public string? AccountId => _account?.Id;
     public PublishPlatform CurrentPlatform => _platform;
 
+    private string SelectedEdition() =>
+        EditionEnterpriseBox.IsChecked == true ? "enterprise"
+        : EditionPersonalBox.IsChecked == true ? "personal"
+        : "";
+
     private bool HasUnsavedChanges()
     {
         if (_suspendDirty) return false;
+        if (!string.Equals(SelectedEdition(), _cleanEdition, StringComparison.OrdinalIgnoreCase))
+            return true;
         if (!ApplyToConfig()) return true;
         return JsonSerializer.Serialize(_config) != _cleanJson;
     }
 
-    private void CaptureClean() => _cleanJson = JsonSerializer.Serialize(_config);
+    private void CaptureClean()
+    {
+        _cleanJson = JsonSerializer.Serialize(_config);
+        _cleanEdition = SelectedEdition();
+    }
 
     private void UpdateHeading()
     {
-        var edition = _platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版";
-        AccountHeading.Text = _account is null ? "快手分账配置" : $"{_account.Name} · {edition}";
-        PersonalEditionButton.Classes.Set("navActive", _platform != PublishPlatform.KuaishouEnterpriseRevenue);
-        EnterpriseEditionButton.Classes.Set("navActive", _platform == PublishPlatform.KuaishouEnterpriseRevenue);
+        AccountHeading.Text = _account is null ? "快手分账配置" : _account.Name;
     }
 
     private IStorageProvider Files =>

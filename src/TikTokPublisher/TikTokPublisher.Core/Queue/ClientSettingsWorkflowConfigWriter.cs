@@ -1,5 +1,6 @@
 using System.Text.Json;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
@@ -13,22 +14,26 @@ public static class ClientSettingsWorkflowConfigWriter
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, $"workflow-config-{Guid.NewGuid():N}.json");
 
+        var directPosterPrompt = ClientSettingsStore.WithPosterTitlePlaceholder(
+            ClientSettingsStore.ResolvePosterAgentPrompt(settings, ClientSettingsDefaults.PosterModeDirect));
+        var safeRetryPosterPrompt = ClientSettingsDefaults.PosterAgentSafeRetryPrefix + directPosterPrompt;
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["AiTextEndpoint"] = settings.AiTextEndpoint,
             ["AiTextApiKey"] = settings.AiTextApiKey,
             ["AiTextModel"] = settings.AiTextModel,
-            ["AiTextSystemPrompt"] = settings.AiFullInfoSystemPrompt,
+            ["AiTextSystemPrompt"] = ClientSettingsStore.ResolvePublishInfoPrompt(settings),
+            ["AiPublishInfoMode"] = true,
+            ["AiPublishThemeOptions"] = string.Join("|", TikTokPublishConstants.GenreOptions),
+            ["AiPublishThemeCount"] = TikTokPublishOptions.NormalizeGenreCount(account?.TiktokGenreCount ?? 0),
+            ["AiPublishAskAudience"] = AsksAudience(account),
             ["ChatModelEndpoint"] = settings.AiTextEndpoint,
             ["ChatModelApiKey"] = settings.AiTextApiKey,
             ["ChatModelId"] = settings.AiTextModel,
-            ["AiTextBatchPrompt"] = settings.AiFullInfoBatchPrompt,
-            ["AiTextRetryPrompt"] = settings.AiFullInfoRetryPrompt,
             ["AiRewriteSynopsis"] = account?.TiktokAiRewriteSynopsis == true,
             ["AiRewriteFollowsSourceLanguage"] = account?.TiktokRewriteFollowsSourceLanguage == true,
             ["AiTextTimeoutSeconds"] = settings.AiTextTimeoutSeconds,
             ["AiNewTitleTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiNewTitleRandomness),
-            ["AiSynopsisTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiSynopsisRandomness),
             ["TiktokRoleReferenceSelectionMode"] = settings.TiktokRoleReferenceSelectionMode,
             ["TiktokRoleReferenceAiFallbackEnabled"] = settings.TiktokRoleReferenceAiFallbackEnabled,
             ["TiktokRoleVectorViewMode"] = settings.TiktokRoleVectorViewMode,
@@ -45,11 +50,14 @@ public static class ClientSettingsWorkflowConfigWriter
             ["OfoxImage2Endpoint"] = settings.OfoxImage2Endpoint,
             ["OfoxImage2Quality"] = settings.OfoxImage2Quality,
             ["OfoxImage2Size"] = settings.OfoxImage2Size,
-            ["PosterLayoutDetectPrompt"] = settings.PosterLayoutDetectPrompt,
-            ["PosterInpaintPrompt"] = settings.PosterInpaintPrompt,
-            ["PosterInpaintSafeRetryPrompt"] = settings.PosterInpaintSafeRetryPrompt,
-            ["PosterGenerationPrompt"] = settings.PosterGenerationPrompt,
-            ["PosterGenerationSafeRetryPrompt"] = settings.PosterGenerationSafeRetryPrompt,
+            ["PosterLayoutDetectPrompt"] = ClientSettingsDefaults.PosterLayoutDetectPrompt,
+            ["PosterInpaintPrompt"] = directPosterPrompt,
+            ["PosterInpaintSafeRetryPrompt"] = safeRetryPosterPrompt,
+            ["PosterGenerationPrompt"] = directPosterPrompt,
+            ["PosterGenerationSafeRetryPrompt"] = safeRetryPosterPrompt,
+            ["PosterAllTextErasePrompt"] = ClientSettingsStore.ResolvePosterAgentPrompt(
+                settings,
+                ClientSettingsDefaults.PosterModeEraseFixedTitle),
             ["PosterNameSystemPrompt"] = settings.PosterNameSystemPrompt,
             ["PosterNameUserPrompt"] = settings.PosterNameUserPrompt,
             ["PosterTitleVerifyEnabled"] = settings.PosterTitleVerifyEnabled,
@@ -84,5 +92,11 @@ public static class ClientSettingsWorkflowConfigWriter
         }
 
         return path;
+    }
+
+    private static bool AsksAudience(TikTokAccountProfile? account)
+    {
+        var mode = account?.TiktokTargetAudienceMode?.Trim();
+        return string.IsNullOrEmpty(mode) || string.Equals(mode, "ai_recommend", StringComparison.OrdinalIgnoreCase);
     }
 }

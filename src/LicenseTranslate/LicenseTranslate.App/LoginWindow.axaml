@@ -1,0 +1,26 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="LicenseTranslate.App.LoginWindow"
+        Title="执照翻译登录"
+        Width="520"
+        Height="360"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen">
+  <StackPanel Margin="20" Spacing="12">
+    <TextBlock Text="执照翻译" FontSize="22" FontWeight="SemiBold" />
+    <TextBlock x:Name="MessageText" TextWrapping="Wrap" Opacity="0.8" />
+    <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+      <TextBlock Text="服务器" VerticalAlignment="Center" />
+      <TextBox x:Name="ServerBox" Grid.Column="1" Watermark="https://授权服务地址" />
+      <TextBlock Grid.Row="1" Text="账号" VerticalAlignment="Center" />
+      <TextBox x:Name="AccountBox" Grid.Row="1" Grid.Column="1" Watermark="用户名 / 邮箱" />
+      <TextBlock Grid.Row="2" Text="密码" VerticalAlignment="Center" />
+      <TextBox x:Name="PasswordBox" Grid.Row="2" Grid.Column="1" PasswordChar="*" />
+    </Grid>
+    <TextBlock x:Name="StatusText" TextWrapping="Wrap" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="退出" Click="Exit_Click" />
+      <Button Content="登录" Click="Login_Click" />
+    </StackPanel>
+  </StackPanel>
+</Window>

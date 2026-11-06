@@ -28,8 +28,30 @@ public sealed class TikTokEditFlowUploadedStatusTests
     }
 
     [Fact]
-    public void IsNonDraftUploadedStatus_RejectsNull()
+    public void DetailConfirmsSubmitted_accepts_review_text_even_with_draft_word()
     {
-        Assert.False(TikTokEditFlowService.IsNonDraftUploadedStatus(null));
+        Assert.True(TikTokEditFlowService.DetailConfirmsSubmitted("草稿 视频检测中"));
+        Assert.True(TikTokEditFlowService.DetailConfirmsSubmitted("审核中"));
+        Assert.False(TikTokEditFlowService.DetailConfirmsSubmitted("草稿 - DramaReel_vn 71 托管中"));
+        Assert.False(TikTokEditFlowService.DetailConfirmsSubmitted(""));
+    }
+
+    [Theory]
+    [InlineData(30, 30, false, false, false, true)]
+    [InlineData(27, 30, true, false, false, true)]
+    [InlineData(27, 30, false, false, true, true)]
+    [InlineData(27, 30, false, false, false, false)]
+    public void BatchLooksAccepted_uses_row_count_or_visible_activity(
+        int rowCount,
+        int targetReady,
+        bool episodesOnPage,
+        bool namesInBody,
+        bool uploadActivity,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            TikTokBatchUploadService.BatchLooksAccepted(
+                rowCount, targetReady, episodesOnPage, namesInBody, uploadActivity));
     }
 }

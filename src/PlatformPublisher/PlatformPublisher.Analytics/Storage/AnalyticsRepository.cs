@@ -171,6 +171,20 @@ public sealed class AnalyticsRepository
     public IReadOnlyList<SubjectDailyAnalyticsRecord> ListSubjects(DateOnly from, DateOnly to) { using var c = Open(); using var q = c.CreateCommand(); q.CommandText = "SELECT * FROM analytics_subject_daily_metrics WHERE metric_date >= $f AND metric_date <= $t ORDER BY metric_date,subject_name"; Add(q, "$f", Date(from)); Add(q, "$t", Date(to)); using var r = q.ExecuteReader(); var list = new List<SubjectDailyAnalyticsRecord>(); while (r.Read()) list.Add(ReadSubject(r)); return list; }
     public IReadOnlyList<PublishActivityRecord> ListActivities(DateOnly from, DateOnly to) { using var c = Open(); using var q = c.CreateCommand(); q.CommandText = "SELECT * FROM analytics_publish_activities WHERE substr(occurred_at,1,10) >= $f AND substr(occurred_at,1,10) <= $t"; Add(q, "$f", Date(from)); Add(q, "$t", Date(to)); using var r = q.ExecuteReader(); var list = new List<PublishActivityRecord>(); while (r.Read()) list.Add(new() { ActivityId=r.GetString(0),Platform=(PublishPlatform)r.GetInt32(1),AccountId=r.GetString(2),AccountName=r.GetString(3),ProjectName=r.GetString(4),OccurredAt=DateTimeOffset.Parse(r.GetString(5)),Status=r.GetString(6),ItemCount=r.GetInt32(7)}); return list; }
 
+    public void DeleteDailyBefore(PublishPlatform platform, string accountId, DateOnly keepFrom)
+    {
+        lock (_writeGate)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM analytics_daily_metrics WHERE platform=$p AND account_id=$a AND metric_date < $d";
+            Add(command, "$p", (int)platform);
+            Add(command, "$a", accountId);
+            Add(command, "$d", Date(keepFrom));
+            command.ExecuteNonQuery();
+        }
+    }
+
     public string? GetState(string key) { using var c = Open(); using var q = c.CreateCommand(); q.CommandText = "SELECT value FROM analytics_runtime_state WHERE key=$k"; Add(q,"$k",key); return q.ExecuteScalar() as string; }
     public void SetState(string key, string value) { lock(_writeGate) { using var c=Open(); using var q=c.CreateCommand(); q.CommandText="INSERT INTO analytics_runtime_state VALUES($k,$v,$at) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at"; Add(q,"$k",key);Add(q,"$v",value);Add(q,"$at",DateTimeOffset.UtcNow.ToString("O"));q.ExecuteNonQuery(); } }
 

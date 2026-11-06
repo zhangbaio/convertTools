@@ -187,6 +187,74 @@ public static class TikTokExecutionHistoryService
         }
     }
 
+    /// <summary>
+    /// 只读取今日上传计数需要的字段，不反序列化完整项目，也不触发历史库整理。
+    /// </summary>
+    internal static IReadOnlyList<UploadCompletionStamp> ReadUploadCompletionStamps(
+        string? databasePath = null,
+        string? accountProfileId = null)
+    {
+        try
+        {
+            var path = ResolveDatabasePath(databasePath);
+            if (!File.Exists(path))
+                return [];
+
+            using var conn = AppDatabaseInitializer.OpenConnection(path, readOnly: true);
+            using var cmd = conn.CreateCommand();
+            var accountId = (accountProfileId ?? "").Trim();
+            cmd.CommandText = string.IsNullOrEmpty(accountId)
+                ? """
+                SELECT workspace,
+                       COALESCE(json_extract(payload_json, '$.upload_completed_at'), ''),
+                       COALESCE(json_extract(payload_json, '$.account_profile_id'), ''),
+                       COALESCE(json_extract(payload_json, '$.account_profile_name'), ''),
+                       COALESCE(json_extract(payload_json, '$.project_dir'), ''),
+                       COALESCE(json_extract(payload_json, '$.original_title'), ''),
+                       COALESCE(json_extract(payload_json, '$.new_title'), ''),
+                       COALESCE(json_extract(payload_json, '$.display_name'), '')
+                FROM upload_project_snapshots
+                WHERE COALESCE(json_extract(payload_json, '$.upload_completed_at'), '') <> ''
+                """
+                : """
+                SELECT workspace,
+                       COALESCE(json_extract(payload_json, '$.upload_completed_at'), ''),
+                       COALESCE(json_extract(payload_json, '$.account_profile_id'), ''),
+                       COALESCE(json_extract(payload_json, '$.account_profile_name'), ''),
+                       COALESCE(json_extract(payload_json, '$.project_dir'), ''),
+                       COALESCE(json_extract(payload_json, '$.original_title'), ''),
+                       COALESCE(json_extract(payload_json, '$.new_title'), ''),
+                       COALESCE(json_extract(payload_json, '$.display_name'), '')
+                FROM upload_project_snapshots
+                WHERE account_profile_id = $account
+                  AND COALESCE(json_extract(payload_json, '$.upload_completed_at'), '') <> ''
+                """;
+            if (!string.IsNullOrEmpty(accountId))
+                cmd.Parameters.AddWithValue("$account", accountId);
+
+            var stamps = new List<UploadCompletionStamp>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                stamps.Add(new UploadCompletionStamp(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetString(5),
+                    reader.GetString(6),
+                    reader.GetString(7)));
+            }
+
+            return stamps;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     public static IReadOnlyList<TikTokExecutionProjectSnapshot> LoadProjectSnapshots(
         string? databasePath = null,
         string? accountProfileId = null)
@@ -682,3 +750,13 @@ public sealed record TikTokExecutionProjectSnapshot(
     string Workspace,
     string Timestamp,
     QueueProjectItem Item);
+
+internal sealed record UploadCompletionStamp(
+    string Workspace,
+    string UploadCompletedAt,
+    string AccountProfileId,
+    string AccountProfileName,
+    string ProjectDir,
+    string OriginalTitle,
+    string NewTitle,
+    string DisplayName);

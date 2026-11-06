@@ -26,8 +26,9 @@ public sealed class QueueProjectTitleRenameServiceTests
                 "原剧名: 原剧名\n短标题: 旧剧名\n");
             File.WriteAllText(
                 Path.Combine(oldWorkflowDir, "短剧信息.txt"),
-                "新剧名: 旧剧名\n原剧名: 原剧名\n剧名: 旧剧名\n短标题: 旧剧名\n集数: 12\n");
+                "新剧名: 旧剧名\n原剧名: 原剧名\n剧名: 旧剧名\n短标题: 旧剧名\n推荐语: 一句推荐\n集数: 12\n");
             File.WriteAllBytes(Path.Combine(oldWorkflowDir, "证明材料.pdf"), "%PDF-1.7\n"u8.ToArray());
+            File.WriteAllBytes(Path.Combine(oldWorkflowDir, "海报图片.png"), [1, 2, 3]);
             var oldStagingDir = Path.Combine(oldWorkflowDir, TikTokUploadStagingService.StagingDirName);
             Directory.CreateDirectory(oldStagingDir);
             var oldUploadVideo1 = Path.Combine(oldStagingDir, "旧剧名-第1集.mp4");
@@ -81,6 +82,16 @@ public sealed class QueueProjectTitleRenameServiceTests
                     ["display_title"] = "旧剧名",
                     ["workflow_project_dir"] = oldWorkflowDir,
                     ["upload_video_paths"] = new List<string> { oldUploadVideo1, oldUploadVideo2 },
+                },
+                oldWorkflowDir);
+            ProjectStateDocumentStore.SaveDocument(
+                workspace,
+                sourceDir,
+                "material_validation_state",
+                new Dictionary<string, object?>
+                {
+                    ["fingerprint"] = TikTokMaterialValidationService.ComputeMaterialFingerprint(
+                        [oldUploadVideo1, oldUploadVideo2]),
                 },
                 oldWorkflowDir);
             File.WriteAllText(
@@ -174,7 +185,7 @@ public sealed class QueueProjectTitleRenameServiceTests
             File.WriteAllText(Path.Combine(sourceDir, "短剧信息.txt"), "原剧名: 原剧名\n短标题: 旧剧名\n");
             File.WriteAllText(
                 Path.Combine(oldWorkflowDir, "短剧信息.txt"),
-                "新剧名: 旧剧名\n原剧名: 原剧名\n剧名: 旧剧名\n短标题: 旧剧名\n集数: 12\n");
+                "新剧名: 旧剧名\n原剧名: 原剧名\n剧名: 旧剧名\n短标题: 旧剧名\n推荐语: 一句推荐\n集数: 12\n");
             File.WriteAllBytes(Path.Combine(oldWorkflowDir, "证明材料.pdf"), "%PDF-1.7\n"u8.ToArray());
 
             WorkspaceQueueDatabase.EnsureDatabase(WorkspaceQueuePaths.QueueDatabasePath(workspace));

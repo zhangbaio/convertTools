@@ -24,6 +24,10 @@ public sealed class PublishAccount
     public string KuaishouEnterpriseAccount { get; set; } = "";
     public string KuaishouEnterpriseConfigPath { get; set; } = "";
     public string WorkRootDirectory { get; set; } = "";
+    /// <summary>快手分账个人版工作目录。为空时沿用 <see cref="WorkRootDirectory"/>。</summary>
+    public string KuaishouPersonalWorkRootDirectory { get; set; } = "";
+    /// <summary>快手分账企业版工作目录。为空时沿用 <see cref="WorkRootDirectory"/>。</summary>
+    public string KuaishouEnterpriseWorkRootDirectory { get; set; } = "";
     public string DownloadDirectory { get; set; } = "";
     public string ArchiveRootDirectory { get; set; } = "";
     public string LegacyProfileId { get; set; } = "";
@@ -31,6 +35,13 @@ public sealed class PublishAccount
     public string WeixinAuthStatePath { get; set; } = "";
     public string KuaishouPersonalAuthStatePath { get; set; } = "";
     public string KuaishouEnterpriseAuthStatePath { get; set; } = "";
+    /// <summary>快手分账账号类型：personal、enterprise。空表示未设置，不能生成产物或上传。</summary>
+    public string KuaishouAccountEdition { get; set; } = "";
+    public bool XingeRemoteDispatchEnabled { get; set; }
+    /// <summary>用户是否已经保存过远程分发勾选。未保存过时不参与。</summary>
+    public bool XingeRemoteDispatchConfigured { get; set; }
+    public bool ParticipatesInXingeRemoteDispatch =>
+        XingeRemoteDispatchConfigured && XingeRemoteDispatchEnabled;
     public DateTimeOffset? LegacySessionImportedAt { get; set; }
 
     /// <summary>运行期状态，不持久化。</summary>

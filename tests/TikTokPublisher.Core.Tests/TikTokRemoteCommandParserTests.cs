@@ -71,6 +71,21 @@ public sealed class TikTokRemoteCommandParserTests
     }
 
     [Fact]
+    public void Parse_json_upload_with_profile_id_and_name_is_one_account()
+    {
+        var command = TikTokRemoteCommandParser.Parse("""
+            {"command":"tiktok_upload_series","titles":["剧A"],"account_profile_id":"acc-1","account_profile_name":"张莉","auto_run":true}
+            """);
+
+        command.Should().NotBeNull();
+        command!.HasExplicitAccountSelection.Should().BeTrue();
+        command.HasMultiAccountSelection.Should().BeFalse();
+        command.AccountProfileId.Should().Be("acc-1");
+        command.AccountProfileName.Should().Be("张莉");
+        command.AccountSelectors.Should().Equal("acc-1");
+    }
+
+    [Fact]
     public void Parse_json_upload_command_supports_all_accounts()
     {
         var command = TikTokRemoteCommandParser.Parse("""

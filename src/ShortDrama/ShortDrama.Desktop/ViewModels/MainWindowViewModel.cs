@@ -2807,8 +2807,8 @@ public partial class MainWindowViewModel : ViewModelBase
         var busyMessage = _searchMode switch
         {
             SearchModeToday => "正在获取今日上新...",
-            SearchModeMangaToday => $"正在获取漫剧上新，查询近 {ParseSearchQueryDays()} 天...",
-            SearchModeAiToday => $"正在获取 AI 短剧上新，查询近 {ParseSearchQueryDays()} 天...",
+            SearchModeMangaToday => HongguoAppNewReleaseText("正在获取漫剧上新，最新上架，7天内...", $"正在获取漫剧上新，查询近 {ParseSearchQueryDays()} 天..."),
+            SearchModeAiToday => HongguoAppNewReleaseText("正在获取 AI 短剧上新，最新上架，7天内...", $"正在获取 AI 短剧上新，查询近 {ParseSearchQueryDays()} 天..."),
             SearchModeHistory => $"正在获取历史上新，查询近 {ParseSearchQueryDays()} 天...",
             SearchModeSimilarUpnew => $"正在相似上新检索，查询近 {ParseSearchQueryDays()} 天...",
             _ => $"正在搜索短剧：{_lastSearchKeyword}"
@@ -3046,13 +3046,18 @@ public partial class MainWindowViewModel : ViewModelBase
             : 1;
     }
 
+    private string HongguoAppNewReleaseText(string hongguoAppText, string fallback) =>
+        _dramaSearchService is DramaSourceRouter router && router.IsHongguoAppSourceSelected()
+            ? hongguoAppText
+            : fallback;
+
     private string ResolveSearchModeLabel()
     {
         return _searchMode switch
         {
             SearchModeToday => "今日上新",
-            SearchModeMangaToday => $"漫剧上新（近 {ParseSearchQueryDays()} 天）",
-            SearchModeAiToday => $"AI 短剧上新（近 {ParseSearchQueryDays()} 天）",
+            SearchModeMangaToday => HongguoAppNewReleaseText("漫剧上新 · 最新上架 · 7天内", $"漫剧上新（近 {ParseSearchQueryDays()} 天）"),
+            SearchModeAiToday => HongguoAppNewReleaseText("AI 短剧上新 · 最新上架 · 7天内", $"AI 短剧上新（近 {ParseSearchQueryDays()} 天）"),
             SearchModeHistory => $"历史上新（近 {ParseSearchQueryDays()} 天）",
             SearchModeSimilarUpnew => $"相似上新（近 {ParseSearchQueryDays()} 天）",
             _ => "短剧搜索"

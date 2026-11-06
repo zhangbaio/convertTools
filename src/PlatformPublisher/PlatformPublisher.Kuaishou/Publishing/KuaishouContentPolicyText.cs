@@ -76,6 +76,22 @@ public static class KuaishouContentPolicyText
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+    public static IReadOnlyDictionary<string, List<string>> EffectiveCategoryMap(
+        string? savedJson, string defaultJson, string categoriesName, string disabledName) =>
+        EffectiveCategories(savedJson, defaultJson, categoriesName, disabledName);
+
+    public static IReadOnlyList<(string Category, IReadOnlyList<(string Group, IReadOnlyList<string> Terms)> Groups)> EffectiveCombinations(
+        string? savedJson, string defaultJson)
+    {
+        var concepts = EffectiveCategories(savedJson, defaultJson, "concept_groups", "disabled_concepts");
+        return ReadRules(Parse(savedJson)?["combination_rules"] ?? Parse(defaultJson)?["combination_rules"])
+            .Select(rule => (rule.Category, Groups: (IReadOnlyList<(string, IReadOnlyList<string>)>)rule.Groups
+                .Select(group => (group, (IReadOnlyList<string>)(concepts.TryGetValue(group, out var terms) ? terms : [])))
+                .ToArray()))
+            .Where(rule => rule.Groups.Count > 0 && rule.Groups.All(group => group.Item2.Count > 0))
+            .ToArray();
+    }
+
     public static IReadOnlyList<string> Terms(string? policyJson, string categoriesName)
     {
         var categories = ReadCategories(Parse(string.IsNullOrWhiteSpace(policyJson) ? null : policyJson)?[categoriesName]);

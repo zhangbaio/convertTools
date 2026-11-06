@@ -1,6 +1,7 @@
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services;
@@ -17,7 +18,12 @@ public sealed record WorkspaceQueueRunInfo(
 public sealed class WorkspaceQueueOrchestrator
 {
     private readonly UploadSlotCoordinator _sharedUploadSlots = new();
+    private readonly XingeUploadTaskObserver _uploadTaskObserver = new();
+    private readonly XingeUploadTaskReporter _uploadTaskReporter;
     private readonly object _lock = new();
+
+    public WorkspaceQueueOrchestrator(XingeUploadTaskReporter? uploadTaskReporter = null) =>
+        _uploadTaskReporter = uploadTaskReporter ?? XingeUploadTaskReporter.Shared;
     private readonly Dictionary<string, ActiveRun> _runs = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<QueueProjectItem, string, string>? ManualInterventionPending;
@@ -73,6 +79,8 @@ public sealed class WorkspaceQueueOrchestrator
         if (!selectionValidated)
             QueueWorkerRunner.ValidateRunSelection(items, options, store, projectDirFilter);
 
+        var uploadStepEnabled = RunsRealUpload(options);
+        Func<QueueProjectItem, XingeUploadTaskAccount?> resolveAccount = item => ResolveTaskAccount(store, item);
         CancellationTokenSource linkedCts;
         ActiveRun run;
         lock (_lock)
@@ -94,13 +102,17 @@ public sealed class WorkspaceQueueOrchestrator
                     host,
                     store,
                     finalAction,
-                    onProgress,
+                    progress =>
+                    {
+                        ReportUploadTaskProgress(progress, uploadStepEnabled, resolveAccount);
+                        onProgress(progress);
+                    },
                     onPersist,
                     linkedCts.Token,
                     projectDirFilter),
                 linkedCts.Token);
 
-            run = new ActiveRun(root, displayLabel, runner, linkedCts, task);
+            run = new ActiveRun(root, displayLabel, runner, linkedCts, task, options);
             _runs[root] = run;
         }
 
@@ -122,6 +134,60 @@ public sealed class WorkspaceQueueOrchestrator
 
             run.Cts.Dispose();
             run.Runner.ManualIntervention.Reset();
+            ReportUploadTaskRunFinished(root, items, resolveAccount);
+        }
+    }
+
+    // 只补跑存证 / 大纲等不产生新上传的模式不计入上传任务。
+    private static bool RunsRealUpload(QueueRunOptions options) =>
+        options.IsStepEnabled(QueueStepRegistry.UploadSeries) &&
+        options.UploadEntryMode is not (QueueRunOptions.CopyrightProofOnlyEntryMode
+            or QueueRunOptions.CopyrightProofMaterialOnlyEntryMode
+            or QueueRunOptions.AiOutlineSupplementEntryMode);
+
+    private static XingeUploadTaskAccount? ResolveTaskAccount(AccountStore store, QueueProjectItem item)
+    {
+        try
+        {
+            var account = QueueAccountBindingResolver.Resolve(store, item);
+            return account is null ? null : new XingeUploadTaskAccount(account.Id, account.DisplayName);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void ReportUploadTaskProgress(
+        QueueWorkerProgress progress,
+        bool uploadStepEnabled,
+        Func<QueueProjectItem, XingeUploadTaskAccount?> resolveAccount)
+    {
+        try
+        {
+            var report = _uploadTaskObserver.Observe(progress, uploadStepEnabled, resolveAccount);
+            if (report is not null)
+                _uploadTaskReporter.Enqueue(report);
+        }
+        catch
+        {
+            // 上报是旁路能力，任何异常都不能影响队列执行。
+        }
+    }
+
+    private void ReportUploadTaskRunFinished(
+        string root,
+        IList<QueueProjectItem> items,
+        Func<QueueProjectItem, XingeUploadTaskAccount?> resolveAccount)
+    {
+        try
+        {
+            foreach (var report in _uploadTaskObserver.ObserveRunFinished(root, items.ToArray(), resolveAccount))
+                _uploadTaskReporter.Enqueue(report);
+        }
+        catch
+        {
+            // 上报失败不影响队列收尾。
         }
     }
 
@@ -175,6 +241,38 @@ public sealed class WorkspaceQueueOrchestrator
             foreach (var run in _runs.Values)
                 run.Cts.Cancel();
         }
+    }
+
+    public bool ApplyRunningQueueSteps(string workspaceRoot, QueueRunOptions source)
+    {
+        if (source is null || string.IsNullOrWhiteSpace(workspaceRoot))
+            return false;
+
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (!_runs.TryGetValue(root, out var run) || run.Task.IsCompleted)
+                return false;
+
+            run.Options.EnabledSteps = source.EnabledSteps?.ToList() ?? [];
+            run.Options.AutoArchiveAfterUpload = source.AutoArchiveAfterUpload;
+            run.Options.ForceRerunCompletedSteps = source.ForceRerunCompletedSteps;
+            run.Options.PreferUploadWhenReady = source.PreferUploadWhenReady;
+            run.Options.SyncManagementAfterUpload = source.SyncManagementAfterUpload;
+            return true;
+        }
+    }
+
+    public int UncheckRunningProjectsExcept(string workspaceRoot, IReadOnlyCollection<string> keepProjectDirs)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (_runs.TryGetValue(root, out var run) && !run.Task.IsCompleted)
+                return run.Runner.UncheckExcept(keepProjectDirs);
+        }
+
+        return 0;
     }
 
     public int TryAppendItemsToRunningWorkspace(string workspaceRoot, IEnumerable<QueueProjectItem> items)
@@ -258,13 +356,15 @@ public sealed class WorkspaceQueueOrchestrator
             string displayLabel,
             QueueWorkerRunner runner,
             CancellationTokenSource cts,
-            Task<QueueWorkerSummary?> task)
+            Task<QueueWorkerSummary?> task,
+            QueueRunOptions options)
         {
             WorkspaceRoot = workspaceRoot;
             DisplayLabel = displayLabel;
             Runner = runner;
             Cts = cts;
             Task = task;
+            Options = options;
         }
 
         public string WorkspaceRoot { get; }
@@ -272,6 +372,7 @@ public sealed class WorkspaceQueueOrchestrator
         public QueueWorkerRunner Runner { get; }
         public CancellationTokenSource Cts { get; }
         public Task<QueueWorkerSummary?> Task { get; }
+        public QueueRunOptions Options { get; }
         public QueueWorkerSummary? Summary => Task.IsCompletedSuccessfully ? Task.Result : null;
     }
 }

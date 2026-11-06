@@ -3,6 +3,7 @@ using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
@@ -104,6 +105,8 @@ public sealed class QueueWorkerRunner
     private readonly object _incomingLock = new();
     private bool _acceptingItems = true;
     private bool _runStarted;
+    private IList<QueueProjectItem>? _runItems;
+    private Action<IReadOnlyList<QueueProjectItem>>? _runPersist;
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
 
     public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null)
@@ -135,6 +138,140 @@ public sealed class QueueWorkerRunner
     {
         _ensureProofMaterial = ensureProofMaterial ?? throw new ArgumentNullException(nameof(ensureProofMaterial));
         _uploadSlots = sharedUploadSlots ?? new UploadSlotCoordinator();
+    }
+
+    /// <summary>
+    /// 取消本次运行里除保留项目以外的勾选。已经开始的项目继续跑完，还没开始的不再执行。
+    /// </summary>
+    public int UncheckExcept(IReadOnlyCollection<string> keepProjectDirs)
+    {
+        var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in keepProjectDirs)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                continue;
+            keep.Add(Path.GetFullPath(path));
+        }
+
+        IList<QueueProjectItem>? items;
+        Action<IReadOnlyList<QueueProjectItem>>? persist;
+        int changed;
+        lock (_incomingLock)
+        {
+            items = _runItems;
+            persist = _runPersist;
+            if (items is null)
+                return 0;
+
+            changed = DisableEnabledProjectsExcept(items, keep);
+        }
+
+        if (changed > 0)
+            persist?.Invoke(items.ToList());
+        return changed;
+    }
+
+    /// <summary>
+    /// 同一账号里步骤已失败、且上传尚未完成的项目。按加入队列的时间排在新剧前面。
+    /// </summary>
+    public static IReadOnlyList<string> FailedRetryProjectDirsBefore(
+        IEnumerable<QueueProjectItem> items,
+        string? accountProfileId,
+        IEnumerable<string> excludeProjectDirs)
+    {
+        var exclude = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in excludeProjectDirs)
+        {
+            var full = NormalizeProjectDir(dir);
+            if (full.Length > 0)
+                exclude.Add(full);
+        }
+
+        var accountId = (accountProfileId ?? "").Trim();
+        var ordered = new List<(string QueuedAt, string ProjectDir)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            if (item.Archived || !HasRetryableFailure(item))
+                continue;
+            var id = (item.AccountProfileId ?? "").Trim();
+            if (accountId.Length > 0 && id.Length > 0 &&
+                !string.Equals(id, accountId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var full = NormalizeProjectDir(item.ProjectDir);
+            if (full.Length == 0 || exclude.Contains(full) || !seen.Add(full))
+                continue;
+            ordered.Add((string.IsNullOrWhiteSpace(item.QueuedAt) ? "9999" : item.QueuedAt, full));
+        }
+
+        ordered.Sort((left, right) =>
+        {
+            var byTime = string.Compare(left.QueuedAt, right.QueuedAt, StringComparison.Ordinal);
+            return byTime != 0
+                ? byTime
+                : string.Compare(left.ProjectDir, right.ProjectDir, StringComparison.OrdinalIgnoreCase);
+        });
+        return ordered.Select(item => item.ProjectDir).ToArray();
+    }
+
+    public static bool HasRetryableFailure(QueueProjectItem item)
+    {
+        if (item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed)
+            return false;
+        if (item.StatusText == QueueStepStatus.Failed)
+            return true;
+        foreach (var status in item.StepStates.Values)
+        {
+            if (status == QueueStepStatus.Failed)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeProjectDir(string? projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+            return "";
+        try
+        {
+            return Path.GetFullPath(projectDir);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return "";
+        }
+    }
+
+    public static int DisableEnabledProjectsExcept(
+        IEnumerable<QueueProjectItem> items,
+        IReadOnlyCollection<string> keepProjectDirs)
+    {
+        var keep = keepProjectDirs as HashSet<string>;
+        if (keep is null || keep.Comparer != StringComparer.OrdinalIgnoreCase)
+        {
+            keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in keepProjectDirs)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    continue;
+                keep.Add(Path.GetFullPath(path));
+            }
+        }
+
+        var changed = 0;
+        foreach (var item in items)
+        {
+            if (item is null || string.IsNullOrWhiteSpace(item.ProjectDir) || !item.Enabled)
+                continue;
+            if (keep.Contains(Path.GetFullPath(item.ProjectDir)))
+                continue;
+
+            item.Enabled = false;
+            changed++;
+        }
+
+        return changed;
     }
 
     public int AddItems(IEnumerable<QueueProjectItem> items)
@@ -267,6 +404,8 @@ public sealed class QueueWorkerRunner
 
         try
         {
+            lock (_incomingLock)
+                _runItems = items;
             return await RunCoreAsync(
                 workspaceRoot,
                 items,
@@ -282,6 +421,11 @@ public sealed class QueueWorkerRunner
         finally
         {
             StopAcceptingItems();
+            lock (_incomingLock)
+            {
+                _runItems = null;
+                _runPersist = null;
+            }
         }
     }
 
@@ -298,11 +442,15 @@ public sealed class QueueWorkerRunner
         IReadOnlyCollection<string>? projectDirFilter = null)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
+        lock (_incomingLock)
+        {
+            _runItems = items;
+            _runPersist = onPersist;
+        }
         var filterOrder = BuildProjectDirOrder(projectDirFilter);
         var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
         var orderedSteps = options.OrderedEnabledSteps();
         var preUploadSteps = orderedSteps.Where(s => s != QueueStepRegistry.UploadSeries).ToList();
-        var uploadEnabled = options.IsStepEnabled(QueueStepRegistry.UploadSeries);
 
         var candidates = BuildInitialCandidates(items, options, accountStore, filterOrder, orderedSteps);
         EnsureExplicitFilterMatched(filterOrder, candidates.Count);
@@ -318,6 +466,7 @@ public sealed class QueueWorkerRunner
             candidates.Select((item, index) => (index + 1, item)));
         var readyForUpload = new Queue<QueueProjectItem>();
         var preUploadTasks = new Dictionary<Task, QueueProjectItem>();
+        var preUploadStepsByTask = new Dictionary<Task, IReadOnlyList<string>>();
         var uploadTasks = new Dictionary<Task<bool>, (QueueProjectItem Item, string AccountKey, TikTokAccountProfile Account)>();
         var activeUploadAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -358,7 +507,17 @@ public sealed class QueueWorkerRunner
                        && preUploadTasks.Count < projectConcurrency)
                 {
                     var (_, item) = pendingPreUpload.Dequeue();
-                    var itemPreUploadSteps = preUploadSteps;
+                    if (!item.Enabled)
+                        continue;
+                    var currentSteps = options.OrderedEnabledSteps();
+                    MarkQueuedForRun(
+                        item,
+                        currentSteps,
+                        options,
+                        QueueAccountBindingResolver.Resolve(accountStore, item));
+                    var itemPreUploadSteps = currentSteps
+                        .Where(step => step != QueueStepRegistry.UploadSeries)
+                        .ToList();
 
                     if (itemPreUploadSteps.Count > 0)
                     {
@@ -376,10 +535,11 @@ public sealed class QueueWorkerRunner
                                 Mutate),
                             ct));
                         preUploadTasks[task] = captured;
+                        preUploadStepsByTask[task] = itemPreUploadSteps;
                         continue;
                     }
 
-                    if (uploadEnabled && ShouldRunStep(item, QueueStepRegistry.UploadSeries, options))
+                    if (options.IsStepEnabled(QueueStepRegistry.UploadSeries) && ShouldRunStep(item, QueueStepRegistry.UploadSeries, options))
                     {
                         MarkWaitingSlot(item);
                         readyForUpload.Enqueue(item);
@@ -406,6 +566,11 @@ public sealed class QueueWorkerRunner
                 while (readyForUpload.Count > 0 && rotations > 0)
                 {
                     var item = readyForUpload.Dequeue();
+                    if (!item.Enabled)
+                    {
+                        rotations = readyForUpload.Count;
+                        continue;
+                    }
                     var account = QueueAccountBindingResolver.Resolve(accountStore, item);
                     if (account is null)
                     {
@@ -483,12 +648,16 @@ public sealed class QueueWorkerRunner
                 while (pendingPreUpload.Count > 0)
                 {
                     var (_, item) = pendingPreUpload.Dequeue();
+                    if (!item.Enabled)
+                        continue;
                     MarkStopped(item, item.CurrentStep);
                 }
 
                 while (readyForUpload.Count > 0)
                 {
                     var item = readyForUpload.Dequeue();
+                    if (!item.Enabled)
+                        continue;
                     MarkStopped(item, QueueStepRegistry.UploadSeries);
                 }
             });
@@ -604,6 +773,9 @@ public sealed class QueueWorkerRunner
 
             if (preUploadTasks.Remove(completed, out var preItem))
             {
+                preUploadStepsByTask.Remove(completed, out var startedPreUploadSteps);
+                var failureSteps = startedPreUploadSteps ?? preUploadSteps;
+                var uploadEnabledNow = options.IsStepEnabled(QueueStepRegistry.UploadSeries);
                 try
                 {
                     await completed.ConfigureAwait(false);
@@ -611,9 +783,9 @@ public sealed class QueueWorkerRunner
                     {
                         if (stopped)
                         {
-                            MarkStopped(preItem, uploadEnabled ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
+                            MarkStopped(preItem, uploadEnabledNow ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
                         }
-                        else if (uploadEnabled && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
+                        else if (uploadEnabledNow && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
                         {
                             MarkWaitingSlot(preItem);
                             readyForUpload.Enqueue(preItem);
@@ -627,7 +799,7 @@ public sealed class QueueWorkerRunner
                 }
                 catch (OperationCanceledException ex)
                 {
-                    var failedStep = ResolveFailedStep(ex, preItem, preUploadSteps);
+                    var failedStep = ResolveFailedStep(ex, preItem, failureSteps);
                     if (ct.IsCancellationRequested)
                     {
                         Mutate(() => MarkStopped(preItem, failedStep));
@@ -658,7 +830,7 @@ public sealed class QueueWorkerRunner
                 }
                 catch (Exception ex)
                 {
-                    var failedStep = ResolveFailedStep(ex, preItem, preUploadSteps);
+                    var failedStep = ResolveFailedStep(ex, preItem, failureSteps);
                     var failureMessage = DescribeQueueFailure(ex);
                     Mutate(() =>
                     {
@@ -1357,8 +1529,10 @@ public sealed class QueueWorkerRunner
             throw new QueueStopRequestedException(failureMessage);
         }
 
+        // 自动上新派单无人值守，等待人工处理会让账号一直占着进行中名额；直接按失败回传，由派单端重试或改派。
         if (!skipManualIntervention &&
             manualIntervention is not null &&
+            !XingeAutoPublishMarkerStore.IsActive(item.ProjectDir) &&
             !ct.IsCancellationRequested &&
             !manualIntervention.WasResolved(item.ProjectDir))
         {
@@ -2143,6 +2317,7 @@ public sealed class QueueWorkerRunner
 
         lock (stateLock)
         {
+            orderedSteps = options.OrderedEnabledSteps();
             var added = false;
             foreach (var item in batch)
             {

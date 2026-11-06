@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private PlatformDatabase? _platformDatabase;
     private DatabaseBackupService? _databaseBackupService;
     private IJsonSettingStore? _windowSettings;
+    private YunfanXingeDispatchService? _xingeDispatch;
     private bool _isGlobalSidebarCollapsed;
     private bool _compactLayout;
     private bool _startupLayoutApplied;
@@ -52,18 +53,20 @@ public partial class MainWindow : Window
                 : PublishPlatform.KuaishouPersonalRevenue);
         KuaishouWorkflowPage.SettingsRequested += (_, _) => ShowSettingsPage();
         KuaishouWorkflowPage.ViewLogsRequested += (_, _) => ShowKuaishouLogs();
-        KuaishouLogPage.ReturnRequested += (_, _) =>
-        {
-            if (ViewModel?.IsKuaishouPlatform == true)
-                ShowKuaishouPage(ViewModel.SelectedPlatform.Value);
-        };
+        KuaishouWorkflowPage.ArchiveRequested += (_, _) => _ = ConfirmAndArchiveKuaishouAsync();
+        KuaishouLogPage.ReturnRequested += (_, _) => ReturnToKuaishouQueue();
+        KuaishouArchivePage.ReturnRequested += (_, _) => ReturnToKuaishouQueue();
         Opened += (_, _) =>
         {
             if (!_startupLayoutApplied)
                 ApplyStartupLayout();
-            ShowWeixinPage();
+            ShowKuaishouPage();
         };
-        Closed += (_, _) => SavePlacement();
+        Closed += (_, _) =>
+        {
+            StopYunfanLicenseVerifyTimer();
+            SavePlacement();
+        };
         SizeChanged += (_, _) => RememberNormalPlacement();
         PositionChanged += (_, _) => RememberNormalPlacement();
     }
@@ -124,6 +127,8 @@ public partial class MainWindow : Window
             ShowSettingsPage);
         WeixinPublisherView.SelectedAccountChanged += account =>
         {
+            if (!viewModel.IsWeixinPlatform)
+                return;
             workflowView.ApplyAccount(account);
             materialView.ApplyAccount(account);
             unifiedPublishViewModel.RefreshCommand.Execute(null);
@@ -143,7 +148,7 @@ public partial class MainWindow : Window
             if (context is null)
             {
                 if (ViewModel is not null)
-                    ViewModel.StatusMessage = "请先在快手分账个人版列表中选择一个剧集项目。";
+                    ViewModel.StatusMessage = "请先在快手分账列表中选择一个剧集项目。";
                 return;
             }
             if (string.IsNullOrWhiteSpace(context.OriginalTitle) || string.IsNullOrWhiteSpace(context.NewTitle))
@@ -160,9 +165,30 @@ public partial class MainWindow : Window
     public void BindAccountDatabase(ChannelsPublisher.Core.Services.AccountStore accountStore)
     {
         WeixinPublisherView.UseAccountStore(accountStore);
+        KuaishouConfigPage.UseAccountStore(accountStore);
+        KuaishouConfigPage.AccountsImported += accounts =>
+        {
+            WeixinPublisherView.RefreshImportedAccounts(accounts);
+            ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, WeixinPublisherView.SelectedAccountProfile);
+        };
         GlobalAccountSidebar.DataContext = WeixinPublisherView.DataContext;
+        CancellationTokenSource? accountSwitchDelay = null;
         WeixinPublisherView.SelectedAccountChanged += async account =>
         {
+            var previous = accountSwitchDelay;
+            var next = new CancellationTokenSource();
+            accountSwitchDelay = next;
+            previous?.Cancel();
+            previous?.Dispose();
+            try
+            {
+                await Task.Delay(160, next.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
             ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, account);
             await SwitchKuaishouConfigAccountAsync(account);
         };
@@ -170,6 +196,19 @@ public partial class MainWindow : Window
         {
             ViewModel?.RememberKuaishouConfigPath(accountId, platform, path);
             return Task.CompletedTask;
+        };
+        KuaishouConfigPage.ConfirmAccountEdition += (account, edition) =>
+            ViewModel?.ConfirmKuaishouEditionChangeAsync(
+                account,
+                edition,
+                message => ConfirmDialog.ShowAsync(this, "修改快手分账账号类型", message, 520, 220))
+            ?? Task.FromResult(false);
+        KuaishouConfigPage.AccountEditionApplied += async (account, edition) =>
+        {
+            if (ViewModel is null)
+                return;
+            await ViewModel.ApplyKuaishouEditionAsync(account, edition);
+            RefreshAccountEditionSummary(account.Id);
         };
         KuaishouConfigPage.LoadAccount(WeixinPublisherView.SelectedAccountProfile, PublishPlatform.KuaishouPersonalRevenue);
         ViewModel?.UseGlobalAccounts(WeixinPublisherView.AccountProfiles, WeixinPublisherView.SelectedAccountProfile);
@@ -193,8 +232,7 @@ public partial class MainWindow : Window
         var viewModel = new DramaDownloadViewModel(PlatformPublisherPaths.SettingsDatabasePath);
         viewModel.ConfigurePlatformQueues(
         [
-            (DramaQueuePlatforms.KuaishouPersonal, "快手分账个人"),
-            (DramaQueuePlatforms.KuaishouEnterprise, "快手分账企业"),
+            (DramaQueuePlatforms.Kuaishou, "快手分账"),
             (DramaQueuePlatforms.Weixin, "视频号"),
         ]);
         viewModel.PlatformQueueTargetRequested += ResolveDramaQueueTarget;
@@ -242,7 +280,7 @@ public partial class MainWindow : Window
         };
         panel.Children.Add(new TextBlock
         {
-            Text = "短剧搜索和下载在顶部「短剧下载」。可以把选中的剧加入快手分账个人、快手分账企业或视频号队列。",
+            Text = "短剧搜索和下载在顶部「短剧下载」。可以把选中的剧加入快手分账或视频号队列。",
             Foreground = new SolidColorBrush(Color.Parse("#64748B")),
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 520,
@@ -262,6 +300,13 @@ public partial class MainWindow : Window
     {
         var account = WeixinPublisherView.SelectedAccountProfile;
         if (account is null) return null;
+        if (platformKey == DramaQueuePlatforms.Kuaishou &&
+            !KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out _))
+        {
+            if (ViewModel is not null)
+                ViewModel.StatusMessage = "请先在快手分账配置中选择账号类型。";
+            return null;
+        }
         var workspace = ResolveDramaQueueWorkspace(account, platformKey);
         if (workspace is null) return null;
         return new TikTokQueueImportTarget(
@@ -279,8 +324,7 @@ public partial class MainWindow : Window
         {
             foreach (var platformKey in new[]
                      {
-                         DramaQueuePlatforms.KuaishouPersonal,
-                         DramaQueuePlatforms.KuaishouEnterprise,
+                         DramaQueuePlatforms.Kuaishou,
                          DramaQueuePlatforms.Weixin,
                      })
             {
@@ -299,18 +343,36 @@ public partial class MainWindow : Window
 
     private static string? ResolveDramaQueueWorkspace(ChannelsPublisher.Core.Models.PublishAccount account, string platformKey)
     {
-        var configPath = platformKey switch
-        {
-            DramaQueuePlatforms.KuaishouPersonal => account.KuaishouPersonalConfigPath,
-            DramaQueuePlatforms.KuaishouEnterprise => account.KuaishouEnterpriseConfigPath,
-            _ => string.Empty,
-        };
-        if (platformKey is DramaQueuePlatforms.KuaishouPersonal or DramaQueuePlatforms.KuaishouEnterprise &&
-            (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)))
+        var kuaishou = platformKey is DramaQueuePlatforms.Kuaishou
+            or DramaQueuePlatforms.KuaishouPersonal
+            or DramaQueuePlatforms.KuaishouEnterprise;
+        var configPath = kuaishou
+            ? FirstExisting(account.KuaishouPersonalConfigPath, account.KuaishouEnterpriseConfigPath)
+            : string.Empty;
+        if (kuaishou && (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath)))
             return null;
+        if (kuaishou && KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var edition))
+        {
+            var editionRoot = edition == PublishPlatform.KuaishouEnterpriseRevenue
+                ? account.KuaishouEnterpriseWorkRootDirectory
+                : account.KuaishouPersonalWorkRootDirectory;
+            if (Directory.Exists(editionRoot)) return Path.GetFullPath(editionRoot);
+        }
         var configured = ReadConfigWorkspace(configPath);
         if (Directory.Exists(configured)) return Path.GetFullPath(configured);
         return Directory.Exists(account.WorkRootDirectory) ? Path.GetFullPath(account.WorkRootDirectory) : null;
+    }
+
+    private static string FirstExisting(params string?[] paths) =>
+        paths.Select(path => path?.Trim()).FirstOrDefault(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path)) ?? "";
+
+    private void RefreshAccountEditionSummary(string accountId)
+    {
+        if (WeixinPublisherView.DataContext is not ChannelsPublisher.Desktop.ViewModels.MainViewModel sidebar)
+            return;
+        sidebar.Accounts.FirstOrDefault(item =>
+            string.Equals(item.Id, accountId, StringComparison.OrdinalIgnoreCase))
+            ?.NotifyKuaishouEditionChanged();
     }
 
     private static string ReadConfigWorkspace(string? configPath)
@@ -333,6 +395,7 @@ public partial class MainWindow : Window
 
     private static string DramaQueuePlatformLabel(string platformKey) => platformKey switch
     {
+        DramaQueuePlatforms.Kuaishou => "快手分账",
         DramaQueuePlatforms.KuaishouPersonal => "快手分账个人",
         DramaQueuePlatforms.KuaishouEnterprise => "快手分账企业",
         _ => "视频号",
@@ -341,16 +404,10 @@ public partial class MainWindow : Window
     public void BindAnalytics(AnalyticsViewModel analyticsViewModel, MainWindowViewModel mainViewModel)
     {
         analyticsViewModel.Bind(
-            () => WeixinPublisherView.AccountProfiles
-                .Select(account => new AnalyticsAccount(account.Id, PublishPlatform.WeixinChannel, account.Name, account.ProfileDir))
-                .Concat(mainViewModel.ListAnalyticsAccounts().Where(account => account.Platform != PublishPlatform.WeixinChannel))
+            () => mainViewModel.ListAnalyticsAccounts()
+                .Where(account => account.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
                 .ToArray(),
-            async (accountId, cancellationToken) =>
-            {
-                if (mainViewModel.IsBusy || WeixinPublisherView.HasActivePublish)
-                    throw new InvalidOperationException("当前有发布任务运行，暂时不能采集视频号数据。");
-                return await WeixinPublisherView.EnsureAccountCdpEndpointAsync(accountId, cancellationToken);
-            });
+            account => mainViewModel.IsKuaishouPublishRunning(account.Id, account.Platform));
         AnalyticsPage.DataContext = analyticsViewModel;
     }
 
@@ -372,14 +429,25 @@ public partial class MainWindow : Window
 
     private void OnDramaDownloadNavClick(object? sender, RoutedEventArgs e) => ShowDramaDownloadPage();
 
-    private void OnKuaishouPersonalNavClick(object? sender, RoutedEventArgs e) =>
-        ShowKuaishouPage(PublishPlatform.KuaishouPersonalRevenue);
-
-    private void OnKuaishouEnterpriseNavClick(object? sender, RoutedEventArgs e) =>
-        ShowKuaishouPage(PublishPlatform.KuaishouEnterpriseRevenue);
+    private void OnKuaishouNavClick(object? sender, RoutedEventArgs e) => ShowKuaishouPage();
 
     private void OnKuaishouConfigNavClick(object? sender, RoutedEventArgs e) =>
         ShowKuaishouConfigPage(KuaishouConfigPage.CurrentPlatform);
+
+    private void OnKuaishouArchiveNavClick(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { HasKuaishouEdition: true } viewModel)
+        {
+            if (ViewModel is not null)
+                ViewModel.StatusMessage = "请先在快手分账配置中选择账号类型。";
+            return;
+        }
+        if (!viewModel.IsKuaishouPlatform)
+            viewModel.EnterKuaishouPage();
+        else
+            viewModel.LoadKuaishouWorkspace();
+        ShowKuaishouArchive();
+    }
 
     private void OnSettingsNavClick(object? sender, RoutedEventArgs e) => ShowSettingsPage();
     private void OnAnalyticsNavClick(object? sender, RoutedEventArgs e) => ShowAnalyticsPage();
@@ -397,8 +465,10 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(WeixinNavButton);
     }
@@ -410,16 +480,17 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(DramaDownloadNavButton);
     }
 
-    private void ShowKuaishouPage(PublishPlatform platform)
+    private void ShowKuaishouPage()
     {
-        ViewModel?.SelectPlatform(platform);
-        ViewModel?.LoadKuaishouWorkspace();
+        ViewModel?.EnterKuaishouPage();
         WeixinPublisherView.IsVisible = false;
         DramaDownloadPage.IsVisible = false;
         PipelinePage.IsVisible = true;
@@ -427,12 +498,30 @@ public partial class MainWindow : Window
         KuaishouWorkflowPage.IsVisible = true;
         KuaishouWorkflowPage.IsKuaishouMode = true;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
-        SetActiveNavigation(platform == PublishPlatform.KuaishouPersonalRevenue
-            ? KuaishouPersonalNavButton
-            : KuaishouEnterpriseNavButton);
+        SetActiveNavigation(KuaishouNavButton);
+    }
+
+    private void ReturnToKuaishouQueue()
+    {
+        if (ViewModel?.IsKuaishouPlatform != true)
+            return;
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = true;
+        KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(KuaishouNavButton);
     }
 
     private void ShowKuaishouLogs()
@@ -445,13 +534,120 @@ public partial class MainWindow : Window
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = true;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouLogPage.Refresh();
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
-        SetActiveNavigation(ViewModel.SelectedPlatform.Value == PublishPlatform.KuaishouPersonalRevenue
-            ? KuaishouPersonalNavButton
-            : KuaishouEnterpriseNavButton);
+        SetActiveNavigation(KuaishouNavButton);
+    }
+
+    private void ShowKuaishouArchive()
+    {
+        if (ViewModel?.IsKuaishouPlatform != true)
+            return;
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = true;
+        KuaishouArchivePage.Refresh();
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(KuaishouArchiveNavButton);
+    }
+
+    private async Task ConfirmAndArchiveKuaishouAsync()
+    {
+        if (ViewModel is null || !ViewModel.IsKuaishouPlatform)
+            return;
+        var count = ViewModel.VisibleJobs.Count(row => row.IsChecked);
+        if (count == 0)
+        {
+            ViewModel.StatusMessage = "请先勾选要归档的项目。";
+            return;
+        }
+
+        var dialog = new Window
+        {
+            Title = "确认归档",
+            Width = 480,
+            Height = 200,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = $"确认归档 {count} 个快手分账项目？归档后保持 source/workflow 目录，并删除原视频、转码视频和素材视频。",
+                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    },
+                },
+            },
+        };
+        var buttons = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            Spacing = 8,
+        };
+        ((StackPanel)dialog.Content).Children.Add(buttons);
+        var confirmed = false;
+        var cancel = new Button { Content = "取消" };
+        var ok = new Button { Content = "归档" };
+        cancel.Click += (_, _) => dialog.Close();
+        ok.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        await dialog.ShowDialog(this);
+        if (!confirmed)
+            return;
+        var failures = await ViewModel.ArchiveCheckedKuaishouAsync();
+        if (failures.Count == 0)
+            return;
+        await ShowNoticeAsync(
+            "归档失败",
+            string.Join(Environment.NewLine + Environment.NewLine, failures));
+    }
+
+    private async Task ShowNoticeAsync(string title, string message)
+    {
+        var dialog = new Window
+        {
+            Title = title,
+            Width = 520,
+            Height = 240,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Content = new StackPanel
+            {
+                Margin = new Avalonia.Thickness(16),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = message,
+                        TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    },
+                },
+            },
+        };
+        var close = new Button { Content = "知道了", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        close.Click += (_, _) => dialog.Close();
+        ((StackPanel)dialog.Content).Children.Add(close);
+        await dialog.ShowDialog(this);
     }
 
     private void ShowSettingsPage()
@@ -462,10 +658,66 @@ public partial class MainWindow : Window
         PipelineContent.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = true;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         SetActiveNavigation(SettingsNavButton);
+    }
+
+    private void OnXingeServicesNavClick(object? sender, RoutedEventArgs e) => ShowXingeServicesPage();
+
+    private void ShowXingeServicesPage()
+    {
+        WeixinPublisherView.IsVisible = false;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = true;
+        PipelineContent.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = true;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(XingeServicesNavButton);
+    }
+
+    public void BindXinge()
+    {
+        if (ViewModel is null || _xingeDispatch is not null)
+            return;
+        var connection = new XingeConnectionViewModel(
+            PlatformPublisherPaths.SettingsDatabasePath,
+            "云帆",
+            "启用后客户端用账号登录 XINGE，注册当前工作目录和快手分账账号，并接收 XINGE 下发的快手分账上传命令。客户端 ID/Token 仅用于兼容旧配置。")
+        {
+            ShowHeading = true,
+            ShowSaveButton = true,
+            Heading = "系统服务",
+        };
+        connection.Load();
+        connection.StatusRequested += message =>
+        {
+            if (ViewModel is not null)
+                ViewModel.StatusMessage = message;
+        };
+        XingeConnectionView.Bind(connection);
+        _xingeDispatch = new YunfanXingeDispatchService(ViewModel);
+        _xingeDispatch.StatusChanged += message =>
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                connection.Status = message;
+                if (message.Contains("已登录", StringComparison.Ordinal))
+                    connection.RefreshCredentials();
+                if (ViewModel is not null)
+                    ViewModel.StatusMessage = message;
+            });
+        };
+        _xingeDispatch.Start();
+        Closed += (_, _) => _xingeDispatch?.Stop();
     }
 
     private void ShowAnalyticsPage()
@@ -475,8 +727,10 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         KuaishouConfigPage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = true;
         SetActiveNavigation(AnalyticsNavButton);
     }
@@ -487,11 +741,12 @@ public partial class MainWindow : Window
                  {
                      WeixinNavButton,
                      DramaDownloadNavButton,
-                     KuaishouPersonalNavButton,
-                     KuaishouEnterpriseNavButton,
+                     KuaishouNavButton,
                      KuaishouConfigNavButton,
+                     KuaishouArchiveNavButton,
                      AnalyticsNavButton,
                      SettingsNavButton,
+                     XingeServicesNavButton,
                  })
         {
             SetActiveNav(button, ReferenceEquals(button, activeButton));
@@ -600,7 +855,9 @@ public partial class MainWindow : Window
         PipelinePage.IsVisible = false;
         KuaishouWorkflowPage.IsVisible = false;
         KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
         SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
         AnalyticsPage.IsVisible = false;
         KuaishouConfigPage.IsVisible = true;
         KuaishouConfigPage.LoadAccount(WeixinPublisherView.SelectedAccountProfile, platform);
@@ -620,10 +877,7 @@ public partial class MainWindow : Window
     {
         if (_switchingKuaishouConfig) return;
         if (!KuaishouConfigPage.IsVisible)
-        {
-            KuaishouConfigPage.LoadAccount(account, KuaishouConfigPage.CurrentPlatform);
             return;
-        }
         var previousId = KuaishouConfigPage.AccountId;
         if (!string.IsNullOrEmpty(previousId) &&
             string.Equals(previousId, account?.Id, StringComparison.OrdinalIgnoreCase))
@@ -727,11 +981,11 @@ public partial class MainWindow : Window
         ToolTip.SetTip(BrandTitle, compact ? "云帆多平台发布助手" : null);
         SetNavLabel(WeixinNavButton, "视频号助手", "视频号", shortenNav);
         SetNavLabel(DramaDownloadNavButton, "短剧下载", "下载", shortenNav);
-        SetNavLabel(KuaishouPersonalNavButton, "快手分账 · 个人", "快手个人", shortenNav);
-        SetNavLabel(KuaishouEnterpriseNavButton, "快手分账 · 企业", "快手企业", shortenNav);
+        SetNavLabel(KuaishouNavButton, "快手分账", "快手", shortenNav);
         SetNavLabel(AnalyticsNavButton, "数据统计", "统计", shortenNav);
         SetNavLabel(DatabaseNavButton, "数据库", "数据库", shortenNav);
         SetNavLabel(SettingsNavButton, "系统设置", "设置", shortenNav);
+        SetNavLabel(XingeServicesNavButton, "系统服务", "服务", shortenNav);
     }
 
     private void ApplySidebarWidth()

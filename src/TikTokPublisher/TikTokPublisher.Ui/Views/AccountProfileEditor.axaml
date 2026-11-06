@@ -75,6 +75,7 @@
         <Border DockPanel.Dock="Bottom" Classes="accountActionBar" Margin="0,12,0,0">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                    <Button Content="同步账号配置" Click="OnSyncAccountsClick" Classes="secondaryAction" />
                     <Button Content="登录账号" Click="OnLoginClick" Classes="secondaryAction" />
                     <Button Content="重新登录账号" Click="OnReloginClick" Classes="secondaryAction" />
                     <Button Content="退出登录" Click="OnLogoutClick" Classes="dangerAction" />
@@ -89,7 +90,7 @@
             <TabControl Classes="accountTabs">
                 <TabItem Header="登录设置">
                     <ScrollViewer>
-                        <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
+                        <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
                         <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录状态" VerticalAlignment="Top" Margin="0,4,0,0" />
                         <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LoginStatusText" Classes="pageSummary" TextWrapping="Wrap" Text="尚未登录" />
 
@@ -265,18 +266,11 @@
                                 <CheckBox x:Name="AiRewriteSynopsisBox" Content="启用" />
                                 <CheckBox x:Name="RewriteFollowsSourceLanguageBox"
                                           Content="改写信息跟随源语言"
-                                          ToolTip.Tip="开启后，标题、推荐语和简介按导入短剧的语言生成。英文剧生成英文，不再固定写成中文。" />
+                                          ToolTip.Tip="开启后，标题和简介按导入短剧的语言生成。英文剧生成英文，不再固定写成中文。" />
                             </StackPanel>
 
                             <TextBlock Classes="formLabel" Grid.Row="12" Grid.Column="0" Text="新剧名随机度" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="12" Grid.Column="1" x:Name="AiNewTitleRandomnessCombo" Width="160" HorizontalAlignment="Left">
-                                <ComboBoxItem Tag="low">低</ComboBoxItem>
-                                <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
-                                <ComboBoxItem Tag="high">高</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="13" Grid.Column="0" Text="简介随机度" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="13" Grid.Column="1" x:Name="AiSynopsisRandomnessCombo" Width="160" HorizontalAlignment="Left">
                                 <ComboBoxItem Tag="low">低</ComboBoxItem>
                                 <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
                                 <ComboBoxItem Tag="high">高</ComboBoxItem>
@@ -412,7 +406,7 @@
                     <Grid Classes="profileForm"
                           Margin="2,4,2,2"
                           ColumnDefinitions="140,*"
-                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
+                          RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                           RowSpacing="10"
                           ColumnSpacing="10">
                         <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="短剧中心地址" VerticalAlignment="Center" />
@@ -442,8 +436,11 @@
                             <Button Grid.Column="1" Content="浏览…" Click="OnBrowseExcelReportClick" Margin="8,0,0,0" />
                         </Grid>
 
-                        <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="归档视频文件" VerticalAlignment="Center" />
-                        <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="远程分发" VerticalAlignment="Center" />
+                        <CheckBox Grid.Row="5" Grid.Column="1" x:Name="RemoteDispatchBox" VerticalAlignment="Center" />
+
+                        <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="归档视频文件" VerticalAlignment="Center" />
+                        <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <CheckBox x:Name="DeleteVideosOnArchiveBox" Content="归档时删除视频文件" />
                             <TextBlock Text="关闭后归档目录会保留视频，占用更多磁盘" Classes="pageSummary" VerticalAlignment="Center" />
                         </StackPanel>

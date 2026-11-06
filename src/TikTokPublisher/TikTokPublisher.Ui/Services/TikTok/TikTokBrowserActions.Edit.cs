@@ -698,15 +698,36 @@ public static partial class TikTokBrowserActions
 
         Log(log,
             $"TikTok 编辑补传 {missingPaths.Count} 集，按配置每批 {batchSize} 个顺序上传（当前已就绪 {baseline}/{expectedCount}）。");
-        await TikTokBatchUploadService.UploadPathsInBatchesAsync(
-            page,
-            missingPaths,
-            options,
-            titleCandidates,
-            log,
-            ct,
-            baseline,
-            expectedTotal: expectedCount);
+        try
+        {
+            await TikTokBatchUploadService.UploadPathsInBatchesAsync(
+                page,
+                missingPaths,
+                options,
+                titleCandidates,
+                log,
+                ct,
+                baseline,
+                expectedTotal: expectedCount);
+        }
+        catch (TikTokBatchUploadService.BatchUploadAcceptanceUncertainException ex) when (TikTokBatchUploadService.TryBeginUncertainReconcile())
+        {
+            try
+            {
+                Log(log, ex.Message);
+                Log(log, "重新读取编辑页正片，只补确认缺失的集。");
+                await page.ReloadAsync(new PageReloadOptions
+                {
+                    WaitUntil = WaitUntilState.DOMContentLoaded,
+                    Timeout = 60000,
+                });
+                await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
+            }
+            finally
+            {
+                TikTokBatchUploadService.EndUncertainReconcile();
+            }
+        }
 
         Log(log, "TikTok 编辑流程分批补传已提交，开始等待全部视频上传完成。");
         await WaitVideoUploadFinishedAsync(

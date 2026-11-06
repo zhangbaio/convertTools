@@ -81,6 +81,110 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
     }
 
     [Fact]
+    public void WriteTempConfig_writes_single_publish_info_prompt_with_account_genre_count()
+    {
+        var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(
+            new ClientSettings { AiPublishInfoPrompt = "合并提示词" },
+            new TikTokAccountProfile { TiktokGenreCount = 5, TiktokTargetAudienceMode = "female" });
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            root.GetProperty("AiTextSystemPrompt").GetString().Should().Be("合并提示词");
+            root.GetProperty("AiPublishInfoMode").GetBoolean().Should().BeTrue();
+            root.GetProperty("AiPublishThemeCount").GetInt32().Should().Be(5);
+            root.GetProperty("AiPublishAskAudience").GetBoolean().Should().BeFalse();
+            root.GetProperty("AiPublishThemeOptions").GetString().Should().Contain("|");
+            root.TryGetProperty("AiTextBatchPrompt", out _).Should().BeFalse();
+            root.TryGetProperty("AiTextRetryPrompt", out _).Should().BeFalse();
+            root.TryGetProperty("AiSynopsisTemperature", out _).Should().BeFalse();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ResolvePublishInfoPrompt_migrates_only_a_customized_legacy_prompt()
+    {
+        ClientSettingsStore.ResolvePublishInfoPrompt(new ClientSettings())
+            .Should().Be(ClientSettingsDefaults.AiPublishInfoPrompt);
+        ClientSettingsStore.ResolvePublishInfoPrompt(new ClientSettings { AiFullInfoSystemPrompt = "我改过的提示词" })
+            .Should().Be("我改过的提示词");
+        ClientSettingsStore.ResolvePublishInfoPrompt(new ClientSettings
+            {
+                AiPublishInfoPrompt = "新提示词",
+                AiFullInfoSystemPrompt = "我改过的提示词",
+            })
+            .Should().Be("新提示词");
+    }
+
+    [Fact]
+    public void WriteTempConfig_maps_single_poster_agent_prompt_to_workflow_prompts()
+    {
+        var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings
+        {
+            PosterAgentDirectPrompt = "重新设计海报",
+            PosterAgentErasePrompt = "只清除文字",
+            PosterLayoutDetectPrompt = "旧布局提示",
+        });
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            const string direct = "重新设计海报\n海报标题：{title}";
+            root.GetProperty("PosterGenerationPrompt").GetString().Should().Be(direct);
+            root.GetProperty("PosterInpaintPrompt").GetString().Should().Be(direct);
+            root.GetProperty("PosterGenerationSafeRetryPrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterAgentSafeRetryPrefix + direct);
+            root.GetProperty("PosterInpaintSafeRetryPrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterAgentSafeRetryPrefix + direct);
+            root.GetProperty("PosterAllTextErasePrompt").GetString().Should().Be("只清除文字");
+            root.GetProperty("PosterLayoutDetectPrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterLayoutDetectPrompt);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void WriteTempConfig_keeps_title_placeholder_in_default_poster_prompt()
+    {
+        var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings());
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            root.GetProperty("PosterGenerationPrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterAgentDirectPrompt);
+            root.GetProperty("PosterAllTextErasePrompt").GetString()
+                .Should().Be(ClientSettingsDefaults.PosterAgentErasePrompt);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ResolveKuaishouPublishInfoPrompt_uses_default_until_customized()
+    {
+        ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(new ClientSettings())
+            .Should().Be(ClientSettingsDefaults.KuaishouPublishInfoPrompt);
+        ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(new ClientSettings { AiFullInfoSystemPrompt = "我改过的快手提示词" })
+            .Should().Be("我改过的快手提示词");
+        ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(new ClientSettings
+            {
+                KuaishouPublishInfoPrompt = "新的快手提示词",
+                AiFullInfoSystemPrompt = "我改过的快手提示词",
+            })
+            .Should().Be("新的快手提示词");
+    }
+
+    [Fact]
     public void WriteTempConfig_forces_standard_poster_layout_mode()
     {
         var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings

@@ -1,247 +1,328 @@
 using System.Collections.ObjectModel;
+using Avalonia.Media;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PlatformPublisher.Analytics.Models;
 using PlatformPublisher.Analytics.Services;
 using PlatformPublisher.Analytics.Storage;
 using PlatformPublisher.Common.Models;
-using PlatformPublisher.Common.Services;
 using PlatformPublisher.Kuaishou.Analytics;
-using PlatformPublisher.Weixin.Analytics;
+using TikTokPublisher.Ui.Controls;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class AnalyticsViewModel : ObservableObject
 {
+    private static readonly string[] Palette = ["#2563EB", "#DC2626", "#059669", "#D97706", "#7C3AED", "#0891B2", "#BE185D", "#4B5563"];
     private readonly AnalyticsRepository _repository;
-    private readonly AnalyticsQueryService _queryService;
-    private readonly LocalPublishActivitySyncService _activitySync;
     private readonly AnalyticsCollectionCoordinator _coordinator;
-    private readonly WeixinAnalyticsCollector _weixinCollector;
-    private readonly KuaishouAnalyticsCollector _kuaishouCollector;
-    private readonly PublishJobStore _jobStore;
-    private readonly YunfanAnalyticsImporter _legacyImporter;
+    private readonly KuaishouWorksPlayCollector _collector;
     private Func<IReadOnlyList<AnalyticsAccount>> _accountProvider = () => [];
-    private Func<string, CancellationToken, Task<string>> _weixinCdpProvider = (_, _) => throw new InvalidOperationException("视频号会话未绑定。");
+    private Func<AnalyticsAccount, bool> _publishRunning = _ => false;
     private CancellationTokenSource? _cts;
+    private DispatcherTimer? _dailyTimer;
+    private IReadOnlyList<AnalyticsAccount> _accounts = [];
+    private IReadOnlyList<DailyAnalyticsRecord> _records = [];
+    private readonly HashSet<string> _hidden = new(StringComparer.Ordinal);
 
-    public AnalyticsViewModel(AnalyticsRepository repository, AnalyticsQueryService queryService,
-        LocalPublishActivitySyncService activitySync, AnalyticsCollectionCoordinator coordinator,
-        WeixinAnalyticsCollector weixinCollector, KuaishouAnalyticsCollector kuaishouCollector,
-        PublishJobStore jobStore, YunfanAnalyticsImporter legacyImporter)
+    public AnalyticsViewModel(AnalyticsRepository repository, AnalyticsCollectionCoordinator coordinator, KuaishouWorksPlayCollector collector)
     {
-        _repository = repository; _queryService = queryService; _activitySync = activitySync;
-        _coordinator = coordinator; _weixinCollector = weixinCollector; _kuaishouCollector = kuaishouCollector;
-        _jobStore = jobStore;
-        _legacyImporter = legacyImporter;
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        _fromDate = new DateOnly(today.Year, today.Month, 1).ToString("yyyy-MM-dd");
-        _toDate = today.AddDays(-1).ToString("yyyy-MM-dd");
-        RefreshCommand = new AsyncRelayCommand(() => RefreshAsync(true), () => !IsBusy);
-        ReloadCommand = new AsyncRelayCommand(() => RefreshAsync(false), () => !IsBusy);
-        BackfillCommand = new AsyncRelayCommand(BackfillAsync, () => !IsBusy);
-        StopCommand = new RelayCommand(() => _cts?.Cancel(), () => IsBusy);
-        ImportLegacyCommand = new AsyncRelayCommand(ImportLegacyAsync, () => !IsBusy);
+        _repository = repository;
+        _coordinator = coordinator;
+        _collector = collector;
     }
 
-    public void Bind(Func<IReadOnlyList<AnalyticsAccount>> accountProvider,
-        Func<string, CancellationToken, Task<string>> weixinCdpProvider)
+    public ObservableCollection<KuaishouPlayCardViewModel> Cards { get; } = [];
+    public ObservableCollection<KuaishouPlayLegendViewModel> Legend { get; } = [];
+    public ObservableCollection<KuaishouPlayTabViewModel> Tabs { get; } = [];
+
+    [ObservableProperty] private IReadOnlyList<AnalyticsChartSeries> _chartSeries = [];
+    [ObservableProperty] private int _rangeDays = 30;
+    [ObservableProperty] private string _statusMessage = "尚未加载播放量。";
+    [ObservableProperty] private bool _isBusy;
+    public string RangeTitle => RangeDays <= 7 ? "每日播放量 · 近7天" : "每日播放量 · 近30天";
+
+    public void Bind(Func<IReadOnlyList<AnalyticsAccount>> accountProvider, Func<AnalyticsAccount, bool> publishRunning)
     {
         _accountProvider = accountProvider;
-        _weixinCdpProvider = weixinCdpProvider;
+        _publishRunning = publishRunning;
+        _dailyTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+        _dailyTimer.Tick -= OnDailyTick;
+        _dailyTimer.Tick += OnDailyTick;
+        _dailyTimer.Start();
+        _ = RefreshIfDueAsync();
     }
 
-    public ObservableCollection<AnalyticsAccountRowViewModel> AccountRows { get; } = [];
-    public ObservableCollection<AnalyticsPlatformRowViewModel> PlatformRows { get; } = [];
-    public ObservableCollection<AnalyticsDailyRowViewModel> DailyRows { get; } = [];
-    public ObservableCollection<AnalyticsIncomeRowViewModel> IncomeRows { get; } = [];
-    public string[] PlatformChoices { get; } = ["全部平台", "视频号", "快手个人版"];
-    public IAsyncRelayCommand RefreshCommand { get; }
-    public IAsyncRelayCommand ReloadCommand { get; }
-    public IAsyncRelayCommand BackfillCommand { get; }
-    public IRelayCommand StopCommand { get; }
-    public IAsyncRelayCommand ImportLegacyCommand { get; }
-
-    [ObservableProperty] private string _fromDate;
-    [ObservableProperty] private string _toDate;
-    [ObservableProperty] private string _selectedPlatform = "全部平台";
-    [ObservableProperty] private string _keyword = string.Empty;
-    [ObservableProperty] private string _statusMessage = "尚未加载统计数据。";
-    [ObservableProperty] private bool _isBusy;
-    [ObservableProperty] private int _accountCount;
-    [ObservableProperty] private int _taskCount;
-    [ObservableProperty] private int _succeededCount;
-    [ObservableProperty] private int _failedCount;
-    [ObservableProperty] private long _videoTotal;
-    [ObservableProperty] private long _followerTotal;
-    [ObservableProperty] private long _yesterdayViews;
-    [ObservableProperty] private string _weixinIncome = "0.00";
-    [ObservableProperty] private string _kuaishouIncome = "0.00";
-
-    partial void OnFromDateChanged(string value) => _ = RefreshAsync(false);
-    partial void OnToDateChanged(string value) => _ = RefreshAsync(false);
-    partial void OnSelectedPlatformChanged(string value) => _ = RefreshAsync(false);
-    partial void OnKeywordChanged(string value) => _ = RefreshAsync(false);
-
-    public async Task ActivateAsync()
+    public Task ActivateAsync()
     {
-        await RefreshAsync(false);
-        var today = DateOnly.FromDateTime(DateTime.Today).ToString("yyyy-MM-dd");
-        if (_repository.GetState("auto-refresh-date") != today)
+        LoadCached();
+        if (!IsBusy)
         {
-            _repository.SetState("auto-refresh-date", today);
-            await RefreshAsync(true);
+            StatusMessage = _accounts.Count == 0
+                ? "还没有快手分账账号。"
+                : "已显示本地保存的最近 30 天播放量。";
+            _ = RefreshIfDueAsync();
         }
+        return Task.CompletedTask;
     }
 
-    public void Export(string path)
+    private void OnDailyTick(object? sender, EventArgs e) => _ = RefreshIfDueAsync();
+
+    private async Task RefreshIfDueAsync()
     {
-        var dataset = BuildDataset();
-        AnalyticsCsvExporter.Export(path, dataset);
-        StatusMessage = "数据统计已导出：" + path;
+        if (IsBusy || !CollectionDue()) return;
+        await CollectAsync(null);
     }
 
-    private async Task ImportLegacyAsync()
+    private bool CollectionDue()
     {
-        IsBusy=true; NotifyCommands();
-        try
+        var now = DateTime.Now;
+        var window = KuaishouPlayWindow.Dates(DateOnly.FromDateTime(now));
+        var accounts = Accounts();
+        if (accounts.Count == 0) return false;
+        var records = _repository.ListDaily(window[0], window[^1]);
+        foreach (var account in accounts)
         {
-            var root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"Yunfan");
-            var report=await Task.Run(()=>_legacyImporter.Import(root,_accountProvider()));
-            Apply(BuildDataset()); StatusMessage=report.Message;
+            var saved = records
+                .Where(record => record.AccountId.Equals(account.Id, StringComparison.OrdinalIgnoreCase) &&
+                                 record.Platform == account.Platform &&
+                                 record.Status == AnalyticsRecordStatus.Success &&
+                                 record.SeriesViewsTotal.HasValue)
+                .Select(record => record.MetricDate);
+            if (KuaishouPlayWindow.NeedsCollection(window, saved, now.Hour)) return true;
         }
-        catch(Exception ex){StatusMessage="历史数据导入失败："+ex.Message;}
-        finally{IsBusy=false;NotifyCommands();}
+        return false;
     }
 
-    private async Task RefreshAsync(bool collectOnline)
+    [RelayCommand(CanExecute = nameof(CanUpdate))]
+    private Task UpdateAll() => CollectAsync(null);
+
+    [RelayCommand(CanExecute = nameof(CanUpdateAccount))]
+    private Task UpdateAccount(string? key) => CollectAsync(key);
+
+    [RelayCommand(CanExecute = nameof(CanStop))]
+    private void Stop() => _cts?.Cancel();
+
+    [RelayCommand]
+    private void ShowSevenDays() => SetRange(7);
+
+    [RelayCommand]
+    private void ShowThirtyDays() => SetRange(30);
+
+    [RelayCommand]
+    private void SelectTab(string? key)
+    {
+        _selectedKey = key ?? string.Empty;
+        Rebuild();
+    }
+
+    [RelayCommand]
+    private void ToggleLegend(string? key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return;
+        if (!_hidden.Add(key)) _hidden.Remove(key);
+        Rebuild();
+    }
+
+    private string _selectedKey = string.Empty;
+
+    private bool CanUpdate() => !IsBusy;
+    private bool CanUpdateAccount(string? key) => !IsBusy && !string.IsNullOrWhiteSpace(key);
+    private bool CanStop() => IsBusy;
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        UpdateAllCommand.NotifyCanExecuteChanged();
+        UpdateAccountCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+    }
+
+    partial void OnRangeDaysChanged(int value) => OnPropertyChanged(nameof(RangeTitle));
+
+    private void SetRange(int days)
+    {
+        RangeDays = days;
+        Rebuild();
+    }
+
+    private async Task CollectAsync(string? onlyKey)
     {
         if (IsBusy) return;
-        IsBusy = true; NotifyCommands();
+        IsBusy = true;
         _cts = new CancellationTokenSource();
+        var failures = new List<string>();
+        var written = 0;
         try
         {
-            var jobs = await _jobStore.LoadAsync(_cts.Token);
-            _activitySync.Sync(jobs);
-            var accounts = _accountProvider();
-            if (collectOnline)
+            var accounts = Accounts().Where(account => onlyKey is null || KuaishouPlayBoard.Key(account) == onlyKey).ToArray();
+            if (accounts.Length == 0)
             {
-                var yesterday = AnalyticsDatePolicy.Yesterday(DateTimeOffset.Now);
-                foreach (var account in accounts)
-                {
-                    _cts.Token.ThrowIfCancellationRequested();
-                    StatusMessage = "正在采集：" + account.Name;
-                    try
-                    {
-                        if (account.Platform == PublishPlatform.WeixinChannel)
-                        {
-                            await _coordinator.RunExclusiveAsync(account.Id, async ct =>
-                            {
-                                var endpoint = await _weixinCdpProvider(account.Id, ct);
-                                var snapshot = await _weixinCollector.CollectSnapshotAsync(endpoint, account.Id, ct);
-                                _repository.UpsertSnapshot(snapshot);
-                                _repository.UpsertDaily(new DailyAnalyticsRecord
-                                {
-                                    Platform = account.Platform, AccountId = account.Id, MetricDate = yesterday,
-                                    CollectedAt = snapshot.CollectedAt, Status = AnalyticsRecordStatus.Success,
-                                    AdMonetizationIncomeFen = snapshot.YesterdayAdMonetizationIncomeFen,
-                                });
-                                return true;
-                            }, _cts.Token);
-                        }
-                        else if (account.Platform == PublishPlatform.KuaishouPersonalRevenue)
-                        {
-                            await _coordinator.RunExclusiveAsync(account.Id, async ct =>
-                            {
-                                _repository.UpsertSubjects(await _kuaishouCollector.CollectAsync(account, yesterday, ct));
-                                return true;
-                            }, _cts.Token);
-                        }
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        StatusMessage = $"{account.Name} 采集失败：{ex.Message}；继续使用已有缓存。";
-                    }
-                }
-                _repository.SetState("last-refresh-at", DateTimeOffset.UtcNow.ToString("O"));
+                StatusMessage = "没有可更新的快手分账账号。";
+                return;
             }
-            Apply(BuildDataset());
-            StatusMessage = collectOnline ? "线上数据刷新完成。" : "已加载本地统计缓存。";
-        }
-        catch (OperationCanceledException) { StatusMessage = "数据统计刷新已停止。"; }
-        finally { IsBusy = false; NotifyCommands(); _cts.Dispose(); _cts = null; }
-    }
-
-    private async Task BackfillAsync()
-    {
-        if (!TryDates(out var from, out var to)) return;
-        var dates = AnalyticsDatePolicy.Range(from, to);
-        var accounts = _accountProvider().Where(account => account.Platform == PublishPlatform.WeixinChannel).ToArray();
-        IsBusy = true; NotifyCommands(); _cts = new CancellationTokenSource();
-        try
-        {
-            var progress = new Progress<AnalyticsCollectionProgress>(value => StatusMessage = $"{value.Current}/{value.Total} {value.Message}");
-            await _coordinator.BackfillAsync(accounts, dates, async (account, date, ct) =>
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            foreach (var account in accounts)
             {
-                var existing = _repository.ListDaily(date, date).Any(item => item.AccountId == account.Id && item.Status == AnalyticsRecordStatus.Success);
-                if (existing) return;
-                var endpoint = await _weixinCdpProvider(account.Id, ct);
-                _repository.UpsertDaily(await _weixinCollector.CollectDailyAsync(endpoint, account.Id, date, ct));
-            }, progress, _cts.Token);
-            Apply(BuildDataset()); StatusMessage = "视频号日数据补采完成。";
+                _cts.Token.ThrowIfCancellationRequested();
+                var label = KuaishouPlayBoard.Label(account);
+                if (_publishRunning(account))
+                {
+                    failures.Add(label + "：该账号正在上传，请稍后再更新播放量。");
+                    StatusMessage = failures[^1];
+                    continue;
+                }
+                StatusMessage = "正在采集 " + label;
+                try
+                {
+                    var window = KuaishouPlayWindow.Dates(today);
+                    var plays = await _coordinator.RunExclusiveAsync(
+                        KuaishouPlayBoard.Key(account),
+                        ct => _collector.CollectAsync(account, window[0], window[^1], ct),
+                        _cts.Token);
+                    written += KuaishouPlayStore.Save(_repository, account, plays, today);
+                    LoadCached();
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    failures.Add(label + "：" + ex.Message);
+                    StatusMessage = failures[^1];
+                }
+            }
+            LoadCached();
+            StatusMessage = failures.Count == 0
+                ? $"更新完成，写入 {written} 天播放量。"
+                : $"更新结束，写入 {written} 天。{string.Join(" ", failures)}";
         }
-        catch (OperationCanceledException) { StatusMessage = "补采已停止，可再次执行以继续缺失日期。"; }
-        catch (Exception ex) { StatusMessage = "补采失败：" + ex.Message; }
-        finally { IsBusy = false; NotifyCommands(); _cts.Dispose(); _cts = null; }
+        catch (OperationCanceledException)
+        {
+            LoadCached();
+            StatusMessage = "已停止。已经写入的播放量仍保留。";
+        }
+        finally
+        {
+            IsBusy = false;
+            _cts.Dispose();
+            _cts = null;
+        }
     }
 
-    private AnalyticsDataset BuildDataset()
+    private void LoadCached()
     {
-        if (!TryDates(out var from, out var to)) return _queryService.Query(_accountProvider(), DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today));
-        PublishPlatform? platform = SelectedPlatform switch { "视频号" => PublishPlatform.WeixinChannel, "快手个人版" => PublishPlatform.KuaishouPersonalRevenue, _ => null };
-        return _queryService.Query(_accountProvider(), from, to, platform, Keyword);
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var dates = KuaishouPlayWindow.Dates(today);
+        _accounts = Accounts();
+        var ids = _accounts.Select(account => account.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _records = _repository.ListDaily(dates[0], dates[^1])
+            .Where(record => ids.Contains(record.AccountId) &&
+                             record.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+            .ToArray();
+        if (!string.IsNullOrEmpty(_selectedKey) && _accounts.All(account => KuaishouPlayBoard.Key(account) != _selectedKey))
+            _selectedKey = string.Empty;
+        _hidden.RemoveWhere(key => _accounts.All(account => KuaishouPlayBoard.Key(account) != key));
+        Rebuild();
     }
 
-    private bool TryDates(out DateOnly from, out DateOnly to)
+    private void Rebuild()
     {
-        from = default;
-        to = default;
-        if (DateOnly.TryParse(FromDate, out from) && DateOnly.TryParse(ToDate, out to) && from <= to) return true;
-        StatusMessage = "统计日期格式无效，请使用 yyyy-MM-dd。"; return false;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var board = KuaishouPlayBoard.Build(_accounts, _records, today, RangeDays, _selectedKey);
+        Replace(Cards, board.Cards.Select(card => new KuaishouPlayCardViewModel(card, UpdateAccountCommand)));
+        var visibleSeries = board.Series.Where(item => item.Points.Any(point => point.Views.HasValue)).ToArray();
+        Replace(Legend, visibleSeries.Select((item, index) => new KuaishouPlayLegendViewModel(
+            item.Key, item.Name, Palette[index % Palette.Length], !_hidden.Contains(item.Key), ToggleLegendCommand)));
+        ChartSeries = visibleSeries
+            .Where(item => !_hidden.Contains(item.Key))
+            .Select(item => new AnalyticsChartSeries(
+                item.Name,
+                Color.Parse(Palette[LegendIndex(visibleSeries, item.Key) % Palette.Length]),
+                item.Points.Select(point => new AnalyticsChartPoint(
+                    point.Date.ToString("MM-dd"),
+                    point.Views ?? double.NaN,
+                    point.Date.ToString("MM-dd") + "  " + (point.Views is long views ? KuaishouPlayFormat.Count(views) : "未出数"))).ToArray()))
+            .ToArray();
+        var tabs = new List<KuaishouPlayTabViewModel>
+        {
+            new(string.Empty, "全部", string.IsNullOrEmpty(_selectedKey), SelectTabCommand),
+        };
+        tabs.AddRange(board.Cards.Select(card => new KuaishouPlayTabViewModel(card.Key, card.Name + " · " + card.Edition, card.Key == _selectedKey, SelectTabCommand)));
+        Replace(Tabs, tabs);
     }
 
-    private void Apply(AnalyticsDataset dataset)
+    private static int LegendIndex(IReadOnlyList<KuaishouPlaySeries> series, string key)
     {
-        AccountCount = dataset.Summary.AccountCount; TaskCount = dataset.Summary.TaskCount;
-        SucceededCount = dataset.Summary.Succeeded; FailedCount = dataset.Summary.Failed;
-        VideoTotal = dataset.Summary.VideoTotal; FollowerTotal = dataset.Summary.FollowerTotal;
-        YesterdayViews = dataset.Summary.YesterdayViews;
-        WeixinIncome = (dataset.Summary.WeixinIncomeFen / 100m).ToString("N2");
-        KuaishouIncome = (dataset.Summary.KuaishouIncomeFen / 100m).ToString("N2");
-        Replace(AccountRows, dataset.Accounts.Select(item => new AnalyticsAccountRowViewModel(item)));
-        Replace(PlatformRows, dataset.Accounts.GroupBy(item => item.Account.Platform).Select(group => new AnalyticsPlatformRowViewModel(group.Key, group)));
-        Replace(DailyRows, dataset.Daily.Select(item => new AnalyticsDailyRowViewModel(item)));
-        Replace(IncomeRows, dataset.Accounts.Select(item => new AnalyticsIncomeRowViewModel(item)));
+        for (var index = 0; index < series.Count; index++)
+            if (series[index].Key == key) return index;
+        return 0;
     }
 
-    private void NotifyCommands() { RefreshCommand.NotifyCanExecuteChanged(); ReloadCommand.NotifyCanExecuteChanged(); BackfillCommand.NotifyCanExecuteChanged(); StopCommand.NotifyCanExecuteChanged(); ImportLegacyCommand.NotifyCanExecuteChanged(); }
-    private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> values) { target.Clear(); foreach (var value in values) target.Add(value); }
+    private IReadOnlyList<AnalyticsAccount> Accounts() => _accountProvider()
+        .Where(account => account.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+        .ToArray();
+
+    private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> values)
+    {
+        target.Clear();
+        foreach (var value in values) target.Add(value);
+    }
 }
 
-public sealed record AnalyticsAccountRowViewModel(AnalyticsAccountRow Row)
+public sealed class KuaishouPlayCardViewModel
 {
-    public string Account => Row.Account.Name; public string Platform => Row.Account.Platform.DisplayName();
-    public int Tasks => Row.TaskCount; public int Succeeded => Row.Succeeded; public int Failed => Row.Failed; public int Drafts => Row.Drafts;
-    public string Videos => (Row.Snapshot?.VideoTotal ?? Row.KuaishouSummary?.Views)?.ToString("N0") ?? "—";
-    public string Followers => Row.Snapshot?.FollowerTotal?.ToString("N0") ?? "—";
-    public string YesterdayViews => (Row.Snapshot?.YesterdayViews ?? Row.KuaishouSummary?.Views)?.ToString("N0") ?? "—";
-    public string Income => (((Row.Account.Platform == PublishPlatform.WeixinChannel ? Row.Snapshot?.AdMonetizationIncomeFen : Row.KuaishouSummary?.AdIncomeFen) ?? 0) / 100m).ToString("N2");
-    public string CollectedAt => (Row.Snapshot?.CollectedAt ?? Row.KuaishouSummary?.CollectedAt)?.ToLocalTime().ToString("MM-dd HH:mm") ?? "—";
+    public KuaishouPlayCardViewModel(KuaishouPlayCard card, IAsyncRelayCommand<string?> update)
+    {
+        Key = card.Key;
+        Title = card.Name;
+        Edition = card.Edition;
+        TotalText = card.TotalText;
+        LatestText = card.LatestText;
+        EditionBackground = card.Edition == "企业" ? "#FFF7ED" : "#EFF6FF";
+        EditionForeground = card.Edition == "企业" ? "#C2410C" : "#1D4ED8";
+        UpdateCommand = update;
+    }
+
+    public string Key { get; }
+    public string Title { get; }
+    public string Edition { get; }
+    public string TotalText { get; }
+    public string LatestText { get; }
+    public string EditionBackground { get; }
+    public string EditionForeground { get; }
+    public IAsyncRelayCommand<string?> UpdateCommand { get; }
 }
-public sealed record AnalyticsPlatformRowViewModel
+
+public sealed class KuaishouPlayLegendViewModel
 {
-    public AnalyticsPlatformRowViewModel(PublishPlatform platform, IEnumerable<AnalyticsAccountRow> rows) { var values=rows.ToArray(); Platform=platform.DisplayName();Accounts=values.Length;Tasks=values.Sum(x=>x.TaskCount);Succeeded=values.Sum(x=>x.Succeeded);Failed=values.Sum(x=>x.Failed);Income=(values.Sum(x=>(platform==PublishPlatform.WeixinChannel?x.Snapshot?.AdMonetizationIncomeFen:x.KuaishouSummary?.AdIncomeFen)??0)/100m).ToString("N2"); }
-    public string Platform { get; } public int Accounts { get; } public int Tasks { get; } public int Succeeded { get; } public int Failed { get; } public string Income { get; }
+    public KuaishouPlayLegendViewModel(string key, string name, string color, bool visible, IRelayCommand<string?> toggle)
+    {
+        Key = key;
+        Name = name;
+        Color = color;
+        Opacity = visible ? 1 : 0.35;
+        ToggleCommand = toggle;
+    }
+
+    public string Key { get; }
+    public string Name { get; }
+    public string Color { get; }
+    public double Opacity { get; }
+    public IRelayCommand<string?> ToggleCommand { get; }
 }
-public sealed record AnalyticsDailyRowViewModel(AnalyticsDailyPoint Point) { public string Date => Point.Date.ToString("MM-dd"); public int Succeeded=>Point.Succeeded; public int Failed=>Point.Failed; public int Drafts=>Point.Drafts; }
-public sealed record AnalyticsIncomeRowViewModel(AnalyticsAccountRow Row) { public string Account=>Row.Account.Name; public string Platform=>Row.Account.Platform.DisplayName(); public string YesterdayIncome=>(((Row.Snapshot?.YesterdayAdMonetizationIncomeFen??Row.KuaishouSummary?.AdIncomeFen)??0)/100m).ToString("N2"); public string TotalIncome=>(((Row.Snapshot?.AdMonetizationIncomeFen??Row.KuaishouSummary?.AdIncomeFen)??0)/100m).ToString("N2"); public string Range=>Row.Snapshot is null?Row.KuaishouSummary?.MetricDate.ToString("yyyy-MM-dd")??"—":$"{Row.Snapshot.RangeStart} ~ {Row.Snapshot.RangeEnd}"; }
+
+public sealed class KuaishouPlayTabViewModel
+{
+    public KuaishouPlayTabViewModel(string key, string name, bool selected, IRelayCommand<string?> select)
+    {
+        Key = key;
+        Name = name;
+        Foreground = selected ? "#2563EB" : "#374151";
+        Weight = selected ? FontWeight.SemiBold : FontWeight.Normal;
+        SelectCommand = select;
+    }
+
+    public string Key { get; }
+    public string Name { get; }
+    public string Foreground { get; }
+    public FontWeight Weight { get; }
+    public IRelayCommand<string?> SelectCommand { get; }
+}

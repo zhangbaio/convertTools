@@ -37,7 +37,7 @@ public sealed class TikTokQueueColumnOrderTests
             xaml.Should().Contain($"Grid.Column=\"{column}\" Classes=\"stepStatusBadge\" Background=\"{{Binding {binding}BackgroundBrush}}");
         }
 
-        xaml.Should().Contain("Grid.Column=\"21\"\n                                                 Classes=\"queueRemarkBox\"");
+        xaml.Should().MatchRegex("Grid\\.Column=\"21\"\\s+Classes=\"queueRemarkBox\"");
         xaml.Should().Contain("ColumnDefinitions=\"48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180\"");
     }
 

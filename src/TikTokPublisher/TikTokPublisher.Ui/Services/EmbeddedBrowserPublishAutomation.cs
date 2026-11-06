@@ -164,7 +164,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         var launchHeadless = account.TiktokPlaywrightUploadHeadless;
         if (useLaunch && launchHeadless && finalAction == FinalAction.Publish)
         {
-            L("当前使用外部浏览器无头模式提交；提交后会校验原创管理状态，失败时保留无头设置，不自动打开可见浏览器。");
+            L("当前使用外部浏览器无头模式提交。提交后会校验原创管理状态，并保留无头设置，不自动打开可见浏览器。");
         }
 
         try

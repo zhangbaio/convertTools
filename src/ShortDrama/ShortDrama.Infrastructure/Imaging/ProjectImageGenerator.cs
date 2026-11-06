@@ -364,32 +364,49 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             var displayFrames = ResolveVideoTrackDisplayFrames(videoTrackRects, episodeFrames, trackEpisodeIndex + 1, trackEpisodeFrames);
             var previewFrame = SelectTrackPlayheadFrame(videoTrackRects, displayFrames)
                 ?? episodeFrames[Math.Clamp(trackEpisodeIndex, 0, episodeFrames.Count - 1)];
+            Image<Rgba32>? spokenPlayerFrame = null;
+            List<Image<Rgba32>>? cleanedMaterialFrames = null;
             var subtitleText = string.Empty;
             var draftName = BuildJianyingDraftName(
                 projectInfo.Title,
                 ResolveTrackEpisodeText(trackEpisodeIndex, episodeNames, projectInfo.Title),
                 trackEpisodeIndex);
+            try
+            {
             if (manifest.ExtractDialogue)
             {
-                var playerRect = ResolvePlayerRegion(page, portrait);
-                using var subtitleProbe = playerRect is not null
-                    ? BuildPlayerImage(
-                        previewFrame,
-                        playerRect,
-                        portrait ? new Rgba32(0, 0, 0, 255) : SampleRectColor(canvas, playerRect))
-                    : previewFrame.Clone();
-                subtitleText = await ResolveSubtitleTextAsync(
+                var resolved = await ResolvePlayerSubtitleAsync(
+                    page,
+                    canvas,
+                    previewFrame,
+                    portrait,
                     projectDir,
                     outputPath,
                     configMap,
-                    subtitleProbe,
                     sourceVideos[Math.Clamp(trackEpisodeIndex, 0, sourceVideos.Count - 1)],
+                    episodeDurations[Math.Clamp(trackEpisodeIndex, 0, episodeDurations.Count - 1)],
+                    ffmpeg,
                     currentIndex,
-                    page,
                     episodeNames,
                     projectInfo,
                     trackEpisodeIndex,
+                    manifest.RequirePlayerSubtitle,
                     cancellationToken);
+                subtitleText = resolved.Text;
+                if (resolved.Frame is not null)
+                {
+                    spokenPlayerFrame = resolved.Frame;
+                    previewFrame = spokenPlayerFrame;
+                }
+            }
+
+            var materialFrames = displayFrames;
+            if (manifest.MaterialSubtitleCleanup && displayFrames.Count > 0)
+            {
+                cleanedMaterialFrames = displayFrames
+                    .Select(frame => ProjectImageMaterialSubtitleCleaner.Clean(frame, projectDir))
+                    .ToList();
+                materialFrames = cleanedMaterialFrames;
             }
 
             RenderAutosaveStatus(canvas, page, pageIndex, manifest.Templates.Count);
@@ -407,10 +424,16 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                 episodeNames,
                 episodeDurations,
                 projectInfo.Title,
-                displayFrames,
+                materialFrames,
                 trackEpisodeIndex);
-            RenderMaterialVideoImages(canvas, page, displayFrames);
-            RenderVideoTrackImages(canvas, videoTrackRects, episodeFrames, trackEpisodeIndex + 1, trackEpisodeFrames);
+            RenderMaterialVideoImages(canvas, page, materialFrames);
+            RenderVideoTrackImages(
+                canvas,
+                videoTrackRects,
+                episodeFrames,
+                trackEpisodeIndex + 1,
+                trackEpisodeFrames,
+                materialFrames);
             RenderTrackTexts(canvas, page, pageIndex, currentIndex, episodeNames, episodeDurations, projectInfo.Title, episodeFrames.Count, videoTrackRects, subtitleText);
             if (manifest.RenderTimelineOverlay && waveformData is not null)
             {
@@ -423,6 +446,18 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             }
 
             return canvas;
+            }
+            finally
+            {
+                spokenPlayerFrame?.Dispose();
+                if (cleanedMaterialFrames is not null)
+                {
+                    foreach (var frame in cleanedMaterialFrames)
+                    {
+                        frame.Dispose();
+                    }
+                }
+            }
         }
         finally
         {
@@ -849,7 +884,8 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         IReadOnlyList<ProjectImageTemplateRegion> rects,
         IReadOnlyList<Image<Rgba32>> episodeFrames,
         int currentIndex,
-        IReadOnlyList<Image<Rgba32>>? singleEpisodeTrackFrames)
+        IReadOnlyList<Image<Rgba32>>? singleEpisodeTrackFrames,
+        IReadOnlyList<Image<Rgba32>>? segmentMaterialFrames = null)
     {
         if (rects.Count == 0)
         {
@@ -864,7 +900,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
 
         if (rects.Count == 1 && rects[0].Width >= rects[0].Height * 3)
         {
-            RenderVideoTrackStrip(canvas, rects[0], frames);
+            RenderVideoTrackStrip(canvas, rects[0], frames, segmentMaterialFrames);
             return;
         }
 
@@ -879,9 +915,10 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
     private static void RenderVideoTrackStrip(
         Image<Rgba32> canvas,
         ProjectImageTemplateRegion rect,
-        IReadOnlyList<Image<Rgba32>> frames)
+        IReadOnlyList<Image<Rgba32>> frames,
+        IReadOnlyList<Image<Rgba32>>? segmentMaterialFrames)
     {
-        ProjectImageAdvancedTrackRenderer.RenderStrip(canvas, rect, frames);
+        ProjectImageAdvancedTrackRenderer.RenderStrip(canvas, rect, frames, segmentMaterialFrames);
     }
 
     private static void RenderTrackTexts(
@@ -1275,6 +1312,125 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         return maximum - minimum <= 14 && average is >= 12 and <= 72;
     }
 
+    private async Task<PlayerSubtitleResolution> ResolvePlayerSubtitleAsync(
+        ProjectImageTemplatePage page,
+        Image<Rgba32> canvas,
+        Image<Rgba32> previewFrame,
+        bool portrait,
+        string projectDir,
+        string outputPath,
+        IReadOnlyDictionary<string, string> configMap,
+        string sourceVideo,
+        double durationSeconds,
+        string ffmpeg,
+        int outputIndex,
+        IReadOnlyList<string> episodeNames,
+        ProjectInfo projectInfo,
+        int trackEpisodeIndex,
+        bool requirePlayerSubtitle,
+        CancellationToken cancellationToken)
+    {
+        var initial = await ReadPlayerSubtitleAsync(
+            page,
+            canvas,
+            previewFrame,
+            portrait,
+            projectDir,
+            outputPath,
+            configMap,
+            sourceVideo,
+            outputIndex,
+            episodeNames,
+            projectInfo,
+            trackEpisodeIndex,
+            useFallback: !requirePlayerSubtitle,
+            cancellationToken);
+        if (!requirePlayerSubtitle || !LooksLikePlaceholderSubtitle(initial))
+        {
+            return new PlayerSubtitleResolution(initial, null);
+        }
+
+        foreach (var ratio in new[] { 0.2, 0.4, 0.6, 0.8 })
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var time = Math.Clamp(durationSeconds * ratio, 0.1, Math.Max(0.1, durationSeconds - 0.1));
+            var candidate = await ExtractFrameAsync(ffmpeg, sourceVideo, time, cancellationToken);
+            try
+            {
+                var text = await ReadPlayerSubtitleAsync(
+                    page,
+                    canvas,
+                    candidate,
+                    portrait,
+                    projectDir,
+                    outputPath,
+                    configMap,
+                    sourceVideo,
+                    outputIndex,
+                    episodeNames,
+                    projectInfo,
+                    trackEpisodeIndex,
+                    useFallback: false,
+                    cancellationToken);
+                if (!LooksLikePlaceholderSubtitle(text))
+                {
+                    return new PlayerSubtitleResolution(text, candidate);
+                }
+            }
+            catch
+            {
+                candidate.Dispose();
+                throw;
+            }
+
+            candidate.Dispose();
+        }
+
+        return new PlayerSubtitleResolution(
+            ResolveFallbackSubtitleText(projectInfo, episodeNames, trackEpisodeIndex),
+            null);
+    }
+
+    private async Task<string> ReadPlayerSubtitleAsync(
+        ProjectImageTemplatePage page,
+        Image<Rgba32> canvas,
+        Image<Rgba32> previewFrame,
+        bool portrait,
+        string projectDir,
+        string outputPath,
+        IReadOnlyDictionary<string, string> configMap,
+        string sourceVideo,
+        int outputIndex,
+        IReadOnlyList<string> episodeNames,
+        ProjectInfo projectInfo,
+        int trackEpisodeIndex,
+        bool useFallback,
+        CancellationToken cancellationToken)
+    {
+        var playerRect = ResolvePlayerRegion(page, portrait);
+        using var subtitleProbe = playerRect is not null
+            ? BuildPlayerImage(
+                previewFrame,
+                playerRect,
+                portrait ? new Rgba32(0, 0, 0, 255) : SampleRectColor(canvas, playerRect))
+            : previewFrame.Clone();
+        return await ResolveSubtitleTextAsync(
+            projectDir,
+            outputPath,
+            configMap,
+            subtitleProbe,
+            sourceVideo,
+            outputIndex,
+            page,
+            episodeNames,
+            projectInfo,
+            trackEpisodeIndex,
+            useFallback,
+            cancellationToken);
+    }
+
+    private sealed record PlayerSubtitleResolution(string Text, Image<Rgba32>? Frame);
+
     private async Task<string> ResolveSubtitleTextAsync(
         string projectDir,
         string outputPath,
@@ -1286,6 +1442,7 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         IReadOnlyList<string> episodeNames,
         ProjectInfo projectInfo,
         int trackEpisodeIndex,
+        bool useFallback,
         CancellationToken cancellationToken)
     {
         var fallback = ResolveFallbackSubtitleText(projectInfo, episodeNames, trackEpisodeIndex);
@@ -1295,7 +1452,15 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         var subtitleCache = LoadSubtitleCache(projectDir, SubtitleCacheFileName);
         if (TryGetCachedSubtitle(subtitleCache, cacheKey, out var cachedSubtitle))
         {
-            return string.IsNullOrWhiteSpace(cachedSubtitle) ? fallback : cachedSubtitle;
+            if (!string.IsNullOrWhiteSpace(cachedSubtitle))
+            {
+                return cachedSubtitle;
+            }
+
+            if (useFallback)
+            {
+                return fallback;
+            }
         }
 
         var ocrText = await TryOcrSubtitleAsync(subtitleProbe, cancellationToken);
@@ -1322,6 +1487,11 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                 SetCachedSubtitle(projectDir, SubtitleCacheFileName, subtitleCache, cacheKey, aiSubtitle);
                 return aiSubtitle;
             }
+        }
+
+        if (!useFallback)
+        {
+            return string.Empty;
         }
 
         SetCachedSubtitle(projectDir, SubtitleCacheFileName, subtitleCache, cacheKey, fallback);

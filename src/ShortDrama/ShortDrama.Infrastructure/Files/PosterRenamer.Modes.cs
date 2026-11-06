@@ -282,11 +282,12 @@ public sealed partial class PosterRenamer
                 cancellationToken);
             var config = KeyValueConfigReader.Read(configFile);
             var layout = new PosterLayout(0, 0, 1, 1, 0.08f, new Rgba32(255, 214, 0), new Rgba32(0, 0, 0), 0, HorizontalAlignment.Center);
+            var erasePrompt = GetOptional(config, "PosterAllTextErasePrompt") ?? DefaultPosterAllTextErasePrompt;
             var erasedBytes = await GenerateTitleErasedPosterBytesAsync(
                 config,
                 outputPath,
                 layout,
-                DefaultPosterAllTextErasePrompt,
+                erasePrompt,
                 eraseAllText: true,
                 cancellationToken);
             await WriteGeneratedPosterCandidateAsync(outputPath, erasedBytes, erasedPath, cancellationToken);
@@ -303,7 +304,7 @@ public sealed partial class PosterRenamer
                         config,
                         erasedPath,
                         layout,
-                        DefaultPosterAllTextErasePrompt,
+                        erasePrompt,
                         eraseAllText: true,
                         cancellationToken);
                     await WriteGeneratedPosterCandidateAsync(outputPath, retryBytes, erasedPath, cancellationToken);
@@ -799,7 +800,15 @@ public sealed partial class PosterRenamer
         PosterTitleVerifyResult fullImageVerify)
     {
         if (!croppedVerify.HasResidualText && !fullImageVerify.HasResidualText)
+        {
+            // 标题区域已经读出具体文字时，以这块放大图为准。全图复核常把提示里的目标剧名原样回传，
+            // 会把「迟来告白」这种漏字当成「迟来的告白」。
+            if (!croppedVerify.Ok &&
+                !croppedVerify.IsInconclusive &&
+                !string.IsNullOrWhiteSpace(croppedVerify.DetectedTitle))
+                return croppedVerify;
             return fullImageVerify;
+        }
 
         var residualText = string.Join(
             '；',

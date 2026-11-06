@@ -143,6 +143,7 @@ public static class PlayletDramaClient
                     normalizedVideoId,
                     quality,
                     normalizedDeviceId,
+                    DefaultLine,
                     cancellationToken);
             }
             catch (InvalidOperationException ex) when (attempt == 0 &&
@@ -374,6 +375,7 @@ public static class PlayletDramaClient
         string videoId,
         string? quality,
         string deviceId,
+        string line,
         CancellationToken cancellationToken)
     {
         string? lastMessage = null;
@@ -386,6 +388,7 @@ public static class PlayletDramaClient
                 videoId,
                 qualityCode,
                 deviceId,
+                line,
                 cancellationToken);
             if (video.Success)
             {
@@ -402,6 +405,7 @@ public static class PlayletDramaClient
             videoId,
             BuildQualityFallbackCodes(quality)[0],
             deviceId,
+            line,
             cancellationToken);
         if (fallback.Success)
         {
@@ -493,6 +497,7 @@ public static class PlayletDramaClient
         string videoId,
         string qualityCode,
         string deviceId,
+        string line,
         CancellationToken cancellationToken)
     {
         using var content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -501,7 +506,7 @@ public static class PlayletDramaClient
             ["quality"] = Encrypt(qualityCode),
             ["deviceId"] = Encrypt(deviceId),
             ["version"] = Encrypt(ClientVersion),
-            ["line"] = Encrypt(DefaultLine)
+            ["line"] = Encrypt(string.IsNullOrWhiteSpace(line) ? DefaultLine : line.Trim())
         });
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{serverUrl}{path}")
         {

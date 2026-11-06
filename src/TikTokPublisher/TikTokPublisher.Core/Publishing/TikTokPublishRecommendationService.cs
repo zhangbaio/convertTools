@@ -31,14 +31,16 @@ public static class TikTokPublishRecommendationService
         ClientSettings settings,
         TikTokPublishOptions options,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool allowAi = true)
     {
         var maxCount = TikTokPublishOptions.NormalizeGenreCount(options.GenreCount);
         var targetMode = NormalizeTargetAudienceMode(options.TargetAudienceMode);
 
         string aiError = "";
         Dictionary<string, JsonElement>? recommendation = null;
-        if (string.Equals(targetMode, "ai_recommend", StringComparison.Ordinal))
+        var needsAi = string.IsNullOrWhiteSpace(payload.TargetAudience) || payload.Genres.Count < maxCount;
+        if (allowAi && needsAi && string.Equals(targetMode, "ai_recommend", StringComparison.Ordinal))
         {
             try
             {
@@ -67,7 +69,12 @@ public static class TikTokPublishRecommendationService
                 targetAudience = NormalizeTargetAudience(targetElement);
             else
                 targetAudience = "";
-            if (string.IsNullOrWhiteSpace(targetAudience))
+            if (string.IsNullOrWhiteSpace(targetAudience) && !allowAi)
+            {
+                log?.Invoke("TikTok 目标观众未由发布信息返回，使用本地规则");
+                targetAudience = HeuristicTargetAudience(payload);
+            }
+            else if (string.IsNullOrWhiteSpace(targetAudience))
             {
                 log?.Invoke(string.IsNullOrWhiteSpace(aiError)
                     ? "TikTok 目标观众 AI 推荐失败，使用本地规则：AI 返回为空或不在男/女范围内"
@@ -96,7 +103,7 @@ public static class TikTokPublishRecommendationService
             var aiGenres = recommendation is not null && genreElement.ValueKind != JsonValueKind.Undefined
                 ? NormalizeGenres(genreElement, maxCount, TikTokPublishConstants.GenreOptions)
                 : new List<string>();
-            if (aiGenres.Count == 0 && genres.Count == 0)
+            if (allowAi && aiGenres.Count == 0 && genres.Count == 0)
             {
                 log?.Invoke(string.IsNullOrWhiteSpace(aiError)
                     ? "TikTok 题材类型 AI 推荐失败，使用本地规则：AI 返回为空或不在真实题材候选内"

@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Ui.Views;
@@ -38,6 +39,9 @@ public partial class AccountSettingsDialog : Window
         ArchiveRootBox.Text = p.TiktokArchiveRootDir;
         DownloadWorkspaceBox.Text = p.LastDownloadWorkspace;
         DeleteVideosOnArchiveBox.IsChecked = p.TiktokDeleteVideosOnArchive;
+        var xingeEnabled = ClientSettingsStore.Load().XingeRemoteEnabled;
+        RemoteDispatchBox.IsEnabled = xingeEnabled;
+        RemoteDispatchBox.IsChecked = xingeEnabled && p.ParticipatesInXingeRemoteDispatch;
 
         ContractIdBox.Text = p.TiktokContractId;
         SelectByTag(ContractModeCombo, p.TiktokContractIdMode, "manual");
@@ -96,7 +100,6 @@ public partial class AccountSettingsDialog : Window
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         RewriteFollowsSourceLanguageBox.IsChecked = p.TiktokRewriteFollowsSourceLanguage;
         SelectNewTitleRandomness(AiNewTitleRandomnessCombo, p.TiktokAiNewTitleRandomness);
-        SelectNewTitleRandomness(AiSynopsisRandomnessCombo, p.TiktokAiSynopsisRandomness);
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.NormalizeDayZeroRoi(p.TiktokDayZeroRoi);
@@ -138,6 +141,11 @@ public partial class AccountSettingsDialog : Window
         p.TiktokArchiveRootConfigMigrated = true;
         p.LastDownloadWorkspace = DownloadWorkspaceBox.Text?.Trim() ?? "";
         p.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
+        if (ClientSettingsStore.Load().XingeRemoteEnabled)
+        {
+            p.XingeRemoteDispatchConfigured = true;
+            p.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
+        }
         p.TiktokDeleteVideosOnArchiveConfigured = true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
@@ -186,7 +194,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
         p.TiktokRewriteFollowsSourceLanguage = RewriteFollowsSourceLanguageBox.IsChecked == true;
         p.TiktokAiNewTitleRandomness = ReadNewTitleRandomness(AiNewTitleRandomnessCombo);
-        p.TiktokAiSynopsisRandomness = ReadNewTitleRandomness(AiSynopsisRandomnessCombo);
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
         p.TiktokDayZeroRoi = TikTokPublishOptions.NormalizeDayZeroRoi(

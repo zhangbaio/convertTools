@@ -18,12 +18,15 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     public event Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>>? RemoteCommandRequested;
     public event Action? SettingsSaved;
 
+    private XingeConnectionViewModel? _xinge;
+
     [ObservableProperty] private string _authServerUrl = "";
     [ObservableProperty] private string _licenseSummary = "未登录";
     [ObservableProperty] private string _loginAccount = "";
     [ObservableProperty] private string _loginPassword = "";
     [ObservableProperty] private string _loginStatus = "";
     [ObservableProperty] private bool _isBusy;
+    [ObservableProperty] private bool _cloudConfigSyncEnabled;
     [ObservableProperty] private bool _feishuCommandEnabled;
     [ObservableProperty] private string _feishuCommandAppId = "";
     [ObservableProperty] private string _feishuCommandAppSecret = "";
@@ -45,7 +48,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _xingeClientId = "";
     [ObservableProperty] private string _xingeClientToken = "";
     [ObservableProperty] private string _xingeClientName = "TikTokPublisher";
-    [ObservableProperty] private int _xingePollIntervalSeconds = 3;
+    [ObservableProperty] private int _xingePollIntervalSeconds = ClientSettingsDefaults.XingePollIntervalSeconds;
     [ObservableProperty] private string _xingeRemoteStatus = "未启用";
     [ObservableProperty] private string _remoteCommandPreviewText = "";
     [ObservableProperty] private string _remoteCommandPreviewResult = "";
@@ -107,7 +110,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         XingeClientId = settings.XingeClientId ?? "";
         XingeClientToken = settings.XingeClientToken ?? "";
         XingeClientName = string.IsNullOrWhiteSpace(settings.XingeClientName) ? "TikTokPublisher" : settings.XingeClientName;
-        XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
+        XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
         RemoteAutoArchiveAfterUpload = settings.FeishuTiktokUploadAutoArchiveAfterUpload;
         RemoteForceRerunCompletedSteps = settings.FeishuTiktokUploadForceRerunCompletedSteps;
         RemotePreferUploadWhenReady = settings.FeishuTiktokUploadPreferUploadWhenReady;
@@ -126,13 +129,66 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         ApplyRemoteSteps(TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
         FeishuCommandStatus = FeishuCommandEnabled ? "已启用" : "未启用";
         XingeRemoteStatus = XingeRemoteEnabled ? "等待连接" : "未启用";
+        CopyXingeToConnection();
         RefreshLicenseSummary();
+    }
+
+    public void AttachXinge(XingeConnectionViewModel xinge)
+    {
+        if (ReferenceEquals(_xinge, xinge))
+        {
+            CopyXingeToConnection();
+            return;
+        }
+
+        if (_xinge is not null)
+        {
+            _xinge.PropertyChanged -= OnXingePropertyChanged;
+            _xinge.SettingsSaved -= OnXingeSettingsSaved;
+            _xinge.StatusRequested -= OnXingeStatusRequested;
+        }
+        _xinge = xinge;
+        _xinge.PropertyChanged += OnXingePropertyChanged;
+        _xinge.SettingsSaved += OnXingeSettingsSaved;
+        _xinge.StatusRequested += OnXingeStatusRequested;
+        CopyXingeToConnection();
+    }
+
+    private void OnXingeSettingsSaved() => SettingsSaved?.Invoke();
+
+    private void OnXingeStatusRequested(string message) => StatusRequested?.Invoke(message);
+
+    private void OnXingePropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (_xinge is not null && e.PropertyName == nameof(XingeConnectionViewModel.Enabled))
+            XingeRemoteEnabled = _xinge.Enabled;
+    }
+
+    private void CopyXingeToConnection()
+    {
+        _xinge?.CopyFrom(
+            XingeRemoteEnabled,
+            XingeServerUrl,
+            XingeAccount,
+            XingePassword,
+            XingeClientId,
+            XingeClientToken,
+            XingeClientName,
+            XingePollIntervalSeconds,
+            XingeRemoteStatus);
+    }
+
+    partial void OnXingeRemoteStatusChanged(string value)
+    {
+        if (_xinge is not null && !string.Equals(_xinge.Status, value, StringComparison.Ordinal))
+            _xinge.Status = value;
     }
 
     [RelayCommand]
     private void RefreshLicenseSummary()
     {
         var state = LicenseStore.Load();
+        CloudConfigSyncEnabled = state.IsActivated();
         if (!state.IsActivated())
         {
             LicenseSummary = "未登录";
@@ -196,36 +252,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task TestXingeLoginAsync()
-    {
-        if (IsBusy) return;
-        IsBusy = true;
-        XingeRemoteStatus = "正在使用用户名和密码登录 XINGE...";
-        try
-        {
-            var settings = ClientSettingsStore.Load();
-            ApplyUiToSettings(settings);
-            var credentials = await XingeRemoteAccountService.ProvisionAsync(settings);
-            XingeClientId = credentials.ClientId;
-            XingeClientToken = credentials.ClientToken;
-            settings.XingeClientId = credentials.ClientId;
-            settings.XingeClientToken = credentials.ClientToken;
-            settings.XingeCredentialFingerprint = credentials.CredentialFingerprint;
-            ClientSettingsStore.Save(settings);
-            XingeRemoteStatus = $"账号登录成功：{credentials.Username}，远程客户端凭证已生成";
-            StatusRequested?.Invoke(XingeRemoteStatus);
-            SettingsSaved?.Invoke();
-        }
-        catch (Exception ex)
-        {
-            XingeRemoteStatus = $"XINGE 登录失败：{ex.Message}";
-            StatusRequested?.Invoke(XingeRemoteStatus);
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
+    private Task TestXingeLoginAsync() => _xinge?.TestLoginAsync() ?? Task.CompletedTask;
 
     [RelayCommand]
     private void SelectAllRemoteSteps() => ApplyRemoteSteps(QueueStepRegistry.UserSelectable.Select(step => step.Key));
@@ -303,14 +330,29 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.VideoTranslateFontSize = Math.Clamp(VideoTranslateFontSize, 12, 120);
         settings.VideoTranslateMarginV = Math.Clamp(VideoTranslateMarginV, 0, 600);
         settings.VideoTranslateBilingual = VideoTranslateBilingual;
-        settings.XingeRemoteEnabled = XingeRemoteEnabled;
-        settings.XingeServerUrl = XingeServerUrl.Trim();
-        settings.XingeAccount = XingeAccount.Trim();
-        settings.XingePassword = XingePassword;
-        settings.XingeClientId = XingeClientId.Trim();
-        settings.XingeClientToken = XingeClientToken.Trim();
-        settings.XingeClientName = string.IsNullOrWhiteSpace(XingeClientName) ? "TikTokPublisher" : XingeClientName.Trim();
-        settings.XingePollIntervalSeconds = Math.Clamp(XingePollIntervalSeconds <= 0 ? 3 : XingePollIntervalSeconds, 1, 60);
+        if (_xinge is not null)
+        {
+            _xinge.ApplyTo(settings);
+            XingeRemoteEnabled = _xinge.Enabled;
+            XingeServerUrl = _xinge.ServerUrl;
+            XingeAccount = _xinge.Account;
+            XingePassword = _xinge.Password;
+            XingeClientId = _xinge.ClientId;
+            XingeClientToken = _xinge.ClientToken;
+            XingeClientName = _xinge.ClientName;
+            XingePollIntervalSeconds = _xinge.PollIntervalSeconds;
+        }
+        else
+        {
+            settings.XingeRemoteEnabled = XingeRemoteEnabled;
+            settings.XingeServerUrl = XingeServerUrl.Trim();
+            settings.XingeAccount = XingeAccount.Trim();
+            settings.XingePassword = XingePassword;
+            settings.XingeClientId = XingeClientId.Trim();
+            settings.XingeClientToken = XingeClientToken.Trim();
+            settings.XingeClientName = string.IsNullOrWhiteSpace(XingeClientName) ? "TikTokPublisher" : XingeClientName.Trim();
+            settings.XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(XingePollIntervalSeconds);
+        }
     }
 
     private IReadOnlyList<string> ReadRemoteSteps()

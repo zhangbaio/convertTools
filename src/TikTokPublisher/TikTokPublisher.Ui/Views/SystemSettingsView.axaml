@@ -20,6 +20,17 @@
                         <TextBlock Text="{Binding LoginSettingsHint}"
                                    TextWrapping="Wrap" Classes="pageSummary" />
 
+                        <TextBlock Text="账号同步" FontWeight="Bold" />
+                        <TextBlock Text="同一 TT 用户在其他电脑登录后，会自动同步 TikTok 账号、登录状态和印章。工作目录留在本机。没有本机工作目录的账号使用「根目录\账号名」。"
+                                   TextWrapping="Wrap" Classes="pageSummary" />
+                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="同步工作根目录" VerticalAlignment="Center" />
+                            <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBox Grid.Column="0" Text="{Binding TiktokSyncWorkspaceRoot}" Watermark="例如 D:\TikTok工作目录" />
+                                <Button Grid.Column="1" Content="浏览" Click="OnBrowseSyncWorkspaceRootClick" MinWidth="72" />
+                            </Grid>
+                        </Grid>
+
                         <TextBlock Text="数据链路与下载参数" FontWeight="Bold" />
                         <TextBlock Text="选择短剧来源链路，并配置下载任务的通用参数。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
@@ -93,28 +104,26 @@
 
                         <Separator Margin="0,4" />
 
-                        <TextBlock Text="红果高码率链路（高码率版 / 标准版）" FontWeight="Bold" />
-                        <TextBlock Text="两个版本共用账号、密码和 Enc/Sign Master；设备 ID、客户端与登录会话按版本隔离。切换版本后请读取对应设备 ID。"
+                        <TextBlock Text="红果短剧助手" FontWeight="Bold" />
+                        <TextBlock Text="使用标准版。账号、密码、设备 ID 和启动密钥保存在这里。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="客户端版本" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="HghighEditionCombo" HorizontalAlignment="Left" MinWidth="220" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding HghighClientVersionLabel}" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1"
+                        <ComboBox x:Name="HghighEditionCombo" IsVisible="False" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding HghighClientVersionLabel}" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1"
                                      Text="{Binding HghighActiveClientVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      Watermark="例如 2.2.1，留空则使用内置默认版本"
                                      HorizontalAlignment="Left"
                                      MinWidth="220" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="红果账号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding HghighAccount}" Watermark="高码率版与标准版共用登录邮箱" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="红果账号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HghighAccount}" Watermark="登录邮箱" />
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="红果密码" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding HghighPassword}" PasswordChar="●" RevealPassword="False" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="红果密码" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding HghighPassword}" PasswordChar="●" RevealPassword="False" />
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding HghighDeviceLabel}" VerticalAlignment="Center" />
-                            <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{Binding HghighDeviceLabel}" VerticalAlignment="Center" />
+                            <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding HghighActiveDeviceId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Watermark="24 位十六进制 DeviceId" />
@@ -122,16 +131,16 @@
                                 <Button Grid.Column="2" Content="测试登录" Command="{Binding ProbeHghighLoginCommand}" MinWidth="96" />
                             </Grid>
 
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="{Binding HghighClientExeLabel}" VerticalAlignment="Center" />
-                            <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding HghighClientExeLabel}" VerticalAlignment="Center" />
+                            <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding HghighActiveClientExe, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Watermark="选择当前版本的 HG 短剧下载器 exe" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseHghighClientExeClick" MinWidth="88" />
                             </Grid>
 
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Enc Master" VerticalAlignment="Center" />
-                            <Grid Grid.Row="6" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Enc Master" VerticalAlignment="Center" />
+                            <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding HghighEncMaster, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          PasswordChar="●"
@@ -146,8 +155,8 @@
                                         MinWidth="88" />
                             </Grid>
 
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="Sign Master" VerticalAlignment="Center" />
-                            <Grid Grid.Row="7" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Sign Master" VerticalAlignment="Center" />
+                            <Grid Grid.Row="6" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                                 <TextBox Grid.Column="0"
                                          Text="{Binding HghighSignMaster, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          PasswordChar="●"
@@ -162,8 +171,8 @@
                                         MinWidth="88" />
                             </Grid>
 
-                            <TextBlock Grid.Row="8" Grid.Column="0" Text="启动密钥操作" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <StackPanel Grid.Row="8" Grid.Column="1" Spacing="8">
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="启动密钥操作" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="7" Grid.Column="1" Spacing="8">
                                 <Button Content="提取启动密钥"
                                         Command="{Binding ProvisionHghighMastersCommand}"
                                         HorizontalAlignment="Left"
@@ -171,12 +180,12 @@
                                 <TextBlock Text="{Binding HghighMastersStatus}" TextWrapping="Wrap" Classes="pageSummary" />
                             </StackPanel>
 
-                            <TextBlock Grid.Row="9" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
-                            <TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding HghighProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
+                            <TextBlock Grid.Row="8" Grid.Column="0" Text="测试结果" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="8" Grid.Column="1" Text="{Binding HghighProbeStatus}" TextWrapping="Wrap" Classes="pageSummary" />
 
-                            <TextBlock Grid.Row="10" Grid.Column="0" Text="标准版播放" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="9" Grid.Column="0" Text="标准版播放" VerticalAlignment="Center"
                                        IsVisible="{Binding IsHghighStandardEdition}" />
-                            <ComboBox Grid.Row="10" Grid.Column="1" x:Name="HghighStandardPlaybackCombo"
+                            <ComboBox Grid.Row="9" Grid.Column="1" x:Name="HghighStandardPlaybackCombo"
                                       HorizontalAlignment="Left" MinWidth="220"
                                       IsVisible="{Binding IsHghighStandardEdition}" />
                         </Grid>
@@ -322,6 +331,33 @@
                             </StackPanel>
                         </Grid>
 
+                        <Separator Margin="0,4" />
+
+                        <TextBlock Text="红果APP下载" FontWeight="Bold" />
+                        <TextBlock Text="搜索、分集、漫剧上新、AI短剧上新和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单仍使用上面的红果短剧助手账号。漫剧上新和 AI短剧上新固定为最新上架、7天内上新。方案1用本机模拟器里已注册的设备和已安装版本。方案2的分集按桌面版 7.4.2.32 请求；播放用下面保存的设备号走红米签名取址，不走会返回空包的 preload。默认方案1。方案1的播放地址按勾选的链路获取，至少选择一条；两条都选时先走链路 1，失败再走链路 2。播放设备号和安装号在软件第一次启动时自动生成并保存，之后继续使用；清空两个号码并重新打开助手后会重新生成。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="下载方案" VerticalAlignment="Center" />
+                            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                                <RadioButton Content="方案1" GroupName="HongguoAppPlan" IsChecked="{Binding HongguoAppPlanIsCurrent}" />
+                                <RadioButton Content="方案2" GroupName="HongguoAppPlan" IsChecked="{Binding HongguoAppPlanIsDesktop}" />
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="取流链路" VerticalAlignment="Center" IsEnabled="{Binding HongguoAppPlanIsCurrent}" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="16" IsEnabled="{Binding HongguoAppPlanIsCurrent}">
+                                <CheckBox Content="链路 1" IsChecked="{Binding HongguoAppStreamLink1}" />
+                                <CheckBox Content="链路 2" IsChecked="{Binding HongguoAppStreamLink2}" />
+                            </StackPanel>
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="播放设备号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1"
+                                     Text="{Binding HongguoAppDeviceId}"
+                                     Watermark="首次启动时自动生成" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="播放安装号" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="3" Grid.Column="1"
+                                     Text="{Binding HongguoAppInstallId}"
+                                     Watermark="首次启动时与设备号成对生成" />
+                        </Grid>
+
                         <Separator Margin="0,4" IsVisible="False" />
 
                         <TextBlock Text="海外短剧下载器（v2.4.0）" FontWeight="Bold" IsVisible="False" />
@@ -453,7 +489,7 @@
                         </Grid>
                         <TextBlock Text="本地链路会先本地预筛再由视觉模型匹配；AI全量优选会审核全部有效抽帧，准确率更高但调用量更大。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="接口地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />
 
@@ -466,23 +502,27 @@
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="请求超时" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding AiTextTimeoutSeconds}" Minimum="10" Maximum="600" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="单批项目数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding AiTextMaxBatchSize}" Minimum="1" Maximum="50" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="标签 System Prompt" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding AiTagSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" />
-
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="标签 Batch Prompt" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding AiTagBatchPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" />
-
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="完整信息 System Prompt" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding AiFullInfoSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" />
-
-                            <TextBlock Grid.Row="8" Grid.Column="0" Text="完整信息 Batch Prompt" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding AiFullInfoBatchPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="发布信息提示词" VerticalAlignment="Top" Margin="0,4,0,0"
+                                       IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6" IsVisible="{Binding ShowsTikTokPublishPrompt}">
+                                <TextBox Text="{Binding AiPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetAiPublishInfoPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="一次请求同时生成新剧名、简介、题材和目标观众，不再生成推荐语。剧名占用查重、字数校验和不合格重试由程序处理。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="快手发布信息提示词" VerticalAlignment="Top" Margin="0,4,0,0"
+                                       IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                            <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6" IsVisible="{Binding ShowsKuaishouPublishPrompt}">
+                                <TextBox Text="{Binding KuaishouPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPublishInfoPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="一次请求同时生成新剧名、短标题、简介、标签、观众、短剧分类和情节，不再生成推荐语。字数、选项和禁用词由程序校验，不合格会带上原因重试。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
                         </Grid>
-                        <TextBlock Text="完整信息 Retry Prompt" FontWeight="Bold" />
-                        <TextBox Text="{Binding AiFullInfoRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -608,31 +648,36 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Prompt 配置" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Frame Cover" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding FrameCoverPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="布局检测" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PosterLayoutDetectPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="局部改字" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding PosterInpaintPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="整图改字" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding PosterGenerationPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="局部改字安全重试" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding PosterInpaintSafeRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="整图改字安全重试" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding PosterGenerationSafeRetryPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70" />
-
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="海报名 System" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding PosterNameSystemPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
-
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="海报名 User" VerticalAlignment="Top" Margin="0,4,0,0" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding PosterNameUserPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
+                        <Grid ColumnDefinitions="140,*" ColumnSpacing="10" IsVisible="{Binding ShowsTikTokPublishPrompt}">
+                            <TextBlock Grid.Column="0" Text="海报 Agent 提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Column="1" Spacing="6">
+                                <TextBox Text="{Binding PosterAgentPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetPosterAgentPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="切换海报模式时显示该模式自己的提示词。直接生成用 {title} 表示新剧名，缺少时会自动追加；去字模式只清除文字，新剧名由程序写入。安全重试、布局检测、标题校验和修复使用内置提示词。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="12" ColumnSpacing="10" IsVisible="{Binding ShowsKuaishouPublishPrompt}">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="竖屏海报提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="0" Grid.Column="1" Spacing="6">
+                                <TextBox Text="{Binding KuaishouPosterVerticalPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPosterVerticalPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="切换海报模式时换成该模式的竖屏提示词。直接生成会重做竖屏海报并写一次 {title}；去字模式只清除文字，剧名由程序写入。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="横屏封面提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6">
+                                <TextBox Text="{Binding KuaishouPosterHorizontalPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                    <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPosterHorizontalPromptCommand}" />
+                                    <TextBlock Grid.Column="1" Text="直接生成把完成的竖屏海报扩成 16:10 并写一次剧名。去字模式从无文字底图扩成横屏，再由程序写入剧名。AI 失败时改为居中裁成 1600×1000。"
+                                               Classes="pageSummary" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                </Grid>
+                            </StackPanel>
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

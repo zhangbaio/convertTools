@@ -91,8 +91,26 @@ public static class ClientSettingsStore
         WriteIndented = false,
     };
 
+    private static readonly AsyncLocal<Func<ClientSettings>?> TestSettingsOverride = new();
+
+    /// <summary>测试专用：在当前异步调用链内用给定设置替代主数据库，不读写用户真实的 app.db。</summary>
+    internal static IDisposable UseSettingsForTests(Func<ClientSettings> loader)
+    {
+        var previous = TestSettingsOverride.Value;
+        TestSettingsOverride.Value = loader;
+        return new SettingsOverrideScope(previous);
+    }
+
+    private sealed class SettingsOverrideScope(Func<ClientSettings>? previous) : IDisposable
+    {
+        public void Dispose() => TestSettingsOverride.Value = previous;
+    }
+
     public static ClientSettings Load(string? databasePath = null)
     {
+        if (databasePath is null && TestSettingsOverride.Value is { } overrideLoader)
+            return overrideLoader();
+
         var path = ResolvePath(databasePath);
         AppDatabaseInitializer.EnsureInitialized(path);
         TikTokExecutionHistoryService.EnsureStorageOptimized(path);
@@ -339,6 +357,17 @@ public static class ClientSettingsStore
         Save(settings, databasePath);
     }
 
+    public static void PatchHongguoAppPlaybackIdentity(string deviceId, string installId, string? databasePath = null)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(installId))
+            return;
+
+        var settings = Load(databasePath);
+        settings.HongguoAppDeviceId = deviceId.Trim();
+        settings.HongguoAppInstallId = installId.Trim();
+        Save(settings, databasePath);
+    }
+
     private static ClientSettings Normalize(ClientSettings settings)
     {
         settings.DramaSourceChain = VisibleDramaSource.Normalize(settings.DramaSourceChain);
@@ -413,6 +442,8 @@ public static class ClientSettingsStore
         settings.AiFullInfoSystemPrompt = DefaultIfBlank(settings.AiFullInfoSystemPrompt, ClientSettingsDefaults.AiFullInfoSystemPrompt);
         settings.AiFullInfoBatchPrompt = DefaultIfBlank(settings.AiFullInfoBatchPrompt, ClientSettingsDefaults.AiFullInfoBatchPrompt);
         settings.AiFullInfoRetryPrompt = DefaultIfBlank(settings.AiFullInfoRetryPrompt, ClientSettingsDefaults.AiFullInfoRetryPrompt);
+        settings.AiPublishInfoPrompt = ResolvePublishInfoPrompt(settings);
+        settings.KuaishouPublishInfoPrompt = ResolveKuaishouPublishInfoPrompt(settings);
         settings.PosterMode = NormalizePosterMode(settings.PosterMode);
         settings.PosterLayoutRequestMode = NormalizePosterLayoutRequestMode(settings.PosterLayoutRequestMode);
         var networkPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
@@ -542,7 +573,7 @@ public static class ClientSettingsStore
         settings.XingeClientToken = (settings.XingeClientToken ?? "").Trim();
         settings.XingeCredentialFingerprint = (settings.XingeCredentialFingerprint ?? "").Trim();
         settings.XingeClientName = DefaultIfBlank(settings.XingeClientName, "TikTokPublisher");
-        settings.XingePollIntervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
+        settings.XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
         return settings;
     }
 
@@ -567,6 +598,124 @@ public static class ClientSettingsStore
     {
         var normalized = (value ?? "auto").Trim().ToLowerInvariant();
         return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
+    }
+
+    /// <summary>
+    /// 发布信息提示词为空时，沿用用户改过的旧「完整信息 System Prompt」，否则使用新默认值。
+    /// </summary>
+    public static string ResolvePublishInfoPrompt(ClientSettings settings)
+    {
+        var current = settings.AiPublishInfoPrompt?.Trim() ?? "";
+        if (current.Length > 0)
+            return current;
+
+        var legacy = settings.AiFullInfoSystemPrompt?.Trim() ?? "";
+        return legacy.Length > 0 &&
+               !string.Equals(legacy, ClientSettingsDefaults.AiFullInfoSystemPrompt.Trim(), StringComparison.Ordinal)
+            ? legacy
+            : ClientSettingsDefaults.AiPublishInfoPrompt;
+    }
+
+    /// <summary>
+    /// 快手发布信息提示词为空时，沿用用户改过的旧「完整信息 System Prompt」，否则使用新默认值。
+    /// </summary>
+    public static string ResolveKuaishouPublishInfoPrompt(ClientSettings settings)
+    {
+        var current = settings.KuaishouPublishInfoPrompt?.Trim() ?? "";
+        if (current.Length > 0)
+            return current;
+
+        var legacy = settings.AiFullInfoSystemPrompt?.Trim() ?? "";
+        return legacy.Length > 0 &&
+               !string.Equals(legacy, ClientSettingsDefaults.AiFullInfoSystemPrompt.Trim(), StringComparison.Ordinal)
+            ? legacy
+            : ClientSettingsDefaults.KuaishouPublishInfoPrompt;
+    }
+
+    /// <summary>
+    /// 当前海报模式实际使用的提示词。直接生成模式未单独设置时，沿用用户改过的旧「整图改字/局部改字」提示词。
+    /// </summary>
+    public static string ResolvePosterAgentPrompt(ClientSettings settings, string? mode)
+    {
+        if (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode))
+            return DefaultIfBlank(settings.PosterAgentErasePrompt, ClientSettingsDefaults.PosterAgentErasePrompt);
+
+        var current = settings.PosterAgentDirectPrompt?.Trim() ?? "";
+        if (current.Length > 0)
+            return current;
+
+        return CustomizedPrompt(
+                   settings.PosterGenerationPrompt,
+                   ClientSettingsDefaults.PosterGenerationPrompt,
+                   ClientSettingsDefaults.LegacyPosterGenerationPrompt)
+               ?? CustomizedPrompt(
+                   settings.PosterInpaintPrompt,
+                   ClientSettingsDefaults.PosterInpaintPrompt,
+                   ClientSettingsDefaults.LegacyPosterInpaintPrompt)
+               ?? ClientSettingsDefaults.PosterAgentDirectPrompt;
+    }
+
+    /// <summary>
+    /// 快手竖屏、横屏提示词按模式取值。竖屏未单独设置时，沿用用户改过的海报 Agent 提示词；横屏不复用竖屏文案。
+    /// </summary>
+    public static string ResolveKuaishouPosterPrompt(ClientSettings settings, bool horizontal, string? mode)
+    {
+        var current = horizontal
+            ? (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
+                ? settings.KuaishouPosterHorizontalErasePrompt
+                : settings.KuaishouPosterHorizontalDirectPrompt)
+            : (ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
+                ? settings.KuaishouPosterVerticalErasePrompt
+                : settings.KuaishouPosterVerticalDirectPrompt);
+        if (!string.IsNullOrWhiteSpace(current))
+            return current.Trim();
+
+        if (!horizontal)
+        {
+            var migrated = ClientSettingsDefaults.IsEraseFixedTitlePosterMode(mode)
+                ? CustomizedPrompt(settings.PosterAgentErasePrompt, ClientSettingsDefaults.PosterAgentErasePrompt)
+                : CustomizedPrompt(settings.PosterAgentDirectPrompt, ClientSettingsDefaults.PosterAgentDirectPrompt);
+            if (migrated is not null)
+                return migrated;
+        }
+
+        return ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal, mode);
+    }
+
+    /// <summary>与该方向、该模式的默认值相同时存空字符串。</summary>
+    public static string StoredKuaishouPosterPrompt(string? value, bool horizontal, string? mode)
+    {
+        var text = value?.Trim() ?? "";
+        return string.Equals(
+            text,
+            ClientSettingsDefaults.DefaultKuaishouPosterPrompt(horizontal, mode).Trim(),
+            StringComparison.Ordinal)
+            ? ""
+            : text;
+    }
+
+    /// <summary>与默认值相同时存空字符串，以后默认提示词更新时自动跟随。</summary>
+    public static string StoredPosterAgentPrompt(string? value, string? mode)
+    {
+        var text = value?.Trim() ?? "";
+        return string.Equals(text, ClientSettingsDefaults.DefaultPosterAgentPrompt(mode).Trim(), StringComparison.Ordinal)
+            ? ""
+            : text;
+    }
+
+    public static string WithPosterTitlePlaceholder(string prompt) =>
+        prompt.Contains("{title}", StringComparison.Ordinal)
+            ? prompt
+            : $"{prompt.TrimEnd()}\n海报标题：{{title}}";
+
+    private static string? CustomizedPrompt(string? value, params string[] builtIns)
+    {
+        var text = value?.Trim() ?? "";
+        if (text.Length == 0)
+            return null;
+        return builtIns.Any(builtIn => string.Equals(text, builtIn.Trim(), StringComparison.Ordinal))
+            ? null
+            : text;
     }
 
     private static string DefaultIfBlank(string? value, string fallback)
@@ -596,13 +745,10 @@ public static class ClientSettingsStore
     private static string NormalizePosterLayoutRequestMode(string? value) =>
         ClientSettingsDefaults.PosterLayoutRequestMode;
 
-    private static string NormalizePosterMode(string? value) =>
-        (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant() switch
-        {
-            "original" or "poster_ai_erase_pil_title" or "erase_fixed_lower_title" =>
-                (value ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant(),
-            _ => ClientSettingsDefaults.PosterMode
-        };
+    internal static string NormalizePosterMode(string? value) =>
+        ClientSettingsDefaults.IsEraseFixedTitlePosterMode(value)
+            ? ClientSettingsDefaults.PosterModeEraseFixedTitle
+            : ClientSettingsDefaults.PosterModeDirect;
 
     internal static string NormalizeRoleReferenceSelectionMode(string? value) =>
         string.Equals(value?.Trim(), "ai_full_review", StringComparison.OrdinalIgnoreCase)

@@ -85,12 +85,15 @@ public static class KuaishouArtifactColumnStatusReader
             upload.Int("episode_count"),
             prepare.Int("episode_count"),
             declaredCount);
+        KuaishouPrepareStateStore.ImportLegacy(workflowDir, enterprise);
         var imageCount = CountProjectImages(workflowDir);
         var completed = CompletedSteps(prepare);
+        foreach (var step in KuaishouPrepareStateStore.ReadSteps(workflowDir, enterprise))
+            completed.Add(step);
         var downloadStatus = DownloadStatusText(prepare, download, downloadedCount, completed);
         var rewriteStatus = BoolStatus(IsRewriteCompleted(completed, originalTitle, newTitle, sourceDir));
         var posterStatus = BoolStatus(IsPosterCompleted(prepare, workflowDir, completed));
-        var projectImageStatus = ProjectImageStatusText(imageCount);
+        var projectImageStatus = ProjectImageStatusText(imageCount, completed);
         var autoFillStatus = BoolStatus(IsAutoFillCompleted(prepare, workflowDir, autoFillName, completed));
         var uploadStatus = UploadStatusText(upload);
         var overallStatus = OverallStatusText(OverallState(prepare, upload), uploadStatus);
@@ -218,8 +221,12 @@ public static class KuaishouArtifactColumnStatusReader
                && payload.ArrayLength("tag_list") > 0;
     }
 
-    private static string ProjectImageStatusText(int count) =>
-        count > 0 ? $"已完成 {count}图" : "未执行";
+    private static string ProjectImageStatusText(int count, HashSet<string> completed)
+    {
+        if (count > 0)
+            return $"已完成 {count}图";
+        return completed.Contains("generate_project_images") ? "已完成" : "未执行";
+    }
 
     private static string UploadStatusText(JsonMap upload)
     {
@@ -481,7 +488,9 @@ public static class KuaishouArtifactColumnStatusReader
             try
             {
                 if (!File.Exists(path)) return default;
-                using var document = JsonDocument.Parse(File.ReadAllText(path));
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                using var document = JsonDocument.Parse(reader.ReadToEnd());
                 return document.RootElement.ValueKind == JsonValueKind.Object
                     ? new JsonMap(document.RootElement.Clone(), true)
                     : default;

@@ -125,6 +125,27 @@ public static partial class TikTokBrowserActions
         }
     }
 
+    internal static async Task ScrollEpisodeListToEndAsync(IPage page)
+    {
+        try
+        {
+            await page.EvaluateAsync(
+                "async () => {\n" + EpisodeListScript +
+                """
+
+                  const list = xgEpisodeList();
+                  if (!list?.scroller) return;
+                  const maxTop = Math.max(0, list.scroller.scrollHeight - list.scroller.clientHeight);
+                  await xgScrollList(list, maxTop);
+                }
+                """);
+        }
+        catch
+        {
+            // 列表还没渲染时继续等下一次确认。
+        }
+    }
+
     internal static async Task<IReadOnlyList<string>> ReadEpisodeListTextsAsync(IPage page)
     {
         try

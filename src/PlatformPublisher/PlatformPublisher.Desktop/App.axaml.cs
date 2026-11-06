@@ -1,6 +1,9 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
+using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PlatformPublisher.Common.Models;
@@ -41,6 +44,46 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            YunfanLicenseGate.Configure();
+            desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Dispatcher.UIThread.Post(async () =>
+            {
+                try
+                {
+                    if (!await YunfanLicenseGate.EnsureBeforeMainWindowAsync())
+                    {
+                        desktop.Shutdown();
+                        return;
+                    }
+
+                    StartMainWindow(desktop);
+                }
+                catch (Exception ex)
+                {
+                    var window = new Window
+                    {
+                        Title = "云帆启动失败",
+                        Width = 720,
+                        Height = 420,
+                        Content = new TextBlock
+                        {
+                            Text = ex.ToString(),
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(16),
+                        },
+                    };
+                    desktop.MainWindow = window;
+                    desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
+                    window.Show();
+                }
+            });
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private void StartMainWindow(IClassicDesktopStyleApplicationLifetime desktop)
+    {
             ShortDramaDramaServices.UseSettingsDatabase(PlatformPublisherPaths.SettingsDatabasePath);
             _services = BuildServices();
             _ = _services.GetRequiredService<AnalyticsRepository>();
@@ -68,6 +111,7 @@ public partial class App : Application
             mainWindow.BindAccountDatabase(_services.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>());
             mainWindow.BindLegacySessionImport(_services.GetRequiredService<LegacyAccountSessionImportService>());
             mainWindow.BindSettings(settingsViewModel);
+            mainWindow.BindXinge();
             mainWindow.BindAdxSettings(_services.GetRequiredService<AdxAutomationService>());
             mainWindow.BindWeixinSeries(publishCoordinator.GetAdapter(PublishPlatform.WeixinChannel));
             mainWindow.BindWeixinWorkflow(viewModel, _services.GetRequiredService<ShortDrama.Core.Interfaces.IProjectScanner>(),
@@ -85,15 +129,16 @@ public partial class App : Application
             var highlightScheduler = _services.GetRequiredService<WeixinHighlightScheduleService>();
             highlightScheduler.Start();
             desktop.MainWindow = mainWindow;
+            desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
             desktop.Exit += (_, _) =>
             {
+                mainWindow.StopYunfanLicenseVerifyTimer();
                 highlightScheduler.Dispose();
                 kuaishouOnlineWorker.Dispose();
                 viewModel.Shutdown();
             };
-        }
-
-        base.OnFrameworkInitializationCompleted();
+            mainWindow.Show();
+            mainWindow.StartYunfanLicenseVerifyTimer();
     }
 
     private static ServiceProvider BuildServices()
@@ -107,6 +152,8 @@ public partial class App : Application
         services.AddSingleton<HongguoHighApiService>();
         services.AddSingleton<MapleleafApiService>();
         services.AddSingleton<HongguoMemoryReaderService>();
+        services.AddSingleton<HongguoDramaSearchService>();
+        services.AddSingleton<HongguoDramaDownloader>();
         services.AddSingleton<IDramaSettingsProvider, YunfanDramaSettingsProvider>();
         services.AddSingleton<DramaSourceRouter>();
         services.AddSingleton<IDramaSearchService>(provider => provider.GetRequiredService<DramaSourceRouter>());
@@ -139,6 +186,7 @@ public partial class App : Application
         services.AddSingleton<YunfanAnalyticsImporter>();
         services.AddSingleton<WeixinAnalyticsCollector>();
         services.AddSingleton<KuaishouAnalyticsCollector>();
+        services.AddSingleton<KuaishouWorksPlayCollector>();
         services.AddSingleton<WeixinWorkflowSettingsStore>();
         services.AddSingleton<LegacyAccountSessionImportService>();
         services.AddSingleton<WeixinDirectoryMaterialPublishService>();
@@ -194,11 +242,13 @@ public partial class App : Application
         services.AddSingleton<KuaishouPersonalEpisodeUploadService>();
         services.AddSingleton<KuaishouPersonalUploadStateStore>();
         services.AddSingleton<KuaishouCommitmentService>();
-        services.AddSingleton<KuaishouContentComplianceService>();
         services.AddSingleton<KuaishouDistributionService>();
         services.AddSingleton<KuaishouOnlineQueueStore>();
         services.AddSingleton<KuaishouOnlineQueueProcessor>();
+        services.AddSingleton<IKuaishouAccountEditionCatalog>(provider =>
+            new GlobalKuaishouAccountEditionCatalog(provider.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>()));
         services.AddSingleton<KuaishouOnlineQueueWorker>();
+        services.AddSingleton<KuaishouScheduledShelfService>();
         services.AddSingleton<KuaishouPersonalUploadService>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouPersonalPublishAdapter>();
         services.AddSingleton<IPlatformPublishAdapter, KuaishouEnterprisePublishAdapter>();
@@ -206,7 +256,7 @@ public partial class App : Application
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<AnalyticsViewModel>();
         services.AddSingleton<UnifiedPublishViewModel>();
-        services.AddSingleton(_ => new SystemSettingsViewModel(PlatformPublisherPaths.SettingsDatabasePath)
+        services.AddSingleton(_ => new SystemSettingsViewModel(PlatformPublisherPaths.SettingsDatabasePath, kuaishouPublishPrompts: true)
         {
             LoginSettingsHint = "短剧搜索、下载和数据链路参数为多平台助手独立配置；平台登录信息请在左侧全局账号的账号设置中维护。",
         });

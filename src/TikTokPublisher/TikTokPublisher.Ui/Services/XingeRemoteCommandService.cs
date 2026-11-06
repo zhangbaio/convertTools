@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
@@ -11,13 +12,18 @@ namespace TikTokPublisher.Ui.Services;
 public sealed record XingeRemoteRegistrationSnapshot(
     string WorkspacePath,
     string ActiveAccountProfileId,
+    string DramaSource,
     IReadOnlyList<XingeRemoteAccountSnapshot> AccountProfiles);
+
+public sealed record XingeRemoteUploadedDrama(string SeriesId, string Title, string CompletedAt);
 
 public sealed record XingeRemoteAccountSnapshot(
     string Id,
     string Name,
     bool AuthReady,
-    bool IsCurrent);
+    bool IsCurrent,
+    bool RemoteDispatchEnabled,
+    IReadOnlyList<XingeRemoteUploadedDrama>? UploadedToday = null);
 
 public sealed class XingeRemoteCommandService
 {
@@ -35,8 +41,9 @@ public sealed class XingeRemoteCommandService
 
     public void Restart(
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
-        Func<XingeRemoteRegistrationSnapshot> snapshotProvider,
-        Action<string>? log = null)
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
+        Action<string>? log = null,
+        Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync = null)
     {
         Stop();
 
@@ -58,7 +65,7 @@ public sealed class XingeRemoteCommandService
         lock (_sync)
         {
             _cts = cts;
-            _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, cts.Token));
+            _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, recoverAsync, cts.Token));
         }
 
         Notify(config.NeedsProvisioning ? "XINGE 正在登录账号..." : "XINGE 正在连接...");
@@ -97,8 +104,9 @@ public sealed class XingeRemoteCommandService
     private async Task RunAsync(
         XingeRemoteConfig config,
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
-        Func<XingeRemoteRegistrationSnapshot> snapshotProvider,
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
         Action<string>? log,
+        Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync,
         CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
@@ -113,10 +121,16 @@ public sealed class XingeRemoteCommandService
 
                 if (DateTimeOffset.UtcNow - lastRegisteredAt >= TimeSpan.FromSeconds(30))
                 {
-                    var snapshot = snapshotProvider();
+                    var snapshot = await snapshotProvider(ct).ConfigureAwait(false);
                     await RegisterAsync(http, config, snapshot, ct).ConfigureAwait(false);
                     lastRegisteredAt = DateTimeOffset.UtcNow;
                     Notify($"XINGE 已在线：{snapshot.AccountProfiles.Count} 个账号");
+                    await FlushAutoPublishProgressAsync(log, ct).ConfigureAwait(false);
+                    if (recoverAsync is not null)
+                    {
+                        var open = await ListOpenAutoPublishAsync(http, config, ct).ConfigureAwait(false);
+                        await recoverAsync(open).ConfigureAwait(false);
+                    }
                 }
 
                 var message = await PollAsync(http, config, ct).ConfigureAwait(false);
@@ -171,21 +185,39 @@ public sealed class XingeRemoteCommandService
         CancellationToken ct)
     {
         var version = typeof(XingeRemoteCommandService).Assembly.GetName().Version?.ToString() ?? "unknown";
+        var machineId = MachineFingerprintHelper.GetMachineFingerprint();
+        if (string.IsNullOrWhiteSpace(machineId))
+            machineId = Environment.MachineName;
         var body = new
         {
             client_id = config.ClientId,
             client_token = config.ClientToken,
-            machine_id = Environment.MachineName,
+            machine_id = machineId,
             device_name = FirstNonEmpty(config.ClientName, $"TikTokPublisher-{Environment.MachineName}"),
             app_version = $"TikTokPublisher/{version}",
             workspace_path = snapshot.WorkspacePath,
             active_account_profile_id = snapshot.ActiveAccountProfileId,
-            account_profiles = snapshot.AccountProfiles.Select(account => new
+            drama_source = snapshot.DramaSource,
+            account_profiles = snapshot.AccountProfiles.Select(account =>
             {
-                id = account.Id,
-                name = account.Name,
-                auth_ready = account.AuthReady,
-                is_current = account.IsCurrent,
+                var profile = new Dictionary<string, object?>
+                {
+                    ["id"] = account.Id,
+                    ["name"] = account.Name,
+                    ["auth_ready"] = account.AuthReady,
+                    ["is_current"] = account.IsCurrent,
+                    ["remote_dispatch_enabled"] = account.RemoteDispatchEnabled,
+                };
+                if (account.UploadedToday is not null)
+                {
+                    profile["uploaded_today"] = account.UploadedToday.Select(item => new
+                    {
+                        series_id = item.SeriesId,
+                        title = item.Title,
+                        completed_at = item.CompletedAt,
+                    }).ToArray();
+                }
+                return profile;
             }).ToArray(),
         };
 
@@ -255,6 +287,49 @@ public sealed class XingeRemoteCommandService
             await CompleteAsync(http, config, message.ID, result, ct).ConfigureAwait(false);
         }
         log?.Invoke($"XINGE 远程命令完成：{result.SummaryText}");
+        if (string.Equals(result.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+            (result.SummaryText ?? "").Contains("当前已有 TikTok 队列在执行", StringComparison.Ordinal))
+        {
+            await Task.Delay(TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<IReadOnlyList<XingeOpenAutoPublishAssignment>> ListOpenAutoPublishAsync(
+        HttpClient http,
+        XingeRemoteConfig config,
+        CancellationToken ct)
+    {
+        var envelope = await SendAsync<XingeApiEnvelope<XingeOpenAutoPublishList>>(
+            http,
+            config,
+            HttpMethod.Get,
+            "/client-api/tiktok/auto-publish/open",
+            null,
+            ct).ConfigureAwait(false);
+        if (!envelope.Ok)
+            throw new InvalidOperationException(FirstNonEmpty(envelope.Message, "open assignments failed"));
+        return envelope.Data?.Items ?? [];
+    }
+
+    private static async Task FlushAutoPublishProgressAsync(Action<string>? log, CancellationToken ct)
+    {
+        try
+        {
+            await XingeAutoPublishProgressReporter.Shared.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"XINGE 自动上新进度补发失败：{ex.Message}");
+        }
+
+        try
+        {
+            await XingeUploadTaskReporter.Shared.FlushAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"XINGE 上传任务补发失败：{ex.Message}");
+        }
     }
 
     private async Task ProvisionAndSaveAsync(XingeRemoteConfig config, CancellationToken ct)
@@ -381,7 +456,7 @@ public sealed class XingeRemoteCommandService
         public static XingeRemoteConfig FromSettings(ClientSettings settings)
         {
             var baseUrl = NormalizeBaseUrl(FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl));
-            var intervalSeconds = Math.Clamp(settings.XingePollIntervalSeconds <= 0 ? 3 : settings.XingePollIntervalSeconds, 1, 60);
+            var intervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
             return new XingeRemoteConfig(settings, baseUrl, TimeSpan.FromSeconds(intervalSeconds));
         }
 
@@ -406,6 +481,30 @@ public sealed class XingeRemoteCommandService
     }
 
     private sealed class XingeRemoteAuthenticationException(string message) : Exception(message);
+
+    public sealed class XingeOpenAutoPublishAssignment
+    {
+        [JsonPropertyName("id")]
+        public long Id { get; set; }
+
+        [JsonPropertyName("status")]
+        public string Status { get; set; } = "";
+
+        [JsonPropertyName("series_id")]
+        public string SeriesId { get; set; } = "";
+
+        [JsonPropertyName("title")]
+        public string Title { get; set; } = "";
+
+        [JsonPropertyName("account_profile_id")]
+        public string AccountProfileId { get; set; } = "";
+    }
+
+    private sealed class XingeOpenAutoPublishList
+    {
+        [JsonPropertyName("items")]
+        public List<XingeOpenAutoPublishAssignment> Items { get; set; } = [];
+    }
 
     private sealed class XingeApiEnvelope<T>
     {

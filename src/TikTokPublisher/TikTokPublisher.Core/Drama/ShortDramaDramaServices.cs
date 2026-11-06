@@ -147,6 +147,33 @@ public static class ShortDramaDramaServices
         return enriched.Select(FromCore).ToArray();
     }
 
+    public readonly record struct HongguoAppNewReleasePage(
+        IReadOnlyList<DramaSearchItem> Items,
+        bool HasMore,
+        int NextOffset,
+        string SessionId);
+
+    public static async Task<HongguoAppNewReleasePage> GetHongguoAppNewReleasePageAsync(
+        bool ai,
+        int offset,
+        string? sessionId,
+        CancellationToken cancellationToken)
+    {
+        RefreshSettings();
+        var page = await Router.Value.GetHongguoAppNewReleasePageAsync(ai, offset, sessionId, cancellationToken);
+        return new HongguoAppNewReleasePage(
+            page.Items.Select(FromCore).ToArray(),
+            page.HasMore,
+            page.NextOffset,
+            page.SessionId);
+    }
+
+    public static bool IsHongguoAppSourceSelected()
+    {
+        RefreshSettings();
+        return Router.Value.IsHongguoAppSourceSelected();
+    }
+
     public static bool IsPlayletSourceSelected()
     {
         RefreshSettings();
@@ -163,7 +190,7 @@ public static class ShortDramaDramaServices
     {
         RefreshSettings();
         if (!Router.Value.IsRankSourceSelected())
-            return "榜单接入红果高码率标准版和红果短剧下载器。请先切换到其中一条数据链路。";
+            return "榜单接入红果高码率标准版、红果短剧下载器和红果APP下载。请先切换到其中一条数据链路。";
         return HongguoRankCatalog.UnavailableReason(category, board);
     }
 

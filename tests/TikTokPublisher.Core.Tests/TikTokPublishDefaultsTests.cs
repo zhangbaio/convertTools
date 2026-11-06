@@ -408,7 +408,7 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
-    public void Client_settings_store_preserves_ai_erase_programmatic_title_mode()
+    public void Client_settings_store_keeps_only_direct_and_erase_fixed_title_poster_modes()
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-poster-mode-{Guid.NewGuid():N}.db");
         try
@@ -417,8 +417,13 @@ public sealed class TikTokPublishDefaultsTests
             {
                 PosterMode = " POSTER_AI_ERASE_PIL_TITLE ",
             }, databasePath);
+            ClientSettingsStore.Load(databasePath).PosterMode.Should().Be("original");
 
-            ClientSettingsStore.Load(databasePath).PosterMode.Should().Be("poster_ai_erase_pil_title");
+            ClientSettingsStore.Save(new ClientSettings
+            {
+                PosterMode = " ERASE_FIXED_LOWER_TITLE ",
+            }, databasePath);
+            ClientSettingsStore.Load(databasePath).PosterMode.Should().Be("erase_fixed_lower_title");
         }
         finally
         {
@@ -549,6 +554,77 @@ public sealed class TikTokPublishDefaultsTests
             prompt.Should().Contain("作者");
             prompt.Should().Contain("水印");
         }
+    }
+
+    [Fact]
+    public void Poster_agent_prompt_defaults_follow_mode_and_migrate_custom_legacy_prompt()
+    {
+        var defaults = new ClientSettings();
+        ClientSettingsStore.ResolvePosterAgentPrompt(defaults, "original")
+            .Should().Be(ClientSettingsDefaults.PosterAgentDirectPrompt);
+        ClientSettingsStore.ResolvePosterAgentPrompt(defaults, "erase_fixed_lower_title")
+            .Should().Be(ClientSettingsDefaults.PosterAgentErasePrompt);
+        ClientSettingsDefaults.PosterAgentDirectPrompt.Should().Contain("{title}").And.Contain("背景").And.Contain("服饰");
+        ClientSettingsDefaults.PosterAgentErasePrompt.Should().NotContain("{title}");
+
+        var legacyGeneration = new ClientSettings { PosterGenerationPrompt = "旧整图提示 {title}" };
+        ClientSettingsStore.ResolvePosterAgentPrompt(legacyGeneration, "original").Should().Be("旧整图提示 {title}");
+
+        var legacyInpaint = new ClientSettings { PosterInpaintPrompt = "旧局部提示 {title}" };
+        ClientSettingsStore.ResolvePosterAgentPrompt(legacyInpaint, "original").Should().Be("旧局部提示 {title}");
+
+        var legacyBuiltIn = new ClientSettings { PosterGenerationPrompt = ClientSettingsDefaults.LegacyPosterGenerationPrompt };
+        ClientSettingsStore.ResolvePosterAgentPrompt(legacyBuiltIn, "original")
+            .Should().Be(ClientSettingsDefaults.PosterAgentDirectPrompt);
+
+        var custom = new ClientSettings
+        {
+            PosterAgentDirectPrompt = "新直接提示",
+            PosterGenerationPrompt = "旧整图提示 {title}",
+            PosterAgentErasePrompt = "新去字提示",
+        };
+        ClientSettingsStore.ResolvePosterAgentPrompt(custom, "original").Should().Be("新直接提示");
+        ClientSettingsStore.ResolvePosterAgentPrompt(custom, "erase_fixed_lower_title").Should().Be("新去字提示");
+
+        ClientSettingsStore.StoredPosterAgentPrompt(ClientSettingsDefaults.PosterAgentDirectPrompt, "original").Should().BeEmpty();
+        ClientSettingsStore.StoredPosterAgentPrompt(" 自定义 ", "original").Should().Be("自定义");
+    }
+
+    [Fact]
+    public void Kuaishou_poster_prompts_follow_direction_and_mode()
+    {
+        var defaults = new ClientSettings();
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(defaults, horizontal: false, "original")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterVerticalDirectPrompt);
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(defaults, horizontal: true, "original")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt);
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(defaults, horizontal: false, "erase_fixed_lower_title")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterVerticalErasePrompt);
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(defaults, horizontal: true, "erase_fixed_lower_title")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterHorizontalErasePrompt);
+
+        ClientSettingsDefaults.KuaishouPosterVerticalDirectPrompt.Should().Contain("{title}").And.Contain("竖屏");
+        ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt.Should().Contain("{title}").And.Contain("16:10");
+        ClientSettingsDefaults.KuaishouPosterVerticalErasePrompt.Should().NotContain("{title}");
+        ClientSettingsDefaults.KuaishouPosterHorizontalErasePrompt.Should().NotContain("{title}").And.Contain("底图");
+        ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt.Should().NotBe(ClientSettingsDefaults.PosterAgentDirectPrompt);
+
+        var migrated = new ClientSettings { PosterAgentDirectPrompt = "云帆改过的竖屏 {title}" };
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(migrated, horizontal: false, "original")
+            .Should().Be("云帆改过的竖屏 {title}");
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(migrated, horizontal: true, "original")
+            .Should().Be(ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt);
+
+        var custom = new ClientSettings
+        {
+            PosterAgentDirectPrompt = "云帆改过的竖屏 {title}",
+            KuaishouPosterVerticalDirectPrompt = "单独的竖屏",
+            KuaishouPosterHorizontalDirectPrompt = "单独的横屏",
+        };
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(custom, horizontal: false, "original").Should().Be("单独的竖屏");
+        ClientSettingsStore.ResolveKuaishouPosterPrompt(custom, horizontal: true, "original").Should().Be("单独的横屏");
+        ClientSettingsStore.StoredKuaishouPosterPrompt(
+            ClientSettingsDefaults.KuaishouPosterHorizontalDirectPrompt, horizontal: true, "original").Should().BeEmpty();
     }
 
     [Fact]

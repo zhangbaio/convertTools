@@ -11,6 +11,12 @@ public readonly record struct HongguoRankPage(
     bool HasMore,
     int NextOffset);
 
+public readonly record struct HongguoAppReleasePage(
+    IReadOnlyList<DramaSearchItem> Items,
+    bool HasMore,
+    int NextOffset,
+    string SessionId);
+
 public readonly record struct HongguoHighDateWindow(DateOnly StartDate, DateOnly EndDate)
 {
     public string DisplayText => StartDate == EndDate

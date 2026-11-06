@@ -146,6 +146,7 @@ public static class TikTokPosterGenerationStateService
             inpaint_retry_prompt = settings.PosterInpaintSafeRetryPrompt ?? string.Empty,
             generation_prompt = settings.PosterGenerationPrompt ?? string.Empty,
             generation_retry_prompt = settings.PosterGenerationSafeRetryPrompt ?? string.Empty,
+            agent_prompt = ClientSettingsStore.ResolvePosterAgentPrompt(settings, posterMode),
         };
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();

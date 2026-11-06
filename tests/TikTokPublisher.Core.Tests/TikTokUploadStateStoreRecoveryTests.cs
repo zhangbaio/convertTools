@@ -101,6 +101,56 @@ public sealed class TikTokUploadStateStoreRecoveryTests
         }
     }
 
+    [Fact]
+    public void Recognises_redesigned_draft_urls_but_not_submitted_detail_pages()
+    {
+        TikTokUploadStateStore.NormalizeSeriesDraftDetailUrl(
+                "https://www.tiktokdramacenter.com/series/7702262901000049685")
+            .Should().Be("https://www.tiktokdramacenter.com/series/draft/7702262901000049685");
+        TikTokUploadStateStore.NormalizeSeriesDraftDetailUrl(
+                "https://www.tiktokdramacenter.com/series/7702262901000049685/detail")
+            .Should().BeEmpty();
+
+        var workflow = CreateWorkflow();
+        try
+        {
+            WriteSnapshot(workflow, "20261030-091715-970",
+                "https://www.tiktokdramacenter.com/series/7702262901000049685");
+            WriteSnapshot(workflow, "20261030-124753-586",
+                "https://www.tiktokdramacenter.com/series/draft");
+
+            TikTokUploadStateStore.RecoverEditDetailUrlFromFailureSnapshots(workflow)
+                .Should().Be("https://www.tiktokdramacenter.com/series/draft/7702262901000049685");
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Not_found_lookup_is_rechecked_once_a_later_upload_has_started()
+    {
+        var workflow = CreateWorkflow();
+        try
+        {
+            TikTokUploadStateStore.RecordPlatformSeriesNotFound(workflow, "pre_upload_search", ["测试剧"]);
+            TikTokUploadStateStore.ShouldSearchPlatformForExistingDraft(workflow).Should().BeFalse();
+
+            Thread.Sleep(1100);
+            TikTokUploadStateStore.MarkUploadStepStarted(workflow, "测试剧");
+            TikTokUploadStateStore.ShouldSearchPlatformForExistingDraft(workflow).Should().BeTrue();
+
+            Thread.Sleep(1100);
+            TikTokUploadStateStore.RecordPlatformSeriesNotFound(workflow, "pre_upload_search", ["测试剧"]);
+            TikTokUploadStateStore.ShouldSearchPlatformForExistingDraft(workflow).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(workflow, recursive: true);
+        }
+    }
+
     private static string CreateWorkflow()
     {
         var workflow = Path.Combine(Path.GetTempPath(), $"tiktok-state-recovery-{Guid.NewGuid():N}");

@@ -169,6 +169,12 @@ public sealed class KuaishouPersonalConfig
     public bool DistributionLoginNotifyEnabled { get; set; } = true;
     public bool DistributionFeishuNotifyEnabled { get; set; }
     public bool AutoOnlineEnabled { get; set; } = true;
+    public bool ScheduledShelfEnabled { get; set; }
+    public string ScheduledShelfMode { get; set; } = "interval";
+    public int ScheduledShelfIntervalHours { get; set; } = 1;
+    public string ScheduledShelfDailyTime { get; set; } = "10:00";
+    public bool ScheduledShelfOnlyWhenIdle { get; set; } = true;
+    public int ScheduledShelfMaxItemsPerRound { get; set; } = 50;
     public int AutoOnlineIntervalMinutes { get; set; } = 30;
     public int AutoOnlineMaxItemsPerRound { get; set; } = 30;
     public int AutoOnlineMaxWaitDays { get; set; } = 14;
@@ -211,45 +217,25 @@ public sealed class KuaishouPersonalConfig
             ? PublishPlatform.KuaishouEnterpriseRevenue
             : PublishPlatform.KuaishouPersonalRevenue;
         var accountKey = string.IsNullOrWhiteSpace(job.AccountId) ? "default" : Safe(job.AccountId);
-        var rootName = platform == PublishPlatform.KuaishouEnterpriseRevenue ? "kuaishou-enterprise" : "kuaishou-personal";
-        var databaseKey = platform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? "kuaishou.enterprise.config"
-            : "kuaishou.personal.config";
-        var accountRoot = Path.Combine(PlatformPublisherPaths.DataRoot, rootName, "accounts", accountKey);
+        var accountRoot = Path.Combine(PlatformPublisherPaths.DataRoot, "kuaishou-personal", "accounts", accountKey);
         Directory.CreateDirectory(accountRoot);
-        var configuredPath = !string.IsNullOrWhiteSpace(job.ConfigPath) && File.Exists(job.ConfigPath)
-            ? Path.GetFullPath(job.ConfigPath)
-            : DefaultConfigPath(job.AccountId, platform);
-        KuaishouPersonalConfig config;
-        if (DatabaseStore?.TryLoad<KuaishouPersonalConfig>(job.AccountId, databaseKey, out var stored) == true && stored is not null)
-            config = stored;
-        else if (File.Exists(configuredPath))
-        {
-            try
-            {
-                config = JsonSerializer.Deserialize<KuaishouPersonalConfig>(
-                             File.ReadAllText(configuredPath),
-                             JsonOptions)
-                         ?? new KuaishouPersonalConfig();
-            }
-            catch (JsonException ex)
-            {
-                throw new InvalidOperationException($"{platform.DisplayName()}配置文件格式错误：{ex.Message}", ex);
-            }
-        }
-        else config = new KuaishouPersonalConfig();
+        var config = LoadSharedConfig(job);
         ApplyLegacySettings(config, platform);
         config.StorageAccountId = job.AccountId;
         config.StoragePlatform = platform;
         if (CredentialStore is not null && !string.IsNullOrWhiteSpace(job.AccountId))
         {
-            var credentials = CredentialStore.Load(job.AccountId, platform);
+            var credentials = LoadSharedCredentials(job.AccountId);
             config.AppSecret = credentials.AppSecret;
             config.AuthCode = credentials.AuthCode;
             config.AccessToken = credentials.AccessToken;
             config.RefreshToken = credentials.RefreshToken;
         }
-        if (DatabaseStore is not null) DatabaseStore.Save(job.AccountId, databaseKey, config);
+        if (DatabaseStore is not null && !string.IsNullOrWhiteSpace(job.AccountId))
+        {
+            DatabaseStore.Save(job.AccountId, PersonalDatabaseKey, config);
+            DatabaseStore.Save(job.AccountId, EnterpriseDatabaseKey, config);
+        }
 
         config.EntryUrl = string.IsNullOrWhiteSpace(config.EntryUrl)
             ? "https://kdj.kuaishou.com/home/content/content-management"
@@ -288,16 +274,87 @@ public sealed class KuaishouPersonalConfig
         var accountId = string.IsNullOrWhiteSpace(StorageAccountId)
             ? Path.GetFileName(Path.GetDirectoryName(fullPath))
             : StorageAccountId;
-        var databaseKey = StoragePlatform == PublishPlatform.KuaishouEnterpriseRevenue
-            ? "kuaishou.enterprise.config"
-            : "kuaishou.personal.config";
         if (!string.IsNullOrWhiteSpace(accountId))
         {
-            DatabaseStore?.Save(accountId, databaseKey, this);
-            CredentialStore?.Save(accountId, StoragePlatform,
-                new KuaishouCredentials(AppSecret, AuthCode, AccessToken, RefreshToken));
+            DatabaseStore?.Save(accountId, PersonalDatabaseKey, this);
+            DatabaseStore?.Save(accountId, EnterpriseDatabaseKey, this);
+            var credentials = new KuaishouCredentials(AppSecret, AuthCode, AccessToken, RefreshToken);
+            CredentialStore?.Save(accountId, PublishPlatform.KuaishouPersonalRevenue, credentials);
+            CredentialStore?.Save(accountId, PublishPlatform.KuaishouEnterpriseRevenue, credentials);
         }
     }
+
+    private const string PersonalDatabaseKey = "kuaishou.personal.config";
+    private const string EnterpriseDatabaseKey = "kuaishou.enterprise.config";
+
+    private static KuaishouPersonalConfig LoadSharedConfig(PublishJob job)
+    {
+        var personalStored = ReadStoredConfig(job.AccountId, PersonalDatabaseKey);
+        var enterpriseStored = ReadStoredConfig(job.AccountId, EnterpriseDatabaseKey);
+        if (LooksConfigured(personalStored)) return personalStored!;
+        if (LooksConfigured(enterpriseStored)) return enterpriseStored!;
+
+        foreach (var path in SharedConfigFiles(job))
+        {
+            var fromFile = ReadConfigFile(path);
+            if (fromFile is not null) return fromFile;
+        }
+
+        return personalStored ?? enterpriseStored ?? new KuaishouPersonalConfig();
+    }
+
+    private static KuaishouPersonalConfig? ReadStoredConfig(string? accountId, string databaseKey)
+    {
+        if (DatabaseStore?.TryLoad<KuaishouPersonalConfig>(accountId, databaseKey, out var stored) == true)
+            return stored;
+        return null;
+    }
+
+    private static IEnumerable<string> SharedConfigFiles(PublishJob job)
+    {
+        if (!string.IsNullOrWhiteSpace(job.ConfigPath))
+            yield return job.ConfigPath;
+        yield return DefaultConfigPath(job.AccountId, PublishPlatform.KuaishouPersonalRevenue);
+        yield return DefaultConfigPath(job.AccountId, PublishPlatform.KuaishouEnterpriseRevenue);
+    }
+
+    private static KuaishouPersonalConfig? ReadConfigFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<KuaishouPersonalConfig>(File.ReadAllText(path), JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"快手分账配置文件格式错误：{ex.Message}", ex);
+        }
+    }
+
+    private static bool LooksConfigured(KuaishouPersonalConfig? config) =>
+        config is not null && (
+            !string.IsNullOrWhiteSpace(config.KuaishouNickname) ||
+            !string.IsNullOrWhiteSpace(config.AdvertiserId) ||
+            !string.IsNullOrWhiteSpace(config.KuaishouId) ||
+            !string.IsNullOrWhiteSpace(config.Username) ||
+            !string.IsNullOrWhiteSpace(config.RealName) ||
+            !string.IsNullOrWhiteSpace(config.CommitmentPdfPath) ||
+            !string.IsNullOrWhiteSpace(config.AppId) ||
+            !string.IsNullOrWhiteSpace(config.AccessToken));
+
+    private static KuaishouCredentials LoadSharedCredentials(string accountId)
+    {
+        var personal = CredentialStore!.Load(accountId, PublishPlatform.KuaishouPersonalRevenue);
+        if (HasCredentials(personal)) return personal;
+        var enterprise = CredentialStore.Load(accountId, PublishPlatform.KuaishouEnterpriseRevenue);
+        return HasCredentials(enterprise) ? enterprise : personal;
+    }
+
+    private static bool HasCredentials(KuaishouCredentials credentials) =>
+        !string.IsNullOrWhiteSpace(credentials.AppSecret) ||
+        !string.IsNullOrWhiteSpace(credentials.AuthCode) ||
+        !string.IsNullOrWhiteSpace(credentials.AccessToken) ||
+        !string.IsNullOrWhiteSpace(credentials.RefreshToken);
 
     private static void ApplyLegacySettings(KuaishouPersonalConfig config, PublishPlatform platform)
     {
