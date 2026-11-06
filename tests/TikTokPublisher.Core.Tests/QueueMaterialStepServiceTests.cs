@@ -52,6 +52,52 @@ public sealed class QueueMaterialStepServiceTests
         QueueMaterialStepService.ShouldKeepRetiredBookId(selectedSource, bookId).Should().Be(expected);
     }
 
+    [Theory]
+    [InlineData("hongguoapp", "hghigh:7697540128335465534", "hongguoapp:7697540128335465534")]
+    [InlineData("hongguoapp", "hghigh_ep:video-1", "hongguoapp_ep:video-1")]
+    [InlineData("hghigh", "hghigh:7697540128335465534", null)]
+    [InlineData("hongguoapp", "hongguoapp:7697540128335465534", null)]
+    public void Hongguo_app_reuses_a_saved_assistant_series_id(
+        string selectedSource,
+        string bookId,
+        string? expected)
+    {
+        QueueMaterialStepService.AdoptHongguoAppBookId(selectedSource, bookId).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Raised_episode_maximum_replaces_the_old_120_episode_cap()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"episode-cap-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "shortdrama-project.json"), """
+                {
+                  "episodeCount": 120,
+                  "originalEpisodeCount": 152,
+                  "episodes": "1-120",
+                  "downloadEpisodeLimit": 120,
+                  "truncatedForTikTokUpload": true
+                }
+                """);
+            var settings = new ClientSettings
+            {
+                TiktokAllowOverLimitUploadImport = true,
+                TiktokMaximumEpisodeCount = 300,
+            };
+            var item = new QueueProjectItem { EpisodeCount = 120, SourceEpisodeCount = 152 };
+
+            var selection = QueueMaterialStepService.LimitEpisodesToKeptPrefix("1-120", item, settings, root);
+
+            selection.Should().Be("all");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Source_book_id_cache_preserves_each_data_source_mapping()
     {

@@ -404,12 +404,23 @@ internal sealed class HongguoAppDirectClient
     internal static IReadOnlyList<DramaSearchItem> ReadLandpageItems(JsonNode root)
     {
         var mapped = HongguoHighCalendarMapper.MapPayload(root);
-        if (mapped.Count > 0)
-            return mapped;
-        return HongguoHighCalendarMapper.ExtractLandpageItems(root)
-            .Select(HongguoHighCalendarMapper.TryMapItem)
-            .OfType<DramaSearchItem>()
-            .ToArray();
+        if (mapped.Count == 0)
+        {
+            mapped = HongguoHighCalendarMapper.ExtractLandpageItems(root)
+                .Select(HongguoHighCalendarMapper.TryMapItem)
+                .OfType<DramaSearchItem>()
+                .ToArray();
+        }
+
+        return mapped.Select(item => item with { BookId = AppBookId(item.BookId) }).ToArray();
+    }
+
+    private static string AppBookId(string? bookId)
+    {
+        var text = (bookId ?? "").Trim();
+        var colon = text.IndexOf(':');
+        var raw = colon >= 0 ? text[(colon + 1)..] : text;
+        return raw.Length == 0 ? "" : "hongguoapp:" + raw;
     }
 
     internal static bool LandpageHasMore(JsonNode? root, int itemCount) =>
@@ -913,7 +924,7 @@ internal sealed class HongguoAppDirectClient
         if (mapped.Length > 0)
         {
             foreach (var item in mapped)
-                yield return item;
+                yield return item with { BookId = AppBookId(item.BookId) };
             yield break;
         }
 
@@ -928,7 +939,7 @@ internal sealed class HongguoAppDirectClient
                     ?? bookId;
         title = StripTags(title);
         yield return new DramaSearchItem(
-            HongguoHighCrypto.EnsureBookPrefix(bookId),
+            AppBookId(bookId),
             title.Length == 0 ? bookId : title,
             "",
             Positive(detail, "episode_cnt") is var fromDetail and > 0

@@ -73,11 +73,24 @@ public static class QueueMaterialStepService
 
         var episodes = LimitEpisodesToKeptPrefix(metadata.Episodes, item, settings, context.SourceProjectDir);
         if (OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(context.SourceProjectDir, out var originalEpisodeCount))
+        {
+            var keep = OverLimitEpisodePolicy.ResolveKeepCount(settings);
+            var hadOldKeep = OverLimitEpisodePolicy.TryReadKeepCount(context.SourceProjectDir, out var storedKeep);
             OverLimitEpisodePolicy.MarkTruncated(
                 context.SourceProjectDir,
                 originalEpisodeCount,
                 settings,
                 log);
+            if (hadOldKeep && storedKeep != keep)
+            {
+                var shown = originalEpisodeCount <= keep ? originalEpisodeCount : keep;
+                item.EpisodeCount = shown;
+                if (item.SourceEpisodeCount < originalEpisodeCount)
+                    item.SourceEpisodeCount = originalEpisodeCount;
+                if (originalEpisodeCount <= keep)
+                    log($"当前最大集数是 {keep}，不再沿用之前的前 {storedKeep} 集，改为下载全部 {originalEpisodeCount} 集。");
+            }
+        }
 
         var request = BuildDownloadRequest(
             context,
@@ -944,6 +957,14 @@ public static class QueueMaterialStepService
         if (IsBookIdForSource(metadataBookId, selectedSource))
             return metadataBookId;
 
+        var adoptedBookId = AdoptHongguoAppBookId(selectedSource, metadataBookId);
+        if (!string.IsNullOrWhiteSpace(adoptedBookId))
+        {
+            log($"项目书号带有红果短剧助手前缀，当前链路是红果APP，按同一书号下载：{adoptedBookId}");
+            PersistProjectBookId(sourceProjectDir, adoptedBookId);
+            return adoptedBookId;
+        }
+
         if (ShouldKeepRetiredBookId(selectedSource, metadataBookId))
         {
             log($"该剧书号属于{DramaSourceLabel(metadataSource)}，按原书号继续下载。");
@@ -1056,6 +1077,32 @@ public static class QueueMaterialStepService
         return OverLimitEpisodePolicy.ResolveDownloadSelection(selection, keep + 1, settings);
     }
 
+    internal static string? AdoptHongguoAppBookId(string? selectedSource, string? bookId)
+    {
+        if (!string.Equals(NormalizeDramaSource(selectedSource), "hongguoapp", StringComparison.Ordinal))
+            return null;
+
+        var id = (bookId ?? string.Empty).Trim();
+        string raw;
+        string prefix;
+        if (id.StartsWith("hghigh_ep:", StringComparison.OrdinalIgnoreCase))
+        {
+            raw = id["hghigh_ep:".Length..];
+            prefix = "hongguoapp_ep:";
+        }
+        else if (id.StartsWith("hghigh:", StringComparison.OrdinalIgnoreCase))
+        {
+            raw = id["hghigh:".Length..];
+            prefix = "hongguoapp:";
+        }
+        else
+        {
+            return null;
+        }
+
+        return string.IsNullOrWhiteSpace(raw) ? null : prefix + raw;
+    }
+
     internal static bool ShouldKeepRetiredBookId(string? selectedSource, string? bookId)
     {
         var selected = (selectedSource ?? string.Empty).Trim().ToLowerInvariant();
@@ -1134,6 +1181,30 @@ public static class QueueMaterialStepService
         catch
         {
             return string.Empty;
+        }
+    }
+
+    internal static void PersistProjectBookId(string sourceProjectDir, string bookId)
+    {
+        var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
+        if (!File.Exists(path) || string.IsNullOrWhiteSpace(bookId))
+            return;
+
+        var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+        if (root is null)
+            return;
+        root["bookId"] = bookId.Trim();
+        root["book_id"] = bookId.Trim();
+        var temporary = path + ".book-id.tmp";
+        try
+        {
+            File.WriteAllText(temporary, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary))
+                File.Delete(temporary);
         }
     }
 

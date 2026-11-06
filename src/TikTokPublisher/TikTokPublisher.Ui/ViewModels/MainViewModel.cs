@@ -5214,13 +5214,14 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var root = Path.GetFullPath(workspaceRoot);
         var settings = ClientSettingsStore.Load();
+        var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
         var result = await UploadTitleImportService.ImportAsync(
             root,
             rawText,
             settings,
             account,
-            episodeMin,
-            episodeMax,
+            episodeBounds.Minimum,
+            episodeBounds.Maximum,
             matchMode,
             AppendLog,
             ct,
