@@ -370,6 +370,130 @@ public sealed class TikTokMaterialValidationServiceTests
         maximum.Should().Be(40);
     }
 
+    [Fact]
+    public void Generated_material_validation_checks_only_the_two_selected_auxiliaries()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"material-two-aux-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source");
+        var workflow = Path.Combine(workspace, "workflow", "source");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        File.WriteAllText(
+            Path.Combine(source, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = source,
+                workflowProjectDir = workflow,
+            }));
+        WriteCurrentAiScreenshots(workflow);
+        var projectImages = TikTokProjectImageService.GetOutputDirectory(workflow);
+        Directory.CreateDirectory(projectImages);
+        for (var index = 1; index <= 4; index++)
+            File.WriteAllBytes(Path.Combine(projectImages, $"工程图_{index}.png"), [1, 2, 3]);
+        try
+        {
+            var logs = new List<string>();
+            TikTokMaterialValidationService.ValidateGeneratedUploadMaterials(
+                source,
+                new TikTokAccountProfile
+                {
+                    TiktokCopyrightMaterialTypes =
+                    [
+                        TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                        TikTokPublishConstants.EditingProjectFilesMaterialType,
+                    ],
+                },
+                new TikTokMaterialValidationService.Options
+                {
+                    EnabledSteps = new HashSet<string>(
+                        [QueueStepRegistry.GenerateProofMaterial],
+                        StringComparer.Ordinal),
+                },
+                logs.Add);
+
+            string.Join("\n", logs).Should().NotContain("合作协议");
+            string.Join("\n", logs).Should().NotContain("原始文件");
+            string.Join("\n", logs).Should().NotContain("时间戳");
+        }
+        finally
+        {
+            TryDelete(workspace);
+        }
+    }
+
+    [Fact]
+    public void Generated_material_validation_reports_only_the_selected_auxiliary_that_is_missing()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"material-selected-only-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "source");
+        var workflow = Path.Combine(workspace, "workflow", "source");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(workflow);
+        File.WriteAllText(
+            Path.Combine(source, "shortdrama-project.json"),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceProjectDir = source,
+                workflowProjectDir = workflow,
+            }));
+        WriteCurrentAiScreenshots(workflow);
+        try
+        {
+            var action = () => TikTokMaterialValidationService.ValidateGeneratedUploadMaterials(
+                source,
+                new TikTokAccountProfile
+                {
+                    TiktokCopyrightMaterialTypes =
+                    [
+                        TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+                        TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                    ],
+                },
+                new TikTokMaterialValidationService.Options
+                {
+                    EnabledSteps = new HashSet<string>(
+                        [
+                            QueueStepRegistry.GenerateProofMaterial,
+                            QueueStepRegistry.GenerateTimestampCertificate,
+                        ],
+                        StringComparer.Ordinal),
+                },
+                log: null);
+
+            action.Should().Throw<InvalidOperationException>()
+                .WithMessage("*备案/发行许可时间戳*")
+                .Which.Message.Should().NotContain("合作协议")
+                .And.NotContain("原始文件")
+                .And.NotContain("剪辑工程");
+        }
+        finally
+        {
+            TryDelete(workspace);
+        }
+    }
+
+    private static void WriteCurrentAiScreenshots(string workflow)
+    {
+        foreach (var path in TikTokAiGenerationScreenshotService.GetExpectedOutputPaths(workflow))
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllBytes(path, [1, 2, 3]);
+        }
+
+        var frames = TikTokAiGenerationScreenshotService.GetRetainedFramesDirectory(workflow);
+        Directory.CreateDirectory(frames);
+        File.WriteAllBytes(Path.Combine(frames, "frame-01.jpg"), [1]);
+        File.WriteAllText(
+            TikTokAiGenerationScreenshotService.GetRetainedFramesManifestPath(workflow),
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                version = TikTokAiGenerationScreenshotService.RetainedFramesVersion,
+                screenshot_version = TikTokAiGenerationScreenshotService.ScreenshotVersion,
+                frame_count = 1,
+                frames = new[] { new { file = "frame-01.jpg" } },
+            }));
+    }
+
     private static void TryDelete(string path)
     {
         try { Directory.Delete(path, recursive: true); }
