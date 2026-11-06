@@ -278,27 +278,20 @@ public static class KuaishouTodayUploadCounter
     private static void Remember(HashSet<string> counted, HashSet<string> names, string? path)
     {
         var key = Normalize(path);
-        if (string.IsNullOrWhiteSpace(key) || !counted.Add(key))
+        var name = ProjectName(string.IsNullOrWhiteSpace(key) ? path ?? "" : key);
+        if (!string.IsNullOrWhiteSpace(name) && !names.Add(name))
             return;
-        var name = ProjectName(key);
-        if (!string.IsNullOrWhiteSpace(name))
-            names.Add(name);
+        if (!string.IsNullOrWhiteSpace(key))
+            counted.Add(key);
+        else if (!string.IsNullOrWhiteSpace(name))
+            counted.Add(name);
     }
 
     private static string ProjectName(string path)
     {
-        var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var timeDash = name.LastIndexOf('-');
-        if (timeDash <= 0 || name.Length - timeDash != 7)
-            return name;
-        var time = name[(timeDash + 1)..];
-        if (time.Length != 6 || !time.All(char.IsDigit))
-            return name;
-        var dateDash = name.LastIndexOf('-', timeDash - 1);
-        if (dateDash < 0 || timeDash - dateDash != 9)
-            return name;
-        var date = name[(dateDash + 1)..timeDash];
-        return date.Length == 8 && date.All(char.IsDigit) ? name[..dateDash] : name;
+        var name = KuaishouUploadRecordStore.ProjectKey(path);
+        var bare = name.TrimStart('_').Trim();
+        return string.IsNullOrWhiteSpace(bare) ? name : bare;
     }
 
     private static string StateFileName(PublishPlatform platform) =>

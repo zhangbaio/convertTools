@@ -193,6 +193,33 @@ public sealed class KuaishouTodayUploadCounterTests
             archiveRoot: archive));
     }
 
+    [Fact]
+    public void Archived_workflow_copy_does_not_count_a_project_twice()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var today = new DateTimeOffset(2026, 11, 6, 18, 2, 0, TimeSpan.FromHours(8));
+        var source = Path.Combine(root.FullName, "workspace", "娘家第二季");
+        Directory.CreateDirectory(source);
+        KuaishouTodayUploadCounter.RecordSuccess(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", source, today, store);
+        var archivedWorkflow = Path.Combine(root.FullName, "archive", "workflow", "_娘家第二季-20261106-180200");
+        Directory.CreateDirectory(archivedWorkflow);
+        KuaishouTodayUploadCounter.RecordSuccess(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", archivedWorkflow, today.AddMinutes(1), store);
+
+        var archive = Path.Combine(root.FullName, "archive");
+        WriteArchivedUpload(archive, "acct-a", "_娘家第二季-20261106-180200", today);
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue,
+            "acct-a",
+            root.FullName,
+            today.Date,
+            store,
+            archiveRoot: archive));
+    }
+
     private static void WriteArchivedUpload(string archive, string accountId, string name, DateTimeOffset updatedAt)
     {
         var workflow = Directory.CreateDirectory(Path.Combine(archive, "workflow", name));
