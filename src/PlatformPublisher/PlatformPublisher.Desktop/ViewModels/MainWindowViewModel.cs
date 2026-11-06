@@ -69,6 +69,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly KuaishouPersonalPreparationService _kuaishouPersonalPreparationService;
     private readonly DramaTitleImportService _dramaTitleImportService;
     private readonly KuaishouScheduledShelfService _scheduledShelfService;
+    private readonly KuaishouPersonalUploadService _kuaishouUploadService;
     private int _scheduledShelfGate;
     private readonly HashSet<string> _scheduledShelfIdleAnnounced = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PublishJob> _jobs = [];
@@ -123,7 +124,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         KuaishouPersonalProjectDataService kuaishouPersonalProjectDataService,
         KuaishouPersonalPreparationService kuaishouPersonalPreparationService,
         DramaTitleImportService dramaTitleImportService,
-        KuaishouScheduledShelfService scheduledShelfService)
+        KuaishouScheduledShelfService scheduledShelfService,
+        KuaishouPersonalUploadService kuaishouUploadService)
     {
         _store = store;
         _accountStore = accountStore;
@@ -143,6 +145,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _kuaishouPersonalPreparationService = kuaishouPersonalPreparationService;
         _dramaTitleImportService=dramaTitleImportService;
         _scheduledShelfService = scheduledShelfService;
+        _kuaishouUploadService = kuaishouUploadService;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),

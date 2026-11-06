@@ -504,6 +504,91 @@ public sealed class KuaishouPersonalEpisodeUploadService
         return null;
     }
 
+    public async Task<KuaishouSeriesFailure?> ReadSeriesFailureAsync(
+        IPage page,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var json = await page.EvaluateAsync<string>(
+            """
+            async (title) => {
+              const post = async (url, body) => {
+                const response = await fetch(url, {
+                  method: 'POST', credentials: 'include',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(body),
+                });
+                const text = await response.text();
+                try { return JSON.parse(text); } catch { return { result: -1, error_msg: text.slice(0, 180) }; }
+              };
+              const wanted = String(title || '').trim();
+              const listed = await post('https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/queryList', {
+                pageNum: 1, pageSize: 10, episodeTitle: '', sellingStatus: 0, queryType: 0, sortParam: {},
+                miniSeriesTitle: wanted, auditStatus: 0, saleType: null, seriesIdList: [],
+                createDateFrom: '', createDateTo: '', sourceType4Filter: null,
+              });
+              const rows = listed?.data?.data || [];
+              const row = rows.find(item => String(item.courseName || '').trim() === wanted);
+              if (!row || !row.miniSeriesId) return JSON.stringify({ found: false });
+              const seriesId = String(row.miniSeriesId);
+              const detail = await post('https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/episode/videoUpload/detail', {
+                miniSeriesId: seriesId,
+              });
+              const episodes = (detail?.data?.episodeList || []).map(item => ({
+                orderNo: item.orderNo,
+                videoStatus: item.videoStatus,
+              }));
+              return JSON.stringify({
+                found: true,
+                seriesId,
+                title: String(row.courseName || '').trim(),
+                uploadReason: detail?.data?.failReasonSummary?.uploadReason || row?.failReasonSummary?.uploadReason || '',
+                episodes,
+              });
+            }
+            """,
+            title);
+        return KuaishouFailedEpisodeRepair.ParseSeriesLookup(json, title);
+    }
+
+    public async Task RepairFailedEpisodesAsync(
+        IPage page,
+        KuaishouSeriesFailure failure,
+        IReadOnlyList<string> videoPaths,
+        KuaishouPersonalConfig config,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var missing = KuaishouFailedEpisodeRepair.MissingEpisodes(videoPaths, failure.FailedEpisodes);
+        if (missing.Count > 0)
+            throw new InvalidOperationException($"未找到{KuaishouFailedEpisodeRepair.FormatEpisodes(missing)}的本地视频，无法补传。");
+        await page.GotoAsync(BuildRepairEditUrl(failure.SeriesId), new PageGotoOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 60_000,
+        });
+        await page.WaitForSelectorAsync(".episode-video", new PageWaitForSelectorOptions { Timeout = 20_000 });
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(Math.Clamp(config.UploadTimeoutMinutes, 5, 240));
+        foreach (var episode in failure.FailedEpisodes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = MatchEpisodeFile(videoPaths, episode)
+                ?? throw new InvalidOperationException($"未找到第{episode}集的本地视频，无法补传。");
+            progress?.Report($"快手分账：开始补传第{episode}集。");
+            if (await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken))
+                progress?.Report($"快手分账：第{episode}集已补传。");
+        }
+
+        if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 120_000, cancellationToken))
+            throw new InvalidOperationException("失败视频已补传，但未找到可点击的“提交审核”按钮。");
+        progress?.Report("快手分账：已点击提交审核，等待平台结果。");
+        await WaitForReviewSubmissionAsync(page, failure.Title, progress, cancellationToken);
+    }
+
+    private static string BuildRepairEditUrl(string miniSeriesId) =>
+        $"https://kdj.kuaishou.com/home/content/content-management/edit?miniSeriesId={Uri.EscapeDataString(miniSeriesId)}&step=1";
+
     private static async Task EnsureEpisodeVideosUploadedAsync(
         IPage page,
         KuaishouPersonalProjectData data,

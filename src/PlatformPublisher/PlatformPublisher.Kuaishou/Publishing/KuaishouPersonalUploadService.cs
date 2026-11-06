@@ -293,4 +293,65 @@ public sealed class KuaishouPersonalUploadService
         var match = Regex.Match(page.Url, @"[?&]miniSeriesId=([^&#]+)", RegexOptions.IgnoreCase);
         if (match.Success) state.MiniSeriesId = Uri.UnescapeDataString(match.Groups[1].Value);
     }
+
+    public async Task<IReadOnlyList<KuaishouVideoRepairNote>> RepairFailedVideosAsync(
+        PublishJob job,
+        IReadOnlyList<string> titles,
+        Func<string, IReadOnlyList<int>, CancellationToken, Task<KuaishouVideoRepairFiles>> resolveFiles,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var notes = new List<KuaishouVideoRepairNote>();
+        await _sessionService.ExecuteAuthenticatedAsync(job, async (page, config, token) =>
+        {
+            foreach (var title in titles)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    var failure = await _episodeUploadService.ReadSeriesFailureAsync(page, title, token);
+                    if (failure is null)
+                    {
+                        notes.Add(Note(title, KuaishouVideoRepairOutcome.Skipped, $"《{title}》在平台上没有同名短剧，未新建。"));
+                        continue;
+                    }
+
+                    if (failure.FailedEpisodes.Count == 0)
+                    {
+                        notes.Add(Note(title, KuaishouVideoRepairOutcome.Skipped, $"《{title}》没有需要补传的视频。"));
+                        continue;
+                    }
+
+                    var files = await resolveFiles(title, failure.FailedEpisodes, token);
+                    if (files.ShouldSkip)
+                    {
+                        notes.Add(Note(title, KuaishouVideoRepairOutcome.Skipped, $"《{title}》{files.SkipReason}"));
+                        continue;
+                    }
+
+                    await _episodeUploadService.RepairFailedEpisodesAsync(
+                        page, failure, files.VideoPaths, config, progress, token);
+                    notes.Add(Note(
+                        title,
+                        KuaishouVideoRepairOutcome.Uploaded,
+                        $"《{title}》已补传{KuaishouFailedEpisodeRepair.FormatEpisodes(failure.FailedEpisodes)}，并提交审核。"));
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    notes.Add(Note(title, KuaishouVideoRepairOutcome.Failed, $"《{title}》补传失败：{ex.Message}"));
+                }
+            }
+        }, cancellationToken);
+
+        foreach (var note in notes)
+            progress?.Report("视频补传：" + note.Message);
+        return notes;
+    }
+
+    private static KuaishouVideoRepairNote Note(string title, KuaishouVideoRepairOutcome outcome, string message) =>
+        new(title, outcome, message);
 }

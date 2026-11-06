@@ -1,0 +1,17 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PlatformPublisher.Desktop.Views.KuaishouVideoRepairDialog"
+        Title="视频补传" Width="570" Height="360"
+        MinWidth="500" MinHeight="320" WindowStartupLocation="CenterOwner"
+        CanResize="True">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16" RowSpacing="10">
+    <TextBlock Text="一行输入一个新剧名。列表里还有视频时，只重新上传平台上无法播放的集。已经归档的剧会先回退，再重新下载后补传。平台上没有同名短剧时不会新建。"
+               TextWrapping="Wrap" />
+    <TextBox x:Name="TitlesTextBox" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap"
+             Watermark="例如：&#10;旷野之上&#10;面馆风波" />
+    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="取消" Click="OnCancelClick" />
+      <Button Content="开始补传" Click="OnConfirmClick" Classes="primaryAction" />
+    </StackPanel>
+  </Grid>
+</Window>
