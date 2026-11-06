@@ -5253,13 +5253,13 @@ public sealed partial class MainViewModel : ViewModelBase
                 new UploadTitleImportApplyOutcome(ordered, QueueWasRunning: true, [], 0));
         }
 
-        // 派发只决定剧目和步骤。勾选、搜索和下载与本地「上传短剧」相同，不按剧目 ID 另开播放链路，也不取消本次项目的勾选。
+        // 派发只决定剧目和步骤。自动派单先取消队列里已有勾选，再勾上这次的剧。本地「上传短剧」不取消已有勾选。
         var applyOutcome = ApplyRemoteUploadTitleImportResult(
             result,
             root,
             account,
             allowAppendToRunningQueue,
-            clearOtherSelection: false,
+            clearOtherSelection: autoPublish is not null && result.ProjectDirs.Count > 0,
             retryFailedBeforeNew: autoPublish is not null);
         EnsureDisplayedImportedProjectsChecked(root, applyOutcome.OrderedProjectDirs, account);
 
@@ -5470,7 +5470,7 @@ public sealed partial class MainViewModel : ViewModelBase
             .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var appendCandidates = new List<QueueProjectItem>();
-        var clearedSelection = clearOtherSelection
+        var clearedSelection = clearOtherSelection && orderedProjectDirs.Count > 0
             ? QueueWorkerRunner.DisableEnabledProjectsExcept(items, orderedProjectDirs)
             : 0;
 
