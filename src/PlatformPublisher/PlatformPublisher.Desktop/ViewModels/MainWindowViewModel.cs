@@ -4086,7 +4086,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         var currentId = _activeGlobalAccount?.Id ?? "";
         var forCurrent = string.IsNullOrWhiteSpace(accountKey)
-            || string.Equals(accountKey, currentId, StringComparison.OrdinalIgnoreCase);
+            || string.Equals(accountKey, currentId, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(currentId) &&
+                accountKey.StartsWith(currentId + "|", StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrWhiteSpace(accountKey))
             _lastUnaffiliatedLog = text;
         else

@@ -9,6 +9,11 @@ namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
+    private readonly object _repairLogGate = new();
+    private readonly Dictionary<string, (string ProjectName, string Directory)> _repairLogTargets =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _repairRunningDirectories = new(StringComparer.OrdinalIgnoreCase);
+
     public async Task<string> RepairKuaishouVideosAsync(string titlesText)
     {
         if (!IsKuaishouPlatform)
@@ -25,6 +30,11 @@ public sealed partial class MainWindowViewModel
 
         IReadOnlyList<KuaishouVideoRepairNote> notes = [];
         var restored = false;
+        lock (_repairLogGate)
+        {
+            _repairLogTargets.Clear();
+            _repairRunningDirectories.Clear();
+        }
         try
         {
             await RunBusyAsync(async cancellationToken =>
@@ -43,12 +53,15 @@ public sealed partial class MainWindowViewModel
                     sessionJob,
                     titles,
                     (title, episodes, token) => ResolveRepairFilesAsync(title, episodes, () => restored = true, token),
-                    new Progress<string>(message => AppendActivityLog(message)),
+                    new Progress<string>(message => LogRepair(RepairProjectForMessage(message), message)),
                     cancellationToken);
                 if (restored)
                     await ScanWorkspaceCoreAsync(Path.GetFullPath(DraftProjectDirectory), SelectedPlatform.Value, cancellationToken);
                 foreach (var note in notes)
+                {
+                    LogRepairNote(note);
                     await MarkRepairOutcomeAsync(note);
+                }
                 StatusMessage = $"视频补传结束：{notes.Count(item => item.Outcome == KuaishouVideoRepairOutcome.Uploaded)} 部已提交，" +
                                 $"{notes.Count(item => item.Outcome == KuaishouVideoRepairOutcome.Failed)} 部失败，" +
                                 $"{notes.Count(item => item.Outcome == KuaishouVideoRepairOutcome.Skipped)} 部跳过。";
@@ -56,10 +69,13 @@ public sealed partial class MainWindowViewModel
         }
         catch (OperationCanceledException)
         {
+            LogRepairStopped("已停止。", "none");
             return JoinRepairNotes(notes, "已停止视频补传。");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            LogRepairStopped(ex.Message, "failed");
+            LogRepair(null, "视频补传：" + ex.Message);
             return JoinRepairNotes(notes, ex.Message);
         }
 
@@ -89,12 +105,20 @@ public sealed partial class MainWindowViewModel
             switch (KuaishouFailedEpisodeRepair.Decide(listed, hasVideos, archived is not null))
             {
                 case KuaishouVideoRepairRoute.UploadLocal:
-                    return ReadyVideos(row!.ProjectDirectory, title, episodes);
+                    AttachRepairLog(title, row!.ProjectDirectory, running: false);
+                    var local = ReadyVideos(row.ProjectDirectory, title, episodes);
+                    if (!local.ShouldSkip)
+                        BeginRepairUpload(title, episodes);
+                    return local;
                 case KuaishouVideoRepairRoute.RestoreAndDownload:
                     var source = await RestoreAndDownloadAsync(archived!, title, restored, cancellationToken);
-                    return source is null
-                        ? KuaishouVideoRepairFiles.Skip("回退后没有找到可下载的项目目录。")
-                        : ReadyVideos(source, title, episodes);
+                    if (source is null)
+                        return KuaishouVideoRepairFiles.Skip("回退后没有找到可下载的项目目录。");
+                    AttachRepairLog(title, source, running: false);
+                    var restoredFiles = ReadyVideos(source, title, episodes);
+                    if (!restoredFiles.ShouldSkip)
+                        BeginRepairUpload(title, episodes);
+                    return restoredFiles;
                 default:
                     return KuaishouVideoRepairFiles.Skip(listed
                         ? "在列表中，但没有可补传的视频文件。"
@@ -135,13 +159,17 @@ public sealed partial class MainWindowViewModel
         var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, title));
         if (string.IsNullOrWhiteSpace(config.ArchiveRootDirectory))
             throw new InvalidOperationException("请先配置当前版本的归档目录。");
-        AppendActivityLog($"视频补传：正在回退归档《{title}》。", title);
+        var planned = FirstExistingProject(archived.SourceProjectDir, archived.WorkflowProjectDir)
+            ?? FirstText(archived.SourceProjectDir, archived.WorkflowProjectDir);
+        var projectName = string.IsNullOrWhiteSpace(planned) ? title : AttachRepairLog(title, planned, running: true);
+        LogRepair(projectName, $"视频补传：正在回退归档《{title}》。");
         TikTokArchivedProjectService.Restore(workspace, archived.ArchiveProjectDir, config.ArchiveRootDirectory);
         restored();
         var source = FirstExistingProject(archived.SourceProjectDir, archived.WorkflowProjectDir);
         if (source is null)
             return null;
-        AppendActivityLog($"视频补传：正在重新下载《{title}》。", title);
+        projectName = AttachRepairLog(title, source, running: true);
+        LogRepair(projectName, $"视频补传：正在重新下载《{title}》。");
         var error = await RedownloadAsync(source, title, cancellationToken);
         if (error is not null)
             throw new InvalidOperationException(error);
@@ -155,10 +183,11 @@ public sealed partial class MainWindowViewModel
         var runtimeConfigPath = PrepareWeixinRuntimeConfig(settings, sourceDirectory, "");
         try
         {
+            var projectName = RepairProjectName(sourceDirectory);
             var progress = new Progress<WorkRunEvent>(item =>
             {
                 if (!string.IsNullOrWhiteSpace(item.Message))
-                    AppendActivityLog(item.Message, title);
+                    LogRepair(projectName, $"视频补传《{title}》：{item.Message}");
             });
             var downloaded = await _workService.RunProjectStepAsync(
                 sourceDirectory,
@@ -178,6 +207,134 @@ public sealed partial class MainWindowViewModel
             TryDeleteKuaishouRuntimeConfig(runtimeConfigPath);
         }
     }
+
+    private string AttachRepairLog(string title, string directory, bool running)
+    {
+        var full = NormalizeLogDirectory(directory);
+        var projectName = RepairProjectName(full);
+        lock (_repairLogGate)
+        {
+            _repairLogTargets[title] = (projectName, full);
+            if (running)
+                _repairRunningDirectories.Add(full);
+        }
+
+        var key = CurrentKuaishouRunKey();
+        if (!string.IsNullOrWhiteSpace(key))
+            StoreKuaishouLogProjects([full], key, running ? "running" : "waiting", replace: false);
+        if (running)
+            SetKuaishouLogTone(full, "running");
+        return projectName;
+    }
+
+    private void BeginRepairUpload(string title, IReadOnlyList<int> episodes)
+    {
+        if (!RepairTarget(title, out var target))
+            return;
+        lock (_repairLogGate)
+            _repairRunningDirectories.Add(target.Directory);
+        SetKuaishouLogTone(target.Directory, "running");
+        LogRepair(target.ProjectName, $"视频补传《{title}》：准备补传{KuaishouFailedEpisodeRepair.FormatEpisodes(episodes)}。");
+    }
+
+    private void LogRepairNote(KuaishouVideoRepairNote note)
+    {
+        if (!RepairTarget(note.Title, out var target))
+        {
+            var row = FindKuaishouRowByNewTitle(note.Title);
+            if (row is not null && Directory.Exists(row.ProjectDirectory))
+                AttachRepairLog(note.Title, row.ProjectDirectory, running: false);
+            RepairTarget(note.Title, out target);
+        }
+
+        var started = false;
+        if (!string.IsNullOrWhiteSpace(target.Directory))
+        {
+            lock (_repairLogGate)
+                started = _repairRunningDirectories.Remove(target.Directory);
+            var tone = note.Outcome switch
+            {
+                KuaishouVideoRepairOutcome.Uploaded => "ok",
+                KuaishouVideoRepairOutcome.Failed => "failed",
+                _ => started ? "failed" : null,
+            };
+            if (tone is not null)
+                SetKuaishouLogTone(target.Directory, tone);
+        }
+
+        var projectName = string.IsNullOrWhiteSpace(target.ProjectName) ? null : target.ProjectName;
+        LogRepair(projectName, "视频补传：" + note.Message);
+    }
+
+    private void LogRepairStopped(string detail, string tone)
+    {
+        List<(string Title, string ProjectName, string Directory)> running;
+        lock (_repairLogGate)
+        {
+            running = _repairLogTargets
+                .Where(pair => _repairRunningDirectories.Contains(pair.Value.Directory))
+                .Select(pair => (pair.Key, pair.Value.ProjectName, pair.Value.Directory))
+                .ToList();
+            _repairRunningDirectories.Clear();
+        }
+
+        foreach (var item in running)
+        {
+            SetKuaishouLogTone(item.Directory, tone);
+            LogRepair(item.ProjectName, $"视频补传：《{item.Title}》{detail}");
+        }
+    }
+
+    private string? RepairProjectForMessage(string message)
+    {
+        lock (_repairLogGate)
+        {
+            foreach (var pair in _repairLogTargets)
+            {
+                if (message.Contains($"《{pair.Key}》", StringComparison.Ordinal))
+                    return pair.Value.ProjectName;
+            }
+        }
+
+        return null;
+    }
+
+    private string RepairProjectName(string directory)
+    {
+        var normalized = NormalizeLogDirectory(directory);
+        var job = _jobs.FirstOrDefault(item =>
+            !string.IsNullOrWhiteSpace(item.ProjectDirectory) &&
+            string.Equals(NormalizeLogDirectory(item.ProjectDirectory), normalized, StringComparison.OrdinalIgnoreCase));
+        return string.IsNullOrWhiteSpace(job?.ProjectName)
+            ? Path.GetFileName(normalized)
+            : job.ProjectName;
+    }
+
+    private bool RepairTarget(string title, out (string ProjectName, string Directory) target)
+    {
+        lock (_repairLogGate)
+            return _repairLogTargets.TryGetValue(title, out target);
+    }
+
+    private void LogRepair(string? projectName, string message)
+    {
+        var previousAccount = ActivityLogAccountScope.Value;
+        var previousPlatform = ActivityLogPlatformScope.Value;
+        try
+        {
+            ActivityLogAccountScope.Value = CurrentKuaishouRunKey();
+            ActivityLogPlatformScope.Value = SelectedPlatform.Value;
+            AppendActivityLog(message, projectName);
+        }
+        finally
+        {
+            ActivityLogAccountScope.Value = previousAccount;
+            ActivityLogPlatformScope.Value = previousPlatform;
+        }
+    }
+
+    private static string? FirstText(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
     private async Task MarkRepairOutcomeAsync(KuaishouVideoRepairNote note)
     {

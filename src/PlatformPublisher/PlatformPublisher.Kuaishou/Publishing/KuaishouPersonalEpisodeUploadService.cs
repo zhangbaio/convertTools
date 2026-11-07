@@ -575,15 +575,31 @@ public sealed class KuaishouPersonalEpisodeUploadService
             cancellationToken.ThrowIfCancellationRequested();
             var path = MatchEpisodeFile(videoPaths, episode)
                 ?? throw new InvalidOperationException($"未找到第{episode}集的本地视频，无法补传。");
-            progress?.Report($"快手分账：开始补传第{episode}集。");
+            progress?.Report(RepairProgress(failure.Title, $"开始补传第{episode}集。"));
             if (await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken))
-                progress?.Report($"快手分账：第{episode}集已补传。");
+                progress?.Report(RepairProgress(failure.Title, $"第{episode}集已补传。"));
         }
 
         if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 120_000, cancellationToken))
             throw new InvalidOperationException("失败视频已补传，但未找到可点击的“提交审核”按钮。");
-        progress?.Report("快手分账：已点击提交审核，等待平台结果。");
-        await WaitForReviewSubmissionAsync(page, failure.Title, progress, cancellationToken);
+        progress?.Report(RepairProgress(failure.Title, "已点击提交审核，等待平台结果。"));
+        await WaitForReviewSubmissionAsync(
+            page,
+            failure.Title,
+            progress is null ? null : new Progress<string>(message => progress.Report(RepairProgress(failure.Title, message))),
+            cancellationToken);
+    }
+
+    private static string RepairProgress(string title, string message)
+    {
+        var marker = $"《{title}》";
+        var text = message.Trim();
+        if (text.Contains(marker, StringComparison.Ordinal))
+            return text;
+        var split = text.IndexOf('：');
+        if (split > 0 && text.StartsWith("快手", StringComparison.Ordinal))
+            return $"{text[..(split + 1)]}{marker}{text[(split + 1)..].TrimStart()}";
+        return $"快手分账：{marker}{text}";
     }
 
     private static string BuildRepairEditUrl(string miniSeriesId) =>

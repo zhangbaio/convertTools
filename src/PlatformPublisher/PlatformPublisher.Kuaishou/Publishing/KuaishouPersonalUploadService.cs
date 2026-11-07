@@ -347,8 +347,6 @@ public sealed class KuaishouPersonalUploadService
             }
         }, cancellationToken);
 
-        foreach (var note in notes)
-            progress?.Report("视频补传：" + note.Message);
         return notes;
     }
 
