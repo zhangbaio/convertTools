@@ -46,4 +46,36 @@ public sealed class KuaishouUploadDrawerFailureTests
             sawThisUpload: true,
             stillUploading: true));
     }
+
+    [Fact]
+    public void Repair_page_keeps_the_old_upload_failure_banner_without_failing_submit()
+    {
+        const string banner = "上传失败：第10集上传失败，请重新上传。待提交";
+        Assert.False(KuaishouPersonalEpisodeUploadService.ReviewPageShowsNewFailure(banner, banner));
+    }
+
+    [Fact]
+    public void A_new_submit_failure_still_stops_the_review_wait()
+    {
+        Assert.True(KuaishouPersonalEpisodeUploadService.ReviewPageShowsNewFailure(
+            "上传失败：第10集上传失败，请重新上传。提交失败",
+            "上传失败：第10集上传失败，请重新上传。"));
+        Assert.True(KuaishouPersonalEpisodeUploadService.ReviewPageShowsNewFailure("提交失败", null));
+    }
+
+    [Fact]
+    public void Preview_on_a_card_finishes_the_gap_upload_even_if_an_old_error_class_remains()
+    {
+        Assert.Equal("uploaded", KuaishouPersonalEpisodeUploadService.ClassifyGapCard("第10集 视频预览"));
+        Assert.Equal("uploading", KuaishouPersonalEpisodeUploadService.ClassifyGapCard("第10集 上传中 46%"));
+        Assert.Equal("pending", KuaishouPersonalEpisodeUploadService.ClassifyGapCard("第10集 视频无法正常播放，建议重新制作"));
+    }
+
+    [Fact]
+    public void Finished_drawer_with_no_failures_can_be_closed()
+    {
+        Assert.False(KuaishouPersonalEpisodeUploadService.GapDrawerReadyToClose("上传中 46% 上传完成 0集成功，1集失败"));
+        Assert.True(KuaishouPersonalEpisodeUploadService.GapDrawerReadyToClose(
+            "上传完成 0集成功，1集失败 上传完成 1集成功，0集失败"));
+    }
 }

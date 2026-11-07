@@ -576,7 +576,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
             var path = MatchEpisodeFile(videoPaths, episode)
                 ?? throw new InvalidOperationException($"未找到第{episode}集的本地视频，无法补传。");
             progress?.Report(RepairProgress(failure.Title, $"开始补传第{episode}集。"));
-            if (await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken))
+            if (await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken, progress, failure.Title))
                 progress?.Report(RepairProgress(failure.Title, $"第{episode}集已补传。"));
         }
 
@@ -680,7 +680,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
         foreach (var (episode, path) in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken))
+            if (await UploadOneMissingEpisodeAsync(page, episode, path, deadline, cancellationToken, progress, data.Title))
                 progress?.Report($"快手分账个人版：第{episode}集已补传。 ");
         }
     }
@@ -690,7 +690,9 @@ public sealed class KuaishouPersonalEpisodeUploadService
         int episode,
         string path,
         DateTimeOffset deadline,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IProgress<string>? progress = null,
+        string? title = null)
     {
         await OpenEpisodeTabAsync(page, episode);
         var marked = await page.EvaluateAsync<string>(
@@ -726,57 +728,178 @@ public sealed class KuaishouPersonalEpisodeUploadService
             throw new InvalidOperationException($"第{episode}集未找到可补传的上传框。");
 
         await page.Locator("input[data-kuaishou-gap-upload='1']").First.SetInputFilesAsync(path);
-        if (await TryConfirmUploadPositionAsync(page, episode, cancellationToken) ||
-            await UploadDrawerVisibleAsync(page))
+        await ArmGapUploadAsync(page, episode, cancellationToken);
+        await WaitForGapEpisodeAsync(page, episode, deadline, progress, title, cancellationToken);
+        return true;
+    }
+
+    private static async Task ArmGapUploadAsync(IPage page, int episode, CancellationToken cancellationToken)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+        while (DateTimeOffset.UtcNow < deadline)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (await TryConfirmUploadPositionAsync(page, episode, cancellationToken))
+                continue;
+            if (!await UploadDrawerVisibleAsync(page))
+            {
+                var state = await ReadGapEpisodeStateAsync(page, episode);
+                if (state is "uploaded" or "uploading")
+                    return;
+                await page.WaitForTimeoutAsync(400);
+                continue;
+            }
+
             if (!await ClickDrawerStartUploadAsync(page))
                 throw new InvalidOperationException($"第{episode}集补传时未找到“开始上传”。");
+            return;
         }
-
-        await WaitForGapEpisodeAsync(page, episode, deadline, cancellationToken);
-        return true;
     }
 
     private static async Task WaitForGapEpisodeAsync(
         IPage page,
         int episode,
         DateTimeOffset deadline,
+        IProgress<string>? progress,
+        string? title,
         CancellationToken cancellationToken)
     {
+        var sawActivity = false;
+        var idleSince = DateTimeOffset.UtcNow;
+        var lastProgress = "";
+        var lastProgressAt = DateTimeOffset.MinValue;
+        string? baselineFailure = null;
+        var baselineCaptured = false;
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await OpenEpisodeTabAsync(page, episode);
-            var state = await page.EvaluateAsync<string>(
-                """
-                episode => {
-                  const compact = value => String(value || '').replace(/\s+/g, '');
-                  const card = Array.from(document.querySelectorAll('.episode-video')).find(element =>
-                    compact(element.querySelector('.episode-video__header__index')?.innerText) === `第${episode}集`);
-                  if (!card) return 'pending';
-                  const text = compact(card.innerText);
-                  const error = card.classList.contains('episode-video_error')
-                    || Boolean(card.querySelector('.handle-error'))
-                    || text.includes('视频无法正常播放')
-                    || text.includes('建议重新制作')
-                    || text.includes('请重新上传');
-                  if (!error && text.includes('视频预览')) return 'uploaded';
-                  if (text.includes('校验失败')) return 'failed';
-                  return 'pending';
-                }
-                """,
-                episode);
+            var state = await ReadGapEpisodeStateAsync(page, episode);
+            if (state == "missing")
+                await OpenEpisodeTabAsync(page, episode);
             if (state == "uploaded")
                 return;
             if (state == "failed")
                 throw new InvalidOperationException($"快手个人版第{episode}集补传失败。");
             var body = (await page.Locator("body").InnerTextAsync()).Replace("为避免上传失败", string.Empty, StringComparison.Ordinal);
-            if (!string.IsNullOrWhiteSpace(ReadFinishedFailure(body)))
+            var active = state == "uploading" || IndicatesActiveUpload(body) || await UploadDrawerVisibleAsync(page);
+            if (active)
+                sawActivity = true;
+            if (await UploadDrawerVisibleAsync(page) && GapDrawerReadyToClose(body))
+            {
+                ReportGapProgress(progress, title, episode, "上传完成，正在确认。", ref lastProgress, ref lastProgressAt, force: true);
+                await ClickDrawerConfirmAsync(page);
+                await page.WaitForTimeoutAsync(800);
+                continue;
+            }
+
+            var finished = ReadFinishedFailure(body);
+            if (!baselineCaptured)
+            {
+                baselineFailure = finished;
+                baselineCaptured = true;
+            }
+            else if (ShouldStopForUploadFailure(finished, baselineFailure, sawActivity, IndicatesActiveUpload(body)))
+            {
                 throw new InvalidOperationException($"快手个人版第{episode}集补传失败。");
+            }
+
+            if (!sawActivity && DateTimeOffset.UtcNow - idleSince > TimeSpan.FromSeconds(45))
+                throw new InvalidOperationException($"第{episode}集选择文件后没有开始上传。");
+            if (sawActivity)
+            {
+                var detail = ExtractProgress(body);
+                ReportGapProgress(
+                    progress,
+                    title,
+                    episode,
+                    string.IsNullOrWhiteSpace(detail) ? "上传中。" : $"上传中 {detail}。",
+                    ref lastProgress,
+                    ref lastProgressAt,
+                    force: false);
+            }
             await Task.Delay(1000, cancellationToken);
         }
 
         throw new TimeoutException($"等待第{episode}集补传完成超时。");
+    }
+
+    private static void ReportGapProgress(
+        IProgress<string>? progress,
+        string? title,
+        int episode,
+        string detail,
+        ref string lastProgress,
+        ref DateTimeOffset lastProgressAt,
+        bool force)
+    {
+        if (progress is null || string.IsNullOrWhiteSpace(detail))
+            return;
+        var now = DateTimeOffset.UtcNow;
+        if (!force && detail == lastProgress && now - lastProgressAt < TimeSpan.FromSeconds(15))
+            return;
+        lastProgress = detail;
+        lastProgressAt = now;
+        var message = string.IsNullOrWhiteSpace(title)
+            ? $"快手分账个人版：第{episode}集{detail}"
+            : RepairProgress(title, $"第{episode}集{detail}");
+        progress.Report(message);
+    }
+
+    private static async Task<string> ReadGapEpisodeStateAsync(IPage page, int episode)
+    {
+        return await page.EvaluateAsync<string>(
+            """
+            episode => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const card = Array.from(document.querySelectorAll('.episode-video')).find(element =>
+                compact(element.querySelector('.episode-video__header__index')?.innerText) === `第${episode}集`);
+              if (!card) return 'missing';
+              const text = compact(card.innerText);
+              if (text.includes('校验失败')) return 'failed';
+              const broken = text.includes('视频无法正常播放')
+                || text.includes('建议重新制作')
+                || text.includes('请重新上传');
+              if (text.includes('视频预览') && !broken) return 'uploaded';
+              if (text.includes('上传中') || text.includes('等待上传') || text.includes('解析中')) return 'uploading';
+              return 'pending';
+            }
+            """,
+            episode);
+    }
+
+    public static string ClassifyGapCard(string? cardText)
+    {
+        var text = Compact(cardText ?? "");
+        if (text.Length == 0)
+            return "pending";
+        if (text.Contains("校验失败", StringComparison.Ordinal))
+            return "failed";
+        var broken = text.Contains("视频无法正常播放", StringComparison.Ordinal)
+            || text.Contains("建议重新制作", StringComparison.Ordinal)
+            || text.Contains("请重新上传", StringComparison.Ordinal);
+        if (text.Contains("视频预览", StringComparison.Ordinal) && !broken)
+            return "uploaded";
+        if (text.Contains("上传中", StringComparison.Ordinal)
+            || text.Contains("等待上传", StringComparison.Ordinal)
+            || text.Contains("解析中", StringComparison.Ordinal))
+            return "uploading";
+        return "pending";
+    }
+
+    public static bool GapDrawerReadyToClose(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || IndicatesActiveUpload(text))
+            return false;
+        if (text.Contains("全部上传完成", StringComparison.Ordinal))
+            return true;
+        var matches = System.Text.RegularExpressions.Regex.Matches(
+            text,
+            @"上传完成\s*(\d+)\s*集成功\s*[，,]?\s*(\d+)\s*集失败");
+        if (matches.Count == 0)
+            return false;
+        var last = matches[matches.Count - 1];
+        return int.TryParse(last.Groups[2].Value, out var failed) && failed == 0
+            && int.TryParse(last.Groups[1].Value, out var succeeded) && succeeded > 0;
     }
 
     private static async Task<IReadOnlyList<EpisodeVideoSlot>> ReadEpisodeVideoSlotsAsync(IPage page)
@@ -1584,6 +1707,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(240);
         var lastText = string.Empty;
+        string? baseline = null;
         var confirmClicked = false;
         while (DateTimeOffset.UtcNow < deadline)
         {
@@ -1598,11 +1722,16 @@ public sealed class KuaishouPersonalEpisodeUploadService
             }
 
             var body = (await ReadAllBodyTextAsync(page)).Replace("为避免上传失败", string.Empty, StringComparison.Ordinal);
-            if (!string.IsNullOrWhiteSpace(body)) lastText = body;
+            if (!string.IsNullOrWhiteSpace(body))
+            {
+                lastText = body;
+                baseline ??= body;
+            }
             var leftEditPage = !page.Url.Contains("content-management/edit", StringComparison.OrdinalIgnoreCase);
             var auditComplete = await SeriesAuditMeansUploadCompleteAsync(page);
             // 列表页的「审核状态」筛选项本身就包含“审核中”，不能拿整页文字判断。
             // 平台列表已经是审核中或审核通过时，提交已经成功，本地直接记为上传完成。
+            // 补传页上原来就有「上传失败，请重新上传」，不能把这句旧文案当成这次提交失败。
             if (auditComplete ||
                 ReviewSucceeded(body) ||
                 (confirmClicked && leftEditPage) ||
@@ -1612,7 +1741,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
                     progress?.Report("快手分账个人版：平台状态为审核中，本地记为上传完成。 ");
                 return;
             }
-            if (new[] { "发布失败", "上传失败", "校验失败", "请重新上传", "提交失败", "审核提交失败" }.Any(body.Contains))
+            if (ReviewPageShowsNewFailure(body, baseline))
                 throw new InvalidOperationException("快手个人版提交审核失败，平台页面返回失败提示。");
             await Task.Delay(1500, cancellationToken);
         }
@@ -1622,6 +1751,31 @@ public sealed class KuaishouPersonalEpisodeUploadService
     }
 
     public static bool AuditStatusMeansUploadComplete(int auditStatus) => auditStatus is 2 or 3;
+
+    public static bool ReviewPageShowsNewFailure(string? body, string? baseline)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return false;
+        foreach (var marker in ReviewFailureMarkers)
+        {
+            if (!body.Contains(marker, StringComparison.Ordinal))
+                continue;
+            if (string.IsNullOrEmpty(baseline) || !baseline.Contains(marker, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static readonly string[] ReviewFailureMarkers =
+    [
+        "发布失败",
+        "上传失败",
+        "校验失败",
+        "请重新上传",
+        "提交失败",
+        "审核提交失败",
+    ];
 
     private static async Task<bool> SeriesAuditMeansUploadCompleteAsync(IPage page)
     {
