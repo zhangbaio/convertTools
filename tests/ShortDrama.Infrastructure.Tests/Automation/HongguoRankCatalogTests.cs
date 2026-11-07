@@ -11,6 +11,7 @@ public sealed class HongguoRankCatalogTests
     [InlineData("漫剧", "热播榜", "comic_series_rank", "comic_series_hot_play")]
     [InlineData("漫剧", "推荐榜", "comic_series_rank", "comic_series_hot_rank")]
     [InlineData("漫剧", "新剧榜", "comic_series_rank", "comic_series_new_rank")]
+    [InlineData("漫剧", "预约榜", "comic_series_rank", "comic_series_subscribe")]
     [InlineData("漫剧", "热搜榜", "comic_series_rank", "comic_series_hot_search")]
     [InlineData("全部", "热播榜", "all", "ranklist_hot_play_sc")]
     [InlineData("全部", "推荐榜", "all", "ranklist_hot_sc")]
@@ -21,6 +22,7 @@ public sealed class HongguoRankCatalogTests
     [InlineData("真人剧", "推荐榜", "human", "human_hot_sc")]
     [InlineData("真人剧", "热播榜", "human", "human_hot_play")]
     [InlineData("真人剧", "收藏榜", "human", "human_followed")]
+    [InlineData("AI剧", "预约榜", "ai_playlet", "ai_playlet_subscribe")]
     [InlineData("AI剧", "热播榜", "ai_playlet", "ai_playlet_hot_play")]
     [InlineData("AI剧", "推荐榜", "ai_playlet", "ai_playlet_hot_sc")]
     [InlineData("AI剧", "必看榜", "ai_playlet", "ai_playlet_must_watch")]
@@ -31,6 +33,15 @@ public sealed class HongguoRankCatalogTests
         query.SelectedItems.Should().Be(selectedItems);
         query.SubSelectedItems.Should().Be(subSelectedItems);
         HongguoRankCatalog.UnavailableReason(category, board).Should().BeNull();
+    }
+
+    [Fact]
+    public void BoardsFor_FollowsInstalledComicAndAiRankOrder()
+    {
+        HongguoRankCatalog.BoardsFor("漫剧").Should().Equal("推荐榜", "热播榜", "新剧榜", "预约榜", "热搜榜");
+        HongguoRankCatalog.BoardsFor("AI剧").Should().Equal(
+            "推荐榜", "热播榜", "新剧榜", "预约榜", "热搜榜", "必看榜", "收藏榜");
+        HongguoRankCatalog.BoardsFor("全部").Should().NotContain("预约榜");
     }
 
     [Theory]

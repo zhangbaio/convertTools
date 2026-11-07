@@ -8,7 +8,8 @@ using ShortDrama.Core.Models;
 namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
-/// 红果 APP 下载的搜索、剧集和播放地址。
+/// 红果 APP 下载的搜索、剧集、榜单和播放地址。
+/// 榜单走 reading 的 bookmall/cell/change，漫剧和 AI 剧的榜单键跟已安装红果的排行榜一致。
 /// 方案1：只有本机模拟器里读到的设备号才走 preload。设置里保存或自动注册的号不走这条链路。
 /// 查询保持已安装的 7.4.3.32 精简参数；机型、品牌和系统版本读模拟器自身。
 /// 没有模拟器设备时，播放用单集接口。连续空包就更换本机 audit 设备号并马上重试，仍失败再按勾选走链路 1 和链路 2。
@@ -250,6 +251,99 @@ internal sealed class HongguoAppDirectClient
         if (audit.Count > 0)
             return audit;
         throw new HongguoHighException("剧集列表获取失败");
+    }
+
+    internal const string RankPath = "/reading/bookapi/bookmall/cell/change/v";
+
+    internal async Task<HongguoRankPage> GetRankPageAsync(
+        string category,
+        string board,
+        int offset,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null,
+        string? plan = null)
+    {
+        if (!HongguoRankCatalog.TryResolve(category, board, out var query))
+            throw new HongguoHighException(HongguoRankCatalog.UnavailableReason(category, board) ?? "未知榜单");
+
+        var extra = RankQuery(query, Math.Max(0, offset));
+        JsonNode? root = null;
+        Exception? primary = null;
+        var desktop = IsDesktopPlan(plan);
+        if (desktop && HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
+        {
+            try
+            {
+                root = await SendEmulatorAsync(
+                    HttpMethod.Get, ReadingHost, RankPath, null, extra, deviceId!.Trim(), installId!.Trim(), cancellationToken, desktop: true);
+                EmulatorChainUses++;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                primary = ex;
+            }
+        }
+        else if (!desktop && TryReadEmulator(out var did, out var iid))
+        {
+            try
+            {
+                root = await SendEmulatorAsync(
+                    HttpMethod.Get, ReadingHost, RankPath, null, extra, did, iid, cancellationToken);
+                EmulatorChainUses++;
+                Remember(deviceId, installId, did, iid, persist);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                primary = ex;
+            }
+        }
+
+        if (root is null)
+        {
+            try
+            {
+                root = await SendAsync(HttpMethod.Get, RankPath, null, extra, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var detail = primary is null ? "红果榜单失败" : $"红果榜单失败：{primary.Message}";
+                throw new HongguoHighException(detail, 0, ex);
+            }
+        }
+
+        return HongguoHighCalendarMapper.ReadRankPage(root);
+    }
+
+    private static KeyValuePair<string, string>[] RankQuery(HongguoRankQuery query, int offset)
+    {
+        var items = new List<KeyValuePair<string, string>>
+        {
+            new("cell_id", HongguoRankCatalog.CellId),
+            new("tab_type", HongguoRankCatalog.TabType),
+            new("client_req_type", "2"),
+            new("client_template", "2"),
+            new("screen_width_px", "1080"),
+            new("selected_items", query.SelectedItems),
+            new("sub_selected_items", query.SubSelectedItems),
+            new("session_uuid", Guid.NewGuid().ToString()),
+        };
+        if (offset > 0)
+            items.Add(new("offset", offset.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        return items.ToArray();
     }
 
     internal async Task<HongguoHighVideoPlayback> GetVideoPlaybackAsync(

@@ -2395,12 +2395,16 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int offset,
         CancellationToken cancellationToken)
     {
-        var page = await _hghighApiService.GetRankPageAsync(
-            ForHongguoApp(_settingsProvider.Get()),
+        var settings = _settingsProvider.Get();
+        var page = await _hongguoApp.GetRankPageAsync(
             category,
             board,
             offset,
-            cancellationToken);
+            cancellationToken,
+            settings.HongguoAppDeviceId,
+            settings.HongguoAppInstallId,
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+            settings.HongguoAppPlan);
         return new HongguoRankPage(
             page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray(),
             page.HasMore,
@@ -2837,12 +2841,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),
             ExpectedSize: detail.Size);
     }
-
-    private static DramaSourceSettings ForHongguoApp(DramaSourceSettings settings) => settings with
-    {
-        HghighEdition = HongguoClientProfile.StandardEdition,
-        HghighStandardPlaybackMode = HongguoClientProfile.StandardPlaybackSingle,
-    };
 
     private async Task<IReadOnlyList<SourceEpisode>> GetHgnewEpisodesAsync(string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
     {

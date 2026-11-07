@@ -468,6 +468,62 @@ public sealed class HongguoAppDirectClientTests
         }
     }
 
+    [Fact]
+    public async Task EmulatorRankUsesInstalledBoardKeys()
+    {
+        var urls = new List<string>();
+        using var http = new HttpClient(Script(urls, _ => Json(RankPayload)));
+        var client = new HongguoAppDirectClient(http);
+        HongguoAppDirectClient.ReadEmulatorDevice = EmulatorPair;
+        try
+        {
+            var page = await client.GetRankPageAsync("AI剧", "预约榜", 10, CancellationToken.None);
+            Assert.Equal("归墟第一季", page.Items[0].Title);
+            Assert.True(page.HasMore);
+            Assert.Equal(10, page.NextOffset);
+            Assert.Contains(urls, url => url.Contains("https://reading.snssdk.com/reading/bookapi/bookmall/cell/change/v?", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("selected_items=ai_playlet", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("sub_selected_items=ai_playlet_subscribe", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("version_name=7.4.3.32", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("offset=10", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("device_id=1234567890123456", StringComparison.Ordinal));
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+        }
+    }
+
+    [Fact]
+    public async Task RankWithoutEmulatorUsesAuditHost()
+    {
+        var urls = new List<string>();
+        using var http = new HttpClient(Script(urls, _ => Json(RankPayload)));
+        var client = new HongguoAppDirectClient(http);
+        var devicePath = Path.Combine(Path.GetTempPath(), "hongguo-audit-" + Guid.NewGuid().ToString("N") + ".json");
+        HongguoAppDirectClient.ReadEmulatorDevice = NoEmulator;
+        HongguoAppDirectClient.AuditDevicePathOverride = devicePath;
+        try
+        {
+            var page = await client.GetRankPageAsync("漫剧", "推荐榜", 0, CancellationToken.None);
+            Assert.Equal("归墟第一季", page.Items[0].Title);
+            Assert.Contains(urls, url => url.Contains("https://api5-normal-sinfonlinea.fqnovel.com/reading/bookapi/bookmall/cell/change/v?", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("selected_items=comic_series_rank", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("sub_selected_items=comic_series_hot_rank", StringComparison.Ordinal));
+            Assert.DoesNotContain(urls, url => url.Contains("offset=", StringComparison.Ordinal));
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+            HongguoAppDirectClient.AuditDevicePathOverride = null;
+            try { File.Delete(devicePath); } catch { /* 测试身份用完即删。 */ }
+        }
+    }
+
+    private const string RankPayload = """
+        {"code":0,"data":{"has_more":true,"next_offset":10,"cell_view":{"cell_data":[{"video_data":[{"series_id":"7123456789","title":"归墟第一季","episode_cnt":64}]}]}}}
+        """;
+
     private const string AuditModel = """
         {"code":0,"data":{"video_model":{"video_list":[{"main_url":"https://example.test/a","video_meta":{"definition":"1080p","size":12},"encrypt_info":{"spade_a":"abc"}}]}}}
         """;
