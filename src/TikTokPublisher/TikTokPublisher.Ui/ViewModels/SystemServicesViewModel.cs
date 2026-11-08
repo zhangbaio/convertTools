@@ -443,10 +443,10 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
         WorkspacePath = workspacePath?.Trim() ?? "";
         SyncArchiveRootFromAccount();
 
-        // 切账号导致归档根目录变化时必须重载列表，否则界面停留在上一账号的归档记录。
-        var rootChanged = !string.IsNullOrWhiteSpace(previousRoot) &&
-                          !string.Equals(previousRoot, ArchiveRootDir, StringComparison.OrdinalIgnoreCase);
-        if (refresh || rootChanged)
+        // refresh:false 时即使归档根目录变了也不扫盘。队列执行中切账号会走到这里，
+        // 目录扫描会和正在下载的队列抢磁盘，扫完再把全部归档行加回 UI 线程。
+        // 归档页进入时会自行刷新；当前就停在归档页时由窗口在切账号后主动刷新。
+        if (refresh)
             Refresh();
     }
 

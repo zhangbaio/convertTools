@@ -414,6 +414,8 @@ public partial class MainWindow : Window
     {
         if (_activeNavTag == "browser")
             ScheduleBrowserHostMountLayout();
+        else if (_activeNavTag == "archived")
+            _viewModel.ArchivedProjects.RefreshCommand.Execute(null);
     }
 
     private void EnsureBrowserHostMounted()

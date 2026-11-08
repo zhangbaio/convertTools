@@ -761,9 +761,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
         _context.SwitchTo(value.Id);
         RestoreQueueSearchTextForSelectedAccount();
-        RefreshWorkspaceFromActiveAccount();
+        // 账号高亮先画出来。工作目录换表放到后台优先级，避免这次刷新插在渲染前面把点击卡住。
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            RefreshWorkspaceFromActiveAccount,
+            Avalonia.Threading.DispatcherPriority.Background);
         AccountSwitchRequested?.Invoke(value);
-        RefreshTodayUploadCount();
     }
 
     private string GetQueueSearchAccountKey()
@@ -1228,22 +1230,23 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var generation = Interlocked.Increment(ref _workspaceRefreshGeneration);
         var root = (workspaceRoot ?? WorkspacePath).Trim();
-        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+        if (string.IsNullOrEmpty(root))
         {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (generation != _workspaceRefreshGeneration) return;
-                ClearWorkspaceProjectCollections();
-                _queueItems.Clear();
-                _queueRowByDir.Clear();
-                _displayedWorkspaceRoot = "";
-                UpdateWorkspaceBindingSummary("");
-                UpdateQueueSummaryText();
-                RefreshLogSnapshot(force: true);
-            });
+            await ClearWorkspaceProjectsOnUiAsync(generation);
             return;
         }
 
+        // Exists 会碰到正在写视频的磁盘。放在 UI 线程上时，执行中点左侧账号会停住。
+        var rootExists = await Task.Run(() => Directory.Exists(root)).ConfigureAwait(false);
+        if (generation != Volatile.Read(ref _workspaceRefreshGeneration))
+            return;
+        if (!rootExists)
+        {
+            await ClearWorkspaceProjectsOnUiAsync(generation);
+            return;
+        }
+
+        var showedData = false;
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (generation != _workspaceRefreshGeneration) return;
@@ -1255,18 +1258,19 @@ public sealed partial class MainViewModel : ViewModelBase
                 TryGetWorkspaceQueueSnapshot(root, out var cachedItems, out var cachedOptions))
             {
                 ApplyWorkspaceScanResult(root, cachedItems, cachedOptions);
+                showedData = true;
                 return;
             }
 
             if (!string.Equals(_displayedWorkspaceRoot, SafeFullPath(root), StringComparison.OrdinalIgnoreCase))
                 ShowWorkspaceLoadingState(root);
-        });
+        }, Avalonia.Threading.DispatcherPriority.Background);
 
         // On a cold app start there is no in-memory snapshot. Populate the table from the
         // queue database first (normally tens of milliseconds) and reconcile filesystem
         // artifacts in the slower scan below. This avoids presenting an empty workspace
         // for the entire duration of a cold disk scan.
-        if (!TryGetWorkspaceQueueSnapshot(root, out _, out _))
+        if (!showedData)
         {
             var persistedSnapshot = await Task.Run(() => WorkspaceQueueService.LoadPersistedSnapshot(root))
                 .ConfigureAwait(false);
@@ -1279,9 +1283,26 @@ public sealed partial class MainViewModel : ViewModelBase
                         root,
                         persistedSnapshot.Items.ToList(),
                         persistedSnapshot.Options);
-                    QueueSummaryText = $"已加载 {persistedSnapshot.Items.Count} 个项目，正在校验工作目录 {root}";
+                    showedData = true;
+                    if (!(_queueRunActive || _queueOrchestrator.AnyRunning))
+                        QueueSummaryText = $"已加载 {persistedSnapshot.Items.Count} 个项目，正在校验工作目录 {root}";
                 });
             }
+        }
+
+        // 队列正在跑时，内存或数据库里的列表已经够切换账号。再扫工作目录会和下载抢磁盘，
+        // 扫完又在 UI 线程整表重建一次。等这轮队列结束后再校对文件。
+        var queueBusy = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+            () => _queueRunActive || _queueOrchestrator.AnyRunning);
+        if (!force && showedData && queueBusy)
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation != _workspaceRefreshGeneration || !IsActiveWorkspace(root))
+                    return;
+                UpdateQueueSummaryText();
+            });
+            return;
         }
 
         var scanResult = await Task.Run(() =>
@@ -1303,6 +1324,21 @@ public sealed partial class MainViewModel : ViewModelBase
                 _queueItems.Count > 0)
                 return;
             ApplyWorkspaceScanResult(root, scanResult.Items, scanResult.Options);
+        });
+    }
+
+    private async Task ClearWorkspaceProjectsOnUiAsync(int generation)
+    {
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation != _workspaceRefreshGeneration) return;
+            ClearWorkspaceProjectCollections();
+            _queueItems.Clear();
+            _queueRowByDir.Clear();
+            _displayedWorkspaceRoot = "";
+            UpdateWorkspaceBindingSummary("");
+            UpdateQueueSummaryText();
+            RefreshLogSnapshot(force: true);
         });
     }
 
