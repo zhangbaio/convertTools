@@ -93,6 +93,26 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private void OnSizeChanged(object? sender, SizeChangedEventArgs args) => UpdateBounds();
 
     private bool _renderedStateApplied;
+    private bool _presentationApplied;
+    private bool _presentationRendered;
+    private bool _hasAppliedBounds;
+    private Rectangle _appliedBounds;
+    private CoreWebView2Controller? _boundsController;
+
+    /// <summary>
+    /// 记录这次要显示还是藏到屏外。返回 false 表示和上次相同，调用方应跳过布局和 COM。
+    /// </summary>
+    public bool TryBeginPresentation(bool rendered)
+    {
+        if (_presentationApplied && _presentationRendered == rendered)
+            return false;
+
+        _presentationApplied = true;
+        _presentationRendered = rendered;
+        return true;
+    }
+
+    public string? LastRequestedUrl => _lastRequestedUrl;
 
     /// <summary>控制 WebView2 是否绘制到屏幕；与 Avalonia <see cref="IsVisible"/> 解耦以支持后台 CDP。</summary>
     public void SetRenderedVisible(bool visible)
@@ -109,6 +129,22 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     {
         if (_renderedVisible)
             ApplyRenderedState();
+    }
+
+    /// <summary>
+    /// 窗口平移但控件矩形没变时，只通知 WebView2 跟随父窗口。
+    /// 不要走 UpdateBounds：矩形相同会被直接跳过，画面会停在旧位置。
+    /// </summary>
+    public void NotifyParentMoved()
+    {
+        if (!_renderedVisible)
+            return;
+
+        var controller = Volatile.Read(ref _controller);
+        if (controller is null || !_nativeHandleAlive || _closed)
+            return;
+
+        NotifyParentWindowPositionChanged(controller);
     }
 
     /// <summary>后台隐藏时的虚拟视口：移到父窗口可视区外但保持 IsVisible=true。
@@ -382,7 +418,12 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             if (!_staleProcessRecoveryAttempted)
             {
                 _staleProcessRecoveryAttempted = true;
-                WebView2ProcessRecovery.RecoverStaleProcess(UserDataFolder, Log);
+                // Kill/WaitForExit 最长会停 5 秒。放在 UI 线程上时，浏览器页一切账号就卡死。
+                var folder = UserDataFolder;
+                await Task.Run(() => WebView2ProcessRecovery.RecoverStaleProcess(folder, Log))
+                    .ConfigureAwait(true);
+                if (!IsLifecycleCurrent(generation))
+                    return;
             }
             var options = new CoreWebView2EnvironmentOptions();
             var browserArgs = new List<string>
@@ -590,24 +631,43 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             return;
         try
         {
+            if (!ReferenceEquals(_boundsController, controller))
+            {
+                _boundsController = controller;
+                _hasAppliedBounds = false;
+            }
+
+            Rectangle next;
+            var notifyParent = false;
             if (!_renderedVisible)
             {
-                controller.Bounds = HiddenViewportBounds;
-                return;
+                next = HiddenViewportBounds;
             }
-
-            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-            var w = Math.Max(0, (int)(Bounds.Width * scaling));
-            var h = Math.Max(0, (int)(Bounds.Height * scaling));
-            if (w <= 1 || h <= 1)
+            else
             {
-                // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
-                controller.Bounds = HiddenViewportBounds;
-                return;
+                var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+                var w = Math.Max(0, (int)(Bounds.Width * scaling));
+                var h = Math.Max(0, (int)(Bounds.Height * scaling));
+                if (w <= 1 || h <= 1)
+                {
+                    // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
+                    next = HiddenViewportBounds;
+                }
+                else
+                {
+                    next = new Rectangle(0, 0, w, h);
+                    notifyParent = true;
+                }
             }
 
-            controller.Bounds = new Rectangle(0, 0, w, h);
-            NotifyParentWindowPositionChanged(controller);
+            if (_hasAppliedBounds && next == _appliedBounds)
+                return;
+
+            _hasAppliedBounds = true;
+            _appliedBounds = next;
+            controller.Bounds = next;
+            if (notifyParent)
+                NotifyParentWindowPositionChanged(controller);
         }
         catch (Exception ex) when (IsDisposedControllerException(ex))
         {

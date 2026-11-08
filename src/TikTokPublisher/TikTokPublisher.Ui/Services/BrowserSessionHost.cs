@@ -64,11 +64,15 @@ public sealed class BrowserSessionHost
             _emptyHint.IsVisible = visible && _hosts.Count == 0;
     }
 
-    private static void ApplyHostVisibility(WebView2Host host, bool rendered)
+    private static bool ApplyHostVisibility(WebView2Host host, bool rendered)
     {
         // 禁止把原生控件从视觉树移除再添加（会销毁 WebView2 宿主 HWND，
         // 导致后续 CoreWebView2Controller COM 调用挂死 UI 线程）。
         // 同一时刻仅一个 host 以非零 bounds 渲染，无需调整 Z 序。
+        // 状态未变时不要再写宽高和边距，否则切账号会让每个 WebView 都重新布局。
+        if (!host.TryBeginPresentation(rendered))
+            return false;
+
         if (rendered)
         {
             host.Width = double.NaN;
@@ -92,6 +96,8 @@ public sealed class BrowserSessionHost
             host.VerticalAlignment = VerticalAlignment.Top;
             host.ZIndex = 0;
         }
+
+        return true;
     }
 
     private void OnHostRuntimeMissing(AccountItemViewModel account, WebView2Host host)
@@ -127,15 +133,10 @@ public sealed class BrowserSessionHost
         await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_presentationVisible)
+            if (!_presentationVisible ||
+                !string.Equals(_activeAccountId, account.Id, StringComparison.Ordinal))
             {
-                host.SetRenderedVisible(false);
-                return;
-            }
-
-            if (!string.Equals(_activeAccountId, account.Id, StringComparison.Ordinal))
-            {
-                host.SetRenderedVisible(false);
+                ApplyHostVisibility(host, rendered: false);
                 return;
             }
 
@@ -189,18 +190,25 @@ public sealed class BrowserSessionHost
             host.RefreshBounds();
     }
 
+    public void NotifyPresentationParentMoved()
+    {
+        foreach (var host in _hosts.Values)
+            host.NotifyParentMoved();
+    }
+
     public void ShowAccount(AccountItemViewModel? account, bool createIfMissing = true)
     {
         if (_container is null) return;
 
         _activeAccountId = account?.Id;
+        var presentationChanged = false;
 
         foreach (var entry in _hosts)
         {
             var isTarget = account is not null
                            && string.Equals(entry.Key, account.Id, StringComparison.Ordinal);
             if (!isTarget || !_presentationVisible)
-                ApplyHostVisibility(entry.Value, rendered: false);
+                presentationChanged |= ApplyHostVisibility(entry.Value, rendered: false);
         }
 
         if (account is null)
@@ -224,7 +232,7 @@ public sealed class BrowserSessionHost
                 }
 
                 HideRuntimeMissingOverlay();
-                ApplyHostVisibility(existing, rendered: true);
+                presentationChanged |= ApplyHostVisibility(existing, rendered: true);
                 if (_emptyHint is not null)
                     _emptyHint.IsVisible = false;
 
@@ -233,15 +241,19 @@ public sealed class BrowserSessionHost
                     AuthStatusChanged?.Invoke(
                         $"内置浏览器初始化异常：{existing.LastInitError}，请点「重新登录」或「刷新」");
                 }
-                else if (existing.IsEngineReady
-                         && (string.IsNullOrWhiteSpace(existing.CurrentUrl)
-                             || EmbeddedBrowserLoginHelper.IsLoginUrl(existing.CurrentUrl)))
+                else if (existing.IsEngineReady &&
+                         EmbeddedBrowserLoginHelper.IsLoginUrl(existing.CurrentUrl))
                 {
-                    existing.Navigate(EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model));
+                    // 地址还是空的说明首页导航尚未落地，不要再 Navigate 一次把加载打断。
+                    // 已经请求过首页却仍停在登录页时，重复跳转只会让切账号越来越卡。
+                    var home = EmbeddedBrowserLoginHelper.ResolveHomeUrl(account.Model);
+                    if (!string.Equals(existing.LastRequestedUrl, home, StringComparison.OrdinalIgnoreCase))
+                        existing.Navigate(home);
                 }
             }
 
-            PresentationLayoutChanged?.Invoke();
+            if (presentationChanged)
+                PresentationLayoutChanged?.Invoke();
             return;
         }
 

@@ -457,9 +457,14 @@ public partial class MainWindow : Window
             Math.Abs(current.Top - rect.Y) < 0.5 &&
             Math.Abs(BrowserHostMount.Width - rect.Width) < 0.5 &&
             Math.Abs(BrowserHostMount.Height - rect.Height) < 0.5;
+        var windowMoved = ConsumeBrowserWindowMovement();
+        // 切账号会触发布局，但挂载区域没变。此时再同步 WebView2 会在 UI 线程上
+        // 反复调用 NotifyParentWindowPositionChanged，表现为点左侧账号卡住。
+        // 窗口本身被拖动时矩形不变，仍要单独通知一次，否则网页停在旧位置。
         if (unchanged)
         {
-            _browserHost.RefreshPresentationBounds();
+            if (windowMoved)
+                _browserHost.NotifyPresentationParentMoved();
             return;
         }
 
@@ -473,6 +478,22 @@ public partial class MainWindow : Window
     }
 
     private bool _mountLayoutSyncPending;
+    private bool _browserWindowMetricsReady;
+    private PixelPoint _browserWindowPosition;
+    private Size _browserWindowClientSize;
+
+    private bool ConsumeBrowserWindowMovement()
+    {
+        var position = Position;
+        var clientSize = ClientSize;
+        var moved = !_browserWindowMetricsReady ||
+                    position != _browserWindowPosition ||
+                    clientSize != _browserWindowClientSize;
+        _browserWindowMetricsReady = true;
+        _browserWindowPosition = position;
+        _browserWindowClientSize = clientSize;
+        return moved;
+    }
 
     private void ScheduleBrowserHostMountLayout()
     {
