@@ -303,7 +303,7 @@ public sealed class HongguoAppDirectClientTests
         var urls = new List<string>();
         const string videoId = "7600111222333444555";
         var model = """
-            {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/a\",\"video_meta\":{\"definition\":\"1080p\",\"size\":12}}]}"}}
+            {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/a\",\"codec_type\":\"bytevc1\",\"video_meta\":{\"definition\":\"1080p\",\"size\":12}}]}"}}
             """;
         using var http = new HttpClient(Script(urls, _ => Json(model)));
         var client = new HongguoAppDirectClient(http);
@@ -322,6 +322,50 @@ public sealed class HongguoAppDirectClientTests
         Assert.Contains(urls, url => url.Contains("video_platform=1024", StringComparison.Ordinal));
         Assert.Contains(urls, url => url.Contains("video_id=" + videoId, StringComparison.Ordinal));
         Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DesktopPlanLowersToHevcWhenRequestedQualityIsByteVc2()
+    {
+        var urls = new List<string>();
+        var model = """
+            {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/1080\",\"codec_type\":\"bytevc2\",\"video_meta\":{\"definition\":\"1080p\",\"size\":20}},{\"main_url\":\"https://v.fqnovelvod.com/720\",\"codec_type\":\"bytevc1\",\"video_meta\":{\"definition\":\"720p\",\"size\":8}}]}"}}
+            """;
+        using var http = new HttpClient(Script(urls, _ => Json(model)));
+        var client = new HongguoAppDirectClient(http);
+        var playback = await client.GetVideoPlaybackAsync(
+            HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 6, "7600111222333444555"),
+            "1080P",
+            CancellationToken.None,
+            "2855907370751180",
+            "2855907370755276",
+            plan: "2");
+
+        Assert.Equal("https://v.fqnovelvod.com/720", playback.Url);
+        Assert.Equal(720, playback.Definition);
+    }
+
+    [Fact]
+    public async Task DesktopPlanSkipsWhenNoHevcRemains()
+    {
+        var urls = new List<string>();
+        var model = """
+            {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/1080\",\"codec_type\":\"bytevc2\",\"video_meta\":{\"definition\":\"1080p\",\"size\":20}},{\"main_url\":\"https://v.fqnovelvod.com/720\",\"codec_type\":\"bytevc2\",\"video_meta\":{\"definition\":\"720p\",\"size\":8}}]}"}}
+            """;
+        using var http = new HttpClient(Script(urls, _ => Json(model)));
+        var client = new HongguoAppDirectClient(http);
+        var error = await Assert.ThrowsAsync<HongguoHighException>(() => client.GetVideoPlaybackAsync(
+            HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 14, "7600111222333444555"),
+            "1080P",
+            CancellationToken.None,
+            "2855907370751180",
+            "2855907370755276",
+            plan: "2"));
+
+        Assert.Contains("没有 HEVC 下载地址", error.Message, StringComparison.Ordinal);
+        Assert.Contains("更换剧集", error.Message, StringComparison.Ordinal);
+        Assert.Contains("更换下载链路", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("桌面链路失败", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -464,7 +508,7 @@ public sealed class HongguoAppDirectClientTests
     }
 
     private const string AuditModel = """
-        {"code":0,"data":{"video_model":{"video_list":[{"main_url":"https://example.test/a","video_meta":{"definition":"1080p","size":12},"encrypt_info":{"spade_a":"abc"}}]}}}
+        {"code":0,"data":{"video_model":{"video_list":[{"main_url":"https://example.test/a","codec_type":"bytevc1","video_meta":{"definition":"1080p","size":12},"encrypt_info":{"spade_a":"abc"}}]}}}
         """;
 
     private static bool NoEmulator(out string deviceId, out string installId)

@@ -284,6 +284,10 @@ internal sealed class HongguoAppDirectClient
             {
                 throw;
             }
+            catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 throw new HongguoHighException("桌面链路失败：" + ex.Message, 0, ex);
@@ -303,6 +307,10 @@ internal sealed class HongguoAppDirectClient
             {
                 throw;
             }
+            catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 try
@@ -310,6 +318,10 @@ internal sealed class HongguoAppDirectClient
                     return await GetAuditVideoModelAsync(seriesId, rawVideoId, quality, cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception auditEx) when (HongguoGuestPlayback.IsHevcUnavailable(auditEx))
                 {
                     throw;
                 }
@@ -325,6 +337,10 @@ internal sealed class HongguoAppDirectClient
             return await GetAuditVideoModelAsync(seriesId, rawVideoId, quality, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
         {
             throw;
         }
@@ -344,6 +360,10 @@ internal sealed class HongguoAppDirectClient
             {
                 throw;
             }
+            catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
+            {
+                throw;
+            }
             catch (Exception ex) when (streamLink2)
             {
                 first = ex;
@@ -355,6 +375,10 @@ internal sealed class HongguoAppDirectClient
             return await _signed.GetAsync(rawVideoId, quality, cancellationToken, deviceId, installId, persist);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
         {
             throw;
         }

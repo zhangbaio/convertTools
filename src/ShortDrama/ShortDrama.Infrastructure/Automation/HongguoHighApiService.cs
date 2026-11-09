@@ -2804,4 +2804,5 @@ public sealed record HongguoHighVideoPlayback(
     long Size,
     IReadOnlyList<string> EncryptedUrls,
     string SpadeA,
-    bool Encrypted);
+    bool Encrypted,
+    int Definition = 0);

@@ -1085,6 +1085,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 try
                 {
                     var detail = await ResolveAsync();
+                    ReportLowerHevc(detail, quality, task, totalCount, progress);
                     var stats = await DownloadAsync(detail);
                     DeleteReplacedAlternateFiles(finalPath, replacementCandidates);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
@@ -1104,7 +1105,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 {
                     CleanupDownloadArtifacts(finalPath, keepVideo: true);
                     RememberEpisodeFailure(failures, task, ex, accountFailureStop);
-                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
+                    progress?.Report(DescribeEpisodeDownloadFailure(task, totalCount, ex));
                     return;
                 }
             }
@@ -1112,6 +1113,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             try
             {
                 var detail = await ResolveAsync();
+                ReportLowerHevc(detail, quality, task, totalCount, progress);
                 var stats = await DownloadAsync(detail);
                 DeleteReplacedAlternateFiles(finalPath, replacementCandidates);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
@@ -1124,7 +1126,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 CleanupDownloadArtifacts(finalPath, keepVideo: true);
                 RememberEpisodeFailure(failures, task, ex, accountFailureStop);
-                progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
+                progress?.Report(DescribeEpisodeDownloadFailure(task, totalCount, ex));
             }
         }
         finally
@@ -2278,9 +2280,34 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             accountFailureStop?.Cancel();
     }
 
+    private static void ReportLowerHevc(
+        SourceVideoDetail detail,
+        string quality,
+        EpisodeTask task,
+        int totalCount,
+        IProgress<string>? progress)
+    {
+        if (!int.TryParse(HongguoHighCrypto.NormalizeQuality(quality), out var requested))
+            return;
+        var note = HongguoGuestPlayback.LowerQualityNote(requested, detail.SelectedDefinition);
+        if (note is null)
+            return;
+        progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集 {note}");
+    }
+
+    private static string DescribeEpisodeDownloadFailure(EpisodeTask task, int totalCount, Exception exception)
+    {
+        var prefix = $"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集";
+        return HongguoGuestPlayback.IsHevcUnavailable(exception)
+            ? $"{prefix}未下载: {exception.Message}"
+            : $"{prefix}下载失败: {exception.Message}";
+    }
+
     internal static bool ShouldRetryDownload(Exception exception)
     {
         if (IsAccountLevelDownloadFailure(exception.Message))
+            return false;
+        if (HongguoGuestPlayback.IsHevcUnavailable(exception))
             return false;
         if (exception is HongguoHighException highException)
         {
@@ -2835,7 +2862,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return new SourceVideoDetail(
             detail.Url,
             HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),
-            ExpectedSize: detail.Size);
+            ExpectedSize: detail.Size,
+            SelectedDefinition: detail.Definition);
     }
 
     private static DramaSourceSettings ForHongguoApp(DramaSourceSettings settings) => settings with
@@ -3853,7 +3881,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         HongguoCdnDownload? HongguoCdn = null,
         bool EnsureWindowsCompatible = false,
         string TranscodeEngine = "auto",
-        long ExpectedSize = 0);
+        long ExpectedSize = 0,
+        int SelectedDefinition = 0);
 
     private sealed record HongguoCdnDownload(
         IReadOnlyList<string> EncryptedUrls,
