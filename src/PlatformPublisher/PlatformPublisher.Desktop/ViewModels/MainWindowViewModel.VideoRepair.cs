@@ -306,12 +306,13 @@ public sealed partial class MainWindowViewModel
         yield return Path.Combine(directories.WorkflowDirectory, "videos");
     }
 
-    private async Task<string?> RestoreAndDownloadAsync(
+    private Task<string?> RestoreAndDownloadAsync(
         ArchivedProjectItem archived,
         string title,
         Action restored,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var workspace = Path.GetFullPath(DraftProjectDirectory);
         var platform = SelectedPlatform.Value;
         var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, title));
@@ -325,45 +326,10 @@ public sealed partial class MainWindowViewModel
         restored();
         var source = FirstExistingProject(archived.SourceProjectDir, archived.WorkflowProjectDir);
         if (source is null)
-            return null;
-        projectName = AttachRepairLog(title, source, running: true);
-        LogRepair(projectName, $"视频补传：正在重新下载《{title}》。");
-        var error = await RedownloadAsync(source, title, cancellationToken);
-        if (error is not null)
-            throw new InvalidOperationException(error);
-        return source;
-    }
-
-    private async Task<string?> RedownloadAsync(string sourceDirectory, string title, CancellationToken cancellationToken)
-    {
-        SyncKuaishouWorkflow(sourceDirectory, title);
-        var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-        var runtimeConfigPath = PrepareWeixinRuntimeConfig(settings, sourceDirectory, "");
-        try
-        {
-            var projectName = RepairProjectName(sourceDirectory);
-            var progress = new Progress<WorkRunEvent>(item =>
-            {
-                if (!string.IsNullOrWhiteSpace(item.Message))
-                    LogRepair(projectName, $"视频补传《{title}》：{item.Message}");
-            });
-            var downloaded = await _workService.RunProjectStepAsync(
-                sourceDirectory,
-                null,
-                "download",
-                true,
-                progress,
-                cancellationToken,
-                runtimeConfigPath);
-            if (!downloaded.Ok)
-                return downloaded.Message ?? "重新下载失败。";
-            SyncKuaishouWorkflow(sourceDirectory, title);
-            return null;
-        }
-        finally
-        {
-            TryDeleteKuaishouRuntimeConfig(runtimeConfigPath);
-        }
+            return Task.FromResult<string?>(null);
+        AttachRepairLog(title, source, running: true);
+        SyncKuaishouWorkflow(source, title);
+        return Task.FromResult<string?>(source);
     }
 
     private string AttachRepairLog(string title, string directory, bool running)
