@@ -975,12 +975,14 @@ public static class QueueMaterialStepService
         if (IsBookIdForSource(metadataBookId, selectedSource))
             return metadataBookId;
 
-        var adoptedBookId = AdoptHongguoAppBookId(selectedSource, metadataBookId);
-        if (!string.IsNullOrWhiteSpace(adoptedBookId))
+        var retargetedBookId = DramaDownloadSourceSelector.TryRetarget(metadataBookId, selectedSource);
+        if (!string.IsNullOrWhiteSpace(retargetedBookId) &&
+            !string.Equals(retargetedBookId, metadataBookId, StringComparison.OrdinalIgnoreCase))
         {
-            log($"项目书号带有红果短剧助手前缀，当前链路是红果APP，按同一书号下载：{adoptedBookId}");
-            PersistProjectBookId(sourceProjectDir, adoptedBookId);
-            return adoptedBookId;
+            log($"当前链路是{selectedLabel}，沿用同一书号：{retargetedBookId}");
+            PersistBookReference(sourceProjectDir, metadataSource, metadataBookId, metadata.Title);
+            PersistBookReference(sourceProjectDir, selectedSource, retargetedBookId, metadata.Title);
+            return retargetedBookId;
         }
 
         if (ShouldKeepRetiredBookId(selectedSource, metadataBookId))

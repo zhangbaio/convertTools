@@ -589,13 +589,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var request = new DramaDownloadRequest(
             ProjectDir: outputDirectory,
             OutputDir: outputDirectory,
-            DisplayName: FirstText(metadata.Title, metadata.DisplayName, Path.GetFileName(metadataDirectory)),
+            DisplayName: FirstText(metadata.OriginalTitle, metadata.Title, metadata.DisplayName, Path.GetFileName(metadataDirectory)),
             BookId: metadata.BookId,
             Episodes: string.Join(",", selected),
             Quality: quality,
             Concurrent: Math.Clamp(metadata.Concurrent <= 0 ? 4 : metadata.Concurrent, 1, 10),
             EpisodeNumberMode: ReadEpisodeNumberMode(metadataDirectory),
-            ExistingVideoPolicy: ExistingVideoPolicy.ReplaceAll);
+            ExistingVideoPolicy: ExistingVideoPolicy.ReplaceAll,
+            MetadataDirectory: metadataDirectory);
         return await DownloadAsync(request, progress, cancellationToken);
     }
 
@@ -623,6 +624,155 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static string FirstText(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
 
+    private async Task<(string BookId, string? Error)> AlignBookIdToCurrentChainAsync(
+        DramaDownloadRequest request,
+        string bookId,
+        DramaSourceSettings settings,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var selected = DramaDownloadSourceSelector.Normalize(settings.DramaSourceChain);
+        var directory = FirstProjectDirectory(request.MetadataDirectory, request.ProjectDir, request.OutputDir);
+        var decided = DramaDownloadSourceSelector.TryRetarget(bookId, selected);
+        if (decided is not null)
+        {
+            if (!string.Equals(decided, bookId, StringComparison.OrdinalIgnoreCase))
+            {
+                var title = ReadProjectTitle(directory, request.DisplayName);
+                progress?.Report($"当前链路是{DramaDownloadSourceSelector.Label(selected)}，沿用同一书号：{decided}");
+                DramaDownloadSourceSelector.Remember(directory, DramaDownloadSourceSelector.InferSource(bookId), bookId, title);
+                DramaDownloadSourceSelector.Remember(directory, selected, decided, title);
+            }
+
+            return (decided, null);
+        }
+
+        var cached = DramaDownloadSourceSelector.ReadCachedBookId(directory, selected);
+        if (!string.IsNullOrWhiteSpace(cached) &&
+            string.Equals(DramaDownloadSourceSelector.InferSource(cached), selected, StringComparison.Ordinal))
+        {
+            progress?.Report($"当前链路是{DramaDownloadSourceSelector.Label(selected)}，使用已匹配书号：{cached}");
+            return (cached, null);
+        }
+
+        var titles = ReadSearchTitles(directory, request.DisplayName);
+        if (titles.Count == 0)
+            return (bookId, $"切换到{DramaDownloadSourceSelector.Label(selected)}后，项目没有原剧名，无法重新匹配。");
+
+        var expectedEpisodes = DramaDownloadSourceSelector.ReadEpisodeCount(directory);
+        string? failure = null;
+        foreach (var title in titles)
+        {
+            IReadOnlyList<DramaSearchItem> results;
+            try
+            {
+                results = await SearchAsync(title, 1, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var detail = ex.Message.Contains("http", StringComparison.OrdinalIgnoreCase)
+                    ? "搜索没有返回结果。"
+                    : ex.Message;
+                failure = $"切换到{DramaDownloadSourceSelector.Label(selected)}后，按原剧名《{title}》搜索失败：{detail}";
+                continue;
+            }
+
+            var match = ChooseUniqueTitle(results, title, expectedEpisodes, selected);
+            if (match.Item is not null)
+            {
+                var resolved = match.Item.BookId.Trim();
+                var storedTitle = ReadProjectTitle(directory, title);
+                progress?.Report($"当前链路是{DramaDownloadSourceSelector.Label(selected)}，按原剧名《{title}》匹配到 {resolved}");
+                DramaDownloadSourceSelector.Remember(directory, DramaDownloadSourceSelector.InferSource(bookId), bookId, storedTitle);
+                DramaDownloadSourceSelector.Remember(directory, selected, resolved, storedTitle);
+                return (resolved, null);
+            }
+
+            failure = match.Error;
+        }
+
+        return (bookId, failure ?? $"切换到{DramaDownloadSourceSelector.Label(selected)}后，未能按原剧名找到唯一剧集。");
+    }
+
+    private static (DramaSearchItem? Item, string? Error) ChooseUniqueTitle(
+        IReadOnlyList<DramaSearchItem> results,
+        string title,
+        int expectedEpisodes,
+        string selected)
+    {
+        var exact = results
+            .Where(item => !string.IsNullOrWhiteSpace(item.BookId) && SameTitle(item.Title, title))
+            .ToArray();
+        if (exact.Length == 1)
+            return (exact[0], null);
+        if (exact.Length > 1 && expectedEpisodes > 0)
+        {
+            var counted = exact.Where(item => item.EpisodeTotal == expectedEpisodes).ToArray();
+            if (counted.Length == 1)
+                return (counted[0], null);
+        }
+
+        var label = DramaDownloadSourceSelector.Label(selected);
+        return exact.Length == 0
+            ? (null, $"切换到{label}后，未能按原剧名《{title}》找到唯一剧集。")
+            : (null, $"切换到{label}后，原剧名《{title}》匹配到多部剧，没有继续下载。");
+    }
+
+    private static bool SameTitle(string? left, string? right)
+    {
+        var a = (left ?? string.Empty).Trim();
+        var b = (right ?? string.Empty).Trim();
+        if (a.Length == 0 || b.Length == 0)
+            return false;
+        if (string.Equals(a, b, StringComparison.Ordinal))
+            return true;
+        return string.Equals(RemoveSpaces(a), RemoveSpaces(b), StringComparison.Ordinal);
+    }
+
+    private static string RemoveSpaces(string value) =>
+        value.Replace(" ", string.Empty, StringComparison.Ordinal).Replace("\u3000", string.Empty, StringComparison.Ordinal);
+
+    private static string? FirstProjectDirectory(params string?[] directories)
+    {
+        foreach (var directory in directories)
+        {
+            if (!string.IsNullOrWhiteSpace(directory) &&
+                File.Exists(Path.Combine(directory, "shortdrama-project.json")))
+                return directory;
+        }
+
+        return directories.FirstOrDefault(directory => !string.IsNullOrWhiteSpace(directory));
+    }
+
+    private static string ReadProjectTitle(string? directory, string? fallback)
+    {
+        var metadata = string.IsNullOrWhiteSpace(directory)
+            ? null
+            : ProjectAutomationMetadata.Resolve(directory);
+        return FirstText(metadata?.OriginalTitle, metadata?.Title, metadata?.DisplayName, fallback);
+    }
+
+    private static List<string> ReadSearchTitles(string? directory, string? fallback)
+    {
+        var metadata = string.IsNullOrWhiteSpace(directory)
+            ? null
+            : ProjectAutomationMetadata.Resolve(directory);
+        var titles = new List<string>();
+        foreach (var title in new[] { metadata?.OriginalTitle, metadata?.Title, metadata?.DisplayName, fallback })
+        {
+            var text = (title ?? string.Empty).Trim();
+            if (text.Length == 0 || titles.Contains(text, StringComparer.Ordinal))
+                continue;
+            titles.Add(text);
+        }
+
+        return titles;
+    }
+
     public async Task<DramaDownloadResult> DownloadAsync(
         DramaDownloadRequest request,
         IProgress<string>? progress,
@@ -633,6 +783,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var downloadAttempts = ParsePositiveInt(settings.HongguoEpisodeDownloadAttempts, 5);
         var downloadFileSegments = ParseDownloadFileSegments(settings.DownloadFileSegments);
         var bookId = request.BookId?.Trim() ?? string.Empty;
+        if (bookId.Length > 0)
+        {
+            var aligned = await AlignBookIdToCurrentChainAsync(request, bookId, settings, progress, cancellationToken);
+            if (aligned.Error is not null)
+                return new DramaDownloadResult(false, request.OutputDir, 0, aligned.Error);
+            bookId = aligned.BookId;
+        }
 
         if (bookId.StartsWith(DownloaderGatewayApiService.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
             bookId.StartsWith(DownloaderGatewayApiService.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
