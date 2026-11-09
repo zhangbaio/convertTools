@@ -36,11 +36,25 @@ public static class WorkspaceQueueDatabase
 
     public static void Save(string workspaceRoot, IReadOnlyList<QueueProjectItem> items, Dictionary<string, object?>? options = null)
     {
+        var owned = new List<QueueProjectItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (item is not null &&
+                WorkspaceQueueService.IsProjectInsideWorkspace(workspaceRoot, item.ProjectDir))
+            {
+                owned.Add(item);
+            }
+        }
+
+        // 只带来了别的工作目录的路径时，不能写成空队列，否则会把这个工作目录里原有的项目清掉。
+        if (owned.Count == 0 && items.Count > 0)
+            return;
+
         var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
         lock (WriteSyncRoot)
         {
             EnsureDatabaseCore(dbPath);
-            SaveToDatabase(dbPath, workspaceRoot, items, options ?? new Dictionary<string, object?>());
+            SaveToDatabase(dbPath, workspaceRoot, owned, options ?? new Dictionary<string, object?>());
         }
     }
 
@@ -215,6 +229,68 @@ public static class WorkspaceQueueDatabase
                 state.Items.Add(QueueProjectItem.FromPayload(JsonElementToDictionary(item)));
         }
         return state;
+    }
+
+    public static void DeleteProjects(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    {
+        var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var projectDir in projectDirs)
+        {
+            if (TryNormalizePath(projectDir, out var full))
+                targets.Add(full);
+        }
+        if (targets.Count == 0)
+            return;
+
+        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        if (!File.Exists(dbPath))
+            return;
+
+        lock (WriteSyncRoot)
+        {
+            EnsureDatabaseCore(dbPath);
+            var aliases = WorkspaceKeyAliases(workspaceRoot);
+            using var conn = Open(dbPath);
+            using var tx = conn.BeginTransaction();
+            var ids = new List<string>();
+            using (var select = conn.CreateCommand())
+            {
+                var placeholders = string.Join(", ", aliases.Select((_, index) => $"$workspace{index}"));
+                select.CommandText = $"""
+                    SELECT project_id, project_dir
+                    FROM upload_projects
+                    WHERE workspace_path IN ({placeholders})
+                    """;
+                for (var i = 0; i < aliases.Count; i++)
+                    select.Parameters.AddWithValue($"$workspace{i}", aliases[i]);
+                using var reader = select.ExecuteReader();
+                while (reader.Read())
+                {
+                    var projectDir = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                    if (!TryNormalizePath(projectDir, out var full) || !targets.Contains(full))
+                        continue;
+                    if (!reader.IsDBNull(0))
+                        ids.Add(reader.GetString(0));
+                }
+            }
+
+            if (ids.Count == 0)
+            {
+                tx.Commit();
+                return;
+            }
+
+            using (var delete = conn.CreateCommand())
+            {
+                var placeholders = string.Join(", ", ids.Select((_, index) => $"$id{index}"));
+                delete.CommandText = $"DELETE FROM upload_projects WHERE project_id IN ({placeholders})";
+                for (var i = 0; i < ids.Count; i++)
+                    delete.Parameters.AddWithValue($"$id{i}", ids[i]);
+                delete.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
     }
 
     public static void EnsureDatabase(string dbPath)
@@ -406,6 +482,22 @@ public static class WorkspaceQueueDatabase
             {
                 aliases.Add(value);
             }
+        }
+    }
+
+    private static bool TryNormalizePath(string? path, out string full)
+    {
+        full = "";
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+        try
+        {
+            full = Path.GetFullPath(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException)
+        {
+            return false;
         }
     }
 

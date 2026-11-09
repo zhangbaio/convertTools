@@ -1527,6 +1527,14 @@ public sealed partial class MainViewModel : ViewModelBase
             StringComparison.OrdinalIgnoreCase);
         var replaceCollections = workspaceChanged || QueueProjectRows.Count == 0;
 
+        var insideWorkspace = new List<QueueProjectItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
+                insideWorkspace.Add(item);
+        }
+        items = insideWorkspace;
+
         if (IsWorkspaceQueueRunning(root))
             items = PreserveDisplayedRuntimeState(items);
 
@@ -2522,7 +2530,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (targetsOverride is null)
         {
             SyncEnabledStepsFromUi();
-            _queueStatePersist.Enqueue(WorkspacePath, _queueItems, _queueRunOptions);
+            if (CanWriteDisplayedQueue(WorkspacePath))
+                _queueStatePersist.Enqueue(WorkspacePath, _queueItems, _queueRunOptions);
             PersistAccountQueueSettings();
         }
 
@@ -4063,13 +4072,22 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = (workspaceRoot ?? "").Trim();
         if (string.IsNullOrEmpty(root)) return;
 
-        CacheWorkspaceQueueSnapshot(root, items);
-        _queueStatePersist.Enqueue(root, items.ToList(), ResolveQueueOptionsForPersistedWorkspace(root));
+        var visible = new List<QueueProjectItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
+                visible.Add(item);
+        }
+        if (visible.Count == 0 && items.Count > 0)
+            return;
+
+        CacheWorkspaceQueueSnapshot(root, visible);
+        _queueStatePersist.Enqueue(root, visible, ResolveQueueOptionsForPersistedWorkspace(root));
 
         if (!IsActiveWorkspace(root))
             return;
 
-        _queueItems = items.ToList();
+        _queueItems = visible;
         ScheduleQueueRowRefresh();
     }
 
@@ -4119,11 +4137,33 @@ public sealed partial class MainViewModel : ViewModelBase
     private void PersistQueueItems(IReadOnlyList<QueueProjectItem> items, bool refreshRows = true)
     {
         var root = WorkspacePath.Trim();
-        if (string.IsNullOrEmpty(root)) return;
-        _queueItems = items.ToList();
+        if (string.IsNullOrEmpty(root) || !CanWriteDisplayedQueue(root))
+            return;
+        var visible = new List<QueueProjectItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
+                visible.Add(item);
+        }
+        if (visible.Count == 0 && items.Count > 0)
+            return;
+        _queueItems = visible;
         _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         if (refreshRows)
             RefreshQueueRowViewModels();
+    }
+
+    /// <summary>
+    /// 工作目录刚切过去、列表还是上一个账号的时候，不能把那份列表写进新的队列库。
+    /// </summary>
+    private bool CanWriteDisplayedQueue(string workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(_displayedWorkspaceRoot))
+            return true;
+        return string.Equals(
+            SafeFullPath(workspaceRoot),
+            SafeFullPath(_displayedWorkspaceRoot),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private void PersistQueueItems() => PersistQueueItems(_queueItems);
@@ -4222,7 +4262,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private void PersistQueueRunOptions()
     {
         var root = WorkspacePath.Trim();
-        if (string.IsNullOrEmpty(root)) return;
+        if (string.IsNullOrEmpty(root) || !CanWriteDisplayedQueue(root))
+            return;
         _queueStatePersist.Enqueue(root, _queueItems, ClonePersistentQueueRunOptions(_queueRunOptions));
     }
 
@@ -6012,12 +6053,7 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     private static bool IsWithinWorkspace(string path, string workspaceRoot)
-    {
-        var root = Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var full = Path.GetFullPath(path);
-        return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-               || full.StartsWith(root + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-    }
+        => WorkspaceQueueService.IsProjectInsideWorkspace(workspaceRoot, path);
 
     public string ExportQueueExcel()
     {

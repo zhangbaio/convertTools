@@ -388,28 +388,62 @@ public sealed class WorkspaceQueueServiceTests
     }
 
     [Fact]
-    public void ScanProjects_Keeps_Queued_Project_Outside_Workspace()
+    public void Queue_Keeps_Only_Projects_Inside_Its_Own_Workspace()
     {
-        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-queue-{Guid.NewGuid():N}");
-        var downloadRoot = Path.Combine(Path.GetTempPath(), $"workspace-download-{Guid.NewGuid():N}");
-        var externalProject = Path.Combine(downloadRoot, "downloaded-project");
+        var parent = Path.Combine(Path.GetTempPath(), $"workspace-boundary-{Guid.NewGuid():N}");
+        var workspace = Path.Combine(parent, "7.7");
+        var siblingRoot = Path.Combine(parent, "7.70");
+        var ownProject = Path.Combine(workspace, "own-project");
+        var externalProject = Path.Combine(siblingRoot, "downloaded-project");
 
         try
         {
             Directory.CreateDirectory(workspace);
+            CreateProject(ownProject);
             CreateProject(externalProject);
-            var added = WorkspaceQueueService.AddProjectsToQueue(workspace, [externalProject]);
-            added.Should().ContainSingle(item => item.ProjectDir == externalProject);
+            WorkspaceQueueService.IsProjectInsideWorkspace(workspace, externalProject).Should().BeFalse();
+            WorkspaceQueueService.IsProjectInsideWorkspace(workspace, ownProject).Should().BeTrue();
+            WorkspaceQueueService.IsProjectInsideWorkspace(workspace, workspace).Should().BeFalse();
 
-            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
-            item.ProjectDir.Should().Be(externalProject);
-            item.AccountProfileId.Should().BeEmpty();
-            item.AccountProfileName.Should().BeEmpty();
+            var own = new QueueProjectItem
+            {
+                ProjectDir = ownProject,
+                OriginalTitle = "自己的剧",
+                NewTitle = "保留下来的剧",
+                AccountProfileId = "keep-me",
+                StatusText = QueueStepStatus.Pending,
+            };
+            WorkspaceQueueService.SaveProjects(workspace, [own]);
+            InsertQueueRow(workspace, externalProject, "别的目录里的剧");
+
+            WorkspaceQueueService.AddProjectsToQueue(workspace, [externalProject, ownProject])
+                .Should().ContainSingle(item => item.ProjectDir == Path.GetFullPath(ownProject));
+            WorkspaceQueueService.SaveProjects(workspace, [own, new QueueProjectItem
+            {
+                ProjectDir = externalProject,
+                NewTitle = "别的目录里的剧",
+            }]);
+
+            var scanned = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            scanned.ProjectDir.Should().Be(Path.GetFullPath(ownProject));
+            scanned.AccountProfileId.Should().Be("keep-me");
+            WorkspaceQueueDatabase.Load(workspace).Items.Should().ContainSingle()
+                .Which.ProjectDir.Should().Be(Path.GetFullPath(ownProject));
+
+            InsertQueueRow(workspace, externalProject, "别的目录里的剧");
+            var snapshot = WorkspaceQueueService.LoadPersistedSnapshot(workspace);
+            snapshot.Items.Should().ContainSingle()
+                .Which.ProjectDir.Should().Be(Path.GetFullPath(ownProject));
+            WorkspaceQueueDatabase.Load(workspace).Items.Should().ContainSingle();
+
+            WorkspaceQueueService.SaveProjects(workspace, [new QueueProjectItem { ProjectDir = externalProject }]);
+            var kept = WorkspaceQueueDatabase.Load(workspace).Items.Should().ContainSingle().Subject;
+            kept.NewTitle.Should().Be("保留下来的剧");
+            kept.AccountProfileId.Should().Be("keep-me");
         }
         finally
         {
-            DeleteWorkspaceBestEffort(workspace);
-            DeleteWorkspaceBestEffort(downloadRoot);
+            DeleteWorkspaceBestEffort(parent);
         }
     }
 
@@ -757,6 +791,45 @@ public sealed class WorkspaceQueueServiceTests
             DeleteWorkspaceBestEffort(sourceWorkspace);
             DeleteWorkspaceBestEffort(targetWorkspace);
         }
+    }
+
+    private static void InsertQueueRow(string workspace, string projectDir, string newTitle)
+    {
+        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspace);
+        WorkspaceQueueDatabase.EnsureDatabase(dbPath);
+        var fullProjectDir = Path.GetFullPath(projectDir);
+        var item = new QueueProjectItem
+        {
+            ProjectDir = fullProjectDir,
+            OriginalTitle = newTitle,
+            NewTitle = newTitle,
+            StatusText = QueueStepStatus.Pending,
+        };
+        var payload = item.ToPayload();
+        payload["project_dir"] = fullProjectDir;
+        using var conn = new SqliteConnection($"Data Source={dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO upload_projects (
+                project_id, account_profile_id, workspace_path, project_dir,
+                original_title, new_title, synopsis, status, payload_json, created_at, updated_at
+            ) VALUES (
+                $project_id, '', $workspace_path, $project_dir,
+                $original_title, $new_title, '', $status, $payload_json, $created_at, $updated_at
+            )
+            """;
+        var now = DateTimeOffset.Now.ToString("o");
+        cmd.Parameters.AddWithValue("$project_id", Guid.NewGuid().ToString("N"));
+        cmd.Parameters.AddWithValue("$workspace_path", WorkspaceQueueDatabase.WorkspaceKey(workspace));
+        cmd.Parameters.AddWithValue("$project_dir", fullProjectDir);
+        cmd.Parameters.AddWithValue("$original_title", newTitle);
+        cmd.Parameters.AddWithValue("$new_title", newTitle);
+        cmd.Parameters.AddWithValue("$status", item.StatusText);
+        cmd.Parameters.AddWithValue("$payload_json", JsonSerializer.Serialize(payload));
+        cmd.Parameters.AddWithValue("$created_at", now);
+        cmd.Parameters.AddWithValue("$updated_at", now);
+        cmd.ExecuteNonQuery();
     }
 
     private static void CreateProject(string projectDir)

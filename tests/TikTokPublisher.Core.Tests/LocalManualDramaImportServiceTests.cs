@@ -9,7 +9,7 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class LocalManualDramaImportServiceTests
 {
     [Fact]
-    public void Import_Creates_Project_Metadata_And_Queues_External_Local_Drama()
+    public void Import_Creates_Project_Metadata_Without_Queuing_External_Directory()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-workspace-{Guid.NewGuid():N}");
         var downloadRoot = Path.Combine(Path.GetTempPath(), $"manual-import-download-{Guid.NewGuid():N}");
@@ -44,17 +44,9 @@ public sealed class LocalManualDramaImportServiceTests
                 workspace,
                 [source],
                 "acct-current",
-                "当前账号").Should().ContainSingle();
-
-            var item = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
-            item.ProjectDir.Should().Be(Path.GetFullPath(source));
-            item.AccountProfileId.Should().Be("acct-current");
-            item.AccountProfileName.Should().Be("当前账号");
-            item.EpisodeCount.Should().Be(2);
-            Path.GetFileName(item.PrimaryVideoPath).Should().Be("第1集.mp4");
-            item.StepStates[QueueStepKeys.GeneratePoster].Should().Be(
-                QueueStepStatus.Pending,
-                "本地原始封面只是输入素材，必须按改写后的新剧名执行生成海报步骤");
+                "当前账号").Should().BeEmpty();
+            WorkspaceQueueService.ScanProjects(workspace).Should().BeEmpty();
+            WorkspaceQueueService.LoadPersistedSnapshot(workspace).Items.Should().BeEmpty();
         }
         finally
         {

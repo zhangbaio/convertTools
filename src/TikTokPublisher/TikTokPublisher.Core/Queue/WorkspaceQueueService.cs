@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
@@ -34,9 +35,17 @@ public static class WorkspaceQueueService
 
         var results = new List<QueueProjectItem>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var outsideWorkspace = new List<string>();
 
         foreach (var (normalized, persisted) in persistedEntries)
         {
+            // 队列只保留自己工作目录里的项目。别的账号目录即使文件夹还在，也不再显示，也不去扫那块盘。
+            if (!IsProjectInsideWorkspace(root, normalized))
+            {
+                outsideWorkspace.Add(normalized);
+                continue;
+            }
+
             if (!discovered.TryGetValue(normalized, out var item))
             {
                 if (string.IsNullOrWhiteSpace(persisted.QueueEntryDramaType) &&
@@ -50,6 +59,8 @@ public static class WorkspaceQueueService
             results.Add(item);
             seen.Add(normalized);
         }
+
+        RemoveStoredProjectsOutsideWorkspace(root, outsideWorkspace);
 
         foreach (var (normalized, item) in discovered)
         {
@@ -73,7 +84,9 @@ public static class WorkspaceQueueService
             return Array.Empty<QueueProjectItem>();
 
         return WorkspaceQueueDatabase.Load(root).Items
-            .Where(item => !string.IsNullOrWhiteSpace(item.UploadCompletedAt) && !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .Where(item => !string.IsNullOrWhiteSpace(item.UploadCompletedAt) &&
+                           !string.IsNullOrWhiteSpace(item.ProjectDir) &&
+                           IsProjectInsideWorkspace(root, item.ProjectDir))
             .ToArray();
     }
 
@@ -90,9 +103,17 @@ public static class WorkspaceQueueService
 
         var state = WorkspaceQueueDatabase.Load(root);
         var items = new List<QueueProjectItem>();
+        var outsideWorkspace = new List<string>();
         foreach (var item in state.Items)
         {
-            if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
+            if (string.IsNullOrWhiteSpace(item.ProjectDir))
+                continue;
+            if (!IsProjectInsideWorkspace(root, item.ProjectDir))
+            {
+                outsideWorkspace.Add(item.ProjectDir);
+                continue;
+            }
+            if (!Directory.Exists(item.ProjectDir))
                 continue;
 
             item.NormalizeStepStates();
@@ -100,6 +121,8 @@ public static class WorkspaceQueueService
             ApplyManualUploadStatus(item);
             items.Add(item);
         }
+
+        RemoveStoredProjectsOutsideWorkspace(root, outsideWorkspace);
 
         var options = QueueRunOptions.FromDictionary(state.Options);
         options.ClearTransientRunState();
@@ -111,9 +134,12 @@ public static class WorkspaceQueueService
         IReadOnlyList<QueueProjectItem>? displayedSnapshot,
         bool preferPersistedSnapshot)
     {
-        if (!preferPersistedSnapshot && displayedSnapshot is { Count: > 0 })
-            return displayedSnapshot;
-        return ScanProjects(workspaceRoot);
+        var items = !preferPersistedSnapshot && displayedSnapshot is { Count: > 0 }
+            ? displayedSnapshot
+            : ScanProjects(workspaceRoot);
+        return items
+            .Where(item => IsProjectInsideWorkspace(workspaceRoot, item.ProjectDir))
+            .ToArray();
     }
 
     public static IEnumerable<QueueProjectItem> FilterPendingUpload(IEnumerable<QueueProjectItem> items) =>
@@ -140,6 +166,9 @@ public static class WorkspaceQueueService
         string? accountProfileName = null)
     {
         var normalized = Path.GetFullPath(projectDir);
+        if (!IsProjectInsideWorkspace(workspaceRoot, normalized))
+            return;
+
         var items = ScanProjects(workspaceRoot).ToList();
         var item = items.FirstOrDefault(i =>
             string.Equals(Path.GetFullPath(i.ProjectDir), normalized, StringComparison.OrdinalIgnoreCase));
@@ -185,7 +214,8 @@ public static class WorkspaceQueueService
         foreach (var projectDir in projectDirs)
         {
             var normalized = Path.GetFullPath(projectDir);
-            if (!WorkspaceProjectScanner.IsValidProjectDirectory(normalized))
+            if (!IsProjectInsideWorkspace(root, normalized) ||
+                !WorkspaceProjectScanner.IsValidProjectDirectory(normalized))
                 continue;
             if (!appendedKeys.Add(normalized))
                 continue;
@@ -638,6 +668,50 @@ public static class WorkspaceQueueService
         }
 
         RecoverInterruptedRunningSteps(item);
+    }
+
+    /// <summary>
+    /// 项目目录必须是这个工作目录的子目录。工作目录本身、同名前缀的兄弟目录、别的账号目录都不算。
+    /// </summary>
+    public static bool IsProjectInsideWorkspace(string workspaceRoot, string? projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot) || string.IsNullOrWhiteSpace(projectDir))
+            return false;
+
+        string root;
+        string full;
+        try
+        {
+            root = Path.GetFullPath(workspaceRoot)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            full = Path.GetFullPath(projectDir);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException)
+        {
+            return false;
+        }
+
+        if (string.Equals(full, root, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void RemoveStoredProjectsOutsideWorkspace(
+        string workspaceRoot,
+        IReadOnlyCollection<string> projectDirs)
+    {
+        if (projectDirs.Count == 0)
+            return;
+
+        try
+        {
+            WorkspaceQueueDatabase.DeleteProjects(workspaceRoot, projectDirs);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SqliteException)
+        {
+            // 队列库正被写入时删不掉越界记录。这次列表已经排除它，下次加载再删。
+        }
     }
 
     private static void RecoverInterruptedRunningSteps(QueueProjectItem item)

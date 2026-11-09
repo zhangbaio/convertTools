@@ -35,11 +35,19 @@ public sealed class QueueStatePersistService : IDisposable
         var workspaceKey = NormalizeWorkspace(workspaceRoot);
         if (string.IsNullOrEmpty(workspaceKey)) return;
 
+        var owned = items
+            .Where(item => WorkspaceQueueService.IsProjectInsideWorkspace(workspaceKey, item.ProjectDir))
+            .ToArray();
+        // 切账号时，内存里可能还是上一个工作目录的项目。这些路径全部落在外面时不能落盘，
+        // 否则会把上一个账号的队列写进当前工作目录，或冲掉还没写入的本目录修改。
+        if (items.Count > 0 && owned.Length == 0)
+            return;
+
         lock (_lock)
         {
             if (!_pending.TryGetValue(workspaceKey, out var pending))
                 pending = _pending[workspaceKey] = new PendingWorkspace();
-            pending.Items = items.ToArray();
+            pending.Items = owned;
             if (options is not null)
                 pending.Options = options.Clone();
             _workAvailable.Set();
