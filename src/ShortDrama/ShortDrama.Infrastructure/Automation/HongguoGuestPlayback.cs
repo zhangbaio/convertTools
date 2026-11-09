@@ -368,18 +368,29 @@ internal sealed class HongguoGuestPlayback
         return Concat(Convert.FromHexString("746305100000"), random, cipher);
     }
 
-    internal const string HevcUnavailableMessage =
-        "没有 HEVC 下载地址，已跳过。请更换剧集或更换下载链路。";
+    internal const string UnsupportedCodecMessage =
+        "没有 FFmpeg 可播放的下载地址，已跳过。请更换剧集或更换下载链路。";
 
-    internal static bool IsHevcUnavailable(Exception? exception) =>
+    private static readonly string[] FfmpegPlayableCodecs =
+    [
+        "bytevc1", "hvc1", "hev1", "hevc", "h265",
+        "h264", "avc1", "avc",
+        "av1",
+        "vp8", "vp9",
+        "mpeg4", "mp4v", "mpeg2",
+        "vc1",
+        "prores",
+    ];
+
+    internal static bool IsUnsupportedCodec(Exception? exception) =>
         exception is HongguoHighException &&
-        exception.Message.Contains("没有 HEVC 下载地址", StringComparison.Ordinal);
+        exception.Message.Contains("没有 FFmpeg 可播放的下载地址", StringComparison.Ordinal);
 
     internal static string? LowerQualityNote(int requestedDefinition, int selectedDefinition)
     {
         if (selectedDefinition <= 0 || requestedDefinition <= selectedDefinition)
             return null;
-        return $"{requestedDefinition}P 没有 HEVC，改用 {selectedDefinition}P";
+        return $"{requestedDefinition}P 没有 FFmpeg 可播放的编码，改用 {selectedDefinition}P";
     }
 
     internal static HongguoHighVideoPlayback Pick(JsonObject model, string quality)
@@ -388,22 +399,22 @@ internal sealed class HongguoGuestPlayback
         if (tracks.Count == 0)
             throw new HongguoHighException("播放地址为空");
         var requested = int.TryParse(HongguoHighCrypto.NormalizeQuality(quality), out var parsed) ? parsed : 1080;
-        var hevc = tracks
+        var playable = tracks
             .Select(track => (Track: track, Definition: DefinitionNumber(track)))
-            .Where(item => item.Definition > 0 && item.Definition <= requested && IsHevc(item.Track))
+            .Where(item => item.Definition > 0 && item.Definition <= requested && IsFfmpegPlayable(item.Track))
             .OrderByDescending(item => item.Definition)
             .FirstOrDefault();
-        if (hevc.Track is null)
-            throw new HongguoHighException(HevcUnavailableMessage);
+        if (playable.Track is null)
+            throw new HongguoHighException(UnsupportedCodecMessage);
 
-        var track = hevc.Track;
+        var track = playable.Track;
         var main = HttpUrl(Text(track, "main_url")) ?? throw new HongguoHighException("播放地址为空");
         var urls = new List<string> { main };
         foreach (var key in new[] { "backup_url", "backup_url_1", "backup_url_2", "backup_url_3", "backup" })
             CollectUrls(track[key], urls);
         var spade = SpadeOf(track);
         var size = LongOf(track["video_meta"] as JsonObject, "size");
-        return new HongguoHighVideoPlayback(main, size, urls, spade, spade.Length > 0, hevc.Definition);
+        return new HongguoHighVideoPlayback(main, size, urls, spade, spade.Length > 0, playable.Definition);
     }
 
     private static List<JsonObject> TracksOf(JsonObject model)
@@ -495,17 +506,14 @@ internal sealed class HongguoGuestPlayback
         return Text(encrypt, "spade_a") ?? Text(encrypt, "spadeA") ?? Text(track, "spade_a") ?? "";
     }
 
-    private static bool IsHevc(JsonObject track)
+    private static bool IsFfmpegPlayable(JsonObject track)
     {
         var meta = track["video_meta"] as JsonObject;
         var codec = Text(track, "codec_type") ?? Text(meta, "codec_type") ?? "";
         if (codec.Contains("bytevc2", StringComparison.OrdinalIgnoreCase) ||
             codec.Contains("bvc2", StringComparison.OrdinalIgnoreCase))
             return false;
-        return codec.Contains("bytevc1", StringComparison.OrdinalIgnoreCase) ||
-               codec.Contains("hvc1", StringComparison.OrdinalIgnoreCase) ||
-               codec.Contains("hev1", StringComparison.OrdinalIgnoreCase) ||
-               codec.Contains("hevc", StringComparison.OrdinalIgnoreCase);
+        return FfmpegPlayableCodecs.Any(marker => codec.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 
     private static int DefinitionNumber(JsonObject track)

@@ -21,13 +21,17 @@ public sealed record KuaishouSeriesFailure(string SeriesId, string Title, IReadO
 
 public sealed record KuaishouVideoRepairNote(string Title, KuaishouVideoRepairOutcome Outcome, string Message);
 
-public readonly record struct KuaishouVideoRepairFiles(IReadOnlyList<string> VideoPaths, string? SkipReason)
+public readonly record struct KuaishouVideoRepairFiles(
+    IReadOnlyList<string> VideoPaths,
+    string? SkipReason,
+    IReadOnlyList<int>? UploadEpisodes = null)
 {
     public bool ShouldSkip => !string.IsNullOrWhiteSpace(SkipReason);
 
     public static KuaishouVideoRepairFiles Skip(string reason) => new([], reason);
 
-    public static KuaishouVideoRepairFiles Ready(IReadOnlyList<string> paths) => new(paths, null);
+    public static KuaishouVideoRepairFiles Ready(IReadOnlyList<string> paths, IReadOnlyList<int>? uploadEpisodes = null) =>
+        new(paths, null, uploadEpisodes);
 }
 
 public static partial class KuaishouFailedEpisodeRepair
@@ -133,6 +137,22 @@ public static partial class KuaishouFailedEpisodeRepair
             .Distinct()
             .Order()
             .ToArray();
+
+    public static IReadOnlyList<int> EpisodesToRedownload(
+        IEnumerable<string> paths,
+        IReadOnlyList<int> episodes,
+        Func<string, bool> isSupported)
+    {
+        var files = paths as IReadOnlyList<string> ?? paths.ToArray();
+        return episodes.Where(episode =>
+            {
+                var path = KuaishouPersonalEpisodeUploadService.MatchEpisodeFile(files, episode);
+                return path is null || !isSupported(path);
+            })
+            .Distinct()
+            .Order()
+            .ToArray();
+    }
 
     public static string FormatEpisodes(IReadOnlyList<int> episodes) =>
         string.Join("、", episodes.Select(episode => $"第{episode}集"));

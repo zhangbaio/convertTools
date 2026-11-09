@@ -106,18 +106,18 @@ public sealed partial class MainWindowViewModel
             {
                 case KuaishouVideoRepairRoute.UploadLocal:
                     AttachRepairLog(title, row!.ProjectDirectory, running: false);
-                    var local = ReadyVideos(row.ProjectDirectory, title, episodes);
+                    var local = await PrepareRepairVideosAsync(row.ProjectDirectory, title, episodes, cancellationToken);
                     if (!local.ShouldSkip)
-                        BeginRepairUpload(title, episodes);
+                        BeginRepairUpload(title, local.UploadEpisodes ?? episodes);
                     return local;
                 case KuaishouVideoRepairRoute.RestoreAndDownload:
                     var source = await RestoreAndDownloadAsync(archived!, title, restored, cancellationToken);
                     if (source is null)
                         return KuaishouVideoRepairFiles.Skip("回退后没有找到可下载的项目目录。");
                     AttachRepairLog(title, source, running: false);
-                    var restoredFiles = ReadyVideos(source, title, episodes);
+                    var restoredFiles = await PrepareRepairVideosAsync(source, title, episodes, cancellationToken);
                     if (!restoredFiles.ShouldSkip)
-                        BeginRepairUpload(title, episodes);
+                        BeginRepairUpload(title, restoredFiles.UploadEpisodes ?? episodes);
                     return restoredFiles;
                 default:
                     return KuaishouVideoRepairFiles.Skip(listed
@@ -135,17 +135,175 @@ public sealed partial class MainWindowViewModel
         }
     }
 
-    private KuaishouVideoRepairFiles ReadyVideos(string projectDirectory, string title, IReadOnlyList<int> episodes)
+    private static IReadOnlyList<string> ListPreparedVideos(string projectDirectory, string title)
+    {
+        try
+        {
+            var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+            return KuaishouSettlementEpisodeVideoService.Prepare(
+                directories.SourceDirectory,
+                directories.WorkflowDirectory,
+                title);
+        }
+        catch (InvalidOperationException)
+        {
+            return EpisodeVideoPaths(projectDirectory);
+        }
+    }
+
+    private async Task<KuaishouVideoRepairFiles> PrepareRepairVideosAsync(
+        string projectDirectory,
+        string title,
+        IReadOnlyList<int> episodes,
+        CancellationToken cancellationToken)
+    {
+        var paths = ListPreparedVideos(projectDirectory, title);
+        var refresh = new List<int>();
+        foreach (var episode in episodes.Distinct().Order())
+        {
+            var path = KuaishouPersonalEpisodeUploadService.MatchEpisodeFile(paths, episode);
+            if (path is null)
+            {
+                refresh.Add(episode);
+                continue;
+            }
+
+            if (await _dramaDownloader.HasFfmpegSupportedVideoAsync(path, cancellationToken))
+                continue;
+            LogRepair(RepairProjectName(projectDirectory),
+                $"视频补传《{title}》：第{episode}集视频编码当前 FFmpeg 不支持，准备重新下载。");
+            refresh.Add(episode);
+        }
+
+        if (refresh.Count == 0)
+            return KuaishouVideoRepairFiles.Ready(paths, episodes);
+
+        LogRepair(RepairProjectName(projectDirectory),
+            $"视频补传《{title}》：正在重新下载{KuaishouFailedEpisodeRepair.FormatEpisodes(refresh)}。");
+        var temp = Path.Combine(Path.GetTempPath(), "kuaishou-repair-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var downloaded = await _dramaDownloader.RedownloadEpisodesAsync(
+                MetadataDirectory(projectDirectory),
+                temp,
+                refresh,
+                new Progress<string>(message =>
+                {
+                    if (!string.IsNullOrWhiteSpace(message))
+                        LogRepair(RepairProjectName(projectDirectory), $"视频补传《{title}》：{message}");
+                }),
+                cancellationToken);
+            if (!string.IsNullOrWhiteSpace(downloaded.Message))
+                LogRepair(RepairProjectName(projectDirectory), $"视频补传《{title}》：{downloaded.Message}");
+            foreach (var episode in refresh)
+            {
+                var produced = Path.Combine(temp, $"第{episode}集.mp4");
+                if (!File.Exists(produced) ||
+                    !await _dramaDownloader.HasFfmpegSupportedVideoAsync(produced, cancellationToken))
+                    continue;
+                ReplaceEpisodeCopies(projectDirectory, episode, produced);
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(temp))
+                    Directory.Delete(temp, true);
+            }
+            catch (IOException)
+            {
+                // 临时目录删不掉时不影响已经替换好的正片。
+            }
+        }
+
+        paths = ListPreparedVideos(projectDirectory, title);
+        var playable = new List<int>();
+        var skipped = new List<int>();
+        foreach (var episode in episodes.Distinct().Order())
+        {
+            var path = KuaishouPersonalEpisodeUploadService.MatchEpisodeFile(paths, episode);
+            if (path is not null && await _dramaDownloader.HasFfmpegSupportedVideoAsync(path, cancellationToken))
+            {
+                playable.Add(episode);
+                continue;
+            }
+
+            skipped.Add(episode);
+            LogRepair(RepairProjectName(projectDirectory),
+                $"视频补传《{title}》：第{episode}集没有 FFmpeg 支持的编码，已跳过。请更换剧集或更换下载链路。");
+        }
+
+        if (playable.Count == 0)
+            return KuaishouVideoRepairFiles.Skip(
+                $"{KuaishouFailedEpisodeRepair.FormatEpisodes(skipped)}没有 FFmpeg 支持的编码，已跳过。请更换剧集或更换下载链路。");
+        return KuaishouVideoRepairFiles.Ready(paths, playable);
+    }
+
+    private static string MetadataDirectory(string projectDirectory)
     {
         var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
-        var paths = KuaishouSettlementEpisodeVideoService.Prepare(
-            directories.SourceDirectory,
-            directories.WorkflowDirectory,
-            title);
-        var missing = KuaishouFailedEpisodeRepair.MissingEpisodes(paths, episodes);
-        if (missing.Count > 0)
-            return KuaishouVideoRepairFiles.Skip($"缺少{KuaishouFailedEpisodeRepair.FormatEpisodes(missing)}的本地视频。");
-        return KuaishouVideoRepairFiles.Ready(paths);
+        foreach (var directory in new[] { directories.SourceDirectory, directories.WorkflowDirectory, projectDirectory })
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+                continue;
+            if (File.Exists(Path.Combine(directory, "shortdrama-project.json")) ||
+                File.Exists(Path.Combine(directory, "book_id.txt")))
+                return directory;
+        }
+
+        return directories.SourceDirectory;
+    }
+
+    private static IReadOnlyList<string> EpisodeVideoPaths(string projectDirectory)
+    {
+        var paths = new List<string>();
+        foreach (var directory in EpisodeVideoRoots(projectDirectory))
+        {
+            if (!Directory.Exists(directory))
+                continue;
+            paths.AddRange(Directory.EnumerateFiles(directory).Where(path =>
+                path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
+                path.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        return paths;
+    }
+
+    private static void ReplaceEpisodeCopies(string projectDirectory, int episode, string newFile)
+    {
+        var replaced = false;
+        foreach (var directory in EpisodeVideoRoots(projectDirectory))
+        {
+            if (!Directory.Exists(directory))
+                continue;
+            foreach (var path in Directory.EnumerateFiles(directory))
+            {
+                if (KuaishouPersonalEpisodeUploadService.MatchEpisodeFile([path], episode) is null)
+                    continue;
+                if (!string.Equals(Path.GetFullPath(path), Path.GetFullPath(newFile), StringComparison.OrdinalIgnoreCase))
+                    File.Copy(newFile, path, overwrite: true);
+                replaced = true;
+            }
+        }
+
+        if (replaced)
+            return;
+        var videos = Path.Combine(
+            KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory,
+            "videos");
+        Directory.CreateDirectory(videos);
+        File.Copy(newFile, Path.Combine(videos, $"第{episode}集.mp4"), overwrite: true);
+    }
+
+    private static IEnumerable<string> EpisodeVideoRoots(string projectDirectory)
+    {
+        var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+        yield return directories.SourceDirectory;
+        yield return Path.Combine(directories.SourceDirectory, "videos");
+        yield return directories.WorkflowDirectory;
+        yield return Path.Combine(directories.WorkflowDirectory, "videos");
     }
 
     private async Task<string?> RestoreAndDownloadAsync(

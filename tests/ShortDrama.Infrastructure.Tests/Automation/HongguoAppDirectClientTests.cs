@@ -362,7 +362,7 @@ public sealed class HongguoAppDirectClientTests
             "2855907370755276",
             plan: "2"));
 
-        Assert.Contains("没有 HEVC 下载地址", error.Message, StringComparison.Ordinal);
+        Assert.Contains("没有 FFmpeg 可播放的下载地址", error.Message, StringComparison.Ordinal);
         Assert.Contains("更换剧集", error.Message, StringComparison.Ordinal);
         Assert.Contains("更换下载链路", error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("桌面链路失败", error.Message, StringComparison.Ordinal);

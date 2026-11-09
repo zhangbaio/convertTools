@@ -516,6 +516,69 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return SortByPublishTimeDescending(merged);
     }
 
+    public async Task<bool> HasFfmpegSupportedVideoAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+    }
+
+    public async Task<DramaDownloadResult> RedownloadEpisodesAsync(
+        string metadataDirectory,
+        string outputDirectory,
+        IReadOnlyList<int> episodes,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var selected = episodes.Where(episode => episode > 0).Distinct().Order().ToArray();
+        if (selected.Length == 0)
+            return new DramaDownloadResult(false, outputDirectory, 0, "没有需要重新下载的集。");
+        var metadata = ProjectAutomationMetadata.Resolve(metadataDirectory);
+        var quality = string.IsNullOrWhiteSpace(metadata.Quality) ? "1080P" : metadata.Quality;
+        Directory.CreateDirectory(outputDirectory);
+        var request = new DramaDownloadRequest(
+            ProjectDir: outputDirectory,
+            OutputDir: outputDirectory,
+            DisplayName: FirstText(metadata.Title, metadata.DisplayName, Path.GetFileName(metadataDirectory)),
+            BookId: metadata.BookId,
+            Episodes: string.Join(",", selected),
+            Quality: quality,
+            Concurrent: Math.Clamp(metadata.Concurrent <= 0 ? 4 : metadata.Concurrent, 1, 10),
+            EpisodeNumberMode: ReadEpisodeNumberMode(metadataDirectory),
+            ExistingVideoPolicy: ExistingVideoPolicy.ReplaceAll);
+        return await DownloadAsync(request, progress, cancellationToken);
+    }
+
+    private static string ReadEpisodeNumberMode(string directory)
+    {
+        var path = Path.Combine(directory, "shortdrama-project.json");
+        if (!File.Exists(path))
+            return "source";
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            if (document.RootElement.TryGetProperty("episodeNumberMode", out var value) &&
+                value.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(value.GetString()))
+                return value.GetString()!.Trim();
+        }
+        catch (JsonException)
+        {
+            // 读不到集号方式时按片源集号下载。
+        }
+
+        return "source";
+    }
+
+    private static string FirstText(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+
     public async Task<DramaDownloadResult> DownloadAsync(
         DramaDownloadRequest request,
         IProgress<string>? progress,
@@ -2298,7 +2361,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static string DescribeEpisodeDownloadFailure(EpisodeTask task, int totalCount, Exception exception)
     {
         var prefix = $"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集";
-        return HongguoGuestPlayback.IsHevcUnavailable(exception)
+        return HongguoGuestPlayback.IsUnsupportedCodec(exception)
             ? $"{prefix}未下载: {exception.Message}"
             : $"{prefix}下载失败: {exception.Message}";
     }
@@ -2307,7 +2370,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     {
         if (IsAccountLevelDownloadFailure(exception.Message))
             return false;
-        if (HongguoGuestPlayback.IsHevcUnavailable(exception))
+        if (HongguoGuestPlayback.IsUnsupportedCodec(exception))
             return false;
         if (exception is HongguoHighException highException)
         {

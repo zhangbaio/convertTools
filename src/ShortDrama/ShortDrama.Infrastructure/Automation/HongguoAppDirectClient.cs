@@ -284,7 +284,7 @@ internal sealed class HongguoAppDirectClient
             {
                 throw;
             }
-            catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
+            catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
             {
                 throw;
             }
@@ -307,7 +307,7 @@ internal sealed class HongguoAppDirectClient
             {
                 throw;
             }
-            catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
+            catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
             {
                 throw;
             }
@@ -321,7 +321,7 @@ internal sealed class HongguoAppDirectClient
                 {
                     throw;
                 }
-                catch (Exception auditEx) when (HongguoGuestPlayback.IsHevcUnavailable(auditEx))
+                catch (Exception auditEx) when (HongguoGuestPlayback.IsUnsupportedCodec(auditEx))
                 {
                     throw;
                 }
@@ -340,7 +340,7 @@ internal sealed class HongguoAppDirectClient
         {
             throw;
         }
-        catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
+        catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
         {
             throw;
         }
@@ -360,7 +360,7 @@ internal sealed class HongguoAppDirectClient
             {
                 throw;
             }
-            catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
+            catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
             {
                 throw;
             }
@@ -378,7 +378,7 @@ internal sealed class HongguoAppDirectClient
         {
             throw;
         }
-        catch (Exception ex) when (HongguoGuestPlayback.IsHevcUnavailable(ex))
+        catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
         {
             throw;
         }

@@ -329,12 +329,16 @@ public sealed class KuaishouPersonalUploadService
                         continue;
                     }
 
+                    var uploadEpisodes = files.UploadEpisodes is { Count: > 0 }
+                        ? files.UploadEpisodes
+                        : failure.FailedEpisodes;
                     await _episodeUploadService.RepairFailedEpisodesAsync(
-                        page, failure, files.VideoPaths, config, progress, token);
-                    notes.Add(Note(
-                        title,
-                        KuaishouVideoRepairOutcome.Uploaded,
-                        $"《{title}》已补传{KuaishouFailedEpisodeRepair.FormatEpisodes(failure.FailedEpisodes)}，并提交审核。"));
+                        page, failure with { FailedEpisodes = uploadEpisodes }, files.VideoPaths, config, progress, token);
+                    var skipped = failure.FailedEpisodes.Where(episode => !uploadEpisodes.Contains(episode)).ToArray();
+                    var uploadedText = $"《{title}》已补传{KuaishouFailedEpisodeRepair.FormatEpisodes(uploadEpisodes)}，并提交审核。";
+                    if (skipped.Length > 0)
+                        uploadedText += $"{KuaishouFailedEpisodeRepair.FormatEpisodes(skipped)}没有 FFmpeg 支持的编码，已跳过。请更换剧集或更换下载链路。";
+                    notes.Add(Note(title, KuaishouVideoRepairOutcome.Uploaded, uploadedText));
                 }
                 catch (OperationCanceledException)
                 {

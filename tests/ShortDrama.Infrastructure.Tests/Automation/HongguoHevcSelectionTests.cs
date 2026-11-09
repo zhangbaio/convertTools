@@ -29,7 +29,7 @@ public sealed class HongguoHevcSelectionTests
 
         Assert.Equal("https://cdn.example/720-hevc", playback.Url);
         Assert.Equal(720, playback.Definition);
-        Assert.Equal("1080P 没有 HEVC，改用 720P", HongguoGuestPlayback.LowerQualityNote(1080, playback.Definition));
+        Assert.Equal("1080P 没有 FFmpeg 可播放的编码，改用 720P", HongguoGuestPlayback.LowerQualityNote(1080, playback.Definition));
     }
 
     [Fact]
@@ -39,7 +39,7 @@ public sealed class HongguoHevcSelectionTests
             Track("https://cdn.example/1080-hevc", "bytevc1", "1080p"),
             Track("https://cdn.example/720-bvc2", "bvc2", "720p")), "720P"));
 
-        Assert.Equal(HongguoGuestPlayback.HevcUnavailableMessage, error.Message);
+        Assert.Equal(HongguoGuestPlayback.UnsupportedCodecMessage, error.Message);
         Assert.False(DramaSourceRouter.ShouldRetryDownload(error));
     }
 
@@ -52,7 +52,31 @@ public sealed class HongguoHevcSelectionTests
 
         Assert.Contains("更换剧集", error.Message, StringComparison.Ordinal);
         Assert.Contains("更换下载链路", error.Message, StringComparison.Ordinal);
-        Assert.True(HongguoGuestPlayback.IsHevcUnavailable(error));
+        Assert.True(HongguoGuestPlayback.IsUnsupportedCodec(error));
+    }
+
+    [Fact]
+    public void KeepsCommonFfmpegCodecAtTheRequestedQuality()
+    {
+        var playback = HongguoGuestPlayback.Pick(Model(
+            Track("https://cdn.example/1080-h264", "h264", "1080p"),
+            Track("https://cdn.example/720-hevc", "bytevc1", "720p")), "1080P");
+
+        Assert.Equal("https://cdn.example/1080-h264", playback.Url);
+        Assert.Equal(1080, playback.Definition);
+    }
+
+    [Theory]
+    [InlineData("av1")]
+    [InlineData("vp9")]
+    [InlineData("mpeg4")]
+    [InlineData("prores")]
+    public void AcceptsOtherCommonFfmpegCodecs(string codec)
+    {
+        var playback = HongguoGuestPlayback.Pick(Model(
+            Track("https://cdn.example/playable", codec, "1080p")), "1080P");
+
+        Assert.Equal("https://cdn.example/playable", playback.Url);
     }
 
     [Fact]

@@ -15,6 +15,7 @@ using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -70,6 +71,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly DramaTitleImportService _dramaTitleImportService;
     private readonly KuaishouScheduledShelfService _scheduledShelfService;
     private readonly KuaishouPersonalUploadService _kuaishouUploadService;
+    private readonly DramaSourceRouter _dramaDownloader;
     private int _scheduledShelfGate;
     private readonly HashSet<string> _scheduledShelfIdleAnnounced = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PublishJob> _jobs = [];
@@ -125,7 +127,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         KuaishouPersonalPreparationService kuaishouPersonalPreparationService,
         DramaTitleImportService dramaTitleImportService,
         KuaishouScheduledShelfService scheduledShelfService,
-        KuaishouPersonalUploadService kuaishouUploadService)
+        KuaishouPersonalUploadService kuaishouUploadService,
+        DramaSourceRouter dramaDownloader)
     {
         _store = store;
         _accountStore = accountStore;
@@ -146,6 +149,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _dramaTitleImportService=dramaTitleImportService;
         _scheduledShelfService = scheduledShelfService;
         _kuaishouUploadService = kuaishouUploadService;
+        _dramaDownloader = dramaDownloader;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),

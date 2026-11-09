@@ -88,6 +88,17 @@ public sealed class KuaishouFailedEpisodeRepairTests
     }
 
     [Fact]
+    public void Unsupported_or_missing_failed_episodes_are_downloaded_again()
+    {
+        var refresh = KuaishouFailedEpisodeRepair.EpisodesToRedownload(
+            [@"E:\videos\剧-第18集.mp4", @"E:\videos\剧-第25集.mp4", @"E:\videos\剧-第36集.mp4"],
+            [18, 25, 36],
+            path => !path.Contains("第25集", StringComparison.Ordinal) && !path.Contains("第36集", StringComparison.Ordinal));
+
+        Assert.Equal([25, 36], refresh);
+    }
+
+    [Fact]
     public void Playable_video_search_ignores_empty_and_material_files()
     {
         var root = Path.Combine(Path.GetTempPath(), "kuaishou-repair-" + Guid.NewGuid().ToString("N"));
