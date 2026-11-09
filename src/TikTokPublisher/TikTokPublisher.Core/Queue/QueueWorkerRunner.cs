@@ -1908,8 +1908,11 @@ public sealed class QueueWorkerRunner
         {
             return true;
         }
+        // 校验排在上传前面。证明材料虽然已完成，账号后来勾了合作协议、或 PDF 已经不在时，
+        // 也要先补生成。只在没勾上传时才检查的话，成片检查会在补文件之前失败。
+        // 账号还没解析出来时不在这里重跑，避免配置读失败被当成必须重做。
         if (stepKey == QueueStepRegistry.GenerateProofMaterial &&
-            !options.IsStepEnabled(QueueStepRegistry.UploadSeries) &&
+            account is not null &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokProofMaterialService.NeedsGenerateProofMaterial(
                 item,
