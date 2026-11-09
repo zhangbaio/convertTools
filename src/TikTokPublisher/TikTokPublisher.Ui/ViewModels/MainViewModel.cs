@@ -3867,7 +3867,12 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         if (progress.Item is not null)
-            RefreshQueueRowFor(progress.Item);
+        {
+            if (progress.Item.Archived)
+                ApplyArchivedQueueProjects([progress.Item.ProjectDir]);
+            else
+                RefreshQueueRowFor(progress.Item);
+        }
 
         UpdateStatusMessageFromQueueProgress(progress);
 
@@ -4073,12 +4078,19 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(root)) return;
 
         var visible = new List<QueueProjectItem>(items.Count);
+        var droppedArchived = false;
         foreach (var item in items)
         {
+            if (item.Archived)
+            {
+                droppedArchived = true;
+                continue;
+            }
+
             if (WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
                 visible.Add(item);
         }
-        if (visible.Count == 0 && items.Count > 0)
+        if (visible.Count == 0 && items.Count > 0 && !droppedArchived)
             return;
 
         CacheWorkspaceQueueSnapshot(root, visible);

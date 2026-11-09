@@ -885,7 +885,11 @@ public sealed class QueueWorkerRunner
                                         queuedAt: uploadCtx.Item.QueuedAt,
                                         ct: ct)
                                     .ConfigureAwait(false);
-                                Mutate(() => uploadCtx.Item.Archived = true);
+                                Mutate(() =>
+                                {
+                                    uploadCtx.Item.Archived = true;
+                                    items.Remove(uploadCtx.Item);
+                                });
                                 Report(onProgress, workspace, uploadCtx.Item,
                                     "上传完成，已自动归档", QueueStepRegistry.UploadSeries);
                             }
