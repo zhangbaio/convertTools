@@ -80,6 +80,43 @@ public sealed class HongguoHevcSelectionTests
     }
 
     [Fact]
+    public void LowersEveryEpisodeWhenAnyEpisodeLacksTheRequestedCodec()
+    {
+        var playable = Model(
+            Track("https://cdn.example/1080-hevc", "bytevc1", "1080p"),
+            Track("https://cdn.example/720-hevc", "bytevc1", "720p"));
+        var blocked = Model(
+            Track("https://cdn.example/1080-bvc2", "bytevc2", "1080p"),
+            Track("https://cdn.example/720-hevc", "bytevc1", "720p"),
+            Track("https://cdn.example/540-hevc", "hevc", "540p"));
+
+        Assert.Equal("720", HongguoGuestPlayback.ChooseUniformQuality("1080P", [playable, blocked]));
+
+        var playback = HongguoGuestPlayback.Pick(playable, "720", lockDefinition: true);
+        Assert.Equal("https://cdn.example/720-hevc", playback.Url);
+        Assert.Equal(720, playback.Definition);
+    }
+
+    [Fact]
+    public void KeepsRequestedQualityWhenEveryEpisodeCanPlayIt()
+    {
+        var first = Model(Track("https://cdn.example/a", "h264", "1080p"));
+        var second = Model(Track("https://cdn.example/b", "bytevc1", "1080p"));
+
+        Assert.Equal("1080", HongguoGuestPlayback.ChooseUniformQuality("1080P", [first, second]));
+    }
+
+    [Fact]
+    public void LockedQualityDoesNotLowerASingleEpisode()
+    {
+        var error = Assert.Throws<HongguoHighException>(() => HongguoGuestPlayback.Pick(Model(
+            Track("https://cdn.example/720-bvc2", "bytevc2", "720p"),
+            Track("https://cdn.example/540-hevc", "hevc", "540p")), "720", lockDefinition: true));
+
+        Assert.Equal(HongguoGuestPlayback.UnsupportedCodecMessage, error.Message);
+    }
+
+    [Fact]
     public void ReadsCodecFromVideoMeta()
     {
         var track = new JsonObject

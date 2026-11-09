@@ -65,6 +65,14 @@ internal sealed class HongguoGuestPlayback
 
     internal HongguoGuestPlayback(HttpClient httpClient) => _httpClient = httpClient;
 
+    internal Task<JsonObject> LoadModelAsync(
+        string videoId,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null) =>
+        ModelAsync(videoId, deviceId, installId, persist, cancellationToken);
+
     internal async Task<HongguoHighVideoPlayback> GetAsync(
         string videoId,
         string quality,
@@ -73,7 +81,7 @@ internal sealed class HongguoGuestPlayback
         string? installId = null,
         Action<string, string>? persist = null)
     {
-        var model = await ModelAsync(videoId, deviceId, installId, persist, cancellationToken);
+        var model = await LoadModelAsync(videoId, cancellationToken, deviceId, installId, persist);
         return Pick(model, quality);
     }
 
@@ -393,15 +401,26 @@ internal sealed class HongguoGuestPlayback
         return $"{requestedDefinition}P 没有 FFmpeg 可播放的编码，改用 {selectedDefinition}P";
     }
 
-    internal static HongguoHighVideoPlayback Pick(JsonObject model, string quality)
+    internal static string ChooseUniformQuality(string quality, IReadOnlyList<JsonObject> models)
+    {
+        var requested = RequestedDefinition(quality);
+        if (models.Count == 0 || models.All(model => HasPlayableDefinition(model, requested)))
+            return requested.ToString();
+        return NextLowerDefinition(requested).ToString();
+    }
+
+    internal static HongguoHighVideoPlayback Pick(JsonObject model, string quality, bool lockDefinition = false)
     {
         var tracks = TracksOf(model);
         if (tracks.Count == 0)
             throw new HongguoHighException("播放地址为空");
-        var requested = int.TryParse(HongguoHighCrypto.NormalizeQuality(quality), out var parsed) ? parsed : 1080;
+        var requested = RequestedDefinition(quality);
         var playable = tracks
             .Select(track => (Track: track, Definition: DefinitionNumber(track)))
-            .Where(item => item.Definition > 0 && item.Definition <= requested && IsFfmpegPlayable(item.Track))
+            .Where(item => item.Definition > 0 &&
+                           item.Definition <= requested &&
+                           (!lockDefinition || item.Definition == requested) &&
+                           IsFfmpegPlayable(item.Track))
             .OrderByDescending(item => item.Definition)
             .FirstOrDefault();
         if (playable.Track is null)
@@ -505,6 +524,22 @@ internal sealed class HongguoGuestPlayback
         var encrypt = track["encrypt_info"] as JsonObject ?? track["encryptInfo"] as JsonObject;
         return Text(encrypt, "spade_a") ?? Text(encrypt, "spadeA") ?? Text(track, "spade_a") ?? "";
     }
+
+    private static int RequestedDefinition(string quality) =>
+        int.TryParse(HongguoHighCrypto.NormalizeQuality(quality), out var parsed) ? parsed : 1080;
+
+    private static int NextLowerDefinition(int definition) => definition switch
+    {
+        > 1080 => 1080,
+        > 720 => 720,
+        > 540 => 540,
+        > 480 => 480,
+        > 360 => 360,
+        _ => definition,
+    };
+
+    private static bool HasPlayableDefinition(JsonObject model, int definition) =>
+        TracksOf(model).Any(track => DefinitionNumber(track) == definition && IsFfmpegPlayable(track));
 
     private static bool IsFfmpegPlayable(JsonObject track)
     {
