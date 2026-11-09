@@ -388,7 +388,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private ClientSettings ApplySystemSettingsForm(ClientSettings settings)
     {
         settings.DramaSourceChain = DramaSourceChain;
-        settings.DramaDownloadDefaultQuality = DramaDownloadDefaultQuality;
+        settings.DramaDownloadDefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(DramaDownloadDefaultQuality);
         settings.DramaDownloadConcurrent = DramaDownloadConcurrent;
         settings.DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects;
         settings.DownloadFileSegments = DownloadFileSegments;
@@ -1372,7 +1372,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private void ApplyFromSettings(ClientSettings settings)
     {
         DramaSourceChain = settings.DramaSourceChain;
-        DramaDownloadDefaultQuality = settings.DramaDownloadDefaultQuality;
+        DramaDownloadDefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(settings.DramaDownloadDefaultQuality);
         DramaDownloadConcurrent = settings.DramaDownloadConcurrent;
         DramaDownloadMaxParallelProjects = settings.DramaDownloadMaxParallelProjects;
         DownloadFileSegments = settings.DownloadFileSegments;

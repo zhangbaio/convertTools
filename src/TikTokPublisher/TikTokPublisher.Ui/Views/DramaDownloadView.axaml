@@ -263,10 +263,9 @@
                         <CheckBox Content="下载完成后自动生成项目素材" IsChecked="{Binding AutoGenerateMaterials}" />
                         <TextBlock Text="下载清晰度" />
                         <ComboBox x:Name="QualityCombo" HorizontalAlignment="Stretch" SelectionChanged="OnQualityChanged">
-                            <ComboBoxItem Content="1080P+" />
-                            <ComboBoxItem Content="1080P" IsSelected="True" />
-                            <ComboBoxItem Content="720P" />
-                            <ComboBoxItem Content="480P" />
+                            <ComboBoxItem Content="1080p+" Tag="1080P+" />
+                            <ComboBoxItem Content="1080p" Tag="1080P" IsSelected="True" />
+                            <ComboBoxItem Content="720p" Tag="720P" />
                         </ComboBox>
                         <TextBlock Text="剧集命名" />
                         <ComboBox x:Name="EpisodeModeCombo" HorizontalAlignment="Stretch" SelectionChanged="OnEpisodeModeChanged">

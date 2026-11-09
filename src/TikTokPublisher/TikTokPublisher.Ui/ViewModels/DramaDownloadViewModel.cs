@@ -429,7 +429,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             AutoGenerateMaterials = state.AutoGenerateMaterials;
             DownloadConcurrent = state.DownloadConcurrent;
             EpisodeNumberMode = state.DownloadEpisodeNumberMode;
-            DefaultQuality = state.DefaultQuality;
+            DefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(state.DefaultQuality);
             CategoryInclude = state.CategoryInclude;
             CategoryExclude = state.CategoryExclude;
             AuthorExclude = state.AuthorExclude;
@@ -453,9 +453,10 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     public void ApplyClientSettings(ClientSettings settings, bool preferSavedWorkspace = false)
     {
-        DefaultQuality = string.IsNullOrWhiteSpace(settings.DramaDownloadDefaultQuality)
-            ? DefaultQuality
-            : settings.DramaDownloadDefaultQuality;
+        DefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(
+            string.IsNullOrWhiteSpace(settings.DramaDownloadDefaultQuality)
+                ? DefaultQuality
+                : settings.DramaDownloadDefaultQuality);
         DownloadConcurrent = settings.DramaDownloadConcurrent > 0
             ? settings.DramaDownloadConcurrent
             : DownloadConcurrent;

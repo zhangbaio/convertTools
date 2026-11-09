@@ -38,7 +38,7 @@
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="DramaSourceCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="默认清晰度" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DramaDownloadDefaultQuality}" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="DramaQualityCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="分集下载并发" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding DramaDownloadConcurrent}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />

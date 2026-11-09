@@ -32,8 +32,7 @@ public static class DramaDownloadQueueStore
             .Where(i => !string.IsNullOrWhiteSpace(i.Title) || !string.IsNullOrWhiteSpace(i.BookId))
             .ToList();
         state.DownloadConcurrent = Math.Clamp(state.DownloadConcurrent, 1, 10);
-        if (string.IsNullOrWhiteSpace(state.DefaultQuality))
-            state.DefaultQuality = "1080P";
+        state.DefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(state.DefaultQuality);
         if (state.DownloadEpisodeNumberMode is not ("source" or "continuous"))
             state.DownloadEpisodeNumberMode = "source";
         state.CategoryInclude ??= "";

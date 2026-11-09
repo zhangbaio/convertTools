@@ -161,7 +161,8 @@ public partial class DramaDownloadView : UserControl
         if (_vm is null) return;
         foreach (var item in QualityCombo.Items.OfType<ComboBoxItem>())
         {
-            if (string.Equals(item.Content?.ToString(), _vm.DefaultQuality, StringComparison.OrdinalIgnoreCase))
+            var quality = item.Tag as string ?? item.Content?.ToString();
+            if (string.Equals(quality, _vm.DefaultQuality, StringComparison.OrdinalIgnoreCase))
                 QualityCombo.SelectedItem = item;
         }
         foreach (var item in EpisodeModeCombo.Items.OfType<ComboBoxItem>())
@@ -174,7 +175,7 @@ public partial class DramaDownloadView : UserControl
     private void OnQualityChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_vm is null || QualityCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.DefaultQuality = item.Content?.ToString() ?? "1080P";
+        _vm.DefaultQuality = item.Tag as string ?? item.Content?.ToString() ?? "1080P";
     }
 
     private void OnEpisodeModeChanged(object? sender, SelectionChangedEventArgs e)

@@ -368,13 +368,23 @@ public static class ClientSettingsStore
         Save(settings, databasePath);
     }
 
+    public static string NormalizeDramaDownloadQuality(string? quality)
+    {
+        var text = (quality ?? "").Trim();
+        if (text.Contains("1080", StringComparison.OrdinalIgnoreCase) && text.Contains('+'))
+            return "1080P+";
+        if (text.Contains("720", StringComparison.OrdinalIgnoreCase))
+            return "720P";
+        if (text.Contains("1080", StringComparison.OrdinalIgnoreCase))
+            return "1080P";
+        return "1080P";
+    }
+
     private static ClientSettings Normalize(ClientSettings settings)
     {
         settings.DramaSourceChain = VisibleDramaSource.Normalize(settings.DramaSourceChain);
 
-        settings.DramaDownloadDefaultQuality = string.IsNullOrWhiteSpace(settings.DramaDownloadDefaultQuality)
-            ? "1080P"
-            : settings.DramaDownloadDefaultQuality.Trim();
+        settings.DramaDownloadDefaultQuality = NormalizeDramaDownloadQuality(settings.DramaDownloadDefaultQuality);
         settings.DramaDownloadConcurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
         settings.DramaDownloadMaxParallelProjects = Math.Clamp(
             settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
