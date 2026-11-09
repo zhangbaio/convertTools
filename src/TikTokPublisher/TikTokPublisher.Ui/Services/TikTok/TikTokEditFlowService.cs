@@ -631,6 +631,11 @@ public static class TikTokEditFlowService
             if (allowDetailRecheck)
             {
                 var rechecked = await RecheckDraftOnDetailAsync(page, normalized, lastSeenRow, log, ct);
+                if (rechecked is null)
+                {
+                    log?.Invoke("详情页没打开，再确认一次提交状态。");
+                    rechecked = await RecheckDraftOnDetailAsync(page, normalized, lastSeenRow, log, ct);
+                }
                 if (rechecked is not null)
                     return rechecked;
             }

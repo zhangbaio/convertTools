@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
@@ -907,6 +908,7 @@ public static partial class TikTokBrowserActions
         }
 
         var deleted = 0;
+        var misses = 0;
         for (var guard = 0; guard < 500; guard++)
         {
             ct.ThrowIfCancellationRequested();
@@ -914,8 +916,21 @@ public static partial class TikTokBrowserActions
             if (count <= keepCount) break;
 
             var clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
+            if (await HoverDeletePointAsync(page, clickResult))
+                clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
             if (!TryReadClickedEditVideoRow(clickResult, out var slot, out var uid, out _))
+            {
+                if (IsRetryableDeleteMiss(clickResult) && misses < 2)
+                {
+                    misses++;
+                    await page.WaitForTimeoutAsync(600);
+                    continue;
+                }
+
                 throw new InvalidOperationException($"未找到错位行的删除按钮（{clickResult}）。");
+            }
+
+            misses = 0;
 
             planned = Math.Max(planned, deleted + Math.Max(0, count - keepCount));
             await ConfirmDeleteDialogIfPresentAsync(page, ct);
@@ -936,6 +951,39 @@ public static partial class TikTokBrowserActions
         }
         return deleted;
     }
+
+    internal static bool TryReadHoverPoint(string result, out float x, out float y)
+    {
+        x = 0;
+        y = 0;
+        if (string.IsNullOrWhiteSpace(result) ||
+            !result.StartsWith("need-hover:", StringComparison.Ordinal))
+            return false;
+
+        var parts = result.Split(':');
+        if (parts.Length < 4)
+            return false;
+        return float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out x) &&
+               float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out y) &&
+               x >= 0 &&
+               y >= 0;
+    }
+
+    internal static async Task<bool> HoverDeletePointAsync(IPage page, string result)
+    {
+        if (!TryReadHoverPoint(result, out var x, out var y))
+            return false;
+
+        await page.Mouse.MoveAsync(x, y);
+        await page.WaitForTimeoutAsync(280);
+        return true;
+    }
+
+    internal static bool IsRetryableDeleteMiss(string result) =>
+        result.StartsWith("no-button:", StringComparison.Ordinal) ||
+        result.StartsWith("need-hover:", StringComparison.Ordinal) ||
+        result.StartsWith("disabled:", StringComparison.Ordinal) ||
+        result.StartsWith("not-rendered:", StringComparison.Ordinal);
 
     internal static bool TryReadClickedEditVideoRow(
         string clickResult,
@@ -1091,7 +1139,12 @@ public static partial class TikTokBrowserActions
                 hoverRow(target.tr);
                 await sleep(60);
                 const button = findDeleteButton(target.tr);
-                if (!button) return `no-button:${target.slot}\t${target.text || ''}`;
+                if (!button) {
+                  const box = target.tr.getBoundingClientRect();
+                  const x = Math.round(box.x + box.width / 2);
+                  const y = Math.round(box.y + box.height / 2);
+                  return `need-hover:${target.slot}:${x}:${y}`;
+                }
                 if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
                   return `disabled:${target.slot}\t${target.text || ''}`;
                 }
