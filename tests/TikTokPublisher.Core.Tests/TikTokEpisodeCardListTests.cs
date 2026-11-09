@@ -44,6 +44,21 @@ public sealed class TikTokEpisodeCardListTests
     }
 
     [Fact]
+    public void ShiftedTail_IsMisalignedFromTheFirstWrongSlot()
+    {
+        var rows = Enumerable.Range(1, 150)
+            .Select(episode => new TikTokBrowserActions.EditVideoRow(episode, episode))
+            .Append(new TikTokBrowserActions.EditVideoRow(151, 152))
+            .Append(new TikTokBrowserActions.EditVideoRow(152, 153))
+            .Append(new TikTokBrowserActions.EditVideoRow(153, 154))
+            .Append(new TikTokBrowserActions.EditVideoRow(154, 155))
+            .Append(new TikTokBrowserActions.EditVideoRow(155, 151))
+            .ToArray();
+
+        TikTokBrowserActions.FindAlignedEditVideoPrefixCount(rows).Should().Be(150);
+    }
+
+    [Fact]
     public void SeriesListRow_TranslatesUntranslatedStatusKeys()
     {
         TikTokSeriesListLookupService.TranslateUntranslatedStatusKeys(

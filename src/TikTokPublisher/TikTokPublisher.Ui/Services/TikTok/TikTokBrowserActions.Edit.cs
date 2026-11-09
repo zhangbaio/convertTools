@@ -414,7 +414,8 @@ public static partial class TikTokBrowserActions
         }
 
         var tableRowCount = await ReadEditVideoTableRowCountAsync(page);
-        if (ShouldRebuildOverfilledEditVideoTable(tableRowCount, expectedCount))
+        if (ShouldRebuildOverfilledEditVideoTable(tableRowCount, expectedCount) &&
+            FindAlignedEditVideoPrefixCount(rows) == 0)
         {
             Log(log,
                 $"TikTok 草稿正片已有 {tableRowCount}/{expectedCount} 行，检测到多传视频；" +
@@ -447,6 +448,13 @@ public static partial class TikTokBrowserActions
                     $"删除第{firstBad}集及其后所有行并从第{firstBad}集起重传补齐。");
                 await DeleteEditVideoRowsFromSlotAsync(page, aligned, log, ct);
                 missingPaths = uploadPaths.Skip(aligned).ToList();
+            }
+            else if (ShouldTrimExtraEditVideoRows(tableRowCount, expectedCount) && aligned >= expectedCount)
+            {
+                Log(log,
+                    $"TikTok 草稿前 {expectedCount} 集顺序正确，表格另有 {tableRowCount - expectedCount} 行，只删除多出的行。");
+                await DeleteEditVideoRowsFromSlotAsync(page, expectedCount, log, ct);
+                return;
             }
             else if (tableRowCount >= expectedCount && rows.Count < expectedCount)
             {
@@ -693,7 +701,7 @@ public static partial class TikTokBrowserActions
             await WaitVideoUploadFinishedAsync(
                 page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
                 videoPaths: missingPaths);
-            await EnsureEditVideoTableCountMatchesAsync(page, expectedCount, log);
+            await FinishEditVideoUploadAsync(page, payload, options, expectedCount, log, ct);
             return;
         }
 
@@ -734,13 +742,78 @@ public static partial class TikTokBrowserActions
         await WaitVideoUploadFinishedAsync(
             page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
             videoPaths: missingPaths);
-        await EnsureEditVideoTableCountMatchesAsync(page, expectedCount, log);
+        await FinishEditVideoUploadAsync(page, payload, options, expectedCount, log, ct);
+    }
+
+    private static int _misalignmentRepairDepth;
+
+    /// <summary>
+    /// 补传过程中可能把某一集补到列表末尾，后面的集整体前移。行数对上也不算完成，先删掉错位的那一段再补传。
+    /// </summary>
+    private static async Task<bool> TryRepairMisalignedSuffixAsync(
+        IPage page,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        int expectedCount,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (_misalignmentRepairDepth > 0)
+            return false;
+
+        List<EditVideoRow> rows;
+        try
+        {
+            rows = await ReadEditVideoRowsAsync(page, ct);
+        }
+        catch (Exception ex)
+        {
+            Log(log, $"补传后读取正片顺序失败（{ex.Message}）。");
+            return false;
+        }
+
+        if (rows.Count == 0)
+            return false;
+
+        var aligned = FindAlignedEditVideoPrefixCount(rows);
+        if (aligned >= rows.Count)
+            return false;
+
+        _misalignmentRepairDepth++;
+        try
+        {
+            var firstBad = aligned + 1;
+            Log(log,
+                $"补传后第{firstBad}集起顺序仍不对（共 {rows.Count} 行），删除第{firstBad}集及其后所有行并重新补传。");
+            await DeleteEditVideoRowsFromSlotAsync(page, aligned, log, ct);
+            await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
+            return true;
+        }
+        finally
+        {
+            _misalignmentRepairDepth--;
+        }
+    }
+
+    private static async Task FinishEditVideoUploadAsync(
+        IPage page,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        int expectedCount,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (await TryRepairMisalignedSuffixAsync(page, payload, options, expectedCount, log, ct))
+            return;
+
+        await EnsureEditVideoTableCountMatchesAsync(page, expectedCount, log, ct);
     }
 
     private static async Task EnsureEditVideoTableCountMatchesAsync(
         IPage page,
         int expectedCount,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken ct)
     {
         var rowCount = await ReadEditVideoTableRowCountAsync(page);
         if (rowCount <= 0)
@@ -867,8 +940,15 @@ public static partial class TikTokBrowserActions
         return aligned;
     }
 
+    internal const int MaxSmallExtraEditVideoRows = 3;
+
+    internal static bool ShouldTrimExtraEditVideoRows(int tableRowCount, int expectedCount) =>
+        expectedCount > 0 &&
+        tableRowCount > expectedCount &&
+        tableRowCount - expectedCount <= MaxSmallExtraEditVideoRows;
+
     internal static bool ShouldRebuildOverfilledEditVideoTable(int tableRowCount, int expectedCount) =>
-        expectedCount > 0 && tableRowCount > expectedCount;
+        expectedCount > 0 && tableRowCount - expectedCount > MaxSmallExtraEditVideoRows;
 
     private static bool TryReadIntProperty(JsonElement item, string name, out int value)
     {

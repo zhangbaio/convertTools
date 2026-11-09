@@ -79,7 +79,9 @@ public sealed class TikTokFileUploadTransportTests
 
     [Theory]
     [InlineData(81, 39, true)]
-    [InlineData(40, 39, true)]
+    [InlineData(43, 39, true)]
+    [InlineData(42, 39, false)]
+    [InlineData(40, 39, false)]
     [InlineData(39, 39, false)]
     [InlineData(38, 39, false)]
     public void Overfilled_edit_video_table_is_rebuilt_from_episode_one(
@@ -89,6 +91,31 @@ public sealed class TikTokFileUploadTransportTests
     {
         TikTokBrowserActions.ShouldRebuildOverfilledEditVideoTable(tableRowCount, expectedCount)
             .Should().Be(expected);
+    }
+
+    [Theory]
+    [InlineData(156, 155, true)]
+    [InlineData(158, 155, true)]
+    [InlineData(159, 155, false)]
+    [InlineData(155, 155, false)]
+    public void A_few_extra_edit_rows_are_trimmed_instead_of_rebuilding(
+        int tableRowCount,
+        int expectedCount,
+        bool expected)
+    {
+        TikTokBrowserActions.ShouldTrimExtraEditVideoRows(tableRowCount, expectedCount)
+            .Should().Be(expected);
+    }
+
+    [Fact]
+    public void Full_table_overrides_a_ready_count_that_is_one_short()
+    {
+        TikTokBrowserActions.PreferFullTableRowCount(154, 155, 155, uploading: false, waitingCount: 0)
+            .Should().Be(155);
+        TikTokBrowserActions.PreferFullTableRowCount(153, 155, 155, uploading: true, waitingCount: 0)
+            .Should().Be(153);
+        TikTokBrowserActions.PreferFullTableRowCount(154, 154, 155, uploading: false, waitingCount: 0)
+            .Should().Be(154);
     }
 
     [Theory]

@@ -112,11 +112,25 @@ public static partial class TikTokBrowserActions
                 await ReadUploadTableTextsAsync(page));
             var uploading = activity.Uploading;
             var waitingCount = activity.WaitingCount;
-            if (uploadedCount is null && !uploading && waitingCount == 0)
+            if ((uploadedCount is null || uploadedCount.Value < expectedCount) &&
+                !uploading &&
+                waitingCount == 0 &&
+                expectedCount > 0)
             {
-                var domCount = await ReadEpisodeListCountAsync(page).ConfigureAwait(false);
-                if (domCount is > 0)
+                var domCount = await ReadEpisodeListCountAsync(page).ConfigureAwait(false) ?? 0;
+                var trusted = PreferFullTableRowCount(
+                    uploadedCount, domCount, expectedCount, uploading, waitingCount);
+                if (trusted is not null && trusted != uploadedCount)
+                {
+                    Log(log,
+                        $"正文显示已就绪 {uploadedCount?.ToString() ?? "识别中"}/{expectedCount}，" +
+                        $"正片表格已有 {domCount} 行，按表格行数视为传完，不再补传。");
+                    uploadedCount = trusted;
+                }
+                else if (uploadedCount is null && domCount > 0)
+                {
                     uploadedCount = domCount;
+                }
             }
             var emptyQueue = TikTokUploadProgressParser.IsClearlyEmptyUploadQueue(
                 bodyText,
@@ -216,6 +230,17 @@ public static partial class TikTokBrowserActions
                             $"TikTok 视频上传疑似单集卡死：当前已就绪 {countLabel}/{expectedCount}，等待中 0 个，自动补传 {inactiveIncompleteRepairAttempts} 次后仍未完成。");
                     }
 
+                    var tableRowCount = await ReadEpisodeListCountAsync(page).ConfigureAwait(false) ?? 0;
+                    if (tableRowCount >= expectedCount)
+                    {
+                        Log(log,
+                            $"正片表格已有 {tableRowCount} 行，已达到总集数 {expectedCount}，不再重新选择文件，避免多出重复行。");
+                        inactiveIncompleteSince = null;
+                        inactiveIncompleteSignature = null;
+                        lastStatus = "";
+                        continue;
+                    }
+
                     if (!TryResolveInactiveIncompleteUploadPaths(
                             videoPaths,
                             expectedCount,
@@ -296,6 +321,23 @@ public static partial class TikTokBrowserActions
 
         var seriesId = path[seriesPrefix.Length..];
         return seriesId.Length > 0 && seriesId.All(char.IsAsciiDigit);
+    }
+
+    /// <summary>
+    /// 正文里的「已就绪」会少算。表格行数已经到总集数、页面也不在上传时，按表格行数算完成，避免把已在列表里的集再选一次。
+    /// </summary>
+    internal static int? PreferFullTableRowCount(
+        int? readyCount,
+        int tableRowCount,
+        int expectedCount,
+        bool uploading,
+        int waitingCount)
+    {
+        if (expectedCount <= 0 || uploading || waitingCount > 0 || tableRowCount < expectedCount)
+            return readyCount;
+        if (readyCount is null || readyCount.Value < expectedCount)
+            return tableRowCount;
+        return readyCount;
     }
 
     private static bool IsInactiveIncompleteUpload(
