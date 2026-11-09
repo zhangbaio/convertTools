@@ -633,7 +633,11 @@ public static class ClientSettingsStore
     {
         var current = settings.KuaishouPublishInfoPrompt?.Trim() ?? "";
         if (current.Length > 0)
-            return current;
+        {
+            return string.Equals(current, ClientSettingsDefaults.KuaishouPublishInfoPromptPrevious.Trim(), StringComparison.Ordinal)
+                ? ClientSettingsDefaults.KuaishouPublishInfoPrompt
+                : current;
+        }
 
         var legacy = settings.AiFullInfoSystemPrompt?.Trim() ?? "";
         return legacy.Length > 0 &&

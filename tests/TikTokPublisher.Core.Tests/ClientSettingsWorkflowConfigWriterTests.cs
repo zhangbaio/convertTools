@@ -182,6 +182,11 @@ public sealed class ClientSettingsWorkflowConfigWriterTests
                 AiFullInfoSystemPrompt = "我改过的快手提示词",
             })
             .Should().Be("新的快手提示词");
+        ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(new ClientSettings
+            {
+                KuaishouPublishInfoPrompt = ClientSettingsDefaults.KuaishouPublishInfoPromptPrevious,
+            })
+            .Should().Be(ClientSettingsDefaults.KuaishouPublishInfoPrompt);
     }
 
     [Fact]
