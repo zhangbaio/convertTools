@@ -2466,43 +2466,65 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             step);
                 }
 
-                if (request.Download && !preserved.Contains("download"))
+                if (request.Download)
                 {
-                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在下载剧集");
                     var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
-                    SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
-                    if (KuaishouDownloadPolicy.ShouldSkip(projectDirectory))
+                    if (!preserved.Contains("download"))
                     {
-                        AppendActivityLog("本地导入项目已有视频，跳过下载。", projectName);
-                    }
-                    else
-                    {
-                        var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-                        var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, directories.SourceDirectory, "");
-                        try
-                        {
-                            var downloadProgress = new Progress<WorkRunEvent>(item =>
-                            {
-                                if (!string.IsNullOrWhiteSpace(item.Message))
-                                    AppendActivityLog(item.Message, projectName);
-                            });
-                            var downloaded = await _workService.RunProjectStepAsync(
-                                directories.SourceDirectory,
-                                null,
-                                "download",
-                                request.Force,
-                                downloadProgress,
-                                cancellationToken,
-                                runtimeConfigPath);
-                            if (!downloaded.Ok)
-                                throw new InvalidOperationException(downloaded.Message ?? "下载剧集失败。");
-                        }
-                        finally
-                        {
-                            TryDeleteKuaishouRuntimeConfig(runtimeConfigPath);
-                        }
-
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在下载剧集");
                         SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
+                        if (KuaishouDownloadPolicy.ShouldSkip(projectDirectory))
+                        {
+                            AppendActivityLog("本地导入项目已有视频，跳过下载。", projectName);
+                        }
+                        else
+                        {
+                            var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                            var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, directories.SourceDirectory, "");
+                            try
+                            {
+                                var downloadProgress = new Progress<WorkRunEvent>(item =>
+                                {
+                                    if (!string.IsNullOrWhiteSpace(item.Message))
+                                        AppendActivityLog(item.Message, projectName);
+                                });
+                                var downloaded = await _workService.RunProjectStepAsync(
+                                    directories.SourceDirectory,
+                                    null,
+                                    "download",
+                                    request.Force,
+                                    downloadProgress,
+                                    cancellationToken,
+                                    runtimeConfigPath);
+                                if (!downloaded.Ok)
+                                    throw new InvalidOperationException(downloaded.Message ?? "下载剧集失败。");
+                            }
+                            finally
+                            {
+                                TryDeleteKuaishouRuntimeConfig(runtimeConfigPath);
+                            }
+
+                            SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
+                        }
+                    }
+
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在检查视频能否播放");
+                    try
+                    {
+                        await _dramaDownloader.EnsureVideosPlayableAsync(
+                            directories.SourceDirectory,
+                            ListDownloadedVideos(projectDirectory),
+                            new Progress<string>(message => AppendActivityLog(message, projectName)),
+                            cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Failed, ex.Message);
+                        throw;
                     }
 
                     await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Succeeded, "执行完成");
@@ -4986,5 +5008,46 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AssignCheckedToCurrentAccountCommand.NotifyCanExecuteChanged();
         PreviousWorkflowPageCommand.NotifyCanExecuteChanged();
         NextWorkflowPageCommand.NotifyCanExecuteChanged();
+    }
+
+    private static IReadOnlyList<string> ListDownloadedVideos(string projectDirectory)
+    {
+        var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+        var roots = new[]
+        {
+            directories.SourceDirectory,
+            Path.Combine(directories.SourceDirectory, "videos"),
+            Path.Combine(directories.WorkflowDirectory, "videos"),
+        };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paths = new List<string>();
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root))
+                continue;
+            foreach (var path in Directory.EnumerateFiles(root))
+            {
+                if (!IsDownloadedVideo(path))
+                    continue;
+                var full = Path.GetFullPath(path);
+                if (seen.Add(full))
+                    paths.Add(full);
+            }
+        }
+
+        return paths;
+    }
+
+    private static bool IsDownloadedVideo(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".mov", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".m4v", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".avi", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".flv", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".wmv", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".webm", StringComparison.OrdinalIgnoreCase);
     }
 }

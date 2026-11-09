@@ -1040,6 +1040,25 @@ public sealed class QueueWorkerRunner
             var stepAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
             if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
+                if (string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        await QueueMaterialStepService.EnsureDownloadedVideosPlayableAsync(
+                            item.ProjectDir,
+                            message => Report(onProgress, workspace, item, message, stepKey),
+                            ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException ex)
+                    {
+                        throw new QueueStepCanceledException(stepKey, ex);
+                    }
+                    catch (Exception ex) when (ex is not QueueStepCanceledException)
+                    {
+                        throw new QueueStepExecutionException(stepKey, ex);
+                    }
+                }
+
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
                 return;
             }

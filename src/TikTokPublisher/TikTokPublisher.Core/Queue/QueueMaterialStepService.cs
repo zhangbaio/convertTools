@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.AI;
 using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Drama;
@@ -122,6 +123,7 @@ public static class QueueMaterialStepService
             {
                 ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
                 ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+                await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct).ConfigureAwait(false);
                 return;
             }
 
@@ -144,6 +146,22 @@ public static class QueueMaterialStepService
         EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, expectedEpisodeNumbers, log);
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+        await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct).ConfigureAwait(false);
+    }
+
+    internal static async Task EnsureDownloadedVideosPlayableAsync(
+        string sourceProjectDir,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        if (ShortDramaDramaServices.Downloader is not DramaSourceRouter router)
+            throw new InvalidOperationException("当前下载器不能检查视频能否播放。");
+        var videos = ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir);
+        await router.EnsureVideosPlayableAsync(
+            sourceProjectDir,
+            videos,
+            new Progress<string>(log),
+            ct).ConfigureAwait(false);
     }
 
     internal static bool ShouldUseExistingVideosToRepairFailedDownload(bool forceRerun) => !forceRerun;
@@ -1161,7 +1179,7 @@ public static class QueueMaterialStepService
             "hglocal" => "本地直连",
             "pikachu" => "皮卡丘",
             "playlet" => "红果短剧下载器",
-            "hongguoapp" => "红果APP下载",
+            "hongguoapp" => "红果APP",
             "dramabox" => "DramaBox",
             "foreign" => "海外短剧下载器",
             _ => "红果新接口",

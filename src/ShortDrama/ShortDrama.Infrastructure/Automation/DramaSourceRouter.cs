@@ -9,6 +9,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 
 namespace ShortDrama.Infrastructure.Automation;
@@ -514,6 +515,49 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         return SortByPublishTimeDescending(merged);
+    }
+
+    public async Task EnsureVideosPlayableAsync(
+        string stateDirectory,
+        IReadOnlyList<string> paths,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (paths.Count == 0)
+            throw PlaybackCheckFailed(stateDirectory, "没有视频文件，下载未完成。");
+
+        progress?.Report($"正在检查 {paths.Count} 个视频能否播放。");
+        var failedEpisodes = new List<int>();
+        var failedNames = new List<string>();
+        for (var index = 0; index < paths.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = paths[index];
+            if ((index + 1) % 10 == 0 || index + 1 == paths.Count)
+                progress?.Report($"播放检查 {index + 1}/{paths.Count}");
+            if (await HasFfmpegSupportedVideoAsync(path, cancellationToken).ConfigureAwait(false))
+                continue;
+            if (TryReadEpisodeNumber(path, out var episode))
+                failedEpisodes.Add(episode);
+            else
+                failedNames.Add(Path.GetFileName(path));
+        }
+
+        if (failedEpisodes.Count == 0 && failedNames.Count == 0)
+        {
+            progress?.Report($"播放检查通过：{paths.Count} 个视频都可以播放。");
+            return;
+        }
+
+        var labels = failedEpisodes
+            .Distinct()
+            .Order()
+            .Select(episode => $"第{episode}集")
+            .Concat(failedNames)
+            .ToArray();
+        throw PlaybackCheckFailed(
+            stateDirectory,
+            $"{string.Join("、", labels)}无法播放，当前 FFmpeg 不支持该编码。下载未完成，请更换剧集或更换下载链路。");
     }
 
     public async Task<bool> HasFfmpegSupportedVideoAsync(string path, CancellationToken cancellationToken)
@@ -3617,6 +3661,45 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         return int.TryParse(stem[1..^1].Trim(), out var fileEpisodeNumber) &&
                fileEpisodeNumber == outputEpisodeNumber;
+    }
+
+    private static InvalidOperationException PlaybackCheckFailed(string stateDirectory, string message)
+    {
+        RecordUnplayableDownload(stateDirectory, message);
+        return new InvalidOperationException(message);
+    }
+
+    private static void RecordUnplayableDownload(string directory, string message)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            return;
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, DownloadStateFileName);
+            var root = File.Exists(path)
+                ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject()
+                : new JsonObject();
+            root["ok"] = false;
+            root["stopped"] = false;
+            root["message"] = message;
+            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static bool TryReadEpisodeNumber(string path, out int episode)
+    {
+        episode = 0;
+        var name = Path.GetFileNameWithoutExtension(path);
+        var start = name.IndexOf('第');
+        var end = start < 0 ? -1 : name.IndexOf('集', start + 1);
+        return start >= 0 &&
+               end > start &&
+               int.TryParse(name[(start + 1)..end].Trim(), out episode) &&
+               episode > 0;
     }
 
     private static void WriteDownloadState(
