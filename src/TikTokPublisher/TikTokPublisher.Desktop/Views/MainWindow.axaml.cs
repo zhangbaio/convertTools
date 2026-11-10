@@ -112,6 +112,7 @@ public partial class MainWindow : Window
         _viewModel.NavigatePageRequested += NavigateTo;
         _viewModel.RemoteQueueRunRequested += QueueView.StartQueueRunFromRemoteAsync;
         _viewModel.RemoteAllQueueRunRequested += QueueView.StartAllQueueRunFromRemoteAsync;
+        _viewModel.CheckedQueueRunRequested += QueueView.StartCheckedQueueLikeButtonAsync;
         _viewModel.StartXingeRemoteCommandService();
         _accountInventorySync.StatusChanged += _viewModel.AppendLog;
         _accountInventorySync.Start();

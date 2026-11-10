@@ -4020,6 +4020,18 @@ public partial class TikTokQueueView : UserControl
         return await started.Task;
     }
 
+    // 自动派单和手点「执行勾选队列」走同一入口：不传项目名单，不覆盖步骤勾选。
+    public Task<bool> StartCheckedQueueLikeButtonAsync()
+    {
+        var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var runTask = StartQueueRunAsync(
+            confirmForceRerun: false,
+            localCheckedQueue: true,
+            onWorkerStarted: () => started.TrySetResult(true));
+        _ = ObserveRemoteQueueRunAsync(runTask, started);
+        return started.Task;
+    }
+
     private async Task ObserveRemoteQueueRunAsync(
         Task<bool> runTask,
         TaskCompletionSource<bool> started)
@@ -4228,6 +4240,7 @@ public partial class TikTokQueueView : UserControl
             if (queueRunStarted)
                 vm.EndQueueRun();
             RefreshQueueRunButtons();
+            vm.NotifyCheckedQueueRunFinished(runWorkspaceRoot);
         }
 
         return workerReturnedSummary;

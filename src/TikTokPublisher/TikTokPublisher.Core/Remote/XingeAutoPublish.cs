@@ -5,6 +5,15 @@ using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Remote;
 
+// 服务端通知某账号今日上传已达上限后，到 until 之前不再为它扫描、恢复、重试失败项目或启动新的自动派单。
+public static class XingeQuotaFull
+{
+    public static bool IsHeld(DateTimeOffset until, DateTimeOffset now) => now < until;
+
+    // 今日上传数已经达标时，之前失败或还在下载的派单都不再恢复。
+    public static bool ShouldSkipRecovery(bool accountFull, string? status) => accountFull;
+}
+
 public static class XingeAutoPublishStatuses
 {
     public const string Accepted = "accepted";
@@ -17,13 +26,14 @@ public static class XingeAutoPublishStatuses
         status is Success or Failed;
 }
 
-// 与 XINGE 服务端 failure_kind 取值一致：账号类失败会暂停账号当日派单，source 会拉黑剧目，upload 按次数重试。
+// 与 XINGE 服务端 failure_kind 取值一致：账号类失败会暂停账号当日派单，source 会拉黑剧目，download 再执行勾选队列，upload 按上传失败处理。
 public static class XingeAutoPublishFailureKinds
 {
     public const string AccountLogin = "account_login";
     public const string AccountDailyLimit = "account_daily_limit";
     public const string AccountRemoteDisabled = "account_remote_disabled";
     public const string Source = "source";
+    public const string Download = "download";
     public const string Upload = "upload";
     public const string QueueBusy = "queue_busy";
     public const string Interrupted = "interrupted";
@@ -141,6 +151,21 @@ public static class XingeAutoPublishMarkerStore
 
     public static bool IsActive(string? projectDir) => TryRead(projectDir)?.IsActive == true;
 
+    // 今天派到这个账号的剧保持勾选。以标记写入时的本机日期为准，已完成或已失败的也留着。
+    public static bool ShouldKeepChecked(XingeAutoPublishMarker? marker, string? accountProfileId, DateTime localDay)
+    {
+        if (marker is null || marker.AssignmentId <= 0 || marker.CreatedAt == default)
+            return false;
+        if (marker.CreatedAt.ToLocalTime().Date != localDay.Date)
+            return false;
+
+        var markerAccount = (marker.AccountProfileId ?? "").Trim();
+        var account = (accountProfileId ?? "").Trim();
+        return markerAccount.Length == 0
+            || account.Length == 0
+            || string.Equals(markerAccount, account, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static void MarkFinal(string projectDir, long assignmentId, string finalStatus)
     {
         var marker = TryRead(projectDir);
@@ -188,7 +213,9 @@ public static class XingeAutoPublishFailureClassifier
             return XingeAutoPublishFailureKinds.AccountDailyLimit;
         if (ContainsAny(text, AccountLoginKeywords))
             return XingeAutoPublishFailureKinds.AccountLogin;
-        return stepKey is QueueStepRegistry.Download or QueueStepRegistry.MaterialValidate
+        if (stepKey == QueueStepRegistry.Download)
+            return XingeAutoPublishFailureKinds.Download;
+        return stepKey == QueueStepRegistry.MaterialValidate
             ? XingeAutoPublishFailureKinds.Source
             : XingeAutoPublishFailureKinds.Upload;
     }
@@ -224,11 +251,13 @@ public enum XingeAutoPublishRecoveryAction
 
 public static class XingeAutoPublishRecovery
 {
+    public const string NotExecutableDetail = "目标目录没有可执行项目";
+
     // 命令还停在 dispatched 时由服务端重投，客户端不用另报。已接收但本地没有项目才回报中断。
     public static XingeAutoPublishRecoveryAction Decide(string? serverStatus, XingeAutoPublishMarker? marker, bool projectExists)
     {
         var status = (serverStatus ?? "").Trim().ToLowerInvariant();
-        if (status is "success" or "failed" or "released")
+        if (status is "success" or "failed" or "released" or "retry_wait")
             return XingeAutoPublishRecoveryAction.None;
         if (string.Equals(marker?.FinalStatus, XingeAutoPublishStatuses.Success, StringComparison.OrdinalIgnoreCase))
             return XingeAutoPublishRecoveryAction.ReportSuccess;
@@ -237,5 +266,55 @@ public static class XingeAutoPublishRecovery
         if (status is "accepted" or "running")
             return XingeAutoPublishRecoveryAction.ReportInterrupted;
         return XingeAutoPublishRecoveryAction.None;
+    }
+}
+
+public static class XingeAutoPublishRecoveryQueue
+{
+    /// <summary>
+    /// 恢复执行前只重新勾选这些项目。已完成步骤保留，失败和已停止留给队列开跑时再改回待执行。
+    /// 返回顺序与 <paramref name="projectDirs"/> 一致。
+    /// </summary>
+    public static IReadOnlyList<QueueProjectItem> EnableForResume(
+        IEnumerable<QueueProjectItem> items,
+        IReadOnlyCollection<string> projectDirs)
+    {
+        var byDir = new Dictionary<string, QueueProjectItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in items)
+        {
+            if (item is null || item.Archived || string.IsNullOrWhiteSpace(item.ProjectDir))
+                continue;
+            var full = Normalize(item.ProjectDir);
+            if (full.Length == 0 || byDir.ContainsKey(full))
+                continue;
+            byDir[full] = item;
+        }
+
+        var enabled = new List<QueueProjectItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var projectDir in projectDirs)
+        {
+            var full = Normalize(projectDir);
+            if (full.Length == 0 || !seen.Add(full) || !byDir.TryGetValue(full, out var item))
+                continue;
+            item.Enabled = true;
+            enabled.Add(item);
+        }
+
+        return enabled;
+    }
+
+    private static string Normalize(string? projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+            return "";
+        try
+        {
+            return Path.GetFullPath(projectDir);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return "";
+        }
     }
 }
