@@ -1,0 +1,213 @@
+using FluentAssertions;
+using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services.VideoDedup;
+
+namespace TikTokPublisher.Core.Tests;
+
+public sealed class VideoDedupTests
+{
+    [Fact]
+    public void Step_order_puts_dedup_after_download_and_retires_source_deletion()
+    {
+        QueueStepRegistry.All.Select(step => step.Key).Should().ContainInOrder(
+            QueueStepKeys.Download,
+            QueueStepKeys.VideoDedup,
+            QueueStepKeys.RewriteInfo);
+        QueueStepRegistry.All.Select(step => step.Key).Should().NotContain(QueueStepKeys.DeleteSourceVideos);
+        QueueStepRegistry.UserSelectable.Select(step => step.Key).Should().Contain(QueueStepKeys.VideoDedup);
+        QueueStepRegistry.LabelOf(QueueStepKeys.VideoDedup).Should().Be("视频去重");
+
+        var options = QueueRunOptions.FromDictionary(new Dictionary<string, object?>
+        {
+            ["enabled_steps"] = new List<object?> { "download", "delete_source_videos", "video_dedup" },
+        });
+        options.EnabledSteps.Should().Equal(QueueStepKeys.Download, QueueStepKeys.VideoDedup);
+    }
+
+    [Fact]
+    public void Importer_reads_the_processor_default_preset()
+    {
+        const string json = """
+            {
+              "schemaVersion": 1,
+              "name": "默认方案",
+              "encodingPreference": "HardwareFirst",
+              "parallel": 2,
+              "minimumDurationSeconds": null,
+              "maximumDurationSeconds": null,
+              "steps": [
+                { "type": "fps", "fps": 30 },
+                { "type": "videoEncode", "codec": "h264", "bitrateMode": "Variable", "bitrateKbps": 4200 },
+                { "type": "audioEncode", "codec": "aac" }
+              ]
+            }
+            """;
+
+        var preset = VideoDedupPresetImporter.FromProcessorJson(json);
+
+        preset.Name.Should().Be("默认方案");
+        preset.EncodingPreference.Should().Be(VideoDedupPreset.EncodingHardwareFirst);
+        preset.Parallel.Should().Be(2);
+        preset.Fps.Should().Be(30);
+        preset.VideoCodec.Should().Be("h264");
+        preset.BitrateMode.Should().Be(VideoDedupPreset.BitrateVbr);
+        preset.VideoBitrateMbps.Should().Be(4.2);
+        preset.AudioCodec.Should().Be("aac");
+        preset.HasDurationLimit.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Duration_limit_merges_a_short_tail_and_keeps_whole_episodes()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.MinimumDurationSeconds = 60;
+        preset.MaximumDurationSeconds = 100;
+        preset.Normalize();
+
+        var groups = VideoDedupPlanner.Group([80, 80, 20], preset);
+
+        groups.Should().HaveCount(2);
+        groups[0].Should().Equal(0);
+        groups[1].Should().Equal(1, 2);
+    }
+
+    [Fact]
+    public void Default_encode_arguments_use_h264_vbr_and_aac()
+    {
+        var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();
+        var clip = new VideoDedupClip(
+            "episode-1.mp4",
+            new VideoDedupProbe(12, 1080, 1920, true));
+
+        var args = VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 3);
+        var joined = string.Join(" ", args);
+
+        joined.Should().Contain("-c:v libx264");
+        joined.Should().Contain("-b:v 4200k");
+        joined.Should().Contain("-r 30");
+        joined.Should().Contain("-c:a aac");
+        joined.Should().Contain("scale=1080:1920");
+        args[^1].Should().Be("out.mp4");
+    }
+
+    [Fact]
+    public async Task Run_replaces_visible_videos_and_keeps_originals()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "video-dedup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var source = Path.Combine(root, "01.mp4");
+        await File.WriteAllBytesAsync(source, [1, 2, 3, 4]);
+        VideoDedupService.ProbeForTests = (_, _) =>
+            Task.FromResult(new VideoDedupProbe(8, 720, 1280, true));
+        VideoDedupService.EncoderForTests = "libx264";
+        VideoDedupService.RunProcessForTests = (args, _) =>
+        {
+            File.WriteAllBytes(args[^1], [9, 9, 9, 9, 9]);
+            return Task.CompletedTask;
+        };
+        try
+        {
+            var item = new QueueProjectItem { ProjectDir = root, EpisodeCount = 1 };
+            var account = new TikTokAccountProfile { Id = "a1", Name = "账号1" };
+            var logs = new List<string>();
+
+            await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
+
+            item.EpisodeCount.Should().Be(1);
+            (await File.ReadAllBytesAsync(source)).Should().Equal([9, 9, 9, 9, 9]);
+            var archived = Path.Combine(root, "source-originals", "01.mp4");
+            (await File.ReadAllBytesAsync(archived)).Should().Equal([1, 2, 3, 4]);
+            logs.Should().Contain(line => line.Contains("使用内置默认方案", StringComparison.Ordinal));
+
+            logs.Clear();
+            await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
+            logs.Should().Contain(line => line.StartsWith("跳过", StringComparison.Ordinal));
+        }
+        finally
+        {
+            VideoDedupService.ProbeForTests = null;
+            VideoDedupService.EncoderForTests = null;
+            VideoDedupService.RunProcessForTests = null;
+            try { Directory.Delete(root, recursive: true); } catch { /* temp cleanup */ }
+        }
+    }
+
+    [Fact]
+    public async Task Duration_merge_replaces_visible_files_and_updates_episode_count()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "video-dedup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await File.WriteAllBytesAsync(Path.Combine(root, "a.mp4"), [1, 1]);
+        await File.WriteAllBytesAsync(Path.Combine(root, "b.mp4"), [2, 2, 2]);
+        await File.WriteAllTextAsync(
+            Path.Combine(root, ".weixin-channel-download-state.json"),
+            """{"video_count":2}""");
+        VideoDedupService.ProbeForTests = (_, _) =>
+            Task.FromResult(new VideoDedupProbe(15, 1080, 1920, true));
+        VideoDedupService.EncoderForTests = "libx264";
+        VideoDedupService.RunProcessForTests = (args, _) =>
+        {
+            File.WriteAllBytes(args[^1], [8, 8, 8]);
+            return Task.CompletedTask;
+        };
+        try
+        {
+            var preset = VideoDedupPreset.CreateDefault();
+            preset.MinimumDurationSeconds = 20;
+            preset.MaximumDurationSeconds = 40;
+            var item = new QueueProjectItem { ProjectDir = root, EpisodeCount = 2, SourceEpisodeCount = 2 };
+            var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
+
+            await VideoDedupService.RunAsync(item, account, force: false, _ => { }, CancellationToken.None);
+
+            item.EpisodeCount.Should().Be(1);
+            item.SourceEpisodeCount.Should().Be(2);
+            File.Exists(Path.Combine(root, "a.mp4")).Should().BeFalse();
+            File.Exists(Path.Combine(root, "b.mp4")).Should().BeFalse();
+            (await File.ReadAllBytesAsync(Path.Combine(root, "01.mp4"))).Should().Equal([8, 8, 8]);
+            (await File.ReadAllBytesAsync(Path.Combine(root, "source-originals", "a.mp4"))).Should().Equal([1, 1]);
+            (await File.ReadAllBytesAsync(Path.Combine(root, "source-originals", "b.mp4"))).Should().Equal([2, 2, 2]);
+            var state = await File.ReadAllTextAsync(Path.Combine(root, ".weixin-channel-download-state.json"));
+            state.Should().Contain("\"video_count\": 1");
+            state.Should().Contain("\"source_video_count\": 2");
+        }
+        finally
+        {
+            VideoDedupService.ProbeForTests = null;
+            VideoDedupService.EncoderForTests = null;
+            VideoDedupService.RunProcessForTests = null;
+            try { Directory.Delete(root, recursive: true); } catch { /* temp cleanup */ }
+        }
+    }
+
+    [Fact]
+    public async Task Failed_encode_leaves_the_downloaded_video_in_place()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "video-dedup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var source = Path.Combine(root, "01.mp4");
+        await File.WriteAllBytesAsync(source, [4, 5, 6]);
+        VideoDedupService.ProbeForTests = (_, _) =>
+            Task.FromResult(new VideoDedupProbe(8, 720, 1280, true));
+        VideoDedupService.EncoderForTests = "libx264";
+        VideoDedupService.RunProcessForTests = (_, _) => throw new InvalidOperationException("encode failed");
+        try
+        {
+            var item = new QueueProjectItem { ProjectDir = root, EpisodeCount = 1 };
+            var account = new TikTokAccountProfile { Id = "a1", Name = "账号1" };
+            var act = () => VideoDedupService.RunAsync(item, account, force: false, _ => { }, CancellationToken.None);
+
+            await act.Should().ThrowAsync<InvalidOperationException>();
+            (await File.ReadAllBytesAsync(source)).Should().Equal([4, 5, 6]);
+            item.EpisodeCount.Should().Be(1);
+        }
+        finally
+        {
+            VideoDedupService.ProbeForTests = null;
+            VideoDedupService.EncoderForTests = null;
+            VideoDedupService.RunProcessForTests = null;
+            try { Directory.Delete(root, recursive: true); } catch { /* temp cleanup */ }
+        }
+    }
+}

@@ -5,6 +5,7 @@ using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Queue;
 
@@ -1669,6 +1670,16 @@ public sealed class QueueWorkerRunner
                     log,
                     ct).ConfigureAwait(false);
                 break;
+            case QueueStepRegistry.VideoDedup:
+                if (account is null || string.IsNullOrWhiteSpace(account.Id))
+                    throw new InvalidOperationException("项目没有绑定账号，无法读取视频去重预设。");
+                await VideoDedupService.RunAsync(
+                    item,
+                    account,
+                    options.ForceRerunCompletedSteps,
+                    log,
+                    ct).ConfigureAwait(false);
+                break;
             case QueueStepRegistry.RewriteInfo:
                 await QueueMaterialStepService.RunRewriteAsync(
                     item, settings, account, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
@@ -1766,9 +1777,6 @@ public sealed class QueueWorkerRunner
                     options.ForceRerunCompletedSteps || options.RegeneratesCopyrightProofMaterials(),
                     log,
                     ct).ConfigureAwait(false);
-                break;
-            case QueueStepRegistry.DeleteSourceVideos:
-                await QueueMaterialStepService.RunDeleteSourceVideosAsync(item, settings, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.SmallVideoRepair:
                 TikTokSmallVideoRepairService.Repair(item.ProjectDir, item.Title, item.OriginalTitle, log, ct);
@@ -1995,6 +2003,12 @@ public sealed class QueueWorkerRunner
                 return true;
             }
         }
+        if (stepKey == QueueStepRegistry.VideoDedup &&
+            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
+            VideoDedupService.NeedsRun(item.ProjectDir, account?.VideoDedupPreset))
+        {
+            return true;
+        }
         if (stepKey == QueueStepRegistry.SmallVideoRepair &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokSmallVideoRepairService.NeedsRepair(item.ProjectDir))
@@ -2030,7 +2044,7 @@ public sealed class QueueWorkerRunner
     private static bool NeedsDownloadArtifacts(QueueProjectItem item)
     {
         if (item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed ||
-            item.StepStates.GetValueOrDefault(QueueStepRegistry.DeleteSourceVideos) == QueueStepStatus.Completed)
+            item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos) == QueueStepStatus.Completed)
         {
             return false;
         }

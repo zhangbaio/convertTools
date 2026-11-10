@@ -8,6 +8,7 @@ public static class QueueStepRegistry
     public const string UploadSeries = QueueStepKeys.UploadSeries;
     public const string MaterialValidate = QueueStepKeys.MaterialValidate;
     public const string Download = QueueStepKeys.Download;
+    public const string VideoDedup = QueueStepKeys.VideoDedup;
     public const string RewriteInfo = QueueStepKeys.RewriteInfo;
     public const string GeneratePoster = QueueStepKeys.GeneratePoster;
     public const string GenerateEpisodeScript = QueueStepKeys.GenerateEpisodeScript;
@@ -17,8 +18,6 @@ public static class QueueStepRegistry
     public const string GenerateProjectImages = QueueStepKeys.GenerateProjectImages;
     public const string GenerateProofMaterial = QueueStepKeys.GenerateProofMaterial;
     public const string GenerateTimestampCertificate = QueueStepKeys.GenerateTimestampCertificate;
-    public const string DeleteSourceVideos = QueueStepKeys.DeleteSourceVideos;
-
     public const string SmallVideoRepair = QueueStepKeys.SmallVideoRepair;
     public const string VideoTranslate = QueueStepKeys.VideoTranslate;
 
@@ -26,6 +25,7 @@ public static class QueueStepRegistry
     public static IReadOnlyList<QueueStepDefinition> All { get; } = new[]
     {
         new QueueStepDefinition(QueueStepKeys.Download, "下载", true),
+        new QueueStepDefinition(VideoDedup, "视频去重", true),
         new QueueStepDefinition(QueueStepKeys.RewriteInfo, "改写", true),
         new QueueStepDefinition(QueueStepKeys.GeneratePoster, "海报", true),
         new QueueStepDefinition(QueueStepKeys.GenerateEpisodeScript, "剧本", true),
@@ -38,7 +38,6 @@ public static class QueueStepRegistry
         new QueueStepDefinition(SmallVideoRepair, "修复", true),
         new QueueStepDefinition(VideoTranslate, "翻译", true),
         new QueueStepDefinition(MaterialValidate, "校验", true),
-        new QueueStepDefinition(QueueStepKeys.DeleteSourceVideos, "删源", true),
         new QueueStepDefinition(UploadSeries, "上传", true),
     };
 

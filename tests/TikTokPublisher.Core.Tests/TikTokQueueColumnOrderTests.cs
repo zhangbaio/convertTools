@@ -15,9 +15,9 @@ public sealed class TikTokQueueColumnOrderTests
 
         var headers = new[]
         {
-            (7, "下载"), (8, "改写"), (9, "海报"), (10, "剧本"), (11, "AI素材"),
-            (12, "AI大纲"), (13, "角色图"), (14, "证明材料"), (15, "时间戳"),
-            (16, "修复"), (17, "翻译"), (18, "校验"), (19, "删源"), (20, "上传"),
+            (7, "下载"), (8, "视频去重"), (9, "改写"), (10, "海报"), (11, "剧本"),
+            (12, "AI素材"), (13, "AI大纲"), (14, "角色图"), (15, "证明材料"),
+            (16, "时间戳"), (17, "修复"), (18, "翻译"), (19, "校验"), (20, "上传"),
         };
         foreach (var (column, title) in headers)
         {
@@ -26,11 +26,11 @@ public sealed class TikTokQueueColumnOrderTests
 
         var bindings = new[]
         {
-            (7, "DownloadStatus"), (8, "RewriteStatus"), (9, "PosterStatus"),
-            (10, "EpisodeScriptStatus"), (11, "AiDramaMaterialsStatus"), (12, "AiScriptOutlineStatus"),
-            (13, "RoleVectorStatus"), (14, "ProofMaterialStatus"), (15, "TimestampCertificateStatus"),
-            (16, "RepairStatus"), (17, "VideoTranslateStatus"), (18, "ValidateStatus"),
-            (19, "DeleteSourceStatus"), (20, "UploadStatus"),
+            (7, "DownloadStatus"), (8, "DedupStatus"), (9, "RewriteStatus"),
+            (10, "PosterStatus"), (11, "EpisodeScriptStatus"), (12, "AiDramaMaterialsStatus"),
+            (13, "AiScriptOutlineStatus"), (14, "RoleVectorStatus"), (15, "ProofMaterialStatus"),
+            (16, "TimestampCertificateStatus"), (17, "RepairStatus"), (18, "VideoTranslateStatus"),
+            (19, "ValidateStatus"), (20, "UploadStatus"),
         };
         foreach (var (column, binding) in bindings)
         {
@@ -38,7 +38,7 @@ public sealed class TikTokQueueColumnOrderTests
         }
 
         xaml.Should().MatchRegex("Grid\\.Column=\"21\"\\s+Classes=\"queueRemarkBox\"");
-        xaml.Should().Contain("ColumnDefinitions=\"48,56,104,210,210,60,128,68,68,68,68,68,68,68,76,68,68,0,68,68,68,180\"");
+        xaml.Should().Contain("ColumnDefinitions=\"48,56,104,210,210,60,128,68,68,68,68,68,68,68,68,76,68,68,0,68,68,180\"");
     }
 
     [Fact]

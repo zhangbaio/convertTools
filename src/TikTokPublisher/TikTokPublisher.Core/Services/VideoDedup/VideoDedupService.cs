@@ -1,0 +1,573 @@
+using System.Globalization;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using TikTokPublisher.Core.Media;
+using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
+
+namespace TikTokPublisher.Core.Services.VideoDedup;
+
+public static class VideoDedupService
+{
+    private const string FingerprintFileName = "dedup-fingerprint.json";
+    private const string DownloadStateFileName = ".weixin-channel-download-state.json";
+
+    internal static Func<string, CancellationToken, Task<VideoDedupProbe>>? ProbeForTests { get; set; }
+    internal static Func<IReadOnlyList<string>, CancellationToken, Task>? RunProcessForTests { get; set; }
+    internal static string? EncoderForTests { get; set; }
+
+    private static string? _encoderListing;
+
+    public static bool NeedsRun(string projectDir, VideoDedupPreset? preset)
+    {
+        try
+        {
+            var project = Path.GetFullPath(projectDir);
+            var normalized = (preset ?? VideoDedupPreset.CreateDefault()).NormalizedCopy();
+            var fingerprint = ReadFingerprint(FingerprintPath(project));
+            var visible = ListVisibleVideos(project);
+            return !OutputsMatch(project, fingerprint, normalized, visible);
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    public static async Task RunAsync(
+        QueueProjectItem item,
+        TikTokAccountProfile account,
+        bool force,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
+            throw new InvalidOperationException("项目目录不存在，无法执行视频去重。");
+
+        var preset = account.VideoDedupPreset?.NormalizedCopy() ?? VideoDedupPreset.CreateDefault().NormalizedCopy();
+        if (account.VideoDedupPreset is null)
+            log?.Invoke($"账号「{account.DisplayName}」尚未保存视频去重预设，使用内置默认方案。");
+
+        var project = Path.GetFullPath(item.ProjectDir);
+        var originalsRoot = Path.Combine(project, ProjectVideoResolver.SourceOriginalsDirectoryName);
+        var fingerprintPath = FingerprintPath(project);
+        var fingerprint = ReadFingerprint(fingerprintPath);
+        var visible = ListVisibleVideos(project);
+        if (!force && OutputsMatch(project, fingerprint, preset, visible))
+        {
+            var kept = fingerprint!.Outputs.Count;
+            item.EpisodeCount = kept;
+            log?.Invoke($"跳过：去重成片已与账号「{account.DisplayName}」的方案「{preset.Name}」一致，共 {kept.ToString(CultureInfo.InvariantCulture)} 集。");
+            return;
+        }
+
+        var inputs = ResolveInputs(project, originalsRoot, visible, fingerprint, log);
+        if (inputs.Count == 0)
+            throw new InvalidOperationException("没有可去重的视频。请先完成下载。");
+
+        log?.Invoke($"开始：账号「{account.DisplayName}」方案「{preset.Name}」，原片 {inputs.Count.ToString(CultureInfo.InvariantCulture)} 个。");
+        var clips = new List<VideoDedupClip>(inputs.Count);
+        foreach (var input in inputs)
+        {
+            ct.ThrowIfCancellationRequested();
+            var probe = await ProbeAsync(input, ct).ConfigureAwait(false);
+            if (probe.DurationSeconds <= 0)
+                throw new InvalidOperationException($"无法读取视频时长：{Path.GetFileName(input)}");
+            clips.Add(new VideoDedupClip(input, probe));
+        }
+
+        var groups = VideoDedupPlanner.Group(clips.Select(clip => clip.Probe.DurationSeconds).ToArray(), preset);
+        var merged = groups.Any(group => group.Count > 1);
+        var outputDirectory = Path.GetDirectoryName(VisiblePathFor(project, originalsRoot, inputs[0])) ?? project;
+        var jobs = new List<RenderJob>();
+        for (var index = 0; index < groups.Count; index++)
+        {
+            var groupClips = groups[index].Select(clipIndex => clips[clipIndex]).ToArray();
+            var destination = merged
+                ? Path.Combine(outputDirectory, $"{(index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4")
+                : VisiblePathFor(project, originalsRoot, groupClips[0].Path);
+            jobs.Add(new RenderJob(groupClips, destination));
+        }
+
+        var workRoot = Path.Combine(originalsRoot, ".work");
+        Directory.CreateDirectory(workRoot);
+        ClearDirectory(workRoot);
+        var encoder = await ResolveEncoderAsync(preset, ct).ConfigureAwait(false);
+        log?.Invoke($"视频编码器：{encoder}，并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。");
+        if (merged && preset.TransitionsEnabled)
+            log?.Invoke("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
+
+        Exception? encodeFailure = null;
+        using var renderCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            await Parallel.ForEachAsync(
+                jobs.Select((job, index) => (job, index)),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = preset.Parallel,
+                    CancellationToken = renderCancellation.Token,
+                },
+                async (entry, token) =>
+                {
+                    var temp = Path.Combine(
+                        workRoot,
+                        $"{(entry.index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4");
+                    var seed = Math.Abs(entry.job.Clips[0].Path.GetHashCode(StringComparison.Ordinal));
+                    var arguments = VideoDedupPlanner.BuildArguments(
+                        preset,
+                        entry.job.Clips,
+                        temp,
+                        encoder,
+                        seed);
+                    try
+                    {
+                        await RunFfmpegAsync(
+                            arguments,
+                            token,
+                            allowSoftwareFallback: !string.Equals(
+                                preset.EncodingPreference,
+                                VideoDedupPreset.EncodingHardwareOnly,
+                                StringComparison.Ordinal)).ConfigureAwait(false);
+                        if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
+                            throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
+                        entry.job.TempPath = temp;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        Interlocked.CompareExchange(ref encodeFailure, ex, null);
+                        renderCancellation.Cancel();
+                    }
+                }).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (encodeFailure is not null || ct.IsCancellationRequested)
+        {
+            if (encodeFailure is null)
+            {
+                ClearDirectory(workRoot);
+                throw;
+            }
+        }
+
+        if (encodeFailure is not null)
+        {
+            ClearDirectory(workRoot);
+            throw encodeFailure;
+        }
+
+        PublishOutputs(project, visible, fingerprint, jobs);
+        var outputs = jobs.Select(job => new FingerprintOutput(
+            ToRelative(project, job.Destination),
+            new FileInfo(job.Destination).Length)).ToArray();
+        WriteFingerprint(fingerprintPath, preset.Fingerprint(), outputs);
+        if (merged)
+            UpdateDownloadStateCount(project, inputs.Count, outputs.Length, log);
+        if (item.SourceEpisodeCount < inputs.Count)
+            item.SourceEpisodeCount = inputs.Count;
+        item.EpisodeCount = outputs.Length;
+        ClearDirectory(workRoot);
+        log?.Invoke($"视频去重完成：{inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片生成 {outputs.Length.ToString(CultureInfo.InvariantCulture)} 集，原片保留在 source-originals。");
+    }
+
+    private static List<string> ResolveInputs(
+        string project,
+        string originalsRoot,
+        IReadOnlyList<string> visible,
+        DedupFingerprint? fingerprint,
+        Action<string>? log)
+    {
+        var archived = ListArchivedVideos(originalsRoot);
+        var refreshed = RefreshArchiveFromNewDownloads(project, originalsRoot, visible, archived, fingerprint);
+        if (refreshed)
+            log?.Invoke("检测到新的下载文件，已更新 source-originals 中的原片。");
+        archived = ListArchivedVideos(originalsRoot);
+        if (archived.Count > 0)
+            return archived;
+
+        if (visible.Count == 0)
+            return [];
+
+        Directory.CreateDirectory(originalsRoot);
+        foreach (var file in visible)
+            CopyToArchive(project, originalsRoot, file);
+        log?.Invoke($"已把 {visible.Count.ToString(CultureInfo.InvariantCulture)} 个下载视频复制到 source-originals。");
+        return ListArchivedVideos(originalsRoot);
+    }
+
+    private static bool RefreshArchiveFromNewDownloads(
+        string project,
+        string originalsRoot,
+        IReadOnlyList<string> visible,
+        IReadOnlyList<string> archived,
+        DedupFingerprint? fingerprint)
+    {
+        if (archived.Count == 0 || visible.Count == 0 || fingerprint is null)
+            return false;
+
+        var changed = false;
+        foreach (var file in visible)
+        {
+            var relative = ToRelative(project, file);
+            var length = new FileInfo(file).Length;
+            var recorded = fingerprint.Outputs.FirstOrDefault(output =>
+                string.Equals(output.Path, relative, StringComparison.OrdinalIgnoreCase));
+            if (recorded is not null && recorded.Length == length)
+                continue;
+
+            var archivePath = Path.Combine(originalsRoot, relative);
+            if (File.Exists(archivePath) && new FileInfo(archivePath).Length == length)
+                continue;
+
+            CopyToArchive(project, originalsRoot, file);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private static void PublishOutputs(
+        string project,
+        IReadOnlyList<string> visible,
+        DedupFingerprint? previous,
+        IReadOnlyList<RenderJob> jobs)
+    {
+        var destinations = jobs.Select(job => Path.GetFullPath(job.Destination)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var job in jobs)
+            Directory.CreateDirectory(Path.GetDirectoryName(job.Destination)!);
+
+        var removals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in visible)
+        {
+            if (!destinations.Contains(Path.GetFullPath(file)))
+                removals.Add(Path.GetFullPath(file));
+        }
+
+        if (previous is not null)
+        {
+            foreach (var output in previous.Outputs)
+            {
+                var full = Path.GetFullPath(Path.Combine(project, output.Path));
+                if (!destinations.Contains(full))
+                    removals.Add(full);
+            }
+        }
+
+        foreach (var path in removals)
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+
+        foreach (var job in jobs)
+        {
+            if (File.Exists(job.Destination))
+                File.Delete(job.Destination);
+            File.Move(job.TempPath, job.Destination);
+        }
+    }
+
+    private static void CopyToArchive(string project, string originalsRoot, string file)
+    {
+        var destination = Path.Combine(originalsRoot, ToRelative(project, file));
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        File.Copy(file, destination, overwrite: true);
+    }
+
+    private static string VisiblePathFor(string project, string originalsRoot, string archivedPath)
+    {
+        var relative = Path.GetRelativePath(originalsRoot, archivedPath);
+        return Path.GetFullPath(Path.Combine(project, relative));
+    }
+
+    private static bool OutputsMatch(
+        string project,
+        DedupFingerprint? fingerprint,
+        VideoDedupPreset preset,
+        IReadOnlyList<string> visible)
+    {
+        if (fingerprint is null ||
+            !string.Equals(fingerprint.Preset, preset.Fingerprint(), StringComparison.Ordinal) ||
+            fingerprint.Outputs.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var output in fingerprint.Outputs)
+        {
+            var full = Path.Combine(project, output.Path);
+            if (!File.Exists(full) || new FileInfo(full).Length != output.Length)
+                return false;
+        }
+
+        if (visible.Count != fingerprint.Outputs.Count)
+            return false;
+        foreach (var file in visible)
+        {
+            var relative = ToRelative(project, file);
+            if (!fingerprint.Outputs.Any(output =>
+                    string.Equals(output.Path, relative, StringComparison.OrdinalIgnoreCase)))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static List<string> ListVisibleVideos(string project) =>
+        ProjectVideoResolver.ResolveSourceVideos(project, applyOverLimitSlice: false)
+            .OrderBy(NaturalKey, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static List<string> ListArchivedVideos(string originalsRoot)
+    {
+        if (!Directory.Exists(originalsRoot))
+            return [];
+        return Directory.EnumerateFiles(originalsRoot, "*.*", SearchOption.AllDirectories)
+            .Where(path =>
+            {
+                var relative = Path.GetRelativePath(originalsRoot, path);
+                return !relative.StartsWith(".work", StringComparison.OrdinalIgnoreCase) &&
+                       !relative.Contains($"{Path.DirectorySeparatorChar}.work{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) &&
+                       IsVideo(path);
+            })
+            .OrderBy(NaturalKey, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static async Task<VideoDedupProbe> ProbeAsync(string path, CancellationToken ct)
+    {
+        if (ProbeForTests is not null)
+            return await ProbeForTests(path, ct).ConfigureAwait(false);
+
+        var ffprobe = ResolveFfprobe();
+        var (code, stdout, stderr) = await FfmpegRunner.RunCaptureAsync(
+            ffprobe,
+            ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", path],
+            ct).ConfigureAwait(false);
+        if (code != 0)
+            throw new InvalidOperationException($"ffprobe 分析失败：{Path.GetFileName(path)} {stderr.Trim()}");
+
+        using var document = JsonDocument.Parse(stdout);
+        var root = document.RootElement;
+        double duration = 0;
+        if (root.TryGetProperty("format", out var format) &&
+            format.TryGetProperty("duration", out var durationElement) &&
+            double.TryParse(durationElement.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+        {
+            duration = parsed;
+        }
+
+        var width = 0;
+        var height = 0;
+        var hasAudio = false;
+        if (root.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var stream in streams.EnumerateArray())
+            {
+                var codecType = stream.TryGetProperty("codec_type", out var type) ? type.GetString() : "";
+                if (string.Equals(codecType, "video", StringComparison.Ordinal) && width == 0)
+                {
+                    width = stream.TryGetProperty("width", out var widthElement) ? widthElement.GetInt32() : 0;
+                    height = stream.TryGetProperty("height", out var heightElement) ? heightElement.GetInt32() : 0;
+                }
+                else if (string.Equals(codecType, "audio", StringComparison.Ordinal))
+                {
+                    hasAudio = true;
+                }
+            }
+        }
+
+        return new VideoDedupProbe(duration, width, height, hasAudio);
+    }
+
+    private static async Task<string> ResolveEncoderAsync(VideoDedupPreset preset, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(EncoderForTests))
+            return EncoderForTests;
+        var hevc = preset.VideoCodec is VideoDedupPreset.CodecHevc or VideoDedupPreset.CodecH265;
+        var software = hevc ? "libx265" : "libx264";
+        if (string.Equals(preset.EncodingPreference, VideoDedupPreset.EncodingSoftwareOnly, StringComparison.Ordinal))
+            return software;
+
+        var listing = await ReadEncodersAsync(ct).ConfigureAwait(false);
+        var hardware = hevc
+            ? FirstListed(listing, "hevc_nvenc", "hevc_qsv", "hevc_amf")
+            : FirstListed(listing, "h264_nvenc", "h264_qsv", "h264_amf");
+        if (hardware is not null)
+            return hardware;
+        if (string.Equals(preset.EncodingPreference, VideoDedupPreset.EncodingHardwareOnly, StringComparison.Ordinal))
+            throw new InvalidOperationException("当前机器没有可用的硬件编码器。");
+        return software;
+    }
+
+    private static async Task<string> ReadEncodersAsync(CancellationToken ct)
+    {
+        if (_encoderListing is not null)
+            return _encoderListing;
+        var (code, stdout, stderr) = await FfmpegRunner.RunCaptureAsync(
+            FfmpegLocator.ResolveFfmpeg(),
+            ["-hide_banner", "-encoders"],
+            ct).ConfigureAwait(false);
+        _encoderListing = code == 0 ? stdout : stderr;
+        return _encoderListing;
+    }
+
+    private static string? FirstListed(string listing, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (listing.Contains(name, StringComparison.Ordinal))
+                return name;
+        }
+
+        return null;
+    }
+
+    private static async Task RunFfmpegAsync(
+        IReadOnlyList<string> arguments,
+        CancellationToken ct,
+        bool allowSoftwareFallback)
+    {
+        if (RunProcessForTests is not null)
+        {
+            await RunProcessForTests(arguments, ct).ConfigureAwait(false);
+            return;
+        }
+
+        try
+        {
+            await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), arguments, ct).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException) when (allowSoftwareFallback && UsesHardwareEncoder(arguments))
+        {
+            var software = arguments.Any(argument => argument.StartsWith("hevc_", StringComparison.Ordinal))
+                ? "libx265"
+                : "libx264";
+            await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), ToSoftwareArguments(arguments, software), ct)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static bool UsesHardwareEncoder(IReadOnlyList<string> arguments) =>
+        arguments.Any(argument =>
+            argument is "h264_nvenc" or "hevc_nvenc" or "h264_qsv" or "hevc_qsv" or "h264_amf" or "hevc_amf");
+
+    private static List<string> ToSoftwareArguments(IReadOnlyList<string> arguments, string software)
+    {
+        var result = new List<string>();
+        for (var i = 0; i < arguments.Count; i++)
+        {
+            var argument = arguments[i];
+            if (argument is "-rc" or "-cq" or "-preset")
+            {
+                i++;
+                continue;
+            }
+
+            result.Add(argument);
+            if (argument == "-c:v" && i + 1 < arguments.Count)
+            {
+                result.Add(software);
+                i++;
+            }
+        }
+
+        var format = result.IndexOf("yuv420p");
+        if (format >= 0)
+            result.Insert(format + 1, software.Contains("265", StringComparison.Ordinal) ? "fast" : "veryfast");
+        if (format >= 0)
+            result.Insert(format + 1, "-preset");
+        return result;
+    }
+
+    private static void UpdateDownloadStateCount(string project, int sourceCount, int outputCount, Action<string>? log)
+    {
+        var path = Path.Combine(project, DownloadStateFileName);
+        if (!File.Exists(path) || outputCount <= 0)
+            return;
+        try
+        {
+            var node = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+            if (node is null)
+                return;
+            if (!node.ContainsKey("source_video_count"))
+                node["source_video_count"] = sourceCount;
+            node["video_count"] = outputCount;
+            File.WriteAllText(path, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            log?.Invoke($"已把下载记录中的集数更新为 {outputCount.ToString(CultureInfo.InvariantCulture)}。");
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            log?.Invoke($"下载记录集数未更新：{ex.Message}");
+        }
+    }
+
+    private static string FingerprintPath(string project) =>
+        Path.Combine(project, ProjectVideoResolver.SourceOriginalsDirectoryName, FingerprintFileName);
+
+    private static DedupFingerprint? ReadFingerprint(string path)
+    {
+        if (!File.Exists(path))
+            return null;
+        try
+        {
+            return JsonSerializer.Deserialize<DedupFingerprint>(File.ReadAllText(path));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static void WriteFingerprint(string path, string presetHash, IReadOnlyList<FingerprintOutput> outputs)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var payload = new DedupFingerprint(presetHash, outputs.ToList());
+        File.WriteAllText(path, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static string ResolveFfprobe()
+    {
+        var ffmpeg = FfmpegLocator.ResolveFfmpeg();
+        var sibling = Path.Combine(Path.GetDirectoryName(ffmpeg) ?? "", OperatingSystem.IsWindows() ? "ffprobe.exe" : "ffprobe");
+        return File.Exists(sibling) ? sibling : MediaBinaryResolver.ResolveFfprobe();
+    }
+
+    private static void ClearDirectory(string directory)
+    {
+        if (!Directory.Exists(directory))
+            return;
+        foreach (var file in Directory.EnumerateFiles(directory))
+            File.Delete(file);
+    }
+
+    private static string ToRelative(string project, string path)
+    {
+        var relative = Path.GetRelativePath(project, path);
+        return relative.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+    }
+
+    private static bool IsVideo(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".m4v", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".webm", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NaturalKey(string path) =>
+        Regex.Replace(Path.GetFileName(path), @"\d+", match => match.Value.PadLeft(8, '0'));
+
+    private sealed class RenderJob(IReadOnlyList<VideoDedupClip> clips, string destination)
+    {
+        public IReadOnlyList<VideoDedupClip> Clips { get; } = clips;
+        public string Destination { get; } = destination;
+        public string TempPath { get; set; } = "";
+    }
+
+    private sealed record DedupFingerprint(string Preset, List<FingerprintOutput> Outputs);
+
+    private sealed record FingerprintOutput(string Path, long Length);
+}

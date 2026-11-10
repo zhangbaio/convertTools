@@ -53,13 +53,13 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _remoteCommandPreviewText = "";
     [ObservableProperty] private string _remoteCommandPreviewResult = "";
     [ObservableProperty] private bool _remoteDownloadEnabled;
+    [ObservableProperty] private bool _remoteVideoDedupEnabled;
     [ObservableProperty] private bool _remoteRewriteEnabled;
     [ObservableProperty] private bool _remoteGeneratePosterEnabled;
     [ObservableProperty] private bool _remoteGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _remoteSmallVideoRepairEnabled;
     [ObservableProperty] private bool _remoteVideoTranslateEnabled;
     [ObservableProperty] private bool _remoteMaterialValidateEnabled;
-    [ObservableProperty] private bool _remoteDeleteSourceVideosEnabled;
     [ObservableProperty] private bool _remoteUploadEnabled;
     [ObservableProperty] private bool _remoteAutoArchiveAfterUpload;
     [ObservableProperty] private bool _remoteForceRerunCompletedSteps;
@@ -359,13 +359,13 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     {
         var steps = new List<string>();
         if (RemoteDownloadEnabled) steps.Add(QueueStepRegistry.Download);
+        if (RemoteVideoDedupEnabled) steps.Add(QueueStepRegistry.VideoDedup);
         if (RemoteRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (RemoteGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
         if (RemoteGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (RemoteSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (RemoteVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
         if (RemoteMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
-        if (RemoteDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (RemoteUploadEnabled) steps.Add(QueueStepRegistry.UploadSeries);
         return QueueStepRegistry.OrderEnabledSteps(steps).ToList();
     }
@@ -375,13 +375,13 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         var normalized = TikTokRemoteCommandParser.NormalizeEnabledSteps(steps?.Cast<object?>() ?? []);
         var selected = normalized.ToHashSet(StringComparer.Ordinal);
         RemoteDownloadEnabled = selected.Contains(QueueStepRegistry.Download);
+        RemoteVideoDedupEnabled = selected.Contains(QueueStepRegistry.VideoDedup);
         RemoteRewriteEnabled = selected.Contains(QueueStepRegistry.RewriteInfo);
         RemoteGeneratePosterEnabled = selected.Contains(QueueStepRegistry.GeneratePoster);
         RemoteGenerateProofMaterialEnabled = selected.Contains(QueueStepRegistry.GenerateProofMaterial);
         RemoteSmallVideoRepairEnabled = selected.Contains(QueueStepRegistry.SmallVideoRepair);
         RemoteVideoTranslateEnabled = selected.Contains(QueueStepRegistry.VideoTranslate);
         RemoteMaterialValidateEnabled = selected.Contains(QueueStepRegistry.MaterialValidate);
-        RemoteDeleteSourceVideosEnabled = selected.Contains(QueueStepRegistry.DeleteSourceVideos);
         RemoteUploadEnabled = selected.Contains(QueueStepRegistry.UploadSeries);
     }
 }

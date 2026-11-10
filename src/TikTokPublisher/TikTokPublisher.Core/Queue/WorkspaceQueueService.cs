@@ -474,8 +474,6 @@ public static class WorkspaceQueueService
         var sourceInfo = ProjectInfoTextHelper.ParseInfoFile(sourceInfoPath);
         var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(workflowInfoPath);
 
-        var hasSourceVideos = HasVideoFiles(sourceProjectDir, Path.Combine(sourceProjectDir, "videos"));
-        var hasStagedUploadVideos = HasVideoFiles(Path.Combine(workflowProjectDir, TikTokUploadStagingService.StagingDirName));
         var hasDownloadArtifacts = HasVideoFiles(
             sourceProjectDir,
             Path.Combine(sourceProjectDir, "videos"),
@@ -514,20 +512,10 @@ public static class WorkspaceQueueService
             item.StepStates[QueueStepKeys.GenerateProjectImages] = QueueStepStatus.Completed;
         }
 
-        var manifestExists = HasTikTokUploadManifest(context);
         if (IsPending(item, QueueStepKeys.MaterialValidate) &&
             TikTokMaterialValidationService.HasCurrentValidationState(sourceProjectDir))
         {
             item.StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
-        }
-
-        if (IsPending(item, QueueStepKeys.DeleteSourceVideos) &&
-            !hasSourceVideos &&
-            hasDownloadArtifacts &&
-            (hasStagedUploadVideos || manifestExists ||
-             item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed))
-        {
-            item.StepStates[QueueStepKeys.DeleteSourceVideos] = QueueStepStatus.Completed;
         }
 
         ReconcileCompletedArtifactStates(item, context, hasDownloadArtifacts, clientSettings);

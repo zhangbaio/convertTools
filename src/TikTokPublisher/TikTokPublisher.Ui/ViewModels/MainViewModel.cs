@@ -161,6 +161,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _preferUploadWhenReady;
     [ObservableProperty] private bool _syncManagementAfterUpload;
     [ObservableProperty] private bool _queueDownloadEnabled;
+    [ObservableProperty] private bool _queueVideoDedupEnabled;
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
     [ObservableProperty] private bool _queueGenerateEpisodeScriptEnabled;
@@ -169,7 +170,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueGenerateRoleVectorEnabled;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _queueGenerateTimestampCertificateEnabled;
-    [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
     [ObservableProperty] private bool _queueSmallVideoRepairEnabled;
     [ObservableProperty] private bool _queueVideoTranslateEnabled;
     [ObservableProperty] private bool _queueMaterialValidateEnabled;
@@ -841,6 +841,7 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     partial void OnQueueDownloadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueVideoDedupEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateEpisodeScriptEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -849,7 +850,6 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueGenerateRoleVectorEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateTimestampCertificateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueDeleteSourceVideosEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueUploadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueSmallVideoRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueVideoTranslateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -1037,6 +1037,7 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = true;
+            QueueVideoDedupEnabled = true;
             QueueRewriteEnabled = true;
             QueueGeneratePosterEnabled = true;
             QueueGenerateEpisodeScriptEnabled = true;
@@ -1045,7 +1046,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateRoleVectorEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
             QueueGenerateTimestampCertificateEnabled = true;
-            QueueDeleteSourceVideosEnabled = true;
             QueueSmallVideoRepairEnabled = true;
             QueueVideoTranslateEnabled = false;
             QueueMaterialValidateEnabled = true;
@@ -1070,6 +1070,7 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = false;
+            QueueVideoDedupEnabled = false;
             QueueRewriteEnabled = false;
             QueueGeneratePosterEnabled = false;
             QueueGenerateEpisodeScriptEnabled = false;
@@ -1078,7 +1079,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateRoleVectorEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
             QueueGenerateTimestampCertificateEnabled = false;
-            QueueDeleteSourceVideosEnabled = false;
             QueueSmallVideoRepairEnabled = false;
             QueueVideoTranslateEnabled = false;
             QueueMaterialValidateEnabled = false;
@@ -4735,6 +4735,7 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.Download);
+            QueueVideoDedupEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.VideoDedup);
             QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
             QueueGenerateEpisodeScriptEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateEpisodeScript);
@@ -4743,7 +4744,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateRoleVectorEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateRoleVector);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueGenerateTimestampCertificateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateTimestampCertificate);
-            QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
             QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
             QueueVideoTranslateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.VideoTranslate);
             QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
@@ -4759,6 +4759,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var steps = new List<string>();
         if (QueueDownloadEnabled) steps.Add(QueueStepRegistry.Download);
+        if (QueueVideoDedupEnabled) steps.Add(QueueStepRegistry.VideoDedup);
         if (QueueRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (QueueGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
         if (QueueGenerateEpisodeScriptEnabled) steps.Add(QueueStepRegistry.GenerateEpisodeScript);
@@ -4767,7 +4768,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueGenerateRoleVectorEnabled) steps.Add(QueueStepRegistry.GenerateRoleVector);
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueGenerateTimestampCertificateEnabled) steps.Add(QueueStepRegistry.GenerateTimestampCertificate);
-        if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (QueueVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
         if (QueueMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);

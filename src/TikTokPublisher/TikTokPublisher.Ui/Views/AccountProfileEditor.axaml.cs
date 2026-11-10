@@ -227,6 +227,7 @@ public partial class AccountProfileEditor : UserControl
         ProxyPasswordBox.Text = profile.TiktokProxyPassword;
         ProxyLabelBox.Text = profile.TiktokProxyLabel;
         StaticIpNoteBox.Text = profile.TiktokStaticIpNote;
+        VideoDedupEditor.Load(profile.VideoDedupPreset);
         RequestUploadedSeriesReload();
     }
 
@@ -358,6 +359,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokProxyPassword = ProxyPasswordBox.Text ?? "";
             profile.TiktokProxyLabel = ProxyLabelBox.Text?.Trim() ?? "";
             profile.TiktokStaticIpNote = StaticIpNoteBox.Text?.Trim() ?? "";
+            profile.VideoDedupPreset = VideoDedupEditor.Read();
 
             _vm.SaveAccountProfile(profile);
             _vm.SelectedAccount?.RefreshFromModel();
@@ -916,6 +918,7 @@ public partial class AccountProfileEditor : UserControl
         SubmitEnabledBox.IsChecked = true;
         ExpectedPriceValueBox.Text = "";
         ExpectedPriceOptionsCombo.Items.Clear();
+        VideoDedupEditor.Load(null);
         ProxyHostBox.Text = "";
         ProxyUsernameBox.Text = "";
         ProxyPasswordBox.Text = "";

@@ -3,6 +3,7 @@ namespace TikTokPublisher.Core.Queue;
 public static class QueueStepKeys
 {
     public const string Download = "download";
+    public const string VideoDedup = "video_dedup";
     public const string RewriteInfo = "rewrite_info";
     public const string GeneratePoster = "generate_poster";
     public const string GenerateEpisodeScript = "generate_episode_script";
@@ -92,6 +93,7 @@ public sealed class QueueProjectItem
         foreach (var key in new[]
                  {
                      QueueStepKeys.Download,
+                     QueueStepKeys.VideoDedup,
                      QueueStepKeys.RewriteInfo,
                      QueueStepKeys.GeneratePoster,
                      QueueStepKeys.GenerateEpisodeScript,
@@ -101,7 +103,6 @@ public sealed class QueueProjectItem
                      QueueStepKeys.GenerateProjectImages,
                      QueueStepKeys.GenerateProofMaterial,
                      QueueStepKeys.GenerateTimestampCertificate,
-                     QueueStepKeys.DeleteSourceVideos,
                      QueueStepKeys.UploadSeries,
                      QueueStepKeys.MaterialValidate,
                      QueueStepKeys.SmallVideoRepair,
