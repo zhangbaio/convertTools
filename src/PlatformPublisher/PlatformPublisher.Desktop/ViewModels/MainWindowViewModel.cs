@@ -1010,10 +1010,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await MigrateLegacyPlatformAccountsAsync(legacyAccounts);
             ApplyWorkflowSettings(await loadWorkflowSettings);
             var recovered = PublishSchedulePolicy.RecoverInterrupted(_jobs);
-            if (recovered > 0 || recoveredSteps > 0)
+            var restoredChecks = 0;
+            var restoredAt = DateTimeOffset.Now;
+            foreach (var job in _jobs)
+            {
+                if (job.Platform is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+                    || job.IsChecked)
+                    continue;
+                if (!KuaishouDispatchSelection.ShouldStayChecked(job, alreadyChecked: false, restoredAt))
+                    continue;
+                job.IsChecked = true;
+                restoredChecks++;
+            }
+            if (recovered > 0 || recoveredSteps > 0 || restoredChecks > 0)
             {
                 await PersistAsync();
-                StatusMessage = $"已恢复 {recovered} 条任务、{recoveredSteps} 个中断步骤。";
+                StatusMessage = restoredChecks > 0
+                    ? $"已勾选今日分发和今日执行的 {restoredChecks} 部剧。"
+                    : $"已恢复 {recovered} 条任务、{recoveredSteps} 个中断步骤。";
             }
             RefreshVisibleJobs();
             RefreshVisibleAccounts(_activeGlobalAccount?.Id);

@@ -651,15 +651,34 @@ public sealed partial class MainWindowViewModel
     private int UncheckKuaishouJobsExcept(string accountId, PublishPlatform platform, IReadOnlySet<string> keepDirs)
     {
         var cleared = 0;
+        var now = DateTimeOffset.Now;
         foreach (var job in _jobs)
         {
             if (job.Platform != platform || !string.Equals(job.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
                 continue;
             var dir = string.IsNullOrWhiteSpace(job.ProjectDirectory) ? "" : Path.GetFullPath(job.ProjectDirectory);
-            var keep = dir.Length > 0 && keepDirs.Contains(dir);
-            if (job.IsChecked == keep)
+            // 今日分发和已经执行的剧保持勾选。更早、还没执行的手动勾选才清掉。
+            var keep = (dir.Length > 0 && keepDirs.Contains(dir))
+                || KuaishouDispatchSelection.ShouldStayChecked(job, job.IsChecked, now);
+            if (_jobRowCache.TryGetValue(job.Id, out var row))
+            {
+                if (row.IsChecked == keep)
+                {
+                    job.IsChecked = keep;
+                    continue;
+                }
+
+                row.IsChecked = keep;
+            }
+            else if (job.IsChecked == keep)
+            {
                 continue;
-            job.IsChecked = keep;
+            }
+            else
+            {
+                job.IsChecked = keep;
+            }
+
             if (!keep)
                 cleared++;
         }
