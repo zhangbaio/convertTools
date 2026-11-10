@@ -642,4 +642,108 @@ public sealed class QueueMaterialStepServiceTests
             catch (IOException) { /* SQLite can retain a pooled Windows handle briefly. */ }
         }
     }
+
+    [Fact]
+    public void Failed_download_with_complete_upload_copies_can_be_skipped()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"download-restore-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(root, "原剧");
+        var workflowDir = Path.Combine(root, "workflow", "_新剧");
+        var stagingDir = Path.Combine(workflowDir, "tiktok_upload_videos");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(stagingDir);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(sourceDir, "shortdrama-project.json"),
+                JsonSerializer.Serialize(new
+                {
+                    episodeCount = 3,
+                    workflowProjectDir = workflowDir,
+                }));
+            var statePath = Path.Combine(sourceDir, ".weixin-channel-download-state.json");
+            File.WriteAllText(statePath, JsonSerializer.Serialize(new
+            {
+                ok = false,
+                message = QueueMaterialStepService.EmptyDownloadVideoMessage,
+                episode_number_mode = "source",
+                episode_mappings = Enumerable.Range(1, 3).Select(number => new
+                {
+                    source_episode_number = number,
+                    sequence_episode_number = number,
+                }),
+            }));
+            foreach (var number in Enumerable.Range(1, 3))
+                File.WriteAllBytes(Path.Combine(stagingDir, $"新剧-第{number}集.mp4"), [1, 2, 3]);
+
+            var item = new QueueProjectItem
+            {
+                ProjectDir = sourceDir,
+                EpisodeCount = 3,
+                LastError = QueueMaterialStepService.EmptyDownloadVideoMessage,
+            };
+
+            QueueMaterialStepService.CanSkipFailedDownloadUsingUploadCopies(item).Should().BeTrue();
+            QueueMaterialStepService.ClearEmptyVideoDownloadFailure(sourceDir);
+            using var cleared = JsonDocument.Parse(File.ReadAllText(statePath));
+            cleared.RootElement.GetProperty("ok").GetBoolean().Should().BeTrue();
+            cleared.RootElement.GetProperty("message").GetString().Should().NotContain("没有视频文件");
+
+            File.Delete(Path.Combine(stagingDir, "新剧-第2集.mp4"));
+            QueueMaterialStepService.CanSkipFailedDownloadUsingUploadCopies(item).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Other_download_failure_is_not_skipped_just_because_upload_copies_exist()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"download-real-fail-{Guid.NewGuid():N}");
+        var sourceDir = Path.Combine(root, "原剧");
+        var workflowDir = Path.Combine(root, "workflow", "_新剧");
+        var stagingDir = Path.Combine(workflowDir, "tiktok_upload_videos");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(stagingDir);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(sourceDir, "shortdrama-project.json"),
+                JsonSerializer.Serialize(new
+                {
+                    episodeCount = 2,
+                    workflowProjectDir = workflowDir,
+                }));
+            File.WriteAllText(
+                Path.Combine(sourceDir, ".weixin-channel-download-state.json"),
+                JsonSerializer.Serialize(new
+                {
+                    ok = false,
+                    message = "第1集无法播放，当前 FFmpeg 不支持该编码。",
+                    episode_number_mode = "source",
+                    episode_mappings = Enumerable.Range(1, 2).Select(number => new
+                    {
+                        source_episode_number = number,
+                        sequence_episode_number = number,
+                    }),
+                }));
+            foreach (var number in Enumerable.Range(1, 2))
+                File.WriteAllBytes(Path.Combine(stagingDir, $"新剧-第{number}集.mp4"), [1]);
+
+            var item = new QueueProjectItem
+            {
+                ProjectDir = sourceDir,
+                EpisodeCount = 2,
+                LastError = "第1集无法播放，当前 FFmpeg 不支持该编码。",
+            };
+
+            QueueMaterialStepService.CanSkipFailedDownloadUsingUploadCopies(item).Should().BeFalse();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }
