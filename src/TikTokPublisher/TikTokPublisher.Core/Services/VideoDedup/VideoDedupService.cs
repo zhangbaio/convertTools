@@ -16,8 +16,9 @@ public static class VideoDedupService
     internal static Func<string, CancellationToken, Task<VideoDedupProbe>>? ProbeForTests { get; set; }
     internal static Func<IReadOnlyList<string>, CancellationToken, Task>? RunProcessForTests { get; set; }
     internal static string? EncoderForTests { get; set; }
+    internal static Func<string, CancellationToken, Task<bool>>? EncoderWorksForTests { get; set; }
 
-    private static string? _encoderListing;
+    internal readonly record struct EncoderChoice(string Encoder, string Device, string Note);
 
     public static bool NeedsRun(string projectDir, VideoDedupPreset? preset)
     {
@@ -93,8 +94,11 @@ public static class VideoDedupService
         var workRoot = Path.Combine(originalsRoot, ".work");
         Directory.CreateDirectory(workRoot);
         ClearDirectory(workRoot);
-        var encoder = await ResolveEncoderAsync(preset, ct).ConfigureAwait(false);
-        log?.Invoke($"视频编码器：{encoder}，并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。");
+        var choice = await ResolveEncoderAsync(preset, ct).ConfigureAwait(false);
+        var encoder = choice.Encoder;
+        log?.Invoke(string.IsNullOrWhiteSpace(choice.Note)
+            ? $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。"
+            : $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
         if (merged && preset.TransitionsEnabled)
             log?.Invoke("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
 
@@ -123,13 +127,21 @@ public static class VideoDedupService
                         seed);
                     try
                     {
-                        await RunFfmpegAsync(
-                            arguments,
-                            token,
-                            allowSoftwareFallback: !string.Equals(
-                                preset.EncodingPreference,
-                                VideoDedupPreset.EncodingHardwareOnly,
-                                StringComparison.Ordinal)).ConfigureAwait(false);
+                        try
+                        {
+                            await RunFfmpegAsync(arguments, token).ConfigureAwait(false);
+                        }
+                        catch (InvalidOperationException) when (
+                            AllowsCpuFallback(preset) && UsesHardwareEncoder(arguments))
+                        {
+                            var software = encoder.Contains("265", StringComparison.OrdinalIgnoreCase) ||
+                                           encoder.Contains("hevc", StringComparison.OrdinalIgnoreCase)
+                                ? "libx265"
+                                : "libx264";
+                            await RunFfmpegAsync(
+                                VideoDedupPlanner.BuildArguments(preset, entry.job.Clips, temp, software, seed),
+                                token).ConfigureAwait(false);
+                        }
                         if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
                             throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
                         entry.job.TempPath = temp;
@@ -380,53 +392,114 @@ public static class VideoDedupService
         return new VideoDedupProbe(duration, width, height, hasAudio);
     }
 
-    private static async Task<string> ResolveEncoderAsync(VideoDedupPreset preset, CancellationToken ct)
+    internal static Task<EncoderChoice> ResolveEncoderForTests(VideoDedupPreset preset, CancellationToken ct) =>
+        ResolveEncoderAsync(preset, ct);
+
+    private static async Task<EncoderChoice> ResolveEncoderAsync(VideoDedupPreset preset, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(EncoderForTests))
-            return EncoderForTests;
         var hevc = preset.VideoCodec is VideoDedupPreset.CodecHevc or VideoDedupPreset.CodecH265;
         var software = hevc ? "libx265" : "libx264";
+        if (!string.IsNullOrWhiteSpace(EncoderForTests))
+            return new EncoderChoice(EncoderForTests, Describe(EncoderForTests), "");
         if (string.Equals(preset.EncodingPreference, VideoDedupPreset.EncodingSoftwareOnly, StringComparison.Ordinal))
-            return software;
+            return new EncoderChoice(software, "CPU", "");
 
-        var listing = await ReadEncodersAsync(ct).ConfigureAwait(false);
-        var hardware = hevc
-            ? FirstListed(listing, "hevc_nvenc", "hevc_qsv", "hevc_amf")
-            : FirstListed(listing, "h264_nvenc", "h264_qsv", "h264_amf");
-        if (hardware is not null)
-            return hardware;
-        if (string.Equals(preset.EncodingPreference, VideoDedupPreset.EncodingHardwareOnly, StringComparison.Ordinal))
-            throw new InvalidOperationException("当前机器没有可用的硬件编码器。");
-        return software;
-    }
-
-    private static async Task<string> ReadEncodersAsync(CancellationToken ct)
-    {
-        if (_encoderListing is not null)
-            return _encoderListing;
-        var (code, stdout, stderr) = await FfmpegRunner.RunCaptureAsync(
-            FfmpegLocator.ResolveFfmpeg(),
-            ["-hide_banner", "-encoders"],
-            ct).ConfigureAwait(false);
-        _encoderListing = code == 0 ? stdout : stderr;
-        return _encoderListing;
-    }
-
-    private static string? FirstListed(string listing, params string[] names)
-    {
-        foreach (var name in names)
+        var candidates = HardwareCandidates(preset, hevc).ToArray();
+        var unavailable = new List<string>();
+        foreach (var candidate in candidates)
         {
-            if (listing.Contains(name, StringComparison.Ordinal))
-                return name;
+            ct.ThrowIfCancellationRequested();
+            if (await EncoderWorksAsync(candidate, ct).ConfigureAwait(false))
+                return new EncoderChoice(candidate, Describe(candidate), "");
+            unavailable.Add(Describe(candidate));
         }
 
-        return null;
+        if (!AllowsCpuFallback(preset))
+            throw new InvalidOperationException(UnavailableMessage(preset));
+        var note = unavailable.Count == 0
+            ? ""
+            : string.Join("、", unavailable.Distinct()) + " 试编码不可用，已改用 CPU。";
+        return new EncoderChoice(software, "CPU", note);
     }
 
-    private static async Task RunFfmpegAsync(
-        IReadOnlyList<string> arguments,
-        CancellationToken ct,
-        bool allowSoftwareFallback)
+    private static IEnumerable<string> HardwareCandidates(VideoDedupPreset preset, bool hevc)
+    {
+        var preference = preset.EncodingPreference;
+        if (string.Equals(preference, VideoDedupPreset.EncodingNvenc, StringComparison.Ordinal))
+        {
+            yield return hevc ? "hevc_nvenc" : "h264_nvenc";
+            yield break;
+        }
+
+        if (string.Equals(preference, VideoDedupPreset.EncodingAmf, StringComparison.Ordinal))
+        {
+            yield return hevc ? "hevc_amf" : "h264_amf";
+            yield break;
+        }
+
+        if (string.Equals(preference, VideoDedupPreset.EncodingQsv, StringComparison.Ordinal))
+        {
+            yield return hevc ? "hevc_qsv" : "h264_qsv";
+            yield break;
+        }
+
+        yield return hevc ? "hevc_nvenc" : "h264_nvenc";
+        yield return hevc ? "hevc_qsv" : "h264_qsv";
+        yield return hevc ? "hevc_amf" : "h264_amf";
+        if (OperatingSystem.IsMacOS())
+            yield return hevc ? "hevc_videotoolbox" : "h264_videotoolbox";
+    }
+
+    private static bool AllowsCpuFallback(VideoDedupPreset preset) =>
+        string.Equals(preset.EncodingPreference, VideoDedupPreset.EncodingHardwareFirst, StringComparison.Ordinal);
+
+    private static string UnavailableMessage(VideoDedupPreset preset)
+    {
+        if (string.Equals(preset.EncodingPreference, VideoDedupPreset.EncodingNvenc, StringComparison.Ordinal))
+            return "当前机器没有可用的 NVIDIA NVENC 编码器。";
+        if (string.Equals(preset.EncodingPreference, VideoDedupPreset.EncodingAmf, StringComparison.Ordinal))
+            return "当前机器没有可用的 AMD AMF 编码器。";
+        if (string.Equals(preset.EncodingPreference, VideoDedupPreset.EncodingQsv, StringComparison.Ordinal))
+            return "当前机器没有可用的 Intel QSV 编码器。";
+        return "当前机器没有可用的硬件编码器。";
+    }
+
+    private static string Describe(string encoder)
+    {
+        if (encoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase))
+            return "NVIDIA";
+        if (encoder.Contains("qsv", StringComparison.OrdinalIgnoreCase))
+            return "Intel";
+        if (encoder.Contains("amf", StringComparison.OrdinalIgnoreCase))
+            return "AMD";
+        if (encoder.Contains("videotoolbox", StringComparison.OrdinalIgnoreCase))
+            return "Apple";
+        return "CPU";
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> EncoderProbeCache = new(StringComparer.Ordinal);
+
+    private static async Task<bool> EncoderWorksAsync(string encoder, CancellationToken ct)
+    {
+        if (EncoderWorksForTests is not null)
+            return await EncoderWorksForTests(encoder, ct).ConfigureAwait(false);
+        if (EncoderProbeCache.TryGetValue(encoder, out var cached))
+            return cached;
+
+        var (code, _, _) = await FfmpegRunner.RunCaptureAsync(
+            FfmpegLocator.ResolveFfmpeg(),
+            [
+                "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=0.2",
+                "-frames:v", "3", "-c:v", encoder, "-pix_fmt", "yuv420p", "-f", "null", "-",
+            ],
+            ct).ConfigureAwait(false);
+        var works = code == 0;
+        EncoderProbeCache[encoder] = works;
+        return works;
+    }
+
+    private static async Task RunFfmpegAsync(IReadOnlyList<string> arguments, CancellationToken ct)
     {
         if (RunProcessForTests is not null)
         {
@@ -434,51 +507,13 @@ public static class VideoDedupService
             return;
         }
 
-        try
-        {
-            await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), arguments, ct).ConfigureAwait(false);
-        }
-        catch (InvalidOperationException) when (allowSoftwareFallback && UsesHardwareEncoder(arguments))
-        {
-            var software = arguments.Any(argument => argument.StartsWith("hevc_", StringComparison.Ordinal))
-                ? "libx265"
-                : "libx264";
-            await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), ToSoftwareArguments(arguments, software), ct)
-                .ConfigureAwait(false);
-        }
+        await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), arguments, ct).ConfigureAwait(false);
     }
 
     private static bool UsesHardwareEncoder(IReadOnlyList<string> arguments) =>
         arguments.Any(argument =>
-            argument is "h264_nvenc" or "hevc_nvenc" or "h264_qsv" or "hevc_qsv" or "h264_amf" or "hevc_amf");
-
-    private static List<string> ToSoftwareArguments(IReadOnlyList<string> arguments, string software)
-    {
-        var result = new List<string>();
-        for (var i = 0; i < arguments.Count; i++)
-        {
-            var argument = arguments[i];
-            if (argument is "-rc" or "-cq" or "-preset")
-            {
-                i++;
-                continue;
-            }
-
-            result.Add(argument);
-            if (argument == "-c:v" && i + 1 < arguments.Count)
-            {
-                result.Add(software);
-                i++;
-            }
-        }
-
-        var format = result.IndexOf("yuv420p");
-        if (format >= 0)
-            result.Insert(format + 1, software.Contains("265", StringComparison.Ordinal) ? "fast" : "veryfast");
-        if (format >= 0)
-            result.Insert(format + 1, "-preset");
-        return result;
-    }
+            argument is "h264_nvenc" or "hevc_nvenc" or "h264_qsv" or "hevc_qsv" or "h264_amf" or "hevc_amf"
+                or "h264_videotoolbox" or "hevc_videotoolbox");
 
     private static void UpdateDownloadStateCount(string project, int sourceCount, int outputCount, Action<string>? log)
     {

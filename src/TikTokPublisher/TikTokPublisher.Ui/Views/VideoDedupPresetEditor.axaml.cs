@@ -26,6 +26,9 @@ public partial class VideoDedupPresetEditor : UserControl
             ParallelBox.Value = value.Parallel;
             EncoderAutoBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingHardwareFirst;
             EncoderSoftwareBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingSoftwareOnly;
+            EncoderNvencBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingNvenc;
+            EncoderAmfBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingAmf;
+            EncoderQsvBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingQsv;
             EncoderHardwareBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingHardwareOnly;
             MinDurationBox.Value = (decimal)value.MinimumDurationSeconds;
             MaxDurationBox.Value = (decimal)value.MaximumDurationSeconds;
@@ -83,9 +86,15 @@ public partial class VideoDedupPresetEditor : UserControl
             Parallel = (int)(ParallelBox.Value ?? 2),
             EncodingPreference = EncoderSoftwareBox.IsChecked == true
                 ? VideoDedupPreset.EncodingSoftwareOnly
-                : EncoderHardwareBox.IsChecked == true
-                    ? VideoDedupPreset.EncodingHardwareOnly
-                    : VideoDedupPreset.EncodingHardwareFirst,
+                : EncoderNvencBox.IsChecked == true
+                    ? VideoDedupPreset.EncodingNvenc
+                    : EncoderAmfBox.IsChecked == true
+                        ? VideoDedupPreset.EncodingAmf
+                        : EncoderQsvBox.IsChecked == true
+                            ? VideoDedupPreset.EncodingQsv
+                            : EncoderHardwareBox.IsChecked == true
+                                ? VideoDedupPreset.EncodingHardwareOnly
+                                : VideoDedupPreset.EncodingHardwareFirst,
             MinimumDurationSeconds = (double)(MinDurationBox.Value ?? 0),
             MaximumDurationSeconds = (double)(MaxDurationBox.Value ?? 0),
             TransitionsEnabled = TransitionsEnabledBox.IsChecked == true,

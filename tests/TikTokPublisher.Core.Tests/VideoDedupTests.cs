@@ -92,6 +92,91 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Hardware_arguments_follow_the_vendor_encoder()
+    {
+        var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();
+        var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, true));
+
+        var nvenc = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "h264_nvenc", seed: 1));
+        nvenc.Should().Contain("-c:v h264_nvenc");
+        nvenc.Should().Contain("-preset p4");
+        nvenc.Should().Contain("-gpu any");
+        nvenc.Should().Contain("-rc vbr");
+
+        var amf = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "h264_amf", seed: 1));
+        amf.Should().Contain("-c:v h264_amf");
+        amf.Should().Contain("-usage transcoding");
+        amf.Should().Contain("-quality balanced");
+        amf.Should().Contain("-rc vbr_peak");
+        amf.Should().NotContain("-preset");
+
+        var qsv = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "h264_qsv", seed: 1));
+        qsv.Should().Contain("-c:v h264_qsv");
+        qsv.Should().Contain("-preset veryfast");
+        qsv.Should().Contain("-b:v 4200k");
+        qsv.Should().NotContain("-gpu");
+    }
+
+    [Fact]
+    public async Task Auto_encoder_uses_the_first_card_that_can_encode()
+    {
+        VideoDedupService.EncoderWorksForTests = (encoder, _) =>
+            Task.FromResult(encoder is "h264_amf");
+        try
+        {
+            var choice = await VideoDedupService.ResolveEncoderForTests(
+                VideoDedupPreset.CreateDefault(),
+                CancellationToken.None);
+
+            choice.Encoder.Should().Be("h264_amf");
+            choice.Device.Should().Be("AMD");
+        }
+        finally
+        {
+            VideoDedupService.EncoderWorksForTests = null;
+        }
+    }
+
+    [Fact]
+    public async Task Auto_encoder_uses_cpu_when_no_graphics_card_can_encode()
+    {
+        VideoDedupService.EncoderWorksForTests = (_, _) => Task.FromResult(false);
+        try
+        {
+            var choice = await VideoDedupService.ResolveEncoderForTests(
+                VideoDedupPreset.CreateDefault(),
+                CancellationToken.None);
+
+            choice.Encoder.Should().Be("libx264");
+            choice.Device.Should().Be("CPU");
+            choice.Note.Should().Contain("NVIDIA").And.Contain("AMD");
+        }
+        finally
+        {
+            VideoDedupService.EncoderWorksForTests = null;
+        }
+    }
+
+    [Fact]
+    public async Task Explicit_nvidia_fails_when_that_card_cannot_encode()
+    {
+        VideoDedupService.EncoderWorksForTests = (encoder, _) =>
+            Task.FromResult(encoder is "h264_amf");
+        try
+        {
+            var preset = VideoDedupPreset.CreateDefault();
+            preset.EncodingPreference = VideoDedupPreset.EncodingNvenc;
+            var act = () => VideoDedupService.ResolveEncoderForTests(preset, CancellationToken.None);
+
+            await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*NVIDIA*");
+        }
+        finally
+        {
+            VideoDedupService.EncoderWorksForTests = null;
+        }
+    }
+
+    [Fact]
     public async Task Run_replaces_visible_videos_and_keeps_originals()
     {
         var root = Path.Combine(Path.GetTempPath(), "video-dedup-" + Guid.NewGuid().ToString("N"));

@@ -10,6 +10,9 @@ public sealed class VideoDedupPreset
     public const string EncodingHardwareFirst = "HardwareFirst";
     public const string EncodingSoftwareOnly = "SoftwareOnly";
     public const string EncodingHardwareOnly = "HardwareOnly";
+    public const string EncodingNvenc = "Nvenc";
+    public const string EncodingAmf = "Amf";
+    public const string EncodingQsv = "Qsv";
 
     public const string CodecDefault = "default";
     public const string CodecH264 = "h264";
@@ -125,7 +128,7 @@ public sealed class VideoDedupPreset
         Name = string.IsNullOrWhiteSpace(Name) ? "默认方案" : Name.Trim();
         EncodingPreference = EncodingPreference switch
         {
-            EncodingSoftwareOnly or EncodingHardwareOnly => EncodingPreference,
+            EncodingSoftwareOnly or EncodingHardwareOnly or EncodingNvenc or EncodingAmf or EncodingQsv => EncodingPreference,
             _ => EncodingHardwareFirst,
         };
         Parallel = Math.Clamp(Parallel <= 0 ? 2 : Parallel, 1, 4);

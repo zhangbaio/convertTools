@@ -152,39 +152,18 @@ internal static class VideoDedupPlanner
         bool includeAudio)
     {
         var rate = preset.Fps.ToString(CultureInfo.InvariantCulture);
-        args.AddRange(["-r", rate, "-c:v", videoEncoder, "-pix_fmt", "yuv420p"]);
-        var hardware = videoEncoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase) ||
-                       videoEncoder.Contains("qsv", StringComparison.OrdinalIgnoreCase) ||
-                       videoEncoder.Contains("amf", StringComparison.OrdinalIgnoreCase);
-        if (hardware)
-            args.AddRange(["-preset", videoEncoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase) ? "p4" : "medium"]);
-        else if (videoEncoder.Contains("265", StringComparison.OrdinalIgnoreCase) ||
-                 videoEncoder.Contains("hevc", StringComparison.OrdinalIgnoreCase))
-            args.AddRange(["-preset", "fast"]);
+        args.AddRange(["-r", rate, "-c:v", videoEncoder]);
+        if (videoEncoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase))
+            AppendNvenc(args, preset);
+        else if (videoEncoder.Contains("amf", StringComparison.OrdinalIgnoreCase))
+            AppendAmf(args, preset);
+        else if (videoEncoder.Contains("qsv", StringComparison.OrdinalIgnoreCase))
+            AppendQsv(args, preset);
+        else if (videoEncoder.Contains("videotoolbox", StringComparison.OrdinalIgnoreCase))
+            AppendVideoToolbox(args, preset);
         else
-            args.AddRange(["-preset", "veryfast"]);
-
-        var bitrate = $"{Math.Max(500, (int)Math.Round(preset.VideoBitrateMbps * 1000)).ToString(CultureInfo.InvariantCulture)}k";
-        if (string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCrf, StringComparison.Ordinal))
-        {
-            if (hardware)
-                args.AddRange(["-rc", "vbr", "-cq", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
-            else
-                args.AddRange(["-crf", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
-        }
-        else if (string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCbr, StringComparison.Ordinal))
-        {
-            args.AddRange(hardware
-                ? ["-rc", "cbr", "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", bitrate]
-                : ["-b:v", bitrate, "-minrate", bitrate, "-maxrate", bitrate, "-bufsize", bitrate]);
-        }
-        else
-        {
-            var max = $"{Math.Max(500, (int)Math.Round(preset.VideoBitrateMbps * 1450)).ToString(CultureInfo.InvariantCulture)}k";
-            args.AddRange(hardware
-                ? ["-rc", "vbr", "-b:v", bitrate, "-maxrate", max]
-                : ["-b:v", bitrate, "-maxrate", max]);
-        }
+            AppendSoftwareVideo(args, preset, videoEncoder);
+        args.AddRange(["-pix_fmt", "yuv420p"]);
 
         if (!includeAudio)
             return;
@@ -202,6 +181,87 @@ internal static class VideoDedupPlanner
         else
             args.AddRange(["-b:a", "128k"]);
     }
+
+    private static void AppendNvenc(List<string> args, VideoDedupPreset preset)
+    {
+        var bitrate = BitrateToken(preset);
+        var buffer = BufferToken(preset);
+        args.AddRange(["-preset", "p4", "-gpu", "any", "-profile:v", "high", "-rc-lookahead", "8", "-bf", "3", "-b_ref_mode", "middle"]);
+        if (IsCrf(preset))
+            args.AddRange(["-rc", "vbr", "-cq", preset.Crf.ToString(CultureInfo.InvariantCulture), "-b:v", "0"]);
+        else if (IsCbr(preset))
+            args.AddRange(["-rc", "cbr", "-b:v", bitrate, "-maxrate", bitrate, "-minrate", bitrate, "-bufsize", buffer]);
+        else
+            args.AddRange(["-rc", "vbr", "-b:v", bitrate, "-maxrate", MaxRateToken(preset), "-bufsize", buffer]);
+    }
+
+    private static void AppendAmf(List<string> args, VideoDedupPreset preset)
+    {
+        var bitrate = BitrateToken(preset);
+        var buffer = BufferToken(preset);
+        var crf = preset.Crf.ToString(CultureInfo.InvariantCulture);
+        args.AddRange(["-usage", "transcoding", "-quality", "balanced", "-profile:v", "high"]);
+        if (IsCrf(preset))
+            args.AddRange(["-rc", "cqp", "-qp_i", crf, "-qp_p", crf, "-qp_b", crf]);
+        else if (IsCbr(preset))
+            args.AddRange(["-rc", "cbr", "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", buffer, "-filler_data", "1"]);
+        else
+            args.AddRange(["-rc", "vbr_peak", "-b:v", bitrate, "-maxrate", MaxRateToken(preset), "-bufsize", buffer]);
+    }
+
+    private static void AppendQsv(List<string> args, VideoDedupPreset preset)
+    {
+        args.AddRange(["-preset", "veryfast"]);
+        if (IsCrf(preset))
+        {
+            args.AddRange(["-global_quality", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
+            return;
+        }
+
+        var bitrate = BitrateToken(preset);
+        args.AddRange([
+            "-b:v", bitrate,
+            "-maxrate", IsCbr(preset) ? bitrate : MaxRateToken(preset),
+            "-bufsize", BufferToken(preset),
+        ]);
+    }
+
+    private static void AppendVideoToolbox(List<string> args, VideoDedupPreset preset)
+    {
+        if (IsCrf(preset))
+            args.AddRange(["-q:v", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
+        else
+            args.AddRange(["-b:v", BitrateToken(preset), "-maxrate", IsCbr(preset) ? BitrateToken(preset) : MaxRateToken(preset)]);
+    }
+
+    private static void AppendSoftwareVideo(List<string> args, VideoDedupPreset preset, string videoEncoder)
+    {
+        var hevc = videoEncoder.Contains("265", StringComparison.OrdinalIgnoreCase) ||
+                   videoEncoder.Contains("hevc", StringComparison.OrdinalIgnoreCase);
+        args.AddRange(["-preset", hevc ? "fast" : "veryfast"]);
+        var bitrate = BitrateToken(preset);
+        if (IsCrf(preset))
+            args.AddRange(["-crf", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
+        else if (IsCbr(preset))
+            args.AddRange(["-b:v", bitrate, "-minrate", bitrate, "-maxrate", bitrate, "-bufsize", bitrate]);
+        else
+            args.AddRange(["-b:v", bitrate, "-maxrate", MaxRateToken(preset)]);
+    }
+
+    private static bool IsCrf(VideoDedupPreset preset) =>
+        string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCrf, StringComparison.Ordinal);
+
+    private static bool IsCbr(VideoDedupPreset preset) =>
+        string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCbr, StringComparison.Ordinal);
+
+    private static string BitrateToken(VideoDedupPreset preset) =>
+        $"{Math.Max(500, (int)Math.Round(preset.VideoBitrateMbps * 1000)).ToString(CultureInfo.InvariantCulture)}k";
+
+    private static string MaxRateToken(VideoDedupPreset preset) =>
+        $"{Math.Max(500, (int)Math.Round(preset.VideoBitrateMbps * 1450)).ToString(CultureInfo.InvariantCulture)}k";
+
+    private static string BufferToken(VideoDedupPreset preset) =>
+        $"{Math.Max(500, (int)Math.Round(preset.VideoBitrateMbps * 2000)).ToString(CultureInfo.InvariantCulture)}k";
 
     internal static bool CanCopyAudio(VideoDedupPreset preset) =>
         string.Equals(preset.AudioCodec, VideoDedupPreset.AudioDefault, StringComparison.Ordinal) &&
