@@ -129,11 +129,9 @@ public sealed class TikTokProofMaterialTemplateProviderTests
         ComputeSha256(english).Should().Be(ExpectedEnglishTemplateSha256);
         TikTokProofMaterialTemplateProvider.ResolveLanguage(null, null)
             .Should().Be(TikTokProofMaterialTemplateProvider.ChineseLanguage);
-        TikTokProofMaterialTemplateProvider.ResolveLanguage("en", "zh")
-            .Should().Be(TikTokProofMaterialTemplateProvider.EnglishLanguage);
-        TikTokProofMaterialTemplateProvider.ResolveLanguage("", "en")
+        TikTokProofMaterialTemplateProvider.ResolveLanguage("en", "en")
             .Should().Be(TikTokProofMaterialTemplateProvider.ChineseLanguage);
-        TikTokProofMaterialTemplateProvider.NormalizeAccountLanguage("跟随系统")
+        TikTokProofMaterialTemplateProvider.NormalizeAccountLanguage("en")
             .Should().Be(TikTokProofMaterialTemplateProvider.ChineseLanguage);
     }
 
