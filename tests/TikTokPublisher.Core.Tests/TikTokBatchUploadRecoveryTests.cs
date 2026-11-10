@@ -27,6 +27,25 @@ public sealed class TikTokBatchUploadRecoveryTests
     }
 
     [Fact]
+    public void Stalled_delete_retries_then_refreshes_before_aborting()
+    {
+        TikTokBrowserActions.DecideDeleteStall(1, 0).Should().Be(new TikTokBrowserActions.DeleteStallDecision(false, false));
+        TikTokBrowserActions.DecideDeleteStall(2, 0).Should().Be(new TikTokBrowserActions.DeleteStallDecision(false, false));
+        TikTokBrowserActions.DecideDeleteStall(3, 0).Should().Be(new TikTokBrowserActions.DeleteStallDecision(true, false));
+        TikTokBrowserActions.DecideDeleteStall(3, 1).Should().Be(new TikTokBrowserActions.DeleteStallDecision(true, false));
+        TikTokBrowserActions.DecideDeleteStall(3, 2).Should().Be(new TikTokBrowserActions.DeleteStallDecision(false, true));
+    }
+
+    [Fact]
+    public void Delete_target_prefers_the_row_text()
+    {
+        TikTokBrowserActions.DescribeDeleteTarget(123, "第 123 集 重回十八-第124集")
+            .Should().Be("第 123 集 重回十八-第124集");
+        TikTokBrowserActions.DescribeDeleteTarget(58, "  ")
+            .Should().Be("第 58 集");
+    }
+
+    [Fact]
     public void Missing_or_disabled_delete_button_can_be_retried()
     {
         TikTokBrowserActions.IsRetryableDeleteMiss("need-hover:61:10:20").Should().BeTrue();

@@ -989,6 +989,8 @@ public static partial class TikTokBrowserActions
 
         var deleted = 0;
         var misses = 0;
+        var stalledAttempts = 0;
+        var refreshRounds = 0;
         for (var guard = 0; guard < 500; guard++)
         {
             ct.ThrowIfCancellationRequested();
@@ -998,7 +1000,7 @@ public static partial class TikTokBrowserActions
             var clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
             if (await HoverDeletePointAsync(page, clickResult))
                 clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
-            if (!TryReadClickedEditVideoRow(clickResult, out var slot, out var uid, out _))
+            if (!TryReadClickedEditVideoRow(clickResult, out var slot, out var uid, out var rowText))
             {
                 if (IsRetryableDeleteMiss(clickResult) && misses < 2)
                 {
@@ -1007,6 +1009,12 @@ public static partial class TikTokBrowserActions
                     continue;
                 }
 
+                var missed = await StallEditVideoDeleteAsync(
+                    page, log, ct, count, "未点到删除按钮", stalledAttempts, refreshRounds);
+                stalledAttempts = missed.StalledAttempts;
+                refreshRounds = missed.RefreshRounds;
+                if (missed.Continue)
+                    continue;
                 throw new InvalidOperationException($"未找到错位行的删除按钮（{clickResult}）。");
             }
 
@@ -1015,6 +1023,22 @@ public static partial class TikTokBrowserActions
             planned = Math.Max(planned, deleted + Math.Max(0, count - keepCount));
             await ConfirmDeleteDialogIfPresentAsync(page, ct);
             var remaining = await WaitForEditVideoRowCountDecreaseAsync(page, count, uid, ct);
+            if (remaining is null)
+            {
+                var target = DescribeDeleteTarget(slot, rowText);
+                var stalled = await StallEditVideoDeleteAsync(
+                    page, log, ct, count, target, stalledAttempts, refreshRounds);
+                stalledAttempts = stalled.StalledAttempts;
+                refreshRounds = stalled.RefreshRounds;
+                if (stalled.Continue)
+                    continue;
+                throw new InvalidOperationException(
+                    $"点击删除后等待 15 秒行数仍未减少" +
+                    $"（删除前 {count}，最后读取 {count}，卡在{target}），可能删除请求未被平台接受，已中止。");
+            }
+
+            stalledAttempts = 0;
+            refreshRounds = 0;
             deleted++;
             if (deleted % 10 == 0 && deleted < planned)
             {
@@ -1059,6 +1083,84 @@ public static partial class TikTokBrowserActions
         return true;
     }
 
+    internal readonly record struct DeleteStallDecision(bool Refresh, bool Abort);
+
+    /// <summary>
+    /// 同一轮连续点了 maxAttempts 次仍不减少才刷新；刷新满 maxRefreshes 轮后中止。
+    /// </summary>
+    internal static DeleteStallDecision DecideDeleteStall(
+        int consecutiveAttempts,
+        int refreshRounds,
+        int maxAttempts = 3,
+        int maxRefreshes = 2)
+    {
+        if (consecutiveAttempts < Math.Max(1, maxAttempts))
+            return new DeleteStallDecision(false, false);
+        if (refreshRounds >= Math.Max(0, maxRefreshes))
+            return new DeleteStallDecision(false, true);
+        return new DeleteStallDecision(true, false);
+    }
+
+    internal static string DescribeDeleteTarget(int slot, string? rowText)
+    {
+        var compact = Regex.Replace(rowText ?? "", @"\s+", " ").Trim();
+        if (compact.Length > 80)
+            compact = compact[..80];
+        if (compact.Length > 0)
+            return compact;
+        return slot > 0 ? $"第 {slot} 集" : "末行";
+    }
+
+    private readonly record struct DeleteStallProgress(bool Continue, int StalledAttempts, int RefreshRounds);
+
+    private static async Task<DeleteStallProgress> StallEditVideoDeleteAsync(
+        IPage page,
+        Action<string>? log,
+        CancellationToken ct,
+        int count,
+        string target,
+        int stalledAttempts,
+        int refreshRounds)
+    {
+        stalledAttempts++;
+        var decision = DecideDeleteStall(stalledAttempts, refreshRounds);
+        if (decision.Abort)
+            return new DeleteStallProgress(false, stalledAttempts, refreshRounds);
+        if (!decision.Refresh)
+        {
+            Log(log, $"删除{target}后行数仍是 {count}，准备重试（{stalledAttempts}/3）。");
+            await page.WaitForTimeoutAsync(400);
+            return new DeleteStallProgress(true, stalledAttempts, refreshRounds);
+        }
+
+        refreshRounds++;
+        stalledAttempts = 0;
+        Log(log, $"删除{target}连续 3 次没有减少行数，刷新编辑页后继续。当前仍是 {count} 行。");
+        await ReloadEditVideoPageAsync(page, ct);
+        return new DeleteStallProgress(true, stalledAttempts, refreshRounds);
+    }
+
+    private static async Task ReloadEditVideoPageAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await page.ReloadAsync(new PageReloadOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 60000,
+        });
+        try
+        {
+            await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 });
+        }
+        catch
+        {
+            // 编辑页常驻连接时 NetworkIdle 到不了，列表出现即可继续删。
+        }
+
+        await EnsureEditContentUploadTabAsync(page, ct);
+        await page.WaitForTimeoutAsync(800);
+    }
+
     internal static bool IsRetryableDeleteMiss(string result) =>
         result.StartsWith("no-button:", StringComparison.Ordinal) ||
         result.StartsWith("need-hover:", StringComparison.Ordinal) ||
@@ -1086,7 +1188,7 @@ public static partial class TikTokBrowserActions
         return int.TryParse(parts[0], out slot);
     }
 
-    private static async Task<int> WaitForEditVideoRowCountDecreaseAsync(
+    private static async Task<int?> WaitForEditVideoRowCountDecreaseAsync(
         IPage page,
         int previousCount,
         string removedUid,
@@ -1095,23 +1197,21 @@ public static partial class TikTokBrowserActions
     {
         var deadline = DateTime.UtcNow.AddSeconds(Math.Max(3, timeoutSeconds));
         int? candidate = null;
-        var lastCount = previousCount;
 
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
             var probe = await ProbeEditVideoRowRemovalAsync(page, removedUid);
-            lastCount = probe.Count;
-            if (probe.Removed && lastCount == previousCount - 1)
-                return lastCount;
+            if (probe.Removed && probe.Count == previousCount - 1)
+                return probe.Count;
 
-            if (lastCount < previousCount)
+            if (probe.Count < previousCount)
             {
                 // TikTok briefly tears down the virtual table while applying a deletion. Require
                 // the lower count twice so a transient zero is not mistaken for an empty list.
-                if (candidate == lastCount)
-                    return lastCount;
-                candidate = lastCount;
+                if (candidate == probe.Count)
+                    return probe.Count;
+                candidate = probe.Count;
             }
             else
             {
@@ -1121,9 +1221,7 @@ public static partial class TikTokBrowserActions
             await page.WaitForTimeoutAsync(200);
         }
 
-        throw new InvalidOperationException(
-            $"点击删除后等待 {Math.Max(3, timeoutSeconds)} 秒行数仍未减少" +
-            $"（删除前 {previousCount}，最后读取 {lastCount}），可能删除请求未被平台接受，已中止。");
+        return null;
     }
 
     /// <summary>
