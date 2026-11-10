@@ -812,19 +812,16 @@
                         <TextBlock Text="剧集名额" FontWeight="Bold" />
                         <TextBlock Text="本机所有账号队列共享。一部剧从开始执行到上传结束、失败或停止都占 1 个名额，已完成的剧不占。修改后对新开始的剧生效。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="同时运行剧集" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGlobalProjectConcurrency}" Minimum="1" Maximum="12" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="单账号同时运行" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokPerAccountProjectConcurrency}" Minimum="0" Maximum="12" Width="120" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="账号调度" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="2" Grid.Column="1"
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="账号调度" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="1" Grid.Column="1"
                                       IsChecked="{Binding TiktokAccountScheduleRoundRobin}"
                                       Content="多个账号轮流分配名额" />
                         </Grid>
-                        <TextBlock Text="不勾选轮流时按左侧账号顺序：前面的账号还有剧在等就先给它，后面的账号只用剩下的名额。单账号同时运行填 0 表示不限。"
+                        <TextBlock Text="不勾选轮流时按左侧账号顺序：前面的账号还有剧在等就先给它，后面的账号只用剩下的名额。单个账号最多同时运行几部，以账号「发布配置」里的项目并发数为准。"
                                    Foreground="#666" TextWrapping="Wrap" />
 
                         <TextBlock Text="全局步骤配置" FontWeight="Bold" />

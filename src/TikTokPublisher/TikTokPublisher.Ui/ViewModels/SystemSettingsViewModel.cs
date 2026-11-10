@@ -216,7 +216,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokVisualConcurrency = 2;
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
     [ObservableProperty] private int _tiktokGlobalProjectConcurrency = 4;
-    [ObservableProperty] private int _tiktokPerAccountProjectConcurrency = 4;
     [ObservableProperty] private bool _tiktokAccountScheduleRoundRobin;
     [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
     [ObservableProperty] private int _tiktokUploadConcurrency = 2;
@@ -460,7 +459,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokVisualConcurrency = TiktokVisualConcurrency;
         settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
         settings.TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency;
-        settings.TiktokPerAccountProjectConcurrency = TiktokPerAccountProjectConcurrency;
         settings.TiktokAccountScheduleMode = TiktokAccountScheduleRoundRobin
             ? QueueProjectSlotCoordinator.RoundRobinMode
             : QueueProjectSlotCoordinator.AccountOrderMode;
@@ -1469,7 +1467,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokVisualConcurrency = settings.TiktokVisualConcurrency;
         TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
         TiktokGlobalProjectConcurrency = settings.TiktokGlobalProjectConcurrency;
-        TiktokPerAccountProjectConcurrency = settings.TiktokPerAccountProjectConcurrency;
         TiktokAccountScheduleRoundRobin = string.Equals(
             settings.TiktokAccountScheduleMode,
             QueueProjectSlotCoordinator.RoundRobinMode,

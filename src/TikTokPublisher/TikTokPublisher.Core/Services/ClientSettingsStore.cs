@@ -417,10 +417,6 @@ public static class ClientSettingsStore
             settings.TiktokGlobalProjectConcurrency <= 0 ? QueueProjectSlotCoordinator.DefaultCapacity : settings.TiktokGlobalProjectConcurrency,
             1,
             QueueProjectSlotCoordinator.MaxCapacity);
-        settings.TiktokPerAccountProjectConcurrency = Math.Clamp(
-            settings.TiktokPerAccountProjectConcurrency,
-            0,
-            QueueProjectSlotCoordinator.MaxPerAccount);
         settings.TiktokAccountScheduleMode = QueueProjectSlotCoordinator.NormalizeMode(settings.TiktokAccountScheduleMode);
         settings.TiktokVideoDedupConcurrency = Math.Clamp(
             settings.TiktokVideoDedupConcurrency <= 0 ? 2 : settings.TiktokVideoDedupConcurrency,

@@ -12,7 +12,7 @@ public sealed class QueueProjectSlotCoordinatorTests
     public void AccountOrder_FirstAccountUsesAllSlotsWhileItHasWaitingDramas()
     {
         var slots = new QueueProjectSlotCoordinator();
-        slots.Configure(4, 0, QueueProjectSlotCoordinator.AccountOrderMode);
+        slots.Configure(4, QueueProjectSlotCoordinator.AccountOrderMode);
         slots.SetDemand(_runnerA, [new QueueProjectSlotDemand("A", 0, 5)]);
         slots.SetDemand(_runnerB, [new QueueProjectSlotDemand("B", 1, 5)]);
 
@@ -31,7 +31,7 @@ public sealed class QueueProjectSlotCoordinatorTests
     public void AccountOrder_NextAccountGetsSlotsTheFirstCannotUse()
     {
         var slots = new QueueProjectSlotCoordinator();
-        slots.Configure(4, 0, QueueProjectSlotCoordinator.AccountOrderMode);
+        slots.Configure(4, QueueProjectSlotCoordinator.AccountOrderMode);
         slots.SetDemand(_runnerA, [new QueueProjectSlotDemand("A", 0, 2)]);
         slots.SetDemand(_runnerB, [new QueueProjectSlotDemand("B", 1, 5)]);
         slots.TryAcquire("A", 0).Should().BeTrue();
@@ -45,16 +45,17 @@ public sealed class QueueProjectSlotCoordinatorTests
     }
 
     [Fact]
-    public void AccountOrder_CappedEarlierAccountDoesNotBlockLaterAccount()
+    public void AccountOrder_EarlierAccountAtItsProjectConcurrencyDoesNotBlockLaterAccount()
     {
         var slots = new QueueProjectSlotCoordinator();
-        slots.Configure(4, 2, QueueProjectSlotCoordinator.AccountOrderMode);
-        slots.SetDemand(_runnerA, [new QueueProjectSlotDemand("A", 0, 5)]);
+        slots.Configure(4, QueueProjectSlotCoordinator.AccountOrderMode);
+        slots.SetDemand(_runnerA, [new QueueProjectSlotDemand("A", 0, 2)]);
         slots.SetDemand(_runnerB, [new QueueProjectSlotDemand("B", 1, 5)]);
 
         slots.TryAcquire("A", 0).Should().BeTrue();
         slots.TryAcquire("A", 0).Should().BeTrue();
-        slots.TryAcquire("A", 0).Should().BeFalse();
+        slots.TryAcquire("B", 1).Should().BeFalse();
+        slots.SetDemand(_runnerA, []);
         slots.TryAcquire("B", 1).Should().BeTrue();
     }
 
@@ -62,7 +63,7 @@ public sealed class QueueProjectSlotCoordinatorTests
     public void RoundRobin_GivesSlotToAccountHoldingFewer()
     {
         var slots = new QueueProjectSlotCoordinator();
-        slots.Configure(4, 0, QueueProjectSlotCoordinator.RoundRobinMode);
+        slots.Configure(4, QueueProjectSlotCoordinator.RoundRobinMode);
         slots.SetDemand(_runnerA, [new QueueProjectSlotDemand("A", 0, 5)]);
         slots.SetDemand(_runnerB, [new QueueProjectSlotDemand("B", 1, 5)]);
 
@@ -76,7 +77,7 @@ public sealed class QueueProjectSlotCoordinatorTests
     public void ClearDemand_StopsBlockingOtherAccounts()
     {
         var slots = new QueueProjectSlotCoordinator();
-        slots.Configure(2, 0, QueueProjectSlotCoordinator.AccountOrderMode);
+        slots.Configure(2, QueueProjectSlotCoordinator.AccountOrderMode);
         slots.SetDemand(_runnerA, [new QueueProjectSlotDemand("A", 0, 3)]);
         slots.TryAcquire("B", 1).Should().BeFalse();
 

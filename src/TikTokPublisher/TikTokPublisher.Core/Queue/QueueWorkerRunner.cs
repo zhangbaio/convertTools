@@ -644,7 +644,6 @@ public sealed class QueueWorkerRunner
                 var limits = ClientSettingsStore.Load();
                 _projectSlots.Configure(
                     limits.TiktokGlobalProjectConcurrency,
-                    limits.TiktokPerAccountProjectConcurrency,
                     limits.TiktokAccountScheduleMode);
                 _uploadSlots.Configure(limits.TiktokUploadConcurrency);
             }

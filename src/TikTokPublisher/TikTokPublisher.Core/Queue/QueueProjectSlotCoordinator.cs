@@ -2,7 +2,8 @@ namespace TikTokPublisher.Core.Queue;
 
 /// <summary>
 /// 本机所有账号队列共享的剧集运行名额。一部剧从开始执行到上传结束、失败或停止都占 1 个名额，
-/// 已经完成的剧不占。
+/// 已经完成的剧不占。单个账号最多同时跑几部由该账号发布配置里的项目并发数决定，
+/// 达到上限的队列不再登记需求，也就不会挡住后面的账号。
 /// </summary>
 public sealed class QueueProjectSlotCoordinator
 {
@@ -10,14 +11,12 @@ public sealed class QueueProjectSlotCoordinator
     public const string RoundRobinMode = "round_robin";
     public const int DefaultCapacity = 4;
     public const int MaxCapacity = 12;
-    public const int MaxPerAccount = 12;
 
     private readonly object _lock = new();
     private readonly Dictionary<string, int> _active = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<object, IReadOnlyList<QueueProjectSlotDemand>> _demand =
         new(ReferenceEqualityComparer.Instance);
     private int _capacity = DefaultCapacity;
-    private int _perAccount;
     private string _mode = AccountOrderMode;
 
     public static string NormalizeMode(string? mode) =>
@@ -25,12 +24,11 @@ public sealed class QueueProjectSlotCoordinator
             ? RoundRobinMode
             : AccountOrderMode;
 
-    public void Configure(int capacity, int perAccount, string? mode)
+    public void Configure(int capacity, string? mode)
     {
         lock (_lock)
         {
             _capacity = Math.Clamp(capacity <= 0 ? DefaultCapacity : capacity, 1, MaxCapacity);
-            _perAccount = Math.Clamp(perAccount, 0, MaxPerAccount);
             _mode = NormalizeMode(mode);
         }
     }
@@ -82,16 +80,11 @@ public sealed class QueueProjectSlotCoordinator
             if (_active.Values.Sum() >= _capacity)
                 return false;
             var mine = _active.GetValueOrDefault(key);
-            if (_perAccount > 0 && mine >= _perAccount)
-                return false;
-
             foreach (var other in AggregateDemand())
             {
                 if (string.Equals(other.AccountKey, key, StringComparison.OrdinalIgnoreCase) || other.Count <= 0)
                     continue;
                 var otherActive = _active.GetValueOrDefault(other.AccountKey);
-                if (_perAccount > 0 && otherActive >= _perAccount)
-                    continue;
                 if (_mode == AccountOrderMode ? other.AccountOrder < accountOrder : otherActive < mine)
                     return false;
             }
