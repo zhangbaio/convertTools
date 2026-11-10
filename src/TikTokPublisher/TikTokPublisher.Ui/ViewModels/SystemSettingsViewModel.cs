@@ -8,6 +8,7 @@ using ShortDrama.Core.Services;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Services.Asr;
 
@@ -214,6 +215,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokImageGenerationConcurrency = 2;
     [ObservableProperty] private int _tiktokVisualConcurrency = 2;
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
+    [ObservableProperty] private int _tiktokGlobalProjectConcurrency = 4;
+    [ObservableProperty] private int _tiktokPerAccountProjectConcurrency = 4;
+    [ObservableProperty] private bool _tiktokAccountScheduleRoundRobin;
+    [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
+    [ObservableProperty] private int _tiktokUploadConcurrency = 2;
     [ObservableProperty] private string _tiktokAsrLanguage = "zh-CN";
     [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure = true;
     [ObservableProperty] private string _asrProbeStatus = "";
@@ -453,6 +459,13 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency;
         settings.TiktokVisualConcurrency = TiktokVisualConcurrency;
         settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
+        settings.TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency;
+        settings.TiktokPerAccountProjectConcurrency = TiktokPerAccountProjectConcurrency;
+        settings.TiktokAccountScheduleMode = TiktokAccountScheduleRoundRobin
+            ? QueueProjectSlotCoordinator.RoundRobinMode
+            : QueueProjectSlotCoordinator.AccountOrderMode;
+        settings.TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency;
+        settings.TiktokUploadConcurrency = TiktokUploadConcurrency;
         settings.TiktokAsrLanguage = TiktokAsrLanguage.Trim();
         settings.TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure;
         settings.AiTextEndpoint = AiTextEndpoint.Trim();
@@ -1455,6 +1468,14 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokImageGenerationConcurrency = settings.TiktokImageGenerationConcurrency;
         TiktokVisualConcurrency = settings.TiktokVisualConcurrency;
         TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
+        TiktokGlobalProjectConcurrency = settings.TiktokGlobalProjectConcurrency;
+        TiktokPerAccountProjectConcurrency = settings.TiktokPerAccountProjectConcurrency;
+        TiktokAccountScheduleRoundRobin = string.Equals(
+            settings.TiktokAccountScheduleMode,
+            QueueProjectSlotCoordinator.RoundRobinMode,
+            StringComparison.OrdinalIgnoreCase);
+        TiktokVideoDedupConcurrency = settings.TiktokVideoDedupConcurrency;
+        TiktokUploadConcurrency = settings.TiktokUploadConcurrency;
         TiktokAsrLanguage = settings.TiktokAsrLanguage;
         TiktokManualInterventionOnSingleFailure = settings.TiktokManualInterventionOnSingleFailure;
         AiTextEndpoint = settings.AiTextEndpoint;

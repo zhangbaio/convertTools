@@ -18,6 +18,7 @@ public sealed record WorkspaceQueueRunInfo(
 public sealed class WorkspaceQueueOrchestrator
 {
     private readonly UploadSlotCoordinator _sharedUploadSlots = new();
+    private readonly QueueProjectSlotCoordinator _sharedProjectSlots = new();
     private readonly XingeUploadTaskObserver _uploadTaskObserver = new();
     private readonly XingeUploadTaskReporter _uploadTaskReporter;
     private readonly object _lock = new();
@@ -89,7 +90,7 @@ public sealed class WorkspaceQueueOrchestrator
                 throw new InvalidOperationException($"工作目录队列已在运行：{root}");
 
             linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var runner = new QueueWorkerRunner(_sharedUploadSlots);
+            var runner = new QueueWorkerRunner(_sharedUploadSlots, _sharedProjectSlots);
             runner.ManualIntervention.PendingChanged += (item, message) =>
                 ManualInterventionPending?.Invoke(item, message, root);
 

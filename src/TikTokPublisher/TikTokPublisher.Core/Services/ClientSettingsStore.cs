@@ -413,6 +413,23 @@ public static class ClientSettingsStore
         settings.ForeignSearchSource = ForeignPlayletClient.NormalizeSource(settings.ForeignSearchSource);
         settings.ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(settings.ForeignLanguage);
         settings.TiktokMaterialValidateConcurrency = Math.Clamp(settings.TiktokMaterialValidateConcurrency, 1, 16);
+        settings.TiktokGlobalProjectConcurrency = Math.Clamp(
+            settings.TiktokGlobalProjectConcurrency <= 0 ? QueueProjectSlotCoordinator.DefaultCapacity : settings.TiktokGlobalProjectConcurrency,
+            1,
+            QueueProjectSlotCoordinator.MaxCapacity);
+        settings.TiktokPerAccountProjectConcurrency = Math.Clamp(
+            settings.TiktokPerAccountProjectConcurrency,
+            0,
+            QueueProjectSlotCoordinator.MaxPerAccount);
+        settings.TiktokAccountScheduleMode = QueueProjectSlotCoordinator.NormalizeMode(settings.TiktokAccountScheduleMode);
+        settings.TiktokVideoDedupConcurrency = Math.Clamp(
+            settings.TiktokVideoDedupConcurrency <= 0 ? 2 : settings.TiktokVideoDedupConcurrency,
+            1,
+            4);
+        settings.TiktokUploadConcurrency = Math.Clamp(
+            settings.TiktokUploadConcurrency <= 0 ? 2 : settings.TiktokUploadConcurrency,
+            1,
+            UploadSlotCoordinator.MaxCapacity);
         settings.TiktokAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokAsrLanguage)
             ? "zh-CN"
             : settings.TiktokAsrLanguage.Trim();
