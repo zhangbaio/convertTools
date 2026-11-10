@@ -1761,6 +1761,7 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokUploadSourceInfoRoleVector = account.TiktokUploadSourceInfoRoleVector,
         TiktokUploadSourceInfoRoleSceneScreenshot = account.TiktokUploadSourceInfoRoleSceneScreenshot,
         TiktokProofSealPath = account.TiktokProofSealPath,
+        TiktokProofTemplateDocxPath = account.TiktokProofTemplateDocxPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
         TiktokRewriteFollowsSourceLanguage = account.TiktokRewriteFollowsSourceLanguage,

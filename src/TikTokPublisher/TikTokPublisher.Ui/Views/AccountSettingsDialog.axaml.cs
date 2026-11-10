@@ -69,6 +69,7 @@ public partial class AccountSettingsDialog : Window
             p.TiktokUploadAiScriptOutlineWithScreenshots,
             p.TiktokUploadSourceInfoRoleVector,
             p.TiktokUploadSourceInfoRoleSceneScreenshot);
+        ProofTemplatePathBox.Text = p.TiktokProofTemplateDocxPath;
         ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
@@ -169,6 +170,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
         p.TiktokUploadSourceInfoRoleVector = CopyrightMaterials.UploadSourceInfoRoleVector;
         p.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
+        p.TiktokProofTemplateDocxPath = ProofTemplatePathBox.Text?.Trim() ?? "";
         p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
@@ -294,6 +296,26 @@ public partial class AccountSettingsDialog : Window
         var path = files.FirstOrDefault()?.TryGetLocalPath();
         if (!string.IsNullOrWhiteSpace(path))
             ProofSealPathBox.Text = path;
+    }
+
+    private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e)
+    {
+        if (Storage is null) return;
+        var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择证明材料 Word 模板",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Word 模板")
+                {
+                    Patterns = ["*.docx"],
+                },
+            ],
+        });
+        var path = files.FirstOrDefault()?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(path))
+            ProofTemplatePathBox.Text = path;
     }
 
     private void OnSave(object? sender, RoutedEventArgs e)

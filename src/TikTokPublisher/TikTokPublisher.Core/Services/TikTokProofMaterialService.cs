@@ -938,6 +938,30 @@ public sealed class TikTokProofMaterialService
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
     }
 
+    internal static string ResolveAccountTemplatePath(TikTokAccountProfile account, ClientSettings settings)
+    {
+        var accountPath = (account.TiktokProofTemplateDocxPath ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(accountPath))
+            return TikTokProofMaterialTemplateProvider.ResolveTemplatePath(settings.TiktokProofTemplateDocxPath);
+
+        var name = FirstNonEmpty(account.Name, account.DisplayName, account.Id, "未命名账号");
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(accountPath));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new InvalidOperationException($"账号「{name}」的证明材料模板路径无效：{accountPath}", ex);
+        }
+
+        if (!string.Equals(Path.GetExtension(fullPath), ".docx", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"账号「{name}」的证明材料模板必须是 .docx 文件：{fullPath}");
+        if (!File.Exists(fullPath) || new FileInfo(fullPath).Length <= 0)
+            throw new InvalidOperationException($"账号「{name}」的证明材料模板不存在：{fullPath}");
+        return fullPath;
+    }
+
     internal static TikTokProofMaterialRequest CreateQueueRequest(
         QueueProjectItem item,
         ClientSettings settings,
@@ -983,7 +1007,7 @@ public sealed class TikTokProofMaterialService
 
         return new TikTokProofMaterialRequest(
             generateProductionAgreement
-                ? TikTokProofMaterialTemplateProvider.ResolveTemplatePath(settings.TiktokProofTemplateDocxPath)
+                ? ResolveAccountTemplatePath(account, settings)
                 : string.Empty,
             GetPdfPath(workflowProjectDirectory),
             account.TiktokProofCopyrightCompanyName ?? string.Empty,

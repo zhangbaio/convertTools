@@ -160,6 +160,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadAiScriptOutlineWithScreenshots,
             profile.TiktokUploadSourceInfoRoleVector,
             profile.TiktokUploadSourceInfoRoleSceneScreenshot);
+        ProofTemplatePathBox.Text = profile.TiktokProofTemplateDocxPath;
         ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
@@ -294,6 +295,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
             profile.TiktokUploadSourceInfoRoleVector = CopyrightMaterials.UploadSourceInfoRoleVector;
             profile.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
+            profile.TiktokProofTemplateDocxPath = ProofTemplatePathBox.Text?.Trim() ?? "";
             profile.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
@@ -891,6 +893,7 @@ public partial class AccountProfileEditor : UserControl
         RemoteDispatchBox.IsChecked = false;
         CdpEndpointBox.Text = "";
         ContractIdBox.Text = "";
+        ProofTemplatePathBox.Text = "";
         ProofDeclarantCompanyNameBox.Text = "";
         ProofSealPathBox.Text = "";
         ProofCopyrightCompanyNameBox.Text = "";
@@ -928,6 +931,9 @@ public partial class AccountProfileEditor : UserControl
 
     private async void OnBrowseProofSealClick(object? sender, RoutedEventArgs e) =>
         await PickFileAsync(ProofSealPathBox, "选择公司印章图片", ["png", "jpg", "jpeg", "bmp"]);
+
+    private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e) =>
+        await PickFileAsync(ProofTemplatePathBox, "选择证明材料 Word 模板", ["docx"]);
 
     private async Task FetchPublishAccountsAsync()
     {

@@ -287,6 +287,7 @@ public sealed class AccountStore
         account.TiktokProofDeclarantCompanyName = (account.TiktokProofDeclarantCompanyName ?? "").Trim();
         account.TiktokTimestampApplicantName = (account.TiktokTimestampApplicantName ?? "").Trim();
         account.TiktokProofSealPath = (account.TiktokProofSealPath ?? "").Trim();
+        account.TiktokProofTemplateDocxPath = (account.TiktokProofTemplateDocxPath ?? "").Trim();
         account.TiktokArchiveRootDir = (account.TiktokArchiveRootDir ?? "").Trim();
         account.TiktokCopyrightMaterialTypes = TikTokPublishConstants
             .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
