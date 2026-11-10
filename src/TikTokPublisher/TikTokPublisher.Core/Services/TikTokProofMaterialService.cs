@@ -320,10 +320,10 @@ public sealed class TikTokProofMaterialService
                 .ConfigureAwait(false);
         }
 
-        var branchStateLock = new object();
-        await Task.WhenAll(
-            RunAiScreenshotBranchAsync(),
-            RunEditingProjectBranchAsync()).ConfigureAwait(false);
+        // 工程图开始时会重写 shortdrama-project.json。AI 截图要读这个文件找回源目录，
+        // 两边同时执行时会读到被截断的内容，从而误判没有视频。先完成工程图，再抽帧。
+        await RunEditingProjectBranchAsync().ConfigureAwait(false);
+        await RunAiScreenshotBranchAsync().ConfigureAwait(false);
 
         await RunSourceInfoBranchAsync().ConfigureAwait(false);
 
@@ -450,14 +450,11 @@ public sealed class TikTokProofMaterialService
                     log,
                     cancellationToken,
                     forceRerun: forceRerun).ConfigureAwait(false);
-                lock (branchStateLock)
-                {
-                    aiCompleted = true;
-                    SaveState(
-                        context, request, fingerprints, result,
-                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
-                        log);
-                }
+                aiCompleted = true;
+                SaveState(
+                    context, request, fingerprints, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                    log);
                 LogGeneratedMaterial(log, "AI 生成过程截图", outputs, timer.Elapsed);
             }
             catch (Exception ex)
@@ -498,14 +495,11 @@ public sealed class TikTokProofMaterialService
                     forceRerun,
                     log,
                     cancellationToken).ConfigureAwait(false);
-                lock (branchStateLock)
-                {
-                    editingCompleted = true;
-                    SaveState(
-                        context, request, fingerprints, result,
-                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
-                        log);
-                }
+                editingCompleted = true;
+                SaveState(
+                    context, request, fingerprints, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                    log);
                 LogGeneratedMaterial(
                     log,
                     "剪辑工程文件",
