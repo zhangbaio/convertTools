@@ -942,7 +942,16 @@ public sealed class TikTokProofMaterialService
     {
         var accountPath = (account.TiktokProofTemplateDocxPath ?? "").Trim();
         if (string.IsNullOrWhiteSpace(accountPath))
-            return TikTokProofMaterialTemplateProvider.ResolveTemplatePath(settings.TiktokProofTemplateDocxPath);
+        {
+            var systemPath = TikTokProofMaterialTemplateProvider.TryResolveCustomTemplate(settings.TiktokProofTemplateDocxPath);
+            if (systemPath is not null)
+                return systemPath;
+            return TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(
+                dataRoot: null,
+                TikTokProofMaterialTemplateProvider.ResolveLanguage(
+                    account.TiktokProofTemplateLanguage,
+                    settings.TiktokProofTemplateLanguage));
+        }
 
         var name = FirstNonEmpty(account.Name, account.DisplayName, account.Id, "未命名账号");
         string fullPath;

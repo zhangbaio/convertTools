@@ -95,6 +95,7 @@ public static class ClientSettingsDefaults
     public const string TiktokProjectImageFableCutScreenshotStyle = "standard";
     // Empty means use the DOCX embedded in TikTokPublisher.Core.
     public const string TiktokProofTemplateDocxPath = "";
+    public const string TiktokProofTemplateLanguage = "zh";
     public const string TiktokProofWpsPath = "";
     public const string TiktokProofPdfRenderer = "wps";
     public const bool TiktokProofKeepDocx = false;

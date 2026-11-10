@@ -269,6 +269,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _tiktokProjectImageFableCutRoot = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
     [ObservableProperty] private int _tiktokProjectImageFableCutClipCount = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
     [ObservableProperty] private string _tiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+    [ObservableProperty] private string _tiktokProofTemplateLanguage = ClientSettingsDefaults.TiktokProofTemplateLanguage;
     [ObservableProperty] private string _tiktokProofWpsPath = ClientSettingsDefaults.TiktokProofWpsPath;
     [ObservableProperty] private string _tiktokProofDeclarantCompanyName = "";
     [ObservableProperty] private string _tiktokProofSealPath = "";
@@ -515,6 +516,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot.Trim();
         settings.TiktokProjectImageFableCutClipCount = Math.Clamp(TiktokProjectImageFableCutClipCount, 12, 36);
         settings.TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath.Trim();
+        settings.TiktokProofTemplateLanguage = TiktokProofTemplateLanguage.Trim();
         settings.TiktokProofWpsPath = TiktokProofWpsPath.Trim();
         settings.TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName.Trim();
         settings.TiktokProofSealPath = TiktokProofSealPath.Trim();
@@ -1510,6 +1512,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProjectImageFableCutRoot = settings.TiktokProjectImageFableCutRoot;
         TiktokProjectImageFableCutClipCount = settings.TiktokProjectImageFableCutClipCount;
         TiktokProofTemplateDocxPath = settings.TiktokProofTemplateDocxPath;
+        TiktokProofTemplateLanguage = settings.TiktokProofTemplateLanguage;
         TiktokProofWpsPath = settings.TiktokProofWpsPath;
         TiktokProofDeclarantCompanyName = settings.TiktokProofDeclarantCompanyName;
         TiktokProofSealPath = settings.TiktokProofSealPath;

@@ -50,6 +50,7 @@ public sealed class TikTokPublishDefaultsTests
         settings.TiktokProjectImageRenderEpisodeLimit.Should().Be(6);
         settings.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);
         ClientSettingsDefaults.TiktokProofTemplateDocxPath.Should().BeEmpty();
+        settings.TiktokProofTemplateLanguage.Should().Be("zh");
         settings.TiktokProofDeclarantCompanyName.Should().BeEmpty();
         settings.TiktokProofSealPath.Should().BeEmpty();
         settings.TiktokProofPdfRenderer.Should().Be("wps");
@@ -666,6 +667,7 @@ public sealed class TikTokPublishDefaultsTests
         var settings = new ClientSettings
         {
             TiktokProofTemplateDocxPath = @"D:\templates\proof.docx",
+            TiktokProofTemplateLanguage = "en",
             TiktokProofDeclarantCompanyName = "声明公司",
             TiktokProofSealPath = @"D:\templates\seal.png",
             TiktokProofPdfRenderer = "libreoffice",
@@ -676,6 +678,7 @@ public sealed class TikTokPublishDefaultsTests
         var clone = settings.Clone();
 
         clone.TiktokProofTemplateDocxPath.Should().Be(settings.TiktokProofTemplateDocxPath);
+        clone.TiktokProofTemplateLanguage.Should().Be("en");
         clone.TiktokProofDeclarantCompanyName.Should().Be(settings.TiktokProofDeclarantCompanyName);
         clone.TiktokProofSealPath.Should().Be(settings.TiktokProofSealPath);
         clone.TiktokProofPdfRenderer.Should().Be("libreoffice");

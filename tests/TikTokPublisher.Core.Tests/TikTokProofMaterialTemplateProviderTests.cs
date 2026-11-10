@@ -9,6 +9,8 @@ public sealed class TikTokProofMaterialTemplateProviderTests
 {
     private const string ExpectedTemplateSha256 =
         "C195AE2D5782D4AF81B22D2A396F42D24EE3FC3FFC9523E8734D5312A0A3CED2";
+    private const string ExpectedEnglishTemplateSha256 =
+        "246714C5553B780C88FCCB2381CD7BA6C1E2FB2360FB284BFAA98223E9CCFDA3";
 
     [Fact]
     public void Embedded_template_is_released_to_data_directory_and_restored_when_corrupted()
@@ -105,6 +107,69 @@ public sealed class TikTokProofMaterialTemplateProviderTests
         var loaded = ClientSettingsStore.Load(databasePath);
 
         loaded.TiktokProofTemplateDocxPath.Should().BeEmpty();
+        loaded.TiktokProofTemplateLanguage.Should().Be(TikTokProofMaterialTemplateProvider.ChineseLanguage);
+    }
+
+    [Fact]
+    public void English_builtin_template_is_released_separately_from_the_chinese_template()
+    {
+        using var temp = new TemporaryDirectory();
+
+        var chinese = TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(temp.Path);
+        var english = TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(
+            temp.Path,
+            TikTokProofMaterialTemplateProvider.EnglishLanguage);
+
+        english.Should().Be(Path.Combine(
+            temp.Path,
+            "templates",
+            "proof-material",
+            TikTokProofMaterialTemplateProvider.BuiltInEnglishTemplateFileName));
+        english.Should().NotBe(chinese);
+        ComputeSha256(english).Should().Be(ExpectedEnglishTemplateSha256);
+        TikTokProofMaterialTemplateProvider.ResolveLanguage(null, null)
+            .Should().Be(TikTokProofMaterialTemplateProvider.ChineseLanguage);
+        TikTokProofMaterialTemplateProvider.ResolveLanguage("en", "zh")
+            .Should().Be(TikTokProofMaterialTemplateProvider.EnglishLanguage);
+        TikTokProofMaterialTemplateProvider.ResolveLanguage("", "en")
+            .Should().Be(TikTokProofMaterialTemplateProvider.EnglishLanguage);
+    }
+
+    [Fact]
+    public void English_builtin_template_replaces_both_titles_and_writes_an_english_date()
+    {
+        using var temp = new TemporaryDirectory();
+        var templatePath = TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(
+            temp.Path,
+            TikTokProofMaterialTemplateProvider.EnglishLanguage);
+        var builder = new TikTokProofMaterialDocumentBuilder();
+
+        var result = builder.CreateTemporaryDocx(new TikTokProofMaterialRequest(
+            templatePath,
+            Path.Combine(temp.Path, "证明材料.pdf"),
+            "测试版权公司",
+            "BRIGHTLANE ICOMMERCE LLC",
+            "测试英文剧名",
+            new DateOnly(2026, 11, 8))
+        {
+            TemporaryDirectory = temp.Path,
+        });
+
+        result.Replacements.Should().Be(new TikTokProofMaterialReplacementCounts(
+            CopyrightCompany: 1,
+            DeclarantCompany: 2,
+            DramaTitle: 2,
+            StatementDate: 1,
+            SealImages: 0));
+        using var document = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(result.DocxPath, false);
+        var text = string.Concat(document.MainDocumentPart!.Document.Body!.Descendants<DocumentFormat.OpenXml.Wordprocessing.Text>()
+            .Select(node => node.Text));
+        text.Should().Contain("【测试版权公司】");
+        text.Should().Contain("《测试英文剧名》");
+        text.Should().Contain("【测试英文剧名】");
+        text.Should().NotContain("家宴心声揭穿丈夫的伪装");
+        text.Should().Contain("November 8, 2026");
+        text.Should().NotContain("November8,2026");
     }
 
     private static string ComputeSha256(string path)

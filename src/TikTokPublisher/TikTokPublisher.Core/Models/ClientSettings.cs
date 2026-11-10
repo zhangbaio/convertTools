@@ -164,6 +164,7 @@ public sealed class ClientSettings
     public string TiktokProjectImageFableCutRoot { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
     public int TiktokProjectImageFableCutClipCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
     public string TiktokProofTemplateDocxPath { get; set; } = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+    public string TiktokProofTemplateLanguage { get; set; } = ClientSettingsDefaults.TiktokProofTemplateLanguage;
     public string TiktokProofWpsPath { get; set; } = ClientSettingsDefaults.TiktokProofWpsPath;
     // Legacy global values retained only for one-time/account-unmigrated compatibility.
     // New runtime configuration belongs to TikTokAccountProfile.
@@ -357,6 +358,7 @@ public sealed class ClientSettings
         TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot,
         TiktokProjectImageFableCutClipCount = TiktokProjectImageFableCutClipCount,
         TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath,
+        TiktokProofTemplateLanguage = TiktokProofTemplateLanguage,
         TiktokProofWpsPath = TiktokProofWpsPath,
         TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName,
         TiktokProofSealPath = TiktokProofSealPath,

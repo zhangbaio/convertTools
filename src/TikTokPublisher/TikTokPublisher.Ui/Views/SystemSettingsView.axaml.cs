@@ -211,6 +211,11 @@ public partial class SystemSettingsView : UserControl
         ProofPdfRendererCombo.Items.Add(CreateItem("LibreOffice", "libreoffice"));
         ProofPdfRendererCombo.SelectionChanged += OnProofPdfRendererChanged;
 
+        ProofTemplateLanguageCombo.Items.Clear();
+        ProofTemplateLanguageCombo.Items.Add(CreateItem("中文模板", "zh"));
+        ProofTemplateLanguageCombo.Items.Add(CreateItem("英文模板", "en"));
+        ProofTemplateLanguageCombo.SelectionChanged += OnProofTemplateLanguageChanged;
+
         ManagementDedupScopeCombo.Items.Clear();
         ManagementDedupScopeCombo.Items.Add(CreateItem("按 TIKTOK用户名", "tiktok_username"));
         ManagementDedupScopeCombo.Items.Add(CreateItem("按软件账号", "software_user"));
@@ -244,6 +249,7 @@ public partial class SystemSettingsView : UserControl
         SyncProjectImageTemplateComboFromVm();
         SelectComboItem(ProjectImageSubtitleAiModeCombo, _vm.TiktokProjectImageSubtitleAiMode);
         SelectComboItem(ProofPdfRendererCombo, _vm.TiktokProofPdfRenderer);
+        SelectComboItem(ProofTemplateLanguageCombo, _vm.TiktokProofTemplateLanguage);
         SelectComboItem(ManagementDedupScopeCombo, _vm.ManagementDedupScope);
         UpdatePosterModeUi();
         UpdateNetworkAddressPreferenceUi();
@@ -465,6 +471,12 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || ProofPdfRendererCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.TiktokProofPdfRenderer = item.Tag as string ?? ClientSettingsDefaults.TiktokProofPdfRenderer;
+    }
+
+    private void OnProofTemplateLanguageChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || ProofTemplateLanguageCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.TiktokProofTemplateLanguage = item.Tag as string ?? ClientSettingsDefaults.TiktokProofTemplateLanguage;
     }
 
     private async void OnBrowseSyncWorkspaceRootClick(object? sender, RoutedEventArgs e)

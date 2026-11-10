@@ -544,6 +544,8 @@ public static class ClientSettingsStore
         settings.TiktokProofTemplateDocxPath = (settings.TiktokProofTemplateDocxPath ?? "").Trim();
         if (TikTokProofMaterialTemplateProvider.IsLegacyDefaultPath(settings.TiktokProofTemplateDocxPath))
             settings.TiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+        settings.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.NormalizeSystemLanguage(
+            settings.TiktokProofTemplateLanguage);
         settings.TiktokProofDeclarantCompanyName = (settings.TiktokProofDeclarantCompanyName ?? "").Trim();
         settings.TiktokProofSealPath = (settings.TiktokProofSealPath ?? "").Trim();
         settings.TiktokProofPdfRenderer = NormalizeProofPdfRenderer(settings.TiktokProofPdfRenderer);

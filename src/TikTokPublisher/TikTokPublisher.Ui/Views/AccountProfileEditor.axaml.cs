@@ -161,6 +161,10 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadSourceInfoRoleVector,
             profile.TiktokUploadSourceInfoRoleSceneScreenshot);
         ProofTemplatePathBox.Text = profile.TiktokProofTemplateDocxPath;
+        SelectByTag(
+            ProofTemplateLanguageCombo,
+            string.IsNullOrWhiteSpace(profile.TiktokProofTemplateLanguage) ? "system" : profile.TiktokProofTemplateLanguage,
+            "system");
         ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
@@ -296,6 +300,8 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadSourceInfoRoleVector = CopyrightMaterials.UploadSourceInfoRoleVector;
             profile.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
             profile.TiktokProofTemplateDocxPath = ProofTemplatePathBox.Text?.Trim() ?? "";
+            profile.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.NormalizeAccountLanguage(
+                TagOf(ProofTemplateLanguageCombo, "system"));
             profile.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";

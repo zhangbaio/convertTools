@@ -288,6 +288,8 @@ public sealed class AccountStore
         account.TiktokTimestampApplicantName = (account.TiktokTimestampApplicantName ?? "").Trim();
         account.TiktokProofSealPath = (account.TiktokProofSealPath ?? "").Trim();
         account.TiktokProofTemplateDocxPath = (account.TiktokProofTemplateDocxPath ?? "").Trim();
+        account.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.NormalizeAccountLanguage(
+            account.TiktokProofTemplateLanguage);
         account.TiktokArchiveRootDir = (account.TiktokArchiveRootDir ?? "").Trim();
         account.TiktokCopyrightMaterialTypes = TikTokPublishConstants
             .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
