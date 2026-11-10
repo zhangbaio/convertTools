@@ -6,6 +6,8 @@ namespace TikTokPublisher.Ui.Views;
 
 public partial class VideoDedupPresetEditor : UserControl
 {
+    private const string KeepOriginalResolution = "保持原分辨率";
+
     private static readonly (int Width, int Height)[] Resolutions =
     [
         (1080, 1920),
@@ -18,17 +20,26 @@ public partial class VideoDedupPresetEditor : UserControl
     private void SelectResolution(int width, int height)
     {
         ResolutionBox.Items.Clear();
+        ResolutionBox.Items.Add(KeepOriginalResolution);
         foreach (var size in Resolutions)
             ResolutionBox.Items.Add(FormatResolution(size.Width, size.Height));
+        if (width <= 0 && height <= 0)
+        {
+            ResolutionBox.SelectedItem = KeepOriginalResolution;
+            return;
+        }
+
         var selected = FormatResolution(width, height);
         if (!ResolutionBox.Items.Contains(selected))
-            ResolutionBox.Items.Insert(0, selected);
+            ResolutionBox.Items.Add(selected);
         ResolutionBox.SelectedItem = selected;
     }
 
     private (int Width, int Height) SelectedResolution()
     {
         var text = ResolutionBox.SelectedItem?.ToString() ?? FormatResolution(1080, 1920);
+        if (string.Equals(text, KeepOriginalResolution, StringComparison.Ordinal))
+            return (0, 0);
         var parts = text.Split('×', 'x', 'X', '*');
         if (parts.Length == 2 &&
             int.TryParse(parts[0], out var width) &&

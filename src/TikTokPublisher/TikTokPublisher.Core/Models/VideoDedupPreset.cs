@@ -150,10 +150,20 @@ public sealed class VideoDedupPreset
         CropLeftPercent = horizontalCrop;
         CropRightPercent = horizontalCrop;
 
-        PortraitWidth = EvenAtLeast(PortraitWidth, 1080);
-        PortraitHeight = EvenAtLeast(PortraitHeight, 1920);
-        LandscapeWidth = PortraitHeight;
-        LandscapeHeight = PortraitWidth;
+        if (KeepsOriginalResolution)
+        {
+            PortraitWidth = 0;
+            PortraitHeight = 0;
+            LandscapeWidth = 0;
+            LandscapeHeight = 0;
+        }
+        else
+        {
+            PortraitWidth = EvenAtLeast(PortraitWidth, 1080);
+            PortraitHeight = EvenAtLeast(PortraitHeight, 1920);
+            LandscapeWidth = PortraitHeight;
+            LandscapeHeight = PortraitWidth;
+        }
         SpeedFactor = Math.Clamp(SpeedFactor <= 0 ? 1 : SpeedFactor, 0.5, 2);
         FrameDropPercent = Math.Clamp(FrameDropPercent, 0, 40);
         Brightness = Math.Clamp(Brightness, -0.3, 0.3);
@@ -190,6 +200,8 @@ public sealed class VideoDedupPreset
         TransitionFadeBlack || TransitionDissolve || TransitionPush || TransitionSlide || TransitionZoom;
 
     public bool HasDurationLimit => MinimumDurationSeconds > 0 || MaximumDurationSeconds > 0;
+
+    public bool KeepsOriginalResolution => PortraitWidth <= 0 && PortraitHeight <= 0;
 
     public string Fingerprint()
     {

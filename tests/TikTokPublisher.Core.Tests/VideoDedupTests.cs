@@ -114,6 +114,26 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Original_resolution_skips_scaling()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.PortraitWidth = 0;
+        preset.PortraitHeight = 0;
+        preset.CropTopPercent = 4;
+        preset.Normalize();
+
+        preset.KeepsOriginalResolution.Should().BeTrue();
+        preset.LandscapeWidth.Should().Be(0);
+        preset.LandscapeHeight.Should().Be(0);
+
+        var clip = new VideoDedupClip("wide.mp4", new VideoDedupProbe(12, 1920, 1080, true));
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
+        joined.Should().NotContain("scale=");
+        joined.Should().Contain("crop=w=iw*");
+        joined.Should().Contain("fps=30");
+    }
+
+    [Fact]
     public void Hardware_arguments_follow_the_vendor_encoder()
     {
         var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();

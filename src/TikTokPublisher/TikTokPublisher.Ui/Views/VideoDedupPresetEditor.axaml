@@ -71,7 +71,7 @@
 
                 <TextBlock Grid.Row="2" Classes="dedupLabel" Text="分辨率" />
                 <ComboBox x:Name="ResolutionBox" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" />
-                <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Classes="dedupHint" Text="按竖屏尺寸选择。横屏原片自动对调宽高。" VerticalAlignment="Center" />
+                <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Classes="dedupHint" Text="保持原分辨率时不缩放。选择竖屏尺寸后，横屏原片自动对调宽高。" VerticalAlignment="Center" />
 
                 <TextBlock Grid.Row="3" Classes="dedupLabel" Text="视频变速" />
                 <NumericUpDown x:Name="SpeedBox" Grid.Row="3" Grid.Column="1" Minimum="0.5" Maximum="2" Increment="0.1" FormatString="0.00" />
