@@ -36,6 +36,30 @@ public sealed class TikTokEditFlowUploadedStatusTests
         Assert.False(TikTokEditFlowService.DetailConfirmsSubmitted(""));
     }
 
+    [Fact]
+    public void DraftDetailUrlFromRow_reads_series_id_from_list_row()
+    {
+        Assert.Equal(
+            "https://www.tiktokdramacenter.com/series/draft/7706505987917911092",
+            TikTokEditFlowService.DraftDetailUrlFromRow(
+                "The Lycan King Let Me Go, Now I'm Back With His Triplets ID: 7706505987917911092 " +
+                "草稿 - RAMSA0664 +9 54 0 托管中 详情 素材 剧集表现"));
+        Assert.Equal("", TikTokEditFlowService.DraftDetailUrlFromRow("尘封荣光归故里 草稿 54 托管中"));
+        Assert.Equal("", TikTokEditFlowService.DraftDetailUrlFromRow(null));
+    }
+
+    [Theory]
+    [InlineData("""{"code":0,"message":"success","data":{"token":"x"}}""", "code=0 msg=success")]
+    [InlineData("""{"status_code":10002,"status_msg":"剧集信息不完整"}""", "code=10002 msg=剧集信息不完整")]
+    [InlineData("""{"data":{},"BaseResp":{"StatusCode":0,"code":7,"msg":"busy"}}""", "code=7 msg=busy")]
+    [InlineData("""{"data":{"id":"1"}}""", "")]
+    [InlineData("not json", "")]
+    [InlineData("", "")]
+    public void DescribeSubmitResponseBody_keeps_only_code_and_message(string body, string expected)
+    {
+        Assert.Equal(expected, TikTokBrowserActions.DescribeSubmitResponseBody(body));
+    }
+
     [Theory]
     [InlineData(30, 30, false, false, false, true)]
     [InlineData(27, 30, true, false, false, true)]

@@ -356,12 +356,39 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             PublishResult result;
             if (finalAction == FinalAction.Publish)
             {
-                await TikTokBrowserActions.SubmitAsync(
-                        page,
-                        L,
-                        ct,
-                        TikTokBrowserActions.PayloadTitleCandidates(payload))
-                    .ConfigureAwait(false);
+                var submitTitles = TikTokBrowserActions.PayloadTitleCandidates(payload);
+                try
+                {
+                    await TikTokBrowserActions.SubmitAsync(
+                            page,
+                            L,
+                            ct,
+                            submitTitles,
+                            resubmitInPlaceOnDraft: false)
+                        .ConfigureAwait(false);
+                }
+                catch (TikTokSubmitStillDraftException stillDraft)
+                {
+                    L($"提交后平台仍是草稿，按草稿编辑流程重新填写并补交一次：{stillDraft.DraftDetailUrl}");
+                    await TikTokEditFlowService.OpenEditPublishFlowAsync(
+                            page,
+                            stillDraft.DraftDetailUrl,
+                            payload,
+                            options,
+                            recommendation,
+                            coverPath,
+                            L,
+                            ct)
+                        .ConfigureAwait(false);
+                    ThrowIfLoginRedirect(page);
+                    await TikTokBrowserActions.SubmitAsync(
+                            page,
+                            L,
+                            ct,
+                            submitTitles,
+                            resubmitInPlaceOnDraft: false)
+                        .ConfigureAwait(false);
+                }
                 result = PublishResult.Success("已提交 TikTok 表单");
             }
             else if (finalAction == FinalAction.Draft)

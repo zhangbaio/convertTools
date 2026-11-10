@@ -173,7 +173,8 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct,
         IReadOnlyList<string>? titleCandidates = null,
-        bool verifySeriesListStatus = true)
+        bool verifySeriesListStatus = true,
+        bool resubmitInPlaceOnDraft = true)
     {
         await WaitBeforeSubmitAsync(log, ct).ConfigureAwait(false);
         await DismissFloatingAssistantAsync(page, log);
@@ -184,6 +185,8 @@ public static partial class TikTokBrowserActions
             page,
             platformFailureCts.Token);
         string? platformFailure = null;
+        var submitResponses = new SubmitResponseRecorder(page);
+        var submitResponseSummary = "";
         try
         {
             await button.ClickAsync(new() { Timeout = 15000 });
@@ -197,7 +200,11 @@ public static partial class TikTokBrowserActions
         finally
         {
             platformFailureCts.Cancel();
+            submitResponseSummary = await submitResponses.StopAsync().ConfigureAwait(false);
         }
+        Log(log, string.IsNullOrWhiteSpace(submitResponseSummary)
+            ? "提交后未捕获到 TikTok 提交请求。"
+            : $"提交请求返回：{submitResponseSummary}");
         if (platformFailure is not null)
         {
             var message = TikTokPlatformSubmitFailureDetector.BuildRetryMessage(platformFailure);
@@ -209,7 +216,9 @@ public static partial class TikTokBrowserActions
             throw new TikTokDailyLimitException(dailyLimit);
         if (verifySeriesListStatus)
         {
-            await VerifySubmitAcceptedAsync(page, titleCandidates, log, ct).ConfigureAwait(false);
+            await VerifySubmitAcceptedAsync(
+                    page, titleCandidates, resubmitInPlaceOnDraft, submitResponseSummary, log, ct)
+                .ConfigureAwait(false);
             Log(log, "TikTok 表单已提交并通过平台状态校验。");
         }
         else
@@ -1515,6 +1524,8 @@ public static partial class TikTokBrowserActions
     private static async Task VerifySubmitAcceptedAsync(
         IPage page,
         IReadOnlyList<string>? titleCandidates,
+        bool resubmitInPlaceOnDraft,
+        string submitResponseSummary,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -1531,11 +1542,19 @@ public static partial class TikTokBrowserActions
                 page,
                 titleCandidates,
                 log,
-                ct)
+                ct,
+                resubmitInPlaceOnDraft: resubmitInPlaceOnDraft)
             .ConfigureAwait(false);
 
         if (!result.Accepted)
-            throw new InvalidOperationException(result.Message);
+        {
+            var message = string.IsNullOrWhiteSpace(submitResponseSummary)
+                ? $"{result.Message}；提交后未捕获到 TikTok 提交请求。"
+                : $"{result.Message}；提交请求返回：{submitResponseSummary}";
+            if (!string.IsNullOrWhiteSpace(result.DraftDetailUrl))
+                throw new TikTokSubmitStillDraftException(message, result.DraftDetailUrl);
+            throw new InvalidOperationException(message);
+        }
 
         Log(log, result.Message);
     }
