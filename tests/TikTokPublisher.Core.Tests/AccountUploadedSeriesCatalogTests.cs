@@ -47,6 +47,35 @@ public sealed class AccountUploadedSeriesCatalogTests
             .Should().BeEmpty();
     }
 
+    [Fact]
+    public void Archived_episode_count_falls_back_to_archive_metadata_then_project_json()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "uploaded-series-" + Guid.NewGuid().ToString("N"));
+        var workflow = Path.Combine(root, "archive", "workflow", "_新剧");
+        var metaPath = Path.Combine(root, "archive", "meta", "新剧.json");
+        try
+        {
+            Directory.CreateDirectory(workflow);
+            Directory.CreateDirectory(Path.GetDirectoryName(metaPath)!);
+            File.WriteAllText(Path.Combine(workflow, "tiktok-upload-state.json"),
+                """{ "upload_step_attempted": true, "last_upload_completed_at": "2026-10-25T09:17:28" }""");
+            File.WriteAllText(Path.Combine(workflow, "shortdrama-project.json"),
+                """{ "episodeCount": 77, "episodes": "all" }""");
+
+            var withoutMeta = Archive("acct-1", "原剧", "新剧", "2026-10-25T09:17:29", "", workflow);
+            AccountUploadedSeriesCatalog.TryReadEpisodeCount(withoutMeta).Should().Be(77);
+
+            File.WriteAllText(metaPath, """{ "episode_count": 65 }""");
+            var withMeta = withoutMeta with { MetadataPath = metaPath };
+            AccountUploadedSeriesCatalog.TryReadEpisodeCount(withMeta).Should().Be(65);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static QueueProjectItem Queue(
         string projectDir,
         string accountId,

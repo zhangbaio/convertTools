@@ -147,12 +147,13 @@ public static class AccountUploadedSeriesCatalog
         return 0;
     }
 
-    private static int TryReadEpisodeCount(ArchivedProjectItem item)
+    internal static int TryReadEpisodeCount(ArchivedProjectItem item)
     {
-        foreach (var root in new[] { item.ArchivedWorkflowDir, item.ArchivedSourceDir, item.WorkflowProjectDir, item.SourceProjectDir })
+        var roots = new[] { item.ArchivedWorkflowDir, item.ArchivedSourceDir, item.WorkflowProjectDir, item.SourceProjectDir }
+            .Where(root => !string.IsNullOrWhiteSpace(root) && Directory.Exists(root))
+            .ToArray();
+        foreach (var root in roots)
         {
-            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
-                continue;
             Dictionary<string, JsonElement> state;
             try
             {
@@ -163,20 +164,64 @@ public static class AccountUploadedSeriesCatalog
                 continue;
             }
 
-            foreach (var key in new[] { "episode_count", "total_episodes" })
-            {
-                if (state.TryGetValue(key, out var value) && value.TryGetInt32(out var count) && count > 0)
-                    return count;
-            }
-
-            if (state.TryGetValue("episodes", out var episodes) && episodes.ValueKind == JsonValueKind.Array)
-            {
-                var length = episodes.GetArrayLength();
-                if (length > 0)
-                    return length;
-            }
+            var count = EpisodeCountFrom(state, "episode_count", "total_episodes");
+            if (count > 0)
+                return count;
         }
 
+        // 上传状态文件通常不记集数。归档元数据保存了归档时队列里的集数，项目 json 保存了导入时的集数。
+        var archived = EpisodeCountFromJsonFile(item.MetadataPath, "episode_count", "episodeCount", "total_episodes");
+        if (archived > 0)
+            return archived;
+
+        foreach (var root in roots)
+        {
+            var count = EpisodeCountFromJsonFile(
+                Path.Combine(root, "shortdrama-project.json"),
+                "effectiveEpisodeCount", "episodeCount", "episode_count", "declaredEpisodeCount");
+            if (count > 0)
+                return count;
+        }
+
+        return 0;
+    }
+
+    private static int EpisodeCountFromJsonFile(string? path, params string[] keys)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return 0;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return 0;
+            var values = document.RootElement.EnumerateObject()
+                .GroupBy(property => property.Name, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First().Value.Clone(), StringComparer.Ordinal);
+            return EpisodeCountFrom(values, keys);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return 0;
+        }
+    }
+
+    private static int EpisodeCountFrom(IReadOnlyDictionary<string, JsonElement> values, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (!values.TryGetValue(key, out var value))
+                continue;
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number) && number > 0)
+                return number;
+            if (value.ValueKind == JsonValueKind.String &&
+                int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) &&
+                parsed > 0)
+                return parsed;
+        }
+
+        if (values.TryGetValue("episodes", out var episodes) && episodes.ValueKind == JsonValueKind.Array)
+            return episodes.GetArrayLength();
         return 0;
     }
 
