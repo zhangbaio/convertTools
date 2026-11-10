@@ -79,18 +79,8 @@
                 <NumericUpDown x:Name="FrameDropBox" Grid.Row="3" Grid.Column="3" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
             </Grid>
 
-            <TextBlock Text="画面滤镜" FontWeight="SemiBold" />
-            <Grid ColumnDefinitions="140,*,140,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-                <TextBlock Classes="dedupLabel" Text="亮度" />
-                <NumericUpDown x:Name="BrightnessBox" Grid.Column="1" Minimum="-0.3" Maximum="0.3" Increment="0.01" FormatString="0.00" />
-                <TextBlock Grid.Column="2" Classes="dedupLabel" Text="对比度" />
-                <NumericUpDown x:Name="ContrastBox" Grid.Column="3" Minimum="0.5" Maximum="1.5" Increment="0.01" FormatString="0.00" />
-                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="饱和度" />
-                <NumericUpDown x:Name="SaturationBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="2" Increment="0.01" FormatString="0.00" />
-                <TextBlock Grid.Row="1" Grid.Column="2" Classes="dedupLabel" Text="锐化" />
-                <NumericUpDown x:Name="SharpnessBox" Grid.Row="1" Grid.Column="3" Minimum="0" Maximum="2" Increment="0.1" FormatString="0.0" />
-                <CheckBox x:Name="GrayscaleBox" Grid.Row="2" Grid.Column="1" Content="灰度" />
-            </Grid>
+            <Button Content="画面滤镜与预览..." HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnOpenEffectsClick" />
+            <TextBlock x:Name="FilterSummaryText" Classes="dedupHint" Text="未启用。数值为 0 时不参与去重。" />
 
             <TextBlock Text="视频编码" FontWeight="SemiBold" />
             <WrapPanel Orientation="Horizontal">

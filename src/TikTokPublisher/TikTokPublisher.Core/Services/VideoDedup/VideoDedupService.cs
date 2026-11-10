@@ -76,6 +76,7 @@ public static class VideoDedupService
                 log(message);
         }
 
+        VideoDedupEffectFilters.Validate(preset);
         Write($"开始：账号「{account.DisplayName}」方案「{preset.Name}」，原片 {inputs.Count.ToString(CultureInfo.InvariantCulture)} 个。");
         foreach (var line in DescribeParameters(preset))
             Write(line);
@@ -209,17 +210,7 @@ public static class VideoDedupService
             ? "分辨率保持原分辨率"
             : $"分辨率 {preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}×{preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}，横屏自动转为 {preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}×{preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}";
         yield return $"画面：{resolution}，变速 {Num(preset.SpeedFactor)} 倍，抽帧 {Num(preset.FrameDropPercent)}%，开头裁剪 {Num(preset.TrimStartSeconds)} 秒，结尾裁剪 {Num(preset.TrimEndSeconds)} 秒，上下裁边 {Num(preset.CropTopPercent)}%，左右裁边 {Num(preset.CropLeftPercent)}%。";
-        var filters = new List<string>();
-        if (Math.Abs(preset.Brightness) > 0.0001)
-            filters.Add($"亮度 {Num(preset.Brightness)}");
-        if (Math.Abs(preset.Contrast - 1) > 0.0001)
-            filters.Add($"对比度 {Num(preset.Contrast)}");
-        if (Math.Abs(preset.Saturation - 1) > 0.0001)
-            filters.Add($"饱和度 {Num(preset.Saturation)}");
-        if (preset.Grayscale)
-            filters.Add("灰度");
-        if (preset.Sharpness > 0.01)
-            filters.Add($"锐化 {Num(preset.Sharpness)}");
+        var filters = VideoDedupEffectFilters.Describe(preset).ToList();
         if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
             filters.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
         if (filters.Count > 0)

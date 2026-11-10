@@ -81,28 +81,42 @@ internal static class VideoDedupPlanner
         if (clips.Count == 0)
             throw new InvalidOperationException("没有可编码的视频。");
 
+        VideoDedupEffectFilters.Validate(preset);
         var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error" };
         foreach (var clip in clips)
             args.AddRange(["-i", clip.Path]);
+        foreach (var image in VideoDedupEffectFilters.ImageInputs(preset))
+            args.AddRange(["-i", image]);
 
         var useComplex = clips.Count > 1;
         var transitions = useComplex && CanTransition(preset, clips);
         if (useComplex)
         {
-            args.AddRange(["-filter_complex", BuildFilterComplex(preset, clips, transitions, seed)]);
-            args.AddRange(["-map", "[vout]"]);
+            var graph = new StringBuilder(BuildFilterComplex(preset, clips, transitions, seed));
+            var label = VideoDedupEffectFilters.Finish(graph, "vout", preset, clips.Count);
+            args.AddRange(["-filter_complex", graph.ToString()]);
+            args.AddRange(["-map", $"[{label}]"]);
             if (clips.All(clip => clip.Probe.HasAudio))
                 args.AddRange(["-map", "[aout]"]);
             else
                 args.Add("-an");
         }
-        else
+        else if (!VideoDedupEffectFilters.NeedsGraph(preset))
         {
-            var video = BuildVideoFilter(clips[0], preset, seed);
+            var video = CombineFilters(BuildVideoFilter(clips[0], preset, seed), VideoDedupEffectFilters.LinearFilters(preset));
             if (video.Length > 0)
                 args.AddRange(["-vf", video]);
+            AppendSingleAudio(args, clips[0], preset);
+        }
+        else
+        {
+            var graph = new StringBuilder();
+            graph.Append("[0:v]").Append(BuildVideoFilter(clips[0], preset, seed)).Append("[vgeo]");
+            var label = VideoDedupEffectFilters.Finish(graph, "vgeo", preset, 1);
+            args.AddRange(["-filter_complex", graph.ToString(), "-map", $"[{label}]"]);
             if (clips[0].Probe.HasAudio)
             {
+                args.AddRange(["-map", "0:a"]);
                 var audio = BuildAudioFilter(clips[0], preset);
                 if (audio.Length > 0)
                     args.AddRange(["-af", audio]);
@@ -378,20 +392,29 @@ internal static class VideoDedupPlanner
                 $"select='not(eq(mod(n+{dropAt.ToString(CultureInfo.InvariantCulture)}\\,{interval.ToString(CultureInfo.InvariantCulture)})\\,0))',setpts=N/FRAME_RATE/TB");
         }
 
-        if (Math.Abs(preset.Brightness) > 0.0001 ||
-            Math.Abs(preset.Contrast - 1) > 0.0001 ||
-            Math.Abs(preset.Saturation - 1) > 0.0001)
+        return string.Join(",", filters);
+    }
+
+    private static void AppendSingleAudio(List<string> args, VideoDedupClip clip, VideoDedupPreset preset)
+    {
+        if (!clip.Probe.HasAudio)
         {
-            filters.Add(
-                $"eq=brightness={Num(preset.Brightness)}:contrast={Num(preset.Contrast)}:saturation={Num(preset.Saturation)}");
+            args.Add("-an");
+            return;
         }
 
-        if (preset.Grayscale)
-            filters.Add("hue=s=0");
-        if (preset.Sharpness > 0.01)
-            filters.Add($"unsharp=5:5:{Num(preset.Sharpness)}");
+        var audio = BuildAudioFilter(clip, preset);
+        if (audio.Length > 0)
+            args.AddRange(["-af", audio]);
+    }
 
-        return string.Join(",", filters);
+    private static string CombineFilters(string left, string right)
+    {
+        if (left.Length == 0)
+            return right;
+        if (right.Length == 0)
+            return left;
+        return left + "," + right;
     }
 
     private static string BuildAudioFilter(VideoDedupClip clip, VideoDedupPreset preset)

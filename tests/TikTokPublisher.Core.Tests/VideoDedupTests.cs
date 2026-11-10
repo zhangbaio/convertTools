@@ -340,4 +340,92 @@ public sealed class VideoDedupTests
             try { Directory.Delete(root, recursive: true); } catch { /* temp cleanup */ }
         }
     }
+
+    [Fact]
+    public void Picture_filters_are_appended_after_geometry()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.Effects.Temperature = 40;
+        preset.Sharpness = -1;
+        preset.Effects.CurveAmount = 100;
+        preset.Effects.CurveMaster =
+        [
+            new VideoDedupCurvePoint { X = 0, Y = 0 },
+            new VideoDedupCurvePoint { X = 0.5, Y = 0.8 },
+            new VideoDedupCurvePoint { X = 1, Y = 1 },
+        ];
+        preset.Effects.Layers.Add(new VideoDedupOverlayLayer
+        {
+            Kind = VideoDedupOverlayLayer.KindBorder,
+            Color = "#FFFFFF",
+            BorderPercent = 2,
+        });
+        preset.Normalize();
+
+        var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, true));
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
+
+        joined.Should().Contain("scale=1080:1920");
+        joined.Should().Contain("colorbalance=rm=0.2:bm=-0.2");
+        joined.Should().Contain("gblur=sigma=1");
+        joined.Should().NotContain("unsharp=");
+        joined.Should().Contain("curves=");
+        joined.Should().Contain("0.5/0.8");
+        joined.Should().Contain("drawbox=");
+        var scaleAt = joined.IndexOf("scale=1080:1920", StringComparison.Ordinal);
+        var colorAt = joined.IndexOf("colorbalance=rm=0.2", StringComparison.Ordinal);
+        colorAt.Should().BeGreaterThan(scaleAt);
+    }
+
+    [Fact]
+    public void Mosaic_and_partial_lut_use_a_filter_graph()
+    {
+        var lut = Path.Combine(Path.GetTempPath(), "dedup-lut-" + Guid.NewGuid().ToString("N") + ".cube");
+        File.WriteAllText(lut, "LUT_3D_SIZE 2");
+        try
+        {
+            var preset = VideoDedupPreset.CreateDefault();
+            preset.Effects.LutAmount = 50;
+            preset.Effects.LutPath = lut;
+            preset.Effects.MosaicAmount = 80;
+            preset.Effects.MosaicRegions.Add(new VideoDedupMosaicRegion { X = 10, Y = 20, Width = 30, Height = 15, Block = 16 });
+            preset.Normalize();
+
+            var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, false));
+            var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
+            joined.Should().Contain("-filter_complex");
+            joined.Should().Contain("lut3d=");
+            joined.Should().Contain("blend=all_opacity=0.5");
+            joined.Should().Contain("crop=w=iw*0.3:h=ih*0.15");
+        }
+        finally
+        {
+            File.Delete(lut);
+        }
+    }
+
+    [Fact]
+    public void Missing_filter_asset_fails_before_encode()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.Effects.LutAmount = 100;
+        preset.Effects.LutPath = Path.Combine(Path.GetTempPath(), "missing-dedup-lut.cube");
+        var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, false));
+
+        var act = () => VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*3D LUT*");
+    }
+
+    [Fact]
+    public void Inactive_effects_do_not_change_the_dedup_fingerprint()
+    {
+        var untouched = VideoDedupPreset.CreateDefault().Fingerprint();
+        var explicitDefaults = VideoDedupPreset.CreateDefault();
+        explicitDefaults.Effects = new VideoDedupEffects();
+        explicitDefaults.Fingerprint().Should().Be(untouched);
+
+        var changed = VideoDedupPreset.CreateDefault();
+        changed.Effects.Temperature = 12;
+        changed.Fingerprint().Should().NotBe(untouched);
+    }
 }

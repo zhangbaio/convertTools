@@ -58,6 +58,7 @@ public sealed class VideoDedupPreset
     public double Saturation { get; set; } = 1;
     public bool Grayscale { get; set; }
     public double Sharpness { get; set; }
+    public VideoDedupEffects Effects { get; set; } = new();
 
     public string VideoCodec { get; set; } = CodecH264;
     public int Fps { get; set; } = 30;
@@ -104,6 +105,7 @@ public sealed class VideoDedupPreset
         Saturation = Saturation,
         Grayscale = Grayscale,
         Sharpness = Sharpness,
+        Effects = Effects?.Clone() ?? new VideoDedupEffects(),
         VideoCodec = VideoCodec,
         Fps = Fps,
         BitrateMode = BitrateMode,
@@ -169,7 +171,9 @@ public sealed class VideoDedupPreset
         Brightness = Math.Clamp(Brightness, -0.3, 0.3);
         Contrast = Math.Clamp(Contrast <= 0 ? 1 : Contrast, 0.5, 1.5);
         Saturation = Math.Clamp(Saturation <= 0 ? 1 : Saturation, 0, 2);
-        Sharpness = Math.Clamp(Sharpness, 0, 2);
+        Sharpness = Math.Clamp(Sharpness, -2, 2);
+        Effects ??= new VideoDedupEffects();
+        Effects.Normalize();
         Fps = Math.Clamp(Fps <= 0 ? 30 : Fps, 15, 60);
         VideoCodec = VideoCodec switch
         {
@@ -244,6 +248,9 @@ public sealed class VideoDedupPreset
             Num(preset.AudioLowGainDb),
             Num(preset.AudioMidGainDb),
             Num(preset.AudioHighGainDb));
+        var effects = preset.Effects.FingerprintBody();
+        if (effects.Length > 0)
+            text += "\n" + effects;
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     }
 

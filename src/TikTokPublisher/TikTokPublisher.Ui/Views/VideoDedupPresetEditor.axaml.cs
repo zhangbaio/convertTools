@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Ui.Views;
 
@@ -16,6 +17,12 @@ public partial class VideoDedupPresetEditor : UserControl
     ];
 
     private string _presetName = "";
+    private double _brightness;
+    private double _contrast = 1;
+    private double _saturation = 1;
+    private double _sharpness;
+    private bool _grayscale;
+    private VideoDedupEffects _effects = new();
 
     private void SelectResolution(int width, int height)
     {
@@ -88,11 +95,7 @@ public partial class VideoDedupPresetEditor : UserControl
             SelectResolution(value.PortraitWidth, value.PortraitHeight);
             SpeedBox.Value = (decimal)value.SpeedFactor;
             FrameDropBox.Value = (decimal)value.FrameDropPercent;
-            BrightnessBox.Value = (decimal)value.Brightness;
-            ContrastBox.Value = (decimal)value.Contrast;
-            SaturationBox.Value = (decimal)value.Saturation;
-            SharpnessBox.Value = (decimal)value.Sharpness;
-            GrayscaleBox.IsChecked = value.Grayscale;
+            StoreFilters(value);
             CodecDefaultBox.IsChecked = value.VideoCodec == VideoDedupPreset.CodecDefault;
             CodecH264Box.IsChecked = value.VideoCodec == VideoDedupPreset.CodecH264;
             CodecHevcBox.IsChecked = value.VideoCodec == VideoDedupPreset.CodecHevc;
@@ -148,11 +151,12 @@ public partial class VideoDedupPresetEditor : UserControl
             LandscapeHeight = SelectedResolution().Width,
             SpeedFactor = (double)(SpeedBox.Value ?? 1),
             FrameDropPercent = (double)(FrameDropBox.Value ?? 0),
-            Brightness = (double)(BrightnessBox.Value ?? 0),
-            Contrast = (double)(ContrastBox.Value ?? 1),
-            Saturation = (double)(SaturationBox.Value ?? 1),
-            Sharpness = (double)(SharpnessBox.Value ?? 0),
-            Grayscale = GrayscaleBox.IsChecked == true,
+            Brightness = _brightness,
+            Contrast = _contrast,
+            Saturation = _saturation,
+            Sharpness = _sharpness,
+            Grayscale = _grayscale,
+            Effects = _effects.Clone(),
             VideoCodec = CodecHevcBox.IsChecked == true
                 ? VideoDedupPreset.CodecHevc
                 : CodecH265Box.IsChecked == true
@@ -178,6 +182,27 @@ public partial class VideoDedupPresetEditor : UserControl
         };
         preset.Normalize();
         return preset;
+    }
+
+    private void StoreFilters(VideoDedupPreset value)
+    {
+        _brightness = value.Brightness;
+        _contrast = value.Contrast;
+        _saturation = value.Saturation;
+        _sharpness = value.Sharpness;
+        _grayscale = value.Grayscale;
+        _effects = value.Effects?.Clone() ?? new VideoDedupEffects();
+        FilterSummaryText.Text = VideoDedupEffectFilters.Summary(value);
+    }
+
+    private async void OnOpenEffectsClick(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner)
+            return;
+        var draft = Read();
+        if (!await VideoDedupEffectsDialog.EditAsync(owner, draft))
+            return;
+        StoreFilters(draft);
     }
 
     private void OnResetEqualizerClick(object? sender, RoutedEventArgs e)
