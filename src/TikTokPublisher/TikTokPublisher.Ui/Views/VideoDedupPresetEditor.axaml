@@ -20,24 +20,11 @@
                            Text="只作用于当前账号。下载完成后按这里的方案处理，改写、剧本、证明材料和上传都使用去重后的成片。原片保留在项目的 source-originals 目录。" />
             </StackPanel>
 
-            <Border Background="#F8FAFC" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="8" Padding="12">
-                <StackPanel Spacing="8">
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="读取短剧处理方案" Click="OnLoadProcessorPresetsClick" />
-                        <TextBlock Classes="dedupLabel" Text="从已安装的短剧处理软件导入方案，填入后仍需保存账号配置。" />
-                    </DockPanel>
-                    <ComboBox x:Name="ImportPresetCombo" HorizontalAlignment="Stretch" PlaceholderText="选择要导入的方案" SelectionChanged="OnImportPresetChanged" />
-                    <TextBlock x:Name="ImportStatusText" Classes="dedupHint" Text="" />
-                </StackPanel>
-            </Border>
-
-            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-                <TextBlock Classes="dedupLabel" Text="方案名称" />
-                <TextBox x:Name="NameBox" Grid.Column="1" />
-                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="并发数量" />
-                <NumericUpDown x:Name="ParallelBox" Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="4" Increment="1" FormatString="0" Width="120" HorizontalAlignment="Left" />
-                <TextBlock Grid.Row="2" Classes="dedupLabel" Text="编码器" />
-                <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                <TextBlock Classes="dedupLabel" Text="并发数量" />
+                <NumericUpDown x:Name="ParallelBox" Grid.Column="1" Minimum="1" Maximum="4" Increment="1" FormatString="0" Width="120" HorizontalAlignment="Left" />
+                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="编码器" />
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
                     <WrapPanel Orientation="Horizontal">
                         <RadioButton x:Name="EncoderAutoBox" GroupName="DedupEncoder" Content="自动选择" IsChecked="True" Margin="0,0,16,4" />
                         <RadioButton x:Name="EncoderSoftwareBox" GroupName="DedupEncoder" Content="CPU" Margin="0,0,16,4" />

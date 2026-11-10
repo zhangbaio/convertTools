@@ -1,7 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Ui.Views;
 
@@ -14,8 +13,7 @@ public partial class VideoDedupPresetEditor : UserControl
         (540, 960),
     ];
 
-    private IReadOnlyList<VideoDedupPresetImport> _imports = [];
-    private bool _loading;
+    private string _presetName = "";
 
     private void SelectResolution(int width, int height)
     {
@@ -55,12 +53,9 @@ public partial class VideoDedupPresetEditor : UserControl
 
     public void Load(VideoDedupPreset? preset)
     {
-        _loading = true;
-        try
-        {
-            var value = (preset ?? VideoDedupPreset.CreateDefault()).NormalizedCopy();
-            NameBox.Text = value.Name;
-            ParallelBox.Value = value.Parallel;
+        var value = (preset ?? VideoDedupPreset.CreateDefault()).NormalizedCopy();
+        _presetName = value.Name;
+        ParallelBox.Value = value.Parallel;
             EncoderAutoBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingHardwareFirst;
             EncoderSoftwareBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingSoftwareOnly;
             EncoderNvencBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingNvenc;
@@ -103,18 +98,13 @@ public partial class VideoDedupPresetEditor : UserControl
             LowGainBox.Value = (decimal)value.AudioLowGainDb;
             MidGainBox.Value = (decimal)value.AudioMidGainDb;
             HighGainBox.Value = (decimal)value.AudioHighGainDb;
-        }
-        finally
-        {
-            _loading = false;
-        }
     }
 
     public VideoDedupPreset Read()
     {
         var preset = new VideoDedupPreset
         {
-            Name = NameBox.Text?.Trim() ?? "",
+            Name = _presetName,
             Parallel = (int)(ParallelBox.Value ?? 2),
             EncodingPreference = EncoderSoftwareBox.IsChecked == true
                 ? VideoDedupPreset.EncodingSoftwareOnly
@@ -177,39 +167,6 @@ public partial class VideoDedupPresetEditor : UserControl
         };
         preset.Normalize();
         return preset;
-    }
-
-    private void OnLoadProcessorPresetsClick(object? sender, RoutedEventArgs e)
-    {
-        try
-        {
-            _imports = VideoDedupPresetImporter.ReadProcessorDatabase();
-            _loading = true;
-            ImportPresetCombo.Items.Clear();
-            foreach (var import in _imports)
-                ImportPresetCombo.Items.Add(import.Name);
-            _loading = false;
-            if (_imports.Count == 0)
-            {
-                ImportStatusText.Text = "短剧处理软件里还没有视频方案。";
-                return;
-            }
-
-            ImportPresetCombo.SelectedIndex = 0;
-            ImportStatusText.Text = $"已读取 {_imports.Count} 个方案。选择后填入当前账号，保存账号配置后生效。";
-        }
-        catch (Exception ex)
-        {
-            ImportStatusText.Text = ex.Message;
-        }
-    }
-
-    private void OnImportPresetChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_loading || ImportPresetCombo.SelectedIndex < 0 || ImportPresetCombo.SelectedIndex >= _imports.Count)
-            return;
-        Load(_imports[ImportPresetCombo.SelectedIndex].Preset);
-        ImportStatusText.Text = $"已填入「{_imports[ImportPresetCombo.SelectedIndex].Name}」。请保存账号配置。";
     }
 
     private void OnResetEqualizerClick(object? sender, RoutedEventArgs e)
