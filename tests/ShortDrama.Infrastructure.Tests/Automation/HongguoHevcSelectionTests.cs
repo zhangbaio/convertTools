@@ -107,6 +107,34 @@ public sealed class HongguoHevcSelectionTests
     }
 
     [Fact]
+    public void RefusesTheWholeDownloadWhenAnyEpisodeHasNoPlayableAddress()
+    {
+        var playable = Model(
+            Track("https://cdn.example/1080-hevc", "bytevc1", "1080p"),
+            Track("https://cdn.example/720-hevc", "bytevc1", "720p"));
+        var blocked = Model(
+            Track("https://cdn.example/1080-bvc2", "bytevc2", "1080p"),
+            Track("https://cdn.example/720-bvc2", "bytevc2", "720p"));
+        var chosen = HongguoGuestPlayback.ChooseUniformQuality("1080P", [playable, blocked]);
+
+        var message = HongguoGuestPlayback.MissingPlayableDownloadMessage(
+            [(2, playable), (99, blocked)],
+            chosen);
+
+        Assert.Equal("720", chosen);
+        Assert.Equal("第99集没有 FFmpeg 可播放的下载地址，未开始下载。请更换剧集或更换下载链路。", message);
+    }
+
+    [Fact]
+    public void AllowsDownloadWhenEveryEpisodeHasAPlayableAddress()
+    {
+        var first = Model(Track("https://cdn.example/a", "h264", "1080p"));
+        var second = Model(Track("https://cdn.example/b", "bytevc1", "1080p"));
+
+        Assert.Null(HongguoGuestPlayback.MissingPlayableDownloadMessage([(1, first), (2, second)], "1080"));
+    }
+
+    [Fact]
     public void LockedQualityDoesNotLowerASingleEpisode()
     {
         var error = Assert.Throws<HongguoHighException>(() => HongguoGuestPlayback.Pick(Model(

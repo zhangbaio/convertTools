@@ -2427,9 +2427,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         "auto_fill_info" => artifacts?.AutoFillStatus,
                         _ => null,
                     };
-                    var alreadyCompleted = artifactStatus?.StartsWith("已完成", StringComparison.Ordinal) == true
-                        || (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var existing) == true
-                            && existing.Status == PublishJobStepStatus.Succeeded);
+                    var artifactDone = artifactStatus?.StartsWith("已完成", StringComparison.Ordinal) == true;
+                    var stepSucceeded = trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var existing) == true
+                        && existing.Status == PublishJobStepStatus.Succeeded;
+                    // 下载列失败时不能只看步骤曾经成功，否则会接着改写、海报和上传。
+                    var alreadyCompleted = step.AssistantKey == "download"
+                        ? artifactDone
+                        : artifactDone || stepSucceeded;
                     if (!alreadyCompleted)
                         continue;
                     preserved.Add(step.YunfanKey);
@@ -2506,6 +2510,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                             SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
                         }
+                    }
+
+                    if (TryReadDownloadFailure(directories.SourceDirectory, out var downloadFailure))
+                    {
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Failed, downloadFailure);
+                        throw new InvalidOperationException(downloadFailure);
                     }
 
                     await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在检查视频能否播放");
@@ -5008,6 +5018,36 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AssignCheckedToCurrentAccountCommand.NotifyCanExecuteChanged();
         PreviousWorkflowPageCommand.NotifyCanExecuteChanged();
         NextWorkflowPageCommand.NotifyCanExecuteChanged();
+    }
+
+    private static bool TryReadDownloadFailure(string directory, out string message)
+    {
+        message = "";
+        var path = Path.Combine(directory, ".weixin-channel-download-state.json");
+        if (!File.Exists(path))
+            return false;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("ok", out var ok))
+                return false;
+            var failed = ok.ValueKind == JsonValueKind.False
+                || (ok.ValueKind == JsonValueKind.String &&
+                    string.Equals(ok.GetString(), "false", StringComparison.OrdinalIgnoreCase));
+            if (!failed)
+                return false;
+            message = root.TryGetProperty("message", out var text) && text.ValueKind == JsonValueKind.String
+                ? text.GetString()?.Trim() ?? ""
+                : "";
+            if (string.IsNullOrWhiteSpace(message))
+                message = "下载未完成。";
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     private static IReadOnlyList<string> ListDownloadedVideos(string projectDirectory)

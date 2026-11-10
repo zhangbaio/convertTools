@@ -409,6 +409,42 @@ internal sealed class HongguoGuestPlayback
         return NextLowerDefinition(requested).ToString();
     }
 
+    /// <summary>
+    /// 选定清晰度后，只要有一集没有 FFmpeg 可播放的地址，就整部不下载。
+    /// 全部可播时返回空。
+    /// </summary>
+    internal static string? MissingPlayableDownloadMessage(
+        IReadOnlyList<(int EpisodeNumber, JsonObject? Model)> episodes,
+        string quality)
+    {
+        var blocked = new List<int>();
+        foreach (var (episodeNumber, model) in episodes)
+        {
+            if (episodeNumber <= 0)
+                continue;
+            if (model is null)
+            {
+                blocked.Add(episodeNumber);
+                continue;
+            }
+
+            try
+            {
+                Pick(model, quality, lockDefinition: true);
+            }
+            catch (HongguoHighException ex) when (IsUnsupportedCodec(ex) ||
+                                                   ex.Message.Contains("播放地址为空", StringComparison.Ordinal))
+            {
+                blocked.Add(episodeNumber);
+            }
+        }
+
+        if (blocked.Count == 0)
+            return null;
+        var labels = string.Join("、", blocked.Distinct().Order().Select(episode => $"第{episode}集"));
+        return $"{labels}没有 FFmpeg 可播放的下载地址，未开始下载。请更换剧集或更换下载链路。";
+    }
+
     internal static HongguoHighVideoPlayback Pick(JsonObject model, string quality, bool lockDefinition = false)
     {
         var tracks = TracksOf(model);

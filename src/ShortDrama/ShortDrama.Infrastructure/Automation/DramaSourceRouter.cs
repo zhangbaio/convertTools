@@ -1154,7 +1154,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                return new DramaDownloadResult(false, request.OutputDir, CountVideoFiles(request.OutputDir), ex.Message);
+                var failed = new DramaDownloadResult(false, request.OutputDir, CountVideoFiles(request.OutputDir), ex.Message);
+                WriteDownloadState(request, failed, tasks, [ex.Message], episodeNumberMode);
+                return failed;
             }
         }
 
@@ -3168,6 +3170,17 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var chosen = HongguoGuestPlayback.ChooseUniformQuality(quality, models.Values.ToArray());
         if (!string.Equals(requested, chosen, StringComparison.Ordinal))
             progress?.Report($"有剧集的 {requested}P 没有 FFmpeg 可播放的编码，全部改用 {chosen}P。");
+        var blocked = HongguoGuestPlayback.MissingPlayableDownloadMessage(
+            tasks.Select(task => (
+                task.EpisodeNumber,
+                models.TryGetValue(task.VideoId, out var model) ? model : null)).ToArray(),
+            chosen);
+        if (blocked is not null)
+        {
+            progress?.Report(blocked);
+            throw new HongguoHighException(blocked);
+        }
+
         return chosen;
     }
 
