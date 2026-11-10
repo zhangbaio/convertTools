@@ -31,32 +31,14 @@ public static class TikTokProofMaterialTemplateProvider
     public static string NormalizeSystemLanguage(string? value) =>
         IsEnglishLanguage(value) ? EnglishLanguage : ChineseLanguage;
 
-    public static string NormalizeAccountLanguage(string? value)
-    {
-        var text = (value ?? "").Trim();
-        if (text.Length == 0 ||
-            text.Equals("system", StringComparison.OrdinalIgnoreCase) ||
-            text.Equals("跟随系统", StringComparison.Ordinal))
-        {
-            return "";
-        }
-
-        if (IsEnglishLanguage(text))
-            return EnglishLanguage;
-        if (text.Equals(ChineseLanguage, StringComparison.OrdinalIgnoreCase) ||
-            text.Equals("chinese", StringComparison.OrdinalIgnoreCase) ||
-            text.Equals("中文", StringComparison.Ordinal))
-        {
-            return ChineseLanguage;
-        }
-
-        return "";
-    }
+    public static string NormalizeAccountLanguage(string? value) =>
+        IsEnglishLanguage(value) ? EnglishLanguage : ChineseLanguage;
 
     public static string ResolveLanguage(string? accountLanguage, string? systemLanguage)
     {
-        var account = NormalizeAccountLanguage(accountLanguage);
-        return account.Length == 0 ? NormalizeSystemLanguage(systemLanguage) : account;
+        // 账号语言只取中文或英文，不再跟随系统设置。
+        _ = systemLanguage;
+        return NormalizeAccountLanguage(accountLanguage);
     }
 
     public static string EnsureBuiltInTemplate(string? dataRoot = null) =>

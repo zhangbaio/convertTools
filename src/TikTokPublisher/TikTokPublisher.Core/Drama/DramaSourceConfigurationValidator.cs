@@ -9,13 +9,13 @@ public static class VisibleDramaSource
     public static string Normalize(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" ? chain : DefaultChain;
+        return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" or "foreign" ? chain : DefaultChain;
     }
 
     public static bool IsRetired(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hgnew" or "mapleleaf" or "downloader" or "foreign";
+        return chain is "hgnew" or "mapleleaf" or "downloader";
     }
 }
 

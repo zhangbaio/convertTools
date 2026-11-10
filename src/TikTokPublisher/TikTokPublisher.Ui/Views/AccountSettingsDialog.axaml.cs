@@ -72,8 +72,8 @@ public partial class AccountSettingsDialog : Window
         ProofTemplatePathBox.Text = p.TiktokProofTemplateDocxPath;
         SelectByTag(
             ProofTemplateLanguageCombo,
-            string.IsNullOrWhiteSpace(p.TiktokProofTemplateLanguage) ? "system" : p.TiktokProofTemplateLanguage,
-            "system");
+            p.TiktokProofTemplateLanguage,
+            "zh");
         ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
@@ -176,7 +176,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
         p.TiktokProofTemplateDocxPath = ProofTemplatePathBox.Text?.Trim() ?? "";
         p.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.NormalizeAccountLanguage(
-            TagOf(ProofTemplateLanguageCombo, "system"));
+            TagOf(ProofTemplateLanguageCombo, "zh"));
         p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";

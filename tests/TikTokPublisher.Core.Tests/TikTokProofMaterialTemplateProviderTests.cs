@@ -132,7 +132,9 @@ public sealed class TikTokProofMaterialTemplateProviderTests
         TikTokProofMaterialTemplateProvider.ResolveLanguage("en", "zh")
             .Should().Be(TikTokProofMaterialTemplateProvider.EnglishLanguage);
         TikTokProofMaterialTemplateProvider.ResolveLanguage("", "en")
-            .Should().Be(TikTokProofMaterialTemplateProvider.EnglishLanguage);
+            .Should().Be(TikTokProofMaterialTemplateProvider.ChineseLanguage);
+        TikTokProofMaterialTemplateProvider.NormalizeAccountLanguage("跟随系统")
+            .Should().Be(TikTokProofMaterialTemplateProvider.ChineseLanguage);
     }
 
     [Fact]

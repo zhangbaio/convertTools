@@ -67,7 +67,7 @@ public static class DramaDownloadSourceSelector
     public static bool IsRetired(string? chain)
     {
         var value = (chain ?? string.Empty).Trim().ToLowerInvariant();
-        return value is "hgnew" or "mapleleaf" or "downloader" or "foreign";
+        return value is "hgnew" or "mapleleaf" or "downloader";
     }
 
     /// <summary>

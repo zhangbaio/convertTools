@@ -355,7 +355,7 @@
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="2,4,2,2">
                         <TextBlock Text="证明材料账号配置" FontWeight="SemiBold" />
-                        <TextBlock Text="Word 模板留空时使用系统设置中的模板；两边都留空时按模板语言使用内置模板。公司与印章信息仅用于当前账号生成的权利声明。"
+                        <TextBlock Text="Word 模板留空时使用系统设置中的模板；两边都留空时按本账号的模板语言使用内置模板，默认中文。公司与印章信息仅用于当前账号生成的权利声明。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid Classes="profileForm"
                               ColumnDefinitions="140,*"
@@ -370,7 +370,6 @@
 
                             <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="模板语言" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ProofTemplateLanguageCombo" Width="220" HorizontalAlignment="Left">
-                                <ComboBoxItem Tag="system" Content="跟随系统" />
                                 <ComboBoxItem Tag="zh" Content="中文模板" />
                                 <ComboBoxItem Tag="en" Content="英文模板" />
                             </ComboBox>
