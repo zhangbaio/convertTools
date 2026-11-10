@@ -204,6 +204,9 @@ public sealed class VideoDedupTests
             var archived = Path.Combine(root, "source-originals", "01.mp4");
             (await File.ReadAllBytesAsync(archived)).Should().Equal([1, 2, 3, 4]);
             logs.Should().Contain(line => line.Contains("使用内置默认方案", StringComparison.Ordinal));
+            logs.Should().Contain(line => line.Contains("参数：编码器自动选择", StringComparison.Ordinal) && line.Contains("H.264", StringComparison.Ordinal) && line.Contains("VBR 4.2 Mbps", StringComparison.Ordinal));
+            logs.Should().Contain(line => line.Contains("第 1/1 集开始去重：01.mp4，8 秒，720x1280 → 01.mp4。", StringComparison.Ordinal));
+            logs.Should().Contain(line => line.Contains("第 1/1 集去重完成", StringComparison.Ordinal));
 
             logs.Clear();
             await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);

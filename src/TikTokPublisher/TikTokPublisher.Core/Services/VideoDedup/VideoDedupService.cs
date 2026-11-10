@@ -67,15 +67,29 @@ public static class VideoDedupService
         if (inputs.Count == 0)
             throw new InvalidOperationException("没有可去重的视频。请先完成下载。");
 
-        log?.Invoke($"开始：账号「{account.DisplayName}」方案「{preset.Name}」，原片 {inputs.Count.ToString(CultureInfo.InvariantCulture)} 个。");
+        var logGate = new object();
+        void Write(string message)
+        {
+            if (log is null)
+                return;
+            lock (logGate)
+                log(message);
+        }
+
+        Write($"开始：账号「{account.DisplayName}」方案「{preset.Name}」，原片 {inputs.Count.ToString(CultureInfo.InvariantCulture)} 个。");
+        foreach (var line in DescribeParameters(preset))
+            Write(line);
+        Write($"正在读取 {inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片。");
         var clips = new List<VideoDedupClip>(inputs.Count);
-        foreach (var input in inputs)
+        for (var inputIndex = 0; inputIndex < inputs.Count; inputIndex++)
         {
             ct.ThrowIfCancellationRequested();
+            var input = inputs[inputIndex];
             var probe = await ProbeAsync(input, ct).ConfigureAwait(false);
             if (probe.DurationSeconds <= 0)
                 throw new InvalidOperationException($"无法读取视频时长：{Path.GetFileName(input)}");
             clips.Add(new VideoDedupClip(input, probe));
+            Write($"读取第 {(inputIndex + 1).ToString(CultureInfo.InvariantCulture)}/{inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片：{DescribeClip(clips[^1])}。");
         }
 
         var groups = VideoDedupPlanner.Group(clips.Select(clip => clip.Probe.DurationSeconds).ToArray(), preset);
@@ -96,11 +110,12 @@ public static class VideoDedupService
         ClearDirectory(workRoot);
         var choice = await ResolveEncoderAsync(preset, ct).ConfigureAwait(false);
         var encoder = choice.Encoder;
-        log?.Invoke(string.IsNullOrWhiteSpace(choice.Note)
+        Write(string.IsNullOrWhiteSpace(choice.Note)
             ? $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。"
             : $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
         if (merged && preset.TransitionsEnabled)
-            log?.Invoke("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
+            Write("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
+        var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
 
         Exception? encodeFailure = null;
         using var renderCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -119,12 +134,14 @@ public static class VideoDedupService
                         workRoot,
                         $"{(entry.index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4");
                     var seed = Math.Abs(entry.job.Clips[0].Path.GetHashCode(StringComparison.Ordinal));
+                    var episode = (entry.index + 1).ToString(CultureInfo.InvariantCulture);
                     var arguments = VideoDedupPlanner.BuildArguments(
                         preset,
                         entry.job.Clips,
                         temp,
                         encoder,
                         seed);
+                    Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(entry.job.Clips, entry.job.Destination, preset)}");
                     try
                     {
                         try
@@ -138,6 +155,7 @@ public static class VideoDedupService
                                            encoder.Contains("hevc", StringComparison.OrdinalIgnoreCase)
                                 ? "libx265"
                                 : "libx264";
+                            Write($"第 {episode}/{totalEpisodes} 集 {encoder} 编码失败，改用 {software} 重新去重。");
                             await RunFfmpegAsync(
                                 VideoDedupPlanner.BuildArguments(preset, entry.job.Clips, temp, software, seed),
                                 token).ConfigureAwait(false);
@@ -145,9 +163,11 @@ public static class VideoDedupService
                         if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
                             throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
                         entry.job.TempPath = temp;
+                        Write($"第 {episode}/{totalEpisodes} 集去重完成，输出 {Path.GetFileName(entry.job.Destination)}，{FormatSize(new FileInfo(temp).Length)}。");
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
+                        Write($"第 {episode}/{totalEpisodes} 集去重失败：{ex.Message}");
                         Interlocked.CompareExchange(ref encodeFailure, ex, null);
                         renderCancellation.Cancel();
                     }
@@ -181,6 +201,112 @@ public static class VideoDedupService
         ClearDirectory(workRoot);
         log?.Invoke($"视频去重完成：{inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片生成 {outputs.Length.ToString(CultureInfo.InvariantCulture)} 集，原片保留在 source-originals。");
     }
+
+    private static IEnumerable<string> DescribeParameters(VideoDedupPreset preset)
+    {
+        yield return $"参数：{DescribePreference(preset.EncodingPreference)}，视频 {DescribeCodec(preset.VideoCodec)}，{preset.Fps.ToString(CultureInfo.InvariantCulture)} fps，{DescribeRate(preset)}，音频 {DescribeAudio(preset)}。";
+        yield return $"画面：竖屏 {preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}x{preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}，横屏 {preset.LandscapeWidth.ToString(CultureInfo.InvariantCulture)}x{preset.LandscapeHeight.ToString(CultureInfo.InvariantCulture)}，变速 {Num(preset.SpeedFactor)} 倍，抽帧 {Num(preset.FrameDropPercent)}%，开头裁剪 {Num(preset.TrimStartSeconds)} 秒，结尾裁剪 {Num(preset.TrimEndSeconds)} 秒，裁边上 {Num(preset.CropTopPercent)}% 下 {Num(preset.CropBottomPercent)}% 左 {Num(preset.CropLeftPercent)}% 右 {Num(preset.CropRightPercent)}%。";
+        var filters = new List<string>();
+        if (Math.Abs(preset.Brightness) > 0.0001)
+            filters.Add($"亮度 {Num(preset.Brightness)}");
+        if (Math.Abs(preset.Contrast - 1) > 0.0001)
+            filters.Add($"对比度 {Num(preset.Contrast)}");
+        if (Math.Abs(preset.Saturation - 1) > 0.0001)
+            filters.Add($"饱和度 {Num(preset.Saturation)}");
+        if (preset.Grayscale)
+            filters.Add("灰度");
+        if (preset.Sharpness > 0.01)
+            filters.Add($"锐化 {Num(preset.Sharpness)}");
+        if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
+            filters.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
+        if (filters.Count > 0)
+            yield return $"滤镜：{string.Join("，", filters)}。";
+        yield return preset.HasDurationLimit
+            ? $"单集时长：最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {(preset.MaximumDurationSeconds > 0 ? Num(preset.MaximumDurationSeconds) + " 秒" : "不限制")}。"
+            : "单集时长：不限制。";
+        if (!preset.TransitionsEnabled)
+        {
+            yield return "转场：关。";
+            yield break;
+        }
+
+        var names = new List<string>();
+        if (preset.TransitionFadeBlack) names.Add("淡黑");
+        if (preset.TransitionDissolve) names.Add("交叉溶解");
+        if (preset.TransitionPush) names.Add("推拉");
+        if (preset.TransitionSlide) names.Add("滑动");
+        if (preset.TransitionZoom) names.Add("缩放");
+        yield return $"转场：{string.Join("、", names)}，每处 0.3 到 0.6 秒。";
+    }
+
+    private static string DescribeJob(IReadOnlyList<VideoDedupClip> clips, string destination, VideoDedupPreset preset)
+    {
+        var output = Path.GetFileName(destination);
+        if (clips.Count == 1)
+            return $"{DescribeClip(clips[0])} → {output}。";
+        var sources = string.Join("、", clips.Select(clip => $"{Path.GetFileName(clip.Path)}（{DescribeProbe(clip)}）"));
+        var join = VideoDedupPlanner.CanTransition(preset, clips) ? "接缝使用转场" : "直接拼接";
+        return $"合并 {sources} → {output}，{join}。";
+    }
+
+    private static string DescribeClip(VideoDedupClip clip) =>
+        $"{Path.GetFileName(clip.Path)}，{DescribeProbe(clip)}";
+
+    private static string DescribeProbe(VideoDedupClip clip) =>
+        $"{Num(clip.Probe.DurationSeconds)} 秒，{clip.Probe.Width.ToString(CultureInfo.InvariantCulture)}x{clip.Probe.Height.ToString(CultureInfo.InvariantCulture)}";
+
+    private static string DescribePreference(string preference)
+    {
+        if (string.Equals(preference, VideoDedupPreset.EncodingSoftwareOnly, StringComparison.Ordinal))
+            return "编码器 CPU";
+        if (string.Equals(preference, VideoDedupPreset.EncodingNvenc, StringComparison.Ordinal))
+            return "编码器指定 NVIDIA";
+        if (string.Equals(preference, VideoDedupPreset.EncodingAmf, StringComparison.Ordinal))
+            return "编码器指定 AMD";
+        if (string.Equals(preference, VideoDedupPreset.EncodingQsv, StringComparison.Ordinal))
+            return "编码器指定 Intel";
+        if (string.Equals(preference, VideoDedupPreset.EncodingHardwareOnly, StringComparison.Ordinal))
+            return "编码器仅硬件";
+        return "编码器自动选择";
+    }
+
+    private static string DescribeCodec(string codec)
+    {
+        if (string.Equals(codec, VideoDedupPreset.CodecHevc, StringComparison.Ordinal) ||
+            string.Equals(codec, VideoDedupPreset.CodecH265, StringComparison.Ordinal))
+            return "HEVC";
+        if (string.Equals(codec, VideoDedupPreset.CodecDefault, StringComparison.Ordinal))
+            return "默认编码";
+        return "H.264";
+    }
+
+    private static string DescribeRate(VideoDedupPreset preset)
+    {
+        if (string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCrf, StringComparison.Ordinal))
+            return $"CRF {preset.Crf.ToString(CultureInfo.InvariantCulture)}";
+        if (string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCbr, StringComparison.Ordinal))
+            return $"CBR {Num(preset.VideoBitrateMbps)} Mbps";
+        return $"VBR {Num(preset.VideoBitrateMbps)} Mbps，最大码率 {Num(preset.VideoBitrateMbps * 1.45)} Mbps";
+    }
+
+    private static string DescribeAudio(VideoDedupPreset preset)
+    {
+        if (string.Equals(preset.AudioCodec, VideoDedupPreset.AudioDefault, StringComparison.Ordinal))
+            return "默认";
+        var bitrate = preset.AudioBitrateKbps > 0 ? preset.AudioBitrateKbps : 128;
+        return $"AAC {bitrate.ToString(CultureInfo.InvariantCulture)} kbps";
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes < 1024)
+            return $"{bytes.ToString(CultureInfo.InvariantCulture)} B";
+        if (bytes < 1024 * 1024)
+            return $"{(bytes / 1024d).ToString("0.#", CultureInfo.InvariantCulture)} KB";
+        return $"{(bytes / 1048576d).ToString("0.#", CultureInfo.InvariantCulture)} MB";
+    }
+
+    private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
     private static List<string> ResolveInputs(
         string project,
