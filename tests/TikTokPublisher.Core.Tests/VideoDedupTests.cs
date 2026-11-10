@@ -92,6 +92,28 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Landscape_source_swaps_the_single_resolution()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.PortraitWidth = 720;
+        preset.PortraitHeight = 1280;
+        preset.LandscapeWidth = 640;
+        preset.LandscapeHeight = 360;
+        preset.CropTopPercent = 2;
+        preset.CropBottomPercent = 6;
+        preset.Normalize();
+
+        preset.CropTopPercent.Should().Be(6);
+        preset.CropBottomPercent.Should().Be(6);
+        preset.LandscapeWidth.Should().Be(1280);
+        preset.LandscapeHeight.Should().Be(720);
+
+        var clip = new VideoDedupClip("wide.mp4", new VideoDedupProbe(12, 1920, 1080, true));
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
+        joined.Should().Contain("scale=1280:720");
+    }
+
+    [Fact]
     public void Hardware_arguments_follow_the_vendor_encoder()
     {
         var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();

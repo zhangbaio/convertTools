@@ -71,36 +71,25 @@
             <TextBlock Classes="dedupHint" Text="只在不同原片拼成一集时使用，每处 0.3 到 0.6 秒。启用时至少选一种。短于 0.8 秒的片段改为直接拼接。" />
 
             <TextBlock Text="画面" FontWeight="SemiBold" />
-            <Grid ColumnDefinitions="140,*,140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <Grid ColumnDefinitions="140,*,140,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                 <TextBlock Classes="dedupLabel" Text="开头裁剪（秒）" />
                 <NumericUpDown x:Name="TrimStartBox" Grid.Column="1" Minimum="0" Maximum="30" Increment="0.1" FormatString="0.0" />
                 <TextBlock Grid.Column="2" Classes="dedupLabel" Text="结尾裁剪（秒）" />
                 <NumericUpDown x:Name="TrimEndBox" Grid.Column="3" Minimum="0" Maximum="30" Increment="0.1" FormatString="0.0" />
 
-                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="上裁边 %" />
-                <NumericUpDown x:Name="CropTopBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
-                <TextBlock Grid.Row="1" Grid.Column="2" Classes="dedupLabel" Text="下裁边 %" />
-                <NumericUpDown x:Name="CropBottomBox" Grid.Row="1" Grid.Column="3" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="上下裁边 %" />
+                <NumericUpDown x:Name="CropVerticalBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="39" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="1" Grid.Column="2" Classes="dedupLabel" Text="左右裁边 %" />
+                <NumericUpDown x:Name="CropHorizontalBox" Grid.Row="1" Grid.Column="3" Minimum="0" Maximum="39" Increment="1" FormatString="0" />
 
-                <TextBlock Grid.Row="2" Classes="dedupLabel" Text="左裁边 %" />
-                <NumericUpDown x:Name="CropLeftBox" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
-                <TextBlock Grid.Row="2" Grid.Column="2" Classes="dedupLabel" Text="右裁边 %" />
-                <NumericUpDown x:Name="CropRightBox" Grid.Row="2" Grid.Column="3" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="2" Classes="dedupLabel" Text="分辨率" />
+                <ComboBox x:Name="ResolutionBox" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" />
+                <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Classes="dedupHint" Text="按竖屏尺寸选择。横屏原片自动对调宽高。" VerticalAlignment="Center" />
 
-                <TextBlock Grid.Row="3" Classes="dedupLabel" Text="竖屏宽" />
-                <NumericUpDown x:Name="PortraitWidthBox" Grid.Row="3" Grid.Column="1" Minimum="2" Maximum="4320" Increment="2" FormatString="0" />
-                <TextBlock Grid.Row="3" Grid.Column="2" Classes="dedupLabel" Text="竖屏高" />
-                <NumericUpDown x:Name="PortraitHeightBox" Grid.Row="3" Grid.Column="3" Minimum="2" Maximum="4320" Increment="2" FormatString="0" />
-
-                <TextBlock Grid.Row="4" Classes="dedupLabel" Text="横屏宽" />
-                <NumericUpDown x:Name="LandscapeWidthBox" Grid.Row="4" Grid.Column="1" Minimum="2" Maximum="4320" Increment="2" FormatString="0" />
-                <TextBlock Grid.Row="4" Grid.Column="2" Classes="dedupLabel" Text="横屏高" />
-                <NumericUpDown x:Name="LandscapeHeightBox" Grid.Row="4" Grid.Column="3" Minimum="2" Maximum="4320" Increment="2" FormatString="0" />
-
-                <TextBlock Grid.Row="5" Classes="dedupLabel" Text="视频变速" />
-                <NumericUpDown x:Name="SpeedBox" Grid.Row="5" Grid.Column="1" Minimum="0.5" Maximum="2" Increment="0.1" FormatString="0.00" />
-                <TextBlock Grid.Row="5" Grid.Column="2" Classes="dedupLabel" Text="随机抽帧 %" />
-                <NumericUpDown x:Name="FrameDropBox" Grid.Row="5" Grid.Column="3" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
+                <TextBlock Grid.Row="3" Classes="dedupLabel" Text="视频变速" />
+                <NumericUpDown x:Name="SpeedBox" Grid.Row="3" Grid.Column="1" Minimum="0.5" Maximum="2" Increment="0.1" FormatString="0.00" />
+                <TextBlock Grid.Row="3" Grid.Column="2" Classes="dedupLabel" Text="随机抽帧 %" />
+                <NumericUpDown x:Name="FrameDropBox" Grid.Row="3" Grid.Column="3" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
             </Grid>
 
             <TextBlock Text="画面滤镜" FontWeight="SemiBold" />

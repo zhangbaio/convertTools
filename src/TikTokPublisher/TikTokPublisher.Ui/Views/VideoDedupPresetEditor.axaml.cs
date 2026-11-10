@@ -7,8 +7,45 @@ namespace TikTokPublisher.Ui.Views;
 
 public partial class VideoDedupPresetEditor : UserControl
 {
+    private static readonly (int Width, int Height)[] Resolutions =
+    [
+        (1080, 1920),
+        (720, 1280),
+        (540, 960),
+    ];
+
     private IReadOnlyList<VideoDedupPresetImport> _imports = [];
     private bool _loading;
+
+    private void SelectResolution(int width, int height)
+    {
+        ResolutionBox.Items.Clear();
+        foreach (var size in Resolutions)
+            ResolutionBox.Items.Add(FormatResolution(size.Width, size.Height));
+        var selected = FormatResolution(width, height);
+        if (!ResolutionBox.Items.Contains(selected))
+            ResolutionBox.Items.Insert(0, selected);
+        ResolutionBox.SelectedItem = selected;
+    }
+
+    private (int Width, int Height) SelectedResolution()
+    {
+        var text = ResolutionBox.SelectedItem?.ToString() ?? FormatResolution(1080, 1920);
+        var parts = text.Split('×', 'x', 'X', '*');
+        if (parts.Length == 2 &&
+            int.TryParse(parts[0], out var width) &&
+            int.TryParse(parts[1], out var height) &&
+            width > 0 &&
+            height > 0)
+        {
+            return (width, height);
+        }
+
+        return (1080, 1920);
+    }
+
+    private static string FormatResolution(int width, int height) =>
+        $"{width.ToString(System.Globalization.CultureInfo.InvariantCulture)}×{height.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
     public VideoDedupPresetEditor()
     {
@@ -40,14 +77,9 @@ public partial class VideoDedupPresetEditor : UserControl
             ZoomBox.IsChecked = value.TransitionZoom;
             TrimStartBox.Value = (decimal)value.TrimStartSeconds;
             TrimEndBox.Value = (decimal)value.TrimEndSeconds;
-            CropTopBox.Value = (decimal)value.CropTopPercent;
-            CropBottomBox.Value = (decimal)value.CropBottomPercent;
-            CropLeftBox.Value = (decimal)value.CropLeftPercent;
-            CropRightBox.Value = (decimal)value.CropRightPercent;
-            PortraitWidthBox.Value = value.PortraitWidth;
-            PortraitHeightBox.Value = value.PortraitHeight;
-            LandscapeWidthBox.Value = value.LandscapeWidth;
-            LandscapeHeightBox.Value = value.LandscapeHeight;
+            CropVerticalBox.Value = (decimal)Math.Max(value.CropTopPercent, value.CropBottomPercent);
+            CropHorizontalBox.Value = (decimal)Math.Max(value.CropLeftPercent, value.CropRightPercent);
+            SelectResolution(value.PortraitWidth, value.PortraitHeight);
             SpeedBox.Value = (decimal)value.SpeedFactor;
             FrameDropBox.Value = (decimal)value.FrameDropPercent;
             BrightnessBox.Value = (decimal)value.Brightness;
@@ -105,14 +137,14 @@ public partial class VideoDedupPresetEditor : UserControl
             TransitionZoom = ZoomBox.IsChecked == true,
             TrimStartSeconds = (double)(TrimStartBox.Value ?? 0),
             TrimEndSeconds = (double)(TrimEndBox.Value ?? 0),
-            CropTopPercent = (double)(CropTopBox.Value ?? 0),
-            CropBottomPercent = (double)(CropBottomBox.Value ?? 0),
-            CropLeftPercent = (double)(CropLeftBox.Value ?? 0),
-            CropRightPercent = (double)(CropRightBox.Value ?? 0),
-            PortraitWidth = (int)(PortraitWidthBox.Value ?? 1080),
-            PortraitHeight = (int)(PortraitHeightBox.Value ?? 1920),
-            LandscapeWidth = (int)(LandscapeWidthBox.Value ?? 1920),
-            LandscapeHeight = (int)(LandscapeHeightBox.Value ?? 1080),
+            CropTopPercent = (double)(CropVerticalBox.Value ?? 0),
+            CropBottomPercent = (double)(CropVerticalBox.Value ?? 0),
+            CropLeftPercent = (double)(CropHorizontalBox.Value ?? 0),
+            CropRightPercent = (double)(CropHorizontalBox.Value ?? 0),
+            PortraitWidth = SelectedResolution().Width,
+            PortraitHeight = SelectedResolution().Height,
+            LandscapeWidth = SelectedResolution().Height,
+            LandscapeHeight = SelectedResolution().Width,
             SpeedFactor = (double)(SpeedBox.Value ?? 1),
             FrameDropPercent = (double)(FrameDropBox.Value ?? 0),
             Brightness = (double)(BrightnessBox.Value ?? 0),

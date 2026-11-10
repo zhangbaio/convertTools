@@ -205,7 +205,7 @@ public static class VideoDedupService
     private static IEnumerable<string> DescribeParameters(VideoDedupPreset preset)
     {
         yield return $"参数：{DescribePreference(preset.EncodingPreference)}，视频 {DescribeCodec(preset.VideoCodec)}，{preset.Fps.ToString(CultureInfo.InvariantCulture)} fps，{DescribeRate(preset)}，音频 {DescribeAudio(preset)}。";
-        yield return $"画面：竖屏 {preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}x{preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}，横屏 {preset.LandscapeWidth.ToString(CultureInfo.InvariantCulture)}x{preset.LandscapeHeight.ToString(CultureInfo.InvariantCulture)}，变速 {Num(preset.SpeedFactor)} 倍，抽帧 {Num(preset.FrameDropPercent)}%，开头裁剪 {Num(preset.TrimStartSeconds)} 秒，结尾裁剪 {Num(preset.TrimEndSeconds)} 秒，裁边上 {Num(preset.CropTopPercent)}% 下 {Num(preset.CropBottomPercent)}% 左 {Num(preset.CropLeftPercent)}% 右 {Num(preset.CropRightPercent)}%。";
+        yield return $"画面：分辨率 {preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}×{preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}，横屏自动转为 {preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}×{preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}，变速 {Num(preset.SpeedFactor)} 倍，抽帧 {Num(preset.FrameDropPercent)}%，开头裁剪 {Num(preset.TrimStartSeconds)} 秒，结尾裁剪 {Num(preset.TrimEndSeconds)} 秒，上下裁边 {Num(preset.CropTopPercent)}%，左右裁边 {Num(preset.CropLeftPercent)}%。";
         var filters = new List<string>();
         if (Math.Abs(preset.Brightness) > 0.0001)
             filters.Add($"亮度 {Num(preset.Brightness)}");

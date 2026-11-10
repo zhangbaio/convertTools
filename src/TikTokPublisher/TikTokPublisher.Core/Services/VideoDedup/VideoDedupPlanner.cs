@@ -357,8 +357,8 @@ internal static class VideoDedupPlanner
         }
 
         var portrait = clip.Probe.Width <= 0 || clip.Probe.Height <= 0 || clip.Probe.Height >= clip.Probe.Width;
-        var targetWidth = portrait ? preset.PortraitWidth : preset.LandscapeWidth;
-        var targetHeight = portrait ? preset.PortraitHeight : preset.LandscapeHeight;
+        var targetWidth = portrait ? preset.PortraitWidth : preset.PortraitHeight;
+        var targetHeight = portrait ? preset.PortraitHeight : preset.PortraitWidth;
         filters.Add(
             $"scale={targetWidth.ToString(CultureInfo.InvariantCulture)}:{targetHeight.ToString(CultureInfo.InvariantCulture)}:force_original_aspect_ratio=increase,crop={targetWidth.ToString(CultureInfo.InvariantCulture)}:{targetHeight.ToString(CultureInfo.InvariantCulture)}");
         filters.Add($"fps={preset.Fps.ToString(CultureInfo.InvariantCulture)}");

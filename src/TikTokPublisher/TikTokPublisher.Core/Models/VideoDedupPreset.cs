@@ -143,25 +143,17 @@ public sealed class VideoDedupPreset
 
         TrimStartSeconds = Math.Clamp(TrimStartSeconds, 0, 30);
         TrimEndSeconds = Math.Clamp(TrimEndSeconds, 0, 30);
-        CropTopPercent = ClampPercent(CropTopPercent);
-        CropBottomPercent = ClampPercent(CropBottomPercent);
-        CropLeftPercent = ClampPercent(CropLeftPercent);
-        CropRightPercent = ClampPercent(CropRightPercent);
-        if (CropTopPercent + CropBottomPercent >= 80)
-        {
-            CropTopPercent = 0;
-            CropBottomPercent = 0;
-        }
-        if (CropLeftPercent + CropRightPercent >= 80)
-        {
-            CropLeftPercent = 0;
-            CropRightPercent = 0;
-        }
+        var verticalCrop = Math.Min(39, Math.Max(ClampPercent(CropTopPercent), ClampPercent(CropBottomPercent)));
+        var horizontalCrop = Math.Min(39, Math.Max(ClampPercent(CropLeftPercent), ClampPercent(CropRightPercent)));
+        CropTopPercent = verticalCrop;
+        CropBottomPercent = verticalCrop;
+        CropLeftPercent = horizontalCrop;
+        CropRightPercent = horizontalCrop;
 
         PortraitWidth = EvenAtLeast(PortraitWidth, 1080);
         PortraitHeight = EvenAtLeast(PortraitHeight, 1920);
-        LandscapeWidth = EvenAtLeast(LandscapeWidth, 1920);
-        LandscapeHeight = EvenAtLeast(LandscapeHeight, 1080);
+        LandscapeWidth = PortraitHeight;
+        LandscapeHeight = PortraitWidth;
         SpeedFactor = Math.Clamp(SpeedFactor <= 0 ? 1 : SpeedFactor, 0.5, 2);
         FrameDropPercent = Math.Clamp(FrameDropPercent, 0, 40);
         Brightness = Math.Clamp(Brightness, -0.3, 0.3);
