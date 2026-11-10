@@ -3257,6 +3257,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
+        if (IsKuaishouPlatform)
+        {
+            await DeleteCheckedKuaishouProjectsAsync(targets);
+            return;
+        }
+
         var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
         var confirmed = await ConfirmDialog.ShowAsync(
             owner,
@@ -3273,6 +3279,73 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RefreshVisibleJobs();
         StatusMessage = $"已从队列移出 {targets.Length} 条任务，项目文件未删除。";
         AppendActivityLog(StatusMessage);
+    }
+
+    private async Task DeleteCheckedKuaishouProjectsAsync(PublishJob[] targets)
+    {
+        var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "确认删除勾选",
+            $"确认删除勾选的 {targets.Length} 部剧？将删除工作目录中对应的文件夹，此操作不可撤销。",
+            480,
+            200);
+        if (!confirmed)
+            return;
+
+        var workspace = DraftProjectDirectory;
+        var removed = 0;
+        var deletedDirectories = 0;
+        var errors = new List<string>();
+        foreach (var job in targets)
+        {
+            var plan = KuaishouCheckedProjectDeletion.Resolve(workspace, job.ProjectDirectory);
+            if (plan.Refusal is not null)
+            {
+                errors.Add($"{job.ProjectName}：{plan.Refusal}");
+                continue;
+            }
+
+            var failed = false;
+            foreach (var path in plan.Directories)
+            {
+                try
+                {
+                    var deleted = await Task.Run(() =>
+                    {
+                        if (!Directory.Exists(path))
+                            return false;
+                        Directory.Delete(path, recursive: true);
+                        return true;
+                    });
+                    KuaishouWorkspaceProjects.Invalidate(path);
+                    if (deleted)
+                        deletedDirectories++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failed = true;
+                    errors.Add($"{job.ProjectName}：{ex.Message}");
+                }
+            }
+
+            if (Directory.Exists(job.ProjectDirectory))
+                continue;
+
+            _jobs.Remove(job);
+            _jobRowCache.Remove(job.Id);
+            removed++;
+        }
+
+        if (removed > 0)
+            await PersistAsync();
+        RefreshVisibleJobs();
+        StatusMessage = errors.Count == 0
+            ? $"已删除 {removed} 部剧，共 {deletedDirectories} 个文件夹。"
+            : $"已删除 {removed} 部剧，{errors.Count} 部失败。";
+        AppendActivityLog(StatusMessage);
+        foreach (var error in errors.Take(5))
+            AppendActivityLog($"删除失败：{error}");
     }
 
     private async Task RunRunnableAsync()

@@ -260,7 +260,7 @@
                             <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
                             <Button Content="取消" Command="{Binding UncheckAllVisibleCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
                             <Button Content="删除勾选" Command="{Binding RemoveCheckedJobsCommand}" Classes="dangerSoftAction compactAction"
-                                    ToolTip.Tip="只从任务队列删除，保留项目目录和文件" />
+                                    ToolTip.Tip="从队列移出，并删除工作目录中对应的项目文件夹" />
                         </WrapPanel>
                     </Border>
                     <Border Classes="kuaishouButtonGroup" Background="#FFF5F5" BorderBrush="#F3C7C3">
