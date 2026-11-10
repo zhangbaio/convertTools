@@ -785,6 +785,11 @@ public sealed class QueueWorkerRunner
                         {
                             MarkStopped(preItem, uploadEnabledNow ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
                         }
+                        else if (ShouldStopAfterDownloadFailure(preItem, QueueStepRegistry.UploadSeries))
+                        {
+                            if (preItem.StatusText != QueueStepStatus.Failed)
+                                MarkFailed(preItem, QueueStepRegistry.Download, "下载失败，不再执行后续步骤");
+                        }
                         else if (uploadEnabledNow && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
                         {
                             MarkWaitingSlot(preItem);
@@ -1035,6 +1040,13 @@ public sealed class QueueWorkerRunner
         async Task RunStepAsync(string stepKey, IReadOnlyCollection<string> activeSteps)
         {
             ct.ThrowIfCancellationRequested();
+
+            if (ShouldStopAfterDownloadFailure(item, stepKey))
+            {
+                throw new QueueStepExecutionException(
+                    QueueStepRegistry.Download,
+                    new InvalidOperationException("下载失败，不再执行后续步骤"));
+            }
 
             var wasCompletedBeforeRun = item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed;
             var stepAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
@@ -1861,6 +1873,17 @@ public sealed class QueueWorkerRunner
             uploadLabel.Length > 0 && step == QueueStepRegistry.UploadSeries
                 ? uploadLabel
                 : QueueStepRegistry.LabelOf(step)));
+    }
+
+    // 下载步骤失败时，改写、海报、修复、上传等后续步骤都不再跑。
+    internal static bool ShouldStopAfterDownloadFailure(QueueProjectItem item, string stepKey)
+    {
+        if (string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal))
+            return false;
+        return string.Equals(
+            item.StepStates.GetValueOrDefault(QueueStepRegistry.Download),
+            QueueStepStatus.Failed,
+            StringComparison.Ordinal);
     }
 
     internal static bool ShouldRunStep(

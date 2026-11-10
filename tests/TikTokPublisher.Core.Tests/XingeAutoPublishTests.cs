@@ -434,6 +434,21 @@ public sealed class XingeAutoPublishTests : IDisposable
         XingeAutoPublishFailureClassifier.Classify("", "当前已有 TikTok 队列在执行，请等待完成后再发起新任务。")
             .Should().Be(XingeAutoPublishFailureKinds.QueueBusy);
 
+    [Fact]
+    public void DownloadFailureStopsLaterSteps()
+    {
+        var item = new QueueProjectItem
+        {
+            StepStates = new Dictionary<string, string> { [QueueStepKeys.Download] = QueueStepStatus.Failed },
+        };
+        QueueWorkerRunner.ShouldStopAfterDownloadFailure(item, QueueStepKeys.Download).Should().BeFalse();
+        QueueWorkerRunner.ShouldStopAfterDownloadFailure(item, QueueStepKeys.RewriteInfo).Should().BeTrue();
+        QueueWorkerRunner.ShouldStopAfterDownloadFailure(item, QueueStepKeys.UploadSeries).Should().BeTrue();
+
+        item.StepStates[QueueStepKeys.Download] = QueueStepStatus.Completed;
+        QueueWorkerRunner.ShouldStopAfterDownloadFailure(item, QueueStepKeys.SmallVideoRepair).Should().BeFalse();
+    }
+
     private (string Dir, QueueProjectItem Item) CreateProject(long assignmentId, DateTimeOffset createdAt, string account = "acc-1")
     {
         var dir = Path.Combine(_root, $"project-{assignmentId}");

@@ -26,7 +26,7 @@ public static class XingeAutoPublishStatuses
         status is Success or Failed;
 }
 
-// 与 XINGE 服务端 failure_kind 取值一致：账号类失败会暂停账号当日派单，source 会拉黑剧目，download 再执行勾选队列，upload 按上传失败处理。
+// 与 XINGE 服务端 failure_kind 取值一致：账号类失败会暂停账号当日派单，source 会拉黑剧目，download 释放名额并不再执行后续步骤，upload 按上传失败处理。
 public static class XingeAutoPublishFailureKinds
 {
     public const string AccountLogin = "account_login";
