@@ -1,5 +1,7 @@
 using FluentAssertions;
 using ShortDrama.Infrastructure.Files;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 using Xunit;
 
 namespace ShortDrama.Infrastructure.Tests.Files;
@@ -35,8 +37,164 @@ public sealed class PosterTitleProgrammaticRendererTests
     public void FormatLowerHalfLines_keeps_latin_words()
     {
         PosterTitleProgrammaticRenderer.FormatLowerHalfLines("O Bilionário que Vivia como Sem-Teto")
-            .Should().Contain("Bilionário")
-            .And.Contain(" ");
+            .Replace("\n", " ")
+            .Should().Be("O Bilionário que Vivia como Sem-Teto");
+    }
+
+    [Theory]
+    [InlineData("The Bride Who Took Her Sister's Vow")]
+    [InlineData("O Bilionário que Vivia como Sem-Teto")]
+    [InlineData("L'amour secret de sa sœur")]
+    [InlineData("Die Donaudampfschifffahrtsgesellschaft")]
+    [InlineData("Người vợ lấy lời thề của chị")]
+    [InlineData("La hermana que rompió su voto")]
+    [InlineData("Sumpah saudara perempuannya")]
+    [InlineData("그녀의 자매가 한 맹세")]
+    [InlineData("عروس أخذت نذر أختها")]
+    public void Spaced_non_chinese_titles_wrap_on_word_boundaries(string title)
+    {
+        var laid = PosterTitleProgrammaticRenderer.FormatMeasuredPosterLines(title, 90, text => text.Length * 10f);
+
+        laid.Replace("\n", " ").Should().Be(title);
+        laid.Should().NotBe(PosterTitleProgrammaticRenderer.FormatTitleLines(title));
+        foreach (var word in title.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            laid.Split('\n').SelectMany(line => line.Split(' ')).Should().Contain(word);
+    }
+
+    [Fact]
+    public void Camel_case_latin_title_regains_word_spaces()
+    {
+        const string title = "TheBrideWhoTookHerSister'sVow";
+
+        PosterTitleProgrammaticRenderer.FormatMeasuredPosterLines(title, 160, text => text.Length * 10f)
+            .Replace("\n", " ")
+            .Should().Be("The Bride Who Took Her Sister's Vow");
+        PosterTitleProgrammaticRenderer.FormatLowerHalfLines(title)
+            .Replace("\n", " ")
+            .Should().Be("The Bride Who Took Her Sister's Vow");
+    }
+
+    [Fact]
+    public void English_title_is_not_cut_inside_a_word()
+    {
+        const string title = "The Bride Who Took Her Sister's Vow";
+        var laid = PosterTitleProgrammaticRenderer.FormatMeasuredPosterLines(title, 140, text => text.Length * 10f);
+
+        laid.Should().NotContain("TheBrideWh");
+        laid.Split('\n').Should().OnlyContain(line => title.Contains(line, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void German_compound_stays_on_one_line()
+    {
+        var laid = PosterTitleProgrammaticRenderer.FormatMeasuredPosterLines(
+            "Die Donaudampfschifffahrtsgesellschaft",
+            40,
+            text => text.Length * 10f);
+
+        laid.Split('\n').Should().Contain("Donaudampfschifffahrtsgesellschaft");
+    }
+
+    [Fact]
+    public void Japanese_kana_keeps_spaces_and_small_kana_on_the_previous_line()
+    {
+        PosterTitleProgrammaticRenderer.ClassifyTitleScript("秘密 の話").Should().Be(PosterTitleScript.Japanese);
+        PosterTitleProgrammaticRenderer.FormatLowerHalfLines("秘密 の話")
+            .Replace("\n", " ")
+            .Should().Be("秘密 の話");
+
+        var laid = PosterTitleProgrammaticRenderer.FormatMeasuredPosterLines("ちょっと", 25, text => text.Length * 10f);
+        string.Concat(laid.Split('\n')).Should().Be("ちょっと");
+        laid.Split('\n').Should().OnlyContain(line => !line.StartsWith('っ') && !line.StartsWith('ょ'));
+    }
+
+    [Fact]
+    public void Korean_hangul_is_not_laid_out_as_chinese()
+    {
+        PosterTitleProgrammaticRenderer.ClassifyTitleScript("그녀의 맹세").Should().Be(PosterTitleScript.Korean);
+        PosterTitleProgrammaticRenderer.FormatLowerHalfLines("그녀의 맹세")
+            .Replace("\n", " ")
+            .Should().Be("그녀의 맹세");
+    }
+
+    [Fact]
+    public void Thai_leading_vowel_stays_with_the_following_cluster()
+    {
+        PosterTitleProgrammaticRenderer.ClassifyTitleScript("ก็ได้").Should().Be(PosterTitleScript.Thai);
+        var laid = PosterTitleProgrammaticRenderer.FormatMeasuredPosterLines("ก็ได้", 15, text => text.Length * 10f);
+
+        string.Concat(laid.Split('\n')).Should().Be("ก็ได้");
+        laid.Split('\n').Should().NotContain(line => line.EndsWith('ไ') || line.StartsWith('้') || line.StartsWith('็'));
+    }
+
+    [Fact]
+    public void Arabic_title_is_right_to_left_and_keeps_word_spaces()
+    {
+        PosterTitleProgrammaticRenderer.ClassifyTitleScript("عروس أخذت نذر أختها").Should().Be(PosterTitleScript.Arabic);
+        PosterTitleProgrammaticRenderer.FormatLowerHalfLines("عروس أخذت نذر أختها")
+            .Replace("\n", " ")
+            .Should().Be("عروس أخذت نذر أختها");
+    }
+
+    [Theory]
+    [InlineData("The Bride Who Took Her Sister's Vow")]
+    [InlineData("TheBrideWhoTookHerSister'sVow")]
+    [InlineData("彼女の秘密")]
+    [InlineData("그녀의 맹세")]
+    [InlineData("ก็ได้")]
+    [InlineData("عروس أخذت نذر أختها")]
+    [InlineData("携灵泉空间在古代创富安家")]
+    public void Lower_half_render_writes_each_script(string title)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "poster-script-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var input = Path.Combine(root, "in.png");
+            var output = Path.Combine(root, "out.png");
+            using (var image = new Image<Rgba32>(600, 858, new Rgba32(20, 20, 20, 255)))
+                image.SaveAsPng(input);
+
+            PosterTitleProgrammaticRenderer.RenderLowerHalf(input, output, title);
+
+            using var rendered = Image.Load<Rgba32>(output);
+            rendered.Width.Should().Be(600);
+            rendered.Height.Should().Be(858);
+            CountBrightLowerPixels(rendered).Should().BeGreaterThan(30);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, true);
+        }
+    }
+
+    private static int CountBrightLowerPixels(Image<Rgba32> image)
+    {
+        var count = 0;
+        var start = image.Height / 2;
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = start; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    if (row[x].R > 180 && row[x].G > 140)
+                        count++;
+                }
+            }
+        });
+        return count;
+    }
+
+    [Fact]
+    public void Chinese_titles_still_use_character_wrapping()
+    {
+        PosterTitleProgrammaticRenderer.ClassifyTitleScript("携灵泉空间在古代创富安家").Should().Be(PosterTitleScript.Chinese);
+        PosterTitleProgrammaticRenderer.FormatLowerHalfLines("携灵泉空间在古代创富安家")
+            .Should().Be(PosterTitleProgrammaticRenderer.FormatTitleLines("携灵泉空间在古代创富安家"));
+        PosterTitleProgrammaticRenderer.ClassifyTitleScript("東京物語").Should().Be(PosterTitleScript.Chinese);
     }
 
     [Fact]
