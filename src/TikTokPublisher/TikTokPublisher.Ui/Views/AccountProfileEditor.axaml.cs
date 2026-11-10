@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.ComponentModel;
 using System.Net;
@@ -7,6 +8,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
@@ -21,6 +24,9 @@ public partial class AccountProfileEditor : UserControl
     private SystemServicesViewModel? _systemServices;
     private bool _isReloadingFromSelectedAccount;
     private bool _persistedRemoteDispatch;
+    private bool _suppressUploadedSeriesSearch;
+    private int _uploadedSeriesGeneration;
+    private IReadOnlyList<AccountUploadedSeriesRow> _uploadedSeriesRows = Array.Empty<AccountUploadedSeriesRow>();
 
     public event EventHandler? LoginRequested;
     public event EventHandler? ReloginRequested;
@@ -113,6 +119,7 @@ public partial class AccountProfileEditor : UserControl
             ClearFields();
             LoginStatusText.Text = "尚未登录";
             ShowPersistedRemoteDispatch(null);
+            RequestUploadedSeriesReload();
             return;
         }
 
@@ -220,6 +227,7 @@ public partial class AccountProfileEditor : UserControl
         ProxyPasswordBox.Text = profile.TiktokProxyPassword;
         ProxyLabelBox.Text = profile.TiktokProxyLabel;
         StaticIpNoteBox.Text = profile.TiktokStaticIpNote;
+        RequestUploadedSeriesReload();
     }
 
     private void SyncWorkspaceBoxFromSelectedAccount()
@@ -1102,4 +1110,117 @@ public partial class AccountProfileEditor : UserControl
 
     private static string TagOf(ComboBox combo, string fallback) =>
         (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
+
+    private void OnRefreshUploadedSeriesClick(object? sender, RoutedEventArgs e) =>
+        RequestUploadedSeriesReload();
+
+    private void OnUploadedSeriesSearchChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_suppressUploadedSeriesSearch)
+            return;
+        ApplyUploadedSeriesFilter();
+    }
+
+    private void OnOpenUploadedSeriesDirectoryClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AccountUploadedSeriesRow row } || !row.CanOpenDirectory)
+            return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = row.ProjectDirectory,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowUploadedSeriesMessage($"打开项目目录失败：{ex.Message}", hasRows: true);
+        }
+    }
+
+    private void RequestUploadedSeriesReload()
+    {
+        var generation = ++_uploadedSeriesGeneration;
+        var profile = _vm?.SelectedAccount?.Model;
+        _suppressUploadedSeriesSearch = true;
+        UploadedSeriesSearchBox.Text = "";
+        _suppressUploadedSeriesSearch = false;
+        _uploadedSeriesRows = Array.Empty<AccountUploadedSeriesRow>();
+        UploadedSeriesList.ItemsSource = null;
+
+        if (profile is null)
+        {
+            ShowUploadedSeriesMessage("尚未选择账号");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(profile.ResolveWorkspacePath()))
+        {
+            ShowUploadedSeriesMessage("请先在基础设置里配置上传工作目录。");
+            return;
+        }
+
+        ShowUploadedSeriesMessage("正在读取已上传剧集…");
+        _ = LoadUploadedSeriesAsync(profile, generation);
+    }
+
+    private async Task LoadUploadedSeriesAsync(TikTokAccountProfile profile, int generation)
+    {
+        IReadOnlyList<AccountUploadedSeriesRow> rows;
+        string? error = null;
+        try
+        {
+            rows = await Task.Run(() => AccountUploadedSeriesCatalog.Load(profile));
+        }
+        catch (Exception ex)
+        {
+            rows = Array.Empty<AccountUploadedSeriesRow>();
+            error = ex.Message;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation != _uploadedSeriesGeneration)
+                return;
+            if (error is not null)
+            {
+                ShowUploadedSeriesMessage($"读取已上传剧集失败：{error}");
+                return;
+            }
+
+            _uploadedSeriesRows = rows;
+            ApplyUploadedSeriesFilter();
+        });
+    }
+
+    private void ApplyUploadedSeriesFilter()
+    {
+        var keyword = (UploadedSeriesSearchBox.Text ?? "").Trim();
+        var rows = keyword.Length == 0
+            ? _uploadedSeriesRows
+            : _uploadedSeriesRows.Where(row =>
+                row.OriginalTitle.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                row.NewTitle.Contains(keyword, StringComparison.OrdinalIgnoreCase)).ToArray();
+        UploadedSeriesList.ItemsSource = rows;
+        if (rows.Count == 0)
+        {
+            ShowUploadedSeriesMessage(keyword.Length == 0
+                ? "该账号还没有已上传剧集。"
+                : "没有匹配的剧集。");
+            return;
+        }
+
+        UploadedSeriesStatusText.IsVisible = false;
+        UploadedSeriesStatusText.Text = "";
+    }
+
+    private void ShowUploadedSeriesMessage(string message, bool hasRows = false)
+    {
+        UploadedSeriesStatusText.Text = message;
+        UploadedSeriesStatusText.IsVisible = true;
+        if (!hasRows)
+            UploadedSeriesList.ItemsSource = null;
+    }
 }
