@@ -448,6 +448,53 @@ internal static class VideoDedupPlanner
         return graph.ToString().TrimEnd(';');
     }
 
+    internal readonly record struct UploadFrame(int Width, int Height, bool Scaled);
+
+    internal static UploadFrame ResolveUploadFrame(int sourceWidth, int sourceHeight, VideoDedupPreset preset)
+    {
+        var widthRatio = 1 - (preset.CropLeftPercent + preset.CropRightPercent) / 100d;
+        var heightRatio = 1 - (preset.CropTopPercent + preset.CropBottomPercent) / 100d;
+        var croppedWidth = CroppedEven(sourceWidth, widthRatio);
+        var croppedHeight = CroppedEven(sourceHeight, heightRatio);
+        if (croppedWidth <= 0 || croppedHeight <= 0)
+            return default;
+
+        var portrait = croppedHeight >= croppedWidth;
+        if (!preset.KeepsOriginalResolution)
+        {
+            var targetWidth = portrait ? preset.PortraitWidth : preset.PortraitHeight;
+            var targetHeight = portrait ? preset.PortraitHeight : preset.PortraitWidth;
+            if (targetWidth <= 0 || targetHeight <= 0 || Math.Min(targetWidth, targetHeight) < TikTokVideoConstraints.MinShortSide)
+            {
+                targetWidth = portrait ? TikTokVideoConstraints.UploadPortraitWidth : TikTokVideoConstraints.UploadPortraitHeight;
+                targetHeight = portrait ? TikTokVideoConstraints.UploadPortraitHeight : TikTokVideoConstraints.UploadPortraitWidth;
+            }
+
+            targetWidth = Even(targetWidth);
+            targetHeight = Even(targetHeight);
+            return new UploadFrame(targetWidth, targetHeight, targetWidth != croppedWidth || targetHeight != croppedHeight);
+        }
+
+        if (Math.Min(croppedWidth, croppedHeight) >= TikTokVideoConstraints.MinShortSide)
+            return new UploadFrame(croppedWidth, croppedHeight, false);
+
+        if (Math.Min(sourceWidth, sourceHeight) >= TikTokVideoConstraints.MinShortSide)
+            return new UploadFrame(Even(sourceWidth), Even(sourceHeight), true);
+
+        return portrait
+            ? new UploadFrame(TikTokVideoConstraints.UploadPortraitWidth, TikTokVideoConstraints.UploadPortraitHeight, true)
+            : new UploadFrame(TikTokVideoConstraints.UploadPortraitHeight, TikTokVideoConstraints.UploadPortraitWidth, true);
+    }
+
+    private static int CroppedEven(int source, double ratio)
+    {
+        if (source <= 0 || ratio <= 0)
+            return 0;
+        return (int)(Math.Truncate(source * ratio / 2d) * 2d);
+    }
+
+    private static int Even(int value) => value <= 0 ? 0 : value - (value % 2);
+
     private static string BuildVideoFilter(VideoDedupClip clip, VideoDedupSlice slice, VideoDedupPreset preset, int seed)
     {
         var filters = new List<string>();
@@ -463,13 +510,11 @@ internal static class VideoDedupPlanner
                 $"crop=trunc(iw*{Num(width)}/2)*2:trunc(ih*{Num(height)}/2)*2:trunc(iw*{Num(preset.CropLeftPercent / 100d)}/2)*2:trunc(ih*{Num(preset.CropTopPercent / 100d)}/2)*2");
         }
 
-        if (!preset.KeepsOriginalResolution)
+        var frame = ResolveUploadFrame(clip.Probe.Width, clip.Probe.Height, preset);
+        if (frame.Scaled)
         {
-            var portrait = clip.Probe.Width <= 0 || clip.Probe.Height <= 0 || clip.Probe.Height >= clip.Probe.Width;
-            var targetWidth = portrait ? preset.PortraitWidth : preset.PortraitHeight;
-            var targetHeight = portrait ? preset.PortraitHeight : preset.PortraitWidth;
             filters.Add(
-                $"scale={targetWidth.ToString(CultureInfo.InvariantCulture)}:{targetHeight.ToString(CultureInfo.InvariantCulture)}:flags=lanczos");
+                $"scale={frame.Width.ToString(CultureInfo.InvariantCulture)}:{frame.Height.ToString(CultureInfo.InvariantCulture)}:flags=bicubic");
         }
 
         filters.Add("format=yuv420p,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709");

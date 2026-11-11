@@ -214,14 +214,65 @@ public sealed class VideoDedupTests
         preset.LandscapeWidth.Should().Be(1280);
         preset.LandscapeHeight.Should().Be(720);
 
+        preset.PortraitWidth = 1080;
+        preset.PortraitHeight = 1920;
         var clip = new VideoDedupClip("wide.mp4", new VideoDedupProbe(12, 1920, 1080, true));
         var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
-        joined.Should().Contain("scale=1280:720:flags=lanczos");
+        joined.Should().Contain("scale=1920:1080:flags=bicubic");
         joined.Should().NotContain("force_original_aspect_ratio");
     }
 
     [Fact]
-    public void Original_resolution_skips_scaling()
+    public void Crop_below_1080_scales_back_to_the_source()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.PortraitWidth = 0;
+        preset.PortraitHeight = 0;
+        preset.CropTopPercent = 3;
+        preset.CropBottomPercent = 3;
+        preset.CropLeftPercent = 3;
+        preset.CropRightPercent = 3;
+        preset.Normalize();
+
+        var frame = VideoDedupPlanner.ResolveUploadFrame(1080, 1920, preset);
+        frame.Width.Should().Be(1080);
+        frame.Height.Should().Be(1920);
+        frame.Scaled.Should().BeTrue();
+
+        var clip = new VideoDedupClip("tall.mp4", new VideoDedupProbe(42, 1080, 1920, true));
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
+        joined.Should().Contain("scale=1080:1920:flags=bicubic");
+        joined.Should().Contain("crop=trunc(iw*");
+    }
+
+    [Fact]
+    public void Source_below_1080_scales_to_the_upload_frame()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.PortraitWidth = 0;
+        preset.PortraitHeight = 0;
+        preset.Normalize();
+
+        var portrait = VideoDedupPlanner.ResolveUploadFrame(720, 1280, preset);
+        portrait.Width.Should().Be(1080);
+        portrait.Height.Should().Be(1920);
+
+        var landscape = VideoDedupPlanner.ResolveUploadFrame(1280, 720, preset);
+        landscape.Width.Should().Be(1920);
+        landscape.Height.Should().Be(1080);
+
+        var smallTarget = VideoDedupPreset.CreateDefault();
+        smallTarget.PortraitWidth = 720;
+        smallTarget.PortraitHeight = 1280;
+        smallTarget.Normalize();
+        var raised = VideoDedupPlanner.ResolveUploadFrame(1080, 1920, smallTarget);
+        raised.Width.Should().Be(1080);
+        raised.Height.Should().Be(1920);
+        raised.Scaled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Original_resolution_keeps_a_cropped_frame_that_stays_at_least_1080()
     {
         var preset = VideoDedupPreset.CreateDefault();
         preset.PortraitWidth = 0;
@@ -233,7 +284,7 @@ public sealed class VideoDedupTests
         preset.LandscapeWidth.Should().Be(0);
         preset.LandscapeHeight.Should().Be(0);
 
-        var clip = new VideoDedupClip("wide.mp4", new VideoDedupProbe(12, 1920, 1080, true));
+        var clip = new VideoDedupClip("wide.mp4", new VideoDedupProbe(12, 2560, 1440, true));
         var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
         joined.Should().NotContain("scale=");
         joined.Should().Contain("crop=trunc(iw*");
@@ -365,8 +416,8 @@ public sealed class VideoDedupTests
             var archived = Path.Combine(root, "source-originals", "01.mp4");
             (await File.ReadAllBytesAsync(archived)).Should().Equal([1, 2, 3, 4]);
             logs.Should().Contain(line => line.Contains("使用内置默认方案", StringComparison.Ordinal));
-            logs.Should().Contain(line => line.Contains("参数：编码器自动选择", StringComparison.Ordinal) && line.Contains("H.264", StringComparison.Ordinal) && line.Contains("VBR 4.2 Mbps", StringComparison.Ordinal));
-            logs.Should().Contain(line => line.Contains("第 1/1 集开始去重：01.mp4，8 秒，720x1280 → 01.mp4。", StringComparison.Ordinal));
+            logs.Should().Contain(line => line.Contains("去重操作：上裁边 0%，下裁边 0%，左裁边 0%，右裁边 0%", StringComparison.Ordinal) && line.Contains("编码器自动选择", StringComparison.Ordinal) && line.Contains("H.264", StringComparison.Ordinal) && line.Contains("VBR 4.2 Mbps", StringComparison.Ordinal));
+            logs.Should().Contain(line => line.Contains("第 1/1 集开始去重：01.mp4（8 秒，720x1280） → 01.mp4。操作：上裁边 0%", StringComparison.Ordinal));
             logs.Should().Contain(line => line.Contains("第 1/1 集去重完成", StringComparison.Ordinal));
 
             logs.Clear();

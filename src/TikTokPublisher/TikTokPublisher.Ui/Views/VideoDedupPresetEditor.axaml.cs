@@ -12,8 +12,6 @@ public partial class VideoDedupPresetEditor : UserControl
     private static readonly (int Width, int Height)[] Resolutions =
     [
         (1080, 1920),
-        (720, 1280),
-        (540, 960),
     ];
 
     private string _presetName = "";
@@ -34,6 +32,12 @@ public partial class VideoDedupPresetEditor : UserControl
         {
             ResolutionBox.SelectedItem = KeepOriginalResolution;
             return;
+        }
+
+        if (Math.Min(width, height) < 1080)
+        {
+            width = 1080;
+            height = 1920;
         }
 
         var selected = FormatResolution(width, height);

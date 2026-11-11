@@ -78,8 +78,7 @@ public static class VideoDedupService
 
         VideoDedupEffectFilters.Validate(preset);
         Write($"开始：账号「{account.DisplayName}」方案「{preset.Name}」，原片 {inputs.Count.ToString(CultureInfo.InvariantCulture)} 个。");
-        foreach (var line in DescribeParameters(preset))
-            Write(line);
+        Write($"去重操作：{DescribeOperations(preset)}。");
         Write($"正在读取 {inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片。");
         var clips = new List<VideoDedupClip>(inputs.Count);
         for (var inputIndex = 0; inputIndex < inputs.Count; inputIndex++)
@@ -204,34 +203,47 @@ public static class VideoDedupService
         log?.Invoke($"视频去重完成：{inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片生成 {outputs.Length.ToString(CultureInfo.InvariantCulture)} 集，原片保留在 source-originals。");
     }
 
-    private static IEnumerable<string> DescribeParameters(VideoDedupPreset preset)
+    private static string DescribeOperations(VideoDedupPreset preset)
     {
-        yield return $"参数：{DescribePreference(preset.EncodingPreference)}，视频 {DescribeCodec(preset.VideoCodec)}，{preset.Fps.ToString(CultureInfo.InvariantCulture)} fps，{DescribeRate(preset)}，音频 {DescribeAudio(preset)}。";
         var resolution = preset.KeepsOriginalResolution
-            ? "分辨率保持原分辨率"
-            : $"分辨率 {preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}×{preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}，横屏自动转为 {preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}×{preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}";
-        yield return $"画面：{resolution}，变速 {Num(preset.SpeedFactor)} 倍，抽帧 {Num(preset.FrameDropPercent)}%，开头裁剪 {Num(preset.TrimStartSeconds)} 秒，结尾裁剪 {Num(preset.TrimEndSeconds)} 秒，上下裁边 {Num(preset.CropTopPercent)}%，左右裁边 {Num(preset.CropLeftPercent)}%。";
-        var filters = VideoDedupEffectFilters.Describe(preset).ToList();
-        if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
-            filters.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
-        if (filters.Count > 0)
-            yield return $"滤镜：{string.Join("，", filters)}。";
-        yield return preset.HasDurationLimit
-            ? $"单集时长：最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {(preset.MaximumDurationSeconds > 0 ? Num(preset.MaximumDurationSeconds) + " 秒" : "不限制")}。按裁剪前的时长计算，超长原片会拆开，过短尾段只在不超过最长时长时并入上一集。"
-            : "单集时长：不限制。";
-        if (!preset.TransitionsEnabled)
+            ? "分辨率保持裁剪后的尺寸，短边不足 1080 时放大回源尺寸，源片不足 1080 时放到 1080×1920"
+            : Math.Min(preset.PortraitWidth, preset.PortraitHeight) < TikTokVideoConstraints.MinShortSide
+                ? "分辨率按 1080×1920 输出，横屏改为 1920×1080"
+                : $"分辨率 {preset.PortraitWidth.ToString(CultureInfo.InvariantCulture)}×{preset.PortraitHeight.ToString(CultureInfo.InvariantCulture)}，横屏对调宽高";
+        var parts = new List<string>
         {
-            yield return "转场：关。";
-            yield break;
+            $"上裁边 {Num(preset.CropTopPercent)}%",
+            $"下裁边 {Num(preset.CropBottomPercent)}%",
+            $"左裁边 {Num(preset.CropLeftPercent)}%",
+            $"右裁边 {Num(preset.CropRightPercent)}%",
+            $"变速 {Num(preset.SpeedFactor)} 倍",
+            $"抽帧 {Num(preset.FrameDropPercent)}%",
+            $"开头裁剪 {Num(preset.TrimStartSeconds)} 秒",
+            $"结尾裁剪 {Num(preset.TrimEndSeconds)} 秒",
+            resolution,
+            $"{preset.Fps.ToString(CultureInfo.InvariantCulture)} fps",
+            $"{DescribePreference(preset.EncodingPreference)}，{DescribeCodec(preset.VideoCodec)}，{DescribeRate(preset)}，音频 {DescribeAudio(preset)}",
+        };
+        parts.AddRange(VideoDedupEffectFilters.Describe(preset));
+        if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
+            parts.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
+        parts.Add(preset.HasDurationLimit
+            ? $"单集最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {(preset.MaximumDurationSeconds > 0 ? Num(preset.MaximumDurationSeconds) + " 秒" : "不限制")}"
+            : "单集时长不限制");
+        if (!preset.TransitionsEnabled || !preset.HasAnyTransition)
+            parts.Add("转场关");
+        else
+        {
+            var names = new List<string>();
+            if (preset.TransitionFadeBlack) names.Add("淡黑");
+            if (preset.TransitionDissolve) names.Add("交叉溶解");
+            if (preset.TransitionPush) names.Add("推拉");
+            if (preset.TransitionSlide) names.Add("滑动");
+            if (preset.TransitionZoom) names.Add("缩放");
+            parts.Add($"转场 {string.Join("、", names)}，每处 0.3 到 0.6 秒");
         }
 
-        var names = new List<string>();
-        if (preset.TransitionFadeBlack) names.Add("淡黑");
-        if (preset.TransitionDissolve) names.Add("交叉溶解");
-        if (preset.TransitionPush) names.Add("推拉");
-        if (preset.TransitionSlide) names.Add("滑动");
-        if (preset.TransitionZoom) names.Add("缩放");
-        yield return $"转场：{string.Join("、", names)}，每处 0.3 到 0.6 秒。";
+        return string.Join("，", parts);
     }
 
     private static string DescribeJob(
@@ -241,14 +253,25 @@ public static class VideoDedupService
         VideoDedupPreset preset)
     {
         var output = Path.GetFileName(destination);
-        var sources = slices
-            .Select(slice => clips[slice.ClipIndex])
-            .DistinctBy(clip => clip.Path)
-            .Select(clip => $"{Path.GetFileName(clip.Path)}（{DescribeProbe(clip)}）");
-        if (slices.Count == 1 && Math.Abs(slices[0].Length - clips[slices[0].ClipIndex].Probe.DurationSeconds) < 0.05)
-            return $"{DescribeClip(clips[slices[0].ClipIndex])} → {output}。";
-        var join = slices.Count > 1 && VideoDedupPlanner.CanTransition(preset, slices) ? "接缝使用转场" : "直接拼接";
-        return $"分段 {string.Join("、", sources)} → {output}，{join}。";
+        var ranges = string.Join("、", slices.Select(slice =>
+        {
+            var clip = clips[slice.ClipIndex];
+            var whole = Math.Abs(slice.Length - clip.Probe.DurationSeconds) < 0.05 && slice.StartSeconds <= 0.05;
+            var range = whole ? "" : $" {Num(slice.StartSeconds)}–{Num(slice.EndSeconds)} 秒";
+            return $"{Path.GetFileName(clip.Path)}（{DescribeProbe(clip)}）{range}";
+        }));
+        var join = slices.Count > 1
+            ? VideoDedupPlanner.CanTransition(preset, slices) ? "，接缝使用转场" : "，直接拼接"
+            : "";
+        var frames = slices
+            .Select(slice => clips[slice.ClipIndex].Probe)
+            .Select(probe => VideoDedupPlanner.ResolveUploadFrame(probe.Width, probe.Height, preset))
+            .Where(frame => frame.Width > 0 && frame.Height > 0)
+            .Distinct()
+            .Select(frame => $"{frame.Width.ToString(CultureInfo.InvariantCulture)}×{frame.Height.ToString(CultureInfo.InvariantCulture)}")
+            .ToArray();
+        var outputSize = frames.Length == 0 ? "" : $"成片 {string.Join("、", frames)}。";
+        return $"{ranges} → {output}{join}。操作：{DescribeOperations(preset)}。{outputSize}";
     }
 
     private static string DescribeClip(VideoDedupClip clip) =>

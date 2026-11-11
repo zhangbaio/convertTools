@@ -6,6 +6,9 @@ public static class TikTokVideoConstraints
     public const long MaxSizeBytes = 4L * 1024 * 1024 * 1024;
     public const double MinDurationSeconds = 15.0;
     public const double MaxDurationSeconds = 20 * 60.0;
+    public const int MinShortSide = 1080;
+    public const int UploadPortraitWidth = 1080;
+    public const int UploadPortraitHeight = 1920;
     public const long PaddingTargetBytes = MinSizeBytes + 128 * 1024;
 
     public static readonly HashSet<string> PaddingSupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
