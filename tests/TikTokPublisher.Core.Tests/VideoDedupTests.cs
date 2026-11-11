@@ -58,6 +58,87 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Importer_reads_transition_candidates_quality_mode_and_enabled_effects()
+    {
+        const string json = """
+            {
+              "name": "视频号",
+              "effects": {
+                "basic": {
+                  "gamma": { "value": 1.2, "enabled": true, "amount": 50 },
+                  "tint": { "value": 30, "enabled": false, "amount": 100 }
+                },
+                "style": {
+                  "curves": {
+                    "master": [ { "x": 0, "y": 0 }, { "x": 0.5, "y": 0.6 }, { "x": 1, "y": 1 } ],
+                    "enabled": true, "amount": 80
+                  }
+                },
+                "spatial": {
+                  "vignette": { "radius": 60, "feather": 40, "enabled": true, "amount": 70 },
+                  "grain": { "size": 0.15, "density": 50, "enabled": true, "amount": 40 }
+                }
+              },
+              "transitions": { "enabled": true, "candidates": [ "FadeBlack", "Zoom" ] },
+              "steps": [
+                { "type": "videoEncode", "codec": "h264", "bitrateMode": "Quality", "quality": 24 }
+              ]
+            }
+            """;
+
+        var preset = VideoDedupPresetImporter.FromProcessorJson(json);
+
+        preset.TransitionsEnabled.Should().BeTrue();
+        preset.TransitionFadeBlack.Should().BeTrue();
+        preset.TransitionZoom.Should().BeTrue();
+        preset.TransitionDissolve.Should().BeFalse();
+        preset.BitrateMode.Should().Be(VideoDedupPreset.BitrateCrf);
+        preset.Crf.Should().Be(24);
+        preset.Effects.Gamma.Should().BeApproximately(20, 0.001);
+        preset.Effects.Tint.Should().Be(0);
+        preset.Effects.CurveAmount.Should().Be(80);
+        preset.Effects.CurveMaster.Should().HaveCount(3);
+        preset.Effects.VignetteAmount.Should().Be(70);
+        preset.Effects.VignetteRadius.Should().Be(60);
+        preset.Effects.GrainAmount.Should().Be(40);
+        preset.Effects.GrainSize.Should().BeApproximately(15, 0.001);
+    }
+
+    [Fact]
+    public void Speed_change_runs_before_fps_and_frame_drop_so_audio_stays_in_sync()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.SpeedFactor = 1.1;
+        preset.FrameDropPercent = 8;
+        preset.Normalize();
+        var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(60, 1080, 1920, true));
+
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 5));
+
+        var speed = joined.IndexOf("setpts=PTS/1.1", StringComparison.Ordinal);
+        var fps = joined.IndexOf("fps=30", StringComparison.Ordinal);
+        var drop = joined.IndexOf("select=", StringComparison.Ordinal);
+        speed.Should().BeGreaterThan(0);
+        fps.Should().BeGreaterThan(speed);
+        drop.Should().BeGreaterThan(fps);
+        joined.Should().Contain("flags=lanczos");
+        joined.Should().Contain("atempo=1.2 ");
+        VideoDedupPlanner.ProcessedDuration(60, preset).Should().BeApproximately(60 / 1.1 * 11 / 12, 0.0001);
+    }
+
+    [Fact]
+    public void Frame_drop_picks_one_seeded_position_per_block()
+    {
+        var first = VideoDedupPlanner.FrameDropFilter(8, seed: 1);
+        var second = VideoDedupPlanner.FrameDropFilter(8, seed: 2);
+
+        first.Should().Contain("mod(n\\,12)");
+        first.Should().Contain("floor(n/12)");
+        first.Should().EndWith("setpts=N/FRAME_RATE/TB");
+        second.Should().NotBe(first);
+    }
+
+    [Fact]
     public void Duration_limit_merges_a_short_tail_and_keeps_whole_episodes()
     {
         var preset = VideoDedupPreset.CreateDefault();

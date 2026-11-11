@@ -91,6 +91,15 @@ public static class VideoDedupPresetImporter
         if (transitions.ValueKind != JsonValueKind.Object)
             return;
 
+        if (transitions.TryGetProperty("candidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in candidates.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                    ApplyTransitionName(preset, item.GetString());
+            }
+        }
+
         preset.TransitionsEnabled = ReadBool(transitions, "enabled") ?? preset.HasAnyTransition;
         preset.TransitionFadeBlack = ReadBool(transitions, "fadeBlack") ?? ReadBool(transitions, "fadeToBlack") ?? preset.TransitionFadeBlack;
         preset.TransitionDissolve = ReadBool(transitions, "dissolve") ?? ReadBool(transitions, "crossDissolve") ?? preset.TransitionDissolve;
@@ -135,6 +144,123 @@ public static class VideoDedupPresetImporter
         if (!root.TryGetProperty("effects", out var effects) || effects.ValueKind != JsonValueKind.Object)
             return;
         ReadPicture(effects, preset);
+        var target = preset.Effects;
+        if (TryEffect(effects, "basic", "exposure", out var exposure, out var amount))
+            target.Exposure = ScaledValue(exposure, amount, value => Math.Abs(value) <= 5 ? value * 50 : value);
+        if (TryEffect(effects, "basic", "gamma", out var gamma, out amount))
+            target.Gamma = ScaledValue(gamma, amount, value => (value - 1) * 200);
+        if (TryEffect(effects, "basic", "temperature", out var temperature, out amount))
+            target.Temperature = ScaledValue(temperature, amount, value => value);
+        if (TryEffect(effects, "basic", "tint", out var tint, out amount))
+            target.Tint = ScaledValue(tint, amount, value => value);
+        if (TryEffect(effects, "basic", "vibrance", out var vibrance, out amount))
+            target.Vibrance = ScaledValue(vibrance, amount, value => value);
+
+        if (TryEffect(effects, "style", "curves", out var curves, out amount))
+        {
+            target.CurveAmount = amount;
+            target.CurveMaster = ReadCurve(curves, "master");
+            target.CurveRed = ReadCurve(curves, "red");
+            target.CurveGreen = ReadCurve(curves, "green");
+            target.CurveBlue = ReadCurve(curves, "blue");
+        }
+
+        if (TryEffect(effects, "style", "levels", out var levels, out amount))
+        {
+            target.LevelsAmount = amount;
+            if (TryReadDouble(levels, "inputBlack", out var value)) target.InputBlack = value;
+            if (TryReadDouble(levels, "inputWhite", out value)) target.InputWhite = value;
+            if (TryReadDouble(levels, "midtone", out value)) target.LevelsGamma = value;
+            if (TryReadDouble(levels, "outputBlack", out value)) target.OutputBlack = value;
+            if (TryReadDouble(levels, "outputWhite", out value)) target.OutputWhite = value;
+        }
+
+        if (TryEffect(effects, "style", "splitTone", out var split, out amount))
+        {
+            target.SplitToneAmount = amount;
+            target.ShadowColor = ReadString(split, "shadowColor") ?? target.ShadowColor;
+            target.HighlightColor = ReadString(split, "highlightColor") ?? target.HighlightColor;
+            if (TryReadDouble(split, "balance", out var balance)) target.SplitToneBalance = balance;
+        }
+
+        if (TryEffect(effects, "style", "lut", out var lut, out amount))
+        {
+            target.LutAmount = amount;
+            target.LutPath = ReadString(lut, "path") ?? "";
+        }
+
+        if (TryEffect(effects, "spatial", "blur", out var blur, out amount) && TryReadDouble(blur, "value", out var sigma))
+            target.Blur = sigma * amount / 100d;
+        if (TryEffect(effects, "spatial", "vignette", out var vignette, out amount))
+        {
+            target.VignetteAmount = amount;
+            if (TryReadDouble(vignette, "radius", out var radius)) target.VignetteRadius = radius;
+            if (TryReadDouble(vignette, "feather", out var feather)) target.VignetteFeather = feather;
+        }
+
+        if (TryEffect(effects, "spatial", "grain", out var grain, out amount))
+        {
+            target.GrainAmount = amount;
+            if (TryReadDouble(grain, "size", out var size)) target.GrainSize = size <= 1 ? size * 100 : size;
+            if (TryReadDouble(grain, "density", out var density)) target.GrainDensity = density;
+        }
+
+        if (TryEffect(effects, "spatial", "mosaic", out var mosaic, out amount) &&
+            mosaic.TryGetProperty("regions", out var regions) && regions.ValueKind == JsonValueKind.Array)
+        {
+            target.MosaicAmount = amount;
+            foreach (var region in regions.EnumerateArray())
+            {
+                if (!TryReadDouble(region, "x", out var x) || !TryReadDouble(region, "y", out var y) ||
+                    !TryReadDouble(region, "width", out var w) || !TryReadDouble(region, "height", out var h))
+                    continue;
+                var fraction = x <= 1 && y <= 1 && w <= 1 && h <= 1;
+                var scale = fraction ? 100 : 1;
+                var block = TryReadDouble(region, "blockSize", out var blockSize) || TryReadDouble(region, "block", out blockSize)
+                    ? (int)Math.Round(blockSize)
+                    : 16;
+                target.MosaicRegions.Add(new VideoDedupMosaicRegion
+                {
+                    X = x * scale,
+                    Y = y * scale,
+                    Width = w * scale,
+                    Height = h * scale,
+                    Block = block,
+                });
+            }
+        }
+    }
+
+    private static bool TryEffect(JsonElement effects, string group, string name, out JsonElement effect, out double amount)
+    {
+        effect = default;
+        amount = 0;
+        if (!effects.TryGetProperty(group, out var section) || section.ValueKind != JsonValueKind.Object ||
+            !section.TryGetProperty(name, out effect) || effect.ValueKind != JsonValueKind.Object ||
+            ReadBool(effect, "enabled") != true)
+        {
+            return false;
+        }
+
+        amount = TryReadDouble(effect, "amount", out var value) ? Math.Clamp(value, 0, 100) : 100;
+        return amount > 0.01;
+    }
+
+    private static double ScaledValue(JsonElement effect, double amount, Func<double, double> convert) =>
+        TryReadDouble(effect, "value", out var value) ? convert(value) * amount / 100d : 0;
+
+    private static List<VideoDedupCurvePoint> ReadCurve(JsonElement curves, string channel)
+    {
+        if (!curves.TryGetProperty(channel, out var points) || points.ValueKind != JsonValueKind.Array)
+            return VideoDedupEffects.IdentityCurve();
+        var result = new List<VideoDedupCurvePoint>();
+        foreach (var point in points.EnumerateArray())
+        {
+            if (TryReadDouble(point, "x", out var x) && TryReadDouble(point, "y", out var y))
+                result.Add(new VideoDedupCurvePoint { X = x, Y = y });
+        }
+
+        return result.Count == 0 ? VideoDedupEffects.IdentityCurve() : result;
     }
 
     private static void ReadStep(JsonElement step, VideoDedupPreset preset)
@@ -214,7 +340,8 @@ public static class VideoDedupPresetImporter
         if (text.Equals("cbr", StringComparison.OrdinalIgnoreCase) ||
             text.Equals("constant", StringComparison.OrdinalIgnoreCase))
             return VideoDedupPreset.BitrateCbr;
-        if (text.Equals("crf", StringComparison.OrdinalIgnoreCase))
+        if (text.Equals("crf", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("quality", StringComparison.OrdinalIgnoreCase))
             return VideoDedupPreset.BitrateCrf;
         return VideoDedupPreset.BitrateVbr;
     }

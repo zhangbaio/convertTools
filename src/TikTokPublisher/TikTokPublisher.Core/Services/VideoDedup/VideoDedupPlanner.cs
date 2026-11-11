@@ -67,7 +67,7 @@ internal static class VideoDedupPlanner
         var speed = preset.SpeedFactor <= 0 ? 1 : preset.SpeedFactor;
         var keep = preset.FrameDropPercent <= 0
             ? 1
-            : Math.Max(0.5, 1 - preset.FrameDropPercent / 100d);
+            : 1 - 1d / FrameDropInterval(preset.FrameDropPercent);
         return trimmed / speed * keep;
     }
 
@@ -376,23 +376,30 @@ internal static class VideoDedupPlanner
             var targetWidth = portrait ? preset.PortraitWidth : preset.PortraitHeight;
             var targetHeight = portrait ? preset.PortraitHeight : preset.PortraitWidth;
             filters.Add(
-                $"scale={targetWidth.ToString(CultureInfo.InvariantCulture)}:{targetHeight.ToString(CultureInfo.InvariantCulture)}:force_original_aspect_ratio=increase,crop={targetWidth.ToString(CultureInfo.InvariantCulture)}:{targetHeight.ToString(CultureInfo.InvariantCulture)}");
+                $"scale={targetWidth.ToString(CultureInfo.InvariantCulture)}:{targetHeight.ToString(CultureInfo.InvariantCulture)}:force_original_aspect_ratio=increase:flags=lanczos,crop={targetWidth.ToString(CultureInfo.InvariantCulture)}:{targetHeight.ToString(CultureInfo.InvariantCulture)}");
         }
 
-        filters.Add($"fps={preset.Fps.ToString(CultureInfo.InvariantCulture)}");
-
+        // 变速必须在 fps 之前：抽帧后的 setpts=N/FRAME_RATE/TB 会按固定帧率重排时间戳，放在 fps 之后的变速会被抹掉。
         if (Math.Abs(preset.SpeedFactor - 1) > 0.0001)
             filters.Add($"setpts=PTS/{Num(preset.SpeedFactor)}");
 
+        filters.Add($"fps={preset.Fps.ToString(CultureInfo.InvariantCulture)}");
+
         if (preset.FrameDropPercent > 0)
-        {
-            var interval = Math.Max(2, (int)Math.Round(100d / preset.FrameDropPercent));
-            var dropAt = Math.Abs(seed) % interval;
-            filters.Add(
-                $"select='not(eq(mod(n+{dropAt.ToString(CultureInfo.InvariantCulture)}\\,{interval.ToString(CultureInfo.InvariantCulture)})\\,0))',setpts=N/FRAME_RATE/TB");
-        }
+            filters.Add(FrameDropFilter(preset.FrameDropPercent, seed));
 
         return string.Join(",", filters);
+    }
+
+    internal static int FrameDropInterval(double percent) =>
+        Math.Max(2, (int)Math.Round(100d / percent));
+
+    /// <summary>每 interval 帧恰好丢 1 帧，位置在块内随机，丢帧总数与音频补偿速率一致。</summary>
+    internal static string FrameDropFilter(double percent, int seed)
+    {
+        var interval = FrameDropInterval(percent).ToString(CultureInfo.InvariantCulture);
+        var salt = (Math.Abs(seed % 9973) + 1).ToString(CultureInfo.InvariantCulture);
+        return $"select='not(eq(mod(n\\,{interval})\\,mod(floor(abs(sin((floor(n/{interval})+{salt})*12.9898))*43758.5453)\\,{interval})))',setpts=N/FRAME_RATE/TB";
     }
 
     private static void AppendSingleAudio(List<string> args, VideoDedupClip clip, VideoDedupPreset preset)
@@ -427,7 +434,7 @@ internal static class VideoDedupPlanner
         var tempo = preset.SpeedFactor <= 0 ? 1 : preset.SpeedFactor;
         if (preset.FrameDropPercent > 0)
         {
-            var interval = Math.Max(2, (int)Math.Round(100d / preset.FrameDropPercent));
+            var interval = FrameDropInterval(preset.FrameDropPercent);
             tempo *= interval / (double)(interval - 1);
         }
 
