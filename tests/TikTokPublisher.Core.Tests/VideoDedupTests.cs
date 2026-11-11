@@ -457,7 +457,9 @@ public sealed class VideoDedupTests
             (await File.ReadAllBytesAsync(archived)).Should().Equal([1, 2, 3, 4]);
             logs.Should().Contain(line => line.Contains("使用内置默认方案", StringComparison.Ordinal));
             logs.Should().Contain(line => line.Contains("去重操作：上裁边 0%，下裁边 0%，左裁边 0%，右裁边 0%", StringComparison.Ordinal) && line.Contains("编码器自动选择", StringComparison.Ordinal) && line.Contains("H.264", StringComparison.Ordinal) && line.Contains("VBR 4.2 Mbps", StringComparison.Ordinal));
-            logs.Should().Contain(line => line.Contains("第 1/1 集开始去重：01.mp4（8 秒，720x1280） → 01.mp4。操作：上裁边 0%", StringComparison.Ordinal));
+            logs.Should().Contain(line => line.Contains("第 1/1 集开始去重：01.mp4（8 秒，720x1280） → 01.mp4，成片 1080×1920。", StringComparison.Ordinal));
+            logs.Should().NotContain(line => line.Contains("集开始去重", StringComparison.Ordinal) && line.Contains("裁边", StringComparison.Ordinal));
+            logs.Count(line => line.Contains("去重操作：", StringComparison.Ordinal)).Should().Be(1);
             logs.Should().Contain(line => line.Contains("第 1/1 集去重完成", StringComparison.Ordinal));
 
             logs.Clear();

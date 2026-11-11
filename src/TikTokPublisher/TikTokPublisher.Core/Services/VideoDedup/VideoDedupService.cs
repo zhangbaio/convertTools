@@ -271,8 +271,8 @@ public static class VideoDedupService
             .Distinct()
             .Select(frame => $"{frame.Width.ToString(CultureInfo.InvariantCulture)}×{frame.Height.ToString(CultureInfo.InvariantCulture)}")
             .ToArray();
-        var outputSize = frames.Length == 0 ? "" : $"成片 {string.Join("、", frames)}。";
-        return $"{ranges} → {output}{join}。操作：{DescribeOperations(preset)}。{outputSize}";
+        var outputSize = frames.Length == 0 ? "" : $"，成片 {string.Join("、", frames)}";
+        return $"{ranges} → {output}{join}{outputSize}。";
     }
 
     private static string DescribeClip(VideoDedupClip clip) =>
