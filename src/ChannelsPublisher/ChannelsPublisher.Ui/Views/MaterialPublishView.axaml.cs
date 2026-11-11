@@ -98,6 +98,17 @@ public partial class MaterialPublishView : UserControl
         WorkspaceTabs.SelectedIndex = 1;
     }
 
+    public void SetAccountSettingsOnly(bool settingsOnly)
+    {
+        for (var index = 0; index < WorkspaceTabs.ItemCount; index++)
+        {
+            if (WorkspaceTabs.Items[index] is TabItem tab)
+                tab.IsVisible = !settingsOnly || index == 1;
+        }
+        if (settingsOnly)
+            ShowAccountSettings();
+    }
+
     public void SelectAccount(string accountId)
     {
         var account = _vm?.Accounts.FirstOrDefault(item =>

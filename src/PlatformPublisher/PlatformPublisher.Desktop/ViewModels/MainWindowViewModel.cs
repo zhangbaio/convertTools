@@ -3841,6 +3841,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var dueJobs = _jobs
             .Where(job => PublishSchedulePolicy.IsDue(job, DateTimeOffset.Now))
+            .Where(job => YunfanFeatures.WeixinAssistantEnabled || job.Platform != PublishPlatform.WeixinChannel)
             .OrderBy(job => job.ScheduledAt)
             .ToArray();
         if (dueJobs.Length == 0)
