@@ -12,6 +12,7 @@ using TikTokPublisher.Ui.Common;
 
 using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.Services.TikTok;
+using TikTokPublisher.Ui.Views;
 
 namespace TikTokPublisher.Ui.ViewModels;
 
@@ -136,6 +137,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool _dailyLimitNotified;
     private readonly Dictionary<string, DateOnly> _dailyLimitReportedAccounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<long> _autoPublishResumeAbandoned = new();
+    private bool _restartResumeConfirmed;
+    private bool _restartResumeDismissed;
 
     public IReadOnlyList<FinalActionChoice> FinalActionChoices { get; } = new[]
     {
@@ -379,12 +382,68 @@ public sealed partial class MainViewModel : ViewModelBase
 
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
         {
+            await ConfirmRestartResumeAsync(open, located);
             foreach (var assignment in open)
             {
                 located.TryGetValue(assignment.Id, out var place);
                 await ApplyRecoveredAutoPublishAsync(assignment, place);
             }
         });
+    }
+
+    // 重启后第一次准备自动续跑时提示一次。倒计时结束或点立即执行才开跑，关掉则本次启动不再自动续跑。
+    private async Task ConfirmRestartResumeAsync(
+        IReadOnlyList<XingeRemoteCommandService.XingeOpenAutoPublishAssignment> open,
+        IReadOnlyDictionary<long, AutoPublishProjectLocation> located)
+    {
+        if (_restartResumeConfirmed || _restartResumeDismissed)
+            return;
+
+        var pending = new List<DispatchConfirmItem>();
+        var anyReady = false;
+        foreach (var assignment in open)
+        {
+            if (!located.TryGetValue(assignment.Id, out var place))
+                continue;
+            if (XingeAutoPublishRecovery.Decide(assignment.Status, place.Marker, place.ProjectExists) != XingeAutoPublishRecoveryAction.Resume)
+                continue;
+            if (_autoPublishResumeAbandoned.Contains(assignment.Id))
+                continue;
+            pending.Add(new DispatchConfirmItem
+            {
+                MessageId = assignment.Id,
+                AssignmentId = assignment.Id,
+                AccountName = place.AccountName,
+                Title = FirstNonEmptyText(place.Marker?.Title, assignment.Title),
+                ConfirmSeconds = DispatchConfirmSession.DefaultCountdownSeconds,
+            });
+            if (CanResumeAutoPublishNow(place))
+                anyReady = true;
+        }
+
+        if (!anyReady || pending.Count == 0)
+            return;
+
+        var session = new DispatchConfirmSession(DateTimeOffset.Now, DispatchConfirmSession.DefaultCountdownSeconds);
+        foreach (var item in pending)
+            session.TryAdd(item);
+        AppendLog($"客户端重启后将继续执行 {pending.Count} 部下发剧集，{DispatchConfirmSession.DefaultCountdownSeconds} 秒后自动开始。");
+        if (await XingeRestartResumePrompt.ConfirmAsync(session))
+        {
+            _restartResumeConfirmed = true;
+            AppendLog("已确认继续执行重启前下发的剧集。");
+            return;
+        }
+
+        _restartResumeDismissed = true;
+        AppendLog("已关闭继续执行提示，本次启动不再自动执行已下发剧集。");
+    }
+
+    private bool CanResumeAutoPublishNow(AutoPublishProjectLocation located)
+    {
+        if (!located.ProjectExists || string.IsNullOrWhiteSpace(located.Workspace) || string.IsNullOrWhiteSpace(located.ProjectDir))
+            return false;
+        return !IsLocalCheckedQueueRunning(located.Workspace) && !IsWorkspaceQueueRunning(located.Workspace);
     }
 
     private async Task ApplyRecoveredAutoPublishAsync(
@@ -409,6 +468,8 @@ public sealed partial class MainViewModel : ViewModelBase
                 await ReportRecoveredAutoPublishAsync(model, XingeAutoPublishStatuses.Interrupted, "import", "客户端未找到本地项目");
                 break;
             case XingeAutoPublishRecoveryAction.Resume:
+                if (_restartResumeDismissed || !_restartResumeConfirmed)
+                    break;
                 if (_autoPublishResumeAbandoned.Contains(assignment.Id))
                     break;
                 if (IsLocalCheckedQueueRunning(located.Workspace))
