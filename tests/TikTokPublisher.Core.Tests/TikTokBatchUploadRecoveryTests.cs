@@ -14,6 +14,48 @@ public sealed class TikTokBatchUploadRecoveryTests
             .Should().Be("第 61、62、63 集卡片显示上传失败");
     }
 
+    private static List<TikTokBrowserActions.EditVideoRow> Rows(params int[] reals) =>
+        reals.Select((real, index) => new TikTokBrowserActions.EditVideoRow(index + 1, real)).ToList();
+
+    [Fact]
+    public void Batch_order_check_passes_when_every_uploaded_episode_is_in_place()
+    {
+        var check = TikTokBatchUploadService.CheckUploadedOrder(Rows(1, 2, 3, 4, 5, 6), [1, 2, 3, 4, 5, 6]);
+
+        check.Should().Be(new TikTokBatchUploadService.UploadOrderCheck(6, 6, 0));
+    }
+
+    [Fact]
+    public void Batch_order_check_finds_the_first_misplaced_episode()
+    {
+        // 第 3 集重试后被接到了末尾。
+        var check = TikTokBatchUploadService.CheckUploadedOrder(Rows(1, 2, 4, 5, 6, 3), [1, 2, 3, 4, 5, 6]);
+
+        check.Should().Be(new TikTokBatchUploadService.UploadOrderCheck(6, 2, 4));
+    }
+
+    [Fact]
+    public void Batch_order_check_compares_only_the_rows_after_existing_draft_episodes()
+    {
+        // 编辑补传：草稿已有 1～3 集，本次补 4～6 集，第 5 集重复。
+        var check = TikTokBatchUploadService.CheckUploadedOrder(Rows(1, 2, 3, 4, 5, 5), [4, 5, 6]);
+
+        check.Should().Be(new TikTokBatchUploadService.UploadOrderCheck(6, 2, 5));
+        TikTokBatchUploadService.CheckUploadedOrder(Rows(1, 2, 3, 4, 3, 6), [4, 5, 6])
+            .Should().Be(new TikTokBatchUploadService.UploadOrderCheck(6, 1, 3));
+    }
+
+    [Fact]
+    public void Batch_order_check_gives_up_when_rows_or_episode_numbers_are_incomplete()
+    {
+        TikTokBatchUploadService.CheckUploadedOrder(Rows(1, 2), [1, 2, 3]).Should().BeNull();
+        TikTokBatchUploadService.CheckUploadedOrder(
+                [new(1, 1), new(3, 3)],
+                [1, 2])
+            .Should().BeNull();
+        TikTokBatchUploadService.CheckUploadedOrder(Rows(1, 2, 3), [1, 0, 3]).Should().BeNull();
+    }
+
     [Fact]
     public void Hover_point_is_read_from_the_delete_result()
     {
