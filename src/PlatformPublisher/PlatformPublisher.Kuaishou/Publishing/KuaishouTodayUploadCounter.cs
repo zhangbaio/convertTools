@@ -6,7 +6,7 @@ using PlatformPublisher.Common.Services;
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 /// <summary>
-/// 快手分账今日成功上传剧集数。个人版和企业版分开记，只统计当前账号，同一项目当天只计一次。
+/// 快手分账今日成功上传剧集数。只计当天第一次正常提交的新剧，补传和再次保存不计入。个人版和企业版分开记，只统计当前账号，同一项目当天只计一次。
 /// </summary>
 public static class KuaishouTodayUploadCounter
 {
@@ -147,12 +147,52 @@ public static class KuaishouTodayUploadCounter
         var counted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var record in KuaishouUploadRecordStore.ListSuccess(edition, account, day, storeRoot))
-            Remember(counted, names, string.IsNullOrWhiteSpace(record.ProjectDirectory) ? record.ProjectName : record.ProjectDirectory);
+            Remember(counted, names, record.ProjectDirectory, DramaIdentity(record.OriginalTitle, record.ProjectName));
 
         var observation = new UploadObservation(platform, account, nickname, storeRoot);
         AddCompletedProjects(counted, names, observation, day, projectDirectories);
         AddArchivedProjects(counted, names, observation, day, archiveRoot);
         return counted.Count;
+    }
+
+    public sealed record TodayUpload(string Title, string CompletedAt);
+
+    // 今日上传成功的剧，供 XINGE 把用户自己传完的也算进每日上限。同一项目只报一次。
+    public static IReadOnlyList<TodayUpload> ListToday(
+        PublishPlatform platform,
+        string accountId,
+        DateTime? today = null,
+        string? storeRoot = null)
+    {
+        var edition = Edition(platform);
+        if (edition is null)
+            return [];
+        var day = (today ?? DateTime.Now).Date;
+        var account = accountId?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(account))
+            return [];
+        EnsureMigrated(storeRoot);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var uploads = new List<TodayUpload>();
+        foreach (var record in KuaishouUploadRecordStore.ListSuccess(edition, account, day, storeRoot))
+        {
+            var identities = CanonicalNames(record.ProjectDirectory, DramaIdentity(record.OriginalTitle, record.ProjectName));
+            if (identities.Count == 0 || identities.Any(seen.Contains))
+            {
+                foreach (var identity in identities)
+                    seen.Add(identity);
+                continue;
+            }
+
+            foreach (var identity in identities)
+                seen.Add(identity);
+            var title = FirstText(record.NewTitle, record.OriginalTitle, record.ProjectName, identities[0]);
+            if (string.IsNullOrWhiteSpace(title))
+                continue;
+            uploads.Add(new TodayUpload(title, record.RecordedAt.ToLocalTime().ToString("o")));
+        }
+
+        return uploads;
     }
 
     private readonly record struct UploadObservation(
@@ -214,7 +254,13 @@ public static class KuaishouTodayUploadCounter
                 ReadString(meta, "archived_source_dir"),
                 ReadString(meta, "workflowProjectDir"),
                 ReadString(meta, "workflow_project_dir"));
-            CountIfCompletedToday(counted, names, observation, directory, stateName, day);
+            var source = FirstText(
+                ReadString(meta, "sourceProjectDir"),
+                ReadString(meta, "source_project_dir"));
+            var original = FirstText(
+                ReadString(meta, "originalTitle"),
+                ReadString(meta, "original_title"));
+            CountIfCompletedToday(counted, names, observation, directory, stateName, day, source, original);
         }
     }
 
@@ -224,18 +270,28 @@ public static class KuaishouTodayUploadCounter
         UploadObservation observation,
         string? directory,
         string stateName,
-        DateTime day)
+        DateTime day,
+        params string?[] aliases)
     {
         var key = Normalize(directory);
         if (string.IsNullOrWhiteSpace(key) || counted.Contains(key))
             return;
-        var name = ProjectName(key);
-        if (!string.IsNullOrWhiteSpace(name) && names.Contains(name))
+        var identities = CanonicalNames(new[] { key, ReadInfoValue(key, "原剧名"), ReadInfoValue(key, "原剧名称") }.Concat(aliases).ToArray());
+        if (identities.Any(names.Contains))
+        {
+            foreach (var identity in identities)
+                names.Add(identity);
+            return;
+        }
+        var edition = Edition(observation.Platform);
+        if (edition is not null &&
+            KuaishouUploadRecordStore.SuccessRecordDate(edition, observation.AccountId, key, observation.StoreRoot) is DateTime recorded &&
+            recorded.Date != day.Date)
             return;
         if (!TryCompletedToday(key, stateName, day, out var completedAt))
             return;
         PersistObserved(observation, key, completedAt);
-        Remember(counted, names, key);
+        Remember(counted, names, identities.Concat(new[] { key, ReadInfoValue(key, "原剧名") }).ToArray());
     }
 
     private static void PersistObserved(UploadObservation observation, string directory, DateTimeOffset completedAt)
@@ -275,22 +331,50 @@ public static class KuaishouTodayUploadCounter
             ""), observation.StoreRoot);
     }
 
-    private static void Remember(HashSet<string> counted, HashSet<string> names, string? path)
+    private static void Remember(HashSet<string> counted, HashSet<string> names, params string?[] aliases)
     {
-        var key = Normalize(path);
-        var name = ProjectName(string.IsNullOrWhiteSpace(key) ? path ?? "" : key);
-        if (!string.IsNullOrWhiteSpace(name) && !names.Add(name))
+        var identities = CanonicalNames(aliases);
+        if (identities.Count == 0)
             return;
-        if (!string.IsNullOrWhiteSpace(key))
-            counted.Add(key);
-        else if (!string.IsNullOrWhiteSpace(name))
-            counted.Add(name);
+        if (identities.Any(names.Contains))
+        {
+            foreach (var identity in identities)
+                names.Add(identity);
+            return;
+        }
+
+        foreach (var identity in identities)
+            names.Add(identity);
+        counted.Add(identities[0]);
+    }
+
+    // 原目录「红果_剧名」、工程目录「_剧名」、以及归档后改成新剧名的目录，用原剧名并成同一部。
+    // 新剧名不参与归并，避免两部不同的剧因为标题碰巧相同被算成一部。
+    private static string DramaIdentity(string? originalTitle, string? projectName) =>
+        string.IsNullOrWhiteSpace(originalTitle) ? projectName ?? "" : originalTitle;
+
+    private static List<string> CanonicalNames(params string?[] values)
+    {
+        var names = new List<string>();
+        foreach (var value in values)
+            AddCanonical(names, value);
+        return names;
+    }
+
+    private static void AddCanonical(List<string> names, string? value)
+    {
+        var name = ProjectName(value ?? "");
+        if (string.IsNullOrWhiteSpace(name) || names.Contains(name, StringComparer.OrdinalIgnoreCase))
+            return;
+        names.Add(name);
     }
 
     private static string ProjectName(string path)
     {
         var name = KuaishouUploadRecordStore.ProjectKey(path);
         var bare = name.TrimStart('_').Trim();
+        if (bare.StartsWith("红果_", StringComparison.Ordinal) && bare.Length > "红果_".Length)
+            bare = bare["红果_".Length..].Trim();
         return string.IsNullOrWhiteSpace(bare) ? name : bare;
     }
 
@@ -326,7 +410,13 @@ public static class KuaishouTodayUploadCounter
         var submitted = ReadBool(state, "ReviewSubmitted") || ReadBool(state, "review_submitted");
         if (status is not ("completed" or "success") && !submitted)
             return false;
-        var raw = FirstText(ReadString(state, "UpdatedAt"), ReadString(state, "updatedAt"), ReadString(state, "updated_at"));
+        var raw = FirstText(
+            ReadString(state, "SubmittedAt"),
+            ReadString(state, "submittedAt"),
+            ReadString(state, "submitted_at"),
+            ReadString(state, "UpdatedAt"),
+            ReadString(state, "updatedAt"),
+            ReadString(state, "updated_at"));
         if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
             || at.ToLocalTime().Date != day.Date)
             return false;

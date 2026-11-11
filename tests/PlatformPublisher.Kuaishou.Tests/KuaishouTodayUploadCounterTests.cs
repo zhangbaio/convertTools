@@ -25,6 +25,12 @@ public sealed class KuaishouTodayUploadCounterTests
             PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, today.Date, store));
         Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
             PublishPlatform.KuaishouEnterpriseRevenue, "acct-a", root.FullName, today.Date, store));
+        var personal = KuaishouTodayUploadCounter.ListToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", today.Date, store);
+        var only = Assert.Single(personal);
+        Assert.Equal("个人剧", only.Title);
+        Assert.Empty(KuaishouTodayUploadCounter.ListToday(
+            PublishPlatform.KuaishouEnterpriseRevenue, "acct-b", today.Date, store));
     }
 
     [Fact]
@@ -218,6 +224,105 @@ public sealed class KuaishouTodayUploadCounterTests
             today.Date,
             store,
             archiveRoot: archive));
+        Assert.Single(KuaishouTodayUploadCounter.ListToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", today.Date, store));
+    }
+
+    [Fact]
+    public void Hongguo_source_and_renamed_workflow_count_as_one_drama()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var today = new DateTimeOffset(2026, 11, 11, 9, 24, 35, TimeSpan.FromHours(8));
+        WriteSuccess(store, "acct-a", Path.Combine(root.FullName, "archive", "workflow", "_加薪还是加糖"), "程野的护心抉择", "加薪还是加糖", today);
+        WriteSuccess(store, "acct-a", Path.Combine(root.FullName, "红果_加薪还是加糖"), "红果_加薪还是加糖", "红果_加薪还是加糖", today.AddSeconds(3));
+        WriteSuccess(store, "acct-a", Path.Combine(root.FullName, "archive", "workflow", "_陈茶为证赴旧约"), "陈茶为证赴旧约", "一罐陈茶赴三十年旧约", today.AddMinutes(12));
+        WriteSuccess(store, "acct-a", Path.Combine(root.FullName, "红果_一罐陈茶赴三十年旧约"), "红果_一罐陈茶赴三十年旧约", "红果_一罐陈茶赴三十年旧约", today.AddMinutes(12).AddSeconds(3));
+        WriteSuccess(store, "acct-a", Path.Combine(root.FullName, "红果_医魂觉醒：从乡镇医院到京都三甲第九季"), "杏林仁心行", "医魂觉醒：从乡镇医院到京都三甲第九季", today.AddMinutes(3));
+
+        Assert.Equal(3, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, today.Date, store));
+        var uploads = KuaishouTodayUploadCounter.ListToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", today.Date, store);
+        Assert.Equal(3, uploads.Count);
+        Assert.Contains(uploads, upload => upload.Title == "程野的护心抉择");
+        Assert.Contains(uploads, upload => upload.Title == "陈茶为证赴旧约");
+        Assert.Contains(uploads, upload => upload.Title == "杏林仁心行");
+    }
+
+    [Fact]
+    public void Archived_hongguo_workflow_does_not_count_again_when_the_source_is_already_counted()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var today = new DateTimeOffset(2026, 11, 11, 9, 36, 34, TimeSpan.FromHours(8));
+        var source = Directory.CreateDirectory(Path.Combine(root.FullName, "红果_一罐陈茶赴三十年旧约"));
+        File.WriteAllText(Path.Combine(source.FullName, "短剧信息.txt"), "原剧名：一罐陈茶赴三十年旧约");
+        File.WriteAllText(
+            Path.Combine(source.FullName, ".kuaishou-personal-upload-state.json"),
+            $$"""
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "SubmittedAt": "{{today:O}}"
+            }
+            """);
+        var archive = Path.Combine(root.FullName, "archive");
+        var workflow = Directory.CreateDirectory(Path.Combine(archive, "workflow", "_陈茶为证赴旧约"));
+        File.WriteAllText(Path.Combine(workflow.FullName, "短剧信息.txt"), "原剧名：一罐陈茶赴三十年旧约");
+        File.WriteAllText(
+            Path.Combine(workflow.FullName, ".kuaishou-personal-upload-state.json"),
+            $$"""
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "SubmittedAt": "{{today:O}}"
+            }
+            """);
+        Directory.CreateDirectory(Path.Combine(archive, "meta"));
+        File.WriteAllText(
+            Path.Combine(archive, "meta", "红果_一罐陈茶赴三十年旧约.json"),
+            JsonSerializer.Serialize(new
+            {
+                accountProfileId = "acct-a",
+                originalTitle = "一罐陈茶赴三十年旧约",
+                sourceProjectDir = source.FullName,
+                archivedWorkflowDir = workflow.FullName,
+            }));
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue,
+            "acct-a",
+            root.FullName,
+            today.Date,
+            store,
+            [source.FullName],
+            archiveRoot: archive));
+        Assert.Single(KuaishouTodayUploadCounter.ListToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", today.Date, store));
+    }
+
+    private static void WriteSuccess(
+        string store,
+        string accountId,
+        string directory,
+        string newTitle,
+        string originalTitle,
+        DateTimeOffset recordedAt)
+    {
+        KuaishouUploadRecordStore.Upsert(new KuaishouUploadRecord(
+            "personal",
+            accountId,
+            "",
+            recordedAt,
+            "成功",
+            string.IsNullOrWhiteSpace(newTitle) ? originalTitle : newTitle,
+            originalTitle,
+            newTitle,
+            "",
+            0,
+            directory,
+            ""), store);
     }
 
     private static void WriteArchivedUpload(string archive, string accountId, string name, DateTimeOffset updatedAt)
@@ -235,6 +340,61 @@ public sealed class KuaishouTodayUploadCounterTests
         File.WriteAllText(
             Path.Combine(archive, "meta", name + ".json"),
             JsonSerializer.Serialize(new { accountProfileId = accountId, archivedWorkflowDir = workflow.FullName }));
+    }
+
+    [Fact]
+    public void Repair_does_not_move_an_earlier_upload_into_today()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var project = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_饺香满街"));
+        var yesterday = new DateTimeOffset(2026, 11, 8, 9, 0, 0, TimeSpan.FromHours(8));
+        var today = new DateTimeOffset(2026, 11, 9, 20, 48, 0, TimeSpan.FromHours(8));
+        KuaishouTodayUploadCounter.RecordSuccess(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", project.FullName, yesterday, store);
+        File.WriteAllText(
+            Path.Combine(project.FullName, ".kuaishou-personal-upload-state.json"),
+            $$"""
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "SubmittedAt": "{{yesterday:O}}",
+              "UpdatedAt": "{{today:O}}"
+            }
+            """);
+        KuaishouTodayUploadCounter.AppendRun(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", "快手分账个人", project.FullName, succeeded: true, error: "", store);
+
+        Assert.Equal(0, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, today.Date, store, [project.FullName]));
+        Assert.Empty(KuaishouTodayUploadCounter.ListToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", today.Date, store));
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, yesterday.Date, store, [project.FullName]));
+    }
+
+    [Fact]
+    public void First_review_submitted_today_still_counts()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var project = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_临危受命守大乾"));
+        var today = new DateTimeOffset(2026, 11, 9, 22, 11, 0, TimeSpan.FromHours(8));
+        File.WriteAllText(
+            Path.Combine(project.FullName, ".kuaishou-personal-upload-state.json"),
+            $$"""
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "SubmittedAt": "{{today:O}}",
+              "UpdatedAt": "{{today:O}}"
+            }
+            """);
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", root.FullName, today.Date, store, [project.FullName]));
+        Assert.Single(KuaishouTodayUploadCounter.ListToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", today.Date, store));
     }
 
     [Fact]

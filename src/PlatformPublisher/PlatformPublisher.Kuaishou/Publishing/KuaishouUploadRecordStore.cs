@@ -50,7 +50,32 @@ public static class KuaishouUploadRecordStore
         {
             using var connection = Open(storeRoot);
             EnsureSchema(connection);
+            var existing = Find(connection, record.Edition, record.AccountId.Trim(), projectKey);
+            if (existing is { Record.Status: "成功" } stored &&
+                string.Equals(record.Status, "成功", StringComparison.Ordinal))
+                record = record with { RecordedAt = stored.Record.RecordedAt };
             Write(connection, record, projectKey);
+        }
+    }
+
+    /// <summary>这部剧第一次上传成功的本地日期。没有成功记录时返回空。</summary>
+    public static DateTime? SuccessRecordDate(
+        string edition,
+        string accountId,
+        string projectDirectory,
+        string? storeRoot = null)
+    {
+        var projectKey = ProjectKey(projectDirectory);
+        if (string.IsNullOrWhiteSpace(edition) || string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(projectKey))
+            return null;
+        lock (Gate)
+        {
+            using var connection = Open(storeRoot);
+            EnsureSchema(connection);
+            var existing = Find(connection, edition, accountId.Trim(), projectKey);
+            if (existing is null || !string.Equals(existing.Value.Record.Status, "成功", StringComparison.Ordinal))
+                return null;
+            return existing.Value.Record.RecordedAt.ToLocalTime().Date;
         }
     }
 
