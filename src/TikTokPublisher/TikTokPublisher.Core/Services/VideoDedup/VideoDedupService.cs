@@ -110,6 +110,8 @@ public static class VideoDedupService
         ClearDirectory(workRoot);
         var choice = await ResolveEncoderAsync(preset, ct).ConfigureAwait(false);
         var encoder = choice.Encoder;
+        var softwareEncoder = VideoDedupPlanner.IsHevcEncoder(encoder) ? "libx265" : "libx264";
+        var hardwareFailed = 0;
         Write(string.IsNullOrWhiteSpace(choice.Note)
             ? $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。"
             : $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
@@ -135,12 +137,13 @@ public static class VideoDedupService
                         $"{(entry.index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4");
                     var seed = Math.Abs(clips[entry.job.Slices[0].ClipIndex].Path.GetHashCode(StringComparison.Ordinal));
                     var episode = (entry.index + 1).ToString(CultureInfo.InvariantCulture);
+                    var jobEncoder = Volatile.Read(ref hardwareFailed) == 1 ? softwareEncoder : encoder;
                     var arguments = VideoDedupPlanner.BuildArguments(
                         preset,
                         clips,
                         entry.job.Slices,
                         temp,
-                        encoder,
+                        jobEncoder,
                         seed);
                     Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(clips, entry.job.Slices, entry.job.Destination, preset)}");
                     try
@@ -149,16 +152,14 @@ public static class VideoDedupService
                         {
                             await RunFfmpegAsync(arguments, token).ConfigureAwait(false);
                         }
-                        catch (InvalidOperationException) when (
+                        catch (InvalidOperationException ex) when (
                             AllowsCpuFallback(preset) && UsesHardwareEncoder(arguments))
                         {
-                            var software = encoder.Contains("265", StringComparison.OrdinalIgnoreCase) ||
-                                           encoder.Contains("hevc", StringComparison.OrdinalIgnoreCase)
-                                ? "libx265"
-                                : "libx264";
-                            Write($"第 {episode}/{totalEpisodes} 集 {encoder} 编码失败，改用 {software} 重新去重。");
+                            if (Interlocked.Exchange(ref hardwareFailed, 1) == 0)
+                                Write($"{encoder} 编码失败（{FirstLine(ex.Message)}），本次剩余剧集改用 {softwareEncoder}。");
+                            Write($"第 {episode}/{totalEpisodes} 集改用 {softwareEncoder} 重新去重。");
                             await RunFfmpegAsync(
-                                VideoDedupPlanner.BuildArguments(preset, clips, entry.job.Slices, temp, software, seed),
+                                VideoDedupPlanner.BuildArguments(preset, clips, entry.job.Slices, temp, softwareEncoder, seed),
                                 token).ConfigureAwait(false);
                         }
                         if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
@@ -558,7 +559,7 @@ public static class VideoDedupService
         foreach (var candidate in candidates)
         {
             ct.ThrowIfCancellationRequested();
-            if (await EncoderWorksAsync(candidate, ct).ConfigureAwait(false))
+            if (await EncoderWorksAsync(candidate, preset, ct).ConfigureAwait(false))
                 return new EncoderChoice(candidate, Describe(candidate), "");
             unavailable.Add(Describe(candidate));
         }
@@ -628,23 +629,21 @@ public static class VideoDedupService
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> EncoderProbeCache = new(StringComparer.Ordinal);
 
-    private static async Task<bool> EncoderWorksAsync(string encoder, CancellationToken ct)
+    private static async Task<bool> EncoderWorksAsync(string encoder, VideoDedupPreset preset, CancellationToken ct)
     {
         if (EncoderWorksForTests is not null)
             return await EncoderWorksForTests(encoder, ct).ConfigureAwait(false);
-        if (EncoderProbeCache.TryGetValue(encoder, out var cached))
+        var arguments = VideoDedupPlanner.BuildProbeArguments(preset, encoder);
+        var key = string.Join('\u001f', arguments);
+        if (EncoderProbeCache.TryGetValue(key, out var cached))
             return cached;
 
         var (code, _, _) = await FfmpegRunner.RunCaptureAsync(
             FfmpegLocator.ResolveFfmpeg(),
-            [
-                "-hide_banner", "-loglevel", "error",
-                "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=0.2",
-                "-frames:v", "3", "-c:v", encoder, "-pix_fmt", "yuv420p", "-f", "null", "-",
-            ],
+            arguments.ToArray(),
             ct).ConfigureAwait(false);
         var works = code == 0;
-        EncoderProbeCache[encoder] = works;
+        EncoderProbeCache[key] = works;
         return works;
     }
 
@@ -657,6 +656,12 @@ public static class VideoDedupService
         }
 
         await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), arguments, ct).ConfigureAwait(false);
+    }
+
+    private static string FirstLine(string message)
+    {
+        var line = message.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "";
+        return line.Length > 160 ? line[..160] + "…" : line;
     }
 
     private static bool UsesHardwareEncoder(IReadOnlyList<string> arguments) =>

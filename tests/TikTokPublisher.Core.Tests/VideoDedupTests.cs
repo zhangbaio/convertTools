@@ -293,6 +293,46 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Encoder_arguments_fit_each_vendor_and_rate_mode()
+    {
+        var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, true));
+        string Build(VideoDedupPreset preset, string encoder) =>
+            string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", encoder, seed: 1));
+
+        var vbr = VideoDedupPreset.CreateDefault().NormalizedCopy();
+        vbr.VideoBitrateMbps = 2;
+        Build(vbr, "libx264").Should().Contain("-b:v 2000k -maxrate 2900k -bufsize 4000k");
+        Build(vbr, "libx265").Should().Contain("-bufsize 4000k").And.Contain("-tag:v hvc1");
+        Build(vbr, "hevc_amf").Should().Contain("-tag:v hvc1");
+        Build(vbr, "hevc_nvenc").Should().Contain("-tag:v hvc1");
+        Build(vbr, "h264_amf").Should().NotContain("-tag:v");
+        Build(vbr, "h264_qsv").Should().Contain("-pix_fmt nv12").And.NotContain("-pix_fmt yuv420p");
+        Build(vbr, "h264_amf").Should().Contain("-pix_fmt yuv420p");
+
+        var crf = VideoDedupPreset.CreateDefault();
+        crf.BitrateMode = VideoDedupPreset.BitrateCrf;
+        crf.Crf = 23;
+        crf.Normalize();
+        Build(crf, "h264_amf").Should().Contain("-rc cqp -qp_i 25 -qp_p 27 -qp_b 27");
+        Build(crf, "libx264").Should().Contain("-crf 23");
+        Build(crf, "h264_nvenc").Should().Contain("-cq 23");
+        Build(crf, "h264_qsv").Should().Contain("-global_quality 23");
+    }
+
+    [Fact]
+    public void Encoder_probe_uses_the_real_encoder_arguments()
+    {
+        var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();
+        var probe = string.Join(" ", VideoDedupPlanner.BuildProbeArguments(preset, "h264_nvenc"));
+        probe.Should().Contain("testsrc=size=1080x1920");
+        probe.Should().Contain("-c:v h264_nvenc");
+        probe.Should().Contain("-b_ref_mode middle");
+        probe.Should().Contain("-profile:v main");
+        probe.Should().NotContain("-c:a");
+        probe.Should().EndWith("-f null -");
+    }
+
+    [Fact]
     public void Hardware_arguments_follow_the_vendor_encoder()
     {
         var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();

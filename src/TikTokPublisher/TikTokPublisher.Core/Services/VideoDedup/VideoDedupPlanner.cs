@@ -263,6 +263,20 @@ internal static class VideoDedupPlanner
     public static double TransitionSeconds(int seed) =>
         0.3 + (Math.Abs(seed) % 31) / 100d;
 
+    /// <summary>用正式编码参数试编几帧，避免试编码通过而正式参数（profile、码控、B 帧）在这张卡上不被支持。</summary>
+    public static IReadOnlyList<string> BuildProbeArguments(VideoDedupPreset preset, string videoEncoder)
+    {
+        var args = new List<string>
+        {
+            "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=1080x1920:rate=30:duration=0.3",
+            "-frames:v", "5",
+        };
+        AppendEncoder(args, preset, videoEncoder, includeAudio: false);
+        args.AddRange(["-f", "null", "-"]);
+        return args;
+    }
+
     private static void AppendEncoder(
         List<string> args,
         VideoDedupPreset preset,
@@ -271,17 +285,21 @@ internal static class VideoDedupPlanner
     {
         var rate = preset.Fps.ToString(CultureInfo.InvariantCulture);
         args.AddRange(["-r", rate, "-c:v", videoEncoder]);
+        var qsv = videoEncoder.Contains("qsv", StringComparison.OrdinalIgnoreCase);
         if (videoEncoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase))
             AppendNvenc(args, preset);
         else if (videoEncoder.Contains("amf", StringComparison.OrdinalIgnoreCase))
             AppendAmf(args, preset);
-        else if (videoEncoder.Contains("qsv", StringComparison.OrdinalIgnoreCase))
+        else if (qsv)
             AppendQsv(args, preset);
         else if (videoEncoder.Contains("videotoolbox", StringComparison.OrdinalIgnoreCase))
             AppendVideoToolbox(args, preset);
         else
             AppendSoftwareVideo(args, preset, videoEncoder);
-        args.AddRange(["-pix_fmt", "yuv420p"]);
+        // QSV 只接收 NV12，直接给 yuv420p 会被拒或多一次隐式转换。
+        args.AddRange(["-pix_fmt", qsv ? "nv12" : "yuv420p"]);
+        if (IsHevcEncoder(videoEncoder))
+            args.AddRange(["-tag:v", "hvc1"]);
 
         if (!includeAudio)
             return;
@@ -310,10 +328,14 @@ internal static class VideoDedupPlanner
     {
         var bitrate = BitrateToken(preset);
         var buffer = BufferToken(preset);
-        var crf = preset.Crf.ToString(CultureInfo.InvariantCulture);
         args.AddRange(["-usage", "transcoding", "-quality", "balanced", "-profile:v", "main"]);
         if (IsCrf(preset))
-            args.AddRange(["-rc", "cqp", "-qp_i", crf, "-qp_p", crf, "-qp_b", crf]);
+        {
+            // AMF 的固定 QP 比 x264 同数值的 CRF 码率高约一倍，I 帧 +2、P/B 帧 +4 后接近同等体积。
+            var qpI = Math.Clamp(preset.Crf + 2, 0, 51).ToString(CultureInfo.InvariantCulture);
+            var qpP = Math.Clamp(preset.Crf + 4, 0, 51).ToString(CultureInfo.InvariantCulture);
+            args.AddRange(["-rc", "cqp", "-qp_i", qpI, "-qp_p", qpP, "-qp_b", qpP]);
+        }
         else if (IsCbr(preset))
             args.AddRange(["-rc", "cbr", "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", buffer, "-filler_data", "1"]);
         else
@@ -342,13 +364,12 @@ internal static class VideoDedupPlanner
         if (IsCrf(preset))
             args.AddRange(["-q:v", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
         else
-            args.AddRange(["-b:v", BitrateToken(preset), "-maxrate", IsCbr(preset) ? BitrateToken(preset) : MaxRateToken(preset)]);
+            args.AddRange(["-b:v", BitrateToken(preset), "-maxrate", IsCbr(preset) ? BitrateToken(preset) : MaxRateToken(preset), "-bufsize", BufferToken(preset)]);
     }
 
     private static void AppendSoftwareVideo(List<string> args, VideoDedupPreset preset, string videoEncoder)
     {
-        var hevc = videoEncoder.Contains("265", StringComparison.OrdinalIgnoreCase) ||
-                   videoEncoder.Contains("hevc", StringComparison.OrdinalIgnoreCase);
+        var hevc = IsHevcEncoder(videoEncoder);
         args.AddRange(["-profile:v", "main", "-preset", hevc ? "fast" : "veryfast"]);
         var bitrate = BitrateToken(preset);
         if (IsCrf(preset))
@@ -356,8 +377,14 @@ internal static class VideoDedupPlanner
         else if (IsCbr(preset))
             args.AddRange(["-b:v", bitrate, "-minrate", bitrate, "-maxrate", bitrate, "-bufsize", bitrate]);
         else
-            args.AddRange(["-b:v", bitrate, "-maxrate", MaxRateToken(preset)]);
+            args.AddRange(["-b:v", bitrate, "-maxrate", MaxRateToken(preset), "-bufsize", BufferToken(preset)]);
+        if (hevc)
+            args.AddRange(["-x265-params", "log-level=error"]);
     }
+
+    internal static bool IsHevcEncoder(string videoEncoder) =>
+        videoEncoder.Contains("265", StringComparison.OrdinalIgnoreCase) ||
+        videoEncoder.Contains("hevc", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsCrf(VideoDedupPreset preset) =>
         string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCrf, StringComparison.Ordinal);
