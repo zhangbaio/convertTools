@@ -37,6 +37,7 @@ public partial class AccountProfileEditor : UserControl
         InitializeComponent();
         ExpectedPriceModeCombo.SelectionChanged += (_, _) => UpdateExpectedPriceModeVisibility();
         PublishAccounts.FetchRequested += (_, _) => _ = FetchPublishAccountsAsync();
+        VideoDedupEditor.ApplyToAllAccountsRequested += (_, _) => _ = ApplyDedupPresetToAllAccountsAsync();
         DataContextChanged += (_, _) => ReloadFromSelectedAccount();
     }
 
@@ -378,6 +379,46 @@ public partial class AccountProfileEditor : UserControl
             _vm.AppendLog($"保存账号配置失败：{ex.GetType().Name}: {ex.Message}");
             return false;
         }
+    }
+
+    private async Task ApplyDedupPresetToAllAccountsAsync()
+    {
+        if (_vm is null)
+            return;
+
+        var accounts = _vm.Accounts.Select(item => item.Model).ToList();
+        if (accounts.Count == 0)
+        {
+            _vm.StatusMessage = "没有账号可以同步视频去重方案。";
+            return;
+        }
+
+        VideoDedupPreset preset;
+        try
+        {
+            preset = VideoDedupEditor.Read();
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusMessage = $"读取视频去重方案失败：{ex.Message}";
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "同步视频去重",
+            $"把当前视频去重方案写到全部 {accounts.Count} 个账号？登录、代理、发布和上传配置不变。已经去重过的成片不会马上重做。",
+            520,
+            220);
+        if (!confirmed)
+            return;
+
+        preset.CopyOnto(accounts);
+        foreach (var account in accounts)
+            _vm.SaveAccountProfile(account);
+
+        _vm.StatusMessage = $"已把视频去重方案同步到 {accounts.Count} 个账号。";
     }
 
     private async void OnSyncAccountsClick(object? sender, RoutedEventArgs e)

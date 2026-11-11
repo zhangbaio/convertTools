@@ -18,6 +18,12 @@
                 <TextBlock Text="视频去重" FontWeight="SemiBold" FontSize="16" />
                 <TextBlock Classes="dedupHint"
                            Text="只作用于当前账号。下载完成后按这里的方案处理，改写、剧本、证明材料和上传都使用去重后的成片。原片保留在项目的 source-originals 目录。" />
+                <Button Content="同步到所有账号"
+                        Classes="secondaryAction"
+                        HorizontalAlignment="Left"
+                        MinWidth="140"
+                        Margin="0,6,0,0"
+                        Click="OnApplyToAllAccountsClick" />
             </StackPanel>
 
             <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">

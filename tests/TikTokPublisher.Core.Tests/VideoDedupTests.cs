@@ -647,6 +647,27 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Copying_a_preset_onto_accounts_leaves_their_other_settings_alone()
+    {
+        var source = VideoDedupPreset.CreateDefault();
+        source.VideoBitrateMbps = 2;
+        source.TrimStartSeconds = 2;
+        var first = new TikTokAccountProfile { Id = "a", TiktokProxyHost = "10.0.0.1", VideoDedupPreset = VideoDedupPreset.CreateDefault() };
+        var second = new TikTokAccountProfile { Id = "b", TiktokProxyHost = "10.0.0.2" };
+        first.VideoDedupPreset!.VideoBitrateMbps = 4.2;
+
+        source.CopyOnto([first, second]);
+
+        first.TiktokProxyHost.Should().Be("10.0.0.1");
+        second.TiktokProxyHost.Should().Be("10.0.0.2");
+        first.VideoDedupPreset!.Fingerprint().Should().Be(source.Fingerprint());
+        second.VideoDedupPreset!.Fingerprint().Should().Be(source.Fingerprint());
+        first.VideoDedupPreset.VideoBitrateMbps = 8;
+        second.VideoDedupPreset.VideoBitrateMbps.Should().Be(2);
+        source.VideoBitrateMbps.Should().Be(2);
+    }
+
+    [Fact]
     public void Inactive_effects_do_not_change_the_dedup_fingerprint()
     {
         var untouched = VideoDedupPreset.CreateDefault().Fingerprint();

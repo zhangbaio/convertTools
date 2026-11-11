@@ -67,10 +67,18 @@ public partial class VideoDedupPresetEditor : UserControl
     private static string FormatResolution(int width, int height) =>
         $"{width.ToString(System.Globalization.CultureInfo.InvariantCulture)}×{height.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
+    public event EventHandler? ApplyToAllAccountsRequested;
+
     public VideoDedupPresetEditor()
     {
         InitializeComponent();
         Load(null);
+    }
+
+    private void OnApplyToAllAccountsClick(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        ApplyToAllAccountsRequested?.Invoke(this, EventArgs.Empty);
     }
 
     public void Load(VideoDedupPreset? preset)

@@ -75,6 +75,13 @@ public sealed class VideoDedupPreset
 
     public static VideoDedupPreset CreateDefault() => new();
 
+    /// <summary>把方案各自复制到这些账号上，不改账号的其他配置。</summary>
+    public void CopyOnto(IEnumerable<TikTokAccountProfile> accounts)
+    {
+        foreach (var account in accounts)
+            account.VideoDedupPreset = Clone();
+    }
+
     public VideoDedupPreset Clone() => new()
     {
         SchemaVersion = SchemaVersion,
