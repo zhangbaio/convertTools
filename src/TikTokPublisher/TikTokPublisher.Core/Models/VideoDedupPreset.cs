@@ -25,6 +25,8 @@ public sealed class VideoDedupPreset
     public const string AudioDefault = "default";
     public const string AudioAac = "aac";
 
+    public const double DefaultVideoBitrateMbps = 2;
+
     public int SchemaVersion { get; set; } = 1;
     public string Name { get; set; } = "默认方案";
     public string EncodingPreference { get; set; } = EncodingHardwareFirst;
@@ -62,7 +64,7 @@ public sealed class VideoDedupPreset
     public string VideoCodec { get; set; } = CodecH264;
     public int Fps { get; set; } = 30;
     public string BitrateMode { get; set; } = BitrateVbr;
-    public double VideoBitrateMbps { get; set; } = 4.2;
+    public double VideoBitrateMbps { get; set; } = DefaultVideoBitrateMbps;
     public int Crf { get; set; } = 23;
 
     public string AudioCodec { get; set; } = AudioAac;
@@ -184,7 +186,7 @@ public sealed class VideoDedupPreset
             BitrateCbr or BitrateCrf or BitrateVbr => BitrateMode,
             _ => BitrateVbr,
         };
-        VideoBitrateMbps = Math.Clamp(VideoBitrateMbps <= 0 ? 4.2 : VideoBitrateMbps, 0.5, 20);
+        VideoBitrateMbps = Math.Clamp(VideoBitrateMbps <= 0 ? DefaultVideoBitrateMbps : VideoBitrateMbps, 0.5, 20);
         Crf = Math.Clamp(Crf <= 0 ? 23 : Crf, 18, 32);
         AudioCodec = AudioCodec switch
         {

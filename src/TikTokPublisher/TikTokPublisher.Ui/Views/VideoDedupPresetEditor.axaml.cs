@@ -171,7 +171,7 @@ public partial class VideoDedupPresetEditor : UserControl
                 : RateCrfBox.IsChecked == true
                     ? VideoDedupPreset.BitrateCrf
                     : VideoDedupPreset.BitrateVbr,
-            VideoBitrateMbps = (double)(VideoBitrateBox.Value ?? 4.2m),
+            VideoBitrateMbps = (double)(VideoBitrateBox.Value ?? (decimal)VideoDedupPreset.DefaultVideoBitrateMbps),
             Crf = (int)(CrfBox.Value ?? 23),
             AudioCodec = AudioDefaultBox.IsChecked == true
                 ? VideoDedupPreset.AudioDefault
