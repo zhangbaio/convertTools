@@ -186,6 +186,9 @@ public static class ShortDramaDramaServices
         return Router.Value.IsHighSourceSelected();
     }
 
+    public static IReadOnlyList<string> RankBoardsFor(string category) =>
+        HongguoRankCatalog.BoardsFor(category);
+
     public static string? RankBlockReason(string category, string board)
     {
         RefreshSettings();
