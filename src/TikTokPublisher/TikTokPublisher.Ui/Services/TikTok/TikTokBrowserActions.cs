@@ -1574,15 +1574,49 @@ public static partial class TikTokBrowserActions
 
             if (DateTime.UtcNow >= nextLogAt)
             {
-                Log(log, "视频上传已完成，但 TikTok 提交按钮仍不可用，正在等待页面完成表单校验。");
+                var videoState = await ReadSubmitBlockingVideoStateAsync(button.Page);
+                Log(log, "视频上传已完成，但 TikTok 提交按钮仍不可用，正在等待页面完成表单校验" +
+                         (string.IsNullOrWhiteSpace(videoState) ? "。" : $"（{videoState}）。"));
                 nextLogAt = DateTime.UtcNow.AddSeconds(30);
             }
 
             await Task.Delay(2000, ct);
         }
-        throw new TimeoutException(
-            $"视频上传已完成，但 TikTok 可见的提交按钮在 {Math.Max(30, timeoutSeconds)} 秒内仍不可用。" +
-            "请检查页面必填项、平台提示或账号风控状态。");
+        var finalVideoState = await ReadSubmitBlockingVideoStateAsync(button.Page);
+        throw new TikTokSubmitButtonDisabledException(
+            $"视频上传已完成，但 TikTok 可见的提交按钮在 {Math.Max(30, timeoutSeconds)} 秒内仍不可用" +
+            (string.IsNullOrWhiteSpace(finalVideoState) ? "" : $"（{finalVideoState}）") +
+            "。请检查页面必填项、平台提示或账号风控状态。");
+    }
+
+    /// <summary>提交按钮不可用时，多半是正片里还有处理中、上传失败或缺集的视频。</summary>
+    private static async Task<string> ReadSubmitBlockingVideoStateAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<string>(
+                """
+                () => {
+                  const text = document.body ? document.body.innerText : '';
+                  const start = text.lastIndexOf('剧集正片');
+                  if (start < 0) return '';
+                  const panel = text.slice(start);
+                  const counter = panel.match(/(\d+)\s*\/\s*(\d+)/);
+                  const count = pattern => (panel.match(pattern) || []).length;
+                  const total = document.querySelector("[x-field-id='totalVideoNum'] input");
+                  const parts = [];
+                  if (counter) parts.push(`页面正片 ${counter[1]}/${counter[2]}`);
+                  if (total && total.value) parts.push(`总集数 ${total.value}`);
+                  parts.push(`处理中 ${count(/处理中|上传中|正在上传|转码中/g)}`);
+                  parts.push(`上传失败 ${count(/上传失败|处理失败/g)}`);
+                  return parts.join('，');
+                }
+                """);
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private static async Task<bool> IsAriaDisabledAsync(ILocator locator)
@@ -1598,6 +1632,14 @@ public static partial class TikTokBrowserActions
     {
         try { return (await locator.InnerTextAsync(new() { Timeout = 3000 })).Trim(); }
         catch { return ""; }
+    }
+}
+
+internal sealed class TikTokSubmitButtonDisabledException : TimeoutException
+{
+    public TikTokSubmitButtonDisabledException(string message)
+        : base(message)
+    {
     }
 }
 

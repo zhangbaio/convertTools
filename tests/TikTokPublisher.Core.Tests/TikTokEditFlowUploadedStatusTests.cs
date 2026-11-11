@@ -1,3 +1,4 @@
+using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 using Xunit;
 
@@ -46,6 +47,21 @@ public sealed class TikTokEditFlowUploadedStatusTests
                 "草稿 - RAMSA0664 +9 54 0 托管中 详情 素材 剧集表现"));
         Assert.Equal("", TikTokEditFlowService.DraftDetailUrlFromRow("尘封荣光归故里 草稿 54 托管中"));
         Assert.Equal("", TikTokEditFlowService.DraftDetailUrlFromRow(null));
+    }
+
+    [Fact]
+    public void Submit_recovery_reopens_the_draft_from_the_current_edit_page()
+    {
+        Assert.Equal(
+            "https://www.tiktokdramacenter.com/series/draft/7706723252315378709",
+            EmbeddedBrowserPublishAutomation.ResolveSubmitRecoveryDraftUrl(
+                "https://www.tiktokdramacenter.com/series/draft/7706723252315378709?tab=content",
+                ""));
+        Assert.Equal(
+            "",
+            EmbeddedBrowserPublishAutomation.ResolveSubmitRecoveryDraftUrl(
+                "https://www.tiktokdramacenter.com/series/draft",
+                ""));
     }
 
     [Theory]

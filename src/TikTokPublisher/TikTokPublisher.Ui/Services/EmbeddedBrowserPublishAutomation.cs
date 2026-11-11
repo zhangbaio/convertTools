@@ -357,6 +357,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (finalAction == FinalAction.Publish)
             {
                 var submitTitles = TikTokBrowserActions.PayloadTitleCandidates(payload);
+                var reopenDraftUrl = "";
                 try
                 {
                     await TikTokBrowserActions.SubmitAsync(
@@ -373,6 +374,31 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     await TikTokEditFlowService.OpenEditPublishFlowAsync(
                             page,
                             stillDraft.DraftDetailUrl,
+                            payload,
+                            options,
+                            recommendation,
+                            coverPath,
+                            L,
+                            ct)
+                        .ConfigureAwait(false);
+                    ThrowIfLoginRedirect(page);
+                    await TikTokBrowserActions.SubmitAsync(
+                            page,
+                            L,
+                            ct,
+                            submitTitles,
+                            resubmitInPlaceOnDraft: false)
+                        .ConfigureAwait(false);
+                }
+                // 页面上有一集一直没处理完或已经丢失时，提交按钮会一直不可用。
+                // 重新打开已保存的草稿，编辑流程会按真实集号补传缺的集，再提交一次。
+                catch (TikTokSubmitButtonDisabledException disabled) when (
+                    !string.IsNullOrWhiteSpace(reopenDraftUrl = ResolveSubmitRecoveryDraftUrl(page.Url, hasWorkflow ? workflowDir : "")))
+                {
+                    L($"{disabled.Message} 重新打开草稿核对正片并补传后再提交一次：{reopenDraftUrl}");
+                    await TikTokEditFlowService.OpenEditPublishFlowAsync(
+                            page,
+                            reopenDraftUrl,
                             payload,
                             options,
                             recommendation,
@@ -563,6 +589,16 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         return value.Contains("ERR_HTTP_RESPONSE_CODE_FAILURE", StringComparison.OrdinalIgnoreCase) ||
                value.Contains("HTTP ERROR 403", StringComparison.OrdinalIgnoreCase) ||
                value.Contains("403", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string ResolveSubmitRecoveryDraftUrl(string? pageUrl, string? workflowDir)
+    {
+        var fromPage = TikTokEditFlowService.DraftDetailUrlFromRow(pageUrl);
+        if (!string.IsNullOrWhiteSpace(fromPage))
+            return fromPage;
+        return string.IsNullOrWhiteSpace(workflowDir)
+            ? ""
+            : TikTokUploadStateStore.LoadCachedEditDetailUrl(workflowDir);
     }
 
     private static string BuildAccessDeniedMessage(string url) =>
