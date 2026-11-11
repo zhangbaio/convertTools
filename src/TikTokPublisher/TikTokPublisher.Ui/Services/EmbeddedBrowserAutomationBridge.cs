@@ -35,9 +35,12 @@ public static class EmbeddedBrowserAutomationBridge
                     "--disable-background-timer-throttling",
                     "--disable-backgrounding-occluded-windows",
                     "--disable-renderer-backgrounding",
+                    "--disable-site-isolation-trials",
                     headless ? "--window-size=1440,900" : "--start-maximized",
                 ],
             };
+            if (headless)
+                launchOptions.Args = [.. launchOptions.Args, "--disable-gpu"];
             PlaywrightBrowserRuntime.ApplyChromiumExecutable(launchOptions, headless, log);
 
             chromium = await pw.Chromium.LaunchAsync(launchOptions).ConfigureAwait(false);

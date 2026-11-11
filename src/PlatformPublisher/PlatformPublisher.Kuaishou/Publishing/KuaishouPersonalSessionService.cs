@@ -86,7 +86,9 @@ public sealed class KuaishouPersonalSessionService
         {
             ExecutablePath = runtime.BrowserExecutablePath,
             Headless = headless,
-            Args = ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--start-maximized"],
+            Args = headless
+                ? ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--start-maximized", "--disable-site-isolation-trials", "--disable-gpu"]
+                : ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--start-maximized", "--disable-site-isolation-trials"],
         });
         var options = new BrowserNewContextOptions { ViewportSize = headless ? new ViewportSize { Width = 1920, Height = 1030 } : ViewportSize.NoViewport };
         if (File.Exists(config.AuthStatePath)) options.StorageStatePath = config.AuthStatePath;
