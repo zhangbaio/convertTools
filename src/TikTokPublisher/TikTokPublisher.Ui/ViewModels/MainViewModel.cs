@@ -3170,6 +3170,7 @@ public sealed partial class MainViewModel : ViewModelBase
         public string AccountId { get; set; } = "";
         public List<string> ProjectDirs { get; } = [];
         public int Generation { get; set; }
+        public QueueRunOptions? ServerOptions { get; set; }
     }
 
     private readonly HashSet<string> _checkedQueueFollowUpRunning = new(StringComparer.OrdinalIgnoreCase);
@@ -3265,9 +3266,15 @@ public sealed partial class MainViewModel : ViewModelBase
             ApplyTodayAutoPublishChecks(root, accountId, ensured);
         }
 
+        var serverOptions = command.EnabledSteps is { Count: > 0 }
+            ? SystemServices.BuildRemoteUploadRunOptions(command)
+            : null;
+        if (serverOptions is not null)
+            ApplyAutoPublishServerSteps(account, root, serverOptions);
+
         if (IsWorkspaceQueueBusy(root))
         {
-            RequestCheckedQueueFollowUp(root, accountId, ensured);
+            RequestCheckedQueueFollowUp(root, accountId, ensured, serverOptions);
             const string waiting = "队列正在执行，已更新今日派单勾选，本轮结束后再执行勾选队列。";
             StatusMessage = waiting;
             AppendLog(waiting);
@@ -3277,7 +3284,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var started = await StartCheckedQueueFromUiAsync().ConfigureAwait(true);
         if (!started && IsWorkspaceQueueBusy(root))
         {
-            RequestCheckedQueueFollowUp(root, accountId, ensured);
+            RequestCheckedQueueFollowUp(root, accountId, ensured, serverOptions);
             const string waiting = "队列正在执行，已更新今日派单勾选，本轮结束后再执行勾选队列。";
             StatusMessage = waiting;
             AppendLog(waiting);
@@ -3402,7 +3409,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private void RequestCheckedQueueFollowUp(
         string workspace,
         string accountId,
-        IReadOnlyCollection<string> projectDirs)
+        IReadOnlyCollection<string> projectDirs,
+        QueueRunOptions? serverOptions = null)
     {
         var root = Path.GetFullPath(workspace);
         lock (_checkedQueueFollowUpLock)
@@ -3415,6 +3423,8 @@ public sealed partial class MainViewModel : ViewModelBase
 
             if (!string.IsNullOrWhiteSpace(accountId))
                 pending.AccountId = accountId;
+            if (serverOptions is not null)
+                pending.ServerOptions = serverOptions.Clone();
             foreach (var dir in projectDirs)
             {
                 if (string.IsNullOrWhiteSpace(dir))
@@ -3468,16 +3478,26 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         var started = false;
+        QueueRunOptions? serverOptions;
         try
         {
             if (IsWorkspaceQueueBusy(workspace))
                 return;
 
-            var accountId = pending.AccountId;
-            var dirs = pending.ProjectDirs.ToArray();
+            string accountId;
+            string[] dirs;
+            lock (_checkedQueueFollowUpLock)
+            {
+                accountId = pending.AccountId;
+                dirs = pending.ProjectDirs.ToArray();
+                serverOptions = pending.ServerOptions?.Clone();
+            }
+
             ApplyTodayAutoPublishChecks(workspace, accountId, dirs);
             if (!IsActiveWorkspace(workspace))
                 await ShowAutoPublishWorkspaceAsync(workspace).ConfigureAwait(true);
+            if (serverOptions is not null)
+                ApplyAutoPublishServerSteps(FindAccountById(accountId)?.Model, workspace, serverOptions);
             var checkedCount = CountCheckedQueueItems(workspace);
             if (checkedCount == 0)
             {
@@ -4798,6 +4818,28 @@ public sealed partial class MainViewModel : ViewModelBase
 
         local.ProjectConcurrency = Math.Clamp(account?.TiktokProjectConcurrency ?? local.ProjectConcurrency, 1, 20);
         return local;
+    }
+
+    // 自动派单和手点「执行勾选队列」用的是界面勾选。派单到达后先把服务器步骤写到勾选上，再启动。
+    private void ApplyAutoPublishServerSteps(TikTokAccountProfile? account, string workspace, QueueRunOptions options)
+    {
+        ApplyServerConfiguredQueueSteps(account, options);
+        if (!IsActiveWorkspace(workspace))
+            return;
+        var steps = NormalizeQueueEnabledSteps(options.EnabledSteps);
+        if (steps.Count == 0)
+            return;
+        _queueRunOptions.EnabledSteps = steps;
+        _queueRunOptions.AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
+        _queueRunOptions.ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
+        _queueRunOptions.PreferUploadWhenReady = options.PreferUploadWhenReady;
+        _queueRunOptions.SyncManagementAfterUpload = options.SyncManagementAfterUpload;
+        ApplyQueueStepTogglesFromOptions();
+        ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
+        AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
+        PreferUploadWhenReady = options.PreferUploadWhenReady;
+        SyncManagementAfterUpload = options.SyncManagementAfterUpload;
+        PersistQueueRunOptions();
     }
 
     private void ApplyServerConfiguredQueueSteps(TikTokAccountProfile? account, QueueRunOptions options)

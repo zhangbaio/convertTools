@@ -4020,7 +4020,7 @@ public partial class TikTokQueueView : UserControl
         return await started.Task;
     }
 
-    // 自动派单和手点「执行勾选队列」走同一入口：不传项目名单，不覆盖步骤勾选。
+    // 自动派单和手点「执行勾选队列」走同一入口：不传项目名单。步骤勾选由调用方事先写成服务器配置。
     public Task<bool> StartCheckedQueueLikeButtonAsync()
     {
         var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
