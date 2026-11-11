@@ -2215,12 +2215,6 @@ public sealed class QueueWorkerRunner
                 return true;
             }
         }
-        if (stepKey == QueueStepRegistry.VideoDedup &&
-            item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
-            VideoDedupService.NeedsRun(item.ProjectDir, account?.VideoDedupPreset))
-        {
-            return true;
-        }
         if (stepKey == QueueStepRegistry.SmallVideoRepair &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokSmallVideoRepairService.NeedsRepair(item.ProjectDir))

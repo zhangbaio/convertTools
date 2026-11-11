@@ -144,6 +144,35 @@ public sealed class QueueStepArtifactConsistencyTests
             .Should().BeFalse();
     }
 
+    [Fact]
+    public void Completed_video_dedup_stays_skipped_until_force_rerun()
+    {
+        using var fixture = new QueueProjectFixture();
+        fixture.Item.StepStates[QueueStepKeys.VideoDedup] = QueueStepStatus.Completed;
+        var options = new QueueRunOptions { EnabledSteps = [QueueStepKeys.VideoDedup] };
+
+        QueueWorkerRunner.ShouldRunStep(
+                fixture.Item,
+                QueueStepKeys.VideoDedup,
+                options)
+            .Should().BeFalse();
+
+        fixture.Item.StepStates[QueueStepKeys.VideoDedup] = QueueStepStatus.Pending;
+        QueueWorkerRunner.ShouldRunStep(
+                fixture.Item,
+                QueueStepKeys.VideoDedup,
+                options)
+            .Should().BeTrue();
+
+        fixture.Item.StepStates[QueueStepKeys.VideoDedup] = QueueStepStatus.Completed;
+        options.ForceRerunCompletedSteps = true;
+        QueueWorkerRunner.ShouldRunStep(
+                fixture.Item,
+                QueueStepKeys.VideoDedup,
+                options)
+            .Should().BeTrue();
+    }
+
     private sealed class QueueProjectFixture : IDisposable
     {
         public string Workspace { get; }

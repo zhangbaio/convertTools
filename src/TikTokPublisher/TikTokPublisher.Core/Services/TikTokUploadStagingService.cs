@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace TikTokPublisher.Core.Services;
@@ -5,6 +6,7 @@ namespace TikTokPublisher.Core.Services;
 public static class TikTokUploadStagingService
 {
     public const string StagingDirName = "tiktok_upload_videos";
+    private const string ManifestFileName = ".upload-source-manifest.json";
     private static readonly Regex ForbiddenChars = new(@"[<>:""/\\|?*\x00-\x1f]", RegexOptions.Compiled);
     private static readonly Regex EpisodePattern = new(@"第\s*0*(\d+)\s*集", RegexOptions.Compiled);
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -61,6 +63,14 @@ public static class TikTokUploadStagingService
         if (!rebuildStaging)
         {
             NormalizeExistingNames(stagingRoot, safeTitle, log);
+            if (ReferencesExternalSources(stagingRoot, videoPaths) &&
+                !ManifestMatches(stagingRoot, videoPaths))
+            {
+                if (Directory.Exists(stagingRoot))
+                    log?.Invoke("上传副本与当前成片不一致，将按当前成片重建。");
+                return Array.Empty<string>();
+            }
+
             var existing = ResolveExisting(stagingRoot, safeTitle, videoPaths);
             if (existing.Count > 0) return existing;
             return Array.Empty<string>();
@@ -97,9 +107,49 @@ public static class TikTokUploadStagingService
             staged.Add(targetPath);
         }
 
+        WriteManifest(stagingRoot, videoPaths);
         if (staged.Count > 0)
             log?.Invoke($"TikTok 上传副本已生成，共 {staged.Count} 个：{Path.GetFileName(staged[0])}");
         return staged;
+    }
+
+    /// <summary>
+    /// 成片还在时，上传副本必须对得上每一集的文件名、大小和修改时间。
+    /// 成片已经删掉时，现有副本继续可用。
+    /// </summary>
+    public static bool CopiesMatchSources(string sourceProjectDir)
+    {
+        var sources = ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir, allowStagedFallback: false);
+        if (sources.Count == 0)
+            return true;
+
+        var workflow = TikTokUploadStateStore.ResolveWorkflowProjectDir(sourceProjectDir);
+        var stagingRoot = Path.Combine(Path.GetFullPath(workflow), StagingDirName);
+        if (!ManifestMatches(stagingRoot, sources))
+            return false;
+
+        if (!Directory.Exists(stagingRoot))
+            return false;
+        var stagedCount = Directory.EnumerateFiles(stagingRoot, "*.*", SearchOption.TopDirectoryOnly)
+            .Count(path => VideoExtensions.Contains(Path.GetExtension(path)));
+        return stagedCount == sources.Count;
+    }
+
+    /// <summary>去重写出新成片后清掉旧副本。目录不存在时返回 false。</summary>
+    public static bool DiscardCopies(string sourceProjectDir)
+    {
+        try
+        {
+            var workflow = TikTokUploadStateStore.ResolveWorkflowProjectDir(sourceProjectDir);
+            var stagingRoot = Path.Combine(Path.GetFullPath(workflow), StagingDirName);
+            if (!Directory.Exists(stagingRoot))
+                return false;
+            return ResilientFileSystem.TryDeleteDirectory(stagingRoot);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void NormalizeExistingNames(string stagingRoot, string safeTitle, Action<string>? log)
@@ -157,6 +207,95 @@ public static class TikTokUploadStagingService
             resolved.Add(Path.GetFullPath(target));
         }
         return resolved;
+    }
+
+    private static bool ReferencesExternalSources(string stagingRoot, IReadOnlyList<string> videoPaths)
+    {
+        var root = Path.GetFullPath(stagingRoot) + Path.DirectorySeparatorChar;
+        return videoPaths.Any(path =>
+        {
+            var full = Path.GetFullPath(path);
+            return !full.StartsWith(root, OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal);
+        });
+    }
+
+    private static bool ManifestMatches(string stagingRoot, IReadOnlyList<string> videoPaths)
+    {
+        var manifestPath = Path.Combine(stagingRoot, ManifestFileName);
+        if (!File.Exists(manifestPath))
+            return false;
+
+        UploadSourceManifest? manifest;
+        try
+        {
+            manifest = JsonSerializer.Deserialize<UploadSourceManifest>(File.ReadAllText(manifestPath));
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (manifest?.Sources is null || manifest.Sources.Count != videoPaths.Count)
+            return false;
+
+        for (var index = 0; index < videoPaths.Count; index++)
+        {
+            var entry = manifest.Sources[index];
+            FileInfo info;
+            try
+            {
+                info = new FileInfo(videoPaths[index]);
+                if (!info.Exists)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (entry is null ||
+                !string.Equals(entry.Name, info.Name, StringComparison.OrdinalIgnoreCase) ||
+                entry.Length != info.Length ||
+                entry.LastWriteUtcTicks != info.LastWriteTimeUtc.Ticks)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static void WriteManifest(string stagingRoot, IReadOnlyList<string> videoPaths)
+    {
+        var manifest = new UploadSourceManifest
+        {
+            Sources = videoPaths.Select(path =>
+            {
+                var info = new FileInfo(path);
+                return new UploadSourceEntry
+                {
+                    Name = info.Name,
+                    Length = info.Exists ? info.Length : 0,
+                    LastWriteUtcTicks = info.Exists ? info.LastWriteTimeUtc.Ticks : 0,
+                };
+            }).ToList(),
+        };
+        var path = Path.Combine(stagingRoot, ManifestFileName);
+        File.WriteAllText(path, JsonSerializer.Serialize(manifest));
+    }
+
+    private sealed class UploadSourceManifest
+    {
+        public List<UploadSourceEntry> Sources { get; set; } = [];
+    }
+
+    private sealed class UploadSourceEntry
+    {
+        public string Name { get; set; } = "";
+        public long Length { get; set; }
+        public long LastWriteUtcTicks { get; set; }
     }
 
     private static void LinkOrCopy(string sourcePath, string targetPath)

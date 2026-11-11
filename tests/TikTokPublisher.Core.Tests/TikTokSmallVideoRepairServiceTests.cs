@@ -86,6 +86,40 @@ public sealed class TikTokSmallVideoRepairServiceTests
         }
     }
 
+    [Fact]
+    public void Repair_Replaces_Stale_Upload_Copy_With_The_Current_Source()
+    {
+        var workspace = CreateWorkspace(out var sourceDir, out var stagingDir);
+        var sourcePath = Path.Combine(sourceDir, "episode-1.mp4");
+        var stagingPath = Path.Combine(stagingDir, "Current-第1集.mp4");
+        WriteLargeFile(sourcePath);
+        WriteLargeFile(stagingPath);
+        using (var stream = new FileStream(sourcePath, FileMode.Open, FileAccess.Write))
+            stream.WriteByte(9);
+        using (var stream = new FileStream(stagingPath, FileMode.Open, FileAccess.Write))
+            stream.WriteByte(1);
+
+        try
+        {
+            TikTokSmallVideoRepairService.NeedsRepair(sourceDir).Should().BeTrue();
+
+            TikTokSmallVideoRepairService.Repair(
+                sourceDir,
+                "Current",
+                "Original",
+                log: null,
+                CancellationToken.None);
+
+            using (var stream = File.OpenRead(stagingPath))
+                stream.ReadByte().Should().Be(9);
+            TikTokSmallVideoRepairService.NeedsRepair(sourceDir).Should().BeFalse();
+        }
+        finally
+        {
+            TryDelete(workspace);
+        }
+    }
+
     private static string CreateWorkspace(out string sourceDir, out string stagingDir)
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"small-video-repair-{Guid.NewGuid():N}");

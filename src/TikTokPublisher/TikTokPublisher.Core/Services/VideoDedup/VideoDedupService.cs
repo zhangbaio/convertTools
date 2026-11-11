@@ -210,6 +210,8 @@ public static class VideoDedupService
         }
 
         PublishOutputs(project, visible, fingerprint, jobs);
+        if (TikTokUploadStagingService.DiscardCopies(project))
+            log?.Invoke("已清除旧的上传副本，后续修复会按新成片重建。");
         var outputs = jobs.Select(job => new FingerprintOutput(
             ToRelative(project, job.Destination),
             new FileInfo(job.Destination).Length)).ToArray();

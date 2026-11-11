@@ -1,6 +1,7 @@
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Tests;
@@ -435,6 +436,11 @@ public sealed class VideoDedupTests
         Directory.CreateDirectory(root);
         var source = Path.Combine(root, "01.mp4");
         await File.WriteAllBytesAsync(source, [1, 2, 3, 4]);
+        var staging = Path.Combine(
+            ProjectWorkspaceService.ResolveWorkflowProjectDir(root),
+            TikTokUploadStagingService.StagingDirName);
+        Directory.CreateDirectory(staging);
+        await File.WriteAllBytesAsync(Path.Combine(staging, "old-第1集.mp4"), [7]);
         VideoDedupService.ProbeForTests = (_, _) =>
             Task.FromResult(new VideoDedupProbe(8, 720, 1280, true));
         VideoDedupService.EncoderForTests = "libx264";
@@ -461,10 +467,15 @@ public sealed class VideoDedupTests
             logs.Should().NotContain(line => line.Contains("集开始去重", StringComparison.Ordinal) && line.Contains("裁边", StringComparison.Ordinal));
             logs.Count(line => line.Contains("去重操作：", StringComparison.Ordinal)).Should().Be(1);
             logs.Should().Contain(line => line.Contains("第 1/1 集去重完成", StringComparison.Ordinal));
+            logs.Should().Contain(line => line.Contains("已清除旧的上传副本", StringComparison.Ordinal));
+            Directory.Exists(staging).Should().BeFalse();
 
+            Directory.CreateDirectory(staging);
+            await File.WriteAllBytesAsync(Path.Combine(staging, "kept-第1集.mp4"), [6]);
             logs.Clear();
             await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
             logs.Should().Contain(line => line.StartsWith("跳过", StringComparison.Ordinal));
+            File.Exists(Path.Combine(staging, "kept-第1集.mp4")).Should().BeTrue();
         }
         finally
         {
@@ -530,6 +541,12 @@ public sealed class VideoDedupTests
         Directory.CreateDirectory(root);
         var source = Path.Combine(root, "01.mp4");
         await File.WriteAllBytesAsync(source, [4, 5, 6]);
+        var staging = Path.Combine(
+            ProjectWorkspaceService.ResolveWorkflowProjectDir(root),
+            TikTokUploadStagingService.StagingDirName);
+        Directory.CreateDirectory(staging);
+        var staleCopy = Path.Combine(staging, "old-第1集.mp4");
+        await File.WriteAllBytesAsync(staleCopy, [7]);
         VideoDedupService.ProbeForTests = (_, _) =>
             Task.FromResult(new VideoDedupProbe(8, 720, 1280, true));
         VideoDedupService.EncoderForTests = "libx264";
@@ -542,6 +559,7 @@ public sealed class VideoDedupTests
 
             await act.Should().ThrowAsync<InvalidOperationException>();
             (await File.ReadAllBytesAsync(source)).Should().Equal([4, 5, 6]);
+            (await File.ReadAllBytesAsync(staleCopy)).Should().Equal([7]);
             item.EpisodeCount.Should().Be(1);
         }
         finally

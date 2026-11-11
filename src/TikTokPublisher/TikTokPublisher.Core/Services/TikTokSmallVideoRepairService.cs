@@ -7,6 +7,13 @@ public static class TikTokSmallVideoRepairService
     {
         try
         {
+            var sourceVideos = ProjectVideoResolver.ResolveSourceVideos(
+                sourceProjectDir,
+                allowStagedFallback: false);
+            if (sourceVideos.Count > 0 &&
+                !TikTokUploadStagingService.CopiesMatchSources(sourceProjectDir))
+                return true;
+
             var uploadPaths = ProjectVideoResolver.ResolveUploadVideos(
                 sourceProjectDir,
                 allowStagedFallback: true);
@@ -15,7 +22,6 @@ public static class TikTokSmallVideoRepairService
             if (!checkFrames)
                 return false;
 
-            var sourceVideos = ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir, allowStagedFallback: false);
             return (sourceVideos.Count > 0 ? sourceVideos : uploadPaths)
                 .Any(path => TikTokVideoFrameRepairService.NeedsRepair(path));
         }
@@ -42,13 +48,15 @@ public static class TikTokSmallVideoRepairService
             sourceProjectDir,
             allowStagedFallback: false).ToList();
         var uploadPaths = preview.UploadPaths.Count > 0 ? preview.UploadPaths : preview.SourcePaths;
+        var stagingWasCurrent = sourceVideos.Count == 0 ||
+                                TikTokUploadStagingService.CopiesMatchSources(sourceProjectDir);
         var framedCount = RepairFrames(
             sourceProjectDir, sourceVideos.Count > 0 ? sourceVideos : uploadPaths, log, ct);
         var smallSourcePaths = sourceVideos.Where(TikTokSmallVideoPaddingService.NeedsPadding).ToList();
         var smallUploadPaths = uploadPaths.Where(TikTokSmallVideoPaddingService.NeedsPadding).ToList();
         var checkedCount = Math.Max(sourceVideos.Count, uploadPaths.Count);
         var rebuildForFrames = framedCount > 0 && sourceVideos.Count > 0;
-        if (smallSourcePaths.Count == 0 && smallUploadPaths.Count == 0 && !rebuildForFrames)
+        if (smallSourcePaths.Count == 0 && smallUploadPaths.Count == 0 && !rebuildForFrames && stagingWasCurrent)
         {
             log?.Invoke(framedCount > 0
                 ? $"通过：已修复 {framedCount} 个比例不对的上传副本，未发现小于 5MB 的视频，共检查 {checkedCount} 个。"
@@ -61,9 +69,12 @@ public static class TikTokSmallVideoRepairService
         if (sourceVideos.Count > 0)
         {
             var smallCount = Math.Max(smallSourcePaths.Count, smallUploadPaths.Count);
-            log?.Invoke(smallCount > 0
-                ? $"开始：检测到 {smallCount} 个小于 5MB 的源视频或上传副本，重建上传副本…"
-                : $"开始：已修复 {framedCount} 个比例不对的成片，重建上传副本…");
+            var rebuildReason = !stagingWasCurrent
+                ? "开始：上传副本与当前成片不一致，按当前成片重建…"
+                : smallCount > 0
+                    ? $"开始：检测到 {smallCount} 个小于 5MB 的源视频或上传副本，重建上传副本…"
+                    : $"开始：已修复 {framedCount} 个比例不对的成片，重建上传副本…";
+            log?.Invoke(rebuildReason);
             var rebuilt = TikTokUploadStagingService.BuildPayload(
                 sourceProjectDir, title, originalTitle,
                 rebuildStaging: true, repairSmallVideos: true, log, ct);
