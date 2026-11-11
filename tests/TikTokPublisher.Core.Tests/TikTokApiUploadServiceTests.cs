@@ -197,12 +197,16 @@ public sealed class TikTokApiUploadServiceTests
     [Fact]
     public void Upload_logs_distinguish_a_finished_upload_from_mounting_it()
     {
-        TikTokApiUploadService.FormatUploadedLog(25, TimeSpan.FromSeconds(45), 13, 137)
-            .Should().Be("接口直传：第 25 集已上传（45 秒，已上传 13/137）。");
-        TikTokApiUploadService.FormatUploadedLog(76, TimeSpan.FromSeconds(125), 40, 137)
-            .Should().Be("接口直传：第 76 集已上传（2 分 5 秒，已上传 40/137）。");
+        var timing = new TikTokApiUploadService.UploadTiming(
+            30L * 1024 * 1024, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(3));
+        TikTokApiUploadService.FormatUploadedLog(25, TimeSpan.FromSeconds(45), timing, 13, 137)
+            .Should().Be("接口直传：第 25 集已上传（45 秒，30.0MB，3.0MB/s；传输 10 秒，提交 3 秒，已上传 13/137）。");
+        TikTokApiUploadService.FormatUploadedLog(76, TimeSpan.FromSeconds(125), timing, 40, 137)
+            .Should().Be("接口直传：第 76 集已上传（2 分 5 秒，30.0MB，3.0MB/s；传输 10 秒，提交 3 秒，已上传 40/137）。");
         TikTokApiUploadService.FormatMountedLog(25, 13, 137)
             .Should().Be("接口直传：第 25 集已挂到剧集（已挂载 13/137）。");
+        TikTokApiUploadService.FormatUploadSummaryLog(68, 2048L * 1024 * 1024, TimeSpan.FromSeconds(200))
+            .Should().Be("接口直传：68 集共 2.00GB，上传用时 3 分 20 秒，平均 10.2MB/s。");
     }
 
     [Fact]

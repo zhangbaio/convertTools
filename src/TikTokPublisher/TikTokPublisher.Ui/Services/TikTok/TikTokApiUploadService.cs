@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
@@ -19,6 +20,8 @@ public static class TikTokApiUploadService
 {
     internal const string SpaceName = "tiktok-copyright-platform";
     internal const int PartSize = 3 * 1024 * 1024;
+    internal const int PartsInFlightPerFile = 3;
+    private const int MaxPartsInFlight = 12;
     private const string ApiVersion = "2020-11-19";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
     private const int MountRetryCount = 2;
@@ -30,6 +33,24 @@ public static class TikTokApiUploadService
     internal sealed record SeriesVideo(string VideoId, int OrderNum, string Title, int? Episode);
 
     internal sealed record CommittedVideo(string Vid, double DurationMs, string PosterUri);
+
+    internal sealed record UploadTiming(long Bytes, TimeSpan Transfer, TimeSpan Commit);
+
+    /// <summary>传输名额按并发数限制；提交阶段不占名额。分片名额是所有集合计的上限。</summary>
+    private sealed class UploadGates(int concurrency) : IDisposable
+    {
+        public SemaphoreSlim Transfer { get; } = new(concurrency, concurrency);
+
+        public SemaphoreSlim Parts { get; } = new(
+            Math.Min(MaxPartsInFlight, concurrency * PartsInFlightPerFile),
+            Math.Min(MaxPartsInFlight, concurrency * PartsInFlightPerFile));
+
+        public void Dispose()
+        {
+            Transfer.Dispose();
+            Parts.Dispose();
+        }
+    }
 
     internal sealed record LocalEpisode(int Episode, string Path, string Title);
 
@@ -187,8 +208,11 @@ public static class TikTokApiUploadService
 
             using var http = await CreateHttpClientAsync(page, options);
             var sts = new StsCache(page);
+            using var gates = new UploadGates(concurrency);
             using var uploadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var uploaded = 0;
+            long uploadedBytes = 0;
+            var uploadClock = Stopwatch.StartNew();
             var maxOrder = existing.Count == 0 ? 0 : existing.Max(video => video.OrderNum);
             var orderNums = AssignOrderNums(maxOrder, missing.Count);
             // 上传按集号从小到大领任务。挂载凑满 concurrency 集就在页面里一批发出，不等前面的集。
@@ -199,11 +223,15 @@ public static class TikTokApiUploadService
             void MarkUploadSettled()
             {
                 if (Interlocked.Increment(ref settled) == missing.Count)
+                {
+                    uploadClock.Stop();
                     ready.Writer.TryComplete();
+                }
             }
 
             var nextIndex = 0;
-            var workers = Enumerable.Range(0, concurrency)
+            // 传完等提交的集不占传输名额，所以多开一倍任务，让下一集趁这时开始传。
+            var workers = Enumerable.Range(0, concurrency * 2)
                 .Select(_ => Task.Run(async () =>
                 {
                     while (true)
@@ -218,8 +246,10 @@ public static class TikTokApiUploadService
                         try
                         {
                             var committed = await UploadWithRetryAsync(
-                                http, sts, page.Url, item, options, missing.Count,
-                                () => Interlocked.Increment(ref uploaded), log, uploadCts.Token);
+                                http, sts, gates, page.Url, item, options, missing.Count,
+                                () => Interlocked.Increment(ref uploaded),
+                                bytes => Interlocked.Add(ref uploadedBytes, bytes),
+                                log, uploadCts.Token);
                             uploadedVideos[index] = committed;
                             ready.Writer.TryWrite(index);
                         }
@@ -277,6 +307,9 @@ public static class TikTokApiUploadService
                 try { await Task.WhenAll(workers); }
                 catch { /* 单集失败已经记在 failures 里 */ }
             }
+
+            if (uploaded > 0)
+                log?.Invoke(FormatUploadSummaryLog(uploaded, Interlocked.Read(ref uploadedBytes), uploadClock.Elapsed));
         }
 
         var after = await ReadSeriesVideosAsync(page, seriesId, ct, log);
@@ -585,11 +618,13 @@ public static class TikTokApiUploadService
     private static async Task<CommittedVideo> UploadWithRetryAsync(
         HttpClient http,
         StsCache sts,
+        UploadGates gates,
         string pageUrl,
         LocalEpisode item,
         TikTokPublishOptions options,
         int total,
         Func<int> markUploaded,
+        Action<long> addUploadedBytes,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -599,8 +634,9 @@ public static class TikTokApiUploadService
         {
             try
             {
-                var committed = await UploadFileAsync(http, sts, pageUrl, item.Path, ct);
-                log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, markUploaded(), total));
+                var (committed, timing) = await UploadFileAsync(http, sts, gates, pageUrl, item.Path, ct);
+                addUploadedBytes(timing.Bytes);
+                log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, timing, markUploaded(), total));
                 return committed;
             }
             catch (Exception ex) when (attempt < attempts && !ct.IsCancellationRequested)
@@ -611,8 +647,27 @@ public static class TikTokApiUploadService
         }
     }
 
-    internal static string FormatUploadedLog(int episode, TimeSpan elapsed, int uploaded, int total) =>
-        $"接口直传：第 {episode} 集已上传（{FormatElapsed(elapsed)}，已上传 {uploaded}/{total}）。";
+    internal static string FormatUploadedLog(int episode, TimeSpan elapsed, UploadTiming timing, int uploaded, int total) =>
+        $"接口直传：第 {episode} 集已上传（{FormatElapsed(elapsed)}，{FormatSize(timing.Bytes)}，" +
+        $"{FormatSpeed(timing.Bytes, timing.Transfer)}；传输 {FormatElapsed(timing.Transfer)}，" +
+        $"提交 {FormatElapsed(timing.Commit)}，已上传 {uploaded}/{total}）。";
+
+    internal static string FormatUploadSummaryLog(int uploaded, long bytes, TimeSpan elapsed) =>
+        $"接口直传：{uploaded} 集共 {FormatSize(bytes)}，上传用时 {FormatElapsed(elapsed)}，平均 {FormatSpeed(bytes, elapsed)}。";
+
+    private static string FormatSize(long bytes)
+    {
+        var mb = bytes / 1024d / 1024d;
+        return mb >= 1024
+            ? (mb / 1024).ToString("0.00", CultureInfo.InvariantCulture) + "GB"
+            : mb.ToString("0.0", CultureInfo.InvariantCulture) + "MB";
+    }
+
+    private static string FormatSpeed(long bytes, TimeSpan elapsed)
+    {
+        var seconds = Math.Max(elapsed.TotalSeconds, 0.001);
+        return (bytes / 1024d / 1024d / seconds).ToString("0.0", CultureInfo.InvariantCulture) + "MB/s";
+    }
 
     internal static string FormatMountedLog(int episode, int mounted, int total) =>
         $"接口直传：第 {episode} 集已挂到剧集（已挂载 {mounted}/{total}）。";
@@ -625,9 +680,10 @@ public static class TikTokApiUploadService
         return $"{seconds / 60} 分 {seconds % 60} 秒";
     }
 
-    private static async Task<CommittedVideo> UploadFileAsync(
+    private static async Task<(CommittedVideo Video, UploadTiming Timing)> UploadFileAsync(
         HttpClient http,
         StsCache sts,
+        UploadGates gates,
         string pageUrl,
         string path,
         CancellationToken ct)
@@ -638,6 +694,36 @@ public static class TikTokApiUploadService
 
         var vodBase = ResolveServiceBaseUrl(pageUrl, "vod");
         var tosBase = ResolveServiceBaseUrl(pageUrl, "tos");
+        string sessionKey;
+        TimeSpan transferElapsed;
+        await gates.Transfer.WaitAsync(ct);
+        try
+        {
+            var transferClock = Stopwatch.StartNew();
+            sessionKey = await TransferFileAsync(http, sts, gates, vodBase, tosBase, path, fileSize, ct);
+            transferElapsed = transferClock.Elapsed;
+        }
+        finally
+        {
+            gates.Transfer.Release();
+        }
+
+        var commitClock = Stopwatch.StartNew();
+        var video = await CommitFileAsync(http, sts, vodBase, sessionKey, ct);
+        return (video, new UploadTiming(fileSize, transferElapsed, commitClock.Elapsed));
+    }
+
+    /// <summary>申请地址并把文件分片传到 TOS，返回提交用的 SessionKey。同一集最多 <see cref="PartsInFlightPerFile"/> 片同时在传。</summary>
+    private static async Task<string> TransferFileAsync(
+        HttpClient http,
+        StsCache sts,
+        UploadGates gates,
+        string vodBase,
+        string tosBase,
+        string path,
+        long fileSize,
+        CancellationToken ct)
+    {
         var credentials = await sts.GetAsync(ct);
 
         var applyUri = new Uri(
@@ -665,30 +751,7 @@ public static class TikTokApiUploadService
             if (uploadId.Length == 0)
                 throw new InvalidOperationException("TOS 初始化没有返回 uploadid。");
 
-            var crcs = new List<string>();
-            await using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
-            {
-                var buffer = new byte[PartSize];
-                long offset = 0;
-                for (var partNumber = 1; offset < fileSize; partNumber++)
-                {
-                    var length = await ReadChunkAsync(stream, buffer, ct);
-                    if (length == 0)
-                        break;
-                    var crc = TikTokCrc32.Hex(buffer.AsSpan(0, length));
-                    using var part = new HttpRequestMessage(
-                        HttpMethod.Post,
-                        $"{objectUrl}?uploadid={uploadId}&part_number={partNumber}&phase=transfer&part_offset={offset}");
-                    part.Headers.TryAddWithoutValidation("Authorization", auth);
-                    part.Content = new ByteArrayContent(buffer, 0, length);
-                    part.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                    part.Content.Headers.TryAddWithoutValidation("Content-Disposition", "attachment; filename=\"undefined\"");
-                    part.Content.Headers.TryAddWithoutValidation("Content-CRC32", crc);
-                    using (await SendTosAsync(http, part, ct)) { }
-                    crcs.Add(crc);
-                    offset += length;
-                }
-            }
+            var crcs = await SendPartsAsync(http, gates, objectUrl, uploadId, auth, path, fileSize, ct);
 
             using var finish = new HttpRequestMessage(
                 HttpMethod.Post,
@@ -699,6 +762,118 @@ public static class TikTokApiUploadService
             using (await SendTosAsync(http, finish, ct)) { }
         }
 
+        return sessionKey;
+    }
+
+    private static async Task<IReadOnlyList<string>> SendPartsAsync(
+        HttpClient http,
+        UploadGates gates,
+        string objectUrl,
+        string uploadId,
+        string auth,
+        string path,
+        long fileSize,
+        CancellationToken ct)
+    {
+        var partCount = (int)((fileSize + PartSize - 1) / PartSize);
+        var crcs = new string[partCount];
+        using var partsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var perFile = new SemaphoreSlim(PartsInFlightPerFile, PartsInFlightPerFile);
+        var sending = new List<Task>(partCount);
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            long offset = 0;
+            for (var index = 0; index < partCount; index++)
+            {
+                await perFile.WaitAsync(partsCts.Token);
+                try
+                {
+                    await gates.Parts.WaitAsync(partsCts.Token);
+                }
+                catch
+                {
+                    perFile.Release();
+                    throw;
+                }
+
+                var buffer = ArrayPool<byte>.Shared.Rent(PartSize);
+                int length;
+                try
+                {
+                    length = await ReadChunkAsync(stream, buffer.AsMemory(0, PartSize), partsCts.Token);
+                    if (length == 0)
+                        throw new InvalidOperationException($"视频文件读取不完整：{path}");
+                }
+                catch
+                {
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    gates.Parts.Release();
+                    perFile.Release();
+                    throw;
+                }
+
+                var partIndex = index;
+                var partOffset = offset;
+                offset += length;
+                sending.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        var crc = TikTokCrc32.Hex(buffer.AsSpan(0, length));
+                        using var part = new HttpRequestMessage(
+                            HttpMethod.Post,
+                            $"{objectUrl}?uploadid={uploadId}&part_number={partIndex + 1}&phase=transfer&part_offset={partOffset}");
+                        part.Headers.TryAddWithoutValidation("Authorization", auth);
+                        part.Content = new ByteArrayContent(buffer, 0, length);
+                        part.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                        part.Content.Headers.TryAddWithoutValidation("Content-Disposition", "attachment; filename=\"undefined\"");
+                        part.Content.Headers.TryAddWithoutValidation("Content-CRC32", crc);
+                        using (await SendTosAsync(http, part, partsCts.Token)) { }
+                        crcs[partIndex] = crc;
+                    }
+                    catch
+                    {
+                        partsCts.Cancel();
+                        throw;
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(buffer);
+                        gates.Parts.Release();
+                        perFile.Release();
+                    }
+                }, CancellationToken.None));
+            }
+
+            await Task.WhenAll(sending);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // 某一片失败后取消了其余分片：把真正的失败原因抛出去。
+            try { await Task.WhenAll(sending); }
+            catch { /* 下面挑出失败的那一片 */ }
+            var failed = sending.FirstOrDefault(task => task.IsFaulted);
+            if (failed is not null)
+                await failed;
+            throw;
+        }
+        finally
+        {
+            try { await Task.WhenAll(sending); }
+            catch { /* 失败原因已在上面抛出 */ }
+        }
+
+        return crcs;
+    }
+
+    private static async Task<CommittedVideo> CommitFileAsync(
+        HttpClient http,
+        StsCache sts,
+        string vodBase,
+        string sessionKey,
+        CancellationToken ct)
+    {
         var commitBody = JsonSerializer.Serialize(new
         {
             SessionKey = sessionKey,
@@ -720,12 +895,12 @@ public static class TikTokApiUploadService
         return new CommittedVideo(vid, duration, poster);
     }
 
-    private static async Task<int> ReadChunkAsync(Stream stream, byte[] buffer, CancellationToken ct)
+    private static async Task<int> ReadChunkAsync(Stream stream, Memory<byte> buffer, CancellationToken ct)
     {
         var total = 0;
         while (total < buffer.Length)
         {
-            var read = await stream.ReadAsync(buffer.AsMemory(total), ct);
+            var read = await stream.ReadAsync(buffer[total..], ct);
             if (read == 0)
                 break;
             total += read;
