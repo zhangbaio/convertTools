@@ -20,10 +20,11 @@ public static class TikTokDailyAnalyticsService
             throw new ArgumentException("结束日期不能早于开始日期。");
 
         IPlaywright? playwright = null;
+        IBrowser? browser = null;
         try
         {
             IPage page;
-            (playwright, _, page) = await EmbeddedBrowserAutomationBridge
+            (playwright, browser, page) = await EmbeddedBrowserAutomationBridge
                 .ConnectPageAsync(embeddedBrowser, TikTokUrls.ContentPerformanceUrl, log, ct)
                 .ConfigureAwait(false);
 
@@ -66,6 +67,8 @@ public static class TikTokDailyAnalyticsService
         }
         finally
         {
+            try { await (browser?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false); }
+            catch { /* disconnect CDP only */ }
             playwright?.Dispose();
         }
     }

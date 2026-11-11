@@ -116,6 +116,9 @@ public static class EmbeddedBrowserAutomationBridge
 
         PlaywrightBrowserRuntime.ConfigureBundledBrowsers(log);
 
+        IDisposable? automationLease = browser is WebView2Host host
+            ? await Dispatcher.UIThread.InvokeAsync(host.AcquireAutomation).GetTask().ConfigureAwait(false)
+            : null;
         var pw = await Playwright.CreateAsync().ConfigureAwait(false);
         IBrowser chromium;
         try
@@ -124,6 +127,7 @@ public static class EmbeddedBrowserAutomationBridge
         }
         catch (PlaywrightException ex) when (IsPlaywrightConnectionFailure(ex.Message))
         {
+            automationLease?.Dispose();
             pw.Dispose();
             throw new InvalidOperationException(
                 $"连接浏览器自动化端口失败（{cdp}）。浏览器可能崩溃、端口失效或页面已断开，请打开「浏览器」页确认已登录并刷新页面后重试。",
@@ -131,26 +135,39 @@ public static class EmbeddedBrowserAutomationBridge
         }
         catch
         {
+            automationLease?.Dispose();
             pw.Dispose();
             throw;
         }
-        var context = chromium.Contexts.FirstOrDefault()
-            ?? throw new InvalidOperationException("内置浏览器上下文不可用");
-        var page = context.Pages.FirstOrDefault()
-            ?? throw new InvalidOperationException("内置浏览器页面不可用");
-        TikTokFileUploadTransportRegistry.Mark(page, TikTokFileUploadTransport.CdpPathInjection);
 
-        AttachAutomationDialogHandler(page, log);
+        if (automationLease is not null)
+            chromium.Disconnected += (_, _) => automationLease.Dispose();
 
-        await PrepareCleanTikTokPageAsync(page, navigateUrl, log, ct).ConfigureAwait(false);
+        try
+        {
+            var context = chromium.Contexts.FirstOrDefault()
+                ?? throw new InvalidOperationException("内置浏览器上下文不可用");
+            var page = context.Pages.FirstOrDefault()
+                ?? throw new InvalidOperationException("内置浏览器页面不可用");
+            TikTokFileUploadTransportRegistry.Mark(page, TikTokFileUploadTransport.CdpPathInjection);
 
-        try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }).ConfigureAwait(false); }
-        catch { /* SPA */ }
-        await page.WaitForTimeoutAsync(1500).ConfigureAwait(false);
-        await EnsureTikTokPageHealthyAsync(page, navigateUrl, log, ct).ConfigureAwait(false);
+            AttachAutomationDialogHandler(page, log);
 
-        log?.Invoke("已通过内置浏览器 CDP 连接自动化页面");
-        return (pw, chromium, page);
+            await PrepareCleanTikTokPageAsync(page, navigateUrl, log, ct).ConfigureAwait(false);
+
+            try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }).ConfigureAwait(false); }
+            catch { /* SPA */ }
+            await page.WaitForTimeoutAsync(1500).ConfigureAwait(false);
+            await EnsureTikTokPageHealthyAsync(page, navigateUrl, log, ct).ConfigureAwait(false);
+
+            log?.Invoke("已通过内置浏览器 CDP 连接自动化页面");
+            return (pw, chromium, page);
+        }
+        catch
+        {
+            automationLease?.Dispose();
+            throw;
+        }
     }
 
     private static void AttachAutomationDialogHandler(IPage page, Action<string>? log)
