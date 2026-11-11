@@ -95,6 +95,7 @@
                             <ComboBox Grid.Row="6" Grid.Column="1" x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="classic">经典（一次性上传全部视频）</ComboBoxItem>
                                 <ComboBoxItem Tag="batch">分批（每批 N 个，卡死整批重传）</ComboBoxItem>
+                                <ComboBoxItem Tag="api">接口直传（并发上传，按集号挂载排序）</ComboBoxItem>
                             </ComboBox>
 
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="付费模式" VerticalAlignment="Center" />
@@ -167,6 +168,12 @@
 
                             <TextBlock Grid.Row="27" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="27" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="28" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="28" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
+
+                            <TextBlock Grid.Row="29" Grid.Column="0" Text="接口·失败回退" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="29" Grid.Column="1" x:Name="UploadApiFallbackBox" Content="接口直传失败时改用网页分批上传" IsChecked="True" />
 
 
                             <TextBlock Grid.Row="30" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />

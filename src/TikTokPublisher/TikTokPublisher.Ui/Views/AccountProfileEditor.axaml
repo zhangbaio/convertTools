@@ -240,6 +240,7 @@
                             <ComboBox Grid.Row="6" Grid.Column="1" x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="classic">经典（一次性上传全部视频）</ComboBoxItem>
                                 <ComboBoxItem Tag="batch">分批（每批 N 个，卡死整批重传）</ComboBoxItem>
+                                <ComboBoxItem Tag="api">接口直传（并发上传，按集号挂载排序）</ComboBoxItem>
                             </ComboBox>
 
                             <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="付费模式" VerticalAlignment="Center" />
@@ -326,6 +327,10 @@
                             <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
                             <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="接口·失败回退" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="7" Grid.Column="1" x:Name="UploadApiFallbackBox" Content="接口直传失败时改用网页分批上传" IsChecked="True" />
                             <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
                             <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />

@@ -212,6 +212,8 @@ public partial class AccountProfileEditor : UserControl
         UploadBatchSizeBox.Value = profile.TiktokUploadBatchSize;
         UploadBatchStallBox.Value = profile.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = profile.TiktokUploadBatchMaxRetries;
+        UploadApiConcurrencyBox.Value = profile.TiktokUploadApiConcurrency;
+        UploadApiFallbackBox.IsChecked = profile.TiktokUploadApiFallbackToBatch;
 
         SelectByTag(ExpectedPriceModeCombo, profile.TiktokExpectedFullPriceMode, "manual");
         ExpectedPriceOptionIndexBox.Value = profile.TiktokExpectedFullPriceOptionIndex;
@@ -345,6 +347,8 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
             profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
             profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
+            profile.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
+            profile.TiktokUploadApiFallbackToBatch = UploadApiFallbackBox.IsChecked != false;
             profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
             profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
             var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);

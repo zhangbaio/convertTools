@@ -456,11 +456,20 @@ public sealed class TikTokPublishOptions
     public int UploadBatchSize { get; set; } = 3;
     public int UploadBatchStallSeconds { get; set; } = 75;
     public int UploadBatchMaxRetries { get; set; } = 3;
+    public int UploadApiConcurrency { get; set; } = 3;
+    public bool UploadApiFallbackToBatch { get; set; } = true;
+    /// <summary>接口直传时 HttpClient 使用的代理，与账号浏览器代理一致；为空走系统代理。</summary>
+    public string NetworkProxyServer { get; set; } = "";
+    public string NetworkProxyUsername { get; set; } = "";
+    public string NetworkProxyPassword { get; set; } = "";
     public bool CustomPublishAccountsEnabled { get; set; }
     public IReadOnlyList<string> SelectedPublishAccountKeys { get; set; } = [];
 
     public bool UseBatchUpload =>
         string.Equals(UploadStrategy?.Trim(), "batch", StringComparison.OrdinalIgnoreCase);
+
+    public bool UseApiUpload =>
+        string.Equals(UploadStrategy?.Trim(), "api", StringComparison.OrdinalIgnoreCase);
 
     public string ResolveCopyrightMaterialFilePath(string? materialType)
     {
@@ -574,6 +583,11 @@ public sealed class TikTokPublishOptions
         UploadBatchSize = account.TiktokUploadBatchSize > 0 ? Math.Clamp(account.TiktokUploadBatchSize, 1, 20) : 3,
         UploadBatchStallSeconds = account.TiktokUploadBatchStallSeconds > 0 ? Math.Clamp(account.TiktokUploadBatchStallSeconds, 20, 600) : 75,
         UploadBatchMaxRetries = account.TiktokUploadBatchMaxRetries > 0 ? Math.Clamp(account.TiktokUploadBatchMaxRetries, 1, 10) : 3,
+        UploadApiConcurrency = account.TiktokUploadApiConcurrency > 0 ? Math.Clamp(account.TiktokUploadApiConcurrency, 1, 6) : 3,
+        UploadApiFallbackToBatch = account.TiktokUploadApiFallbackToBatch,
+        NetworkProxyServer = TikTokProxyHelper.BuildFromAccount(account)?.Server ?? "",
+        NetworkProxyUsername = TikTokProxyHelper.BuildFromAccount(account)?.Username ?? "",
+        NetworkProxyPassword = TikTokProxyHelper.BuildFromAccount(account)?.Password ?? "",
         CustomPublishAccountsEnabled = account.TiktokCustomPublishAccountsEnabled,
         SelectedPublishAccountKeys = account.TiktokCustomPublishAccountsEnabled
             ? TikTokPublishAccountCatalog.Retain(

@@ -21,6 +21,9 @@ public static partial class TikTokBrowserActions
         @"第\s*(\d+)\s*集.*?-第\s*(\d+)\s*集",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
+    /// <summary>接口直传失败并回退后，本次流程里的递归补传不再重试接口。</summary>
+    private static readonly AsyncLocal<bool> ApiUploadSuspended = new();
+
     public sealed record EditVideoRow(int Slot, int Real);
 
     public sealed record EditFlowVideoState(
@@ -50,6 +53,7 @@ public static partial class TikTokBrowserActions
             log,
             ct);
         await EnsureEditCoverUploadedAsync(page, coverPath, log, ct);
+        await EnsureEditTitleFilledAsync(page, payload.Title, log, ct);
         await EnsureEditDescriptionFilledAsync(page, payload.Description, log, ct);
         await FillSharedPublishFieldsAsync(
             page,
@@ -327,6 +331,36 @@ public static partial class TikTokBrowserActions
         }
     }
 
+    private static async Task EnsureEditTitleFilledAsync(
+        IPage page,
+        string? title,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var next = (title ?? "").Trim();
+        if (next.Length == 0)
+            return;
+
+        await EnsureEditBaseInfoSectionAsync(page, log, ct);
+        var field = page.Locator("#title").First;
+        try
+        {
+            await field.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 10000 });
+            if (!string.IsNullOrWhiteSpace(await field.InputValueAsync()) || !await field.IsEditableAsync())
+                return;
+
+            await field.FillAsync(next);
+            await BlurActiveElementAsync(page);
+            await page.WaitForTimeoutAsync(500);
+            Log(log, $"TikTok 编辑页剧名为空，已填写「{TrimForLog(next)}」。");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log(log, $"TikTok 编辑页剧名为空，自动填写失败：{ex.Message}");
+        }
+    }
+
     private static async Task EnsureEditDescriptionFilledAsync(
         IPage page,
         string description,
@@ -403,6 +437,26 @@ public static partial class TikTokBrowserActions
         if (expectedCount <= 0) return;
 
         await EnsureEditContentUploadTabAsync(page, ct);
+        if (options.UseApiUpload && !ApiUploadSuspended.Value)
+        {
+            var seriesId = TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url);
+            if (seriesId is null)
+            {
+                Log(log, "接口直传：当前页面地址里没有剧集 ID，改用网页分批上传。");
+            }
+            else
+            {
+                try
+                {
+                    await TikTokApiUploadService.SyncEpisodesAsync(page, seriesId, uploadPaths, options, log, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException && options.UploadApiFallbackToBatch)
+                {
+                    ApiUploadSuspended.Value = true;
+                    Log(log, $"接口直传未完成：{ex.Message}。本次改用网页分批上传补齐。");
+                }
+            }
+        }
 
         List<EditVideoRow> rows;
         try
@@ -619,7 +673,7 @@ public static partial class TikTokBrowserActions
             $"第 {string.Join("、", unavailable)} 集缺少本地源文件无法补传，请补齐后重新执行上传。");
     }
 
-    private static async Task EnsureEditContentUploadTabAsync(IPage page, CancellationToken ct)
+    internal static async Task EnsureEditContentUploadTabAsync(IPage page, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         try

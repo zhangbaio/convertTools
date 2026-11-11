@@ -145,6 +145,17 @@ public static partial class TikTokBrowserActions
         var uploadPaths = payload.UploadVideoPaths.Count > 0
             ? payload.UploadVideoPaths.ToList()
             : payload.VideoPaths.ToList();
+        if (options.UseApiUpload &&
+            TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url) is null &&
+            TikTokApiUploadService.ResolveLocalEpisodes(uploadPaths) is not null)
+        {
+            if (!coverAlreadyUploaded)
+                await UploadCoverAsync(page, coverPath, log, ct);
+            await TikTokApiUploadService.ContinueCreateAsDraftAsync(
+                page, payload, options, recommendation, coverPath, uploadPaths, log, ct);
+            return;
+        }
+
         if (TikTokBatchUploadService.ShouldUseBatchedUpload(options, uploadPaths.Count))
         {
             await TikTokBatchUploadService.FillRemainingWithBatchedUploadAsync(

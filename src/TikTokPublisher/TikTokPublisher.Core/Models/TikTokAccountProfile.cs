@@ -177,6 +177,8 @@ public sealed class TikTokAccountProfile
     public int TiktokUploadBatchSize { get; set; } = 3;
     public int TiktokUploadBatchStallSeconds { get; set; } = 75;
     public int TiktokUploadBatchMaxRetries { get; set; } = 3;
+    public int TiktokUploadApiConcurrency { get; set; } = 3;
+    public bool TiktokUploadApiFallbackToBatch { get; set; } = true;
     public string TiktokExcelReportPath { get; set; } = "";
     public List<string>? TiktokQueueEnabledSteps { get; set; }
     public bool? TiktokQueueAutoArchiveAfterUpload { get; set; }
