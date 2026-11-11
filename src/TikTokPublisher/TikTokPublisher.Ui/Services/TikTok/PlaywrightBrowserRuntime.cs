@@ -26,14 +26,14 @@ internal static class PlaywrightBrowserRuntime
         if (!string.IsNullOrWhiteSpace(executable))
         {
             options.ExecutablePath = executable;
-            log?.Invoke($"Playwright executable: {executable}");
+            log?.Invoke($"Playwright 浏览器：{executable}");
             return;
         }
 
         if (OperatingSystem.IsWindows())
         {
             options.Channel = "msedge";
-            log?.Invoke("Playwright executable not found; fallback to installed Microsoft Edge.");
+            log?.Invoke("Playwright Chromium 不在已知目录，使用已安装的 Microsoft Edge。");
         }
     }
 
@@ -72,13 +72,8 @@ internal static class PlaywrightBrowserRuntime
         {
             if (OperatingSystem.IsWindows())
             {
-                var hasChromium = Directory
-                    .EnumerateDirectories(browserRoot, "chromium-*")
-                    .Any(dir => File.Exists(Path.Combine(dir, "chrome-win", "chrome.exe")));
-                var hasHeadlessShell = Directory
-                    .EnumerateDirectories(browserRoot, "chromium_headless_shell-*")
-                    .Any(dir => File.Exists(Path.Combine(dir, "chrome-win", "headless_shell.exe")));
-                return hasChromium && hasHeadlessShell;
+                return FindWindowsExecutable(browserRoot, preferHeadlessShell: false) is not null &&
+                       FindWindowsExecutable(browserRoot, preferHeadlessShell: true) is not null;
             }
 
             return Directory.EnumerateDirectories(browserRoot, "chromium-*").Any() &&
@@ -98,17 +93,7 @@ internal static class PlaywrightBrowserRuntime
         try
         {
             if (OperatingSystem.IsWindows())
-            {
-                var directoryPattern = preferHeadlessShell ? "chromium_headless_shell-*" : "chromium-*";
-                var executablePath = preferHeadlessShell
-                    ? Path.Combine("chrome-win", "headless_shell.exe")
-                    : Path.Combine("chrome-win", "chrome.exe");
-
-                return Directory
-                    .EnumerateDirectories(browserRoot, directoryPattern)
-                    .Select(dir => Path.Combine(dir, executablePath))
-                    .FirstOrDefault(File.Exists);
-            }
+                return FindWindowsExecutable(browserRoot, preferHeadlessShell);
 
             return Directory
                 .EnumerateDirectories(browserRoot, preferHeadlessShell ? "chromium_headless_shell-*" : "chromium-*")
@@ -118,6 +103,43 @@ internal static class PlaywrightBrowserRuntime
         {
             return null;
         }
+    }
+
+    internal static string? FindWindowsExecutableForTests(string browserRoot, bool preferHeadlessShell) =>
+        FindWindowsExecutable(browserRoot, preferHeadlessShell);
+
+    private static string? FindWindowsExecutable(string? browserRoot, bool preferHeadlessShell)
+    {
+        if (string.IsNullOrWhiteSpace(browserRoot) || !Directory.Exists(browserRoot))
+            return null;
+
+        var directoryPattern = preferHeadlessShell ? "chromium_headless_shell-*" : "chromium-*";
+        var relativePaths = preferHeadlessShell
+            ? new[]
+            {
+                Path.Combine("chrome-headless-shell-win64", "chrome-headless-shell.exe"),
+                Path.Combine("chrome-win", "headless_shell.exe"),
+            }
+            : new[]
+            {
+                Path.Combine("chrome-win64", "chrome.exe"),
+                Path.Combine("chrome-win", "chrome.exe"),
+            };
+
+        foreach (var directory in Directory.EnumerateDirectories(browserRoot, directoryPattern)
+                     .Where(dir => preferHeadlessShell ||
+                                   !Path.GetFileName(dir).StartsWith("chromium_headless_shell", StringComparison.OrdinalIgnoreCase))
+                     .OrderByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var relative in relativePaths)
+            {
+                var candidate = Path.Combine(directory, relative);
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+        }
+
+        return null;
     }
 
     private static IEnumerable<string> EnumerateBrowserRootCandidates()
