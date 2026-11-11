@@ -47,6 +47,9 @@ public partial class MainWindow : Window
     private bool _licenseVerifyRunning;
     private bool _licenseLoginDialogOpen;
 
+    public Task CheckClientUpdateOnStartupAsync() =>
+        _viewModel.SystemServices.CheckClientUpdateOnStartupAsync();
+
     public MainWindow()
     {
         var context = new AccountContextService(_accountStore);
@@ -73,6 +76,9 @@ public partial class MainWindow : Window
         LogView.Bind(_viewModel, _viewModel.Logs);
         SettingsView.Bind(_viewModel.SystemSettings);
         ServicesView.Bind(_viewModel.SystemServices);
+        ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning);
+        _viewModel.SystemServices.ConfirmClientUpdate = message =>
+            ConfirmDialog.ShowAsync(this, "客户端升级", message);
         _viewModel.SystemServices.ConfigImported += () =>
         {
             _viewModel.ReloadAccountsFromDisk();

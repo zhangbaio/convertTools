@@ -48,6 +48,7 @@ public partial class App : Application
         desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;
         mainWindow.Show();
         mainWindow.StartLicenseVerifyTimer();
+        _ = mainWindow.CheckClientUpdateOnStartupAsync();
     }
 
     private static async Task<bool> EnsureLicenseBeforeMainWindowAsync()
