@@ -428,7 +428,15 @@ public sealed partial class MainViewModel : ViewModelBase
                         XingeAutoPublishRecovery.NotExecutableDetail);
                     break;
                 }
-                var started = await StartRecoveredAutoPublishQueueAsync(located);
+                var serverOptions = BuildRecoveredServerOptions(assignment);
+                if (serverOptions is not null)
+                {
+                    var account = FindAccountById(located.AccountId)?.Model;
+                    if (!IsActiveWorkspace(located.Workspace))
+                        await ShowAutoPublishWorkspaceAsync(located.Workspace).ConfigureAwait(true);
+                    ApplyAutoPublishServerSteps(account, located.Workspace, serverOptions);
+                }
+                var started = await StartRecoveredAutoPublishQueueAsync(located, serverOptions);
                 if (!started)
                 {
                     _autoPublishResumeAbandoned.Add(assignment.Id);
@@ -474,7 +482,21 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
-    private async Task<bool> StartRecoveredAutoPublishQueueAsync(AutoPublishProjectLocation located)
+    private static QueueRunOptions? BuildRecoveredServerOptions(XingeRemoteCommandService.XingeOpenAutoPublishAssignment assignment)
+    {
+        if (assignment.EnabledSteps is not { Count: > 0 })
+            return null;
+        return TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(
+            ClientSettingsStore.Load(),
+            new TikTokRemoteCommand(
+                TikTokRemoteCommandNames.UploadSeries,
+                EnabledSteps: assignment.EnabledSteps,
+                QueueOptions: assignment.ReadQueueOptions()));
+    }
+
+    private async Task<bool> StartRecoveredAutoPublishQueueAsync(
+        AutoPublishProjectLocation located,
+        QueueRunOptions? serverOptions)
     {
         var run = RemoteQueueRunRequested;
         if (run is null || string.IsNullOrWhiteSpace(located.ProjectDir))
@@ -488,7 +510,7 @@ public sealed partial class MainViewModel : ViewModelBase
             located.AccountName,
             located.AccountId,
             new[] { located.ProjectDir },
-            PreferPersistedQueueSnapshot: true), null);
+            PreferPersistedQueueSnapshot: true), serverOptions);
         AppendLog(started
             ? $"自动上新派单已从中断处继续：{located.ProjectDir}"
             : $"自动上新派单暂时无法继续执行：{located.ProjectDir}");

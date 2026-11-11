@@ -499,6 +499,32 @@ public sealed class XingeRemoteCommandService
 
         [JsonPropertyName("account_profile_id")]
         public string AccountProfileId { get; set; } = "";
+
+        [JsonPropertyName("enabled_steps")]
+        public List<string> EnabledSteps { get; set; } = [];
+
+        [JsonPropertyName("queue_options")]
+        public Dictionary<string, JsonElement>? QueueOptions { get; set; }
+
+        public IReadOnlyDictionary<string, object?>? ReadQueueOptions()
+        {
+            if (QueueOptions is not { Count: > 0 })
+                return null;
+            var map = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var (key, value) in QueueOptions)
+            {
+                map[key] = value.ValueKind switch
+                {
+                    JsonValueKind.True => true,
+                    JsonValueKind.False => false,
+                    JsonValueKind.String => value.GetString(),
+                    JsonValueKind.Number when value.TryGetInt64(out var number) => number,
+                    _ => value.GetRawText(),
+                };
+            }
+
+            return map;
+        }
     }
 
     private sealed class XingeOpenAutoPublishList
