@@ -1589,6 +1589,9 @@ public static partial class TikTokBrowserActions
                                 "element => element.isConnected && " +
                                 "!element.hasAttribute('disabled') && " +
                                 "element.getAttribute('aria-disabled') !== 'true'")) continue;
+                        // 勾选后同名文字还会出现在悬浮提示和上传框标题里。它们最近的「含复选框祖先」
+                        // 是整个表单或页面，取到的会是别的复选框。只接受恰好包住一个复选框的选项。
+                        if (!await clickTarget.EvaluateAsync<bool>(SingleCheckboxOptionScript)) continue;
                         return new CopyrightMaterialCheckbox(control, clickTarget);
                     }
                     catch
@@ -1874,6 +1877,19 @@ public static partial class TikTokBrowserActions
                HasCheckedClass(wrapperClass) ||
                HasCheckedClass(innerClass);
     }
+
+    private const string SingleCheckboxOptionScript =
+        """
+        element => {
+          if (element.closest('[role="tooltip"], .semi-tooltip-wrapper')) return false;
+          const selector = 'input[type="checkbox"], [role="checkbox"]';
+          const matches = [element, ...element.querySelectorAll(selector)]
+            .filter(node => node.matches(selector));
+          const outermost = matches.filter(node =>
+            !matches.some(other => other !== node && other.contains(node)));
+          return outermost.length === 1;
+        }
+        """;
 
     private static async Task<bool> IsCopyrightMaterialCheckboxSelectedAsync(ILocator control)
     {
