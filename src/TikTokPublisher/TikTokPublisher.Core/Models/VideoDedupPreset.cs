@@ -45,8 +45,8 @@ public sealed class VideoDedupPreset
     public double CropBottomPercent { get; set; }
     public double CropLeftPercent { get; set; }
     public double CropRightPercent { get; set; }
-    public int PortraitWidth { get; set; } = 1080;
-    public int PortraitHeight { get; set; } = 1920;
+    public int PortraitWidth { get; set; }
+    public int PortraitHeight { get; set; }
     public int LandscapeWidth { get; set; } = 1920;
     public int LandscapeHeight { get; set; } = 1080;
     public double SpeedFactor { get; set; } = 1;

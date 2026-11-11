@@ -93,17 +93,17 @@ public static class VideoDedupService
             Write($"读取第 {(inputIndex + 1).ToString(CultureInfo.InvariantCulture)}/{inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片：{DescribeClip(clips[^1])}。");
         }
 
-        var groups = VideoDedupPlanner.Group(clips.Select(clip => clip.Probe.DurationSeconds).ToArray(), preset);
-        var merged = groups.Any(group => group.Count > 1);
+        var plan = VideoDedupPlanner.Plan(clips.Select(clip => clip.Probe.DurationSeconds).ToArray(), preset);
+        var renumber = plan.Count != clips.Count || plan.Any(group => group.Count > 1);
         var outputDirectory = Path.GetDirectoryName(VisiblePathFor(project, originalsRoot, inputs[0])) ?? project;
         var jobs = new List<RenderJob>();
-        for (var index = 0; index < groups.Count; index++)
+        for (var index = 0; index < plan.Count; index++)
         {
-            var groupClips = groups[index].Select(clipIndex => clips[clipIndex]).ToArray();
-            var destination = merged
+            var slices = plan[index];
+            var destination = renumber
                 ? Path.Combine(outputDirectory, $"{(index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4")
-                : VisiblePathFor(project, originalsRoot, groupClips[0].Path);
-            jobs.Add(new RenderJob(groupClips, destination));
+                : VisiblePathFor(project, originalsRoot, clips[slices[0].ClipIndex].Path);
+            jobs.Add(new RenderJob(slices, destination));
         }
 
         var workRoot = Path.Combine(originalsRoot, ".work");
@@ -114,7 +114,7 @@ public static class VideoDedupService
         Write(string.IsNullOrWhiteSpace(choice.Note)
             ? $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。"
             : $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
-        if (merged && preset.TransitionsEnabled)
+        if (renumber && preset.TransitionsEnabled && plan.Any(group => group.Count > 1))
             Write("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
         var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
 
@@ -134,15 +134,16 @@ public static class VideoDedupService
                     var temp = Path.Combine(
                         workRoot,
                         $"{(entry.index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4");
-                    var seed = Math.Abs(entry.job.Clips[0].Path.GetHashCode(StringComparison.Ordinal));
+                    var seed = Math.Abs(clips[entry.job.Slices[0].ClipIndex].Path.GetHashCode(StringComparison.Ordinal));
                     var episode = (entry.index + 1).ToString(CultureInfo.InvariantCulture);
                     var arguments = VideoDedupPlanner.BuildArguments(
                         preset,
-                        entry.job.Clips,
+                        clips,
+                        entry.job.Slices,
                         temp,
                         encoder,
                         seed);
-                    Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(entry.job.Clips, entry.job.Destination, preset)}");
+                    Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(clips, entry.job.Slices, entry.job.Destination, preset)}");
                     try
                     {
                         try
@@ -158,7 +159,7 @@ public static class VideoDedupService
                                 : "libx264";
                             Write($"第 {episode}/{totalEpisodes} 集 {encoder} 编码失败，改用 {software} 重新去重。");
                             await RunFfmpegAsync(
-                                VideoDedupPlanner.BuildArguments(preset, entry.job.Clips, temp, software, seed),
+                                VideoDedupPlanner.BuildArguments(preset, clips, entry.job.Slices, temp, software, seed),
                                 token).ConfigureAwait(false);
                         }
                         if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
@@ -194,7 +195,7 @@ public static class VideoDedupService
             ToRelative(project, job.Destination),
             new FileInfo(job.Destination).Length)).ToArray();
         WriteFingerprint(fingerprintPath, preset.Fingerprint(), outputs);
-        if (merged)
+        if (renumber)
             UpdateDownloadStateCount(project, inputs.Count, outputs.Length, log);
         if (item.SourceEpisodeCount < inputs.Count)
             item.SourceEpisodeCount = inputs.Count;
@@ -216,7 +217,7 @@ public static class VideoDedupService
         if (filters.Count > 0)
             yield return $"滤镜：{string.Join("，", filters)}。";
         yield return preset.HasDurationLimit
-            ? $"单集时长：最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {(preset.MaximumDurationSeconds > 0 ? Num(preset.MaximumDurationSeconds) + " 秒" : "不限制")}。"
+            ? $"单集时长：最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {(preset.MaximumDurationSeconds > 0 ? Num(preset.MaximumDurationSeconds) + " 秒" : "不限制")}。按裁剪前的时长计算，超长原片会拆开，过短尾段只在不超过最长时长时并入上一集。"
             : "单集时长：不限制。";
         if (!preset.TransitionsEnabled)
         {
@@ -233,14 +234,21 @@ public static class VideoDedupService
         yield return $"转场：{string.Join("、", names)}，每处 0.3 到 0.6 秒。";
     }
 
-    private static string DescribeJob(IReadOnlyList<VideoDedupClip> clips, string destination, VideoDedupPreset preset)
+    private static string DescribeJob(
+        IReadOnlyList<VideoDedupClip> clips,
+        IReadOnlyList<VideoDedupSlice> slices,
+        string destination,
+        VideoDedupPreset preset)
     {
         var output = Path.GetFileName(destination);
-        if (clips.Count == 1)
-            return $"{DescribeClip(clips[0])} → {output}。";
-        var sources = string.Join("、", clips.Select(clip => $"{Path.GetFileName(clip.Path)}（{DescribeProbe(clip)}）"));
-        var join = VideoDedupPlanner.CanTransition(preset, clips) ? "接缝使用转场" : "直接拼接";
-        return $"合并 {sources} → {output}，{join}。";
+        var sources = slices
+            .Select(slice => clips[slice.ClipIndex])
+            .DistinctBy(clip => clip.Path)
+            .Select(clip => $"{Path.GetFileName(clip.Path)}（{DescribeProbe(clip)}）");
+        if (slices.Count == 1 && Math.Abs(slices[0].Length - clips[slices[0].ClipIndex].Probe.DurationSeconds) < 0.05)
+            return $"{DescribeClip(clips[slices[0].ClipIndex])} → {output}。";
+        var join = slices.Count > 1 && VideoDedupPlanner.CanTransition(preset, slices) ? "接缝使用转场" : "直接拼接";
+        return $"分段 {string.Join("、", sources)} → {output}，{join}。";
     }
 
     private static string DescribeClip(VideoDedupClip clip) =>
@@ -713,9 +721,9 @@ public static class VideoDedupService
     private static string NaturalKey(string path) =>
         Regex.Replace(Path.GetFileName(path), @"\d+", match => match.Value.PadLeft(8, '0'));
 
-    private sealed class RenderJob(IReadOnlyList<VideoDedupClip> clips, string destination)
+    private sealed class RenderJob(IReadOnlyList<VideoDedupSlice> slices, string destination)
     {
-        public IReadOnlyList<VideoDedupClip> Clips { get; } = clips;
+        public IReadOnlyList<VideoDedupSlice> Slices { get; } = slices;
         public string Destination { get; } = destination;
         public string TempPath { get; set; } = "";
     }

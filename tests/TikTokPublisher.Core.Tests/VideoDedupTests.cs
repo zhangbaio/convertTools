@@ -121,8 +121,8 @@ public sealed class VideoDedupTests
         speed.Should().BeGreaterThan(0);
         fps.Should().BeGreaterThan(speed);
         drop.Should().BeGreaterThan(fps);
-        joined.Should().Contain("flags=lanczos");
         joined.Should().Contain("atempo=1.2 ");
+        joined.Should().Contain("aresample=48000");
         VideoDedupPlanner.ProcessedDuration(60, preset).Should().BeApproximately(60 / 1.1 * 11 / 12, 0.0001);
     }
 
@@ -146,11 +146,33 @@ public sealed class VideoDedupTests
         preset.MaximumDurationSeconds = 100;
         preset.Normalize();
 
-        var groups = VideoDedupPlanner.Group([80, 80, 20], preset);
+        var groups = VideoDedupPlanner.Plan([80, 80, 20], preset);
 
         groups.Should().HaveCount(2);
-        groups[0].Should().Equal(0);
-        groups[1].Should().Equal(1, 2);
+        groups[0].Select(slice => slice.ClipIndex).Should().Equal(0);
+        groups[1].Select(slice => slice.ClipIndex).Should().Equal(1, 2);
+    }
+
+    [Fact]
+    public void Long_episode_is_split_on_the_pre_trim_duration_and_a_short_tail_stays()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.MinimumDurationSeconds = 60;
+        preset.MaximumDurationSeconds = 130;
+        preset.TrimStartSeconds = 2;
+        preset.TrimEndSeconds = 2;
+        preset.Normalize();
+
+        var split = VideoDedupPlanner.Plan([214.321], preset);
+        split.Should().HaveCount(2);
+        split[0][0].StartSeconds.Should().Be(0);
+        split[0][0].EndSeconds.Should().Be(130);
+        split[1][0].StartSeconds.Should().Be(134);
+        split[1][0].EndSeconds.Should().Be(214.321);
+
+        var tail = VideoDedupPlanner.Plan([140], preset);
+        tail.Should().HaveCount(2);
+        tail[1][0].Length.Should().BeApproximately(6, 0.001);
     }
 
     [Fact]
@@ -168,7 +190,10 @@ public sealed class VideoDedupTests
         joined.Should().Contain("-b:v 4200k");
         joined.Should().Contain("-r 30");
         joined.Should().Contain("-c:a aac");
-        joined.Should().Contain("scale=1080:1920");
+        joined.Should().Contain("-profile:v main");
+        joined.Should().Contain("setparams=range=tv:color_primaries=bt709");
+        joined.Should().Contain("aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo");
+        joined.Should().NotContain("scale=");
         args[^1].Should().Be("out.mp4");
     }
 
@@ -191,7 +216,8 @@ public sealed class VideoDedupTests
 
         var clip = new VideoDedupClip("wide.mp4", new VideoDedupProbe(12, 1920, 1080, true));
         var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
-        joined.Should().Contain("scale=1280:720");
+        joined.Should().Contain("scale=1280:720:flags=lanczos");
+        joined.Should().NotContain("force_original_aspect_ratio");
     }
 
     [Fact]
@@ -210,7 +236,8 @@ public sealed class VideoDedupTests
         var clip = new VideoDedupClip("wide.mp4", new VideoDedupProbe(12, 1920, 1080, true));
         var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
         joined.Should().NotContain("scale=");
-        joined.Should().Contain("crop=w=iw*");
+        joined.Should().Contain("crop=trunc(iw*");
+        joined.Should().Contain("setparams=range=tv");
         joined.Should().Contain("fps=30");
     }
 
@@ -225,6 +252,7 @@ public sealed class VideoDedupTests
         nvenc.Should().Contain("-preset p4");
         nvenc.Should().Contain("-gpu any");
         nvenc.Should().Contain("-rc vbr");
+        nvenc.Should().Contain("-profile:v main");
 
         var amf = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "h264_amf", seed: 1));
         amf.Should().Contain("-c:v h264_amf");
@@ -456,16 +484,16 @@ public sealed class VideoDedupTests
         var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, true));
         var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
 
-        joined.Should().Contain("scale=1080:1920");
+        joined.Should().Contain("setparams=range=tv:color_primaries=bt709");
         joined.Should().Contain("colorbalance=rm=0.2:bm=-0.2");
         joined.Should().Contain("gblur=sigma=1");
         joined.Should().NotContain("unsharp=");
         joined.Should().Contain("curves=");
         joined.Should().Contain("0.5/0.8");
         joined.Should().Contain("drawbox=");
-        var scaleAt = joined.IndexOf("scale=1080:1920", StringComparison.Ordinal);
+        var geometryAt = joined.IndexOf("setparams=range=tv", StringComparison.Ordinal);
         var colorAt = joined.IndexOf("colorbalance=rm=0.2", StringComparison.Ordinal);
-        colorAt.Should().BeGreaterThan(scaleAt);
+        colorAt.Should().BeGreaterThan(geometryAt);
     }
 
     [Fact]
