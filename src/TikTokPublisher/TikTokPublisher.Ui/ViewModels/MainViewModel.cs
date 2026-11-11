@@ -4715,7 +4715,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool ShouldAppendProgressLog(QueueWorkerProgress progress)
     {
         var message = progress.Message ?? "";
-        if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey)
+        if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey, message)
             || message.Contains("失败", StringComparison.Ordinal)
             || message.Contains("异常", StringComparison.Ordinal)
             || message.Contains("错误", StringComparison.Ordinal)

@@ -33,6 +33,19 @@ public sealed class QueueProgressBatchBufferTests
     }
 
     [Fact]
+    public void Drain_preserves_every_api_upload_message_in_the_upload_step()
+    {
+        var buffer = new QueueProgressBatchBuffer();
+
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口直传：第 46 集已挂到剧集（已挂载 46/46）。"));
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口直传：46 集共 1.07GB，上传用时 3 分 13 秒，平均 5.7MB/s。"));
+
+        buffer.Drain().Select(progress => progress.Message).Should().Equal(
+            "接口直传：第 46 集已挂到剧集（已挂载 46/46）。",
+            "接口直传：46 集共 1.07GB，上传用时 3 分 13 秒，平均 5.7MB/s。");
+    }
+
+    [Fact]
     public void Enqueue_requests_another_flush_after_the_previous_batch_is_drained()
     {
         var buffer = new QueueProgressBatchBuffer();
