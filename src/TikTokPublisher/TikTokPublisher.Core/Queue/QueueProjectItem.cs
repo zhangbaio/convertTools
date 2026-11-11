@@ -170,7 +170,7 @@ public sealed class QueueProjectItem
         TikTokPublisher.Core.Services.TikTokProjectImageService.HasCurrentProjectImages(ProjectDir);
 
     private bool HasCurrentSmallVideoRepair() =>
-        !TikTokPublisher.Core.Services.TikTokSmallVideoRepairService.NeedsRepair(ProjectDir);
+        !TikTokPublisher.Core.Services.TikTokSmallVideoRepairService.NeedsRepair(ProjectDir, checkFrames: false);
 
     private bool HasCurrentRoleVector()
     {

@@ -2,14 +2,22 @@ namespace TikTokPublisher.Core.Services;
 
 public static class TikTokSmallVideoRepairService
 {
-    public static bool NeedsRepair(string sourceProjectDir)
+    /// <param name="checkFrames">逐个探测画面比例，首次较慢；只看文件大小时传 false。</param>
+    public static bool NeedsRepair(string sourceProjectDir, bool checkFrames = true)
     {
         try
         {
             var uploadPaths = ProjectVideoResolver.ResolveUploadVideos(
                 sourceProjectDir,
                 allowStagedFallback: true);
-            return uploadPaths.Count == 0 || uploadPaths.Any(TikTokSmallVideoPaddingService.NeedsPadding);
+            if (uploadPaths.Count == 0 || uploadPaths.Any(TikTokSmallVideoPaddingService.NeedsPadding))
+                return true;
+            if (!checkFrames)
+                return false;
+
+            var sourceVideos = ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir, allowStagedFallback: false);
+            return (sourceVideos.Count > 0 ? sourceVideos : uploadPaths)
+                .Any(path => TikTokVideoFrameRepairService.NeedsRepair(path));
         }
         catch
         {
@@ -34,12 +42,17 @@ public static class TikTokSmallVideoRepairService
             sourceProjectDir,
             allowStagedFallback: false).ToList();
         var uploadPaths = preview.UploadPaths.Count > 0 ? preview.UploadPaths : preview.SourcePaths;
+        var framedCount = RepairFrames(
+            sourceProjectDir, sourceVideos.Count > 0 ? sourceVideos : uploadPaths, log, ct);
         var smallSourcePaths = sourceVideos.Where(TikTokSmallVideoPaddingService.NeedsPadding).ToList();
         var smallUploadPaths = uploadPaths.Where(TikTokSmallVideoPaddingService.NeedsPadding).ToList();
         var checkedCount = Math.Max(sourceVideos.Count, uploadPaths.Count);
-        if (smallSourcePaths.Count == 0 && smallUploadPaths.Count == 0)
+        var rebuildForFrames = framedCount > 0 && sourceVideos.Count > 0;
+        if (smallSourcePaths.Count == 0 && smallUploadPaths.Count == 0 && !rebuildForFrames)
         {
-            log?.Invoke($"跳过：未发现小于 5MB 的视频，共检查 {checkedCount} 个待上传视频。");
+            log?.Invoke(framedCount > 0
+                ? $"通过：已修复 {framedCount} 个比例不对的上传副本，未发现小于 5MB 的视频，共检查 {checkedCount} 个。"
+                : $"跳过：未发现小于 5MB 或比例不是 9:16 的视频，共检查 {checkedCount} 个待上传视频。");
             return;
         }
 
@@ -48,7 +61,9 @@ public static class TikTokSmallVideoRepairService
         if (sourceVideos.Count > 0)
         {
             var smallCount = Math.Max(smallSourcePaths.Count, smallUploadPaths.Count);
-            log?.Invoke($"开始：检测到 {smallCount} 个小于 5MB 的源视频或上传副本，重建上传副本…");
+            log?.Invoke(smallCount > 0
+                ? $"开始：检测到 {smallCount} 个小于 5MB 的源视频或上传副本，重建上传副本…"
+                : $"开始：已修复 {framedCount} 个比例不对的成片，重建上传副本…");
             var rebuilt = TikTokUploadStagingService.BuildPayload(
                 sourceProjectDir, title, originalTitle,
                 rebuildStaging: true, repairSmallVideos: true, log, ct);
@@ -85,6 +100,37 @@ public static class TikTokSmallVideoRepairService
         }
 
         log?.Invoke($"通过：共检查 {repairedUploadPaths.Count} 个上传副本，小文件修复输出已就绪。");
+    }
+
+    private static int RepairFrames(
+        string sourceProjectDir,
+        IReadOnlyList<string> videos,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var misframed = TikTokVideoFrameRepairService.FindMisframed(videos, ct);
+        if (misframed.Count == 0)
+            return 0;
+
+        log?.Invoke(
+            $"开始：检测到 {misframed.Count} 个画面比例不是 9:16 的视频" +
+            $"（{string.Join("、", misframed.Take(5).Select(Path.GetFileName))}{(misframed.Count > 5 ? " 等" : "")}），" +
+            "等比缩放到 1080×1920 并补黑边，原片备份到同目录 " + TikTokVideoFrameRepairService.BackupDirectoryName + "。");
+        foreach (var path in misframed)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                TikTokVideoFrameRepairService.RepairInPlaceAsync(path, sourceProjectDir, log, ct)
+                    .GetAwaiter().GetResult();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new InvalidOperationException($"TikTok 比例修复失败：{Path.GetFileName(path)}（{ex.Message}）", ex);
+            }
+        }
+
+        return misframed.Count;
     }
 
     private static void RepairExistingUploadCopies(

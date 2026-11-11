@@ -36,6 +36,25 @@ public static class VideoDedupService
         }
     }
 
+    /// <summary>别的步骤改写了去重成片后，同步记录里的文件大小，免得被当成新下载重新去重。</summary>
+    public static void RefreshOutputLength(string projectDir, string videoPath)
+    {
+        var project = Path.GetFullPath(projectDir);
+        var fingerprintPath = FingerprintPath(project);
+        var fingerprint = ReadFingerprint(fingerprintPath);
+        if (fingerprint is null)
+            return;
+
+        var relative = ToRelative(project, Path.GetFullPath(videoPath));
+        var index = fingerprint.Outputs.FindIndex(output =>
+            string.Equals(output.Path, relative, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+            return;
+
+        fingerprint.Outputs[index] = fingerprint.Outputs[index] with { Length = new FileInfo(videoPath).Length };
+        WriteFingerprint(fingerprintPath, fingerprint.Preset, fingerprint.Outputs);
+    }
+
     public static async Task RunAsync(
         QueueProjectItem item,
         TikTokAccountProfile account,
