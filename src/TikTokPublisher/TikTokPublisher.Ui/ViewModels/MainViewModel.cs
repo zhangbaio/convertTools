@@ -91,6 +91,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly object _checkedQueueFollowUpLock = new();
     private readonly Dictionary<string, PendingCheckedQueue> _checkedQueueFollowUps = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _checkedQueueFollowUpArmed = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _manualStopEpoch = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _userStoppedProjectDirs = new(StringComparer.OrdinalIgnoreCase);
     private string? _manualInterventionWorkspaceRoot;
     private bool _applyingQueueStepToggles;
     private bool _queueRunActive;
@@ -2761,12 +2763,15 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = (workspaceRoot ?? WorkspacePath).Trim();
         if (!string.IsNullOrEmpty(root))
         {
+            // 先交还派单并清掉「本轮结束后再执行」，再取消队列，避免停止收尾时又被拉起来。
+            ReleaseUserStoppedAutoPublish(root);
             if (_workspaceQueueRunCancellations.TryGetValue(SafeFullPath(root), out var workspaceCts))
                 workspaceCts.Cancel();
             _queueOrchestrator.StopWorkspace(root);
         }
         else
         {
+            ReleaseUserStoppedAutoPublish(null);
             _queueOrchestrator.StopAll();
             _queueCts?.Cancel();
         }
@@ -2810,6 +2815,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (!IsQueueRunning)
             return TikTokRemoteCommandResult.Success(command.Command, "当前没有运行中的 TikTok 队列。");
 
+        ReleaseUserStoppedAutoPublish(null);
         _queueOrchestrator.StopAll();
         _queueCts?.Cancel();
         RefreshRunningWorkspacesSummary();
@@ -2990,6 +2996,7 @@ public sealed partial class MainViewModel : ViewModelBase
             var createdAt = marker is not null && marker.AssignmentId == assignmentId && marker.CreatedAt != default
                 ? marker.CreatedAt
                 : (DateTimeOffset?)null;
+            ForgetUserStoppedProjects([projectDir]);
             XingeAutoPublishMarkerStore.Write(projectDir, new XingeAutoPublishAssignment(
                 assignmentId,
                 $"{XingeAutoPublishProgressReporter.DefaultProgressPathPrefix}{assignmentId}/progress",
@@ -3170,20 +3177,212 @@ public sealed partial class MainViewModel : ViewModelBase
         public string AccountId { get; set; } = "";
         public List<string> ProjectDirs { get; } = [];
         public int Generation { get; set; }
+        public int StopEpoch { get; set; }
         public QueueRunOptions? ServerOptions { get; set; }
     }
 
     private readonly HashSet<string> _checkedQueueFollowUpRunning = new(StringComparer.OrdinalIgnoreCase);
 
+    // 手动停止：这一轮服务器派单交还 XINGE，本地不再续跑。下次分发写入新标记后可以再执行。
+    private void ReleaseUserStoppedAutoPublish(string? workspaceRoot)
+    {
+        var roots = new List<string>();
+        if (!string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            if (TryNormalizeWorkspace(workspaceRoot, out var one))
+                roots.Add(one);
+        }
+        else
+        {
+            foreach (var run in _queueOrchestrator.Snapshot())
+            {
+                if (TryNormalizeWorkspace(run.WorkspaceRoot, out var running) &&
+                    !roots.Contains(running, StringComparer.OrdinalIgnoreCase))
+                    roots.Add(running);
+            }
+
+            if (TryNormalizeWorkspace(WorkspacePath, out var current) &&
+                !roots.Contains(current, StringComparer.OrdinalIgnoreCase))
+                roots.Add(current);
+            lock (_checkedQueueFollowUpLock)
+            {
+                foreach (var key in _checkedQueueFollowUps.Keys)
+                {
+                    if (!roots.Contains(key, StringComparer.OrdinalIgnoreCase))
+                        roots.Add(key);
+                }
+            }
+        }
+
+        var released = 0;
+        foreach (var root in roots)
+            released += ReleaseUserStoppedAutoPublishWorkspace(root);
+        if (released == 0)
+            return;
+
+        var text = $"已手动停止，{released} 部服务器派单已交还，不会马上再执行。下次分发可以再执行。";
+        StatusMessage = text;
+        AppendLog(text);
+    }
+
+    private int ReleaseUserStoppedAutoPublishWorkspace(string root)
+    {
+        List<string> extraDirs;
+        lock (_checkedQueueFollowUpLock)
+        {
+            _manualStopEpoch[root] = _manualStopEpoch.GetValueOrDefault(root) + 1;
+            extraDirs = _checkedQueueFollowUps.TryGetValue(root, out var pending)
+                ? pending.ProjectDirs.ToList()
+                : [];
+            _checkedQueueFollowUps.Remove(root);
+            _checkedQueueFollowUpArmed.Remove(root);
+        }
+
+        var itemsByDir = new Dictionary<string, QueueProjectItem>(StringComparer.OrdinalIgnoreCase);
+        void Remember(QueueProjectItem? item)
+        {
+            if (item is null || string.IsNullOrWhiteSpace(item.ProjectDir))
+                return;
+            if (!TryNormalizeWorkspace(item.ProjectDir, out var full))
+                return;
+            itemsByDir[full] = item;
+        }
+
+        try
+        {
+            foreach (var item in WorkspaceQueueDatabase.Load(root).Items)
+                Remember(item);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppendLog($"读取队列以停止派单失败：{ex.Message}");
+        }
+
+        if (IsActiveWorkspace(root))
+        {
+            foreach (var item in _queueItems)
+                Remember(item);
+        }
+
+        foreach (var dir in extraDirs)
+        {
+            if (TryNormalizeWorkspace(dir, out var full) && !itemsByDir.ContainsKey(full))
+                itemsByDir[full] = new QueueProjectItem { ProjectDir = full };
+        }
+
+        var releasedDirs = new List<string>();
+        foreach (var (dir, item) in itemsByDir)
+        {
+            if (QueueWorkerRunner.HasFinishedUpload(item))
+                continue;
+            var marker = XingeAutoPublishMarkerStore.TryRead(dir);
+            if (marker is not { IsActive: true })
+                continue;
+            try
+            {
+                XingeAutoPublishMarkerStore.MarkFinal(dir, marker.AssignmentId, XingeAutoPublishStatuses.UserStopped);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                AppendLog($"更新自动上新标记失败：{ex.Message}");
+                continue;
+            }
+
+            XingeAutoPublishProgressReporter.Shared.Enqueue(XingeAutoPublishProgress.For(
+                marker.ToAssignment(),
+                XingeAutoPublishStatuses.UserStopped,
+                "upload_series",
+                "用户手动停止",
+                XingeAutoPublishFailureKinds.UserStopped));
+            releasedDirs.Add(dir);
+        }
+
+        if (releasedDirs.Count == 0)
+            return 0;
+
+        lock (_checkedQueueFollowUpLock)
+        {
+            foreach (var dir in releasedDirs)
+                _userStoppedProjectDirs.Add(dir);
+        }
+
+        UncheckUserStoppedProjects(root, releasedDirs);
+        return releasedDirs.Count;
+    }
+
+    private void ForgetUserStoppedProjects(IEnumerable<string> projectDirs)
+    {
+        lock (_checkedQueueFollowUpLock)
+        {
+            foreach (var dir in projectDirs)
+            {
+                if (TryNormalizeWorkspace(dir, out var full))
+                    _userStoppedProjectDirs.Remove(full);
+            }
+        }
+    }
+
+    private void UncheckUserStoppedProjects(string root, IReadOnlyCollection<string> projectDirs)
+    {
+        var stopped = projectDirs as HashSet<string> ?? new HashSet<string>(projectDirs, StringComparer.OrdinalIgnoreCase);
+        var changed = false;
+        if (IsActiveWorkspace(root))
+        {
+            foreach (var item in _queueItems)
+            {
+                if (!item.Enabled || string.IsNullOrWhiteSpace(item.ProjectDir))
+                    continue;
+                if (!TryNormalizeWorkspace(item.ProjectDir, out var full) || !stopped.Contains(full))
+                    continue;
+                item.Enabled = false;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                RefreshQueueRowViewModels();
+                UpdateQueueSummaryText();
+            }
+        }
+
+        try
+        {
+            var state = WorkspaceQueueDatabase.Load(root);
+            var saved = false;
+            foreach (var item in state.Items)
+            {
+                if (!item.Enabled || string.IsNullOrWhiteSpace(item.ProjectDir))
+                    continue;
+                if (!TryNormalizeWorkspace(item.ProjectDir, out var full) || !stopped.Contains(full))
+                    continue;
+                item.Enabled = false;
+                saved = true;
+            }
+
+            if (saved)
+                WorkspaceQueueService.SaveProjects(root, state.Items, state.Options);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppendLog($"取消已停止派单的勾选失败：{ex.Message}");
+        }
+    }
+
     // 当前勾选队列结束后，如果期间又有派单更新了勾选，再走一次「执行勾选队列」。
+    // 用户手动停止会抬高停止序号并清掉当时的跟进，这一轮结束后不再自动开跑。
     public void NotifyCheckedQueueRunFinished(string workspace)
     {
         if (!TryNormalizeWorkspace(workspace, out var root))
             return;
         lock (_checkedQueueFollowUpLock)
         {
-            if (!_checkedQueueFollowUps.ContainsKey(root))
+            if (!_checkedQueueFollowUps.TryGetValue(root, out var pending))
                 return;
+            if (pending.StopEpoch != _manualStopEpoch.GetValueOrDefault(root))
+            {
+                _checkedQueueFollowUps.Remove(root);
+                return;
+            }
         }
 
         ArmCheckedQueueFollowUp(root);
@@ -3434,6 +3633,7 @@ public sealed partial class MainViewModel : ViewModelBase
                     pending.ProjectDirs.Add(full);
             }
 
+            pending.StopEpoch = _manualStopEpoch.GetValueOrDefault(root);
             pending.Generation++;
         }
 
@@ -3468,6 +3668,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         PendingCheckedQueue pending;
         int seen;
+        int stopEpoch;
         lock (_checkedQueueFollowUpLock)
         {
             if (!_checkedQueueFollowUps.TryGetValue(workspace, out pending!))
@@ -3475,6 +3676,7 @@ public sealed partial class MainViewModel : ViewModelBase
             if (!_checkedQueueFollowUpRunning.Add(workspace))
                 return;
             seen = pending.Generation;
+            stopEpoch = pending.StopEpoch;
         }
 
         var started = false;
@@ -3498,6 +3700,17 @@ public sealed partial class MainViewModel : ViewModelBase
                 await ShowAutoPublishWorkspaceAsync(workspace).ConfigureAwait(true);
             if (serverOptions is not null)
                 ApplyAutoPublishServerSteps(FindAccountById(accountId)?.Model, workspace, serverOptions);
+            lock (_checkedQueueFollowUpLock)
+            {
+                if (_manualStopEpoch.GetValueOrDefault(workspace) != stopEpoch)
+                {
+                    if (_checkedQueueFollowUps.TryGetValue(workspace, out var stopped) && stopped.Generation == seen)
+                        _checkedQueueFollowUps.Remove(workspace);
+                    AppendLog("队列已手动停止，不再自动执行这一轮勾选。");
+                    return;
+                }
+            }
+
             var checkedCount = CountCheckedQueueItems(workspace);
             if (checkedCount == 0)
             {
@@ -4557,8 +4770,18 @@ public sealed partial class MainViewModel : ViewModelBase
                 continue;
             }
 
-            if (WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
-                visible.Add(item);
+            if (!WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
+                continue;
+            if (item.Enabled && TryNormalizeWorkspace(item.ProjectDir, out var full))
+            {
+                lock (_checkedQueueFollowUpLock)
+                {
+                    if (_userStoppedProjectDirs.Contains(full))
+                        item.Enabled = false;
+                }
+            }
+
+            visible.Add(item);
         }
         if (visible.Count == 0 && items.Count > 0 && !droppedArchived)
             return;
@@ -5813,7 +6036,9 @@ public sealed partial class MainViewModel : ViewModelBase
         // 标记必须在项目进入运行队列之前写好，队列观察者才能从第一条进度起识别派单。
         if (autoPublish is not null)
         {
-            foreach (var projectDir in BuildOrderedDistinctProjectDirs(result.ProjectDirs))
+            var importedDirs = BuildOrderedDistinctProjectDirs(result.ProjectDirs);
+            ForgetUserStoppedProjects(importedDirs);
+            foreach (var projectDir in importedDirs)
             {
                 XingeAutoPublishMarkerStore.Write(projectDir, autoPublish.Assignment);
                 autoPublish.ProjectDirs.Add(projectDir);

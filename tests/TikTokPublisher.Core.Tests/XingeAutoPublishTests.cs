@@ -65,20 +65,37 @@ public sealed class XingeAutoPublishTests : IDisposable
     public void ShouldKeepChecked_UsesLocalDispatchDayAndAccount()
     {
         var today = new DateTime(2026, 11, 10);
+        var offset = TimeZoneInfo.Local.GetUtcOffset(today);
         var marker = new XingeAutoPublishMarker
         {
             AssignmentId = 42,
             AccountProfileId = "acc-1",
-            CreatedAt = new DateTimeOffset(2026, 11, 10, 10, 29, 0, TimeSpan.FromHours(8)),
+            CreatedAt = new DateTimeOffset(2026, 11, 10, 10, 29, 0, offset),
             FinalStatus = "failed",
         };
 
         XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today).Should().BeTrue();
         XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-2", today).Should().BeFalse();
         XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today.AddDays(-1)).Should().BeFalse();
-        marker.CreatedAt = new DateTimeOffset(2026, 11, 9, 23, 0, 0, TimeSpan.FromHours(8));
+        marker.CreatedAt = new DateTimeOffset(2026, 11, 9, 23, 0, 0, offset);
         XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today).Should().BeFalse();
         XingeAutoPublishMarkerStore.ShouldKeepChecked(null, "acc-1", today).Should().BeFalse();
+        marker.CreatedAt = new DateTimeOffset(2026, 11, 10, 10, 29, 0, offset);
+        marker.FinalStatus = XingeAutoPublishStatuses.UserStopped;
+        XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Recovery_DoesNotResumeAfterManualStop()
+    {
+        var marker = new XingeAutoPublishMarker
+        {
+            AssignmentId = 7,
+            FinalStatus = XingeAutoPublishStatuses.UserStopped,
+        };
+
+        XingeAutoPublishRecovery.Decide("accepted", marker, true).Should().Be(XingeAutoPublishRecoveryAction.None);
+        XingeAutoPublishRecovery.Decide("running", marker, true).Should().Be(XingeAutoPublishRecoveryAction.None);
     }
 
     [Fact]
