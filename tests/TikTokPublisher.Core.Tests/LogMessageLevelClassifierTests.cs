@@ -88,6 +88,23 @@ public sealed class LogMessageLevelClassifierTests
     }
 
     [Fact]
+    public void List_read_failure_that_continues_from_cache_is_warning()
+    {
+        LogMessageLevelClassifier.InferLevel(
+                "TikTok 原创管理列表暂时无法读取，将继续按本地草稿缓存判断：原创管理页面未找到剧集搜索框。")
+            .Should().Be("warn");
+        LogMessageLevelClassifier.InferLevel("角色补源：TikTok 已上传视频兜底失败，将继续后续批次：超时。")
+            .Should().Be("warn");
+    }
+
+    [Fact]
+    public void Failure_that_stops_the_run_stays_error_even_if_it_mentions_continuing()
+    {
+        LogMessageLevelClassifier.InferLevel("上传失败，将继续下一部前已停止：页面崩溃。")
+            .Should().Be("error");
+    }
+
+    [Fact]
     public void Poster_verification_that_still_fails_is_error()
     {
         LogMessageLevelClassifier.InferLevel("海报文字清理后标题校验仍未通过：检测到异体字或非标准字符")

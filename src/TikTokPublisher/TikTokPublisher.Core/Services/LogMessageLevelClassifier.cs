@@ -26,6 +26,13 @@ public static partial class LogMessageLevelClassifier
                 "失败", "错误", "异常", "无法", "终止", "崩溃", "未成功", "未通过",
                 "failed", "failure", "error", "exception", "invalid"))
         {
+            // 读失败后明确继续的提示不是终态错误，例如原剧列表读不到就改用本地草稿缓存。
+            if (message.Contains("将继续", StringComparison.Ordinal) &&
+                !ContainsAny(message, "已停止", "阻断"))
+            {
+                return "warn";
+            }
+
             return "error";
         }
 
