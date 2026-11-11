@@ -156,8 +156,6 @@ public static partial class TikTokBrowserActions
             await UploadCoverAsync(page, coverPath, log, ct);
 
         await UploadLocalVideosAsync(page, uploadPaths, waitForFinish: false, log, ct);
-        await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
-        Log(log, "TikTok 其余表单已填写完成，开始检查视频是否上传完成。");
         await WaitVideoUploadFinishedAsync(
             page,
             expectedCount: uploadPaths.Count,
@@ -166,6 +164,16 @@ public static partial class TikTokBrowserActions
             log,
             ct,
             videoPaths: uploadPaths);
+        await TikTokBatchUploadService.WaitAllEpisodesReadyAsync(
+            page,
+            Math.Max(payload.EpisodeCount, uploadPaths.Count),
+            uploadPaths,
+            PayloadTitleCandidates(payload),
+            options,
+            log,
+            ct);
+        await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
+        Log(log, "TikTok 视频已全部上传完成，其余表单已填写。");
     }
 
     public static async Task SubmitAsync(

@@ -33,7 +33,7 @@ public static partial class TikTokBrowserActions
         await FeedVideoFilesAsync(page, button, resolved, ct);
         Log(log, waitForFinish
             ? $"已选择 {resolved.Count} 个视频文件，等待 TikTok 上传完成。"
-            : $"已选择 {resolved.Count} 个视频文件，TikTok 已开始上传，继续填写其他表单。");
+            : $"已选择 {resolved.Count} 个视频文件，TikTok 已开始上传。");
         await page.WaitForTimeoutAsync(5000);
         await EnsureVideoUploadStartedAsync(page, button, resolved, resolved.Count, log, ct);
         if (waitForFinish)

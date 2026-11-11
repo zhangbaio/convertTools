@@ -40,6 +40,15 @@ public static partial class TikTokBrowserActions
         ct.ThrowIfCancellationRequested();
         Log(log, "TikTok 已切换到草稿编辑流程，保留已有合同和剧名；简介为空时自动补全。");
         await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
+        var uploadPaths = payload.UploadVideoPaths.Count > 0 ? payload.UploadVideoPaths : payload.VideoPaths;
+        await TikTokBatchUploadService.WaitAllEpisodesReadyAsync(
+            page,
+            Math.Max(payload.EpisodeCount, uploadPaths.Count),
+            uploadPaths,
+            PayloadTitleCandidates(payload),
+            options,
+            log,
+            ct);
         await EnsureEditCoverUploadedAsync(page, coverPath, log, ct);
         await EnsureEditDescriptionFilledAsync(page, payload.Description, log, ct);
         await FillSharedPublishFieldsAsync(
@@ -440,7 +449,33 @@ public static partial class TikTokBrowserActions
             var aligned = FindAlignedEditVideoPrefixCount(rows);
 
             List<string> missingPaths;
-            if (aligned < rows.Count)
+            var reals = rows.Select(row => row.Real).ToList();
+            var sortable = aligned < rows.Count &&
+                           rows.Count == tableRowCount &&
+                           tableRowCount <= expectedCount &&
+                           PlanEpisodeReorder(reals) is not null;
+            if (sortable)
+            {
+                var firstBad = aligned + 1;
+                missingPaths = ResolveMissingUploadPathsByIndexes(uploadPaths, reals);
+                if (missingPaths.Count > 0)
+                {
+                    Log(log,
+                        $"检测到集数错位：第{firstBad}个位置起与真实集数不一致（共 {rows.Count} 行）。不删行，" +
+                        $"先补传缺的第 {string.Join(", ", ExtractEpisodeIndexesFromPaths(missingPaths))} 集，处理完成后按集号拖动排序。");
+                }
+                else
+                {
+                    Log(log, $"检测到集数错位：第{firstBad}个位置起与真实集数不一致（共 {rows.Count} 行），按集号拖动排序。");
+                    if (await ReorderEditVideosByEpisodeAsync(page, log, ct))
+                        return;
+
+                    Log(log, $"拖动排序未成功，改为删除第{firstBad}个位置及其后所有行并重传补齐。");
+                    await DeleteEditVideoRowsFromSlotAsync(page, aligned, log, ct);
+                    missingPaths = uploadPaths.Skip(aligned).ToList();
+                }
+            }
+            else if (aligned < rows.Count)
             {
                 var firstBad = aligned + 1;
                 Log(log,
@@ -778,6 +813,13 @@ public static partial class TikTokBrowserActions
         var aligned = FindAlignedEditVideoPrefixCount(rows);
         if (aligned >= rows.Count)
             return false;
+
+        if (PlanEpisodeReorder(rows.Select(row => row.Real).ToList()) is not null)
+        {
+            Log(log, $"补传后第{aligned + 1}个位置起顺序不对（共 {rows.Count} 行），按集号拖动排序。");
+            if (await ReorderEditVideosByEpisodeAsync(page, log, ct))
+                return false;
+        }
 
         _misalignmentRepairDepth++;
         try
@@ -1507,7 +1549,7 @@ public static partial class TikTokBrowserActions
     private static List<string> ResolveMissingUploadPaths(IReadOnlyList<string> videoPaths, int uploadedCount) =>
         videoPaths.Skip(Math.Max(0, uploadedCount)).ToList();
 
-    private static List<string> ResolveMissingUploadPathsByIndexes(
+    internal static List<string> ResolveMissingUploadPathsByIndexes(
         IReadOnlyList<string> videoPaths,
         IReadOnlyList<int> uploadedIndexes)
     {

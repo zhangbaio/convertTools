@@ -1553,7 +1553,7 @@ public sealed class QueueWorkerRunnerTests : IDisposable
                  {
                      "-y",
                      "-f", "lavfi",
-                     "-i", "color=c=black:s=16x16:r=1:d=16",
+                     "-i", "color=c=black:s=1080x1920:r=1:d=16",
                      "-an",
                      "-c:v", "libx264",
                      "-pix_fmt", "yuv420p",
