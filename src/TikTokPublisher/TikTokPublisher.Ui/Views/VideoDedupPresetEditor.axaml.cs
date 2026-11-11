@@ -79,7 +79,6 @@ public partial class VideoDedupPresetEditor : UserControl
             EncoderNvencBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingNvenc;
             EncoderAmfBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingAmf;
             EncoderQsvBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingQsv;
-            EncoderHardwareBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingHardwareOnly;
             MinDurationBox.Value = (decimal)value.MinimumDurationSeconds;
             MaxDurationBox.Value = (decimal)value.MaximumDurationSeconds;
             TransitionsEnabledBox.IsChecked = value.TransitionsEnabled;
@@ -128,9 +127,7 @@ public partial class VideoDedupPresetEditor : UserControl
                         ? VideoDedupPreset.EncodingAmf
                         : EncoderQsvBox.IsChecked == true
                             ? VideoDedupPreset.EncodingQsv
-                            : EncoderHardwareBox.IsChecked == true
-                                ? VideoDedupPreset.EncodingHardwareOnly
-                                : VideoDedupPreset.EncodingHardwareFirst,
+                            : VideoDedupPreset.EncodingHardwareFirst,
             MinimumDurationSeconds = (double)(MinDurationBox.Value ?? 0),
             MaximumDurationSeconds = (double)(MaxDurationBox.Value ?? 0),
             TransitionsEnabled = TransitionsEnabledBox.IsChecked == true,

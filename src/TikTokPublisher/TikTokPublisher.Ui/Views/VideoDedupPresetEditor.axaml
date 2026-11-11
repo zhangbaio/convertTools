@@ -31,7 +31,6 @@
                         <RadioButton x:Name="EncoderNvencBox" GroupName="DedupEncoder" Content="NVIDIA" Margin="0,0,16,4" />
                         <RadioButton x:Name="EncoderAmfBox" GroupName="DedupEncoder" Content="AMD" Margin="0,0,16,4" />
                         <RadioButton x:Name="EncoderQsvBox" GroupName="DedupEncoder" Content="Intel" Margin="0,0,16,4" />
-                        <RadioButton x:Name="EncoderHardwareBox" GroupName="DedupEncoder" Content="仅硬件" Margin="0,0,16,4" />
                     </WrapPanel>
                     <TextBlock Classes="dedupHint" Text="自动选择会实际试编码：先 NVIDIA，再 Intel，再 AMD，都不可用时用 CPU。指定显卡不可用时这一步失败，不会改用别的显卡。" />
                 </StackPanel>

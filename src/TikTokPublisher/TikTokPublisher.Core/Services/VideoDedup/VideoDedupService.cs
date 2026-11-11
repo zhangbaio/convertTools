@@ -259,8 +259,6 @@ public static class VideoDedupService
             return "编码器指定 AMD";
         if (string.Equals(preference, VideoDedupPreset.EncodingQsv, StringComparison.Ordinal))
             return "编码器指定 Intel";
-        if (string.Equals(preference, VideoDedupPreset.EncodingHardwareOnly, StringComparison.Ordinal))
-            return "编码器仅硬件";
         return "编码器自动选择";
     }
 

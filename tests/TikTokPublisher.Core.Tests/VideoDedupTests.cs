@@ -200,6 +200,16 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Saved_hardware_only_preference_becomes_automatic()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.EncodingPreference = "HardwareOnly";
+        preset.Normalize();
+
+        preset.EncodingPreference.Should().Be(VideoDedupPreset.EncodingHardwareFirst);
+    }
+
+    [Fact]
     public async Task Explicit_nvidia_fails_when_that_card_cannot_encode()
     {
         VideoDedupService.EncoderWorksForTests = (encoder, _) =>
