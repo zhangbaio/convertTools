@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
 
@@ -20,6 +21,7 @@ public static class TikTokApiUploadService
     internal const int PartSize = 3 * 1024 * 1024;
     private const string ApiVersion = "2020-11-19";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
+    private const int MountRetryCount = 2;
 
     private static readonly Regex SeriesIdPattern =
         new(@"/series/(?:draft/)?(\d{16,20})/?(?=[?#]|$)", RegexOptions.Compiled);
@@ -79,6 +81,40 @@ public static class TikTokApiUploadService
         videos.All(video => video.Episode is not null) &&
         videos.Select(video => video.Episode).Distinct().Count() == videos.Count;
 
+    /// <summary>已有正片的最大 orderNum 之后，按缺失列表的位置连续编号。第 1 集从 1 开始。</summary>
+    internal static int[] AssignOrderNums(int maxExistingOrderNum, int count)
+    {
+        var orderNums = new int[count];
+        for (var index = 0; index < count; index++)
+            orderNums[index] = maxExistingOrderNum + index + 1;
+        return orderNums;
+    }
+
+    internal readonly record struct AddVideoResult(bool Succeeded, bool Retryable, string Error);
+
+    /// <summary>HTTP 5xx 和网络失败可以重试；业务码拒绝不行。</summary>
+    internal static AddVideoResult InspectAddVideoResponse(int status, string? body)
+    {
+        var text = body ?? "";
+        var retryable = status == 0 || status >= 500;
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            var root = document.RootElement;
+            var code = root.TryGetProperty("code", out var codeElement) && codeElement.TryGetInt64(out var value)
+                ? value
+                : -1;
+            if (status is >= 200 and < 300 && code == 0)
+                return new AddVideoResult(true, false, "");
+            var message = ReadString(root, "message");
+            return new AddVideoResult(false, retryable, $"失败（HTTP {status}，code {code}）：{Truncate(message)}");
+        }
+        catch (JsonException)
+        {
+            return new AddVideoResult(false, retryable, $"返回无法解析（HTTP {status}）：{Truncate(text)}");
+        }
+    }
+
     /// <summary>按集号排好的 videoId；已经是升序时返回 null。</summary>
     internal static IReadOnlyList<string>? PlanReorder(IReadOnlyList<SeriesVideo> videos)
     {
@@ -127,7 +163,7 @@ public static class TikTokApiUploadService
             return false;
         }
 
-        var existing = await ReadSeriesVideosAsync(page, seriesId, ct);
+        var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
         if (!ExistingVideosUsable(existing))
         {
             log?.Invoke($"接口直传：草稿已有 {existing.Count} 集里有重复或读不出集号的视频，改用网页流程处理。");
@@ -151,55 +187,82 @@ public static class TikTokApiUploadService
 
             using var http = await CreateHttpClientAsync(page, options);
             var sts = new StsCache(page);
-            using var gate = new SemaphoreSlim(concurrency);
             using var uploadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var uploaded = 0;
-            var tasks = missing
-                .Select(item => Task.Run(async () =>
-                {
-                    await gate.WaitAsync(uploadCts.Token);
-                    try
-                    {
-                        return await UploadWithRetryAsync(
-                            http, sts, page.Url, item, options, missing.Count, () => Interlocked.Increment(ref uploaded), log, uploadCts.Token);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException ||
-                                               (!ct.IsCancellationRequested && !uploadCts.IsCancellationRequested))
-                    {
-                        log?.Invoke($"接口直传：第 {item.Episode} 集上传失败：{ex.Message}");
-                        throw;
-                    }
-                    finally
-                    {
-                        gate.Release();
-                    }
-                }, uploadCts.Token))
-                .ToList();
+            var maxOrder = existing.Count == 0 ? 0 : existing.Max(video => video.OrderNum);
+            var orderNums = AssignOrderNums(maxOrder, missing.Count);
+            // 上传按集号从小到大领任务。挂载凑满 concurrency 集就在页面里一批发出，不等前面的集。
+            var uploadedVideos = new CommittedVideo[missing.Count];
+            var ready = Channel.CreateUnbounded<int>(new UnboundedChannelOptions { SingleReader = true });
+            var settled = 0;
+            var failureLock = new object();
+            void MarkUploadSettled()
+            {
+                if (Interlocked.Increment(ref settled) == missing.Count)
+                    ready.Writer.TryComplete();
+            }
 
-            var orderNum = existing.Count == 0 ? 0 : existing.Max(video => video.OrderNum);
+            var nextIndex = 0;
+            var workers = Enumerable.Range(0, concurrency)
+                .Select(_ => Task.Run(async () =>
+                {
+                    while (true)
+                    {
+                        if (uploadCts.IsCancellationRequested)
+                            return;
+                        var index = Interlocked.Increment(ref nextIndex) - 1;
+                        if (index >= missing.Count)
+                            return;
+
+                        var item = missing[index];
+                        try
+                        {
+                            var committed = await UploadWithRetryAsync(
+                                http, sts, page.Url, item, options, missing.Count,
+                                () => Interlocked.Increment(ref uploaded), log, uploadCts.Token);
+                            uploadedVideos[index] = committed;
+                            ready.Writer.TryWrite(index);
+                        }
+                        catch (Exception ex) when (ex is OperationCanceledException &&
+                                                   (ct.IsCancellationRequested || uploadCts.IsCancellationRequested))
+                        {
+                            return;
+                        }
+                        catch (Exception ex)
+                        {
+                            log?.Invoke($"接口直传：第 {item.Episode} 集上传失败：{ex.Message}");
+                            lock (failureLock)
+                                failures.Add($"第 {item.Episode} 集（{ex.Message}）");
+                        }
+
+                        MarkUploadSettled();
+                    }
+                }))
+                .ToArray();
+
             var mounted = 0;
+            var batch = new List<int>(concurrency);
             try
             {
-                for (var index = 0; index < missing.Count; index++)
+                while (await ready.Reader.WaitToReadAsync(ct))
                 {
-                    var item = missing[index];
-                    CommittedVideo committed;
-                    try
-                    {
-                        committed = await tasks[index];
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-                    {
-                        failures.Add($"第 {item.Episode} 集（{ex.Message}）");
+                    while (batch.Count < concurrency && ready.Reader.TryRead(out var index))
+                        batch.Add(index);
+                    if (batch.Count < concurrency)
                         continue;
-                    }
 
-                    orderNum++;
-                    await PageFetchAsync(
-                        page, "POST", AddVideoPath, BuildAddVideoBody(seriesId, committed, item.Title, orderNum), ct);
-                    changed = true;
-                    mounted++;
-                    log?.Invoke(FormatMountedLog(item.Episode, mounted, missing.Count));
+                    var indexes = batch.ToList();
+                    batch.Clear();
+                    await MountBatchAsync(
+                        page, seriesId, missing, orderNums, uploadedVideos, indexes,
+                        () => ++mounted, () => changed = true, failures, failureLock, log, ct);
+                }
+
+                if (batch.Count > 0)
+                {
+                    await MountBatchAsync(
+                        page, seriesId, missing, orderNums, uploadedVideos, batch,
+                        () => ++mounted, () => changed = true, failures, failureLock, log, ct);
                 }
             }
             catch
@@ -209,19 +272,31 @@ public static class TikTokApiUploadService
                     await ReloadEditPageAsync(page, ct);
                 throw;
             }
+            finally
+            {
+                try { await Task.WhenAll(workers); }
+                catch { /* 单集失败已经记在 failures 里 */ }
+            }
         }
 
-        var after = await ReadSeriesVideosAsync(page, seriesId, ct);
-        if (ExistingVideosUsable(after) && PlanReorder(after) is { } ordered)
+        var after = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        if (ExistingVideosUsable(after) && (changed || PlanReorder(after) is not null))
         {
-            await PageFetchAsync(
-                page,
-                "POST",
-                "/api/content-partner/series/videos/reorder",
-                JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = ordered }),
-                ct);
-            changed = true;
-            log?.Invoke($"接口直传：已按集号重新排序 {ordered.Count} 集。");
+            var ordered = after
+                .OrderBy(video => video.Episode ?? int.MaxValue)
+                .Select(video => video.VideoId)
+                .ToList();
+            if (ordered.Count > 0)
+            {
+                await PageFetchAsync(
+                    page,
+                    "POST",
+                    "/api/content-partner/series/videos/reorder",
+                    JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = ordered }),
+                    ct);
+                changed = true;
+                log?.Invoke($"接口直传：已按集号重新排序 {ordered.Count} 集。");
+            }
         }
 
         if (changed)
@@ -268,7 +343,7 @@ public static class TikTokApiUploadService
 
         var seriesId = ReadContractId(response.Request.PostData)
                        ?? throw new InvalidOperationException("接口直传：网页挂集请求里没有剧集 ID。");
-        await ReadSeriesVideosAsync(page, seriesId, ct);
+        await ReadSeriesVideosAsync(page, seriesId, ct, log);
 
         var draftUrl = $"https://{new Uri(page.Url).Host}/series/draft/{seriesId}";
         log?.Invoke($"接口直传：已取得剧集 ID {seriesId}，转到草稿编辑页继续上传：{draftUrl}");
@@ -315,15 +390,35 @@ public static class TikTokApiUploadService
         return result;
     }
 
+    /// <summary>刚由挂集请求建出来的剧集，详情接口会先返回一阵 HTTP 500，要等后台落库。</summary>
     private static async Task<IReadOnlyList<SeriesVideo>> ReadSeriesVideosAsync(
         IPage page,
         string seriesId,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<string>? log = null)
     {
-        using var document = await PageFetchAsync(page, "GET", $"/api/content-partner/series/{seriesId}", null, ct);
-        return document.RootElement.TryGetProperty("data", out var data)
-            ? ParseSeriesVideos(data)
-            : Array.Empty<SeriesVideo>();
+        const int attempts = 8;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                using var document = await PageFetchAsync(page, "GET", $"/api/content-partner/series/{seriesId}", null, ct);
+                return document.RootElement.TryGetProperty("data", out var data)
+                    ? ParseSeriesVideos(data)
+                    : Array.Empty<SeriesVideo>();
+            }
+            catch (PageFetchException ex) when (ex.Status >= 500 && attempt < attempts)
+            {
+                var delay = TimeSpan.FromSeconds(Math.Min(attempt * 2, 10));
+                log?.Invoke($"接口直传：读取剧集详情暂时失败（HTTP {ex.Status}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
+                await Task.Delay(delay, ct);
+            }
+        }
+    }
+
+    private sealed class PageFetchException(string message, int status) : InvalidOperationException(message)
+    {
+        public int Status { get; } = status;
     }
 
     private static async Task<JsonDocument> PageFetchAsync(
@@ -367,10 +462,112 @@ public static class TikTokApiUploadService
         {
             var message = ReadString(root, "message");
             document.Dispose();
-            throw new InvalidOperationException($"{path} 失败（HTTP {status}，code {code}）：{Truncate(message)}");
+            throw new PageFetchException($"{path} 失败（HTTP {status}，code {code}）：{Truncate(message)}", status);
         }
 
         return document;
+    }
+
+    private static async Task MountBatchAsync(
+        IPage page,
+        string seriesId,
+        IReadOnlyList<LocalEpisode> missing,
+        IReadOnlyList<int> orderNums,
+        IReadOnlyList<CommittedVideo> uploadedVideos,
+        IReadOnlyList<int> indexes,
+        Func<int> markMounted,
+        Action markChanged,
+        List<string> failures,
+        object failureLock,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var pending = indexes.ToList();
+        for (var attempt = 1; pending.Count > 0; attempt++)
+        {
+            var bodies = pending
+                .Select(index => BuildAddVideoBody(
+                    seriesId, uploadedVideos[index], missing[index].Title, orderNums[index]))
+                .ToArray();
+            var replies = await PostJsonManyAsync(page, AddVideoPath, bodies, ct);
+            var retry = new List<int>();
+            for (var i = 0; i < pending.Count; i++)
+            {
+                var index = pending[i];
+                var episode = missing[index].Episode;
+                var result = InspectAddVideoResponse(replies[i].Status, replies[i].Text);
+                if (result.Succeeded)
+                {
+                    markChanged();
+                    log?.Invoke(FormatMountedLog(episode, markMounted(), missing.Count));
+                    continue;
+                }
+
+                if (result.Retryable && attempt <= MountRetryCount)
+                {
+                    var delaySeconds = attempt * 2;
+                    log?.Invoke(
+                        $"接口直传：第 {episode} 集挂载暂时失败（{result.Error}），{delaySeconds} 秒后重试（{attempt}/{MountRetryCount}）。");
+                    retry.Add(index);
+                    continue;
+                }
+
+                log?.Invoke($"接口直传：第 {episode} 集挂载失败：{result.Error}");
+                lock (failureLock)
+                    failures.Add($"第 {episode} 集（{result.Error}）");
+            }
+
+            pending = retry;
+            if (pending.Count > 0)
+                await Task.Delay(TimeSpan.FromSeconds(attempt * 2), ct);
+        }
+    }
+
+    private readonly record struct FetchReply(int Status, string Text);
+
+    private static async Task<IReadOnlyList<FetchReply>> PostJsonManyAsync(
+        IPage page,
+        string path,
+        IReadOnlyList<string> bodies,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var results = await page.EvaluateAsync<JsonElement>(
+            """
+            async ([path, bodies]) => {
+              const replies = await Promise.allSettled(bodies.map(async (body) => {
+                const res = await fetch(path, {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers: { 'content-type': 'application/json' },
+                  body,
+                });
+                return { status: res.status, text: await res.text() };
+              }));
+              return replies.map((reply) => {
+                if (reply.status === 'fulfilled') return reply.value;
+                const reason = reply.reason;
+                const message = reason && reason.message ? String(reason.message) : String(reason);
+                return { status: 0, text: message };
+              });
+            }
+            """,
+            new object[] { path, bodies.ToArray() });
+
+        var replies = new List<FetchReply>(bodies.Count);
+        if (results.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in results.EnumerateArray())
+            {
+                replies.Add(new FetchReply(
+                    item.TryGetProperty("status", out var status) && status.TryGetInt32(out var code) ? code : 0,
+                    item.TryGetProperty("text", out var text) ? text.GetString() ?? "" : ""));
+            }
+        }
+
+        if (replies.Count != bodies.Count)
+            throw new InvalidOperationException($"{path} 批量返回 {replies.Count} 条，期望 {bodies.Count} 条。");
+        return replies;
     }
 
     private static async Task ReloadEditPageAsync(IPage page, CancellationToken ct)
@@ -415,7 +612,7 @@ public static class TikTokApiUploadService
     }
 
     internal static string FormatUploadedLog(int episode, TimeSpan elapsed, int uploaded, int total) =>
-        $"接口直传：第 {episode} 集已上传（{FormatElapsed(elapsed)}，已上传 {uploaded}/{total}），按集号排队挂载。";
+        $"接口直传：第 {episode} 集已上传（{FormatElapsed(elapsed)}，已上传 {uploaded}/{total}）。";
 
     internal static string FormatMountedLog(int episode, int mounted, int total) =>
         $"接口直传：第 {episode} 集已挂到剧集（已挂载 {mounted}/{total}）。";

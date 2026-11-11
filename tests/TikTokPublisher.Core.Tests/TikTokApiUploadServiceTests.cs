@@ -198,11 +198,38 @@ public sealed class TikTokApiUploadServiceTests
     public void Upload_logs_distinguish_a_finished_upload_from_mounting_it()
     {
         TikTokApiUploadService.FormatUploadedLog(25, TimeSpan.FromSeconds(45), 13, 137)
-            .Should().Be("接口直传：第 25 集已上传（45 秒，已上传 13/137），按集号排队挂载。");
+            .Should().Be("接口直传：第 25 集已上传（45 秒，已上传 13/137）。");
         TikTokApiUploadService.FormatUploadedLog(76, TimeSpan.FromSeconds(125), 40, 137)
-            .Should().Be("接口直传：第 76 集已上传（2 分 5 秒，已上传 40/137），按集号排队挂载。");
+            .Should().Be("接口直传：第 76 集已上传（2 分 5 秒，已上传 40/137）。");
         TikTokApiUploadService.FormatMountedLog(25, 13, 137)
             .Should().Be("接口直传：第 25 集已挂到剧集（已挂载 13/137）。");
+    }
+
+    [Fact]
+    public void Order_numbers_continue_after_the_existing_max()
+    {
+        TikTokApiUploadService.AssignOrderNums(0, 3).Should().Equal(1, 2, 3);
+        TikTokApiUploadService.AssignOrderNums(5, 2).Should().Equal(6, 7);
+    }
+
+    [Fact]
+    public void Add_video_response_retries_only_server_failures()
+    {
+        var ok = TikTokApiUploadService.InspectAddVideoResponse(200, "{\"code\":0}");
+        ok.Succeeded.Should().BeTrue();
+        ok.Retryable.Should().BeFalse();
+
+        var busy = TikTokApiUploadService.InspectAddVideoResponse(500, "{\"code\":500,\"message\":\"busy\"}");
+        busy.Succeeded.Should().BeFalse();
+        busy.Retryable.Should().BeTrue();
+        busy.Error.Should().Contain("HTTP 500");
+
+        var rejected = TikTokApiUploadService.InspectAddVideoResponse(200, "{\"code\":4001,\"message\":\"重复\"}");
+        rejected.Succeeded.Should().BeFalse();
+        rejected.Retryable.Should().BeFalse();
+
+        TikTokApiUploadService.InspectAddVideoResponse(0, "Failed to fetch").Retryable.Should().BeTrue();
+        TikTokApiUploadService.InspectAddVideoResponse(200, "<html>").Retryable.Should().BeFalse();
     }
 
     [Fact]
