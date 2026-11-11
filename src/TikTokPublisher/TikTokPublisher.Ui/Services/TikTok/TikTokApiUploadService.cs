@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -152,13 +153,21 @@ public static class TikTokApiUploadService
             var sts = new StsCache(page);
             using var gate = new SemaphoreSlim(concurrency);
             using var uploadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var uploaded = 0;
             var tasks = missing
                 .Select(item => Task.Run(async () =>
                 {
                     await gate.WaitAsync(uploadCts.Token);
                     try
                     {
-                        return await UploadWithRetryAsync(http, sts, page.Url, item, options, log, uploadCts.Token);
+                        return await UploadWithRetryAsync(
+                            http, sts, page.Url, item, options, missing.Count, () => Interlocked.Increment(ref uploaded), log, uploadCts.Token);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException ||
+                                               (!ct.IsCancellationRequested && !uploadCts.IsCancellationRequested))
+                    {
+                        log?.Invoke($"接口直传：第 {item.Episode} 集上传失败：{ex.Message}");
+                        throw;
                     }
                     finally
                     {
@@ -182,7 +191,6 @@ public static class TikTokApiUploadService
                     catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                     {
                         failures.Add($"第 {item.Episode} 集（{ex.Message}）");
-                        log?.Invoke($"接口直传：第 {item.Episode} 集上传失败：{ex.Message}");
                         continue;
                     }
 
@@ -191,7 +199,7 @@ public static class TikTokApiUploadService
                         page, "POST", AddVideoPath, BuildAddVideoBody(seriesId, committed, item.Title, orderNum), ct);
                     changed = true;
                     mounted++;
-                    log?.Invoke($"接口直传：第 {item.Episode} 集已挂到剧集（{mounted}/{missing.Count}）。");
+                    log?.Invoke(FormatMountedLog(item.Episode, mounted, missing.Count));
                 }
             }
             catch
@@ -383,15 +391,20 @@ public static class TikTokApiUploadService
         string pageUrl,
         LocalEpisode item,
         TikTokPublishOptions options,
+        int total,
+        Func<int> markUploaded,
         Action<string>? log,
         CancellationToken ct)
     {
+        var started = Stopwatch.StartNew();
         var attempts = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
         for (var attempt = 1; ; attempt++)
         {
             try
             {
-                return await UploadFileAsync(http, sts, pageUrl, item.Path, ct);
+                var committed = await UploadFileAsync(http, sts, pageUrl, item.Path, ct);
+                log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, markUploaded(), total));
+                return committed;
             }
             catch (Exception ex) when (attempt < attempts && !ct.IsCancellationRequested)
             {
@@ -399,6 +412,20 @@ public static class TikTokApiUploadService
                 await Task.Delay(TimeSpan.FromSeconds(attempt * 3), ct);
             }
         }
+    }
+
+    internal static string FormatUploadedLog(int episode, TimeSpan elapsed, int uploaded, int total) =>
+        $"接口直传：第 {episode} 集已上传（{FormatElapsed(elapsed)}，已上传 {uploaded}/{total}），按集号排队挂载。";
+
+    internal static string FormatMountedLog(int episode, int mounted, int total) =>
+        $"接口直传：第 {episode} 集已挂到剧集（已挂载 {mounted}/{total}）。";
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        var seconds = Math.Max(1, (int)Math.Round(elapsed.TotalSeconds, MidpointRounding.AwayFromZero));
+        if (seconds < 60)
+            return $"{seconds} 秒";
+        return $"{seconds / 60} 分 {seconds % 60} 秒";
     }
 
     private static async Task<CommittedVideo> UploadFileAsync(

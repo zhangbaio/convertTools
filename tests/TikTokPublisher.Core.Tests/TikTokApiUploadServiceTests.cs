@@ -195,6 +195,17 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
+    public void Upload_logs_distinguish_a_finished_upload_from_mounting_it()
+    {
+        TikTokApiUploadService.FormatUploadedLog(25, TimeSpan.FromSeconds(45), 13, 137)
+            .Should().Be("接口直传：第 25 集已上传（45 秒，已上传 13/137），按集号排队挂载。");
+        TikTokApiUploadService.FormatUploadedLog(76, TimeSpan.FromSeconds(125), 40, 137)
+            .Should().Be("接口直传：第 76 集已上传（2 分 5 秒，已上传 40/137），按集号排队挂载。");
+        TikTokApiUploadService.FormatMountedLog(25, 13, 137)
+            .Should().Be("接口直传：第 25 集已挂到剧集（已挂载 13/137）。");
+    }
+
+    [Fact]
     public void Account_api_upload_defaults()
     {
         var account = new TikTokAccountProfile();
