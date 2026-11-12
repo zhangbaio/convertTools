@@ -144,12 +144,6 @@ public sealed class VideoDedupPreset
         Parallel = Math.Clamp(Parallel <= 0 ? 2 : Parallel, 1, 4);
         MinimumDurationSeconds = MinimumDurationSeconds <= 0 ? 0 : Math.Clamp(MinimumDurationSeconds, 1, 3600);
         MaximumDurationSeconds = MaximumDurationSeconds <= 0 ? 0 : Math.Clamp(MaximumDurationSeconds, 1, 7200);
-        if (MaximumDurationSeconds > 0 &&
-            MinimumDurationSeconds > 0 &&
-            MaximumDurationSeconds < MinimumDurationSeconds)
-        {
-            MaximumDurationSeconds = MinimumDurationSeconds;
-        }
 
         TrimStartSeconds = Math.Clamp(TrimStartSeconds, 0, 30);
         TrimEndSeconds = Math.Clamp(TrimEndSeconds, 0, 30);
@@ -211,7 +205,20 @@ public sealed class VideoDedupPreset
     public bool HasAnyTransition =>
         TransitionFadeBlack || TransitionDissolve || TransitionPush || TransitionSlide || TransitionZoom;
 
-    public bool HasDurationLimit => MinimumDurationSeconds > 0 || MaximumDurationSeconds > 0;
+    public bool HasDurationLimit =>
+        MinimumDurationSeconds > 0 && MaximumDurationSeconds >= MinimumDurationSeconds;
+
+    /// <summary>两个都留 0 表示不重新分集。只填一个，或最小大于最大，都不能保存。</summary>
+    public string? DurationRangeError()
+    {
+        var hasMinimum = MinimumDurationSeconds > 0;
+        var hasMaximum = MaximumDurationSeconds > 0;
+        if (hasMinimum != hasMaximum)
+            return "单集最小时长和最大时长要同时填写。两个都留 0 表示不重新分集。";
+        if (hasMinimum && MaximumDurationSeconds < MinimumDurationSeconds)
+            return "单集最小时长不能大于最大时长。";
+        return null;
+    }
 
     public bool KeepsOriginalResolution => PortraitWidth <= 0 && PortraitHeight <= 0;
 
@@ -222,7 +229,8 @@ public sealed class VideoDedupPreset
             preset.EncodingPreference,
             preset.Parallel.ToString(CultureInfo.InvariantCulture),
             Num(preset.MinimumDurationSeconds),
-            Num(preset.MaximumDurationSeconds),
+            Num(preset.MaximumDurationSeconds) +
+                (preset.MinimumDurationSeconds > 0 || preset.MaximumDurationSeconds > 0 ? "\npretrim-split" : ""),
             preset.TransitionsEnabled ? "1" : "0",
             Flag(preset.TransitionFadeBlack),
             Flag(preset.TransitionDissolve),

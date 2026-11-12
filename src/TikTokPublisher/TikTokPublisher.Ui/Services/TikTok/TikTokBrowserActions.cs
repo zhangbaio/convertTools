@@ -736,6 +736,15 @@ public static partial class TikTokBrowserActions
         {
             await SetSwitchAsync(page, "#consignmentStatus", options.ConsignmentEnabled, ct);
         }
+        var episodeCount = Math.Max(0, payload.EpisodeCount);
+        if (episodeCount > 0 &&
+            (options.ProfilePreviewEpisodes > episodeCount || options.FreePreviewEpisodes > episodeCount))
+        {
+            options.ProfilePreviewEpisodes = Math.Min(options.ProfilePreviewEpisodes, episodeCount);
+            options.FreePreviewEpisodes = Math.Min(options.FreePreviewEpisodes, episodeCount);
+            Log(log, $"当前剧集共 {episodeCount} 集，个人页展示和免费预览已限制为不超过总集数。");
+        }
+
         await ApplyCommercialModeAsync(page, options, log, ct);
         await ApplyZeroCostAdsAsync(page, options, log, ct);
     }

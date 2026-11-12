@@ -190,6 +190,9 @@ public partial class VideoDedupPresetEditor : UserControl
             AudioHighGainDb = (double)(HighGainBox.Value ?? 0),
         };
         preset.Normalize();
+        var durationError = preset.DurationRangeError();
+        if (durationError is not null)
+            throw new InvalidOperationException(durationError);
         return preset;
     }
 
@@ -208,7 +211,17 @@ public partial class VideoDedupPresetEditor : UserControl
     {
         if (TopLevel.GetTopLevel(this) is not Window owner)
             return;
-        var draft = Read();
+        VideoDedupPreset draft;
+        try
+        {
+            draft = Read();
+        }
+        catch (InvalidOperationException ex)
+        {
+            FilterSummaryText.Text = ex.Message;
+            return;
+        }
+
         if (!await VideoDedupEffectsDialog.EditAsync(owner, draft))
             return;
         StoreFilters(draft);

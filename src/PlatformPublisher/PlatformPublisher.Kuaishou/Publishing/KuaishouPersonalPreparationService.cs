@@ -84,7 +84,9 @@ public sealed class KuaishouPersonalPreparationService
         var tags = Split(config.TagLabels).Concat(data.Tags.Select(value => value.TrimStart('#')))
             .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().Take(3).ToArray();
         var plots = Split(config.PlotLabels).DefaultIfEmpty("都市生活").Take(3).ToArray();
-        var form = KuaishouPersonalFormResolver.Resolve(config);
+        var form = KuaishouPersonalFormResolver.ClampToEpisodeCount(
+            KuaishouPersonalFormResolver.Resolve(config),
+            data.VideoPaths.Count);
         var characters = new JsonArray(form.Actors.Select(actor => (JsonNode)new JsonObject
         {
             ["name"] = actor.Role, ["gender"] = actor.Gender,
@@ -157,7 +159,11 @@ public sealed class KuaishouPersonalPreparationService
             {
                 ["cover_img_key"] = vertical,
                 ["episode_title"] = data.Title,
-                ["free"] = index < Math.Min(config.FreeEpisodeCount, Math.Max(0, data.VideoPaths.Count - 1)),
+                ["free"] = index < Math.Min(
+                    KuaishouPersonalFormResolver.ClampToEpisodeCount(
+                        KuaishouPersonalFormResolver.Resolve(config),
+                        data.VideoPaths.Count).FreeEpisodeCount,
+                    Math.Max(0, data.VideoPaths.Count - 1)),
             });
         var projectImages = new JsonArray(data.ProjectImagePaths.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray());
         var now = DateTimeOffset.Now;

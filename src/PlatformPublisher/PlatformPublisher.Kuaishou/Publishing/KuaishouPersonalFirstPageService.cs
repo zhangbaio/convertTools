@@ -13,7 +13,10 @@ public sealed class KuaishouPersonalFirstPageService
         CancellationToken cancellationToken)
     {
         var size = await ProbeVideoSizeAsync(data.VideoPaths.FirstOrDefault());
-        var form = KuaishouPersonalFormResolver.Resolve(config, size.Width, size.Height);
+        var resolved = KuaishouPersonalFormResolver.Resolve(config, size.Width, size.Height);
+        var form = KuaishouPersonalFormResolver.ClampToEpisodeCount(resolved, data.VideoPaths.Count);
+        if (form.FreeEpisodeCount != resolved.FreeEpisodeCount || form.UnlockCount != resolved.UnlockCount)
+            progress?.Report($"{config.StoragePlatform.DisplayName()}：当前共 {data.VideoPaths.Count} 集，免费集数和解锁集数已限制为不超过总集数。 ");
         var enterprise = config.StoragePlatform == PublishPlatform.KuaishouEnterpriseRevenue;
         if (enterprise)
         {

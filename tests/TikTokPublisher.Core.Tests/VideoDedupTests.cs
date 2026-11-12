@@ -166,14 +166,48 @@ public sealed class VideoDedupTests
 
         var split = VideoDedupPlanner.Plan([214.321], preset);
         split.Should().HaveCount(2);
-        split[0][0].StartSeconds.Should().Be(0);
-        split[0][0].EndSeconds.Should().Be(130);
-        split[1][0].StartSeconds.Should().Be(134);
-        split[1][0].EndSeconds.Should().Be(214.321);
+        split[0][0].StartSeconds.Should().Be(2);
+        split[0][0].EndSeconds.Should().Be(128);
+        split[1][0].StartSeconds.Should().Be(132);
+        split[1][0].EndSeconds.Should().BeApproximately(212.321, 0.001);
 
         var tail = VideoDedupPlanner.Plan([140], preset);
         tail.Should().HaveCount(2);
-        tail[1][0].Length.Should().BeApproximately(6, 0.001);
+        tail[1][0].StartSeconds.Should().Be(132);
+        tail[1][0].EndSeconds.Should().Be(138);
+    }
+
+    [Fact]
+    public void Duration_limit_trims_a_fitting_episode_after_it_is_arranged()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.MinimumDurationSeconds = 60;
+        preset.MaximumDurationSeconds = 130;
+        preset.TrimStartSeconds = 2;
+        preset.TrimEndSeconds = 2;
+        preset.Normalize();
+
+        var groups = VideoDedupPlanner.Plan([80], preset);
+
+        groups.Should().HaveCount(1);
+        groups[0][0].StartSeconds.Should().Be(2);
+        groups[0][0].EndSeconds.Should().Be(78);
+    }
+
+    [Fact]
+    public void Partial_duration_limit_does_not_merge_episodes_and_cannot_be_saved()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.MinimumDurationSeconds = 60;
+        preset.Normalize();
+
+        preset.HasDurationLimit.Should().BeFalse();
+        preset.DurationRangeError().Should().Contain("同时填写");
+        VideoDedupPlanner.Plan([20, 20, 20], preset).Should().HaveCount(3);
+
+        preset.MaximumDurationSeconds = 40;
+        preset.Normalize();
+        preset.DurationRangeError().Should().Contain("不能大于");
     }
 
     [Fact]
@@ -524,6 +558,93 @@ public sealed class VideoDedupTests
             var state = await File.ReadAllTextAsync(Path.Combine(root, ".weixin-channel-download-state.json"));
             state.Should().Contain("\"video_count\": 1");
             state.Should().Contain("\"source_video_count\": 2");
+        }
+        finally
+        {
+            VideoDedupService.ProbeForTests = null;
+            VideoDedupService.EncoderForTests = null;
+            VideoDedupService.RunProcessForTests = null;
+            try { Directory.Delete(root, recursive: true); } catch { /* temp cleanup */ }
+        }
+    }
+
+    [Fact]
+    public async Task Duration_merge_updates_declared_episode_count_and_reruns_later_steps()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "video-dedup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await File.WriteAllBytesAsync(Path.Combine(root, "a.mp4"), [1]);
+        await File.WriteAllBytesAsync(Path.Combine(root, "b.mp4"), [2]);
+        await File.WriteAllTextAsync(
+            Path.Combine(root, ".weixin-channel-download-state.json"),
+            """
+            {
+              "ok": true,
+              "video_count": 2,
+              "episode_number_mode": "source",
+              "episode_mappings": [
+                { "source_episode_number": 3, "sequence_episode_number": 1 },
+                { "source_episode_number": 8, "sequence_episode_number": 2 }
+              ]
+            }
+            """);
+        await File.WriteAllTextAsync(
+            Path.Combine(root, "短剧信息.txt"),
+            "新剧名: 测试\n集数: 2\n总集数: 2\n");
+        await File.WriteAllTextAsync(
+            Path.Combine(root, "shortdrama-project.json"),
+            """
+            {
+              "episodeCount": 2,
+              "effectiveEpisodeCount": 2,
+              "downloadEpisodeLimit": 2,
+              "originalEpisodeCount": 9,
+              "truncatedForTikTokUpload": true
+            }
+            """);
+        VideoDedupService.ProbeForTests = (_, _) =>
+            Task.FromResult(new VideoDedupProbe(15, 1080, 1920, true));
+        VideoDedupService.EncoderForTests = "libx264";
+        VideoDedupService.RunProcessForTests = (args, _) =>
+        {
+            File.WriteAllBytes(args[^1], [8]);
+            return Task.CompletedTask;
+        };
+        try
+        {
+            var preset = VideoDedupPreset.CreateDefault();
+            preset.MinimumDurationSeconds = 20;
+            preset.MaximumDurationSeconds = 40;
+            var item = new QueueProjectItem
+            {
+                ProjectDir = root,
+                EpisodeCount = 2,
+                SourceEpisodeCount = 9,
+                StatusText = QueueStepStatus.Completed,
+            };
+            item.StepStates[QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed;
+            item.StepStates[QueueStepKeys.UploadSeries] = QueueStepStatus.Completed;
+            var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
+
+            await VideoDedupService.RunAsync(item, account, force: false, _ => { }, CancellationToken.None);
+
+            item.EpisodeCount.Should().Be(1);
+            item.SourceEpisodeCount.Should().Be(9);
+            item.StepStates[QueueStepKeys.RewriteInfo].Should().Be(QueueStepStatus.Pending);
+            item.StepStates[QueueStepKeys.UploadSeries].Should().Be(QueueStepStatus.Pending);
+            item.StatusText.Should().Be(QueueStepStatus.Pending);
+            var state = await File.ReadAllTextAsync(Path.Combine(root, ".weixin-channel-download-state.json"));
+            state.Should().Contain("\"video_count\": 1");
+            state.Should().Contain("\"source_video_count\": 2");
+            state.Should().Contain("\"episode_number_mode\": \"continuous\"");
+            state.Should().NotContain("\"source_episode_number\": 8");
+            var info = await File.ReadAllTextAsync(Path.Combine(root, "短剧信息.txt"));
+            info.Should().Contain("集数: 1");
+            info.Should().Contain("总集数: 1");
+            var metadata = await File.ReadAllTextAsync(Path.Combine(root, "shortdrama-project.json"));
+            metadata.Should().Contain("\"effectiveEpisodeCount\": 1");
+            metadata.Should().Contain("\"downloadEpisodeLimit\": 1");
+            metadata.Should().Contain("\"originalEpisodeCount\": 9");
         }
         finally
         {
