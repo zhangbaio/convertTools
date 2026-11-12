@@ -75,26 +75,8 @@ public static class EmbeddedBrowserAutomationBridge
 
             var context = await chromium.NewContextAsync(contextOptions).ConfigureAwait(false);
             var page = await context.NewPageAsync().ConfigureAwait(false);
-            TikTokFileUploadTransportRegistry.Mark(page, TikTokFileUploadTransport.LocalPlaywright);
-
-            page.Dialog += (_, dialog) =>
-            {
-                _ = string.Equals(dialog.Type, "beforeunload", StringComparison.OrdinalIgnoreCase)
-                    ? dialog.AcceptAsync()
-                    : dialog.DismissAsync();
-            };
-
             var url = string.IsNullOrWhiteSpace(navigateUrl) ? TikTokUrls.DefaultSeriesDraftUrl : navigateUrl;
-            log?.Invoke($"外部浏览器导航：{url}");
-            await page.GotoAsync(url, new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = 90000,
-            }).ConfigureAwait(false);
-            try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }).ConfigureAwait(false); }
-            catch { /* SPA */ }
-            await page.WaitForTimeoutAsync(1200).ConfigureAwait(false);
-            await EnsureTikTokPageHealthyAsync(page, url, log, ct).ConfigureAwait(false);
+            await PrepareExternalPageAsync(page, url, log, ct).ConfigureAwait(false);
 
             log?.Invoke($"已启动外部浏览器（{(headless ? "无头" : "有头")}）并打开自动化页面");
             return (pw, chromium, page);
@@ -106,6 +88,36 @@ public static class EmbeddedBrowserAutomationBridge
             pw.Dispose();
             throw;
         }
+    }
+
+    internal static void AttachExternalPageGuards(IPage page)
+    {
+        TikTokFileUploadTransportRegistry.Mark(page, TikTokFileUploadTransport.LocalPlaywright);
+        page.Dialog += (_, dialog) =>
+        {
+            _ = string.Equals(dialog.Type, "beforeunload", StringComparison.OrdinalIgnoreCase)
+                ? dialog.AcceptAsync()
+                : dialog.DismissAsync();
+        };
+    }
+
+    internal static async Task PrepareExternalPageAsync(
+        IPage page,
+        string url,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        AttachExternalPageGuards(page);
+        log?.Invoke($"外部浏览器导航：{url}");
+        await page.GotoAsync(url, new PageGotoOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 90000,
+        }).ConfigureAwait(false);
+        try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 }).ConfigureAwait(false); }
+        catch { /* SPA */ }
+        await page.WaitForTimeoutAsync(1200).ConfigureAwait(false);
+        await EnsureTikTokPageHealthyAsync(page, url, log, ct).ConfigureAwait(false);
     }
 
     public static async Task<(IPlaywright Playwright, IBrowser Browser, IPage Page)> ConnectPageAsync(

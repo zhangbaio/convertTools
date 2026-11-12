@@ -479,6 +479,7 @@ public sealed class QueueWorkerRunner
 
     private void ReleaseAllProjectSlots()
     {
+        _uploadSlots.ClearReady(this);
         if (_projectSlots is null)
             return;
         _projectSlots.ClearDemand(this);
@@ -543,7 +544,6 @@ public sealed class QueueWorkerRunner
         var preUploadTasks = new Dictionary<Task, QueueProjectItem>();
         var preUploadStepsByTask = new Dictionary<Task, IReadOnlyList<string>>();
         var uploadTasks = new Dictionary<Task<bool>, (QueueProjectItem Item, string AccountKey, TikTokAccountProfile Account)>();
-        var activeUploadAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var waitingProjectSlotReported = new HashSet<QueueProjectItem>(ReferenceEqualityComparer.Instance);
         var limitsRefreshTimer = new Stopwatch();
 
@@ -623,8 +623,6 @@ public sealed class QueueWorkerRunner
                 {
                     if (!item.Enabled || HoldsProjectSlot(item))
                         continue;
-                    if (activeUploadAccounts.Contains(SlotAccountOf(item).Key))
-                        continue;
                     Add(item);
                 }
             }
@@ -632,6 +630,24 @@ public sealed class QueueWorkerRunner
             _projectSlots.SetDemand(
                 this,
                 counts.Select(pair => new QueueProjectSlotDemand(pair.Key, pair.Value.Order, pair.Value.Count)).ToArray());
+        }
+
+        void PublishUploadReady()
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in readyForUpload)
+            {
+                if (!item.Enabled)
+                    continue;
+                var account = QueueAccountBindingResolver.Resolve(accountStore, item);
+                if (account is null || string.IsNullOrWhiteSpace(account.Id))
+                    continue;
+                counts[account.Id] = counts.GetValueOrDefault(account.Id) + 1;
+            }
+
+            _uploadSlots.SetReady(
+                this,
+                counts.Select(pair => new UploadReadyDemand(pair.Key, pair.Value)).ToArray());
         }
 
         void RefreshSharedLimits()
@@ -737,7 +753,11 @@ public sealed class QueueWorkerRunner
         {
             lock (stateLock)
             {
-                if (readyForUpload.Count == 0) return 0;
+                if (readyForUpload.Count == 0)
+                {
+                    PublishUploadReady();
+                    return 0;
+                }
 
                 var started = 0;
                 var rotations = readyForUpload.Count;
@@ -765,13 +785,7 @@ public sealed class QueueWorkerRunner
                     }
 
                     var accountKey = account.Id;
-
-                    if (activeUploadAccounts.Contains(accountKey))
-                    {
-                        readyForUpload.Enqueue(item);
-                        rotations--;
-                        continue;
-                    }
+                    PublishUploadReady();
 
                     if (!_uploadSlots.TryAcquire(accountKey))
                     {
@@ -806,7 +820,6 @@ public sealed class QueueWorkerRunner
                         Persist(workspace, items, onPersist);
                     }
 
-                    activeUploadAccounts.Add(accountKey);
                     var capturedAccount = account;
                     var capturedItem = item;
                     var task = MakeUniqueTask(RunUploadPipelineAsync(
@@ -828,6 +841,7 @@ public sealed class QueueWorkerRunner
                     rotations = readyForUpload.Count;
                 }
 
+                PublishUploadReady();
                 return started;
             }
         }
@@ -1074,7 +1088,6 @@ public sealed class QueueWorkerRunner
 
             if (completed is Task<bool> uploadTask && uploadTasks.Remove(uploadTask, out var uploadCtx))
             {
-                activeUploadAccounts.Remove(uploadCtx.AccountKey);
                 _uploadSlots.Release(uploadCtx.AccountKey);
                 ReleaseProjectSlot(uploadCtx.Item);
 

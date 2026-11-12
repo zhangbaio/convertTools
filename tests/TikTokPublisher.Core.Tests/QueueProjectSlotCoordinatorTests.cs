@@ -86,15 +86,30 @@ public sealed class QueueProjectSlotCoordinatorTests
     }
 
     [Fact]
-    public void UploadSlots_GlobalCapacityLimitsAllAccounts()
+    public void UploadSlots_SameAccountFillsRemainingCapacityBeforeAnotherBrowser()
     {
         var uploads = new UploadSlotCoordinator();
         uploads.Configure(2);
+        uploads.SetReady(_runnerA, [new UploadReadyDemand("A", 2)]);
         uploads.TryAcquire("A").Should().BeTrue();
-        uploads.TryAcquire("A").Should().BeFalse();
-        uploads.TryAcquire("B").Should().BeTrue();
-        uploads.TryAcquire("C").Should().BeFalse();
+        uploads.SetReady(_runnerA, [new UploadReadyDemand("A", 1)]);
+        uploads.TryAcquire("B").Should().BeFalse();
+        uploads.TryAcquire("A").Should().BeTrue();
+        uploads.TryAcquire("B").Should().BeFalse();
+
         uploads.Release("A");
-        uploads.TryAcquire("C").Should().BeTrue();
+        uploads.SetReady(_runnerA, []);
+        uploads.TryAcquire("B").Should().BeTrue();
+    }
+
+    [Fact]
+    public void UploadSlots_DoesNotHoldASlotForAnAccountThatIsNotReady()
+    {
+        var uploads = new UploadSlotCoordinator();
+        uploads.Configure(2);
+        uploads.SetReady(_runnerA, [new UploadReadyDemand("A", 1)]);
+        uploads.TryAcquire("A").Should().BeTrue();
+        uploads.SetReady(_runnerA, []);
+        uploads.TryAcquire("B").Should().BeTrue();
     }
 }

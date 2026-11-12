@@ -840,7 +840,7 @@
                             <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
                         </Grid>
                         <TextBlock IsVisible="{Binding ShowsTikTokPublishPrompt}"
-                                   Text="同一账号一次只上传 1 部。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
+                                   Text="超过 1 部时，同一个账号的剧共用一个浏览器、多开标签页；不同账号不会共用浏览器。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
                                    Foreground="#666" TextWrapping="Wrap" />
                         <TextBlock IsVisible="{Binding ShowsKuaishouPublishPrompt}"
                                    Text="同一账号一次只上传 1 部。本机同时上传的剧不超过「同时上传剧集」，同时生成工程图的剧不超过「同时生成工程图」。"

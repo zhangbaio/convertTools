@@ -125,6 +125,8 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         IPlaywright? pw = null;
         IBrowser? chromium = null;
         IPage? activePage = null;
+        TikTokUploadBrowserPool.PageLease? sharedPage = null;
+        CancellationTokenSource? accountStopCts = null;
         var outerCt = ct;
         CancellationTokenSource? dailyLimitCts = null;
         Task? dailyLimitWatcher = null;
@@ -172,10 +174,12 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             IPage page;
             if (useLaunch)
             {
-                var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
-                (pw, chromium, page) = await EmbeddedBrowserAutomationBridge
-                    .LaunchPageAsync(account, targetUrl, authPath, launchHeadless, L, ct)
+                sharedPage = await TikTokUploadBrowserPool.Shared
+                    .RentAsync(account, targetUrl, launchHeadless, L, outerCt)
                     .ConfigureAwait(false);
+                page = sharedPage.Page;
+                accountStopCts = CancellationTokenSource.CreateLinkedTokenSource(outerCt, sharedPage.Stopped);
+                ct = accountStopCts.Token;
             }
             else
             {
@@ -206,9 +210,15 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             }
 
             if (IsLoginPage(page.Url))
-                return PublishResult.Fail(useLaunch
+            {
+                var loginMessage = useLaunch
                     ? "外部浏览器登录态失效，请在「浏览器」页用内置浏览器重新登录以刷新授权文件"
-                    : "账号未登录（请先在内置浏览器完成 TikTok 登录）");
+                    : "账号未登录（请先在内置浏览器完成 TikTok 登录）";
+                if (!useLaunch)
+                    return PublishResult.Fail(loginMessage);
+                sharedPage?.StopAccount(loginMessage);
+                return PublishResult.FailAndStopQueue(loginMessage);
+            }
 
             // 注意：此处不检测单日上限。刚连接时页面可能停留在上一个项目的残留页
             // （含旧的“已达上限”提示），会误判停队列。上限检测仅在导航到新建/编辑页后进行。
@@ -281,14 +291,16 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (!enteredEditFlow)
             {
                 await NavigateToCreateDraftPageAsync(page, targetUrl, L, ct).ConfigureAwait(false);
-                ThrowIfLoginRedirect(page);
+                ThrowIfLoginRedirect(page, sharedPage);
 
                 // The platform shows this limit as a short-lived toast immediately after the
                 // local-upload action. Point-in-time checks can miss it while Playwright/CDP is
                 // selecting files, so watch continuously after this run has entered a fresh
                 // create page. Starting here (rather than on the leftover page) avoids treating
                 // a previous project's stale toast as a limit hit for the current queue item.
-                dailyLimitCts = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
+                dailyLimitCts = accountStopCts is null
+                    ? CancellationTokenSource.CreateLinkedTokenSource(outerCt)
+                    : CancellationTokenSource.CreateLinkedTokenSource(accountStopCts.Token);
                 ct = dailyLimitCts.Token;
                 dailyLimitWatcher = WatchDailyEpisodeLimitAsync(page, dailyLimitCts, text =>
                 {
@@ -299,27 +311,27 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
 
                 await TikTokBrowserActions.FillCreateInitialFieldsAsync(page, payload, options, L, ct)
                     .ConfigureAwait(false);
-                ThrowIfLoginRedirect(page);
+                ThrowIfLoginRedirect(page, sharedPage);
 
                 if (hasWorkflow)
                 {
                     enteredEditFlow = await TikTokEditFlowService.MaybeRouteDuplicateToEditFlowAsync(
                             page, workflowDir, payload, options, recommendation, coverPath, L, ct)
                         .ConfigureAwait(false);
-                    ThrowIfLoginRedirect(page);
+                    ThrowIfLoginRedirect(page, sharedPage);
                 }
 
                 if (!enteredEditFlow)
                 {
                     await TikTokBrowserActions.UploadCoverAsync(page, coverPath, L, ct).ConfigureAwait(false);
-                    ThrowIfLoginRedirect(page);
+                    ThrowIfLoginRedirect(page, sharedPage);
 
                     if (hasWorkflow)
                     {
                         enteredEditFlow = await TikTokEditFlowService.MaybeRouteDuplicateToEditFlowAsync(
                                 page, workflowDir, payload, options, recommendation, coverPath, L, ct)
                             .ConfigureAwait(false);
-                        ThrowIfLoginRedirect(page);
+                        ThrowIfLoginRedirect(page, sharedPage);
                     }
                 }
 
@@ -344,6 +356,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (dailyLimit is not null)
             {
                 var limitMsg = $"TikTok 单日创建剧集上限：{dailyLimit}";
+                sharedPage?.StopAccount(limitMsg);
                 var snapshotDir = await CaptureFailureSnapshotAsync(limitMsg).ConfigureAwait(false);
                 if (hasWorkflow)
                     TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, limitMsg, payload.Title, snapshotDir);
@@ -381,7 +394,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                             L,
                             ct)
                         .ConfigureAwait(false);
-                    ThrowIfLoginRedirect(page);
+                    ThrowIfLoginRedirect(page, sharedPage);
                     await TikTokBrowserActions.SubmitAsync(
                             page,
                             L,
@@ -406,7 +419,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                             L,
                             ct)
                         .ConfigureAwait(false);
-                    ThrowIfLoginRedirect(page);
+                    ThrowIfLoginRedirect(page, sharedPage);
                     await TikTokBrowserActions.SubmitAsync(
                             page,
                             L,
@@ -432,9 +445,17 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
             return result;
         }
+        catch (OperationCanceledException) when (sharedPage?.StopReason is { Length: > 0 } stopReason && !outerCt.IsCancellationRequested)
+        {
+            var snapshotDir = await CaptureFailureSnapshotAsync(stopReason).ConfigureAwait(false);
+            if (hasWorkflow)
+                TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, stopReason, payload.Title, snapshotDir);
+            return PublishResult.FailAndStopQueue(stopReason);
+        }
         catch (OperationCanceledException) when (dailyLimitHit is not null && !outerCt.IsCancellationRequested)
         {
             var message = $"TikTok 单日创建剧集上限：{dailyLimitHit}";
+            sharedPage?.StopAccount(message);
             var snapshotDir = await CaptureFailureSnapshotAsync(message).ConfigureAwait(false);
             if (hasWorkflow)
                 TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, message, payload.Title, snapshotDir);
@@ -447,6 +468,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         catch (TikTokDailyLimitException ex)
         {
             var message = ex.Message;
+            sharedPage?.StopAccount(message);
             L($"检测到 TikTok 发布限制提示，任务队列将停止：{ex.LimitText}");
             var snapshotDir = await CaptureFailureSnapshotAsync(message).ConfigureAwait(false);
             if (hasWorkflow)
@@ -464,6 +486,14 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         }
         catch (Exception ex)
         {
+            if (sharedPage?.StopReason is { Length: > 0 } accountStopReason)
+            {
+                var accountSnapshotDir = await CaptureFailureSnapshotAsync(accountStopReason).ConfigureAwait(false);
+                if (hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, accountStopReason, payload.Title, accountSnapshotDir);
+                return PublishResult.FailAndStopQueue(accountStopReason);
+            }
+
             var failureText = $"{ex.GetType().Name}: {ex.Message}";
             if (IsTikTokCrashFailure(failureText) ||
                 (activePage is not null && await TikTokBrowserActions.LooksLikeTikTokCrashPageAsync(activePage).ConfigureAwait(false)))
@@ -492,9 +522,18 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 catch (ObjectDisposedException) { /* linked CTS already released */ }
             }
             dailyLimitCts?.Dispose();
-            try { await (chromium?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false); }
-            catch { /* disconnect CDP only */ }
-            pw?.Dispose();
+            accountStopCts?.Dispose();
+            if (sharedPage is not null)
+            {
+                try { await sharedPage.DisposeAsync().ConfigureAwait(false); }
+                catch { /* 标签页已经关闭 */ }
+            }
+            else
+            {
+                try { await (chromium?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false); }
+                catch { /* disconnect CDP only */ }
+                pw?.Dispose();
+            }
         }
     }
 
@@ -541,10 +580,13 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         }
     }
 
-    private static void ThrowIfLoginRedirect(IPage page)
+    private static void ThrowIfLoginRedirect(IPage page, TikTokUploadBrowserPool.PageLease? sharedPage)
     {
-        if (IsLoginPage(page.Url))
-            throw new InvalidOperationException("账号未登录（TikTok 跳转到登录页）");
+        if (!IsLoginPage(page.Url))
+            return;
+        const string message = "账号未登录（TikTok 跳转到登录页）";
+        sharedPage?.StopAccount(message);
+        throw new InvalidOperationException(message);
     }
 
     private static bool IsTikTokCrashFailure(string? message)
