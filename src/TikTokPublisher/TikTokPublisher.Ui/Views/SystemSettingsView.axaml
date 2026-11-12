@@ -821,18 +821,29 @@
                                       IsChecked="{Binding TiktokAccountScheduleRoundRobin}"
                                       Content="多个账号轮流分配名额" />
                         </Grid>
-                        <TextBlock Text="不勾选轮流时按左侧账号顺序：前面的账号还有剧在等就先给它，后面的账号只用剩下的名额。单个账号最多同时运行几部，以账号「发布配置」里的项目并发数为准。"
+                        <TextBlock IsVisible="{Binding ShowsTikTokPublishPrompt}"
+                                   Text="不勾选轮流时按左侧账号顺序：前面的账号还有剧在等就先给它，后面的账号只用剩下的名额。单个账号最多同时运行几部，以账号「发布配置」里的项目并发数为准。"
+                                   Foreground="#666" TextWrapping="Wrap" />
+                        <TextBlock IsVisible="{Binding ShowsKuaishouPublishPrompt}"
+                                   Text="不勾选轮流时按左侧账号顺序：前面的账号还有剧在等就先给它，后面的账号只用剩下的名额。单个账号最多同时运行几部，以该账号「高级配置」里的任务队列并发数为准。"
                                    Foreground="#666" TextWrapping="Wrap" />
 
                         <TextBlock Text="全局步骤配置" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="视频去重同时剧集" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="4" Width="120" HorizontalAlignment="Left" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="视频去重同时剧集" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="4" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding KuaishouProjectImageConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
                         </Grid>
-                        <TextBlock Text="同一账号一次只上传 1 部。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
+                        <TextBlock IsVisible="{Binding ShowsTikTokPublishPrompt}"
+                                   Text="同一账号一次只上传 1 部。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
+                                   Foreground="#666" TextWrapping="Wrap" />
+                        <TextBlock IsVisible="{Binding ShowsKuaishouPublishPrompt}"
+                                   Text="同一账号一次只上传 1 部。本机同时上传的剧不超过「同时上传剧集」，同时生成工程图的剧不超过「同时生成工程图」。"
                                    Foreground="#666" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>

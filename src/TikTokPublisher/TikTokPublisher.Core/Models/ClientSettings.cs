@@ -77,6 +77,7 @@ public sealed class ClientSettings
     public string TiktokAccountScheduleMode { get; set; } = "account_order";
     public int TiktokVideoDedupConcurrency { get; set; } = 2;
     public int TiktokUploadConcurrency { get; set; } = 2;
+    public int KuaishouProjectImageConcurrency { get; set; } = 3;
     public string TiktokAsrLanguage { get; set; } = "zh-CN";
     public bool TiktokManualInterventionOnSingleFailure { get; set; } = true;
     public bool TiktokCopyrightProofAuditIncludePublished { get; set; }
@@ -287,6 +288,7 @@ public sealed class ClientSettings
         TiktokAccountScheduleMode = TiktokAccountScheduleMode,
         TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency,
         TiktokUploadConcurrency = TiktokUploadConcurrency,
+        KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency,
         TiktokAsrLanguage = TiktokAsrLanguage,
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
         TiktokCopyrightProofAuditIncludePublished = TiktokCopyrightProofAuditIncludePublished,

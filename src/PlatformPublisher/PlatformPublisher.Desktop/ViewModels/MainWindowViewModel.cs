@@ -1810,7 +1810,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             }
                             if (key == "project-image" && IsKuaishouPlatform)
                             {
-                                await GenerateKuaishouProjectImagesAsync(projectDirectory, trackedJob, cancellationToken);
+                                await GenerateKuaishouProjectImagesAsync(projectDirectory, trackedJob, cancellationToken, row: trackedRow);
                                 return;
                             }
                             var result = await _workService.RunProjectStepAsync(
@@ -2598,7 +2598,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 if (request.ProjectImages && !preserved.Contains("project-image"))
                 {
-                    await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Running, "正在生成工程图");
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Running, "等待槽位");
                     await GenerateKuaishouProjectImagesAsync(
                         projectDirectory,
                         trackedJob,
@@ -2606,7 +2606,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         request.Platform,
                         request.AccountId,
                         request.ConfigPath,
-                        request.Force);
+                        request.Force,
+                        trackedRow);
                     await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Succeeded, "执行完成");
                     MarkPrepareStep("generate_project_images");
                 }
@@ -2814,8 +2815,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishPlatform? platform = null,
         string? accountId = null,
         string? configPath = null,
-        bool? force = null)
+        bool? force = null,
+        PublishJobRowViewModel? row = null)
     {
+        var title = string.IsNullOrWhiteSpace(job?.ProjectName)
+            ? Path.GetFileName(projectDirectory)
+            : job.ProjectName;
+        await UpdateStepStateAsync(job, row, "project-image", "生成工程图", PublishJobStepStatus.Running, "等待槽位");
+        using var projectImageLease = await KuaishouMachineGate.Shared.AcquireProjectImageAsync(
+            cancellationToken,
+            () => AppendActivityLog($"等待全局工程图名额：{title}", title));
+        await UpdateStepStateAsync(job, row, "project-image", "生成工程图", PublishJobStepStatus.Running, "正在生成工程图");
+
         var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath).Clone();
         var selectedPlatform = platform ?? SelectedPlatform.Value;
         var config = KuaishouPersonalConfig.Load(new PublishJob
@@ -2836,9 +2847,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             settings.TiktokProjectImageTemplateId = templateId.Trim();
         settings.TiktokProjectImageGenerationMode = TikTokProjectImageService.ImageTemplateMode;
 
-        var title = string.IsNullOrWhiteSpace(job?.ProjectName)
-            ? Path.GetFileName(projectDirectory)
-            : job.ProjectName;
         await TikTokProjectImageService.GenerateAsync(
             new QueueProjectItem
             {

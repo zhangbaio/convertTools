@@ -219,6 +219,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _tiktokAccountScheduleRoundRobin;
     [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
     [ObservableProperty] private int _tiktokUploadConcurrency = 2;
+    [ObservableProperty] private int _kuaishouProjectImageConcurrency = 3;
     [ObservableProperty] private string _tiktokAsrLanguage = "zh-CN";
     [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure = true;
     [ObservableProperty] private string _asrProbeStatus = "";
@@ -464,6 +465,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             : QueueProjectSlotCoordinator.AccountOrderMode;
         settings.TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency;
         settings.TiktokUploadConcurrency = TiktokUploadConcurrency;
+        settings.KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency;
         settings.TiktokAsrLanguage = TiktokAsrLanguage.Trim();
         settings.TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure;
         settings.AiTextEndpoint = AiTextEndpoint.Trim();
@@ -1473,6 +1475,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             StringComparison.OrdinalIgnoreCase);
         TiktokVideoDedupConcurrency = settings.TiktokVideoDedupConcurrency;
         TiktokUploadConcurrency = settings.TiktokUploadConcurrency;
+        KuaishouProjectImageConcurrency = settings.KuaishouProjectImageConcurrency;
         TiktokAsrLanguage = settings.TiktokAsrLanguage;
         TiktokManualInterventionOnSingleFailure = settings.TiktokManualInterventionOnSingleFailure;
         AiTextEndpoint = settings.AiTextEndpoint;

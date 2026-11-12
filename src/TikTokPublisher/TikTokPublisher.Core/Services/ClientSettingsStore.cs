@@ -426,6 +426,10 @@ public static class ClientSettingsStore
             settings.TiktokUploadConcurrency <= 0 ? 2 : settings.TiktokUploadConcurrency,
             1,
             UploadSlotCoordinator.MaxCapacity);
+        settings.KuaishouProjectImageConcurrency = Math.Clamp(
+            settings.KuaishouProjectImageConcurrency <= 0 ? 3 : settings.KuaishouProjectImageConcurrency,
+            1,
+            8);
         settings.TiktokAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokAsrLanguage)
             ? "zh-CN"
             : settings.TiktokAsrLanguage.Trim();
