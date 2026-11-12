@@ -42,6 +42,16 @@
             <TabItem Header="发布">
                 <ScrollViewer>
                     <StackPanel Spacing="8" Margin="4">
+                        <Grid ColumnDefinitions="130,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="剧集类型" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1"
+                                      x:Name="DramaMarketCombo"
+                                      HorizontalAlignment="Stretch"
+                                      SelectionChanged="OnDramaMarketSelectionChanged">
+                                <ComboBoxItem Tag="local">本土剧</ComboBoxItem>
+                                <ComboBoxItem Tag="overseas">海外剧</ComboBoxItem>
+                            </ComboBox>
+                        </Grid>
                         <Grid ColumnDefinitions="130,*"
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"

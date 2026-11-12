@@ -13,6 +13,7 @@ public partial class AccountSettingsDialog : Window
 {
     private readonly TikTokAccountProfile _profile;
     private readonly Func<TikTokAccountProfile, Task>? _persist;
+    private bool _suppressDramaMarketPrompt;
 
     public AccountSettingsDialog(
         TikTokAccountProfile profile,
@@ -28,6 +29,19 @@ public partial class AccountSettingsDialog : Window
     private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
 
     private void LoadToUi()
+    {
+        _suppressDramaMarketPrompt = true;
+        try
+        {
+            LoadToUiCore();
+        }
+        finally
+        {
+            _suppressDramaMarketPrompt = false;
+        }
+    }
+
+    private void LoadToUiCore()
     {
         var p = _profile;
         NameBox.Text = p.Name;
@@ -52,6 +66,7 @@ public partial class AccountSettingsDialog : Window
         PlaywrightHeadlessBox.IsChecked = p.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
+        SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(p.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
         SelectByTag(UploadStrategyCombo, p.TiktokUploadStrategy, "api");
 
@@ -159,6 +174,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
+        p.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
         p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
         p.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "api");
         p.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
@@ -321,6 +337,29 @@ public partial class AccountSettingsDialog : Window
         var path = files.FirstOrDefault()?.TryGetLocalPath();
         if (!string.IsNullOrWhiteSpace(path))
             ProofTemplatePathBox.Text = path;
+    }
+
+    private async void OnDramaMarketSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressDramaMarketPrompt)
+            return;
+        if (!string.Equals(
+                TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal),
+                TikTokAccountProfile.DramaMarketOverseas,
+                StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var confirmed = await ConfirmDialog.ShowAsync(
+            this,
+            "海外剧",
+            "是否同步把源语言改为「AI识别语言」，并勾选「改写信息跟随源语言」？",
+            520,
+            200);
+        if (!confirmed)
+            return;
+
+        SelectByTag(SourceLanguageCombo, "auto", "auto");
+        RewriteFollowsSourceLanguageBox.IsChecked = true;
     }
 
     private void OnSave(object? sender, RoutedEventArgs e)

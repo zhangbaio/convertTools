@@ -97,6 +97,17 @@ public sealed class TikTokAccountProfile
     public List<string> TiktokSelectedPublishAccountKeys { get; set; } = [];
     public string TiktokTargetAudienceMode { get; set; } = "ai_recommend";
     public int TiktokGenreCount { get; set; } = 3;
+    public const string DramaMarketLocal = "local";
+    public const string DramaMarketOverseas = "overseas";
+
+    /// <summary>剧集类型：local=本土剧；overseas=海外剧。未保存过的账号按本土剧。</summary>
+    public string TiktokDramaMarket { get; set; } = DramaMarketLocal;
+
+    public static string NormalizeDramaMarket(string? value) =>
+        string.Equals((value ?? "").Trim(), DramaMarketOverseas, StringComparison.OrdinalIgnoreCase)
+            ? DramaMarketOverseas
+            : DramaMarketLocal;
+
     public string TiktokSourceLanguage { get; set; } = "zh";
     public bool TiktokIsAiDrama { get; set; } = true;
     public string TiktokContentCreationType { get; set; } = "original";

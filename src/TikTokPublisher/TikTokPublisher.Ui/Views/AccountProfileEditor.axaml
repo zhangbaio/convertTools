@@ -163,6 +163,19 @@
                         <Grid Classes="profileForm" ColumnDefinitions="140,*" ColumnSpacing="10">
                             <TextBlock Grid.Column="0"
                                        Classes="formLabel"
+                                       Text="剧集类型"
+                                       VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1"
+                                      x:Name="DramaMarketCombo"
+                                      HorizontalAlignment="Stretch"
+                                      SelectionChanged="OnDramaMarketSelectionChanged">
+                                <ComboBoxItem Tag="local">本土剧</ComboBoxItem>
+                                <ComboBoxItem Tag="overseas">海外剧</ComboBoxItem>
+                            </ComboBox>
+                        </Grid>
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0"
+                                       Classes="formLabel"
                                        Text="0 元投放"
                                        VerticalAlignment="Top"
                                        Margin="0,5,0,0" />

@@ -860,6 +860,7 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokSelectedPublishAccountKeys.Should().BeEmpty();
         account.TiktokTargetAudienceMode.Should().Be("ai_recommend");
         account.TiktokGenreCount.Should().Be(3);
+        account.TiktokDramaMarket.Should().Be(TikTokAccountProfile.DramaMarketLocal);
         account.TiktokSourceLanguage.Should().Be("zh");
         account.TiktokIsAiDrama.Should().BeTrue();
         account.TiktokContentCreationType.Should().Be("original");
@@ -889,6 +890,15 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokUploadBatchStallSeconds.Should().Be(75);
         account.TiktokUploadBatchMaxRetries.Should().Be(3);
         account.TiktokDeleteVideosOnArchive.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Drama_market_blank_or_unknown_stays_local_and_overseas_is_kept()
+    {
+        TikTokAccountProfile.NormalizeDramaMarket(null).Should().Be("local");
+        TikTokAccountProfile.NormalizeDramaMarket(" ").Should().Be("local");
+        TikTokAccountProfile.NormalizeDramaMarket("classic").Should().Be("local");
+        TikTokAccountProfile.NormalizeDramaMarket("OVERSEAS").Should().Be("overseas");
     }
 
     [Fact]

@@ -151,6 +151,7 @@ public partial class AccountProfileEditor : UserControl
         PlaywrightHeadlessBox.IsChecked = profile.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
+        SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
         SelectByTag(UploadStrategyCombo, profile.TiktokUploadStrategy, "api");
 
@@ -294,6 +295,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
+            profile.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
             profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
             profile.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "api");
             profile.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
@@ -419,6 +421,30 @@ public partial class AccountProfileEditor : UserControl
             _vm.SaveAccountProfile(account);
 
         _vm.StatusMessage = $"已把视频去重方案同步到 {accounts.Count} 个账号。";
+    }
+
+    private async void OnDramaMarketSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isReloadingFromSelectedAccount)
+            return;
+        if (!string.Equals(
+                TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal),
+                TikTokAccountProfile.DramaMarketOverseas,
+                StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "海外剧",
+            "是否同步把源语言改为「AI识别语言」，并勾选「改写信息跟随源语言」？",
+            520,
+            200);
+        if (!confirmed)
+            return;
+
+        SelectByTag(SourceLanguageCombo, "auto", "auto");
+        RewriteFollowsSourceLanguageBox.IsChecked = true;
     }
 
     private async void OnSyncAccountsClick(object? sender, RoutedEventArgs e)
@@ -958,6 +984,7 @@ public partial class AccountProfileEditor : UserControl
         RoleVectorCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorCharacterCount;
         RoleVectorMinimumCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
         CopyrightMaterials.Clear();
+        SelectByTag(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal, TikTokAccountProfile.DramaMarketLocal);
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;
