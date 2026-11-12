@@ -2484,46 +2484,43 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             step);
                 }
 
-                if (request.Download)
+                if (request.Download && !preserved.Contains("download"))
                 {
                     var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
-                    if (!preserved.Contains("download"))
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在下载剧集");
+                    SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
+                    if (KuaishouDownloadPolicy.ShouldSkip(projectDirectory))
                     {
-                        await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在下载剧集");
-                        SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
-                        if (KuaishouDownloadPolicy.ShouldSkip(projectDirectory))
+                        AppendActivityLog("本地导入项目已有视频，跳过下载。", projectName);
+                    }
+                    else
+                    {
+                        var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                        var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, directories.SourceDirectory, "");
+                        try
                         {
-                            AppendActivityLog("本地导入项目已有视频，跳过下载。", projectName);
+                            var downloadProgress = new Progress<WorkRunEvent>(item =>
+                            {
+                                if (!string.IsNullOrWhiteSpace(item.Message))
+                                    AppendActivityLog(item.Message, projectName);
+                            });
+                            var downloaded = await _workService.RunProjectStepAsync(
+                                directories.SourceDirectory,
+                                null,
+                                "download",
+                                request.Force,
+                                downloadProgress,
+                                cancellationToken,
+                                runtimeConfigPath);
+                            if (!downloaded.Ok)
+                                throw new InvalidOperationException(downloaded.Message ?? "下载剧集失败。");
                         }
-                        else
+                        finally
                         {
-                            var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-                            var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, directories.SourceDirectory, "");
-                            try
-                            {
-                                var downloadProgress = new Progress<WorkRunEvent>(item =>
-                                {
-                                    if (!string.IsNullOrWhiteSpace(item.Message))
-                                        AppendActivityLog(item.Message, projectName);
-                                });
-                                var downloaded = await _workService.RunProjectStepAsync(
-                                    directories.SourceDirectory,
-                                    null,
-                                    "download",
-                                    request.Force,
-                                    downloadProgress,
-                                    cancellationToken,
-                                    runtimeConfigPath);
-                                if (!downloaded.Ok)
-                                    throw new InvalidOperationException(downloaded.Message ?? "下载剧集失败。");
-                            }
-                            finally
-                            {
-                                TryDeleteKuaishouRuntimeConfig(runtimeConfigPath);
-                            }
+                            TryDeleteKuaishouRuntimeConfig(runtimeConfigPath);
+                        }
 
-                            SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
-                        }
+                        SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
                     }
 
                     if (TryReadDownloadFailure(directories.SourceDirectory, out var downloadFailure))
