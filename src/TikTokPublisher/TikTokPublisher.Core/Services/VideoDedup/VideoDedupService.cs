@@ -278,7 +278,7 @@ public static class VideoDedupService
         if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
             parts.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
         parts.Add(preset.HasDurationLimit
-            ? $"按原片时长分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒，然后再做整集裁剪和变速"
+            ? $"按原片时长分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒，然后再做整集裁剪和变速。成片短于 15 秒时并入相邻集"
             : "不按单集时长重新分集");
         if (!preset.TransitionsEnabled || !preset.HasAnyTransition)
             parts.Add("转场关");

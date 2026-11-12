@@ -172,9 +172,10 @@ public sealed class VideoDedupTests
         split[1][0].EndSeconds.Should().BeApproximately(212.321, 0.001);
 
         var tail = VideoDedupPlanner.Plan([140], preset);
-        tail.Should().HaveCount(2);
-        tail[1][0].StartSeconds.Should().Be(132);
-        tail[1][0].EndSeconds.Should().Be(138);
+        tail.Should().HaveCount(1);
+        tail[0].Should().ContainSingle();
+        tail[0][0].StartSeconds.Should().Be(2);
+        tail[0][0].EndSeconds.Should().Be(138);
 
         var clip = new VideoDedupClip("long.mp4", new VideoDedupProbe(214.321, 1080, 1920, true));
         var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], split[1], "out.mp4", "libx264", seed: 1));
@@ -197,6 +198,33 @@ public sealed class VideoDedupTests
         joined.Should().Contain("[0:v]");
         joined.Should().Contain("[1:v]");
         joined.Should().NotContain("trim=start=130");
+    }
+
+    [Fact]
+    public void A_tail_shorter_than_fifteen_seconds_after_speed_joins_the_previous_episode()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.MinimumDurationSeconds = 30;
+        preset.MaximumDurationSeconds = 40;
+        preset.TrimStartSeconds = 2;
+        preset.TrimEndSeconds = 2;
+        preset.SpeedFactor = 1.3;
+        preset.Normalize();
+
+        var shortTail = VideoDedupPlanner.Plan([49.9], preset);
+        shortTail.Should().ContainSingle();
+        shortTail[0].Should().ContainSingle();
+        shortTail[0][0].StartSeconds.Should().Be(2);
+        shortTail[0][0].EndSeconds.Should().BeApproximately(47.9, 0.001);
+        (shortTail[0].Sum(slice => slice.Length) / preset.SpeedFactor).Should().BeGreaterThanOrEqualTo(15);
+
+        var longEnough = VideoDedupPlanner.Plan([64.7], preset);
+        longEnough.Should().HaveCount(2);
+        longEnough[0][0].StartSeconds.Should().Be(2);
+        longEnough[0][0].EndSeconds.Should().Be(38);
+        longEnough[1][0].StartSeconds.Should().Be(42);
+        longEnough[1][0].EndSeconds.Should().BeApproximately(62.7, 0.001);
+        (longEnough[1].Sum(slice => slice.Length) / preset.SpeedFactor).Should().BeGreaterThanOrEqualTo(15);
     }
 
     [Fact]

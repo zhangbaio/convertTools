@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Services.VideoDedup;
 
@@ -62,11 +63,12 @@ internal static class VideoDedupPlanner
             var previousLength = groups[^2].Sum(slice => slice.Length);
             if (lastLength < minimum && previousLength + lastLength <= maximum)
             {
-                groups[^2].AddRange(groups[^1]);
+                AppendSlices(groups[^2], groups[^1]);
                 groups.RemoveAt(groups.Count - 1);
             }
         }
 
+        AbsorbOutputsShorterThanUploadMinimum(groups, preset);
         foreach (var group in groups)
             TrimArrangedEpisode(group, preset);
         return groups;
@@ -110,6 +112,52 @@ internal static class VideoDedupPlanner
         }
 
         return slices;
+    }
+
+    /// <summary>
+    /// 裁剪和变速之后仍短于 TikTok 最短 15 秒的成片并入相邻集。
+    /// 这一步可以超过设定的最大时长，避免尾段变成几秒后校验失败。
+    /// </summary>
+    private static void AbsorbOutputsShorterThanUploadMinimum(List<List<VideoDedupSlice>> groups, VideoDedupPreset preset)
+    {
+        var index = 0;
+        while (index < groups.Count && groups.Count > 1)
+        {
+            var raw = groups[index].Sum(slice => slice.Length);
+            if (ProcessedDuration(raw, preset) >= TikTokVideoConstraints.MinDurationSeconds)
+            {
+                index++;
+                continue;
+            }
+
+            if (index > 0)
+            {
+                AppendSlices(groups[index - 1], groups[index]);
+                groups.RemoveAt(index);
+                index--;
+            }
+            else
+            {
+                AppendSlices(groups[0], groups[1]);
+                groups.RemoveAt(1);
+            }
+        }
+    }
+
+    private static void AppendSlices(List<VideoDedupSlice> target, IReadOnlyList<VideoDedupSlice> extra)
+    {
+        foreach (var slice in extra)
+        {
+            if (target.Count > 0 &&
+                target[^1].ClipIndex == slice.ClipIndex &&
+                Math.Abs(target[^1].EndSeconds - slice.StartSeconds) < 0.001)
+            {
+                target[^1] = target[^1] with { EndSeconds = slice.EndSeconds };
+                continue;
+            }
+
+            target.Add(slice);
+        }
     }
 
     /// <summary>对已经排好的一集做开头和结尾裁剪。裁掉的是原片秒数，变速还在这之后。</summary>
