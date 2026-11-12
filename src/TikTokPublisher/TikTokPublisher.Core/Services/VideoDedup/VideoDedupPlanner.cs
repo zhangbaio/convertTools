@@ -21,26 +21,27 @@ internal static class VideoDedupPlanner
         if (count == 0)
             return [];
 
-        var slices = new List<VideoDedupSlice>();
-        for (var i = 0; i < count; i++)
-            slices.AddRange(SliceClip(i, Math.Max(0, rawDurations[i]), preset));
-
-        var groups = new List<List<VideoDedupSlice>>();
         if (!preset.HasDurationLimit)
         {
-            foreach (var slice in slices)
-                groups.Add([slice]);
-            return groups;
+            var single = new List<IReadOnlyList<VideoDedupSlice>>(count);
+            for (var i = 0; i < count; i++)
+                single.Add(TrimWholeClip(i, Math.Max(0, rawDurations[i]), preset));
+            return single;
         }
+
+        var slices = new List<VideoDedupSlice>();
+        for (var i = 0; i < count; i++)
+            slices.AddRange(SplitRawClip(i, Math.Max(0, rawDurations[i]), preset));
 
         var minimum = preset.MinimumDurationSeconds;
         var maximum = preset.MaximumDurationSeconds;
+        var groups = new List<List<VideoDedupSlice>>();
         var current = new List<VideoDedupSlice>();
         double sum = 0;
         foreach (var slice in slices)
         {
-            var alreadyEnough = minimum <= 0 || sum >= minimum;
-            var wouldExceed = maximum > 0 && current.Count > 0 && sum + slice.Length > maximum;
+            var alreadyEnough = sum >= minimum;
+            var wouldExceed = current.Count > 0 && sum + slice.Length > maximum;
             if (alreadyEnough && wouldExceed)
             {
                 groups.Add(current);
@@ -55,60 +56,53 @@ internal static class VideoDedupPlanner
         if (current.Count > 0)
             groups.Add(current);
 
-        if (minimum > 0 && groups.Count > 1)
+        if (groups.Count > 1)
         {
             var lastLength = groups[^1].Sum(slice => slice.Length);
             var previousLength = groups[^2].Sum(slice => slice.Length);
-            if (lastLength < minimum && (maximum <= 0 || previousLength + lastLength <= maximum))
+            if (lastLength < minimum && previousLength + lastLength <= maximum)
             {
                 groups[^2].AddRange(groups[^1]);
                 groups.RemoveAt(groups.Count - 1);
             }
         }
 
+        foreach (var group in groups)
+            TrimArrangedEpisode(group, preset);
         return groups;
     }
 
-    private static List<VideoDedupSlice> SliceClip(int index, double duration, VideoDedupPreset preset)
+    private static List<VideoDedupSlice> TrimWholeClip(int index, double duration, VideoDedupPreset preset)
     {
-        if (!preset.HasDurationLimit)
-        {
-            var start = Math.Clamp(preset.TrimStartSeconds, 0, duration);
-            var end = Math.Max(0, duration - Math.Max(0, preset.TrimEndSeconds));
-            if (end < start + 0.2)
-                end = Math.Min(duration, start + 0.2);
-            return [new VideoDedupSlice(index, start, end)];
-        }
+        var start = Math.Clamp(preset.TrimStartSeconds, 0, duration);
+        var end = Math.Max(0, duration - Math.Max(0, preset.TrimEndSeconds));
+        if (end < start + 0.2)
+            end = Math.Min(duration, start + 0.2);
+        return [new VideoDedupSlice(index, start, end)];
+    }
 
-        if (preset.MaximumDurationSeconds <= 0 || duration <= preset.MaximumDurationSeconds)
+    /// <summary>按裁剪前的原片时长切开。裁剪秒数留到整集排好后再减。</summary>
+    private static List<VideoDedupSlice> SplitRawClip(int index, double duration, VideoDedupPreset preset)
+    {
+        var maximum = preset.MaximumDurationSeconds;
+        if (duration <= maximum)
             return [new VideoDedupSlice(index, 0, duration)];
 
-        var maximum = preset.MaximumDurationSeconds;
-        var gap = Math.Max(0, preset.TrimStartSeconds) + Math.Max(0, preset.TrimEndSeconds);
         var slices = new List<VideoDedupSlice>();
         var cursor = 0d;
         while (duration - cursor > maximum)
         {
-            var resume = cursor + maximum + gap;
-            if (resume >= duration)
-            {
-                slices.Add(new VideoDedupSlice(index, cursor, Math.Min(duration, cursor + maximum)));
-                return slices;
-            }
-
             slices.Add(new VideoDedupSlice(index, cursor, cursor + maximum));
-            cursor = resume;
+            cursor += maximum;
         }
 
         if (cursor < duration)
             slices.Add(new VideoDedupSlice(index, cursor, duration));
 
-        if (preset.MinimumDurationSeconds > 0 && slices.Count > 1 &&
-            slices[^1].Length < preset.MinimumDurationSeconds)
+        if (slices.Count > 1 && slices[^1].Length < preset.MinimumDurationSeconds)
         {
             var previous = slices[^2];
-            var absorbed = previous.Length + gap + slices[^1].Length;
-            if (absorbed <= maximum)
+            if (previous.Length + slices[^1].Length <= maximum)
             {
                 slices[^2] = previous with { EndSeconds = slices[^1].EndSeconds };
                 slices.RemoveAt(slices.Count - 1);
@@ -116,6 +110,46 @@ internal static class VideoDedupPlanner
         }
 
         return slices;
+    }
+
+    /// <summary>对已经排好的一集做开头和结尾裁剪。裁掉的是原片秒数，变速还在这之后。</summary>
+    private static void TrimArrangedEpisode(List<VideoDedupSlice> group, VideoDedupPreset preset)
+    {
+        var pendingStart = Math.Max(0, preset.TrimStartSeconds);
+        var pendingEnd = Math.Max(0, preset.TrimEndSeconds);
+        if (pendingStart <= 0.001 && pendingEnd <= 0.001)
+            return;
+
+        while (pendingStart > 0.001 && group.Count > 0)
+        {
+            var slice = group[0];
+            if (slice.Length - pendingStart >= 0.2 || group.Count == 1)
+            {
+                var take = Math.Min(pendingStart, Math.Max(0, slice.Length - 0.2));
+                group[0] = slice with { StartSeconds = slice.StartSeconds + take };
+                break;
+            }
+
+            pendingStart -= slice.Length;
+            group.RemoveAt(0);
+        }
+
+        while (pendingEnd > 0.001 && group.Count > 0)
+        {
+            var slice = group[^1];
+            if (slice.Length - pendingEnd >= 0.2 || group.Count == 1)
+            {
+                var take = Math.Min(pendingEnd, Math.Max(0, slice.Length - 0.2));
+                var trimmed = slice with { EndSeconds = slice.EndSeconds - take };
+                if (trimmed.EndSeconds < trimmed.StartSeconds + 0.2)
+                    trimmed = trimmed with { EndSeconds = Math.Min(slice.EndSeconds, trimmed.StartSeconds + 0.2) };
+                group[^1] = trimmed;
+                break;
+            }
+
+            pendingEnd -= slice.Length;
+            group.RemoveAt(group.Count - 1);
+        }
     }
 
     public static double ProcessedDuration(double rawSeconds, VideoDedupPreset preset)

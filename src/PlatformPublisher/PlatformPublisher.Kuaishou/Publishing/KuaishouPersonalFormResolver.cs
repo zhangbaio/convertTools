@@ -34,6 +34,17 @@ public static class KuaishouPersonalFormResolver
         string EpisodePrice,
         bool SmallAmountUnlock);
 
+    public static Resolved ClampToEpisodeCount(Resolved form, int episodeCount)
+    {
+        if (episodeCount <= 0)
+            return form;
+        var free = Math.Min(form.FreeEpisodeCount, episodeCount);
+        var unlock = Math.Min(form.UnlockCount, Math.Max(0, episodeCount - free));
+        if (free == form.FreeEpisodeCount && unlock == form.UnlockCount)
+            return form;
+        return form with { FreeEpisodeCount = free, UnlockCount = unlock };
+    }
+
     public static Resolved Resolve(
         KuaishouPersonalConfig config,
         int videoWidth = 0,

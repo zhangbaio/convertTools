@@ -216,11 +216,7 @@ public static class VideoDedupService
             ToRelative(project, job.Destination),
             new FileInfo(job.Destination).Length)).ToArray();
         WriteFingerprint(fingerprintPath, preset.Fingerprint(), outputs);
-        if (renumber)
-            UpdateDownloadStateCount(project, inputs.Count, outputs.Length, log);
-        if (item.SourceEpisodeCount < inputs.Count)
-            item.SourceEpisodeCount = inputs.Count;
-        item.EpisodeCount = outputs.Length;
+        SyncEpisodeCount(item, project, inputs.Count, outputs.Length, renumber, log);
         ClearDirectory(workRoot);
         log?.Invoke($"视频去重完成：{inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片生成 {outputs.Length.ToString(CultureInfo.InvariantCulture)} 集，原片保留在 source-originals。");
     }
@@ -250,8 +246,8 @@ public static class VideoDedupService
         if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
             parts.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
         parts.Add(preset.HasDurationLimit
-            ? $"单集最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {(preset.MaximumDurationSeconds > 0 ? Num(preset.MaximumDurationSeconds) + " 秒" : "不限制")}"
-            : "单集时长不限制");
+            ? $"按原片时长分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒，然后再做整集裁剪和变速"
+            : "不按单集时长重新分集");
         if (!preset.TransitionsEnabled || !preset.HasAnyTransition)
             parts.Add("转场关");
         else
@@ -690,10 +686,58 @@ public static class VideoDedupService
             argument is "h264_nvenc" or "hevc_nvenc" or "h264_qsv" or "hevc_qsv" or "h264_amf" or "hevc_amf"
                 or "h264_videotoolbox" or "hevc_videotoolbox");
 
-    private static void UpdateDownloadStateCount(string project, int sourceCount, int outputCount, Action<string>? log)
+    private static void SyncEpisodeCount(
+        QueueProjectItem item,
+        string project,
+        int sourceCount,
+        int outputCount,
+        bool renumber,
+        Action<string>? log)
     {
-        var path = Path.Combine(project, DownloadStateFileName);
-        if (!File.Exists(path) || outputCount <= 0)
+        var previousCount = item.EpisodeCount;
+        if (item.SourceEpisodeCount < sourceCount)
+            item.SourceEpisodeCount = sourceCount;
+        item.EpisodeCount = outputCount;
+        if (!renumber && outputCount == sourceCount && previousCount == outputCount)
+            return;
+
+        var sourceDir = project;
+        var workflowDir = project;
+        try
+        {
+            var context = ProjectWorkspaceService.LoadContext(project);
+            sourceDir = context.SourceProjectDir;
+            workflowDir = context.WorkflowProjectDir;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException)
+        {
+            log?.Invoke($"项目目录未能分开源目录和工作目录，集数写在当前目录：{ex.Message}");
+        }
+
+        UpdateDownloadState(sourceDir, project, sourceCount, outputCount, renumber, log);
+        UpdateDeclaredEpisodeCount(sourceDir, outputCount, log);
+        if (!string.Equals(workflowDir, sourceDir, StringComparison.OrdinalIgnoreCase))
+            UpdateDeclaredEpisodeCount(workflowDir, outputCount, log);
+        var reset = ResetStepsAfterDedup(item);
+        log?.Invoke($"已按新的 {outputCount.ToString(CultureInfo.InvariantCulture)} 集更新下载记录、短剧信息和项目集数。");
+        if (reset > 0)
+            log?.Invoke($"集数已变化，去重之后 {reset.ToString(CultureInfo.InvariantCulture)} 个已完成步骤会按新成片重新执行。");
+    }
+
+    private static void UpdateDownloadState(
+        string sourceDir,
+        string project,
+        int sourceCount,
+        int outputCount,
+        bool renumber,
+        Action<string>? log)
+    {
+        if (outputCount <= 0)
+            return;
+        var path = Path.Combine(sourceDir, DownloadStateFileName);
+        if (!File.Exists(path))
+            path = Path.Combine(project, DownloadStateFileName);
+        if (!File.Exists(path))
             return;
         try
         {
@@ -703,13 +747,126 @@ public static class VideoDedupService
             if (!node.ContainsKey("source_video_count"))
                 node["source_video_count"] = sourceCount;
             node["video_count"] = outputCount;
+            if (renumber)
+            {
+                node["episode_number_mode"] = "continuous";
+                var mappings = new JsonArray();
+                for (var episode = 1; episode <= outputCount; episode++)
+                {
+                    mappings.Add(new JsonObject
+                    {
+                        ["source_episode_number"] = episode,
+                        ["sequence_episode_number"] = episode,
+                        ["episode_title"] = $"第{episode.ToString(CultureInfo.InvariantCulture)}集",
+                    });
+                }
+
+                node["episode_mappings"] = mappings;
+            }
+
             File.WriteAllText(path, node.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            log?.Invoke($"已把下载记录中的集数更新为 {outputCount.ToString(CultureInfo.InvariantCulture)}。");
         }
         catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
         {
             log?.Invoke($"下载记录集数未更新：{ex.Message}");
         }
+    }
+
+    private static void UpdateDeclaredEpisodeCount(string directory, int outputCount, Action<string>? log)
+    {
+        if (outputCount <= 0 || string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+            return;
+
+        var infoPath = Path.Combine(directory, "短剧信息.txt");
+        try
+        {
+            if (File.Exists(infoPath))
+            {
+                ProjectWorkspaceService.UpdateProjectInfoField(infoPath, "集数", outputCount.ToString(CultureInfo.InvariantCulture));
+                UpdateProjectInfoFieldIfPresent(infoPath, "总集数", outputCount);
+                UpdateProjectInfoFieldIfPresent(infoPath, "剧集数", outputCount);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log?.Invoke($"短剧信息集数未更新：{ex.Message}");
+        }
+
+        var metadataPath = Path.Combine(directory, "shortdrama-project.json");
+        if (!File.Exists(metadataPath))
+            return;
+        try
+        {
+            var root = JsonNode.Parse(File.ReadAllText(metadataPath)) as JsonObject;
+            if (root is null)
+                return;
+            var count = JsonValue.Create(outputCount);
+            foreach (var key in new[] { "episodeCount", "episode_count", "effectiveEpisodeCount", "effective_episode_count" })
+                root[key] = count?.DeepClone();
+            var truncated = ReadBool(root, "truncatedForTikTokUpload") || ReadBool(root, "truncated_for_tiktok_upload");
+            if (truncated || root.ContainsKey("downloadEpisodeLimit") || root.ContainsKey("download_episode_limit"))
+            {
+                root["downloadEpisodeLimit"] = count?.DeepClone();
+                root["download_episode_limit"] = count?.DeepClone();
+            }
+
+            File.WriteAllText(metadataPath, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            log?.Invoke($"项目集数未更新：{ex.Message}");
+        }
+    }
+
+    private static void UpdateProjectInfoFieldIfPresent(string infoPath, string key, int outputCount)
+    {
+        var lines = File.ReadAllLines(infoPath);
+        if (!lines.Any(line =>
+            {
+                var trimmed = line.TrimStart();
+                return trimmed.StartsWith(key + ":", StringComparison.Ordinal) ||
+                       trimmed.StartsWith(key + "：", StringComparison.Ordinal);
+            }))
+        {
+            return;
+        }
+
+        ProjectWorkspaceService.UpdateProjectInfoField(infoPath, key, outputCount.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static bool ReadBool(JsonObject root, string key)
+    {
+        if (root[key] is not JsonValue value)
+            return false;
+        if (value.TryGetValue<bool>(out var flag))
+            return flag;
+        return value.TryGetValue<string>(out var text) &&
+               bool.TryParse(text, out flag) &&
+               flag;
+    }
+
+    private static int ResetStepsAfterDedup(QueueProjectItem item)
+    {
+        var uploadWasCompleted = item.IsUploadCompleted;
+        var reset = 0;
+        var afterDedup = false;
+        foreach (var step in QueueStepRegistry.All)
+        {
+            if (!afterDedup)
+            {
+                afterDedup = string.Equals(step.Key, QueueStepRegistry.VideoDedup, StringComparison.Ordinal);
+                continue;
+            }
+
+            if (item.StepStates.GetValueOrDefault(step.Key) != QueueStepStatus.Completed)
+                continue;
+            item.StepStates[step.Key] = QueueStepStatus.Pending;
+            reset++;
+        }
+
+        if (uploadWasCompleted)
+            item.StatusText = QueueStepStatus.Pending;
+        return reset;
     }
 
     private static string FingerprintPath(string project) =>
