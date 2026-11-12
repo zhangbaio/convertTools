@@ -23,7 +23,9 @@ public sealed record TikTokRemoteCommand(
     IReadOnlyList<TikTokUploadSeriesSpec>? Series = null,
     long AutoPublishAssignmentId = 0,
     string AutoPublishProgressPath = "",
-    IReadOnlyList<TikTokRetryQueueItem>? RetryItems = null)
+    IReadOnlyList<TikTokRetryQueueItem>? RetryItems = null,
+    string LookupMode = "",
+    string DispatchMode = "")
 {
     public bool IsRetryQueueCommand =>
         string.Equals(Command, TikTokRemoteCommandNames.RetryQueue, StringComparison.Ordinal);

@@ -33,6 +33,17 @@ public sealed class TikTokRemoteCommandParserTests
     }
 
     [Fact]
+    public void Parse_json_upload_keeps_server_dispatch_mode()
+    {
+        var command = TikTokRemoteCommandParser.Parse("""
+            {"command":"tiktok_upload_series","titles":["剧A"],"dispatch_mode":"fill_first"}
+            """);
+
+        command.Should().NotBeNull();
+        command!.DispatchMode.Should().Be(QueueProjectSlotCoordinator.ServerFillFirstMode);
+    }
+
+    [Fact]
     public void Parse_json_start_queue_command_normalizes_aliases()
     {
         var command = TikTokRemoteCommandParser.Parse("""
@@ -83,6 +94,18 @@ public sealed class TikTokRemoteCommandParserTests
         command.AccountProfileId.Should().Be("acc-1");
         command.AccountProfileName.Should().Be("张莉");
         command.AccountSelectors.Should().Equal("acc-1");
+    }
+
+    [Fact]
+    public void Parse_json_upload_reads_series_lookup_mode()
+    {
+        var command = TikTokRemoteCommandParser.Parse("""
+            {"command":"tiktok_upload_series","titles":["剧A"],"lookup_mode":"series_id","series":[{"title":"剧A","episode_cnt":50,"series_id":"731"}]}
+            """);
+
+        command!.LookupMode.Should().Be("series_id");
+        command.Series.Should().ContainSingle();
+        command.Series![0].SeriesId.Should().Be("731");
     }
 
     [Fact]

@@ -43,7 +43,8 @@ public sealed class XingeRemoteCommandService
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
         Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
         Action<string>? log = null,
-        Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync = null)
+        Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync = null,
+        Action? onIdle = null)
     {
         Stop();
 
@@ -65,10 +66,49 @@ public sealed class XingeRemoteCommandService
         lock (_sync)
         {
             _cts = cts;
-            _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, recoverAsync, cts.Token));
+            _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, recoverAsync, onIdle, cts.Token));
         }
 
         Notify(config.NeedsProvisioning ? "XINGE 正在登录账号..." : "XINGE 正在连接...");
+    }
+
+    public void ReportDailySeriesLimit(string? accountProfileId)
+    {
+        var accountId = accountProfileId?.Trim() ?? "";
+        if (accountId.Length == 0)
+            return;
+        _ = Task.Run(() => ReportDailySeriesLimitAsync(accountId));
+    }
+
+    private async Task ReportDailySeriesLimitAsync(string accountId)
+    {
+        try
+        {
+            var settings = ClientSettingsStore.Load();
+            var config = XingeRemoteConfig.FromSettings(settings);
+            if (!settings.XingeRemoteEnabled || !config.IsReady)
+                return;
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            if (config.NeedsProvisioning)
+                await ProvisionAndSaveAsync(config, CancellationToken.None).ConfigureAwait(false);
+            await SendAsync<XingeApiEnvelope<JsonElement>>(
+                http,
+                config,
+                HttpMethod.Post,
+                "/client-api/tiktok/auto-publish/daily-limit",
+                new
+                {
+                    client_id = config.ClientId,
+                    client_token = config.ClientToken,
+                    account_profile_id = accountId,
+                    detail = "TikTok 今日创建剧集已达上限",
+                },
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Notify($"通知 XINGE 停止当天分发失败：{ex.Message}");
+        }
     }
 
     public void Stop()
@@ -107,6 +147,7 @@ public sealed class XingeRemoteCommandService
         Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
         Action<string>? log,
         Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync,
+        Action? onIdle,
         CancellationToken ct)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
@@ -138,6 +179,15 @@ public sealed class XingeRemoteCommandService
                 {
                     await HandleCommandAsync(http, config, message, executeAsync, log, ct).ConfigureAwait(false);
                     continue;
+                }
+
+                try
+                {
+                    onIdle?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    log?.Invoke($"自动派单调度失败：{ex.Message}");
                 }
 
                 await Task.Delay(config.PollInterval, ct).ConfigureAwait(false);

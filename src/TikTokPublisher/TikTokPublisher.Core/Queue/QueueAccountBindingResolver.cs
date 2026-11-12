@@ -49,6 +49,28 @@ public static class QueueAccountBindingResolver
         return true;
     }
 
+    /// <summary>
+    /// 当前工作目录队列跟随左侧生效账号。同一部剧可以被多个账号上传，
+    /// 账号槽不保留上一次绑定的账号名。
+    /// </summary>
+    public static bool AlignToEffectiveAccount(QueueProjectItem item, TikTokAccountProfile effectiveAccount)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(effectiveAccount);
+
+        var accountId = (effectiveAccount.Id ?? "").Trim();
+        var accountName = (effectiveAccount.DisplayName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(accountName))
+            return false;
+        if (string.Equals((item.AccountProfileId ?? "").Trim(), accountId, StringComparison.Ordinal) &&
+            string.Equals((item.AccountProfileName ?? "").Trim(), accountName, StringComparison.Ordinal))
+            return false;
+
+        item.AccountProfileId = accountId;
+        item.AccountProfileName = accountName;
+        return true;
+    }
+
     private static TikTokAccountProfile? ResolveExplicit(AccountStore store, QueueProjectItem item)
     {
         var savedId = (item.AccountProfileId ?? "").Trim();

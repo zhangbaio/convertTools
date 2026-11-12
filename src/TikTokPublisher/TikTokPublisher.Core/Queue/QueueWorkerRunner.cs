@@ -105,6 +105,7 @@ public sealed class QueueWorkerRunner
     private readonly Dictionary<QueueProjectItem, string> _heldProjectSlots = new(ReferenceEqualityComparer.Instance);
     private readonly QueueProofMaterialPrerequisiteWithFallback _ensureProofMaterial;
     private readonly List<QueueProjectItem> _incomingItems = new();
+    private readonly List<QueueProjectItem> _incomingVisibleOnly = new();
     private readonly object _incomingLock = new();
     private bool _acceptingItems = true;
     private bool _runStarted;
@@ -213,6 +214,7 @@ public sealed class QueueWorkerRunner
             }
 
             _incomingItems.RemoveAll(item => remove.Contains(NormalizeProjectDir(item.ProjectDir)));
+            _incomingVisibleOnly.RemoveAll(item => remove.Contains(NormalizeProjectDir(item.ProjectDir)));
             items = _runItems;
             persist = _runPersist;
             if (items is not null)
@@ -275,6 +277,34 @@ public sealed class QueueWorkerRunner
         });
         return ordered.Select(item => item.ProjectDir).ToArray();
     }
+
+    /// <summary>
+    /// 今日上传已达标时，取消该账号还没上传完成的项目。已经上传完成的保留。
+    /// </summary>
+    public static int DisableAccountProjectsBeforeUpload(IEnumerable<QueueProjectItem> items, string? accountProfileId)
+    {
+        var accountId = (accountProfileId ?? "").Trim();
+        var changed = 0;
+        foreach (var item in items)
+        {
+            if (item is null || item.Archived || !item.Enabled)
+                continue;
+            var id = (item.AccountProfileId ?? "").Trim();
+            if (accountId.Length > 0 && id.Length > 0 &&
+                !string.Equals(id, accountId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (HasFinishedUpload(item))
+                continue;
+            item.Enabled = false;
+            changed++;
+        }
+
+        return changed;
+    }
+
+    public static bool HasFinishedUpload(QueueProjectItem item) =>
+        item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed
+        || !string.IsNullOrWhiteSpace(item.UploadCompletedAt);
 
     public static bool HasRetryableFailure(QueueProjectItem item)
     {
@@ -351,6 +381,28 @@ public sealed class QueueWorkerRunner
                 return 0;
             _incomingItems.AddRange(added);
         }
+        return added.Count;
+    }
+
+    /// <summary>
+    /// 放进当前队列的列表里，但不参加这一轮执行。轮流分发时后到的剧要看得见，等当前这部结束再启动。
+    /// </summary>
+    public int ShowItems(IEnumerable<QueueProjectItem> items)
+    {
+        var added = items
+            .Where(item => item.Enabled)
+            .Select(CloneQueueItem)
+            .ToList();
+        if (added.Count == 0)
+            return 0;
+
+        lock (_incomingLock)
+        {
+            if (!_acceptingItems)
+                return 0;
+            _incomingVisibleOnly.AddRange(added);
+        }
+
         return added.Count;
     }
 
@@ -932,7 +984,7 @@ public sealed class QueueWorkerRunner
 
             lock (_incomingLock)
             {
-                if (_incomingItems.Count > 0)
+                if (_incomingItems.Count > 0 || _incomingVisibleOnly.Count > 0)
                     return false;
 
                 _acceptingItems = false;
@@ -1004,6 +1056,12 @@ public sealed class QueueWorkerRunner
                 {
                     watchTasks = watchTasks.Append(Task.Delay(500, ct)).ToArray();
                 }
+            }
+
+            if (watchTasks.Length > 0)
+            {
+                // 当前步骤还在跑时，后到的剧也要在这一轮醒来后进列表，不能等这部下完才看得到。
+                watchTasks = watchTasks.Append(Task.Delay(400, ct)).ToArray();
             }
 
             if (watchTasks.Length == 0)
@@ -2652,12 +2710,15 @@ public sealed class QueueWorkerRunner
         Action<IReadOnlyList<QueueProjectItem>>? onPersist)
     {
         List<QueueProjectItem> batch;
+        List<QueueProjectItem> visibleOnly;
         lock (_incomingLock)
         {
-            if (_incomingItems.Count == 0)
+            if (_incomingItems.Count == 0 && _incomingVisibleOnly.Count == 0)
                 return;
             batch = _incomingItems.ToList();
+            visibleOnly = _incomingVisibleOnly.ToList();
             _incomingItems.Clear();
+            _incomingVisibleOnly.Clear();
         }
 
         lock (stateLock)
@@ -2704,6 +2765,21 @@ public sealed class QueueWorkerRunner
                     QueueAccountBindingResolver.Resolve(accountStore, queueItem));
                 candidates.Add(queueItem);
                 pendingPreUpload.Enqueue((candidates.Count, queueItem));
+                added = true;
+            }
+
+            foreach (var item in visibleOnly)
+            {
+                if (!item.Enabled || string.IsNullOrWhiteSpace(item.ProjectDir))
+                    continue;
+                var projectDir = Path.GetFullPath(item.ProjectDir);
+                if (candidates.Any(existing => SameProjectDir(existing, projectDir)) ||
+                    items.Any(existing => SameProjectDir(existing, projectDir)))
+                    continue;
+
+                item.Enabled = true;
+                item.StatusText = QueueStepStatus.Pending;
+                items.Add(item);
                 added = true;
             }
 

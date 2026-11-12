@@ -159,9 +159,7 @@ public static class XingeAutoPublishMarkerStore
     {
         if (marker is null || marker.AssignmentId <= 0 || marker.CreatedAt == default)
             return false;
-        // 用户刚手动停掉的剧先取消勾选，等下次派单覆写标记后再勾上执行。
-        if (string.Equals(marker.FinalStatus, XingeAutoPublishStatuses.UserStopped, StringComparison.OrdinalIgnoreCase))
-            return false;
+        // 手动停止后勾选保留，方便再点「执行勾选队列」。自动续跑另看终态，不会因为还勾着就自己开跑。
         if (marker.CreatedAt.ToLocalTime().Date != localDay.Date)
             return false;
 

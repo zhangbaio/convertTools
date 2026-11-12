@@ -74,6 +74,19 @@ public sealed class QueueProjectSlotCoordinatorTests
     }
 
     [Fact]
+    public void ServerDispatchMode_FillFirstUsesAccountOrderAndBlankUsesRoundRobin()
+    {
+        QueueProjectSlotCoordinator.SlotModeForServer("fill_first")
+            .Should().Be(QueueProjectSlotCoordinator.AccountOrderMode);
+        QueueProjectSlotCoordinator.ServerUsesRoundRobin("fill_first").Should().BeFalse();
+        QueueProjectSlotCoordinator.SlotModeForServer("")
+            .Should().Be(QueueProjectSlotCoordinator.RoundRobinMode);
+        QueueProjectSlotCoordinator.SlotModeForServer("round_robin")
+            .Should().Be(QueueProjectSlotCoordinator.RoundRobinMode);
+        QueueProjectSlotCoordinator.NormalizeServerDispatchMode("unknown").Should().Be("");
+    }
+
+    [Fact]
     public void ClearDemand_StopsBlockingOtherAccounts()
     {
         var slots = new QueueProjectSlotCoordinator();

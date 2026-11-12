@@ -1192,6 +1192,58 @@ public sealed class QueueWorkerRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ShowItems_puts_a_later_drama_on_the_list_without_starting_it()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-test",
+            Name = "test",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var runningItem = CreateReadyToUploadItem(1, account);
+        var waitingItem = CreateReadyToUploadItem(2, account);
+        List<QueueProjectItem>? persisted = null;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var host = new BlockingPublishHost();
+        var runner = new QueueWorkerRunner();
+        var runTask = runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-show-items-test"),
+            [runningItem],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 1,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: items => persisted = items.ToList(),
+            cts.Token);
+
+        await host.WaitForPublishCountAsync(1).WaitAsync(cts.Token);
+        runner.ShowItems([waitingItem]).Should().Be(1);
+        var shownAt = DateTime.UtcNow;
+        while (persisted?.Count != 2)
+        {
+            if (DateTime.UtcNow - shownAt > TimeSpan.FromSeconds(5))
+                break;
+            await Task.Delay(50, cts.Token);
+        }
+        persisted.Should().NotBeNull();
+        persisted!.Count.Should().Be(2);
+        persisted!.Should().Contain(item => item.ProjectDir == waitingItem.ProjectDir && item.Enabled);
+        host.PublishedProjectDirs.Should().Equal(runningItem.ProjectDir);
+
+        host.ReleaseNext();
+        var summary = await runTask.WaitAsync(cts.Token);
+        summary.SuccessCount.Should().Be(1);
+        host.PublishedProjectDirs.Should().Equal(runningItem.ProjectDir);
+    }
+
+    [Fact]
     public async Task RunAsync_preserves_fifo_when_multiple_batches_are_appended_to_the_queue_tail()
     {
         var account = new TikTokAccountProfile

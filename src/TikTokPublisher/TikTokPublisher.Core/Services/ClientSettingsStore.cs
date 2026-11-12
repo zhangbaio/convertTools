@@ -357,6 +357,18 @@ public static class ClientSettingsStore
         Save(settings, databasePath);
     }
 
+    public static void RememberServerDispatchMode(string? mode, string? databasePath = null)
+    {
+        var canonical = QueueProjectSlotCoordinator.NormalizeServerDispatchMode(mode);
+        if (canonical.Length == 0)
+            return;
+        var settings = Load(databasePath);
+        if (string.Equals(settings.ServerDispatchMode, canonical, StringComparison.Ordinal))
+            return;
+        settings.ServerDispatchMode = canonical;
+        Save(settings, databasePath);
+    }
+
     public static void PatchHongguoAppPlaybackIdentity(string deviceId, string installId, string? databasePath = null)
     {
         if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(installId))
@@ -418,6 +430,7 @@ public static class ClientSettingsStore
             1,
             QueueProjectSlotCoordinator.MaxCapacity);
         settings.TiktokAccountScheduleMode = QueueProjectSlotCoordinator.NormalizeMode(settings.TiktokAccountScheduleMode);
+        settings.ServerDispatchMode = QueueProjectSlotCoordinator.NormalizeServerDispatchMode(settings.ServerDispatchMode);
         settings.TiktokVideoDedupConcurrency = Math.Clamp(
             settings.TiktokVideoDedupConcurrency <= 0 ? 2 : settings.TiktokVideoDedupConcurrency,
             1,

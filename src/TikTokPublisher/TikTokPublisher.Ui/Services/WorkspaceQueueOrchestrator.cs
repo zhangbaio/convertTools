@@ -303,6 +303,18 @@ public sealed class WorkspaceQueueOrchestrator
         return 0;
     }
 
+    public int ShowItemsInRunningWorkspace(string workspaceRoot, IEnumerable<QueueProjectItem> items)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (_runs.TryGetValue(root, out var run) && !run.Task.IsCompleted)
+                return run.Runner.ShowItems(items);
+        }
+
+        return 0;
+    }
+
     public bool ResolveManualIntervention(string action, string? workspaceRoot = null)
     {
         lock (_lock)

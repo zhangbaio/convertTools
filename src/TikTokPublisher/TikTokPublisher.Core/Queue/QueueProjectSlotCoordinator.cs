@@ -9,6 +9,7 @@ public sealed class QueueProjectSlotCoordinator
 {
     public const string AccountOrderMode = "account_order";
     public const string RoundRobinMode = "round_robin";
+    public const string ServerFillFirstMode = "fill_first";
     public const int DefaultCapacity = 4;
     public const int MaxCapacity = 12;
 
@@ -23,6 +24,30 @@ public sealed class QueueProjectSlotCoordinator
         string.Equals((mode ?? "").Trim(), RoundRobinMode, StringComparison.OrdinalIgnoreCase)
             ? RoundRobinMode
             : AccountOrderMode;
+
+    /// <summary>
+    /// 服务端分发模式。空值和未知值不当成一次更新；调用方没收到模式时按轮流处理。
+    /// </summary>
+    public static string NormalizeServerDispatchMode(string? mode)
+    {
+        var text = (mode ?? "").Trim();
+        if (text.Length == 0)
+            return "";
+        if (string.Equals(text, ServerFillFirstMode, StringComparison.OrdinalIgnoreCase))
+            return ServerFillFirstMode;
+        if (string.Equals(text, RoundRobinMode, StringComparison.OrdinalIgnoreCase))
+            return RoundRobinMode;
+        return "";
+    }
+
+    /// <summary>按账号分发时前面的账号先占名额，轮流分发时占得少的账号先拿。没收到模式时按轮流。</summary>
+    public static string SlotModeForServer(string? serverDispatchMode) =>
+        string.Equals(NormalizeServerDispatchMode(serverDispatchMode), ServerFillFirstMode, StringComparison.OrdinalIgnoreCase)
+            ? AccountOrderMode
+            : RoundRobinMode;
+
+    public static bool ServerUsesRoundRobin(string? serverDispatchMode) =>
+        SlotModeForServer(serverDispatchMode) == RoundRobinMode;
 
     public void Configure(int capacity, string? mode)
     {

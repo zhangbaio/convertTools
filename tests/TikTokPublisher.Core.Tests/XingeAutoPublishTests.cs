@@ -82,7 +82,7 @@ public sealed class XingeAutoPublishTests : IDisposable
         XingeAutoPublishMarkerStore.ShouldKeepChecked(null, "acc-1", today).Should().BeFalse();
         marker.CreatedAt = new DateTimeOffset(2026, 11, 10, 10, 29, 0, offset);
         marker.FinalStatus = XingeAutoPublishStatuses.UserStopped;
-        XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today).Should().BeFalse();
+        XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today).Should().BeTrue();
     }
 
     [Fact]
