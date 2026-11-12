@@ -28,7 +28,10 @@
 
             <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                 <TextBlock Classes="dedupLabel" Text="并发数量" />
-                <NumericUpDown x:Name="ParallelBox" Grid.Column="1" Minimum="1" Maximum="4" Increment="1" FormatString="0" Width="120" HorizontalAlignment="Left" />
+                <StackPanel Grid.Column="1" Spacing="4">
+                    <NumericUpDown x:Name="ParallelBox" Minimum="1" Maximum="4" Increment="1" FormatString="0" Width="120" HorizontalAlignment="Left" />
+                    <TextBlock Classes="dedupHint" Text="这是一部剧想同时处理的集数。实际路数按每台电脑的处理器数量封顶，多部剧合在一起也不会把 CPU 占满。" />
+                </StackPanel>
                 <TextBlock Grid.Row="1" Classes="dedupLabel" Text="编码器" />
                 <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
                     <WrapPanel Orientation="Horizontal">
@@ -38,7 +41,7 @@
                         <RadioButton x:Name="EncoderAmfBox" GroupName="DedupEncoder" Content="AMD" Margin="0,0,16,4" />
                         <RadioButton x:Name="EncoderQsvBox" GroupName="DedupEncoder" Content="Intel" Margin="0,0,16,4" />
                     </WrapPanel>
-                    <TextBlock Classes="dedupHint" Text="自动选择会实际试编码：先 NVIDIA，再 Intel，再 AMD，都不可用时用 CPU。指定显卡不可用时这一步失败，不会改用别的显卡。" />
+                    <TextBlock Classes="dedupHint" Text="自动选择会按本机显卡试编码，检测到的 NVIDIA、AMD 或 Intel 优先，都不可用时用 CPU。指定某一张显卡时，不可用就失败，不会改用别的显卡。" />
                 </StackPanel>
             </Grid>
 

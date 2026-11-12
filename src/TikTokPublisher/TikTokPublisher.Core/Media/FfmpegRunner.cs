@@ -6,9 +6,9 @@ namespace TikTokPublisher.Core.Media;
 
 public static class FfmpegRunner
 {
-    public static async Task RunAsync(string binary, IReadOnlyList<string> args, CancellationToken ct)
+    public static async Task RunAsync(string binary, IReadOnlyList<string> args, CancellationToken ct, bool belowNormal = false)
     {
-        using var proc = Start(binary, args);
+        using var proc = Start(binary, args, belowNormal: belowNormal);
         var stderr = await proc.StandardError.ReadToEndAsync(ct);
         await proc.WaitForExitAsync(ct);
         if (proc.ExitCode != 0)
@@ -39,7 +39,7 @@ public static class FfmpegRunner
         return duration;
     }
 
-    private static Process Start(string binary, IReadOnlyList<string> args, bool captureStdout = false)
+    private static Process Start(string binary, IReadOnlyList<string> args, bool captureStdout = false, bool belowNormal = false)
     {
         var psi = new ProcessStartInfo
         {
@@ -54,6 +54,17 @@ public static class FfmpegRunner
         foreach (var arg in args) psi.ArgumentList.Add(arg);
         var proc = new Process { StartInfo = psi };
         if (!proc.Start()) throw new InvalidOperationException($"无法启动：{binary}");
+        if (belowNormal)
+        {
+            try
+            {
+                proc.PriorityClass = ProcessPriorityClass.BelowNormal;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+            }
+        }
+
         return proc;
     }
 }

@@ -194,6 +194,7 @@ internal static class VideoDedupPlanner
             localInput[inputs[i]] = i;
 
         var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error" };
+        AppendThreadLimits(args, videoEncoder);
         foreach (var index in inputs)
             args.AddRange(["-i", clips[index].Path]);
         foreach (var image in VideoDedupEffectFilters.ImageInputs(preset))
@@ -300,12 +301,12 @@ internal static class VideoDedupPlanner
     /// <summary>用正式编码参数试编几帧，避免试编码通过而正式参数（profile、码控、B 帧）在这张卡上不被支持。</summary>
     public static IReadOnlyList<string> BuildProbeArguments(VideoDedupPreset preset, string videoEncoder)
     {
-        var args = new List<string>
-        {
-            "-hide_banner", "-loglevel", "error",
+        var args = new List<string> { "-hide_banner", "-loglevel", "error" };
+        AppendThreadLimits(args, videoEncoder);
+        args.AddRange([
             "-f", "lavfi", "-i", "testsrc=size=1080x1920:rate=30:duration=0.3",
             "-frames:v", "5",
-        };
+        ]);
         AppendEncoder(args, preset, videoEncoder, includeAudio: false);
         args.AddRange(["-f", "null", "-"]);
         return args;
@@ -412,9 +413,31 @@ internal static class VideoDedupPlanner
             args.AddRange(["-b:v", bitrate, "-minrate", bitrate, "-maxrate", bitrate, "-bufsize", bitrate]);
         else
             args.AddRange(["-b:v", bitrate, "-maxrate", MaxRateToken(preset), "-bufsize", BufferToken(preset)]);
+        var threads = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, hardwareEncoder: false);
         if (hevc)
-            args.AddRange(["-x265-params", "log-level=error"]);
+            args.AddRange(["-x265-params", $"log-level=error:pools={threads.EncoderThreads.ToString(CultureInfo.InvariantCulture)}"]);
+        else
+            args.AddRange(["-x264-params", $"threads={threads.EncoderThreads.ToString(CultureInfo.InvariantCulture)}:lookahead-threads=1"]);
     }
+
+    private static void AppendThreadLimits(List<string> args, string videoEncoder)
+    {
+        var hardware = IsHardwareEncoder(videoEncoder);
+        var threads = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, hardware);
+        var encoder = threads.EncoderThreads.ToString(CultureInfo.InvariantCulture);
+        var filter = threads.FilterThreads.ToString(CultureInfo.InvariantCulture);
+        args.AddRange([
+            "-threads", encoder,
+            "-filter_threads", filter,
+            "-filter_complex_threads", filter,
+        ]);
+    }
+
+    internal static bool IsHardwareEncoder(string videoEncoder) =>
+        videoEncoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase) ||
+        videoEncoder.Contains("amf", StringComparison.OrdinalIgnoreCase) ||
+        videoEncoder.Contains("qsv", StringComparison.OrdinalIgnoreCase) ||
+        videoEncoder.Contains("videotoolbox", StringComparison.OrdinalIgnoreCase);
 
     internal static bool IsHevcEncoder(string videoEncoder) =>
         videoEncoder.Contains("265", StringComparison.OrdinalIgnoreCase) ||

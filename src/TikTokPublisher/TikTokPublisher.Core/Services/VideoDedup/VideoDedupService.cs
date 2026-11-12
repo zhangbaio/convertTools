@@ -131,9 +131,14 @@ public static class VideoDedupService
         var encoder = choice.Encoder;
         var softwareEncoder = VideoDedupPlanner.IsHevcEncoder(encoder) ? "libx265" : "libx264";
         var hardwareFailed = 0;
+        var logicalProcessors = Environment.ProcessorCount;
+        var encodeCap = VideoDedupCpuBudget.MaxConcurrentEncodes(logicalProcessors);
+        var encodeParallel = Math.Min(Math.Max(1, preset.Parallel), encodeCap);
+        var threadSplit = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, VideoDedupPlanner.IsHardwareEncoder(encoder));
         Write(string.IsNullOrWhiteSpace(choice.Note)
-            ? $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。"
-            : $"视频编码器：{encoder}（{choice.Device}），并发 {preset.Parallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
+            ? $"视频编码器：{encoder}（{choice.Device}），并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。"
+            : $"视频编码器：{encoder}（{choice.Device}），并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
+        Write($"本机 {logicalProcessors.ToString(CultureInfo.InvariantCulture)} 个逻辑处理器，去重同时最多 {encodeCap.ToString(CultureInfo.InvariantCulture)} 路，每路编码 {threadSplit.EncoderThreads.ToString(CultureInfo.InvariantCulture)} 线程、滤镜 {threadSplit.FilterThreads.ToString(CultureInfo.InvariantCulture)} 线程。");
         if (renumber && preset.TransitionsEnabled && plan.Any(group => group.Count > 1))
             Write("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
         var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
@@ -146,7 +151,7 @@ public static class VideoDedupService
                 jobs.Select((job, index) => (job, index)),
                 new ParallelOptions
                 {
-                    MaxDegreeOfParallelism = preset.Parallel,
+                    MaxDegreeOfParallelism = encodeParallel,
                     CancellationToken = renderCancellation.Token,
                 },
                 async (entry, token) =>
@@ -610,11 +615,11 @@ public static class VideoDedupService
             yield break;
         }
 
-        yield return hevc ? "hevc_nvenc" : "h264_nvenc";
-        yield return hevc ? "hevc_qsv" : "h264_qsv";
-        yield return hevc ? "hevc_amf" : "h264_amf";
-        if (OperatingSystem.IsMacOS())
-            yield return hevc ? "hevc_videotoolbox" : "h264_videotoolbox";
+        foreach (var candidate in VideoDedupHardwareOrder.Encoders(
+                     hevc,
+                     VideoDedupHardwareOrder.Detect(),
+                     OperatingSystem.IsMacOS()))
+            yield return candidate;
     }
 
     private static bool AllowsCpuFallback(VideoDedupPreset preset) =>
@@ -672,7 +677,16 @@ public static class VideoDedupService
             return;
         }
 
-        await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), arguments, ct).ConfigureAwait(false);
+        await VideoDedupEncodeGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), arguments, ct, belowNormal: true)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            VideoDedupEncodeGate.Release();
+        }
     }
 
     private static string FirstLine(string message)
