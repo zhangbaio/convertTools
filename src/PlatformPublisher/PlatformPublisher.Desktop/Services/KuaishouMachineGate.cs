@@ -16,11 +16,11 @@ public sealed class KuaishouMachineGate
     public static KuaishouMachineGate Shared { get; } = new();
 
     private readonly QueueProjectSlotCoordinator _projects = new();
+    private readonly UploadSlotCoordinator _uploads = new();
     private readonly Func<(int Projects, string Mode, int Uploads, int ProjectImages)> _settings;
     private readonly object _uploadLock = new();
     private readonly object _projectImageLock = new();
     private readonly List<UploadHolder> _uploadHolders = new();
-    private int _uploadsInUse;
     private int _projectImagesInUse;
 
     public KuaishouMachineGate(Func<(int Projects, string Mode, int Uploads, int ProjectImages)>? settings = null)
@@ -103,50 +103,67 @@ public sealed class KuaishouMachineGate
     public async Task<IDisposable> AcquireUploadAsync(
         CancellationToken cancellationToken,
         string? holder = null,
-        Func<string, Task>? onWait = null)
+        Func<string, Task>? onWait = null,
+        string? accountKey = null)
     {
+        var key = string.IsNullOrWhiteSpace(accountKey) ? "default" : accountKey.Trim();
+        var readyOwner = new object();
+        var readyPending = true;
+        _uploads.SetReady(readyOwner, [new UploadReadyDemand(key, 1)]);
         var announced = false;
-        while (true)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var limit = Math.Clamp(_settings().Uploads <= 0 ? 2 : _settings().Uploads, 1, 8);
-            string? waitingFor = null;
-            lock (_uploadLock)
+            while (true)
             {
-                if (_uploadsInUse < limit)
+                cancellationToken.ThrowIfCancellationRequested();
+                var limit = Math.Clamp(_settings().Uploads <= 0 ? 2 : _settings().Uploads, 1, 8);
+                _uploads.Configure(limit);
+                string? waitingFor = null;
+                IDisposable? acquired = null;
+                lock (_uploadLock)
                 {
-                    _uploadsInUse++;
-                    var hold = new UploadHolder(holder?.Trim() ?? "");
-                    _uploadHolders.Add(hold);
-                    return new Release(() =>
+                    if (_uploads.TryAcquire(key))
                     {
-                        lock (_uploadLock)
+                        _uploads.ClearReady(readyOwner);
+                        readyPending = false;
+                        var hold = new UploadHolder(holder?.Trim() ?? "");
+                        _uploadHolders.Add(hold);
+                        acquired = new Release(() =>
                         {
-                            _uploadHolders.Remove(hold);
-                            if (_uploadsInUse > 0)
-                                _uploadsInUse--;
-                        }
-                    });
-                }
-
-                if (!announced)
-                {
-                    announced = true;
-                    var labels = new List<string>();
-                    foreach (var item in _uploadHolders)
-                    {
-                        if (!string.IsNullOrWhiteSpace(item.Label))
-                            labels.Add(item.Label);
+                            lock (_uploadLock)
+                            {
+                                _uploadHolders.Remove(hold);
+                                _uploads.Release(key);
+                            }
+                        });
                     }
+                    else if (!announced)
+                    {
+                        announced = true;
+                        var labels = new List<string>();
+                        foreach (var item in _uploadHolders)
+                        {
+                            if (!string.IsNullOrWhiteSpace(item.Label))
+                                labels.Add(item.Label);
+                        }
 
-                    waitingFor = string.Join("、", labels);
+                        waitingFor = string.Join("、", labels);
+                    }
                 }
+
+                if (acquired is not null)
+                    return acquired;
+
+                if (waitingFor is not null && onWait is not null)
+                    await onWait(waitingFor).ConfigureAwait(false);
+
+                await Task.Delay(400, cancellationToken).ConfigureAwait(false);
             }
-
-            if (waitingFor is not null && onWait is not null)
-                await onWait(waitingFor).ConfigureAwait(false);
-
-            await Task.Delay(400, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (readyPending)
+                _uploads.ClearReady(readyOwner);
         }
     }
 

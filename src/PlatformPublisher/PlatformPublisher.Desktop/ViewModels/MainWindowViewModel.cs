@@ -31,6 +31,10 @@ namespace PlatformPublisher.Desktop.ViewModels;
 public sealed partial class MainWindowViewModel : ObservableObject
 {
     public event Action? ActiveAccountWorkRootDirectoryChanged;
+    public event Action<string, string>? KuaishouDailyUploadLimitReached;
+
+    private readonly object _ksDailyLimitGate = new();
+    private readonly Dictionary<string, DateOnly> _ksDailyLimitDay = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly (string Key, string Label)[] WorkflowStepDefinitions =
     [
@@ -2162,6 +2166,38 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedPlatform.Value == request.Platform &&
         string.Equals(_activeGlobalAccount?.Id, request.AccountId, StringComparison.OrdinalIgnoreCase);
 
+    public bool IsKuaishouDailyUploadLimited(string? accountId)
+    {
+        var id = (accountId ?? "").Trim();
+        if (id.Length == 0)
+            return false;
+        lock (_ksDailyLimitGate)
+            return _ksDailyLimitDay.TryGetValue(id, out var day) && day == DateOnly.FromDateTime(DateTime.Now);
+    }
+
+    public void NoteKuaishouDailyUploadLimit(string? accountId, string? accountName)
+    {
+        var id = (accountId ?? "").Trim();
+        if (id.Length == 0)
+            return;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var first = false;
+        lock (_ksDailyLimitGate)
+        {
+            if (!_ksDailyLimitDay.TryGetValue(id, out var day) || day != today)
+            {
+                _ksDailyLimitDay[id] = today;
+                first = true;
+            }
+        }
+        if (!first)
+            return;
+        var name = string.IsNullOrWhiteSpace(accountName) ? id : accountName.Trim();
+        var message = $"账号「{name}」今天最多上传 10 部短剧，额度已经用完。队列已停止，今天不再分发，明天会自动恢复。";
+        AppendActivityLog(message);
+        Dispatcher.UIThread.Post(() => KuaishouDailyUploadLimitReached?.Invoke(id, message));
+    }
+
     private async Task<(int Succeeded, int Failed, string Error)> RunKuaishouCheckedProjectsAsync(
         IReadOnlyList<string> targets,
         string accountKey,
@@ -2180,6 +2216,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var counts = new int[2];
+        var dailyLimitDetail = "";
+        var loginDetail = "";
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var work = targets.Select(directory =>
         {
             var trackedJob = _jobs.FirstOrDefault(job =>
@@ -2193,7 +2232,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 : RowForJob(trackedJob);
             return (directory, trackedJob, trackedRow);
         }).ToArray();
-        var uploadSlot = new KuaishouUploadSlot();
 
         try
         {
@@ -2208,6 +2246,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ActivityLogPlatformScope.Value = request.Platform;
                 try
                 {
+                    if (IsKuaishouDailyUploadLimited(request.AccountId))
+                        throw new OperationCanceledException(KuaishouDailyUploadLimit.Detail);
                     SetKuaishouLogTone(item.directory, "running");
                     AppendActivityLog($"快手分账{request.EditionLabel} {index + 1}/{work.Length}：{projectName}", projectName);
                     await RunKuaishouSettlementPipelineAsync(
@@ -2215,7 +2255,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         item.trackedJob,
                         item.trackedRow,
                         request,
-                        uploadSlot,
                         ct);
                     SetKuaishouLogTone(item.directory, "ok");
                     RememberKuaishouUploadReport(item.directory, request, succeeded: true, error: "");
@@ -2230,6 +2269,33 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     SetKuaishouLogTone(item.directory, "none");
                     throw;
+                }
+                catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
+                {
+                    Interlocked.Increment(ref counts[1]);
+                    lastError = KuaishouDailyUploadLimit.Detail;
+                    dailyLimitDetail = KuaishouDailyUploadLimit.Detail;
+                    SetKuaishouLogTone(item.directory, "failed");
+                    RememberKuaishouUploadReport(item.directory, request, succeeded: false, error: KuaishouDailyUploadLimit.Detail);
+                    var stopped = $"共享项目流水线失败：{KuaishouDailyUploadLimit.Detail}";
+                    ReportRunStatus(stopped);
+                    AppendActivityLog(stopped, projectName);
+                    NoteKuaishouDailyUploadLimit(request.AccountId, request.AccountName);
+                    stop.Cancel();
+                    throw new OperationCanceledException(KuaishouDailyUploadLimit.Detail);
+                }
+                catch (Exception ex) when (IsKuaishouLoginFailure(ex))
+                {
+                    Interlocked.Increment(ref counts[1]);
+                    lastError = ex.Message;
+                    loginDetail = ex.Message;
+                    SetKuaishouLogTone(item.directory, "failed");
+                    RememberKuaishouUploadReport(item.directory, request, succeeded: false, error: ex.Message);
+                    var stopped = $"共享项目流水线失败：{ex.Message}";
+                    ReportRunStatus(stopped);
+                    AppendActivityLog(stopped, projectName);
+                    stop.Cancel();
+                    throw new OperationCanceledException(ex.Message);
                 }
                 catch (Exception ex)
                 {
@@ -2247,13 +2313,32 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ActivityLogAccountScope.Value = null;
                     ActivityLogPlatformScope.Value = null;
                 }
-            }, cancellationToken);
+            }, stop.Token);
+        }
+        catch (OperationCanceledException) when (dailyLimitDetail.Length > 0)
+        {
+            ReportRunStatus(dailyLimitDetail);
+            AppendActivityLog("快手分账今日短剧上传已达上限，队列已停止。");
+            return (counts[0], counts[1], dailyLimitDetail);
+        }
+        catch (OperationCanceledException) when (loginDetail.Length > 0)
+        {
+            ReportRunStatus(loginDetail);
+            AppendActivityLog(loginDetail);
+            return (counts[0], counts[1], loginDetail);
         }
         catch (OperationCanceledException)
         {
             ReportRunStatus("共享项目流水线已停止。");
             AppendActivityLog("共享项目流水线已停止。");
             return (counts[0], counts[1], "已停止");
+        }
+
+        if (dailyLimitDetail.Length > 0)
+        {
+            ReportRunStatus(dailyLimitDetail);
+            AppendActivityLog("快手分账今日短剧上传已达上限，队列已停止。");
+            return (counts[0], counts[1], dailyLimitDetail);
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -2410,7 +2495,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishJob? trackedJob,
         PublishJobRowViewModel? trackedRow,
         KuaishouPipelineRequest request,
-        KuaishouUploadSlot uploadSlot,
         CancellationToken cancellationToken)
     {
         var runLock = _kuaishouProjectRunLocks.GetOrAdd(Path.GetFullPath(projectDirectory), _ => new SemaphoreSlim(1, 1));
@@ -2426,7 +2510,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             await RunKuaishouSettlementPipelineCoreAsync(
-                projectDirectory, trackedJob, trackedRow, request, uploadSlot, cancellationToken);
+                projectDirectory, trackedJob, trackedRow, request, cancellationToken);
         }
         finally
         {
@@ -2439,7 +2523,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishJob? trackedJob,
         PublishJobRowViewModel? trackedRow,
         KuaishouPipelineRequest request,
-        KuaishouUploadSlot uploadSlot,
         CancellationToken cancellationToken)
     {
         var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
@@ -2724,7 +2807,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             && trackedJob.StepStates.TryGetValue("weixin-upload", out var existingUpload)
             && existingUpload.Status == PublishJobStepStatus.Succeeded;
 
-        IDisposable? uploadLease = null;
         IDisposable? machineUploadLease = null;
         var announcedUploadWait = false;
         if (!uploadAlreadyDone)
@@ -2739,27 +2821,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             try
             {
-                uploadLease = await uploadSlot.AcquireAsync(
-                    cancellationToken,
-                    projectName,
-                    async holder =>
-                    {
-                        var who = string.IsNullOrWhiteSpace(holder) ? "上一部剧" : holder.Trim();
-                        await AnnounceUploadWaitAsync($"等待本账号浏览器：上传剧集（{who}）");
-                    });
                 machineUploadLease = await KuaishouMachineGate.Shared.AcquireUploadAsync(
                     cancellationToken,
                     KuaishouUploadHolderLabel(request.AccountName, projectName),
                     async holder =>
                     {
                         var who = string.IsNullOrWhiteSpace(holder) ? "其他账号" : holder.Trim();
-                        await AnnounceUploadWaitAsync($"等待其他账号释放上传槽：{who}");
-                    });
+                        await AnnounceUploadWaitAsync($"等待上传名额：{who}");
+                    },
+                    KuaishouUploadAccountKey(request));
             }
             catch (OperationCanceledException)
             {
-                uploadLease?.Dispose();
-                uploadLease = null;
                 machineUploadLease?.Dispose();
                 machineUploadLease = null;
                 if (announcedUploadWait)
@@ -2801,11 +2874,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
         finally
         {
             machineUploadLease?.Dispose();
-            uploadLease?.Dispose();
         }
 
         if (KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, uploadCompleted: true))
             await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
+    }
+
+    private static string KuaishouUploadAccountKey(KuaishouPipelineRequest request)
+    {
+        var id = string.IsNullOrWhiteSpace(request.AccountId) ? "default" : request.AccountId.Trim();
+        var edition = request.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "enterprise" : "personal";
+        return id + "|" + edition;
+    }
+
+    private static bool IsKuaishouLoginFailure(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("登录态无效", StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
     }
 
     private static string KuaishouUploadHolderLabel(string? accountName, string projectName)

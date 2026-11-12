@@ -843,7 +843,7 @@
                                    Text="超过 1 部时，同一个账号的剧共用一个浏览器、多开标签页；不同账号不会共用浏览器。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
                                    Foreground="#666" TextWrapping="Wrap" />
                         <TextBlock IsVisible="{Binding ShowsKuaishouPublishPrompt}"
-                                   Text="同一账号一次只上传 1 部。本机同时上传的剧不超过「同时上传剧集」，同时生成工程图的剧不超过「同时生成工程图」。"
+                                   Text="超过 1 部时，同一个账号的同一版本共用一个浏览器、多开标签页；个人版和企业版、不同账号不会共用。本机同时上传不超过「同时上传剧集」，同时生成工程图不超过「同时生成工程图」。"
                                    Foreground="#666" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>

@@ -134,6 +134,8 @@ public sealed partial class MainWindowViewModel
             string.Equals(item.Id, command.AccountProfileId, StringComparison.OrdinalIgnoreCase));
         if (account is null)
             return new YunfanRemoteCommandResult("failed", "客户端没有这个快手分账账号");
+        if (IsKuaishouDailyUploadLimited(account.Id))
+            return new YunfanRemoteCommandResult("failed", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind);
         if (!account.ParticipatesInXingeRemoteDispatch)
             return new YunfanRemoteCommandResult("failed", "账号未启用远程分发", "account_remote_disabled");
         if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var accountPlatform))
@@ -262,6 +264,13 @@ public sealed partial class MainWindowViewModel
             PrepareKuaishouLogProjects(targets, key);
             var (succeeded, failed, error) = await RunKuaishouCheckedProjectsAsync(targets, key, request, cts.Token)
                 .ConfigureAwait(false);
+            if (KuaishouDailyUploadLimit.Matches(error))
+            {
+                foreach (var dir in targets)
+                    KsSettleMarker.WriteFinal(dir, command.AssignmentId, "failed");
+                await reportAsync("failed", "", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind).ConfigureAwait(false);
+                return;
+            }
             if (failed > 0 || succeeded == 0)
             {
                 foreach (var dir in targets)
@@ -400,7 +409,6 @@ public sealed partial class MainWindowViewModel
     private sealed class KsSettleAccountLane
     {
         public CancellationTokenSource Cts { get; } = new();
-        public KuaishouUploadSlot UploadSlot { get; } = new();
         public KuaishouDispatchLane<KsSettleLaneWork> Scheduler { get; } = new();
         public HashSet<string> Directories { get; } = new(StringComparer.OrdinalIgnoreCase);
         public int Parallelism { get; set; } = 1;
@@ -512,7 +520,6 @@ public sealed partial class MainWindowViewModel
                         trackedJob,
                         trackedJob is null ? null : RowForJob(trackedJob),
                         work.Request,
-                        lane.UploadSlot,
                         token).ConfigureAwait(false);
                     SetKuaishouLogTone(directory, "ok");
                     RememberKuaishouUploadReport(directory, work.Request, succeeded: true, error: "");
@@ -532,8 +539,54 @@ public sealed partial class MainWindowViewModel
         }
         catch (OperationCanceledException)
         {
+            if (IsKuaishouDailyUploadLimited(work.Account.Id) && work.Command.AssignmentId > 0)
+            {
+                foreach (var dir in work.Directories)
+                {
+                    SetKuaishouLogTone(dir, "failed");
+                    KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
+                }
+                await work.ReportAsync("failed", "", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind).ConfigureAwait(false);
+            }
+            else
+            {
+                foreach (var dir in work.Directories)
+                    SetKuaishouLogTone(dir, "none");
+            }
+        }
+        catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
+        {
             foreach (var dir in work.Directories)
-                SetKuaishouLogTone(dir, "none");
+                SetKuaishouLogTone(dir, "failed");
+            NoteKuaishouDailyUploadLimit(work.Account.Id, work.Account.Name);
+            try
+            {
+                lane.Cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            foreach (var dir in work.Directories)
+                KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
+            await work.ReportAsync("failed", "", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsKuaishouLoginFailure(ex))
+        {
+            foreach (var dir in work.Directories)
+            {
+                SetKuaishouLogTone(dir, "failed");
+                KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
+            }
+
+            try
+            {
+                lane.Cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            await work.ReportAsync("failed", "", ex.Message, "").ConfigureAwait(false);
         }
         catch (Exception ex)
         {

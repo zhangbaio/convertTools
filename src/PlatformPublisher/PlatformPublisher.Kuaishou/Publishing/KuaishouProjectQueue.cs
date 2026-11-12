@@ -1,7 +1,7 @@
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 /// <summary>
-/// 快手分账勾选队列：多个项目按配置同时执行。浏览器上传共用同一份登录态，由 <see cref="KuaishouUploadSlot"/> 保证同一时间只有一个项目在上传。
+/// 快手分账勾选队列：多个项目按配置同时执行。上传名额由本机闸门按账号分配，同一个账号的剧可以同时上传。
 /// </summary>
 public static class KuaishouProjectQueue
 {

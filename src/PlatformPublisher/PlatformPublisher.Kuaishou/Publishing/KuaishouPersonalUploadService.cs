@@ -76,7 +76,7 @@ public sealed class KuaishouPersonalUploadService
         await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);
         try
         {
-            await _sessionService.ExecuteAuthenticatedAsync(job, async (page, effectiveConfig, ct) =>
+            await _sessionService.ExecuteUploadAsync(job, async (page, effectiveConfig, ct) =>
             {
                 var resume = ShouldResume(effectiveConfig, state);
                 if (resume)
@@ -139,7 +139,7 @@ public sealed class KuaishouPersonalUploadService
                     progress?.Report($"{label}：分销已设置为上架成功后执行。 ");
                 else
                     await _distributionService.ApplyAsync(state.MiniSeriesId, effectiveConfig, progress, ct);
-            }, cancellationToken, holdUntilClosed: string.Equals(config.FirstPageAction, "keep", StringComparison.OrdinalIgnoreCase));
+            }, cancellationToken, progress, holdUntilClosed: string.Equals(config.FirstPageAction, "keep", StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

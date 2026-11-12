@@ -82,6 +82,57 @@ public class KuaishouMachineGateTests
     }
 
     [Fact]
+    public async Task SameAccountCanUploadTwoDramas()
+    {
+        var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, 2, 3));
+        using var first = await gate.AcquireUploadAsync(CancellationToken.None, "甲 · 第一部", accountKey: "a|personal");
+        using var second = await gate.AcquireUploadAsync(CancellationToken.None, "甲 · 第二部", accountKey: "a|personal");
+    }
+
+    [Fact]
+    public async Task FreeUploadSlotGoesToAnotherAccountWhenThisOneIsNotReady()
+    {
+        var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, 2, 3));
+        using var first = await gate.AcquireUploadAsync(CancellationToken.None, "甲 · 第一部", accountKey: "a|personal");
+        using var second = await gate.AcquireUploadAsync(CancellationToken.None, "乙 · 第一部", accountKey: "b|personal");
+    }
+
+    [Fact]
+    public async Task NextUploadSlotStaysWithTheAccountThatStillHasAReadyDrama()
+    {
+        var uploads = 1;
+        var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, uploads, 3));
+        using var first = await gate.AcquireUploadAsync(CancellationToken.None, "甲 · 第一部", accountKey: "a|personal");
+        var sameAccountWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var otherAccountWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sameAccount = gate.AcquireUploadAsync(
+            CancellationToken.None,
+            "甲 · 第二部",
+            _ =>
+            {
+                sameAccountWaiting.TrySetResult();
+                return Task.CompletedTask;
+            },
+            "a|personal");
+        var otherAccount = gate.AcquireUploadAsync(
+            CancellationToken.None,
+            "乙 · 第一部",
+            _ =>
+            {
+                otherAccountWaiting.TrySetResult();
+                return Task.CompletedTask;
+            },
+            "b|personal");
+
+        await Task.WhenAll(sameAccountWaiting.Task, otherAccountWaiting.Task).WaitAsync(TimeSpan.FromSeconds(2));
+        uploads = 2;
+        var winner = await Task.WhenAny(sameAccount, otherAccount).WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Same(sameAccount, winner);
+        Assert.False(otherAccount.IsCompleted);
+        using var acquired = await sameAccount;
+    }
+
+    [Fact]
     public async Task ProjectImageSlotLimitsTheMachine()
     {
         var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, 2, 1));
