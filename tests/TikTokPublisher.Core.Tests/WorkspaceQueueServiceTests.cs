@@ -793,6 +793,56 @@ public sealed class WorkspaceQueueServiceTests
         }
     }
 
+    [Fact]
+    public void Deleted_project_stays_out_of_queue_while_its_directory_is_locked()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-deleted-locked-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "locked-drama");
+        FileStream? locked = null;
+        try
+        {
+            CreateProject(project);
+            var marker = Path.Combine(project, "episode.mp4");
+            File.WriteAllText(marker, "video");
+            var item = new QueueProjectItem
+            {
+                ProjectDir = project,
+                OriginalTitle = "locked-drama",
+                NewTitle = "locked-drama",
+            };
+            WorkspaceQueueService.SaveProjects(workspace, [item]);
+
+            locked = new FileStream(marker, FileMode.Open, FileAccess.Read, FileShare.None);
+            WorkspaceQueueService.RememberDeletedProjects(workspace, [project]);
+            WorkspaceQueueService.RemoveProjectsFromQueue(workspace, [project]);
+
+            Directory.Exists(project).Should().BeTrue();
+            WorkspaceQueueService.ScanProjects(workspace).Should().BeEmpty();
+            WorkspaceQueueService.LoadPersistedSnapshot(workspace).Items.Should().BeEmpty();
+
+            WorkspaceQueueService.SaveProjects(workspace, [item]);
+            WorkspaceQueueService.LoadPersistedSnapshot(workspace).Items.Should().BeEmpty();
+            WorkspaceQueueService.IsDeletedProjectDir(workspace, project).Should().BeTrue();
+
+            locked.Dispose();
+            locked = null;
+            WorkspaceQueueService.ScanProjects(workspace).Should().BeEmpty();
+            Directory.Exists(project).Should().BeFalse();
+            WorkspaceQueueService.IsDeletedProjectDir(workspace, project).Should().BeFalse();
+
+            CreateProject(project);
+            WorkspaceQueueService.RememberDeletedProjects(workspace, [project]);
+            WorkspaceQueueService.AddProjectsToQueue(workspace, [project]);
+            WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle();
+            WorkspaceQueueService.IsDeletedProjectDir(workspace, project).Should().BeFalse();
+        }
+        finally
+        {
+            locked?.Dispose();
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
     private static void InsertQueueRow(string workspace, string projectDir, string newTitle)
     {
         var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspace);

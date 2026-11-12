@@ -110,6 +110,7 @@ public sealed class QueueWorkerRunner
     private bool _runStarted;
     private IList<QueueProjectItem>? _runItems;
     private Action<IReadOnlyList<QueueProjectItem>>? _runPersist;
+    private readonly HashSet<string> _removedProjectDirs = new(StringComparer.OrdinalIgnoreCase);
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
 
     /// <param name="sharedProjectSlots">
@@ -180,7 +181,55 @@ public sealed class QueueWorkerRunner
         }
 
         if (changed > 0)
-            persist?.Invoke(items.ToList());
+            Persist("", items, persist);
+        return changed;
+    }
+
+    /// <summary>
+    /// 从本轮执行列表里拿掉已删除的项目。还没开始的步骤不再执行，之后的落盘也不再写回这些项目。
+    /// </summary>
+    public int RemoveProjects(IReadOnlyCollection<string> projectDirs)
+    {
+        var remove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in projectDirs)
+        {
+            var full = NormalizeProjectDir(path);
+            if (full.Length > 0)
+                remove.Add(full);
+        }
+
+        if (remove.Count == 0)
+            return 0;
+
+        IList<QueueProjectItem>? items;
+        Action<IReadOnlyList<QueueProjectItem>>? persist;
+        var changed = 0;
+        lock (_incomingLock)
+        {
+            foreach (var dir in remove)
+            {
+                if (_removedProjectDirs.Add(dir))
+                    changed++;
+            }
+
+            _incomingItems.RemoveAll(item => remove.Contains(NormalizeProjectDir(item.ProjectDir)));
+            items = _runItems;
+            persist = _runPersist;
+            if (items is not null)
+            {
+                foreach (var item in items)
+                {
+                    var full = NormalizeProjectDir(item?.ProjectDir);
+                    if (full.Length == 0 || !remove.Contains(full) || item is null || !item.Enabled)
+                        continue;
+                    item.Enabled = false;
+                    changed++;
+                }
+            }
+        }
+
+        if (changed > 0 && items is not null)
+            Persist("", items, persist);
         return changed;
     }
 
@@ -2545,13 +2594,28 @@ public sealed class QueueWorkerRunner
         item.LastError = error ?? "";
     }
 
-    private static void Persist(
+    private void Persist(
         string workspace,
         IList<QueueProjectItem>? items,
         Action<IReadOnlyList<QueueProjectItem>>? onPersist)
     {
         if (onPersist is null || items is null) return;
-        onPersist(items.ToList());
+        List<QueueProjectItem> snapshot;
+        lock (_incomingLock)
+        {
+            snapshot = new List<QueueProjectItem>(items.Count);
+            foreach (var item in items)
+            {
+                if (item is null)
+                    continue;
+                var full = NormalizeProjectDir(item.ProjectDir);
+                if (full.Length > 0 && _removedProjectDirs.Contains(full))
+                    continue;
+                snapshot.Add(item);
+            }
+        }
+
+        onPersist(snapshot);
     }
 
     private static void Report(

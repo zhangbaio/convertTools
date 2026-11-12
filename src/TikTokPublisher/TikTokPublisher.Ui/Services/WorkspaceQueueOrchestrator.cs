@@ -264,6 +264,21 @@ public sealed class WorkspaceQueueOrchestrator
         }
     }
 
+    public int RemoveRunningProjects(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot) || projectDirs is null || projectDirs.Count == 0)
+            return 0;
+
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (_runs.TryGetValue(root, out var run) && !run.Task.IsCompleted)
+                return run.Runner.RemoveProjects(projectDirs);
+        }
+
+        return 0;
+    }
+
     public int UncheckRunningProjectsExcept(string workspaceRoot, IReadOnlyCollection<string> keepProjectDirs)
     {
         var root = Path.GetFullPath(workspaceRoot);

@@ -8,10 +8,16 @@ namespace TikTokPublisher.Core.Queue;
 /// <summary>工作目录队列扫描 + 持久化合并（对齐 Python <c>scan_workspace_projects</c>）。</summary>
 public static class WorkspaceQueueService
 {
+    private static readonly object DeletedDirSync = new();
+    private static readonly Dictionary<string, HashSet<string>> DeletedDirCache = new(StringComparer.OrdinalIgnoreCase);
+
     public static IReadOnlyList<QueueProjectItem> ScanProjects(string workspaceRoot)
     {
         var root = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(root)) return Array.Empty<QueueProjectItem>();
+
+        TryDeleteDeletedProjectDirectories(root, SnapshotDeletedProjectDirs(root));
+        var deleted = SnapshotDeletedProjectDirs(root);
 
         var state = WorkspaceQueueDatabase.Load(root);
         var clientSettings = new Lazy<ClientSettings>(
@@ -29,6 +35,8 @@ public static class WorkspaceQueueService
         foreach (var scanned in WorkspaceProjectScanner.Scan(root))
         {
             var normalized = Path.GetFullPath(scanned.ProjectDir);
+            if (deleted.Contains(normalized))
+                continue;
             persistedByDir.TryGetValue(normalized, out var persisted);
             discovered[normalized] = MergeScanned(scanned, persisted, clientSettings);
         }
@@ -45,6 +53,9 @@ public static class WorkspaceQueueService
                 outsideWorkspace.Add(normalized);
                 continue;
             }
+
+            if (deleted.Contains(normalized))
+                continue;
 
             if (!discovered.TryGetValue(normalized, out var item))
             {
@@ -114,6 +125,8 @@ public static class WorkspaceQueueService
                 continue;
             }
             if (!Directory.Exists(item.ProjectDir))
+                continue;
+            if (IsDeletedProjectDir(root, item.ProjectDir))
                 continue;
 
             item.NormalizeStepStates();
@@ -202,6 +215,7 @@ public static class WorkspaceQueueService
         string? accountProfileName = null)
     {
         var root = Path.GetFullPath(workspaceRoot);
+        ForgetDeletedProjects(root, projectDirs);
         var explicitAccountId = (accountProfileId ?? "").Trim();
         var explicitAccountName = (accountProfileName ?? "").Trim();
         var items = ScanProjects(root).ToList();
@@ -255,9 +269,138 @@ public static class WorkspaceQueueService
 
     public static void RemoveProjectsFromQueue(string workspaceRoot, IEnumerable<string> projectDirs)
     {
-        var removeKeys = projectDirs.Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removeKeys = projectDirs
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetFullPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var items = ScanProjects(workspaceRoot).Where(i => !removeKeys.Contains(Path.GetFullPath(i.ProjectDir))).ToList();
         SaveRunOptions(workspaceRoot, items, LoadRunOptions(workspaceRoot));
+    }
+
+    public static bool IsDeletedProjectDir(string workspaceRoot, string? projectDir)
+    {
+        var full = NormalizeDeletedProjectDir(projectDir);
+        return full.Length > 0 && DeletedProjectDirs(workspaceRoot).Contains(full);
+    }
+
+    public static void RememberDeletedProjects(string workspaceRoot, IEnumerable<string> projectDirs)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return;
+
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (DeletedDirSync)
+        {
+            var deleted = DeletedProjectDirs(root);
+            var changed = false;
+            foreach (var path in projectDirs)
+            {
+                var full = NormalizeDeletedProjectDir(path);
+                if (full.Length > 0 && deleted.Add(full))
+                    changed = true;
+            }
+
+            if (changed)
+                WorkspaceQueueDatabase.SaveDeletedProjectDirs(root, deleted);
+        }
+    }
+
+    public static void ForgetDeletedProjects(string workspaceRoot, IEnumerable<string> projectDirs)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return;
+
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (DeletedDirSync)
+        {
+            var deleted = DeletedProjectDirs(root);
+            var changed = false;
+            foreach (var path in projectDirs)
+            {
+                var full = NormalizeDeletedProjectDir(path);
+                if (full.Length > 0 && deleted.Remove(full))
+                    changed = true;
+            }
+
+            if (changed)
+                WorkspaceQueueDatabase.SaveDeletedProjectDirs(root, deleted);
+        }
+    }
+
+    public static List<QueueProjectItem> WithoutDeletedProjects(
+        string workspaceRoot,
+        IEnumerable<QueueProjectItem> items)
+    {
+        var visible = new List<QueueProjectItem>();
+        foreach (var item in items)
+        {
+            if (item is null || IsDeletedProjectDir(workspaceRoot, item.ProjectDir))
+                continue;
+            visible.Add(item);
+        }
+
+        return visible;
+    }
+
+    private static HashSet<string> SnapshotDeletedProjectDirs(string workspaceRoot)
+    {
+        lock (DeletedDirSync)
+            return new HashSet<string>(DeletedProjectDirs(workspaceRoot), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> DeletedProjectDirs(string workspaceRoot)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (DeletedDirSync)
+        {
+            if (!DeletedDirCache.TryGetValue(root, out var deleted))
+            {
+                deleted = WorkspaceQueueDatabase.LoadDeletedProjectDirs(root);
+                DeletedDirCache[root] = deleted;
+            }
+
+            return deleted;
+        }
+    }
+
+    private static void TryDeleteDeletedProjectDirectories(string workspaceRoot, IReadOnlySet<string> projectDirs)
+    {
+        var removed = new List<string>();
+        foreach (var projectDir in projectDirs.ToArray())
+        {
+            try
+            {
+                if (!Directory.Exists(projectDir))
+                {
+                    removed.Add(projectDir);
+                    continue;
+                }
+
+                Directory.Delete(projectDir, recursive: true);
+                removed.Add(projectDir);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 下载还占着文件时先留在删除名单里，下次扫描再删。
+            }
+        }
+
+        if (removed.Count > 0)
+            ForgetDeletedProjects(workspaceRoot, removed);
+    }
+
+    private static string NormalizeDeletedProjectDir(string? projectDir)
+    {
+        if (string.IsNullOrWhiteSpace(projectDir))
+            return "";
+        try
+        {
+            return Path.GetFullPath(projectDir);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return "";
+        }
     }
 
     public static QueueProjectMoveResult MoveProjectsToAccountWorkspace(
@@ -338,6 +481,7 @@ public static class WorkspaceQueueService
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         sourceItems.RemoveAll(item => removeDirs.Contains(Path.GetFullPath(item.ProjectDir)));
 
+        ForgetDeletedProjects(targetRoot, targetDirs);
         if (sameWorkspace)
         {
             sourceItems.AddRange(entries.Select(entry => entry.Item));

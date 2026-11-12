@@ -1494,8 +1494,9 @@ public sealed partial class MainViewModel : ViewModelBase
             if (terminalItems is not null)
             {
                 var finalOptions = terminalOptions ?? ResolveQueueOptionsForPersistedWorkspace(root);
-                CacheWorkspaceQueueSnapshot(root, terminalItems, finalOptions);
-                _queueStatePersist.Enqueue(root, terminalItems, finalOptions);
+                var visibleTerminal = WorkspaceQueueService.WithoutDeletedProjects(root, terminalItems);
+                CacheWorkspaceQueueSnapshot(root, visibleTerminal, finalOptions);
+                _queueStatePersist.Enqueue(root, visibleTerminal, finalOptions);
             }
 
             if (!IsActiveWorkspace(root))
@@ -1540,7 +1541,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 return;
 
             if (refreshError is not null && terminalItems is not null)
-                _queueItems = terminalItems.ToList();
+                _queueItems = WorkspaceQueueService.WithoutDeletedProjects(root, terminalItems);
             ReconcileQueueProjectRows(_queueItems);
             ApplyQueueProjectFilter();
             // 表格只绑定过滤集合；即使项目引用序列没有变化，也要发出一次 Reset，
@@ -4845,6 +4846,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
         var visible = new List<QueueProjectItem>(items.Count);
         var droppedArchived = false;
+        var deletedDropped = false;
         foreach (var item in items)
         {
             if (item.Archived)
@@ -4855,6 +4857,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
             if (!WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
                 continue;
+            if (WorkspaceQueueService.IsDeletedProjectDir(root, item.ProjectDir))
+            {
+                deletedDropped = true;
+                continue;
+            }
             if (item.Enabled && TryNormalizeWorkspace(item.ProjectDir, out var full))
             {
                 lock (_checkedQueueFollowUpLock)
@@ -4866,7 +4873,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
             visible.Add(item);
         }
-        if (visible.Count == 0 && items.Count > 0 && !droppedArchived)
+        if (visible.Count == 0 && items.Count > 0 && !droppedArchived && !deletedDropped)
             return;
 
         CacheWorkspaceQueueSnapshot(root, visible);
@@ -6745,6 +6752,13 @@ public sealed partial class MainViewModel : ViewModelBase
                 account: deleteAccount);
         }
 
+        if (queuedDirs.Length > 0)
+        {
+            WorkspaceQueueService.RememberDeletedProjects(root, queuedDirs);
+            DropDeletedProjectsFromVisibleQueue(root, queuedDirs);
+            _queueOrchestrator.RemoveRunningProjects(root, queuedDirs);
+        }
+
         await Task.Run(() =>
         {
             var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -6775,17 +6789,60 @@ public sealed partial class MainViewModel : ViewModelBase
                     errors.Add($"{target}: {ex.Message}");
                 }
             }
-        });
 
-        if (queuedDirs.Length > 0)
-            WorkspaceQueueService.RemoveProjectsFromQueue(root, queuedDirs);
-        RefreshWorkspaceProjects(root);
+            if (queuedDirs.Length > 0)
+                WorkspaceQueueService.RemoveProjectsFromQueue(root, queuedDirs);
+        });
         StatusMessage = errors.Count == 0
             ? $"已删除 {deleted} 个项目目录"
             : $"已删除 {deleted} 个项目目录，{errors.Count} 个失败";
         AppendLog(StatusMessage);
         foreach (var error in errors.Take(5))
             AppendLog($"删除失败：{error}");
+    }
+
+    private void DropDeletedProjectsFromVisibleQueue(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    {
+        var remove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in projectDirs)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+                continue;
+            try
+            {
+                remove.Add(Path.GetFullPath(dir));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                remove.Add(dir.Trim());
+            }
+        }
+
+        if (remove.Count == 0)
+            return;
+
+        var active = IsActiveWorkspace(workspaceRoot);
+        var current = active
+            ? _queueItems
+            : TryGetWorkspaceQueueSnapshot(workspaceRoot, out var cached, out _)
+                ? cached
+                : _queueItems;
+        var kept = current
+            .Where(item => !remove.Contains(NormalizeProjectDir(item.ProjectDir)))
+            .ToList();
+        var options = active
+            ? _queueRunOptions
+            : ResolveQueueOptionsForPersistedWorkspace(workspaceRoot);
+        CacheWorkspaceQueueSnapshot(workspaceRoot, kept, options);
+        _queueStatePersist.Enqueue(workspaceRoot, kept, options);
+        if (!active)
+            return;
+
+        _queueItems = kept;
+        ReconcileQueueProjectRows(_queueItems);
+        ApplyQueueProjectFilter();
+        UpdateQueueSummaryText();
+        RefreshLogSnapshot(force: true);
     }
 
     private void ApplyArchivedQueueProjects(IReadOnlyCollection<string> archivedDirs)

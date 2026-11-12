@@ -10,6 +10,7 @@ public static class WorkspaceQueueDatabase
 {
     private const string QueueOptionsKey = "queue_run_options";
     private const string QueueAccountOptionsKey = "queue_run_options_by_account";
+    private const string DeletedProjectDirsKey = "deleted_project_dirs";
     internal static object WriteSyncRoot { get; } = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -34,6 +35,71 @@ public static class WorkspaceQueueDatabase
         return new WorkspaceQueueState();
     }
 
+    public static HashSet<string> LoadDeletedProjectDirs(string workspaceRoot)
+    {
+        var deleted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return deleted;
+
+        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        if (!File.Exists(dbPath))
+            return deleted;
+
+        lock (WriteSyncRoot)
+        {
+            EnsureDatabaseCore(dbPath);
+            using var conn = Open(dbPath);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT value_json FROM app_settings WHERE key = $key LIMIT 1";
+            cmd.Parameters.AddWithValue("$key", DeletedProjectDirsKey);
+            var json = cmd.ExecuteScalar()?.ToString();
+            if (string.IsNullOrWhiteSpace(json))
+                return deleted;
+
+            try
+            {
+                var paths = JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? [];
+                foreach (var path in paths)
+                {
+                    if (string.IsNullOrWhiteSpace(path))
+                        continue;
+                    try
+                    {
+                        deleted.Add(Path.GetFullPath(path));
+                    }
+                    catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                    {
+                        deleted.Add(path.Trim());
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                return deleted;
+            }
+        }
+
+        return deleted;
+    }
+
+    public static void SaveDeletedProjectDirs(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return;
+
+        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var paths = projectDirs
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        lock (WriteSyncRoot)
+        {
+            EnsureDatabaseCore(dbPath);
+            using var conn = Open(dbPath);
+            UpsertRawSetting(conn, DeletedProjectDirsKey, JsonSerializer.Serialize(paths, JsonOptions), DateTimeOffset.Now.ToString("o"));
+        }
+    }
+
     public static void Save(string workspaceRoot, IReadOnlyList<QueueProjectItem> items, Dictionary<string, object?>? options = null)
     {
         var owned = new List<QueueProjectItem>(items.Count);
@@ -49,6 +115,8 @@ public static class WorkspaceQueueDatabase
         // 只带来了别的工作目录的路径时，不能写成空队列，否则会把这个工作目录里原有的项目清掉。
         if (owned.Count == 0 && items.Count > 0)
             return;
+
+        owned.RemoveAll(item => WorkspaceQueueService.IsDeletedProjectDir(workspaceRoot, item.ProjectDir));
 
         var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
         lock (WriteSyncRoot)
@@ -429,7 +497,10 @@ public static class WorkspaceQueueDatabase
 
     private static SqliteConnection Open(string dbPath) => OpenConnection(dbPath);
 
-    private static void UpsertAppSetting(SqliteConnection conn, string key, Dictionary<string, object?> payload, string updatedAt)
+    private static void UpsertAppSetting(SqliteConnection conn, string key, Dictionary<string, object?> payload, string updatedAt) =>
+        UpsertRawSetting(conn, key, JsonSerializer.Serialize(payload, JsonOptions), updatedAt);
+
+    private static void UpsertRawSetting(SqliteConnection conn, string key, string json, string updatedAt)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -438,7 +509,7 @@ public static class WorkspaceQueueDatabase
             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
             """;
         cmd.Parameters.AddWithValue("$key", key);
-        cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(payload, JsonOptions));
+        cmd.Parameters.AddWithValue("$json", json);
         cmd.Parameters.AddWithValue("$updated_at", updatedAt);
         cmd.ExecuteNonQuery();
     }
