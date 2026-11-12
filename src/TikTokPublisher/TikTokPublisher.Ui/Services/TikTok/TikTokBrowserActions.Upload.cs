@@ -23,7 +23,8 @@ public static partial class TikTokBrowserActions
         IReadOnlyList<string> videoPaths,
         bool waitForFinish,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool confirmStartup = true)
     {
         if (videoPaths.Count == 0)
             throw new InvalidOperationException("未提供 TikTok 视频文件");
@@ -35,7 +36,9 @@ public static partial class TikTokBrowserActions
             ? $"已选择 {resolved.Count} 个视频文件，等待 TikTok 上传完成。"
             : $"已选择 {resolved.Count} 个视频文件，TikTok 已开始上传。");
         await page.WaitForTimeoutAsync(5000);
-        await EnsureVideoUploadStartedAsync(page, button, resolved, resolved.Count, log, ct);
+        // 新建页拿剧集 ID 时，挂集请求本身就是开始信号，不能再按页面文字重选文件。
+        if (confirmStartup)
+            await EnsureVideoUploadStartedAsync(page, button, resolved, resolved.Count, log, ct);
         if (waitForFinish)
         {
             await WaitVideoUploadFinishedAsync(
@@ -637,6 +640,12 @@ public static partial class TikTokBrowserActions
         if (await WaitVideoUploadSignalAsync(page, startupSeconds, ct))
             return;
 
+        if (await UploadSelectionAlreadyPresentAsync(page, resolvedPaths))
+        {
+            Log(log, "文件已经选上，但页面还没有上传进度。继续等待，不再重复选择。");
+            return;
+        }
+
         Log(log, $"⚠️ 约 {(int)startupSeconds} 秒未检测到视频开始上传，重新触发一次本地上传。");
         try
         {
@@ -653,6 +662,43 @@ public static partial class TikTokBrowserActions
             Log(log, "重新触发后已检测到视频开始上传。");
         else
             Log(log, "⚠️ 重新触发后仍未检测到上传开始，将继续等待并由停滞看门狗处理。");
+    }
+
+    private static async Task<bool> UploadSelectionAlreadyPresentAsync(IPage page, IReadOnlyList<string> resolvedPaths)
+    {
+        string body;
+        try { body = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 }); }
+        catch { body = ""; }
+        if (BodyContainsSelectedFile(body, resolvedPaths))
+            return true;
+
+        try
+        {
+            return await page.EvaluateAsync<bool>(
+                """
+                () => Array.from(document.querySelectorAll('input[type="file"]'))
+                  .some(input => input.files && input.files.length > 0)
+                """);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool BodyContainsSelectedFile(string body, IReadOnlyList<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            var name = Path.GetFileName(path);
+            if (name.Length > 0 && body.Contains(name, StringComparison.OrdinalIgnoreCase))
+                return true;
+            var title = Path.GetFileNameWithoutExtension(path);
+            if (title.Length >= 4 && body.Contains(title, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     private static async Task<bool> WaitVideoUploadSignalAsync(IPage page, double maxSeconds, CancellationToken ct)

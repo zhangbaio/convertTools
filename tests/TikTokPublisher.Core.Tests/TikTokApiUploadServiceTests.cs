@@ -112,6 +112,30 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
+    public void Usable_existing_videos_keep_the_first_copy_of_each_episode()
+    {
+        var videos = new TikTokApiUploadService.SeriesVideo[]
+        {
+            new("good", 1, "剧-第1集", 1),
+            new("blank", 2, "花絮", null),
+            new("again", 3, "剧-第1集", 1),
+        };
+
+        TikTokApiUploadService.SelectUsableExisting(videos).Select(video => video.VideoId).Should().Equal("good");
+        TikTokApiUploadService.PlanDropRejected(videos).Should().BeNull();
+        TikTokApiUploadService.PlanDropRejected(
+        [
+            new("blank", 1, "花絮", null),
+            new("good", 2, "剧-第1集", 1),
+        ]).Should().Equal("good", "blank");
+        TikTokApiUploadService.PlanDropRejected(videos.Take(1).ToList()).Should().BeNull();
+        TikTokBrowserActions.BodyContainsSelectedFile("已选择 The Six-Year Lie-第1集.mp4", [@"E:\x\The Six-Year Lie-第1集.mp4"])
+            .Should().BeTrue();
+        TikTokBrowserActions.BodyContainsSelectedFile("合同、剧名和简介", [@"E:\x\The Six-Year Lie-第1集.mp4"])
+            .Should().BeFalse();
+    }
+
+    [Fact]
     public void Existing_videos_with_duplicate_episodes_are_not_usable()
     {
         TikTokApiUploadService.ExistingVideosUsable(

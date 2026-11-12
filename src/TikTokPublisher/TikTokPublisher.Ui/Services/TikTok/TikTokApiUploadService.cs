@@ -97,10 +97,40 @@ public static class TikTokApiUploadService
             : null;
     }
 
-    /// <summary>平台已有正片里有读不出集号或重复的集时不能只靠追加和排序修好，交给网页流程处理。</summary>
+    /// <summary>每一集都能读出且不重复。有多余行时仍可先删掉再接口直传，见 <see cref="SelectUsableExisting"/>。</summary>
     internal static bool ExistingVideosUsable(IReadOnlyList<SeriesVideo> videos) =>
         videos.All(video => video.Episode is not null) &&
         videos.Select(video => video.Episode).Distinct().Count() == videos.Count;
+
+    /// <summary>按出现顺序保留每个集号的第一行。读不出集号和重复行不参与接口直传。</summary>
+    internal static IReadOnlyList<SeriesVideo> SelectUsableExisting(IReadOnlyList<SeriesVideo> videos)
+    {
+        var seen = new HashSet<int>();
+        var usable = new List<SeriesVideo>();
+        foreach (var video in videos.OrderBy(video => video.OrderNum))
+        {
+            if (video.Episode is int episode && seen.Add(episode))
+                usable.Add(video);
+        }
+
+        return usable;
+    }
+
+    /// <summary>把可用集按集号排到前面，读不出或重复的行排到末尾。已经是这个顺序时返回 null。</summary>
+    internal static IReadOnlyList<string>? PlanDropRejected(IReadOnlyList<SeriesVideo> videos)
+    {
+        var usableIds = SelectUsableExisting(videos).Select(video => video.VideoId).ToHashSet(StringComparer.Ordinal);
+        if (usableIds.Count == videos.Count)
+            return null;
+
+        var desired = SelectUsableExisting(videos)
+            .OrderBy(video => video.Episode)
+            .Select(video => video.VideoId)
+            .Concat(videos.OrderBy(video => video.OrderNum).Where(video => !usableIds.Contains(video.VideoId)).Select(video => video.VideoId))
+            .ToList();
+        var current = videos.OrderBy(video => video.OrderNum).Select(video => video.VideoId).ToList();
+        return current.SequenceEqual(desired) ? null : desired;
+    }
 
     /// <summary>已有正片的最大 orderNum 之后，按缺失列表的位置连续编号。第 1 集从 1 开始。</summary>
     internal static int[] AssignOrderNums(int maxExistingOrderNum, int count)
@@ -185,13 +215,40 @@ public static class TikTokApiUploadService
         }
 
         var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
-        if (!ExistingVideosUsable(existing))
+        var usable = SelectUsableExisting(existing);
+        if (existing.Count > 0 && usable.Count == 0)
         {
             log?.Invoke($"接口直传：草稿已有 {existing.Count} 集里有重复或读不出集号的视频，改用网页流程处理。");
             return false;
         }
 
-        var present = existing.Select(video => video.Episode!.Value).ToHashSet();
+        if (usable.Count < existing.Count)
+        {
+            var rejected = existing.Count - usable.Count;
+            log?.Invoke(
+                $"接口直传：草稿已有 {existing.Count} 行，其中 {rejected} 行读不出集号或与已有集重复。先删掉这 {rejected} 行，其余继续接口直传。");
+            if (PlanDropRejected(existing) is { } order)
+            {
+                await PageFetchAsync(
+                    page,
+                    "POST",
+                    "/api/content-partner/series/videos/reorder",
+                    JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = order }),
+                    ct);
+                await ReloadEditPageAsync(page, ct);
+            }
+
+            await TikTokBrowserActions.DeleteEditVideoRowsFromSlotAsync(page, usable.Count, log, ct);
+            existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+            usable = SelectUsableExisting(existing);
+            if (usable.Count != existing.Count)
+            {
+                log?.Invoke($"接口直传：删完后仍有 {existing.Count - usable.Count} 行无法识别，改用网页流程处理。");
+                return false;
+            }
+        }
+
+        var present = usable.Select(video => video.Episode!.Value).ToHashSet();
         var missing = local.Where(item => !present.Contains(item.Episode)).ToList();
         var changed = false;
         var failures = new List<string>();
@@ -213,7 +270,7 @@ public static class TikTokApiUploadService
             var uploaded = 0;
             long uploadedBytes = 0;
             var uploadClock = Stopwatch.StartNew();
-            var maxOrder = existing.Count == 0 ? 0 : existing.Max(video => video.OrderNum);
+            var maxOrder = usable.Count == 0 ? 0 : usable.Max(video => video.OrderNum);
             var orderNums = AssignOrderNums(maxOrder, missing.Count);
             // 上传按集号从小到大领任务。挂载凑满 concurrency 集就在页面里一批发出，不等前面的集。
             var uploadedVideos = new CommittedVideo[missing.Count];
@@ -363,7 +420,8 @@ public static class TikTokApiUploadService
 
         var timeoutMs = Math.Max(180, options.UploadStallSeconds) * 1000f;
         var response = await page.RunAndWaitForResponseAsync(
-            () => TikTokBrowserActions.UploadLocalVideosAsync(page, new[] { first.Path }, waitForFinish: false, log, ct),
+            () => TikTokBrowserActions.UploadLocalVideosAsync(
+                page, new[] { first.Path }, waitForFinish: false, log, ct, confirmStartup: false),
             candidate => candidate.Url.Contains(AddVideoPath, StringComparison.OrdinalIgnoreCase) &&
                          string.Equals(candidate.Request.Method, "POST", StringComparison.OrdinalIgnoreCase),
             new PageRunAndWaitForResponseOptions { Timeout = timeoutMs });
