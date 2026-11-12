@@ -70,21 +70,45 @@ public static class KuaishouProjectQueue
 public sealed class KuaishouUploadSlot
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _holderLock = new();
+    private string _holder = "";
 
-    public async Task<IDisposable> AcquireAsync(CancellationToken cancellationToken)
+    public async Task<IDisposable> AcquireAsync(
+        CancellationToken cancellationToken,
+        string? holder = null,
+        Func<string, Task>? onWait = null)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return new Release(_gate);
+        if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            if (onWait is not null)
+            {
+                string current;
+                lock (_holderLock)
+                    current = _holder;
+                await onWait(current).ConfigureAwait(false);
+            }
+
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        lock (_holderLock)
+            _holder = holder?.Trim() ?? "";
+        return new Release(this);
     }
 
-    private sealed class Release(SemaphoreSlim gate) : IDisposable
+    private void ReleaseHolder()
     {
-        private int _released;
+        lock (_holderLock)
+            _holder = "";
+        _gate.Release();
+    }
 
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _released, 1) == 0)
-                gate.Release();
-        }
+    private sealed class Release : IDisposable
+    {
+        private KuaishouUploadSlot? _slot;
+
+        public Release(KuaishouUploadSlot slot) => _slot = slot;
+
+        public void Dispose() => Interlocked.Exchange(ref _slot, null)?.ReleaseHolder();
     }
 }

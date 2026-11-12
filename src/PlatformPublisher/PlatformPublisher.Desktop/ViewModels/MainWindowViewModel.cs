@@ -2723,22 +2723,46 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var uploadAlreadyDone = !request.Force
             && trackedJob.StepStates.TryGetValue("weixin-upload", out var existingUpload)
             && existingUpload.Status == PublishJobStepStatus.Succeeded;
-        if (!uploadAlreadyDone && request.Parallelism > 1)
-        {
-            AppendActivityLog("等待浏览器上传槽位：上传剧集", projectName);
-            await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Running, "等待槽位");
-        }
 
         IDisposable? uploadLease = null;
+        IDisposable? machineUploadLease = null;
+        var announcedUploadWait = false;
         if (!uploadAlreadyDone)
         {
+            async Task AnnounceUploadWaitAsync(string message)
+            {
+                announcedUploadWait = true;
+                AppendActivityLog(message, projectName);
+                SetStatusMessage(message);
+                await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Running, "等待槽位");
+            }
+
             try
             {
-                uploadLease = await uploadSlot.AcquireAsync(cancellationToken);
+                uploadLease = await uploadSlot.AcquireAsync(
+                    cancellationToken,
+                    projectName,
+                    async holder =>
+                    {
+                        var who = string.IsNullOrWhiteSpace(holder) ? "上一部剧" : holder.Trim();
+                        await AnnounceUploadWaitAsync($"等待本账号浏览器：上传剧集（{who}）");
+                    });
+                machineUploadLease = await KuaishouMachineGate.Shared.AcquireUploadAsync(
+                    cancellationToken,
+                    KuaishouUploadHolderLabel(request.AccountName, projectName),
+                    async holder =>
+                    {
+                        var who = string.IsNullOrWhiteSpace(holder) ? "其他账号" : holder.Trim();
+                        await AnnounceUploadWaitAsync($"等待其他账号释放上传槽：{who}");
+                    });
             }
             catch (OperationCanceledException)
             {
-                if (request.Parallelism > 1)
+                uploadLease?.Dispose();
+                uploadLease = null;
+                machineUploadLease?.Dispose();
+                machineUploadLease = null;
+                if (announcedUploadWait)
                     await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Pending, "已停止，可继续执行");
                 throw;
             }
@@ -2773,13 +2797,22 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 trackedJob.StatusMessage = "发布流程执行完成";
                 trackedJob.LastCompletedAt = DateTimeOffset.Now;
             });
-            if (KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, uploadCompleted: true))
-                await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
         }
         finally
         {
+            machineUploadLease?.Dispose();
             uploadLease?.Dispose();
         }
+
+        if (KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, uploadCompleted: true))
+            await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
+    }
+
+    private static string KuaishouUploadHolderLabel(string? accountName, string projectName)
+    {
+        var project = string.IsNullOrWhiteSpace(projectName) ? "当前剧" : projectName.Trim();
+        var account = (accountName ?? "").Trim();
+        return account.Length == 0 ? project : $"{account} · {project}";
     }
 
     private static bool KuaishouUploadCompleted(PublishJob job, string projectDirectory, KuaishouPipelineRequest request)

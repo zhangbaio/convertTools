@@ -82,7 +82,7 @@ public sealed class KuaishouPersonalSessionService
         if (!runtime.IsReady) throw new InvalidOperationException(runtime.Message);
         _runtimeService.ConfigureEnvironment(runtime);
         using var playwright = await _runtimeService.CreatePlaywrightAsync(runtime, cancellationToken);
-        await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+        var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
         {
             ExecutablePath = runtime.BrowserExecutablePath,
             Headless = headless,
@@ -90,30 +90,73 @@ public sealed class KuaishouPersonalSessionService
                 ? ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--start-maximized", "--disable-site-isolation-trials", "--disable-gpu"]
                 : ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--start-maximized", "--disable-site-isolation-trials"],
         });
-        var options = new BrowserNewContextOptions { ViewportSize = headless ? new ViewportSize { Width = 1920, Height = 1030 } : ViewportSize.NoViewport };
-        if (File.Exists(config.AuthStatePath)) options.StorageStatePath = config.AuthStatePath;
-        await using var context = await CreateContextAsync(browser, options, allowInvalidStateFallback);
-        var page = await context.NewPageAsync();
-        var succeeded = false;
+        IBrowserContext? context = null;
         try
         {
-            await action(page, context, cancellationToken);
-            succeeded = true;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException && config.KeepBrowserOpenOnFailure && !headless)
-        {
-            while (!cancellationToken.IsCancellationRequested && context.Pages.Count > 0)
-                await Task.Delay(500, cancellationToken);
-            throw;
+            var options = new BrowserNewContextOptions { ViewportSize = headless ? new ViewportSize { Width = 1920, Height = 1030 } : ViewportSize.NoViewport };
+            if (File.Exists(config.AuthStatePath)) options.StorageStatePath = config.AuthStatePath;
+            context = await CreateContextAsync(browser, options, allowInvalidStateFallback);
+            var page = await context.NewPageAsync();
+            var succeeded = false;
+            // 停止只取消令牌。关掉浏览器，进行中的页面动作才会返回，上传槽才能放开。
+            using var closeOnCancel = cancellationToken.UnsafeRegister(static state =>
+            {
+                if (state is IBrowser openBrowser)
+                    RequestBrowserClose(openBrowser);
+            }, browser);
+            try
+            {
+                await action(page, context, cancellationToken);
+                succeeded = true;
+            }
+            catch (Exception ex) when (cancellationToken.IsCancellationRequested)
+            {
+                if (ex is OperationCanceledException)
+                    throw;
+                throw new OperationCanceledException(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException && config.KeepBrowserOpenOnFailure && !headless)
+            {
+                while (!cancellationToken.IsCancellationRequested && context.Pages.Count > 0)
+                    await Task.Delay(500, cancellationToken);
+                if (cancellationToken.IsCancellationRequested)
+                    throw new OperationCanceledException(cancellationToken);
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    if (succeeded && context.Pages.Count > 0)
+                        await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthStatePath });
+                }
+                catch { /* 登录态保存失败由下次校验暴露。 */ }
+            }
         }
         finally
         {
-            try
+            if (context is not null)
             {
-                if (succeeded && context.Pages.Count > 0)
-                    await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthStatePath });
+                try { await context.CloseAsync(); }
+                catch { /* 停止时浏览器可能已经关掉。 */ }
             }
-            catch { /* 登录态保存失败由下次校验暴露。 */ }
+
+            try { await browser.CloseAsync(); }
+            catch { /* 停止时浏览器可能已经关掉。 */ }
+        }
+    }
+
+    private static void RequestBrowserClose(IBrowser browser) => _ = CloseBrowserQuietlyAsync(browser);
+
+    private static async Task CloseBrowserQuietlyAsync(IBrowser browser)
+    {
+        try
+        {
+            await browser.CloseAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // 浏览器已经退出。
         }
     }
 

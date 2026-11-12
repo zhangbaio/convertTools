@@ -37,6 +37,51 @@ public class KuaishouMachineGateTests
     }
 
     [Fact]
+    public async Task UploadSlotNamesTheCurrentHolder()
+    {
+        var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, 1, 3));
+        var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var first = await gate.AcquireUploadAsync(CancellationToken.None, "快手分账个人 · 记忆清零");
+        var second = gate.AcquireUploadAsync(
+            CancellationToken.None,
+            "薄荷剧场 · 乡厨百味",
+            holder =>
+            {
+                seen.TrySetResult(holder);
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal("快手分账个人 · 记忆清零", await seen.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.False(second.IsCompleted);
+
+        first.Dispose();
+        using var acquired = await second.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
+    public async Task UploadSlotNamesEveryCurrentHolder()
+    {
+        var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, 2, 3));
+        using var first = await gate.AcquireUploadAsync(CancellationToken.None, "快手分账个人 · 记忆清零");
+        using var secondHold = await gate.AcquireUploadAsync(CancellationToken.None, "格佳信息 · 神眼憨婿");
+        var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var third = gate.AcquireUploadAsync(
+            CancellationToken.None,
+            "薄荷剧场 · 乡厨百味",
+            holder =>
+            {
+                seen.TrySetResult(holder);
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal("快手分账个人 · 记忆清零、格佳信息 · 神眼憨婿", await seen.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.False(third.IsCompleted);
+
+        first.Dispose();
+        using var acquired = await third.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
     public async Task ProjectImageSlotLimitsTheMachine()
     {
         var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, 2, 1));

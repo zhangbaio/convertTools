@@ -119,6 +119,28 @@ public sealed class KuaishouProjectQueueTests
         Assert.Equal(1, secondEntered);
     }
 
+    [Fact]
+    public async Task UploadSlot_TellsTheWaiterWhoHoldsTheBrowser()
+    {
+        var slot = new KuaishouUploadSlot();
+        var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var first = await slot.AcquireAsync(CancellationToken.None, "越界的单身夜");
+        var second = slot.AcquireAsync(
+            CancellationToken.None,
+            "乡厨百味",
+            holder =>
+            {
+                seen.TrySetResult(holder);
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal("越界的单身夜", await seen.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.False(second.IsCompleted);
+
+        first.Dispose();
+        using var acquired = await second.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
     private static void UpdateMax(ref int target, int value)
     {
         int observed;

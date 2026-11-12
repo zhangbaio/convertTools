@@ -19,6 +19,7 @@ public sealed class KuaishouMachineGate
     private readonly Func<(int Projects, string Mode, int Uploads, int ProjectImages)> _settings;
     private readonly object _uploadLock = new();
     private readonly object _projectImageLock = new();
+    private readonly List<UploadHolder> _uploadHolders = new();
     private int _uploadsInUse;
     private int _projectImagesInUse;
 
@@ -99,27 +100,51 @@ public sealed class KuaishouMachineGate
         }
     }
 
-    public async Task<IDisposable> AcquireUploadAsync(CancellationToken cancellationToken)
+    public async Task<IDisposable> AcquireUploadAsync(
+        CancellationToken cancellationToken,
+        string? holder = null,
+        Func<string, Task>? onWait = null)
     {
+        var announced = false;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var limit = Math.Clamp(_settings().Uploads <= 0 ? 2 : _settings().Uploads, 1, 8);
+            string? waitingFor = null;
             lock (_uploadLock)
             {
                 if (_uploadsInUse < limit)
                 {
                     _uploadsInUse++;
+                    var hold = new UploadHolder(holder?.Trim() ?? "");
+                    _uploadHolders.Add(hold);
                     return new Release(() =>
                     {
                         lock (_uploadLock)
                         {
+                            _uploadHolders.Remove(hold);
                             if (_uploadsInUse > 0)
                                 _uploadsInUse--;
                         }
                     });
                 }
+
+                if (!announced)
+                {
+                    announced = true;
+                    var labels = new List<string>();
+                    foreach (var item in _uploadHolders)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.Label))
+                            labels.Add(item.Label);
+                    }
+
+                    waitingFor = string.Join("、", labels);
+                }
             }
+
+            if (waitingFor is not null && onWait is not null)
+                await onWait(waitingFor).ConfigureAwait(false);
 
             await Task.Delay(400, cancellationToken).ConfigureAwait(false);
         }
@@ -129,6 +154,11 @@ public sealed class KuaishouMachineGate
     {
         var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
         return (settings.TiktokGlobalProjectConcurrency, settings.TiktokAccountScheduleMode, settings.TiktokUploadConcurrency, settings.KuaishouProjectImageConcurrency);
+    }
+
+    private sealed class UploadHolder(string label)
+    {
+        public string Label { get; } = label;
     }
 
     private sealed class Release(Action release) : IDisposable
