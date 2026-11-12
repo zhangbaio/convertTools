@@ -1,6 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Layout;
 using Avalonia.Platform;
 using Avalonia.Threading;
@@ -46,6 +47,10 @@ public partial class MainWindow : Window
     private DispatcherTimer? _licenseVerifyTimer;
     private bool _licenseVerifyRunning;
     private bool _licenseLoginDialogOpen;
+    private MachineResourceMonitor? _resourceMonitor;
+    private IBrush? _resourceNormalBrush;
+    private IBrush? _resourceWarmBrush;
+    private IBrush? _resourceHotBrush;
 
     public Task CheckClientUpdateOnStartupAsync() =>
         _viewModel.SystemServices.CheckClientUpdateOnStartupAsync();
@@ -144,6 +149,65 @@ public partial class MainWindow : Window
         base.OnOpened(e);
         if (!_startupLayoutApplied)
             ApplyStartupLayout();
+        StartResourceMonitor();
+    }
+
+    private void StartResourceMonitor()
+    {
+        if (_resourceMonitor is not null || !OperatingSystem.IsWindows())
+            return;
+        _resourceMonitor = new MachineResourceMonitor();
+        _resourceMonitor.Updated += OnMachineResourceUpdated;
+        _resourceMonitor.Start();
+    }
+
+    private void StopResourceMonitor()
+    {
+        if (!OperatingSystem.IsWindows() || _resourceMonitor is null)
+            return;
+        _resourceMonitor.Updated -= OnMachineResourceUpdated;
+        _resourceMonitor.Dispose();
+        _resourceMonitor = null;
+    }
+
+    private void OnMachineResourceUpdated(MachineResourceSnapshot snapshot)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            ApplyResourceText(CpuUsageText, "CPU", snapshot.CpuPercent);
+            ApplyResourceText(GpuUsageText, "GPU", snapshot.GpuPercent);
+            ApplyResourceText(MemUsageText, "MEM", snapshot.MemoryPercent);
+            ToolTip.SetTip(GpuUsageText, MachineResourceMath.GpuTooltip(snapshot.Adapters));
+        });
+    }
+
+    private void ApplyResourceText(TextBlock target, string label, int? percent)
+    {
+        target.Text = MachineResourceMath.FormatUsage(label, percent);
+        target.Foreground = BrushFor(percent);
+    }
+
+    private IBrush BrushFor(int? percent)
+    {
+        _resourceNormalBrush ??= BrushOrFallback("PythonMutedBrush", Color.Parse("#64748B"));
+        _resourceWarmBrush ??= BrushOrFallback("PythonPendingText", Color.Parse("#B45309"));
+        _resourceHotBrush ??= BrushOrFallback("PythonDangerText", Color.Parse("#D92D20"));
+        if (percent is not int value || value < 80)
+            return _resourceNormalBrush;
+        return value >= 90 ? _resourceHotBrush : _resourceWarmBrush;
+    }
+
+    private IBrush BrushOrFallback(string key, Color fallback)
+    {
+        if (this.TryFindResource(key, out var found))
+        {
+            if (found is IBrush brush)
+                return brush;
+            if (found is Color color)
+                return new SolidColorBrush(color);
+        }
+
+        return new SolidColorBrush(fallback);
     }
 
     private double ExpandedSidebarWidth =>
@@ -192,6 +256,7 @@ public partial class MainWindow : Window
     private void OnWindowClosed(object? sender, EventArgs e)
     {
         SavePlacement();
+        StopResourceMonitor();
         _licenseVerifyTimer?.Stop();
         _licenseVerifyTimer = null;
         _viewModel.StopXingeRemoteCommandService();

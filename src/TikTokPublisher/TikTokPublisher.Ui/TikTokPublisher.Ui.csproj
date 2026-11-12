@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />
+    <InternalsVisibleTo Include="TikTokPublisher.Desktop" />
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="Themes\**" />
