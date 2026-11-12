@@ -6,6 +6,7 @@ using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Ui.Views;
 
 namespace TikTokPublisher.Ui.Services;
 
@@ -23,7 +24,8 @@ public sealed record XingeRemoteAccountSnapshot(
     bool AuthReady,
     bool IsCurrent,
     bool RemoteDispatchEnabled,
-    IReadOnlyList<XingeRemoteUploadedDrama>? UploadedToday = null);
+    IReadOnlyList<XingeRemoteUploadedDrama>? UploadedToday = null,
+    bool QueueRunning = false);
 
 public sealed class XingeRemoteCommandService
 {
@@ -34,10 +36,20 @@ public sealed class XingeRemoteCommandService
     };
 
     private readonly object _sync = new();
+    private readonly object _quotaFullLock = new();
+    private readonly DispatchConfirmCoordinator _confirm = new();
+    private readonly Dictionary<long, XingeRemoteMessage> _heldConfirmMessages = new();
+    private readonly Dictionary<long, TikTokRemoteCommand> _storedCommands = new();
+    private bool _storedDispatchOffered;
+    private Dictionary<string, DateTimeOffset> _quotaFullUntil = new(StringComparer.OrdinalIgnoreCase);
+    private string _dispatchPauseDate = "";
     private CancellationTokenSource? _cts;
     private Task? _worker;
 
     public event Action<string>? StatusChanged;
+
+    // 这部剧的本地项目还在时，轮询到的命令直接续跑，不再弹出新派单确认。
+    public Func<long, bool>? AssignmentAlreadyLocal { get; set; }
 
     public void Restart(
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
@@ -152,6 +164,7 @@ public sealed class XingeRemoteCommandService
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
         var lastRegisteredAt = DateTimeOffset.MinValue;
+        XingeRemoteMessage? replay = null;
 
         while (!ct.IsCancellationRequested)
         {
@@ -163,7 +176,8 @@ public sealed class XingeRemoteCommandService
                 if (DateTimeOffset.UtcNow - lastRegisteredAt >= TimeSpan.FromSeconds(30))
                 {
                     var snapshot = await snapshotProvider(ct).ConfigureAwait(false);
-                    await RegisterAsync(http, config, snapshot, ct).ConfigureAwait(false);
+                    var quotaFull = await RegisterAsync(http, config, snapshot, ct).ConfigureAwait(false);
+                    RememberQuotaFullAccounts(quotaFull);
                     lastRegisteredAt = DateTimeOffset.UtcNow;
                     Notify($"XINGE 已在线：{snapshot.AccountProfiles.Count} 个账号");
                     await FlushAutoPublishProgressAsync(log, ct).ConfigureAwait(false);
@@ -171,13 +185,55 @@ public sealed class XingeRemoteCommandService
                     {
                         var open = await ListOpenAutoPublishAsync(http, config, ct).ConfigureAwait(false);
                         await recoverAsync(open).ConfigureAwait(false);
+                        OfferStoredDispatches(open, log);
                     }
                 }
 
-                var message = await PollAsync(http, config, ct).ConfigureAwait(false);
+                if (await ConsumeConfirmAsync(http, config, executeAsync, log, ct).ConfigureAwait(false))
+                    continue;
+
+                var message = replay ?? await PollAsync(http, config, ct).ConfigureAwait(false);
+                replay = null;
                 if (message is not null)
                 {
-                    await HandleCommandAsync(http, config, message, executeAsync, log, ct).ConfigureAwait(false);
+                    if (TryReadConfirmItem(message, out var item, out var accountId))
+                    {
+                        if (AssignmentAlreadyLocal?.Invoke(item.AssignmentId) == true)
+                        {
+                            log?.Invoke($"派单 {item.Title} 的本地项目还在，直接续跑，不再当作新派单。");
+                            await HandleCommandAsync(http, config, message, executeAsync, log, ct).ConfigureAwait(false);
+                            continue;
+                        }
+                        if (IsAccountQuotaFull(accountId))
+                        {
+                            log?.Invoke($"账号今日上传已达上限，跳过 TikTok 自动派单：{item.Title}");
+                            await CompleteAsync(http, config, message.ID, TikTokRemoteCommandResult.Success("tiktok_upload_series", "账号今日上传已达上限，已跳过"), ct).ConfigureAwait(false);
+                        }
+                        else if (IsDispatchPaused)
+                        {
+                            await PauseDayAsync(http, config, log, ct).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            _heldConfirmMessages[message.ID] = message;
+                            _confirm.ExpireIfDue(DateTimeOffset.Now);
+                            var offer = _confirm.Offer(item, DateTimeOffset.Now, out var session);
+                            if (offer == DispatchConfirmOffer.PendingDecision)
+                            {
+                                _heldConfirmMessages.Remove(message.ID);
+                                await ConsumeConfirmAsync(http, config, executeAsync, log, ct).ConfigureAwait(false);
+                                replay = message;
+                            }
+                            else if (offer == DispatchConfirmOffer.Opened && session is not null)
+                            {
+                                XingeDispatchConfirmPrompt.Show(session);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        await HandleCommandAsync(http, config, message, executeAsync, log, ct).ConfigureAwait(false);
+                    }
                     continue;
                 }
 
@@ -190,7 +246,12 @@ public sealed class XingeRemoteCommandService
                     log?.Invoke($"自动派单调度失败：{ex.Message}");
                 }
 
-                await Task.Delay(config.PollInterval, ct).ConfigureAwait(false);
+                _confirm.ExpireIfDue(DateTimeOffset.Now);
+                var decision = _confirm.DecisionTask;
+                if (decision is { IsCompleted: false })
+                    await Task.WhenAny(Task.Delay(config.PollInterval, ct), decision).ConfigureAwait(false);
+                else if (decision is null)
+                    await Task.Delay(config.PollInterval, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -228,7 +289,54 @@ public sealed class XingeRemoteCommandService
         }
     }
 
-    private static async Task RegisterAsync(
+    public bool IsAccountQuotaFull(string? accountId)
+    {
+        if (string.IsNullOrWhiteSpace(accountId))
+            return false;
+        var now = DateTimeOffset.UtcNow;
+        lock (_quotaFullLock)
+        {
+            return _quotaFullUntil.TryGetValue(accountId.Trim(), out var until)
+                   && XingeQuotaFull.IsHeld(until, now);
+        }
+    }
+
+    public HashSet<string> QuotaFullAccountIds()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var full = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        lock (_quotaFullLock)
+        {
+            foreach (var pair in _quotaFullUntil)
+            {
+                if (XingeQuotaFull.IsHeld(pair.Value, now))
+                    full.Add(pair.Key);
+            }
+        }
+
+        return full;
+    }
+
+    private void RememberQuotaFullAccounts(List<XingeQuotaFullAccount>? accounts)
+    {
+        if (accounts is null)
+            return;
+        var next = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+        foreach (var account in accounts)
+        {
+            var id = account.Id?.Trim() ?? "";
+            if (id.Length == 0)
+                continue;
+            if (!DateTimeOffset.TryParse(account.Until, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var until))
+                continue;
+            next[id] = until;
+        }
+
+        lock (_quotaFullLock)
+            _quotaFullUntil = next;
+    }
+
+    private async Task<List<XingeQuotaFullAccount>?> RegisterAsync(
         HttpClient http,
         XingeRemoteConfig config,
         XingeRemoteRegistrationSnapshot snapshot,
@@ -258,6 +366,7 @@ public sealed class XingeRemoteCommandService
                     ["auth_ready"] = account.AuthReady,
                     ["is_current"] = account.IsCurrent,
                     ["remote_dispatch_enabled"] = account.RemoteDispatchEnabled,
+                    ["queue_running"] = account.QueueRunning,
                 };
                 if (account.UploadedToday is not null)
                 {
@@ -282,6 +391,9 @@ public sealed class XingeRemoteCommandService
 
         if (!envelope.Ok)
             throw new InvalidOperationException(FirstNonEmpty(envelope.Message, "register failed"));
+        RememberDispatchPause(envelope);
+        ClientSettingsStore.RememberServerDispatchMode(envelope.DispatchMode);
+        return envelope.QuotaFullAccounts;
     }
 
     private static async Task<XingeRemoteMessage?> PollAsync(
@@ -301,6 +413,143 @@ public sealed class XingeRemoteCommandService
             throw new InvalidOperationException(FirstNonEmpty(envelope.Message, "poll failed"));
 
         return envelope.Data;
+    }
+
+    private bool IsDispatchPaused => _dispatchPauseDate.Length > 0;
+
+    private void RememberDispatchPause(XingeApiEnvelope<JsonElement> envelope)
+    {
+        if (string.IsNullOrWhiteSpace(envelope.DispatchPauseDate) && string.IsNullOrWhiteSpace(envelope.BusinessDate))
+            return;
+        var date = string.IsNullOrWhiteSpace(envelope.BusinessDate) ? envelope.DispatchPauseDate : envelope.BusinessDate;
+        _dispatchPauseDate = envelope.DispatchPaused ? date : "";
+    }
+
+    private static int ReadConfirmSeconds(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty("confirm_seconds", out var value))
+            return 0;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+            return number;
+        return int.TryParse(value.ToString(), out var parsed) ? parsed : 0;
+    }
+
+    private static bool TryReadConfirmItem(XingeRemoteMessage message, out DispatchConfirmItem item, out string accountId)
+    {
+        item = new DispatchConfirmItem();
+        accountId = "";
+        var commandText = message.Payload.ValueKind is JsonValueKind.Object or JsonValueKind.Array
+            ? message.Payload.GetRawText()
+            : "";
+        var command = TikTokRemoteCommandParser.Parse(commandText)
+                      ?? TikTokRemoteCommandParser.Parse(message.ContentText);
+        if (command is null || !command.IsAutoPublishAssignment)
+            return false;
+        accountId = command.AccountProfileId ?? "";
+        item = new DispatchConfirmItem
+        {
+            MessageId = message.ID,
+            AssignmentId = command.AutoPublishAssignmentId,
+            AccountName = command.AccountProfileName ?? "",
+            ConfirmSeconds = ReadConfirmSeconds(message.Payload),
+            Title = command.Titles?.FirstOrDefault(title => !string.IsNullOrWhiteSpace(title))
+                    ?? command.Series?.Select(spec => spec.Title).FirstOrDefault(title => !string.IsNullOrWhiteSpace(title))
+                    ?? "",
+        };
+        return true;
+    }
+
+    private async Task<bool> ConsumeConfirmAsync(
+        HttpClient http,
+        XingeRemoteConfig config,
+        Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (!_confirm.TryConsume(out var decision, out var items))
+            return false;
+        switch (decision)
+        {
+            case DispatchConfirmDecision.RejectOnce:
+                await DeclineOnceAsync(http, config, items, log, ct).ConfigureAwait(false);
+                foreach (var item in items)
+                {
+                    _heldConfirmMessages.Remove(item.MessageId);
+                    _storedCommands.Remove(item.AssignmentId);
+                }
+                break;
+            case DispatchConfirmDecision.RejectToday:
+                await PauseDayAsync(http, config, log, ct).ConfigureAwait(false);
+                _heldConfirmMessages.Clear();
+                _storedCommands.Clear();
+                break;
+            case DispatchConfirmDecision.Dismissed:
+                foreach (var item in items)
+                {
+                    _heldConfirmMessages.Remove(item.MessageId);
+                    _storedCommands.Remove(item.AssignmentId);
+                }
+                log?.Invoke("已关闭派单确认。这批剧仍保留，重启后会再提示，不会另派新剧。");
+                break;
+            default:
+                foreach (var item in items)
+                {
+                    if (_storedCommands.Remove(item.AssignmentId, out var stored))
+                    {
+                        await executeAsync(stored).ConfigureAwait(false);
+                        continue;
+                    }
+                    if (!_heldConfirmMessages.Remove(item.MessageId, out var message))
+                        continue;
+                    await HandleCommandAsync(http, config, message, executeAsync, log, ct).ConfigureAwait(false);
+                }
+                break;
+        }
+        return true;
+    }
+
+    private async Task DeclineOnceAsync(
+        HttpClient http,
+        XingeRemoteConfig config,
+        IReadOnlyList<DispatchConfirmItem> items,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var ids = items.Select(item => item.AssignmentId).Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return;
+        try
+        {
+            await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+                "/client-api/tiktok/auto-publish/decline",
+                new { client_id = config.ClientId, client_token = config.ClientToken, assignment_ids = ids }, ct).ConfigureAwait(false);
+            log?.Invoke($"已拒绝本次 TikTok 派单 {ids.Length} 部。这些剧今天不再派，今天也不会自动补派。");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"拒绝本次 TikTok 派单失败：{ex.Message}");
+        }
+    }
+
+    private async Task PauseDayAsync(HttpClient http, XingeRemoteConfig config, Action<string>? log, CancellationToken ct)
+    {
+        try
+        {
+            var envelope = await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+                "/client-api/tiktok/auto-publish/pause-day",
+                new { client_id = config.ClientId, client_token = config.ClientToken }, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(envelope.BusinessDate))
+                _dispatchPauseDate = envelope.BusinessDate;
+            else if (!string.IsNullOrWhiteSpace(envelope.DispatchPauseDate))
+                _dispatchPauseDate = envelope.DispatchPauseDate;
+            else
+                _dispatchPauseDate = "paused";
+            log?.Invoke("今日不再接收 TikTok 自动派单，尚未开始的剧已释放。");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"今日不再接收 TikTok 派单失败：{ex.Message}");
+        }
     }
 
     private async Task HandleCommandAsync(
@@ -343,6 +592,52 @@ public sealed class XingeRemoteCommandService
         {
             await Task.Delay(TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
         }
+    }
+
+    // 命令已经送达、客户端还没开始时，重启后继续确认同一批。关窗不算拒绝，也不向服务器另要新剧。
+    private void OfferStoredDispatches(IReadOnlyList<XingeOpenAutoPublishAssignment> open, Action<string>? log)
+    {
+        if (_storedDispatchOffered || open.Count == 0)
+            return;
+        var pending = new List<(DispatchConfirmItem Item, TikTokRemoteCommand Command)>();
+        foreach (var assignment in open)
+        {
+            if (!string.Equals(assignment.Status, "dispatched", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!string.Equals(assignment.MessageStatus, "sent", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (AssignmentAlreadyLocal?.Invoke(assignment.Id) == true)
+                continue;
+            var command = assignment.ReadCommand();
+            if (command is null || !command.IsAutoPublishAssignment)
+                continue;
+            var title = command.Titles?.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item)) ?? assignment.Title;
+            pending.Add((new DispatchConfirmItem
+            {
+                MessageId = assignment.Id,
+                AssignmentId = assignment.Id,
+                AccountName = command.AccountProfileName ?? "",
+                Title = title ?? "",
+                ConfirmSeconds = DispatchConfirmSession.DefaultCountdownSeconds,
+            }, command));
+        }
+        if (pending.Count == 0)
+            return;
+
+        DispatchConfirmSession? session = null;
+        foreach (var entry in pending)
+        {
+            var offer = _confirm.Offer(entry.Item, DateTimeOffset.Now, out var opened);
+            if (offer == DispatchConfirmOffer.PendingDecision)
+                return;
+            _storedCommands[entry.Item.AssignmentId] = entry.Command;
+            if (offer == DispatchConfirmOffer.Opened)
+                session = opened;
+        }
+        _storedDispatchOffered = true;
+        if (session is not null)
+            XingeDispatchConfirmPrompt.Show(session);
+        log?.Invoke($"还有 {pending.Count} 部已分发未开始的剧，继续确认这一批，不会另派新剧。");
     }
 
     private static async Task<IReadOnlyList<XingeOpenAutoPublishAssignment>> ListOpenAutoPublishAsync(
@@ -556,6 +851,19 @@ public sealed class XingeRemoteCommandService
         [JsonPropertyName("queue_options")]
         public Dictionary<string, JsonElement>? QueueOptions { get; set; }
 
+        [JsonPropertyName("command")]
+        public JsonElement Command { get; set; }
+
+        [JsonPropertyName("message_status")]
+        public string MessageStatus { get; set; } = "";
+
+        public TikTokRemoteCommand? ReadCommand()
+        {
+            if (Command.ValueKind != JsonValueKind.Object)
+                return null;
+            return TikTokRemoteCommandParser.Parse(Command.GetRawText());
+        }
+
         public IReadOnlyDictionary<string, object?>? ReadQueueOptions()
         {
             if (QueueOptions is not { Count: > 0 })
@@ -593,6 +901,30 @@ public sealed class XingeRemoteCommandService
 
         [JsonPropertyName("data")]
         public T? Data { get; set; }
+
+        [JsonPropertyName("quota_full_accounts")]
+        public List<XingeQuotaFullAccount>? QuotaFullAccounts { get; set; }
+
+        [JsonPropertyName("dispatch_paused")]
+        public bool DispatchPaused { get; set; }
+
+        [JsonPropertyName("dispatch_pause_date")]
+        public string DispatchPauseDate { get; set; } = "";
+
+        [JsonPropertyName("business_date")]
+        public string BusinessDate { get; set; } = "";
+
+        [JsonPropertyName("dispatch_mode")]
+        public string DispatchMode { get; set; } = "";
+    }
+
+    private sealed class XingeQuotaFullAccount
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; } = "";
+
+        [JsonPropertyName("until")]
+        public string Until { get; set; } = "";
     }
 
     private sealed class XingeRemoteMessage

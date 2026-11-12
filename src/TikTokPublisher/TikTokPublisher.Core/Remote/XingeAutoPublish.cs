@@ -106,6 +106,10 @@ public sealed class XingeAutoPublishMarker
     [JsonPropertyName("final_status")]
     public string FinalStatus { get; set; } = "";
 
+    // 这部已分发的剧在本地失败过几次。满 3 次才回报服务器，允许重新分发。
+    [JsonPropertyName("local_failures")]
+    public int LocalFailures { get; set; }
+
     [JsonIgnore]
     public bool IsActive => AssignmentId > 0 && string.IsNullOrWhiteSpace(FinalStatus);
 
@@ -168,6 +172,16 @@ public static class XingeAutoPublishMarkerStore
         return markerAccount.Length == 0
             || account.Length == 0
             || string.Equals(markerAccount, account, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static int RecordLocalFailure(string projectDir, long assignmentId)
+    {
+        var marker = TryRead(projectDir);
+        if (marker is null || marker.AssignmentId != assignmentId)
+            return XingeAutoPublishRecovery.LocalRetryLimit;
+        marker.LocalFailures++;
+        Save(projectDir, marker);
+        return marker.LocalFailures;
     }
 
     public static void MarkFinal(string projectDir, long assignmentId, string finalStatus)
@@ -255,7 +269,18 @@ public enum XingeAutoPublishRecoveryAction
 
 public static class XingeAutoPublishRecovery
 {
+    public const int LocalRetryLimit = 3;
     public const string NotExecutableDetail = "目标目录没有可执行项目";
+
+    // 下载、上传和中断还可以在本地再跑。账号、源剧和手动停止不在这里重试。
+    public static bool KeepsLocalRetry(string? failureKind)
+    {
+        var kind = (failureKind ?? "").Trim();
+        return kind.Length == 0
+            || kind is XingeAutoPublishFailureKinds.Download
+                or XingeAutoPublishFailureKinds.Upload
+                or XingeAutoPublishFailureKinds.Interrupted;
+    }
 
     // 命令还停在 dispatched 时由服务端重投，客户端不用另报。已接收但本地没有项目才回报中断。
     public static XingeAutoPublishRecoveryAction Decide(string? serverStatus, XingeAutoPublishMarker? marker, bool projectExists)

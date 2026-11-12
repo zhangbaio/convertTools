@@ -333,6 +333,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private void WireXingeRemoteCommandService()
     {
         SystemServices.SettingsSaved += RestartXingeRemoteCommandService;
+        _xingeRemoteCommandService.AssignmentAlreadyLocal = AssignmentAlreadyLocal;
         _xingeRemoteCommandService.StatusChanged += OnXingeRemoteStatusChanged;
         XingeAutoPublishProgressReporter.Shared.Log += AppendLog;
         XingeUploadTaskReporter.Shared.Log += AppendLog;
@@ -524,6 +525,15 @@ public sealed partial class MainViewModel : ViewModelBase
             return false;
         try
         {
+            if (Directory.Exists(located.ProjectDir))
+            {
+                var account = FindAccountById(located.AccountId)?.Model;
+                WorkspaceQueueService.AddProjectsToQueue(
+                    located.Workspace,
+                    [located.ProjectDir],
+                    located.AccountId,
+                    account?.DisplayName ?? located.AccountName);
+            }
             var state = WorkspaceQueueDatabase.Load(located.Workspace);
             var enabled = XingeAutoPublishRecoveryQueue.EnableForResume(state.Items, new[] { located.ProjectDir });
             if (enabled.Count == 0)
@@ -715,6 +725,19 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private XingeRegistrationCapture CaptureXingeRegistration() =>
         new(WorkspacePath ?? "", SelectedAccount?.Id ?? "", CaptureXingeAccountSeeds());
+
+    private bool AssignmentAlreadyLocal(long assignmentId)
+    {
+        if (assignmentId <= 0)
+            return false;
+        IReadOnlyList<XingeRemoteAccountSeed> seeds;
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            seeds = CaptureXingeAccountSeeds();
+        else
+            seeds = Avalonia.Threading.Dispatcher.UIThread.Invoke(CaptureXingeAccountSeeds);
+        var located = FindAutoPublishProject(assignmentId, seeds);
+        return located.ProjectExists && located.Marker?.IsActive == true;
+    }
 
     private IReadOnlyList<XingeRemoteAccountSeed> CaptureXingeAccountSeeds()
     {
@@ -3527,11 +3550,71 @@ public sealed partial class MainViewModel : ViewModelBase
         UpdateQueueSummaryText();
     }
 
+    // 已分发的剧本地失败后先再跑，不满 3 次不向服务器交还，服务器也就不会重新分发。
+    private void ScheduleLocalAutoPublishRetries(string workspace)
+    {
+        if (!TryNormalizeWorkspace(workspace, out var root))
+            return;
+        List<QueueProjectItem> items;
+        try
+        {
+            items = WorkspaceQueueDatabase.Load(root).Items.ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var groups = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var changed = false;
+        foreach (var item in items)
+        {
+            if (!string.Equals(item.StatusText, QueueStepStatus.Failed, StringComparison.Ordinal))
+                continue;
+            var marker = XingeAutoPublishMarkerStore.TryRead(item.ProjectDir);
+            if (marker is not { IsActive: true } || marker.LocalFailures <= 0 ||
+                marker.LocalFailures >= XingeAutoPublishRecovery.LocalRetryLimit)
+                continue;
+            if (!item.Enabled)
+            {
+                item.Enabled = true;
+                changed = true;
+            }
+            var accountId = (item.AccountProfileId ?? marker.AccountProfileId ?? "").Trim();
+            if (!groups.TryGetValue(accountId, out var dirs))
+            {
+                dirs = [];
+                groups[accountId] = dirs;
+            }
+            dirs.Add(item.ProjectDir);
+        }
+
+        if (groups.Count == 0)
+            return;
+        if (changed)
+        {
+            try
+            {
+                WorkspaceQueueService.SaveRunOptions(root, items, WorkspaceQueueService.LoadRunOptions(root));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                AppendLog($"保存本地重试勾选失败：{ex.Message}");
+            }
+        }
+
+        var count = groups.Values.Sum(dirs => dirs.Count);
+        foreach (var (accountId, dirs) in groups)
+            NoteAutoPublishDispatch(root, accountId, dirs, null);
+        AppendLog($"本地已分发的 {count} 部执行失败，先在本机重试，不向服务器重新要单。");
+    }
+
     // 当前勾选队列结束后，如果期间又有派单更新了勾选，再走一次「执行勾选队列」。
     // 用户手动停止会抬高停止序号并清掉当时的跟进，这一轮结束后不再自动开跑。
     public void NotifyCheckedQueueRunFinished(string workspace)
     {
         _dispatchScheduler.Complete(workspace);
+        ScheduleLocalAutoPublishRetries(workspace);
         _ = PumpAutoPublishQueuesAsync();
         if (!TryNormalizeWorkspace(workspace, out var root))
             return;

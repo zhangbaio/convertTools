@@ -194,6 +194,7 @@ public sealed class XingeUploadTaskReporter
         ["status"] = report.Status,
         ["failure_kind"] = report.FailureKind,
         ["failure_reason"] = Truncate(report.FailureReason, MaxReasonLength),
+        ["local_failures"] = report.LocalFailures,
         ["occurred_at"] = report.OccurredAt.ToString("yyyy-MM-dd'T'HH:mm:sszzz"),
     };
 

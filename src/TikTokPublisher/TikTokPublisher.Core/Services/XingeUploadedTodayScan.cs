@@ -10,7 +10,8 @@ public sealed record XingeRemoteAccountSeed(
     bool RemoteDispatchEnabled,
     string UploadProfilePath,
     string LastWorkspace,
-    string ArchiveRootDir)
+    string ArchiveRootDir,
+    bool QueueRunning = false)
 {
     public string ResolveWorkspacePath()
     {

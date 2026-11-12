@@ -306,6 +306,25 @@ public sealed class QueueWorkerRunner
         item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed
         || !string.IsNullOrWhiteSpace(item.UploadCompletedAt);
 
+    public int DisableAccountBeforeUpload(string? accountProfileId)
+    {
+        IList<QueueProjectItem>? items;
+        Action<IReadOnlyList<QueueProjectItem>>? persist;
+        int changed;
+        lock (_incomingLock)
+        {
+            items = _runItems;
+            persist = _runPersist;
+            if (items is null)
+                return 0;
+            changed = DisableAccountProjectsBeforeUpload(items, accountProfileId);
+        }
+
+        if (changed > 0)
+            Persist("", items, persist);
+        return changed;
+    }
+
     public static bool HasRetryableFailure(QueueProjectItem item)
     {
         if (item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed)
@@ -761,7 +780,7 @@ public sealed class QueueWorkerRunner
                 var limits = ClientSettingsStore.Load();
                 _projectSlots.Configure(
                     limits.TiktokGlobalProjectConcurrency,
-                    limits.TiktokAccountScheduleMode);
+                    QueueProjectSlotCoordinator.SlotModeForServer(limits.ServerDispatchMode));
                 _uploadSlots.Configure(limits.TiktokUploadConcurrency);
             }
             catch

@@ -40,7 +40,7 @@ public sealed partial class MainWindowViewModel
 
     public sealed record YunfanRemoteCommandResult(string Status, string Summary, string FailureKind = "");
 
-    public sealed record KsSettleOpenAssignment(long Id, string Status, string SeriesId, string Title, string AccountProfileId, string Edition);
+    public sealed record KsSettleOpenAssignment(long Id, string Status, string SeriesId, string Title, string AccountProfileId, string Edition, int RecoveryCount = 0);
 
     public void LogKsSettleDispatch(string message) => AppendActivityLog(message);
 
@@ -104,7 +104,8 @@ public sealed partial class MainWindowViewModel
                 item.Status,
                 marker?.IsActive == true,
                 marker?.FinalStatus,
-                located.Directory is not null && Directory.Exists(located.Directory));
+                located.Directory is not null && Directory.Exists(located.Directory),
+                item.RecoveryCount);
             switch (action)
             {
                 case KsSettleAutoPublishRecovery.Action.ReportSuccess:
@@ -160,6 +161,12 @@ public sealed partial class MainWindowViewModel
             return new YunfanRemoteCommandResult("failed", "快手分账工作目录不存在");
         if (string.IsNullOrWhiteSpace(command.Title))
             return new YunfanRemoteCommandResult("failed", "命令没有剧名");
+        if (command.AssignmentId > 0)
+        {
+            var located = FindMarkedProject(command.AssignmentId);
+            if (!string.IsNullOrWhiteSpace(located.Directory) && Directory.Exists(located.Directory))
+                return EnqueueExistingKsSettleProject(account, commandPlatform, key, located.Directory, command, reportAsync);
+        }
 
         DramaTitleImportOutcome outcome;
         try
@@ -275,7 +282,7 @@ public sealed partial class MainWindowViewModel
             {
                 foreach (var dir in targets)
                     KsSettleMarker.WriteFinal(dir, command.AssignmentId, "failed");
-                await reportAsync("failed", "", ShortDispatchFailure(error), "").ConfigureAwait(false);
+                await reportAsync("failed", "", ShortDispatchFailure(error), KsSettleAutoPublishRecovery.FailureKindForPipeline(error)).ConfigureAwait(false);
                 return;
             }
             foreach (var dir in targets)
@@ -286,7 +293,7 @@ public sealed partial class MainWindowViewModel
         {
             foreach (var dir in targets)
                 KsSettleMarker.WriteFinal(dir, command.AssignmentId, "failed");
-            await reportAsync("failed", "", ShortDispatchFailure(ex.Message), "").ConfigureAwait(false);
+            await reportAsync("failed", "", ShortDispatchFailure(ex.Message), KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message)).ConfigureAwait(false);
         }
         finally
         {
@@ -444,6 +451,34 @@ public sealed partial class MainWindowViewModel
         }
     }
 
+    private YunfanRemoteCommandResult EnqueueExistingKsSettleProject(
+        GlobalAccount account,
+        PublishPlatform platform,
+        string key,
+        string directory,
+        KsSettleCommand command,
+        Func<string, string, string, string, Task> reportAsync)
+    {
+        var marker = KsSettleMarker.Read(directory);
+        if (string.Equals(marker?.FinalStatus, "success", StringComparison.OrdinalIgnoreCase))
+            return new YunfanRemoteCommandResult("success", "本地上传已经完成");
+        var steps = command.EnabledSteps.Count == 0 ? DefaultKsSettleDispatchSteps : command.EnabledSteps;
+        KsSettleMarker.WriteActive(directory, command.AssignmentId, string.IsNullOrWhiteSpace(command.Title) ? directory : command.Title, steps);
+        KuaishouPipelineRequest request;
+        try
+        {
+            request = CreateDispatchPipelineRequest(account, platform, steps, command.ForceRerun, true);
+        }
+        catch (Exception ex)
+        {
+            return new YunfanRemoteCommandResult("failed", "快手分账配置读取失败：" + ex.Message);
+        }
+
+        EnqueueKsSettleLane(account, key, new[] { directory }, request, command, reportAsync);
+        AppendActivityLog($"快手分账重新执行勾选队列，不重新导入：{directory}");
+        return new YunfanRemoteCommandResult("accepted", $"已开始执行「{command.Title}」");
+    }
+
     private void EnqueueKsSettleLane(
         GlobalAccount account,
         string key,
@@ -501,6 +536,11 @@ public sealed partial class MainWindowViewModel
             foreach (var directory in work.Directories)
             {
                 token.ThrowIfCancellationRequested();
+                using var projectSlot = await KuaishouMachineGate.Shared.AcquireProjectAsync(
+                    work.Account.Id,
+                    KuaishouAccountOrder(work.Account.Id),
+                    token,
+                    () => AppendActivityLog($"等待全局剧集名额：{work.Command.Title}"));
                 var trackedJob = _jobs.FirstOrDefault(job =>
                     job.Platform == work.Request.Platform &&
                     !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
@@ -586,7 +626,7 @@ public sealed partial class MainWindowViewModel
             {
             }
 
-            await work.ReportAsync("failed", "", ex.Message, "").ConfigureAwait(false);
+            await work.ReportAsync("failed", "", ex.Message, KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -595,7 +635,7 @@ public sealed partial class MainWindowViewModel
                 SetKuaishouLogTone(dir, "failed");
                 KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
             }
-            await work.ReportAsync("failed", "", ShortDispatchFailure(ex.Message), "").ConfigureAwait(false);
+            await work.ReportAsync("failed", "", ShortDispatchFailure(ex.Message), KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message)).ConfigureAwait(false);
         }
         finally
         {

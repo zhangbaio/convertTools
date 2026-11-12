@@ -2248,6 +2248,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     if (IsKuaishouDailyUploadLimited(request.AccountId))
                         throw new OperationCanceledException(KuaishouDailyUploadLimit.Detail);
+                    using var projectSlot = await KuaishouMachineGate.Shared.AcquireProjectAsync(
+                        request.AccountId,
+                        KuaishouAccountOrder(request.AccountId),
+                        ct,
+                        () => AppendActivityLog($"等待全局剧集名额：{projectName}", projectName));
                     SetKuaishouLogTone(item.directory, "running");
                     AppendActivityLog($"快手分账{request.EditionLabel} {index + 1}/{work.Length}：{projectName}", projectName);
                     await RunKuaishouSettlementPipelineAsync(
@@ -2903,6 +2908,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var project = string.IsNullOrWhiteSpace(projectName) ? "当前剧" : projectName.Trim();
         var account = (accountName ?? "").Trim();
         return account.Length == 0 ? project : $"{account} · {project}";
+    }
+
+    private int KuaishouAccountOrder(string? accountId)
+    {
+        var id = (accountId ?? "").Trim();
+        for (var i = 0; i < _globalAccounts.Count; i++)
+        {
+            if (string.Equals(_globalAccounts[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+
+        return int.MaxValue;
     }
 
     private static bool KuaishouUploadCompleted(PublishJob job, string projectDirectory, KuaishouPipelineRequest request)

@@ -171,6 +171,37 @@ public sealed class XingeAutoPublishTests : IDisposable
     }
 
     [Fact]
+    public void Observer_RetriesADispatchedProjectLocallyUntilTheThirdFailure()
+    {
+        var (dir, item) = CreateProject(31, DateTimeOffset.Now.AddMinutes(-5));
+        var observer = new XingeUploadTaskObserver();
+        item.StatusText = QueueStepStatus.Running;
+        observer.Observe(Progress(item, "下载中"), true);
+
+        item.StatusText = QueueStepStatus.Failed;
+        item.StepStates[QueueStepRegistry.Download] = QueueStepStatus.Failed;
+        item.LastError = "剧集下载失败";
+
+        observer.Observe(Progress(item, "失败"), true).Should().BeNull("前两次失败留在本地");
+        XingeAutoPublishMarkerStore.TryRead(dir)!.LocalFailures.Should().Be(1);
+        XingeAutoPublishMarkerStore.IsActive(dir).Should().BeTrue();
+
+        item.StatusText = QueueStepStatus.Running;
+        observer.Observe(Progress(item, "再次下载"), true);
+        item.StatusText = QueueStepStatus.Failed;
+        observer.Observe(Progress(item, "又失败"), true).Should().BeNull();
+        XingeAutoPublishMarkerStore.TryRead(dir)!.LocalFailures.Should().Be(2);
+
+        item.StatusText = QueueStepStatus.Running;
+        observer.Observe(Progress(item, "第三次"), true);
+        item.StatusText = QueueStepStatus.Failed;
+        var reported = observer.Observe(Progress(item, "第三次失败"), true);
+        reported!.Status.Should().Be(XingeUploadTaskStatuses.Failed);
+        XingeAutoPublishMarkerStore.TryRead(dir)!.FinalStatus.Should().Be(XingeUploadTaskStatuses.Failed);
+        XingeAutoPublishMarkerStore.IsActive(dir).Should().BeFalse();
+    }
+
+    [Fact]
     public void Observer_ReportsStoppedForUnfinishedItemsWhenRunEnds()
     {
         var item = CreatePlainProject("stopped");

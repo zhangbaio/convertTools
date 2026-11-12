@@ -11,6 +11,14 @@ public sealed class KuaishouPersonalEpisodeUploadService
         Skip,
     }
 
+    public enum GapUploadIdleDecision
+    {
+        KeepWaiting,
+        TreatAsUploaded,
+        RetryReplaceInput,
+        ContinueToSubmitReview,
+    }
+
     public readonly record struct EpisodeVideoSlot(int Number, bool Uploaded);
 
     public async Task UploadAsync(
@@ -460,11 +468,51 @@ public sealed class KuaishouPersonalEpisodeUploadService
         if (string.IsNullOrWhiteSpace(text))
             return false;
         var compact = Compact(text);
+        if (compact.Contains("为避免上传失败", StringComparison.Ordinal))
+            compact = compact.Replace("为避免上传失败", "", StringComparison.Ordinal);
         if (compact.Contains("视频无法正常播放", StringComparison.Ordinal) ||
             compact.Contains("建议重新制作", StringComparison.Ordinal) ||
-            compact.Contains("请重新上传", StringComparison.Ordinal))
+            compact.Contains("请重新上传", StringComparison.Ordinal) ||
+            compact.Contains("上传失败", StringComparison.Ordinal))
             return false;
         return compact.Contains("视频预览", StringComparison.Ordinal);
+    }
+
+    public static int? ReadReviewRejectionCount(string? pageText)
+    {
+        if (string.IsNullOrWhiteSpace(pageText))
+            return null;
+        var match = System.Text.RegularExpressions.Regex.Match(Compact(pageText), @"以下(\d+)项审核不通过");
+        return match.Success && int.TryParse(match.Groups[1].Value, out var count) ? count : null;
+    }
+
+    public static bool CardShowsUnplayableVideo(string? text)
+    {
+        var compact = Compact(text ?? "");
+        if (compact.Contains("为避免上传失败", StringComparison.Ordinal))
+            compact = compact.Replace("为避免上传失败", "", StringComparison.Ordinal);
+        return compact.Contains("视频无法正常播放", StringComparison.Ordinal)
+            || compact.Contains("建议重新制作", StringComparison.Ordinal)
+            || compact.Contains("请重新上传", StringComparison.Ordinal)
+            || compact.Contains("上传失败", StringComparison.Ordinal);
+    }
+
+    public static GapUploadIdleDecision DecideGapUploadIdle(
+        string? cardText,
+        string? pageText,
+        bool timedOut,
+        bool replaceRetried)
+    {
+        var failures = ReadReviewRejectionCount(pageText);
+        if (CardShowsUploadedVideo(cardText) && failures is null or 0)
+            return GapUploadIdleDecision.TreatAsUploaded;
+        if (!timedOut)
+            return GapUploadIdleDecision.KeepWaiting;
+        if (CardShowsUnplayableVideo(cardText) && failures is > 0 && !replaceRetried)
+            return GapUploadIdleDecision.RetryReplaceInput;
+        if (CardShowsUploadedVideo(cardText) || replaceRetried || failures == 0)
+            return GapUploadIdleDecision.ContinueToSubmitReview;
+        return GapUploadIdleDecision.KeepWaiting;
     }
 
     public static IReadOnlyList<EpisodeVideoSlot> NormalizeEpisodeSlots(IEnumerable<EpisodeVideoSlot> slots)
@@ -580,6 +628,7 @@ public sealed class KuaishouPersonalEpisodeUploadService
                 progress?.Report(RepairProgress(failure.Title, $"第{episode}集已补传。"));
         }
 
+        await CloseUploadDrawerIfOpenAsync(page);
         if (!await ClickVisibleEnabledButtonAsync(page, "提交审核", 120_000, cancellationToken))
             throw new InvalidOperationException("失败视频已补传，但未找到可点击的“提交审核”按钮。");
         progress?.Report(RepairProgress(failure.Title, "已点击提交审核，等待平台结果。"));
@@ -694,18 +743,59 @@ public sealed class KuaishouPersonalEpisodeUploadService
         IProgress<string>? progress = null,
         string? title = null)
     {
-        await OpenEpisodeTabAsync(page, episode);
-        var marked = await page.EvaluateAsync<string>(
+        var preferReplace = false;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await OpenEpisodeTabAsync(page, episode);
+            var marked = await MarkGapUploadInputAsync(page, episode, preferReplace);
+            if (marked == "already")
+                return false;
+            if (marked == "no-replace")
+            {
+                ReportGapIdle(progress, title, episode, "没有替换上传框，按当前页面继续提交审核。");
+                return true;
+            }
+            if (marked != "ok")
+                throw new InvalidOperationException($"第{episode}集未找到可补传的上传框。");
+
+            await page.Locator("input[data-kuaishou-gap-upload='1']").First.SetInputFilesAsync(path);
+            await ArmGapUploadAsync(page, episode, cancellationToken);
+            var result = await WaitForGapEpisodeAsync(
+                page, episode, deadline, progress, title, preferReplace, cancellationToken);
+            if (result == GapWaitResult.RetryReplace && !preferReplace)
+            {
+                preferReplace = true;
+                ReportGapIdle(progress, title, episode, "仍无法播放，改用替换上传框重新选择。");
+                continue;
+            }
+            if (result == GapWaitResult.SubmitAnyway)
+                ReportGapIdle(progress, title, episode, "没有看到上传进度，按当前页面继续提交审核。");
+            return true;
+        }
+    }
+
+    private enum GapWaitResult
+    {
+        Uploaded,
+        SubmitAnyway,
+        RetryReplace,
+    }
+
+    private static async Task<string> MarkGapUploadInputAsync(IPage page, int episode, bool preferReplace)
+    {
+        return await page.EvaluateAsync<string>(
             """
-            episode => {
+            ({ episode, preferReplace }) => {
               const compact = value => String(value || '').replace(/\s+/g, '');
               const needsUpload = card => {
-                const text = compact(card.innerText);
+                const text = compact(card.innerText).replace('为避免上传失败', '');
                 const error = card.classList.contains('episode-video_error')
                   || Boolean(card.querySelector('.handle-error'))
                   || text.includes('视频无法正常播放')
                   || text.includes('建议重新制作')
-                  || text.includes('请重新上传');
+                  || text.includes('请重新上传')
+                  || text.includes('上传失败');
                 return error || !text.includes('视频预览');
               };
               document.querySelectorAll('[data-kuaishou-gap-upload]').forEach(element => element.removeAttribute('data-kuaishou-gap-upload'));
@@ -715,22 +805,25 @@ public sealed class KuaishouPersonalEpisodeUploadService
               if (!needsUpload(card)) return 'already';
               const inputs = Array.from(card.querySelectorAll('input.ks-upload__input'));
               const fresh = inputs.find(element => !String(element.id || '').startsWith('replace-video-'));
-              const input = fresh || inputs.find(element => String(element.id || '').startsWith('replace-video-')) || inputs[0];
+              const replace = inputs.find(element => String(element.id || '').startsWith('replace-video-'));
+              if (preferReplace && !replace) return 'no-replace';
+              const input = preferReplace ? replace : (fresh || replace || inputs[0]);
               if (!input) return 'no-input';
               input.setAttribute('data-kuaishou-gap-upload', '1');
               return 'ok';
             }
             """,
-            episode);
-        if (marked == "already")
-            return false;
-        if (marked != "ok")
-            throw new InvalidOperationException($"第{episode}集未找到可补传的上传框。");
+            new { episode, preferReplace });
+    }
 
-        await page.Locator("input[data-kuaishou-gap-upload='1']").First.SetInputFilesAsync(path);
-        await ArmGapUploadAsync(page, episode, cancellationToken);
-        await WaitForGapEpisodeAsync(page, episode, deadline, progress, title, cancellationToken);
-        return true;
+    private static void ReportGapIdle(IProgress<string>? progress, string? title, int episode, string detail)
+    {
+        if (progress is null)
+            return;
+        var message = string.IsNullOrWhiteSpace(title)
+            ? $"快手分账个人版：第{episode}集{detail}"
+            : RepairProgress(title, $"第{episode}集{detail}");
+        progress.Report(message);
     }
 
     private static async Task ArmGapUploadAsync(IPage page, int episode, CancellationToken cancellationToken)
@@ -756,12 +849,13 @@ public sealed class KuaishouPersonalEpisodeUploadService
         }
     }
 
-    private static async Task WaitForGapEpisodeAsync(
+    private static async Task<GapWaitResult> WaitForGapEpisodeAsync(
         IPage page,
         int episode,
         DateTimeOffset deadline,
         IProgress<string>? progress,
         string? title,
+        bool replaceRetried,
         CancellationToken cancellationToken)
     {
         var sawActivity = false;
@@ -773,14 +867,16 @@ public sealed class KuaishouPersonalEpisodeUploadService
         while (DateTimeOffset.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var state = await ReadGapEpisodeStateAsync(page, episode);
+            var observation = await ReadGapEpisodeAsync(page, episode);
+            var state = observation.State;
             if (state == "missing")
                 await OpenEpisodeTabAsync(page, episode);
-            if (state == "uploaded")
-                return;
             if (state == "failed")
                 throw new InvalidOperationException($"快手个人版第{episode}集补传失败。");
             var body = (await page.Locator("body").InnerTextAsync()).Replace("为避免上传失败", string.Empty, StringComparison.Ordinal);
+            var early = DecideGapUploadIdle(observation.Text, body, timedOut: false, replaceRetried);
+            if (early == GapUploadIdleDecision.TreatAsUploaded || (state == "uploaded" && ReadReviewRejectionCount(body) is not > 0))
+                return GapWaitResult.Uploaded;
             var active = state == "uploading" || IndicatesActiveUpload(body) || await UploadDrawerVisibleAsync(page);
             if (active)
                 sawActivity = true;
@@ -803,8 +899,18 @@ public sealed class KuaishouPersonalEpisodeUploadService
                 throw new InvalidOperationException($"快手个人版第{episode}集补传失败。");
             }
 
-            if (!sawActivity && DateTimeOffset.UtcNow - idleSince > TimeSpan.FromSeconds(45))
+            var idleTimedOut = !sawActivity && DateTimeOffset.UtcNow - idleSince > TimeSpan.FromSeconds(45);
+            if (idleTimedOut)
+            {
+                var decision = DecideGapUploadIdle(observation.Text, body, timedOut: true, replaceRetried);
+                if (decision == GapUploadIdleDecision.TreatAsUploaded)
+                    return GapWaitResult.Uploaded;
+                if (decision == GapUploadIdleDecision.RetryReplaceInput)
+                    return GapWaitResult.RetryReplace;
+                if (decision == GapUploadIdleDecision.ContinueToSubmitReview)
+                    return GapWaitResult.SubmitAnyway;
                 throw new InvalidOperationException($"第{episode}集选择文件后没有开始上传。");
+            }
             if (sawActivity)
             {
                 var detail = ExtractProgress(body);
@@ -845,26 +951,39 @@ public sealed class KuaishouPersonalEpisodeUploadService
         progress.Report(message);
     }
 
-    private static async Task<string> ReadGapEpisodeStateAsync(IPage page, int episode)
+    private readonly record struct GapEpisodeObservation(string State, string Text);
+
+    private static async Task<string> ReadGapEpisodeStateAsync(IPage page, int episode) =>
+        (await ReadGapEpisodeAsync(page, episode)).State;
+
+    private static async Task<GapEpisodeObservation> ReadGapEpisodeAsync(IPage page, int episode)
     {
-        return await page.EvaluateAsync<string>(
+        var raw = await page.EvaluateAsync<string>(
             """
             episode => {
               const compact = value => String(value || '').replace(/\s+/g, '');
               const card = Array.from(document.querySelectorAll('.episode-video')).find(element =>
                 compact(element.querySelector('.episode-video__header__index')?.innerText) === `第${episode}集`);
               if (!card) return 'missing';
-              const text = compact(card.innerText);
-              if (text.includes('校验失败')) return 'failed';
-              const broken = text.includes('视频无法正常播放')
-                || text.includes('建议重新制作')
-                || text.includes('请重新上传');
-              if (text.includes('视频预览') && !broken) return 'uploaded';
-              if (text.includes('上传中') || text.includes('等待上传') || text.includes('解析中')) return 'uploading';
-              return 'pending';
+              const text = compact(card.innerText).slice(0, 400);
+              const source = text.replace('为避免上传失败', '');
+              if (source.includes('校验失败')) return 'failed\n' + text;
+              const broken = source.includes('视频无法正常播放')
+                || source.includes('建议重新制作')
+                || source.includes('请重新上传')
+                || source.includes('上传失败');
+              if (text.includes('视频预览') && !broken) return 'uploaded\n' + text;
+              if (source.includes('上传中') || source.includes('等待上传') || source.includes('解析中')) return 'uploading\n' + text;
+              return 'pending\n' + text;
             }
             """,
             episode);
+        if (string.IsNullOrEmpty(raw) || raw == "missing")
+            return new GapEpisodeObservation("missing", "");
+        var split = raw.IndexOf('\n');
+        if (split < 0)
+            return new GapEpisodeObservation(raw, "");
+        return new GapEpisodeObservation(raw[..split], raw[(split + 1)..]);
     }
 
     public static string ClassifyGapCard(string? cardText)
@@ -872,11 +991,14 @@ public sealed class KuaishouPersonalEpisodeUploadService
         var text = Compact(cardText ?? "");
         if (text.Length == 0)
             return "pending";
+        if (text.Contains("为避免上传失败", StringComparison.Ordinal))
+            text = text.Replace("为避免上传失败", "", StringComparison.Ordinal);
         if (text.Contains("校验失败", StringComparison.Ordinal))
             return "failed";
         var broken = text.Contains("视频无法正常播放", StringComparison.Ordinal)
             || text.Contains("建议重新制作", StringComparison.Ordinal)
-            || text.Contains("请重新上传", StringComparison.Ordinal);
+            || text.Contains("请重新上传", StringComparison.Ordinal)
+            || text.Contains("上传失败", StringComparison.Ordinal);
         if (text.Contains("视频预览", StringComparison.Ordinal) && !broken)
             return "uploaded";
         if (text.Contains("上传中", StringComparison.Ordinal)

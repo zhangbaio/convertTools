@@ -61,7 +61,7 @@ public static class DramaSourceConfigurationValidator
         "hglocal" => "本地直连",
         "pikachu" => "皮卡丘",
         "playlet" => "红果短剧下载器",
-        "hongguoapp" => "红果APP下载",
+        "hongguoapp" => "红果APP",
         "foreign" => "海外短剧下载器",
         "dramabox" => "DramaBox",
         "downloader" => "统一下载器",

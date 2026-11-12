@@ -6,6 +6,7 @@ using PlatformPublisher.Common.Services;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Core.Licensing;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
@@ -43,6 +44,41 @@ public sealed class YunfanXingeDispatchService
     }
 
     public void Stop() => _cts.Cancel();
+
+    public void ReportDailyUploadLimit(string accountId)
+    {
+        if (string.IsNullOrWhiteSpace(accountId))
+            return;
+        _ = ReportDailyUploadLimitAsync(accountId.Trim(), _cts.Token);
+    }
+
+    private async Task ReportDailyUploadLimitAsync(string accountId, CancellationToken ct)
+    {
+        try
+        {
+            var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+            var config = RemoteConfig.From(settings);
+            if (!settings.XingeRemoteEnabled || !config.IsReady)
+                return;
+            if (config.NeedsProvisioning)
+                await ProvisionAsync(config, ct).ConfigureAwait(false);
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            await SendAsync<Envelope<JsonElement>>(http, config, HttpMethod.Post,
+                "/client-api/kuaishou/settlement/auto-publish/daily-limit",
+                new
+                {
+                    client_id = config.ClientId,
+                    client_token = config.ClientToken,
+                    account_profile_id = accountId,
+                    detail = KuaishouDailyUploadLimit.Detail,
+                }, ct).ConfigureAwait(false);
+            _viewModel.LogKsSettleDispatch("已通知 XINGE：该账号今日短剧上传已达上限，停止当天分发。");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _viewModel.LogKsSettleDispatch($"通知 XINGE 停止当天分发失败：{ex.Message}");
+        }
+    }
 
     private void Notify(string message)
     {
@@ -100,7 +136,11 @@ public sealed class YunfanXingeDispatchService
                         {
                             if (TryReadConfirmItem(message, out var item))
                             {
-                                if (IsAccountQuotaFull(ReadString(message.Payload, "account_profile_id")))
+                                if (_viewModel.IsKuaishouDailyUploadLimited(ReadString(message.Payload, "account_profile_id")))
+                            {
+                                await CompleteAsync(http, config, message.Id, "failed", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind, ct).ConfigureAwait(false);
+                            }
+                            else if (IsAccountQuotaFull(ReadString(message.Payload, "account_profile_id")))
                                 {
                                     var title = item.Title;
                                     _viewModel.LogKsSettleDispatch($"账号今日上传已达上限，跳过快手分账自动派单：{title}");
@@ -177,6 +217,7 @@ public sealed class YunfanXingeDispatchService
             ? message.Payload
             : default;
         var commandName = ReadString(payload, "command");
+        ClientSettingsStore.RememberServerDispatchMode(ReadString(payload, "dispatch_mode"), PlatformPublisherPaths.SettingsDatabasePath);
         if (commandName is not ("ks_settlement_upload_series" or "ks_personal_upload_series"))
         {
             await CompleteAsync(http, config, message.Id, "failed", "云帆只执行快手分账命令", "", ct).ConfigureAwait(false);
@@ -187,6 +228,11 @@ public sealed class YunfanXingeDispatchService
             ? "personal"
             : ReadString(payload, "edition");
         var accountId = ReadString(payload, "account_profile_id");
+        if (_viewModel.IsKuaishouDailyUploadLimited(accountId))
+        {
+            await CompleteAsync(http, config, message.Id, "failed", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind, ct).ConfigureAwait(false);
+            return;
+        }
         var assignmentId = ReadLong(payload, "auto_publish_assignment_id");
         if (assignmentId > 0 && IsAccountQuotaFull(accountId))
         {
@@ -223,7 +269,7 @@ public sealed class YunfanXingeDispatchService
         var items = (envelope.Data?.Items ?? [])
             .Where(item => !IsAccountQuotaFull(item.AccountProfileId))
             .Select(item => new MainWindowViewModel.KsSettleOpenAssignment(
-                item.Id, item.Status, item.SeriesId, item.Title, item.AccountProfileId, item.Edition))
+                item.Id, item.Status, item.SeriesId, item.Title, item.AccountProfileId, item.Edition, item.RecoveryCount))
             .ToArray();
         var skipped = (envelope.Data?.Items.Count ?? 0) - items.Length;
         if (skipped > 0)
@@ -252,6 +298,7 @@ public sealed class YunfanXingeDispatchService
             workspace_path = accounts.FirstOrDefault()?.Workspace ?? "",
             active_account_profile_id = accounts.FirstOrDefault()?.Id ?? "",
             drama_source = settings.DramaSourceChain ?? "",
+            project_slot_capacity = Math.Clamp(settings.TiktokGlobalProjectConcurrency <= 0 ? QueueProjectSlotCoordinator.DefaultCapacity : settings.TiktokGlobalProjectConcurrency, 1, QueueProjectSlotCoordinator.MaxCapacity),
             account_profiles = accounts.Select(account =>
             {
                 var profile = new Dictionary<string, object?>
@@ -268,7 +315,7 @@ public sealed class YunfanXingeDispatchService
                     ["kuaishou_personal_auth_ready"] = account.Edition == "personal" && account.AuthReady,
                     ["kuaishou_personal_workspace"] = account.Edition == "personal" ? account.Workspace : "",
                 };
-                if (!IsAccountQuotaFull(account.Id) && TryListTodayUploads(account, out var uploads))
+                if (TryListTodayUploads(account, out var uploads))
                 {
                     profile["uploaded_today"] = uploads.Select(item => new
                     {
@@ -286,6 +333,7 @@ public sealed class YunfanXingeDispatchService
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(envelope.Message) ? "register failed" : envelope.Message);
         RememberQuotaFullAccounts(envelope.QuotaFullAccounts);
         RememberDispatchPause(envelope);
+        ClientSettingsStore.RememberServerDispatchMode(envelope.DispatchMode, PlatformPublisherPaths.SettingsDatabasePath);
     }
 
     private static bool TryListTodayUploads(
@@ -662,6 +710,9 @@ public sealed class YunfanXingeDispatchService
 
         [JsonPropertyName("business_date")]
         public string BusinessDate { get; set; } = "";
+
+        [JsonPropertyName("dispatch_mode")]
+        public string DispatchMode { get; set; } = "";
     }
 
     private sealed class QuotaFullAccount
@@ -706,5 +757,7 @@ public sealed class YunfanXingeDispatchService
         public string AccountProfileId { get; set; } = "";
         [JsonPropertyName("edition")]
         public string Edition { get; set; } = "";
+        [JsonPropertyName("recovery_count")]
+        public int RecoveryCount { get; set; }
     }
 }

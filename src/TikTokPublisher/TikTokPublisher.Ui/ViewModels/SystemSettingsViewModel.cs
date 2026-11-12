@@ -216,7 +216,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokVisualConcurrency = 2;
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
     [ObservableProperty] private int _tiktokGlobalProjectConcurrency = 4;
-    [ObservableProperty] private bool _tiktokAccountScheduleRoundRobin;
     [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
     [ObservableProperty] private int _tiktokUploadConcurrency = 2;
     [ObservableProperty] private int _kuaishouProjectImageConcurrency = 3;
@@ -460,9 +459,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokVisualConcurrency = TiktokVisualConcurrency;
         settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
         settings.TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency;
-        settings.TiktokAccountScheduleMode = TiktokAccountScheduleRoundRobin
-            ? QueueProjectSlotCoordinator.RoundRobinMode
-            : QueueProjectSlotCoordinator.AccountOrderMode;
         settings.TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency;
         settings.TiktokUploadConcurrency = TiktokUploadConcurrency;
         settings.KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency;
@@ -1469,10 +1465,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokVisualConcurrency = settings.TiktokVisualConcurrency;
         TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
         TiktokGlobalProjectConcurrency = settings.TiktokGlobalProjectConcurrency;
-        TiktokAccountScheduleRoundRobin = string.Equals(
-            settings.TiktokAccountScheduleMode,
-            QueueProjectSlotCoordinator.RoundRobinMode,
-            StringComparison.OrdinalIgnoreCase);
         TiktokVideoDedupConcurrency = settings.TiktokVideoDedupConcurrency;
         TiktokUploadConcurrency = settings.TiktokUploadConcurrency;
         KuaishouProjectImageConcurrency = settings.KuaishouProjectImageConcurrency;

@@ -25,7 +25,8 @@ public sealed record XingeUploadTaskReport(
     string SeriesId = "",
     long AssignmentId = 0,
     string FailureKind = "",
-    string FailureReason = "")
+    string FailureReason = "",
+    int LocalFailures = 0)
 {
     public DateTimeOffset OccurredAt { get; init; } = DateTimeOffset.Now;
 }
@@ -231,6 +232,23 @@ public sealed class XingeUploadTaskObserver
             (report.Status != XingeUploadTaskStatuses.Failed || tracked.LastReason == report.FailureReason))
         {
             return null;
+        }
+
+        if (report.Status == XingeUploadTaskStatuses.Failed &&
+            marker is { IsActive: true } &&
+            XingeAutoPublishRecovery.KeepsLocalRetry(report.FailureKind))
+        {
+            if (tracked.LastStatus == "local_retry")
+                return null;
+            var failures = XingeAutoPublishMarkerStore.RecordLocalFailure(dir, marker.AssignmentId);
+            if (failures < XingeAutoPublishRecovery.LocalRetryLimit)
+            {
+                tracked.LastStatus = "local_retry";
+                tracked.LastReason = report.FailureReason;
+                return null;
+            }
+
+            report = report with { LocalFailures = failures };
         }
 
         tracked.LastStatus = report.Status;

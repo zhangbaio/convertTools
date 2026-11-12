@@ -20,6 +20,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private ChannelsAccount? _account;
     private string _cleanJson = "";
     private string _cleanEdition = "";
+    private bool _cleanRemoteDispatch;
     private bool _suspendDirty;
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
     public event Func<ChannelsAccount, string, Task<bool>>? ConfirmAccountEdition;
@@ -72,6 +73,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         var edition = _account?.KuaishouAccountEdition ?? "";
         EditionPersonalBox.IsChecked = string.Equals(edition, "personal", StringComparison.OrdinalIgnoreCase);
         EditionEnterpriseBox.IsChecked = string.Equals(edition, "enterprise", StringComparison.OrdinalIgnoreCase);
+        RemoteDispatchBox.IsChecked = _account?.ParticipatesInXingeRemoteDispatch == true;
         ApiBaseUrlBox.Text = _config.ApiBaseUrl;
         AdvertiserIdBox.Text = FirstNonEmpty(_config.AdvertiserId, _config.KuaishouId);
         NicknameBox.Text = _config.KuaishouNickname;
@@ -778,6 +780,16 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         }
         var path = ResolveConfigPath(createDefault: true);
         await _config.SaveAsync(path);
+        _account.XingeRemoteDispatchConfigured = true;
+        _account.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
+        var stored = _accountStore?.Accounts.FirstOrDefault(item =>
+            string.Equals(item.Id, _account.Id, StringComparison.OrdinalIgnoreCase));
+        if (stored is not null && !ReferenceEquals(stored, _account))
+        {
+            stored.XingeRemoteDispatchConfigured = _account.XingeRemoteDispatchConfigured;
+            stored.XingeRemoteDispatchEnabled = _account.XingeRemoteDispatchEnabled;
+        }
+        _accountStore?.Update(_account);
         CaptureClean();
         ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
         ValidationText.Text = "已保存。";
@@ -826,6 +838,8 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         if (_suspendDirty) return false;
         if (!string.Equals(SelectedEdition(), _cleanEdition, StringComparison.OrdinalIgnoreCase))
             return true;
+        if ((RemoteDispatchBox.IsChecked == true) != _cleanRemoteDispatch)
+            return true;
         if (!ApplyToConfig()) return true;
         return JsonSerializer.Serialize(_config) != _cleanJson;
     }
@@ -834,6 +848,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     {
         _cleanJson = JsonSerializer.Serialize(_config);
         _cleanEdition = SelectedEdition();
+        _cleanRemoteDispatch = RemoteDispatchBox.IsChecked == true;
     }
 
     private void UpdateHeading()

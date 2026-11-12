@@ -7,7 +7,7 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Drama;
 
-public sealed record UploadTitleImportRequest(string Title, int ExpectedEpisodeTotal = 0, string RawText = "");
+public sealed record UploadTitleImportRequest(string Title, int ExpectedEpisodeTotal = 0, string RawText = "", string SeriesId = "");
 public sealed record UploadTitleImportFailure(string Title, string Reason);
 public sealed record UploadTitleImportDownloadPlan(string Episodes, int EffectiveEpisodeCount, bool Truncated);
 public sealed record UnknownAuthorConfirmationRequest(
@@ -83,13 +83,16 @@ public static class UploadTitleImportService
         Action<string>? log = null,
         CancellationToken ct = default,
         bool addProjectsToQueue = true,
-        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null)
+        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null,
+        string? seriesId = null)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(workspace))
             throw new DirectoryNotFoundException($"工作目录不存在：{workspace}");
 
         var (requests, parseFailures) = ParseRequests(rawText, matchMode);
+        if (!string.IsNullOrWhiteSpace(seriesId) && requests.Count > 0)
+            requests[0] = requests[0] with { SeriesId = seriesId.Trim() };
         var result = new UploadTitleImportResult();
         result.RequestedTitles.AddRange(requests.Select(FormatRequestLabel));
         result.Failures.AddRange(parseFailures);
@@ -131,15 +134,41 @@ public static class UploadTitleImportService
             ct.ThrowIfCancellationRequested();
             var request = requests[index];
             var label = FormatRequestLabel(request);
-            log?.Invoke($"精确搜索短剧 {index + 1}/{requests.Count}：{label}");
+            var useSeriesId = !string.IsNullOrWhiteSpace(request.SeriesId);
+            log?.Invoke(useSeriesId
+                ? $"按剧目 ID 导入 {index + 1}/{requests.Count}：{label}"
+                : $"精确搜索短剧 {index + 1}/{requests.Count}：{label}");
             try
             {
-                var lookup = await FindExactDramaAsync(
-                    request.Title,
-                    request.ExpectedEpisodeTotal,
-                    ct).ConfigureAwait(false);
-                var matched = lookup.Item;
-                var reason = lookup.Reason;
+                DramaSearchItem? matched;
+                string reason;
+                if (useSeriesId)
+                {
+                    var bookId = BookIdForSeries(settings.DramaSourceChain, request.SeriesId);
+                    if (bookId.Length == 0)
+                    {
+                        result.Failures.Add(new UploadTitleImportFailure(label, "当前数据链路不能按剧目 ID 导入"));
+                        log?.Invoke($"未加入：{label}，当前数据链路不能按剧目 ID 导入");
+                        continue;
+                    }
+
+                    matched = new DramaSearchItem
+                    {
+                        BookId = bookId,
+                        Title = request.Title,
+                        EpisodeTotal = request.ExpectedEpisodeTotal,
+                    };
+                    reason = "";
+                }
+                else
+                {
+                    var lookup = await FindExactDramaAsync(
+                        request.Title,
+                        request.ExpectedEpisodeTotal,
+                        ct).ConfigureAwait(false);
+                    matched = lookup.Item;
+                    reason = lookup.Reason;
+                }
 
                 if (matched is null)
                 {
@@ -148,7 +177,7 @@ public static class UploadTitleImportService
                     continue;
                 }
 
-                if (ShouldApplyAuthorExclusion(matched.BookId))
+                if (!useSeriesId && ShouldApplyAuthorExclusion(matched.BookId))
                 {
                     var authorHit = authorExclude.FirstOrDefault(token => ContainsToken(matched.Author, token));
                     if (!string.IsNullOrWhiteSpace(authorHit))
@@ -175,8 +204,7 @@ public static class UploadTitleImportService
                     }
                 }
 
-                var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
-                var episodeError = ResolveEpisodeLimitError(matched, settings, episodeBounds.Minimum, episodeBounds.Maximum);
+                var episodeError = ResolveEpisodeLimitError(matched, settings, episodeMin, episodeMax);
                 if (!string.IsNullOrWhiteSpace(episodeError))
                 {
                     result.Failures.Add(new UploadTitleImportFailure(label, episodeError));
@@ -397,6 +425,34 @@ public static class UploadTitleImportService
             if (!string.IsNullOrWhiteSpace(key) && seen.Add(key))
                 yield return item;
         }
+    }
+
+    public static string BookIdForSeries(string? dramaSource, string? seriesId)
+    {
+        var raw = (seriesId ?? "").Trim();
+        var colon = raw.LastIndexOf(':');
+        if (colon >= 0 && colon < raw.Length - 1)
+            raw = raw[(colon + 1)..].Trim();
+        if (raw.Length == 0)
+            return "";
+
+        var chain = (dramaSource ?? "").Trim().ToLowerInvariant();
+        if (chain == "hgoffline")
+            chain = "hongguoapp";
+        var prefix = chain switch
+        {
+            "hongguoapp" => "hongguoapp:",
+            "hglocal" => "hglocal:",
+            "hghigh" => "hghigh:",
+            "playlet" => "playlet:",
+            "pikachu" => "pikachu:",
+            "dramabox" => "dramabox:",
+            "mapleleaf" => "mapleleaf:",
+            "downloader" => "downloader:",
+            "foreign" => "foreign:",
+            _ => ""
+        };
+        return prefix.Length == 0 ? "" : prefix + raw;
     }
 
     private static IReadOnlyList<string> TitleSearchQueryVariants(string title)
