@@ -267,6 +267,6 @@ public sealed class TikTokApiUploadServiceTests
 
         account.TiktokUploadApiConcurrency.Should().Be(3);
         account.TiktokUploadApiFallbackToBatch.Should().BeTrue();
-        TikTokPublishOptions.FromAccount(account).UseApiUpload.Should().BeFalse();
+        TikTokPublishOptions.FromAccount(account).UseApiUpload.Should().BeTrue();
     }
 }

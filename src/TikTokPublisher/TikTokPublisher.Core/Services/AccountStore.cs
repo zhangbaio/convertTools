@@ -249,8 +249,9 @@ public sealed class AccountStore
             TiktokLoginBrowserMode = "embedded",
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
             TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable,
-            TiktokUploadBrowserMode = "embedded",
-            TiktokPlaywrightUploadHeadless = false,
+            TiktokUploadBrowserMode = "playwright",
+            TiktokPlaywrightUploadHeadless = true,
+            TiktokUploadStrategy = "api",
             TiktokPaidRatioEnabled = true,
             TiktokExpectedFullPriceMode = "option_index",
             TiktokDeleteVideosOnArchive = true,
@@ -413,7 +414,7 @@ public sealed class AccountStore
         var normalized = (value ?? "").Trim().ToLowerInvariant();
         return normalized is "embedded" or "playwright"
             ? normalized
-            : "embedded";
+            : "playwright";
     }
 
     private static string NormalizeManagementDedupScope(string? value)

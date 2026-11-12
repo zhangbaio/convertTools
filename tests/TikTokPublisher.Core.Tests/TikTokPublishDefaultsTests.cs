@@ -850,8 +850,8 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokLoginBrowserMode.Should().Be("embedded");
         account.TiktokSubmitEnabled.Should().BeTrue();
         account.TiktokSubmitAction.Should().Be("submit");
-        account.TiktokUploadBrowserMode.Should().Be("embedded");
-        account.TiktokPlaywrightUploadHeadless.Should().BeFalse();
+        account.TiktokUploadBrowserMode.Should().Be("playwright");
+        account.TiktokPlaywrightUploadHeadless.Should().BeTrue();
         account.TiktokContractId.Should().Be("");
         account.TiktokContractIdMode.Should().Be("manual");
         account.TiktokAnchorPromotionEnabled.Should().BeTrue();
@@ -884,7 +884,7 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokFreePreviewEpisodes.Should().Be(3);
         account.TiktokExpectedFullPriceMode.Should().Be("manual");
         account.TiktokExpectedFullPriceOptionIndex.Should().Be(1);
-        account.TiktokUploadStrategy.Should().Be("classic");
+        account.TiktokUploadStrategy.Should().Be("api");
         account.TiktokUploadBatchSize.Should().Be(3);
         account.TiktokUploadBatchStallSeconds.Should().Be(75);
         account.TiktokUploadBatchMaxRetries.Should().Be(3);
@@ -1033,7 +1033,7 @@ public sealed class TikTokPublishDefaultsTests
         options.ExpectedFullPriceMode.Should().Be("manual");
         options.ExpectedFullPriceOptionIndex.Should().Be(1);
         options.UploadStallSeconds.Should().Be(180);
-        options.UploadStrategy.Should().Be("classic");
+        options.UploadStrategy.Should().Be("api");
         options.UploadBatchSize.Should().Be(3);
         options.UploadBatchStallSeconds.Should().Be(75);
         options.UploadBatchMaxRetries.Should().Be(3);
