@@ -1,4 +1,5 @@
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Queue;
 
@@ -116,7 +117,12 @@ internal static class QueueWorkloadResourceScheduler
             Math.Clamp(settings.TiktokImageGenerationConcurrency, 1, 8),
             Math.Clamp(settings.TiktokVisualConcurrency, 1, 8),
             Math.Clamp(settings.TiktokDocumentConcurrency, 1, 8),
-            Math.Clamp(settings.TiktokVideoDedupConcurrency <= 0 ? 2 : settings.TiktokVideoDedupConcurrency, 1, 4),
+            Math.Clamp(
+                Math.Min(
+                    settings.TiktokVideoDedupConcurrency <= 0 ? 2 : settings.TiktokVideoDedupConcurrency,
+                    VideoDedupCpuBudget.MaxConcurrentEncodes(Environment.ProcessorCount)),
+                1,
+                4),
         };
         var signature = string.Join('|', limits);
         lock (ConfigurationLock)

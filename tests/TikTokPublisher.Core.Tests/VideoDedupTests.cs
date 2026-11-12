@@ -800,4 +800,60 @@ public sealed class VideoDedupTests
         changed.Effects.Temperature = 12;
         changed.Fingerprint().Should().NotBe(untouched);
     }
+
+    [Theory]
+    [InlineData(2, 1)]
+    [InlineData(4, 1)]
+    [InlineData(8, 1)]
+    [InlineData(12, 2)]
+    [InlineData(16, 2)]
+    [InlineData(24, 2)]
+    [InlineData(32, 3)]
+    [InlineData(64, 3)]
+    public void Encode_slots_follow_the_processor_count(int logicalProcessors, int expected) =>
+        VideoDedupCpuBudget.MaxConcurrentEncodes(logicalProcessors).Should().Be(expected);
+
+    [Theory]
+    [InlineData(4, false)]
+    [InlineData(8, false)]
+    [InlineData(16, true)]
+    [InlineData(32, true)]
+    public void Full_encode_load_stays_inside_the_thread_budget(int logicalProcessors, bool hardware)
+    {
+        var concurrent = VideoDedupCpuBudget.MaxConcurrentEncodes(logicalProcessors);
+        var threads = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, hardware);
+        var used = concurrent * (threads.EncoderThreads + threads.FilterThreads);
+        used.Should().BeLessThanOrEqualTo(VideoDedupCpuBudget.ThreadBudget(logicalProcessors));
+        used.Should().BeLessThan(logicalProcessors);
+    }
+
+    [Fact]
+    public void Encoder_arguments_limit_threads_for_the_current_machine()
+    {
+        var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();
+        var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, true));
+        var software = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, hardwareEncoder: false);
+        var cpu = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
+        cpu.Should().Contain($"-threads {software.EncoderThreads}");
+        cpu.Should().Contain($"-filter_threads {software.FilterThreads}");
+        cpu.Should().Contain($"-filter_complex_threads {software.FilterThreads}");
+        cpu.Should().Contain($"threads={software.EncoderThreads}:lookahead-threads=1");
+
+        var hardware = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, hardwareEncoder: true);
+        var amf = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "h264_amf", seed: 1));
+        amf.Should().Contain($"-threads {hardware.EncoderThreads}");
+        amf.Should().Contain($"-filter_threads {hardware.FilterThreads}");
+        amf.Should().NotContain("x264-params");
+    }
+
+    [Fact]
+    public void Auto_encoder_tries_the_detected_vendor_before_the_others()
+    {
+        VideoDedupHardwareOrder.Encoders(false, new VideoDedupHardwareOrder.Vendors(false, true, false), mac: false)
+            .Should().ContainInOrder("h264_amf", "h264_nvenc", "h264_qsv");
+        VideoDedupHardwareOrder.Encoders(false, new VideoDedupHardwareOrder.Vendors(true, true, true), mac: false)
+            .Should().ContainInOrder("h264_nvenc", "h264_amf", "h264_qsv");
+        VideoDedupHardwareOrder.Encoders(true, new VideoDedupHardwareOrder.Vendors(false, false, true), mac: true)
+            .Should().ContainInOrder("hevc_qsv", "hevc_nvenc", "hevc_amf", "hevc_videotoolbox");
+    }
 }
