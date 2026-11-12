@@ -40,7 +40,7 @@ public sealed partial class MainWindowViewModel
 
     public sealed record YunfanRemoteCommandResult(string Status, string Summary, string FailureKind = "");
 
-    public sealed record KsSettleOpenAssignment(long Id, string Status, string SeriesId, string Title, string AccountProfileId, string Edition);
+    public sealed record KsSettleOpenAssignment(long Id, string Status, string SeriesId, string Title, string AccountProfileId, string Edition, int RecoveryCount = 0);
 
     public void LogKsSettleDispatch(string message) => AppendActivityLog(message);
 
@@ -104,7 +104,8 @@ public sealed partial class MainWindowViewModel
                 item.Status,
                 marker?.IsActive == true,
                 marker?.FinalStatus,
-                located.Directory is not null && Directory.Exists(located.Directory));
+                located.Directory is not null && Directory.Exists(located.Directory),
+                item.RecoveryCount);
             switch (action)
             {
                 case KsSettleAutoPublishRecovery.Action.ReportSuccess:
@@ -134,6 +135,8 @@ public sealed partial class MainWindowViewModel
             string.Equals(item.Id, command.AccountProfileId, StringComparison.OrdinalIgnoreCase));
         if (account is null)
             return new YunfanRemoteCommandResult("failed", "客户端没有这个快手分账账号");
+        if (IsKuaishouDailyUploadLimited(account.Id))
+            return new YunfanRemoteCommandResult("failed", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind);
         if (!account.ParticipatesInXingeRemoteDispatch)
             return new YunfanRemoteCommandResult("failed", "账号未启用远程分发", "account_remote_disabled");
         if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var accountPlatform))
@@ -158,6 +161,12 @@ public sealed partial class MainWindowViewModel
             return new YunfanRemoteCommandResult("failed", "快手分账工作目录不存在");
         if (string.IsNullOrWhiteSpace(command.Title))
             return new YunfanRemoteCommandResult("failed", "命令没有剧名");
+        if (command.AssignmentId > 0)
+        {
+            var located = FindMarkedProject(command.AssignmentId);
+            if (!string.IsNullOrWhiteSpace(located.Directory) && Directory.Exists(located.Directory))
+                return EnqueueExistingKsSettleProject(account, commandPlatform, key, located.Directory, command, reportAsync);
+        }
 
         DramaTitleImportOutcome outcome;
         try
@@ -262,11 +271,18 @@ public sealed partial class MainWindowViewModel
             PrepareKuaishouLogProjects(targets, key);
             var (succeeded, failed, error) = await RunKuaishouCheckedProjectsAsync(targets, key, request, cts.Token)
                 .ConfigureAwait(false);
+            if (KuaishouDailyUploadLimit.Matches(error))
+            {
+                foreach (var dir in targets)
+                    KsSettleMarker.WriteFinal(dir, command.AssignmentId, "failed");
+                await reportAsync("failed", "", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind).ConfigureAwait(false);
+                return;
+            }
             if (failed > 0 || succeeded == 0)
             {
                 foreach (var dir in targets)
                     KsSettleMarker.WriteFinal(dir, command.AssignmentId, "failed");
-                await reportAsync("failed", "", ShortDispatchFailure(error), "").ConfigureAwait(false);
+                await reportAsync("failed", "", ShortDispatchFailure(error), KsSettleAutoPublishRecovery.FailureKindForPipeline(error)).ConfigureAwait(false);
                 return;
             }
             foreach (var dir in targets)
@@ -277,7 +293,7 @@ public sealed partial class MainWindowViewModel
         {
             foreach (var dir in targets)
                 KsSettleMarker.WriteFinal(dir, command.AssignmentId, "failed");
-            await reportAsync("failed", "", ShortDispatchFailure(ex.Message), "").ConfigureAwait(false);
+            await reportAsync("failed", "", ShortDispatchFailure(ex.Message), KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message)).ConfigureAwait(false);
         }
         finally
         {
@@ -400,7 +416,6 @@ public sealed partial class MainWindowViewModel
     private sealed class KsSettleAccountLane
     {
         public CancellationTokenSource Cts { get; } = new();
-        public KuaishouUploadSlot UploadSlot { get; } = new();
         public KuaishouDispatchLane<KsSettleLaneWork> Scheduler { get; } = new();
         public HashSet<string> Directories { get; } = new(StringComparer.OrdinalIgnoreCase);
         public int Parallelism { get; set; } = 1;
@@ -434,6 +449,34 @@ public sealed partial class MainWindowViewModel
                 ? lane.Directories.ToArray()
                 : [];
         }
+    }
+
+    private YunfanRemoteCommandResult EnqueueExistingKsSettleProject(
+        GlobalAccount account,
+        PublishPlatform platform,
+        string key,
+        string directory,
+        KsSettleCommand command,
+        Func<string, string, string, string, Task> reportAsync)
+    {
+        var marker = KsSettleMarker.Read(directory);
+        if (string.Equals(marker?.FinalStatus, "success", StringComparison.OrdinalIgnoreCase))
+            return new YunfanRemoteCommandResult("success", "本地上传已经完成");
+        var steps = command.EnabledSteps.Count == 0 ? DefaultKsSettleDispatchSteps : command.EnabledSteps;
+        KsSettleMarker.WriteActive(directory, command.AssignmentId, string.IsNullOrWhiteSpace(command.Title) ? directory : command.Title, steps);
+        KuaishouPipelineRequest request;
+        try
+        {
+            request = CreateDispatchPipelineRequest(account, platform, steps, command.ForceRerun, true);
+        }
+        catch (Exception ex)
+        {
+            return new YunfanRemoteCommandResult("failed", "快手分账配置读取失败：" + ex.Message);
+        }
+
+        EnqueueKsSettleLane(account, key, new[] { directory }, request, command, reportAsync);
+        AppendActivityLog($"快手分账重新执行勾选队列，不重新导入：{directory}");
+        return new YunfanRemoteCommandResult("accepted", $"已开始执行「{command.Title}」");
     }
 
     private void EnqueueKsSettleLane(
@@ -493,6 +536,11 @@ public sealed partial class MainWindowViewModel
             foreach (var directory in work.Directories)
             {
                 token.ThrowIfCancellationRequested();
+                using var projectSlot = await KuaishouMachineGate.Shared.AcquireProjectAsync(
+                    work.Account.Id,
+                    KuaishouAccountOrder(work.Account.Id),
+                    token,
+                    () => AppendActivityLog($"等待全局剧集名额：{work.Command.Title}"));
                 var trackedJob = _jobs.FirstOrDefault(job =>
                     job.Platform == work.Request.Platform &&
                     !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
@@ -512,7 +560,6 @@ public sealed partial class MainWindowViewModel
                         trackedJob,
                         trackedJob is null ? null : RowForJob(trackedJob),
                         work.Request,
-                        lane.UploadSlot,
                         token).ConfigureAwait(false);
                     SetKuaishouLogTone(directory, "ok");
                     RememberKuaishouUploadReport(directory, work.Request, succeeded: true, error: "");
@@ -532,8 +579,54 @@ public sealed partial class MainWindowViewModel
         }
         catch (OperationCanceledException)
         {
+            if (IsKuaishouDailyUploadLimited(work.Account.Id) && work.Command.AssignmentId > 0)
+            {
+                foreach (var dir in work.Directories)
+                {
+                    SetKuaishouLogTone(dir, "failed");
+                    KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
+                }
+                await work.ReportAsync("failed", "", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind).ConfigureAwait(false);
+            }
+            else
+            {
+                foreach (var dir in work.Directories)
+                    SetKuaishouLogTone(dir, "none");
+            }
+        }
+        catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
+        {
             foreach (var dir in work.Directories)
-                SetKuaishouLogTone(dir, "none");
+                SetKuaishouLogTone(dir, "failed");
+            NoteKuaishouDailyUploadLimit(work.Account.Id, work.Account.Name);
+            try
+            {
+                lane.Cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            foreach (var dir in work.Directories)
+                KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
+            await work.ReportAsync("failed", "", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (IsKuaishouLoginFailure(ex))
+        {
+            foreach (var dir in work.Directories)
+            {
+                SetKuaishouLogTone(dir, "failed");
+                KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
+            }
+
+            try
+            {
+                lane.Cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            await work.ReportAsync("failed", "", ex.Message, KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -542,7 +635,7 @@ public sealed partial class MainWindowViewModel
                 SetKuaishouLogTone(dir, "failed");
                 KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "failed");
             }
-            await work.ReportAsync("failed", "", ShortDispatchFailure(ex.Message), "").ConfigureAwait(false);
+            await work.ReportAsync("failed", "", ShortDispatchFailure(ex.Message), KsSettleAutoPublishRecovery.FailureKindForPipeline(ex.Message)).ConfigureAwait(false);
         }
         finally
         {
@@ -651,15 +744,34 @@ public sealed partial class MainWindowViewModel
     private int UncheckKuaishouJobsExcept(string accountId, PublishPlatform platform, IReadOnlySet<string> keepDirs)
     {
         var cleared = 0;
+        var now = DateTimeOffset.Now;
         foreach (var job in _jobs)
         {
             if (job.Platform != platform || !string.Equals(job.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
                 continue;
             var dir = string.IsNullOrWhiteSpace(job.ProjectDirectory) ? "" : Path.GetFullPath(job.ProjectDirectory);
-            var keep = dir.Length > 0 && keepDirs.Contains(dir);
-            if (job.IsChecked == keep)
+            // 今日分发和已经执行的剧保持勾选。更早、还没执行的手动勾选才清掉。
+            var keep = (dir.Length > 0 && keepDirs.Contains(dir))
+                || KuaishouDispatchSelection.ShouldStayChecked(job, job.IsChecked, now);
+            if (_jobRowCache.TryGetValue(job.Id, out var row))
+            {
+                if (row.IsChecked == keep)
+                {
+                    job.IsChecked = keep;
+                    continue;
+                }
+
+                row.IsChecked = keep;
+            }
+            else if (job.IsChecked == keep)
+            {
                 continue;
-            job.IsChecked = keep;
+            }
+            else
+            {
+                job.IsChecked = keep;
+            }
+
             if (!keep)
                 cleared++;
         }

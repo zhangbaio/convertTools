@@ -95,6 +95,7 @@ public static class ClientSettingsDefaults
     public const string TiktokProjectImageFableCutScreenshotStyle = "standard";
     // Empty means use the DOCX embedded in TikTokPublisher.Core.
     public const string TiktokProofTemplateDocxPath = "";
+    public const string TiktokProofTemplateLanguage = "zh";
     public const string TiktokProofWpsPath = "";
     public const string TiktokProofPdfRenderer = "wps";
     public const bool TiktokProofKeepDocx = false;
@@ -162,7 +163,7 @@ public static class ClientSettingsDefaults
         {"title":"","description":"","themes":[""],"audience":"","language":""}
         """;
 
-    public const string KuaishouPublishInfoPrompt = """
+    public const string KuaishouPublishInfoPromptPrevious = """
         你是快手分账短剧发布信息助手。根据原始短剧信息，一次生成个人版和企业版都要使用的发布信息。不生成推荐语。
 
         title（新剧名）：2 到 title_max_length 个字，不得包含空格、标点和书名号，必须与原剧名明显不同。这是硬性限制，输出前逐字计数，超长就压缩，不得用空格或标点规避。
@@ -172,6 +173,23 @@ public static class ClientSettingsDefaults
         audience：只能从 audience_options 中选一个。
         categories：从 category_options 中选 1-3 个，不能自造。
         plots：从 plot_options 中选 1-3 个，不能自造。
+        新剧名、短标题、简介和标签不得包含炫富拜金、极端复仇、低俗擦边、侮辱挑衅等不良导向。
+        必须遵守 compliance 中的快手内容合规要求：按 compliance.rule 避开 title_forbidden、synopsis_forbidden 中的词和 synopsis_forbidden_combinations 中的组合，输出前逐条自查。
+
+        只返回 JSON，不要解释，不要 Markdown：
+        {"title":"","short_title":"","description":"","tags":[""],"audience":"","categories":[""],"plots":[""]}
+        """;
+
+    public const string KuaishouPublishInfoPrompt = """
+        你是快手分账短剧发布信息助手。根据原始短剧信息，一次生成个人版和企业版都要使用的发布信息。不生成推荐语。
+
+        title（新剧名）：2 到 title_max_length 个字，不得包含空格、标点和书名号，必须与原剧名明显不同。这是硬性限制，输出前逐字计数，超长就压缩，不得用空格或标点规避。
+        short_title（短标题）：6-16 个字，不得包含空格，不能与新剧名或原剧名相同。
+        description（简介）：必须根据原简介改写，不能照抄。100-400 个字，以句号结束。保留原简介里的人名和主线，用平实、正向的句子重写：写成守责、安民、整肃、同心、把危局稳住。冲突写成需要面对的困难，收束写成把局面安顿好。不写穿越、穿成、重生、系统、金手指、废物、赘婿、打脸、搬空国库、三日灭国、现代知识碾压古代、成立科学院；原简介里有这些，改成临危受命、整顿政务、安定百姓、守住基业。不得虚构原简介没有的人名、身份和剧情，不得重复句子，不照抄原简介的夸张句。
+        tags：3-6 个短标签，只写题材和关系，不带 #。不写穿越、穿成、系统、金手指、废物、打脸、灭国。这些短标签不填进分类。
+        audience：只能从 audience_options 中选一个。
+        categories：只能从 category_options 中选 1-3 个，不能自造，也不能把情节名写成分类。分类只有脑洞、甜宠、逆袭、热血、复仇、家庭、乡村、古风、年代、穿越、悬疑、武侠、校园、搞笑、都市。原剧是穿越碾压、系统流或重生打脸时，不选「穿越」和「脑洞」；古装守国选「古风」，需要体现护国、担当时再加「热血」。「家庭」只在剧情确是家庭关系时选。
+        plots：只能从 plot_options 中选 1-3 个，不能自造。魔改、系统、重生打脸这类剧，不选「穿越」「系统流」「重生转世」，改选列表里已有的「王朝架空」「成长奋斗」「传奇演义」。
         新剧名、短标题、简介和标签不得包含炫富拜金、极端复仇、低俗擦边、侮辱挑衅等不良导向。
         必须遵守 compliance 中的快手内容合规要求：按 compliance.rule 避开 title_forbidden、synopsis_forbidden 中的词和 synopsis_forbidden_combinations 中的组合，输出前逐条自查。
 

@@ -249,8 +249,9 @@ public sealed class AccountStore
             TiktokLoginBrowserMode = "embedded",
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
             TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable,
-            TiktokUploadBrowserMode = "embedded",
-            TiktokPlaywrightUploadHeadless = false,
+            TiktokUploadBrowserMode = "playwright",
+            TiktokPlaywrightUploadHeadless = true,
+            TiktokUploadStrategy = "api",
             TiktokPaidRatioEnabled = true,
             TiktokExpectedFullPriceMode = "option_index",
             TiktokDeleteVideosOnArchive = true,
@@ -278,6 +279,7 @@ public sealed class AccountStore
         account.TiktokTargetAudienceMode = NormalizeTargetAudience(account.TiktokTargetAudienceMode);
         account.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount(account.TiktokGenreCount);
         account.TiktokUploadBrowserMode = NormalizeUploadBrowserMode(account.TiktokUploadBrowserMode);
+        account.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket);
         if (!account.TiktokDeleteVideosOnArchiveConfigured)
             account.TiktokDeleteVideosOnArchive = true;
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;
@@ -287,6 +289,9 @@ public sealed class AccountStore
         account.TiktokProofDeclarantCompanyName = (account.TiktokProofDeclarantCompanyName ?? "").Trim();
         account.TiktokTimestampApplicantName = (account.TiktokTimestampApplicantName ?? "").Trim();
         account.TiktokProofSealPath = (account.TiktokProofSealPath ?? "").Trim();
+        account.TiktokProofTemplateDocxPath = (account.TiktokProofTemplateDocxPath ?? "").Trim();
+        account.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.NormalizeAccountLanguage(
+            account.TiktokProofTemplateLanguage);
         account.TiktokArchiveRootDir = (account.TiktokArchiveRootDir ?? "").Trim();
         account.TiktokCopyrightMaterialTypes = TikTokPublishConstants
             .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
@@ -410,7 +415,7 @@ public sealed class AccountStore
         var normalized = (value ?? "").Trim().ToLowerInvariant();
         return normalized is "embedded" or "playwright"
             ? normalized
-            : "embedded";
+            : "playwright";
     }
 
     private static string NormalizeManagementDedupScope(string? value)

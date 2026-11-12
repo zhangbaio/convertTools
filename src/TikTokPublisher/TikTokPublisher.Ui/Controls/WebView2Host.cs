@@ -26,8 +26,11 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         "https://www.tiktok.com",
     ];
     private const int MaxLoggedDialogMessageLength = 120;
+    private static readonly TimeSpan IdleSuspendDelay = TimeSpan.FromSeconds(60);
 
     private CoreWebView2Controller? _controller;
+    private int _automationLeases;
+    private DispatcherTimer? _idleSuspendTimer;
     private readonly EventHandler<SizeChangedEventArgs> _sizeChangedHandler;
     private int _lifecycleGeneration;
     private bool _closed;
@@ -93,6 +96,26 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     private void OnSizeChanged(object? sender, SizeChangedEventArgs args) => UpdateBounds();
 
     private bool _renderedStateApplied;
+    private bool _presentationApplied;
+    private bool _presentationRendered;
+    private bool _hasAppliedBounds;
+    private Rectangle _appliedBounds;
+    private CoreWebView2Controller? _boundsController;
+
+    /// <summary>
+    /// 记录这次要显示还是藏到屏外。返回 false 表示和上次相同，调用方应跳过布局和 COM。
+    /// </summary>
+    public bool TryBeginPresentation(bool rendered)
+    {
+        if (_presentationApplied && _presentationRendered == rendered)
+            return false;
+
+        _presentationApplied = true;
+        _presentationRendered = rendered;
+        return true;
+    }
+
+    public string? LastRequestedUrl => _lastRequestedUrl;
 
     /// <summary>控制 WebView2 是否绘制到屏幕；与 Avalonia <see cref="IsVisible"/> 解耦以支持后台 CDP。</summary>
     public void SetRenderedVisible(bool visible)
@@ -111,10 +134,49 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             ApplyRenderedState();
     }
 
-    /// <summary>后台隐藏时的虚拟视口：移到父窗口可视区外但保持 IsVisible=true。
+    /// <summary>
+    /// 窗口平移但控件矩形没变时，只通知 WebView2 跟随父窗口。
+    /// 不要走 UpdateBounds：矩形相同会被直接跳过，画面会停在旧位置。
+    /// </summary>
+    public void NotifyParentMoved()
+    {
+        if (!_renderedVisible)
+            return;
+
+        var controller = Volatile.Read(ref _controller);
+        if (controller is null || !_nativeHandleAlive || _closed)
+            return;
+
+        NotifyParentWindowPositionChanged(controller);
+    }
+
+    /// <summary>后台自动化时的虚拟视口：移到父窗口可视区外但保持 IsVisible=true。
     /// 若用 IsVisible=false 隐藏，WebView2 会暂停渲染帧（rAF），Playwright 的
-    /// 「元素稳定」检查依赖连续渲染帧，后台自动化的点击会全部超时失败。</summary>
+    /// 「元素稳定」检查依赖连续渲染帧，后台自动化的点击会全部超时失败。
+    /// 没有自动化连接时才真正隐藏，否则启动参数禁用了节流，屏外页面会一直满帧软件渲染。</summary>
     private static readonly Rectangle HiddenViewportBounds = new(-20000, 0, 1280, 860);
+
+    /// <summary>
+    /// 让屏外的 WebView2 保持渲染，直到返回值被释放。CDP 自动化开始前必须在 UI 线程调用。
+    /// </summary>
+    public IDisposable AcquireAutomation()
+    {
+        _automationLeases++;
+        ApplyRenderedState();
+        return new AutomationLease(this);
+    }
+
+    private void ReleaseAutomation()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_automationLeases > 0)
+                _automationLeases--;
+            ApplyRenderedState();
+        });
+    }
+
+    private bool IsIdle => !_renderedVisible && _automationLeases == 0;
 
     private void ApplyRenderedState()
     {
@@ -125,6 +187,18 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             if (controller is null || !_nativeHandleAlive || _closed)
                 return;
 
+            if (IsIdle)
+            {
+                controller.Bounds = HiddenViewportBounds;
+                controller.IsVisible = false;
+                SetMemoryLevel(controller, CoreWebView2MemoryUsageTargetLevel.Low);
+                ScheduleIdleSuspend();
+                return;
+            }
+
+            StopIdleSuspend();
+            ResumeIfSuspended(controller);
+            SetMemoryLevel(controller, CoreWebView2MemoryUsageTargetLevel.Normal);
             controller.IsVisible = true;
             if (_renderedVisible)
                 UpdateBounds();
@@ -139,12 +213,90 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         catch { /* ignore */ }
     }
 
+    private static void SetMemoryLevel(CoreWebView2Controller controller, CoreWebView2MemoryUsageTargetLevel level)
+    {
+        try
+        {
+            var webView = controller.CoreWebView2;
+            if (webView is not null && webView.MemoryUsageTargetLevel != level)
+                webView.MemoryUsageTargetLevel = level;
+        }
+        catch { /* 旧版运行时不支持时保持默认 */ }
+    }
+
+    private static void ResumeIfSuspended(CoreWebView2Controller controller)
+    {
+        try
+        {
+            var webView = controller.CoreWebView2;
+            if (webView is not null && webView.IsSuspended)
+                webView.Resume();
+        }
+        catch { /* ignore */ }
+    }
+
+    /// <summary>脚本、Cookie、导航调用前唤醒已暂停的页面；空闲时重新计时。</summary>
+    private void WakeForCall()
+    {
+        var controller = Volatile.Read(ref _controller);
+        if (controller is null || _closed)
+            return;
+
+        ResumeIfSuspended(controller);
+        if (IsIdle)
+            ScheduleIdleSuspend();
+    }
+
+    private void ScheduleIdleSuspend()
+    {
+        _idleSuspendTimer ??= CreateIdleSuspendTimer();
+        _idleSuspendTimer.Stop();
+        _idleSuspendTimer.Start();
+    }
+
+    private void StopIdleSuspend() => _idleSuspendTimer?.Stop();
+
+    private DispatcherTimer CreateIdleSuspendTimer()
+    {
+        var timer = new DispatcherTimer { Interval = IdleSuspendDelay };
+        timer.Tick += async (_, _) =>
+        {
+            timer.Stop();
+            var controller = Volatile.Read(ref _controller);
+            if (!IsIdle || controller is null || !_nativeHandleAlive || _closed)
+                return;
+            try
+            {
+                var webView = controller.CoreWebView2;
+                if (webView is not null && !webView.IsSuspended && !controller.IsVisible)
+                    await webView.TrySuspendAsync().ConfigureAwait(true);
+            }
+            catch { /* 页面正在播放媒体等情况下不能暂停，保持后台隐藏即可 */ }
+        };
+        return timer;
+    }
+
+    private sealed class AutomationLease(WebView2Host host) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                host.ReleaseAutomation();
+        }
+    }
+
     public Task NavigateAsync(string url) => NavigateOnUiThreadAsync(url);
 
     public void Navigate(string url)
     {
         _lastRequestedUrl = url;
-        if (_controller?.CoreWebView2 != null) _controller.CoreWebView2.Navigate(url);
+        if (_controller?.CoreWebView2 != null)
+        {
+            WakeForCall();
+            _controller.CoreWebView2.Navigate(url);
+        }
         else _pendingUrl = url;
     }
 
@@ -161,7 +313,11 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     public void Reload()
     {
-        try { _controller?.CoreWebView2?.Reload(); }
+        try
+        {
+            WakeForCall();
+            _controller?.CoreWebView2?.Reload();
+        }
         catch { /* ignore */ }
     }
 
@@ -171,6 +327,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             return null;
         try
         {
+            WakeForCall();
             return await _controller.CoreWebView2.ExecuteScriptAsync(script).ConfigureAwait(true);
         }
         catch
@@ -184,6 +341,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         if (_controller?.CoreWebView2 is null)
             return [];
 
+        WakeForCall();
         var manager = _controller.CoreWebView2.CookieManager;
         var byKey = new Dictionary<string, EmbeddedBrowserCookie>(StringComparer.Ordinal);
         foreach (var source in CookieSources)
@@ -213,6 +371,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             ?? throw new InvalidOperationException("内置浏览器尚未初始化完成。");
         if (!File.Exists(authPath))
             return 0;
+        WakeForCall();
 
         using var document = JsonDocument.Parse(await File.ReadAllTextAsync(authPath).ConfigureAwait(true));
         var root = document.RootElement;
@@ -291,6 +450,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         _nativeHandle = IntPtr.Zero;
         Interlocked.Increment(ref _lifecycleGeneration);
         SizeChanged -= _sizeChangedHandler;
+        StopIdleSuspend();
         SafeCloseController(Interlocked.Exchange(ref _controller, null));
         _pendingUrl = null;
         _lastRequestedUrl = null;
@@ -382,7 +542,12 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             if (!_staleProcessRecoveryAttempted)
             {
                 _staleProcessRecoveryAttempted = true;
-                WebView2ProcessRecovery.RecoverStaleProcess(UserDataFolder, Log);
+                // Kill/WaitForExit 最长会停 5 秒。放在 UI 线程上时，浏览器页一切账号就卡死。
+                var folder = UserDataFolder;
+                await Task.Run(() => WebView2ProcessRecovery.RecoverStaleProcess(folder, Log))
+                    .ConfigureAwait(true);
+                if (!IsLifecycleCurrent(generation))
+                    return;
             }
             var options = new CoreWebView2EnvironmentOptions();
             var browserArgs = new List<string>
@@ -590,24 +755,43 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
             return;
         try
         {
+            if (!ReferenceEquals(_boundsController, controller))
+            {
+                _boundsController = controller;
+                _hasAppliedBounds = false;
+            }
+
+            Rectangle next;
+            var notifyParent = false;
             if (!_renderedVisible)
             {
-                controller.Bounds = HiddenViewportBounds;
-                return;
+                next = HiddenViewportBounds;
             }
-
-            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
-            var w = Math.Max(0, (int)(Bounds.Width * scaling));
-            var h = Math.Max(0, (int)(Bounds.Height * scaling));
-            if (w <= 1 || h <= 1)
+            else
             {
-                // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
-                controller.Bounds = HiddenViewportBounds;
-                return;
+                var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+                var w = Math.Max(0, (int)(Bounds.Width * scaling));
+                var h = Math.Max(0, (int)(Bounds.Height * scaling));
+                if (w <= 1 || h <= 1)
+                {
+                    // 挂载层折叠成 1×1 时保持虚拟视口，避免布局塌缩破坏后台自动化。
+                    next = HiddenViewportBounds;
+                }
+                else
+                {
+                    next = new Rectangle(0, 0, w, h);
+                    notifyParent = true;
+                }
             }
 
-            controller.Bounds = new Rectangle(0, 0, w, h);
-            NotifyParentWindowPositionChanged(controller);
+            if (_hasAppliedBounds && next == _appliedBounds)
+                return;
+
+            _hasAppliedBounds = true;
+            _appliedBounds = next;
+            controller.Bounds = next;
+            if (notifyParent)
+                NotifyParentWindowPositionChanged(controller);
         }
         catch (Exception ex) when (IsDisposedControllerException(ex))
         {

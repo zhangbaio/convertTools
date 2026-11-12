@@ -331,6 +331,28 @@ public partial class WeixinWorkflowView : UserControl
     private void OnViewKuaishouLogsClick(object? sender, RoutedEventArgs e) =>
         ViewLogsRequested?.Invoke(this, EventArgs.Empty);
 
+    private async void OnRepairKuaishouVideosClick(object? sender, RoutedEventArgs e)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null || ViewModel is null)
+            return;
+        var titles = await KuaishouVideoRepairDialog.ShowAsync(owner);
+        if (string.IsNullOrWhiteSpace(titles))
+            return;
+        KuaishouRepairVideosButton.IsEnabled = false;
+        KuaishouRepairVideosButton.Content = "正在补传…";
+        try
+        {
+            var message = await ViewModel.RepairKuaishouVideosAsync(titles);
+            await InfoDialog.ShowAsync(owner, message, "视频补传", 560, 320);
+        }
+        finally
+        {
+            KuaishouRepairVideosButton.Content = "视频补传";
+            KuaishouRepairVideosButton.IsEnabled = true;
+        }
+    }
+
     private void OnArchiveCheckedClick(object? sender, RoutedEventArgs e) =>
         ArchiveRequested?.Invoke(this, EventArgs.Empty);
 

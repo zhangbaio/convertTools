@@ -23,7 +23,8 @@ public static partial class TikTokBrowserActions
         IReadOnlyList<string> videoPaths,
         bool waitForFinish,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool confirmStartup = true)
     {
         if (videoPaths.Count == 0)
             throw new InvalidOperationException("未提供 TikTok 视频文件");
@@ -33,9 +34,11 @@ public static partial class TikTokBrowserActions
         await FeedVideoFilesAsync(page, button, resolved, ct);
         Log(log, waitForFinish
             ? $"已选择 {resolved.Count} 个视频文件，等待 TikTok 上传完成。"
-            : $"已选择 {resolved.Count} 个视频文件，TikTok 已开始上传，继续填写其他表单。");
+            : $"已选择 {resolved.Count} 个视频文件，TikTok 已开始上传。");
         await page.WaitForTimeoutAsync(5000);
-        await EnsureVideoUploadStartedAsync(page, button, resolved, resolved.Count, log, ct);
+        // 新建页拿剧集 ID 时，挂集请求本身就是开始信号，不能再按页面文字重选文件。
+        if (confirmStartup)
+            await EnsureVideoUploadStartedAsync(page, button, resolved, resolved.Count, log, ct);
         if (waitForFinish)
         {
             await WaitVideoUploadFinishedAsync(
@@ -112,11 +115,25 @@ public static partial class TikTokBrowserActions
                 await ReadUploadTableTextsAsync(page));
             var uploading = activity.Uploading;
             var waitingCount = activity.WaitingCount;
-            if (uploadedCount is null && !uploading && waitingCount == 0)
+            if ((uploadedCount is null || uploadedCount.Value < expectedCount) &&
+                !uploading &&
+                waitingCount == 0 &&
+                expectedCount > 0)
             {
-                var domCount = await ReadEpisodeListCountAsync(page).ConfigureAwait(false);
-                if (domCount is > 0)
+                var domCount = await ReadEpisodeListCountAsync(page).ConfigureAwait(false) ?? 0;
+                var trusted = PreferFullTableRowCount(
+                    uploadedCount, domCount, expectedCount, uploading, waitingCount);
+                if (trusted is not null && trusted != uploadedCount)
+                {
+                    Log(log,
+                        $"正文显示已就绪 {uploadedCount?.ToString() ?? "识别中"}/{expectedCount}，" +
+                        $"正片表格已有 {domCount} 行，按表格行数视为传完，不再补传。");
+                    uploadedCount = trusted;
+                }
+                else if (uploadedCount is null && domCount > 0)
+                {
                     uploadedCount = domCount;
+                }
             }
             var emptyQueue = TikTokUploadProgressParser.IsClearlyEmptyUploadQueue(
                 bodyText,
@@ -216,6 +233,17 @@ public static partial class TikTokBrowserActions
                             $"TikTok 视频上传疑似单集卡死：当前已就绪 {countLabel}/{expectedCount}，等待中 0 个，自动补传 {inactiveIncompleteRepairAttempts} 次后仍未完成。");
                     }
 
+                    var tableRowCount = await ReadEpisodeListCountAsync(page).ConfigureAwait(false) ?? 0;
+                    if (tableRowCount >= expectedCount)
+                    {
+                        Log(log,
+                            $"正片表格已有 {tableRowCount} 行，已达到总集数 {expectedCount}，不再重新选择文件，避免多出重复行。");
+                        inactiveIncompleteSince = null;
+                        inactiveIncompleteSignature = null;
+                        lastStatus = "";
+                        continue;
+                    }
+
                     if (!TryResolveInactiveIncompleteUploadPaths(
                             videoPaths,
                             expectedCount,
@@ -296,6 +324,23 @@ public static partial class TikTokBrowserActions
 
         var seriesId = path[seriesPrefix.Length..];
         return seriesId.Length > 0 && seriesId.All(char.IsAsciiDigit);
+    }
+
+    /// <summary>
+    /// 正文里的「已就绪」会少算。表格行数已经到总集数、页面也不在上传时，按表格行数算完成，避免把已在列表里的集再选一次。
+    /// </summary>
+    internal static int? PreferFullTableRowCount(
+        int? readyCount,
+        int tableRowCount,
+        int expectedCount,
+        bool uploading,
+        int waitingCount)
+    {
+        if (expectedCount <= 0 || uploading || waitingCount > 0 || tableRowCount < expectedCount)
+            return readyCount;
+        if (readyCount is null || readyCount.Value < expectedCount)
+            return tableRowCount;
+        return readyCount;
     }
 
     private static bool IsInactiveIncompleteUpload(
@@ -595,6 +640,12 @@ public static partial class TikTokBrowserActions
         if (await WaitVideoUploadSignalAsync(page, startupSeconds, ct))
             return;
 
+        if (await UploadSelectionAlreadyPresentAsync(page, resolvedPaths))
+        {
+            Log(log, "文件已经选上，但页面还没有上传进度。继续等待，不再重复选择。");
+            return;
+        }
+
         Log(log, $"⚠️ 约 {(int)startupSeconds} 秒未检测到视频开始上传，重新触发一次本地上传。");
         try
         {
@@ -611,6 +662,43 @@ public static partial class TikTokBrowserActions
             Log(log, "重新触发后已检测到视频开始上传。");
         else
             Log(log, "⚠️ 重新触发后仍未检测到上传开始，将继续等待并由停滞看门狗处理。");
+    }
+
+    private static async Task<bool> UploadSelectionAlreadyPresentAsync(IPage page, IReadOnlyList<string> resolvedPaths)
+    {
+        string body;
+        try { body = await page.Locator("body").InnerTextAsync(new() { Timeout = 3000 }); }
+        catch { body = ""; }
+        if (BodyContainsSelectedFile(body, resolvedPaths))
+            return true;
+
+        try
+        {
+            return await page.EvaluateAsync<bool>(
+                """
+                () => Array.from(document.querySelectorAll('input[type="file"]'))
+                  .some(input => input.files && input.files.length > 0)
+                """);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static bool BodyContainsSelectedFile(string body, IReadOnlyList<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            var name = Path.GetFileName(path);
+            if (name.Length > 0 && body.Contains(name, StringComparison.OrdinalIgnoreCase))
+                return true;
+            var title = Path.GetFileNameWithoutExtension(path);
+            if (title.Length >= 4 && body.Contains(title, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     private static async Task<bool> WaitVideoUploadSignalAsync(IPage page, double maxSeconds, CancellationToken ct)

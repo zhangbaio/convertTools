@@ -83,7 +83,7 @@ public sealed class XingeDispatchConfirmWindow : Window
             if (_decided)
                 return;
             _decided = true;
-            _session.Decision.TrySetResult(DispatchConfirmDecision.RejectOnce);
+            _session.Decision.TrySetResult(DispatchConfirmDecision.Dismissed);
         };
         Refresh();
     }

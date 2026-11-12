@@ -22,7 +22,7 @@ public sealed class QueueProgressBatchBuffer
         lock (_lock)
         {
             var pending = new PendingProgress(++_sequence, progress);
-            if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey) ||
+            if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey, progress.Message) ||
                 IsCriticalUiNotification(progress.Message))
                 _lossless.Add(pending);
             else

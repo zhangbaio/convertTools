@@ -18,6 +18,7 @@ public sealed record WorkspaceQueueRunInfo(
 public sealed class WorkspaceQueueOrchestrator
 {
     private readonly UploadSlotCoordinator _sharedUploadSlots = new();
+    private readonly QueueProjectSlotCoordinator _sharedProjectSlots = new();
     private readonly XingeUploadTaskObserver _uploadTaskObserver = new();
     private readonly XingeUploadTaskReporter _uploadTaskReporter;
     private readonly object _lock = new();
@@ -89,7 +90,7 @@ public sealed class WorkspaceQueueOrchestrator
                 throw new InvalidOperationException($"工作目录队列已在运行：{root}");
 
             linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var runner = new QueueWorkerRunner(_sharedUploadSlots);
+            var runner = new QueueWorkerRunner(_sharedUploadSlots, _sharedProjectSlots);
             runner.ManualIntervention.PendingChanged += (item, message) =>
                 ManualInterventionPending?.Invoke(item, message, root);
 
@@ -263,6 +264,33 @@ public sealed class WorkspaceQueueOrchestrator
         }
     }
 
+    public int DisableAccountProjectsBeforeUpload(string workspaceRoot, string accountProfileId)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (_runs.TryGetValue(root, out var run) && !run.Task.IsCompleted)
+                return run.Runner.DisableAccountBeforeUpload(accountProfileId);
+        }
+
+        return 0;
+    }
+
+    public int RemoveRunningProjects(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot) || projectDirs is null || projectDirs.Count == 0)
+            return 0;
+
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (_runs.TryGetValue(root, out var run) && !run.Task.IsCompleted)
+                return run.Runner.RemoveProjects(projectDirs);
+        }
+
+        return 0;
+    }
+
     public int UncheckRunningProjectsExcept(string workspaceRoot, IReadOnlyCollection<string> keepProjectDirs)
     {
         var root = Path.GetFullPath(workspaceRoot);
@@ -282,6 +310,18 @@ public sealed class WorkspaceQueueOrchestrator
         {
             if (_runs.TryGetValue(root, out var run) && !run.Task.IsCompleted)
                 return run.Runner.AddItems(items);
+        }
+
+        return 0;
+    }
+
+    public int ShowItemsInRunningWorkspace(string workspaceRoot, IEnumerable<QueueProjectItem> items)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        lock (_lock)
+        {
+            if (_runs.TryGetValue(root, out var run) && !run.Task.IsCompleted)
+                return run.Runner.ShowItems(items);
         }
 
         return 0;

@@ -79,6 +79,8 @@
   <ItemGroup Condition="'$(ExcludeRegistrationPdfAssets)' != 'true'">
     <EmbeddedResource Include="Resources\权力声明模板.docx"
                       LogicalName="TikTokPublisher.Core.Resources.ProofMaterialTemplate.docx" />
+    <EmbeddedResource Include="Resources\权利声明模板-英文.docx"
+                      LogicalName="TikTokPublisher.Core.Resources.ProofMaterialTemplate.en.docx" />
     <EmbeddedResource Include="Resources\项目AI剧本大纲.docx"
                       LogicalName="TikTokPublisher.Core.Resources.AiScriptOutlineTemplate.docx" />
     <EmbeddedResource Include="Resources\CaptureExplorerWindow.ps1"

@@ -8,6 +8,7 @@ using ShortDrama.Core.Services;
 using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Services.Asr;
 
@@ -214,6 +215,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokImageGenerationConcurrency = 2;
     [ObservableProperty] private int _tiktokVisualConcurrency = 2;
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
+    [ObservableProperty] private int _tiktokGlobalProjectConcurrency = 4;
+    [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
+    [ObservableProperty] private int _tiktokUploadConcurrency = 2;
+    [ObservableProperty] private int _kuaishouProjectImageConcurrency = 3;
     [ObservableProperty] private string _tiktokAsrLanguage = "zh-CN";
     [ObservableProperty] private bool _tiktokManualInterventionOnSingleFailure = true;
     [ObservableProperty] private string _asrProbeStatus = "";
@@ -269,6 +274,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _tiktokProjectImageFableCutRoot = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
     [ObservableProperty] private int _tiktokProjectImageFableCutClipCount = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
     [ObservableProperty] private string _tiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+    [ObservableProperty] private string _tiktokProofTemplateLanguage = ClientSettingsDefaults.TiktokProofTemplateLanguage;
     [ObservableProperty] private string _tiktokProofWpsPath = ClientSettingsDefaults.TiktokProofWpsPath;
     [ObservableProperty] private string _tiktokProofDeclarantCompanyName = "";
     [ObservableProperty] private string _tiktokProofSealPath = "";
@@ -388,7 +394,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private ClientSettings ApplySystemSettingsForm(ClientSettings settings)
     {
         settings.DramaSourceChain = DramaSourceChain;
-        settings.DramaDownloadDefaultQuality = DramaDownloadDefaultQuality;
+        settings.DramaDownloadDefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(DramaDownloadDefaultQuality);
         settings.DramaDownloadConcurrent = DramaDownloadConcurrent;
         settings.DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects;
         settings.DownloadFileSegments = DownloadFileSegments;
@@ -452,6 +458,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency;
         settings.TiktokVisualConcurrency = TiktokVisualConcurrency;
         settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
+        settings.TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency;
+        settings.TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency;
+        settings.TiktokUploadConcurrency = TiktokUploadConcurrency;
+        settings.KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency;
         settings.TiktokAsrLanguage = TiktokAsrLanguage.Trim();
         settings.TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure;
         settings.AiTextEndpoint = AiTextEndpoint.Trim();
@@ -515,6 +525,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot.Trim();
         settings.TiktokProjectImageFableCutClipCount = Math.Clamp(TiktokProjectImageFableCutClipCount, 12, 36);
         settings.TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath.Trim();
+        settings.TiktokProofTemplateLanguage = TiktokProofTemplateLanguage.Trim();
         settings.TiktokProofWpsPath = TiktokProofWpsPath.Trim();
         settings.TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName.Trim();
         settings.TiktokProofSealPath = TiktokProofSealPath.Trim();
@@ -1372,7 +1383,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private void ApplyFromSettings(ClientSettings settings)
     {
         DramaSourceChain = settings.DramaSourceChain;
-        DramaDownloadDefaultQuality = settings.DramaDownloadDefaultQuality;
+        DramaDownloadDefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(settings.DramaDownloadDefaultQuality);
         DramaDownloadConcurrent = settings.DramaDownloadConcurrent;
         DramaDownloadMaxParallelProjects = settings.DramaDownloadMaxParallelProjects;
         DownloadFileSegments = settings.DownloadFileSegments;
@@ -1453,6 +1464,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokImageGenerationConcurrency = settings.TiktokImageGenerationConcurrency;
         TiktokVisualConcurrency = settings.TiktokVisualConcurrency;
         TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
+        TiktokGlobalProjectConcurrency = settings.TiktokGlobalProjectConcurrency;
+        TiktokVideoDedupConcurrency = settings.TiktokVideoDedupConcurrency;
+        TiktokUploadConcurrency = settings.TiktokUploadConcurrency;
+        KuaishouProjectImageConcurrency = settings.KuaishouProjectImageConcurrency;
         TiktokAsrLanguage = settings.TiktokAsrLanguage;
         TiktokManualInterventionOnSingleFailure = settings.TiktokManualInterventionOnSingleFailure;
         AiTextEndpoint = settings.AiTextEndpoint;
@@ -1510,6 +1525,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokProjectImageFableCutRoot = settings.TiktokProjectImageFableCutRoot;
         TiktokProjectImageFableCutClipCount = settings.TiktokProjectImageFableCutClipCount;
         TiktokProofTemplateDocxPath = settings.TiktokProofTemplateDocxPath;
+        TiktokProofTemplateLanguage = settings.TiktokProofTemplateLanguage;
         TiktokProofWpsPath = settings.TiktokProofWpsPath;
         TiktokProofDeclarantCompanyName = settings.TiktokProofDeclarantCompanyName;
         TiktokProofSealPath = settings.TiktokProofSealPath;

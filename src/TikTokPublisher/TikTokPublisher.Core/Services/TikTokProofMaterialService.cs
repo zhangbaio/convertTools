@@ -320,10 +320,10 @@ public sealed class TikTokProofMaterialService
                 .ConfigureAwait(false);
         }
 
-        var branchStateLock = new object();
-        await Task.WhenAll(
-            RunAiScreenshotBranchAsync(),
-            RunEditingProjectBranchAsync()).ConfigureAwait(false);
+        // 工程图开始时会重写 shortdrama-project.json。AI 截图要读这个文件找回源目录，
+        // 两边同时执行时会读到被截断的内容，从而误判没有视频。先完成工程图，再抽帧。
+        await RunEditingProjectBranchAsync().ConfigureAwait(false);
+        await RunAiScreenshotBranchAsync().ConfigureAwait(false);
 
         await RunSourceInfoBranchAsync().ConfigureAwait(false);
 
@@ -450,14 +450,11 @@ public sealed class TikTokProofMaterialService
                     log,
                     cancellationToken,
                     forceRerun: forceRerun).ConfigureAwait(false);
-                lock (branchStateLock)
-                {
-                    aiCompleted = true;
-                    SaveState(
-                        context, request, fingerprints, result,
-                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
-                        log);
-                }
+                aiCompleted = true;
+                SaveState(
+                    context, request, fingerprints, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                    log);
                 LogGeneratedMaterial(log, "AI 生成过程截图", outputs, timer.Elapsed);
             }
             catch (Exception ex)
@@ -498,14 +495,11 @@ public sealed class TikTokProofMaterialService
                     forceRerun,
                     log,
                     cancellationToken).ConfigureAwait(false);
-                lock (branchStateLock)
-                {
-                    editingCompleted = true;
-                    SaveState(
-                        context, request, fingerprints, result,
-                        coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
-                        log);
-                }
+                editingCompleted = true;
+                SaveState(
+                    context, request, fingerprints, result,
+                    coreCompleted, sourceCompleted, aiCompleted, editingCompleted,
+                    log);
                 LogGeneratedMaterial(
                     log,
                     "剪辑工程文件",
@@ -938,6 +932,39 @@ public sealed class TikTokProofMaterialService
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
     }
 
+    internal static string ResolveAccountTemplatePath(TikTokAccountProfile account, ClientSettings settings)
+    {
+        var accountPath = (account.TiktokProofTemplateDocxPath ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(accountPath))
+        {
+            var systemPath = TikTokProofMaterialTemplateProvider.TryResolveCustomTemplate(settings.TiktokProofTemplateDocxPath);
+            if (systemPath is not null)
+                return systemPath;
+            return TikTokProofMaterialTemplateProvider.EnsureBuiltInTemplate(
+                dataRoot: null,
+                TikTokProofMaterialTemplateProvider.ResolveLanguage(
+                    account.TiktokProofTemplateLanguage,
+                    settings.TiktokProofTemplateLanguage));
+        }
+
+        var name = FirstNonEmpty(account.Name, account.DisplayName, account.Id, "未命名账号");
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(Environment.ExpandEnvironmentVariables(accountPath));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new InvalidOperationException($"账号「{name}」的证明材料模板路径无效：{accountPath}", ex);
+        }
+
+        if (!string.Equals(Path.GetExtension(fullPath), ".docx", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"账号「{name}」的证明材料模板必须是 .docx 文件：{fullPath}");
+        if (!File.Exists(fullPath) || new FileInfo(fullPath).Length <= 0)
+            throw new InvalidOperationException($"账号「{name}」的证明材料模板不存在：{fullPath}");
+        return fullPath;
+    }
+
     internal static TikTokProofMaterialRequest CreateQueueRequest(
         QueueProjectItem item,
         ClientSettings settings,
@@ -983,7 +1010,7 @@ public sealed class TikTokProofMaterialService
 
         return new TikTokProofMaterialRequest(
             generateProductionAgreement
-                ? TikTokProofMaterialTemplateProvider.ResolveTemplatePath(settings.TiktokProofTemplateDocxPath)
+                ? ResolveAccountTemplatePath(account, settings)
                 : string.Empty,
             GetPdfPath(workflowProjectDirectory),
             account.TiktokProofCopyrightCompanyName ?? string.Empty,

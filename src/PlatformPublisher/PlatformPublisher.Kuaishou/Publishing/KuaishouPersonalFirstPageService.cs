@@ -106,10 +106,14 @@ public sealed class KuaishouPersonalFirstPageService
 
     private static async Task NavigateToUploadAsync(IPage page, CancellationToken cancellationToken)
     {
+        if (await KuaishouDailyUploadLimit.IsVisibleAsync(page))
+            throw new KuaishouDailyUploadLimitException();
         if (page.Url.Contains("content-management/edit", StringComparison.OrdinalIgnoreCase))
             return;
 
         await KuaishouPageNotice.DismissAsync(page, cancellationToken);
+        if (await KuaishouDailyUploadLimit.IsVisibleAsync(page))
+            throw new KuaishouDailyUploadLimitException();
         var button = await WaitForContentUploadButtonAsync(page, cancellationToken);
         if (button is null)
             throw new InvalidOperationException("未找到快手个人版“内容上传”入口。");
@@ -122,13 +126,40 @@ public sealed class KuaishouPersonalFirstPageService
             }
             catch (PlaywrightException) when (attempt < 2)
             {
+                if (await KuaishouDailyUploadLimit.IsVisibleAsync(page))
+                    throw new KuaishouDailyUploadLimitException();
                 await KuaishouPageNotice.DismissAsync(page, cancellationToken);
                 button = await WaitForContentUploadButtonAsync(page, cancellationToken) ?? button;
             }
         }
-        await page.GetByText("短剧标题", new PageGetByTextOptions { Exact = false }).First.WaitForAsync(
-            new LocatorWaitForOptions { State = WaitForSelectorState.Visible, Timeout = 20_000 });
-        cancellationToken.ThrowIfCancellationRequested();
+        await WaitForUploadFormOrDailyLimitAsync(page, cancellationToken);
+    }
+
+    private static async Task WaitForUploadFormOrDailyLimitAsync(IPage page, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (await KuaishouDailyUploadLimit.IsVisibleAsync(page))
+                throw new KuaishouDailyUploadLimitException();
+            try
+            {
+                var title = page.GetByText("短剧标题", new PageGetByTextOptions { Exact = false }).First;
+                if (await title.IsVisibleAsync())
+                    return;
+            }
+            catch (PlaywrightException)
+            {
+                // 页面还在跳转。
+            }
+
+            await page.WaitForTimeoutAsync(400);
+        }
+
+        if (await KuaishouDailyUploadLimit.IsVisibleAsync(page))
+            throw new KuaishouDailyUploadLimitException();
+        throw new InvalidOperationException("未进入内容上传页：等待“短剧标题”超时。");
     }
 
     private static async Task<ILocator?> WaitForContentUploadButtonAsync(

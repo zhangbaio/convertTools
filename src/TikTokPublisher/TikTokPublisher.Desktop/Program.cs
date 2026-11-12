@@ -1,5 +1,6 @@
 using Avalonia;
 using TikTokPublisher.Core.Services;
+using Velopack;
 
 namespace TikTokPublisher.Desktop;
 
@@ -13,6 +14,7 @@ internal static class Program
     {
         try
         {
+            VelopackApp.Build().Run();
             if (Array.Exists(args, IsResetInstallerDataSecretsArg))
             {
                 ClientSettingsStore.ResetInstallerDataSecrets();

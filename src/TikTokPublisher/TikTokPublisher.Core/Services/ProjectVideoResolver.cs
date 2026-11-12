@@ -8,6 +8,7 @@ namespace TikTokPublisher.Core.Services;
 public static class ProjectVideoResolver
 {
     private const string UploadStagingDirName = "tiktok_upload_videos";
+    public const string SourceOriginalsDirectoryName = "source-originals";
     public const string MaterialVideoDirectoryName = "material-videos";
     public const string PublishedMaterialDirectoryName = "tiktok-published";
 
@@ -18,7 +19,7 @@ public static class ProjectVideoResolver
 
     private static readonly HashSet<string> IgnoredSourceDirectoryNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "workflow", "archive", UploadStagingDirName,
+        "workflow", "archive", UploadStagingDirName, SourceOriginalsDirectoryName,
     };
 
     private static readonly string[] IncompleteDownloadSuffixes =

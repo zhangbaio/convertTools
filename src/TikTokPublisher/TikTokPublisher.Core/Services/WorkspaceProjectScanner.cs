@@ -15,6 +15,7 @@ public static class WorkspaceProjectScanner
     private static readonly HashSet<string> ReservedDirNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "archive", "config", "material-clip-output", "workflow", TikTokUploadStagingService.StagingDirName,
+        ProjectVideoResolver.SourceOriginalsDirectoryName,
     };
 
     private const string ProjectMetadataFile = "shortdrama-project.json";

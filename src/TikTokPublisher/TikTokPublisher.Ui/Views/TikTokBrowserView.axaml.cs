@@ -80,10 +80,14 @@ public partial class TikTokBrowserView : UserControl
         _browserHost.ShowAccount(_vm.SelectedAccount);
     }
 
-    private void OnAccountSwitchRequested(AccountItemViewModel account) =>
-        // 浏览器页不可见时切账号仅切换已存在会话的可见性；不要为未打开过浏览器的账号
-        // 在切换瞬间创建 WebView2（引擎冷启动会明显拖慢切账号）。
-        _browserHost?.ShowAccount(account, createIfMissing: IsVisible);
+    private void OnAccountSwitchRequested(AccountItemViewModel account)
+    {
+        // 上传页执行中切账号不碰 WebView2。浏览器页打开时会按当前账号重新挂载。
+        if (!IsVisible || _browserHost is null)
+            return;
+
+        _browserHost.ShowAccount(account, createIfMissing: true);
+    }
 
     private void OnNavigateRequested(AccountItemViewModel account, string url)
     {

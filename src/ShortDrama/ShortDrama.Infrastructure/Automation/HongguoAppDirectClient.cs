@@ -8,13 +8,14 @@ using ShortDrama.Core.Models;
 namespace ShortDrama.Infrastructure.Automation;
 
 /// <summary>
-/// 红果 APP 下载的搜索、剧集和播放地址。
+/// 红果 APP 下载的搜索、剧集、榜单和播放地址。
+/// 榜单走 reading 的 bookmall/cell/change，漫剧和 AI 剧的榜单键跟已安装红果的排行榜一致。
 /// 方案1：只有本机模拟器里读到的设备号才走 preload。设置里保存或自动注册的号不走这条链路。
 /// 查询保持已安装的 7.4.3.32 精简参数；机型、品牌和系统版本读模拟器自身。
 /// 没有模拟器设备时，播放用单集接口。连续空包就更换本机 audit 设备号并马上重试，仍失败再按勾选走链路 1 和链路 2。
 /// 模拟器设备在时，播放空包只在 preload 上退避重试，仍失败再试一次单集接口，不再注册新设备。
 /// 方案2：设备号用设置里保存的一对，不读模拟器。剧集仍走桌面 7.4.2.32。
-/// 播放 preload 在 fqnovel 和 reading 上都会回 HTTP 200 空包，所以播放改走已能取出地址的红米签名链路。
+/// 播放按原桌面程序的 GET /reading/bookapi/video_tab/video_model/v1/ 取地址，失败不注册新设备。
 /// </summary>
 internal sealed class HongguoAppDirectClient
 {
@@ -252,9 +253,124 @@ internal sealed class HongguoAppDirectClient
         throw new HongguoHighException("剧集列表获取失败");
     }
 
+    internal const string RankPath = "/reading/bookapi/bookmall/cell/change/v";
+
+    internal async Task<HongguoRankPage> GetRankPageAsync(
+        string category,
+        string board,
+        int offset,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null,
+        string? plan = null)
+    {
+        if (!HongguoRankCatalog.TryResolve(category, board, out var query))
+            throw new HongguoHighException(HongguoRankCatalog.UnavailableReason(category, board) ?? "未知榜单");
+
+        var extra = RankQuery(query, Math.Max(0, offset));
+        JsonNode? root = null;
+        Exception? primary = null;
+        var desktop = IsDesktopPlan(plan);
+        if (desktop && HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
+        {
+            try
+            {
+                root = await SendEmulatorAsync(
+                    HttpMethod.Get, ReadingHost, RankPath, null, extra, deviceId!.Trim(), installId!.Trim(), cancellationToken, desktop: true);
+                EmulatorChainUses++;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                primary = ex;
+            }
+        }
+        else if (!desktop && TryReadEmulator(out var did, out var iid))
+        {
+            try
+            {
+                root = await SendEmulatorAsync(
+                    HttpMethod.Get, ReadingHost, RankPath, null, extra, did, iid, cancellationToken);
+                EmulatorChainUses++;
+                Remember(deviceId, installId, did, iid, persist);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                primary = ex;
+            }
+        }
+
+        if (root is null)
+        {
+            try
+            {
+                root = await SendAsync(HttpMethod.Get, RankPath, null, extra, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var detail = primary is null ? "红果榜单失败" : $"红果榜单失败：{primary.Message}";
+                throw new HongguoHighException(detail, 0, ex);
+            }
+        }
+
+        return HongguoHighCalendarMapper.ReadRankPage(root);
+    }
+
+    private static KeyValuePair<string, string>[] RankQuery(HongguoRankQuery query, int offset)
+    {
+        var items = new List<KeyValuePair<string, string>>
+        {
+            new("cell_id", HongguoRankCatalog.CellId),
+            new("tab_type", HongguoRankCatalog.TabType),
+            new("client_req_type", "2"),
+            new("client_template", "2"),
+            new("screen_width_px", "1080"),
+            new("selected_items", query.SelectedItems),
+            new("sub_selected_items", query.SubSelectedItems),
+            new("session_uuid", Guid.NewGuid().ToString()),
+        };
+        if (offset > 0)
+            items.Add(new("offset", offset.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        return items.ToArray();
+    }
+
     internal async Task<HongguoHighVideoPlayback> GetVideoPlaybackAsync(
         string videoId,
         string quality,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null,
+        bool streamLink1 = true,
+        bool streamLink2 = true,
+        string? plan = null)
+    {
+        var model = await GetPlaybackModelAsync(
+            videoId,
+            cancellationToken,
+            deviceId,
+            installId,
+            persist,
+            streamLink1,
+            streamLink2,
+            plan);
+        return HongguoGuestPlayback.Pick(model, quality);
+    }
+
+    internal async Task<JsonObject> GetPlaybackModelAsync(
+        string videoId,
         CancellationToken cancellationToken,
         string? deviceId = null,
         string? installId = null,
@@ -277,10 +393,14 @@ internal sealed class HongguoAppDirectClient
                 throw new HongguoHighException("缺少播放设备号和安装号");
             try
             {
-                return await _signed.GetAsync(
-                    rawVideoId, quality, cancellationToken, deviceId!.Trim(), installId!.Trim(), persist);
+                return await GetDesktopModelAsync(
+                    rawVideoId, deviceId!.Trim(), installId!.Trim(), cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
             {
                 throw;
             }
@@ -294,12 +414,16 @@ internal sealed class HongguoAppDirectClient
         {
             try
             {
-                var playback = await GetEmulatorPlaybackAsync(rawVideoId, quality, did, iid, cancellationToken);
+                var model = await FetchEmulatorModelAsync(rawVideoId, did, iid, cancellationToken);
                 EmulatorChainUses++;
                 Remember(deviceId, installId, did, iid, persist);
-                return playback;
+                return model;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
             {
                 throw;
             }
@@ -307,9 +431,13 @@ internal sealed class HongguoAppDirectClient
             {
                 try
                 {
-                    return await GetAuditVideoModelAsync(seriesId, rawVideoId, quality, cancellationToken);
+                    return await GetAuditVideoModelAsync(seriesId, rawVideoId, cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception auditEx) when (HongguoGuestPlayback.IsUnsupportedCodec(auditEx))
                 {
                     throw;
                 }
@@ -322,9 +450,13 @@ internal sealed class HongguoAppDirectClient
 
         try
         {
-            return await GetAuditVideoModelAsync(seriesId, rawVideoId, quality, cancellationToken);
+            return await GetAuditVideoModelAsync(seriesId, rawVideoId, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
         {
             throw;
         }
@@ -338,9 +470,13 @@ internal sealed class HongguoAppDirectClient
         {
             try
             {
-                return await _playback.GetAsync(rawVideoId, quality, cancellationToken, deviceId, installId, persist);
+                return await _playback.LoadModelAsync(rawVideoId, cancellationToken, deviceId, installId, persist);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
             {
                 throw;
             }
@@ -352,9 +488,13 @@ internal sealed class HongguoAppDirectClient
 
         try
         {
-            return await _signed.GetAsync(rawVideoId, quality, cancellationToken, deviceId, installId, persist);
+            return await _signed.LoadModelAsync(rawVideoId, cancellationToken, deviceId, installId, persist);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
         {
             throw;
         }
@@ -456,10 +596,9 @@ internal sealed class HongguoAppDirectClient
         };
     }
 
-    private async Task<HongguoHighVideoPlayback> GetAuditVideoModelAsync(
+    private async Task<JsonObject> GetAuditVideoModelAsync(
         string seriesId,
         string videoId,
-        string quality,
         CancellationToken cancellationToken)
     {
         Exception? last = null;
@@ -478,7 +617,7 @@ internal sealed class HongguoAppDirectClient
                 var model = HongguoGuestPlayback.ModelOf(root["data"]?["video_model"]);
                 if (model is null)
                     throw new HongguoHighException("播放地址为空");
-                return HongguoGuestPlayback.Pick(model, quality);
+                return model;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -579,18 +718,6 @@ internal sealed class HongguoAppDirectClient
         }
 
         return [];
-    }
-
-    private async Task<HongguoHighVideoPlayback> GetEmulatorPlaybackAsync(
-        string videoId,
-        string quality,
-        string deviceId,
-        string installId,
-        CancellationToken cancellationToken,
-        bool desktop = false)
-    {
-        var model = await FetchEmulatorModelAsync(videoId, deviceId, installId, cancellationToken, desktop);
-        return HongguoGuestPlayback.Pick(model, quality);
     }
 
     private async Task<JsonObject> FetchEmulatorModelAsync(
@@ -701,6 +828,93 @@ internal sealed class HongguoAppDirectClient
         parts.Add("iid=" + Uri.EscapeDataString(installId));
         parts.Add("_rticket=" + rticket);
         return host + path + "?" + string.Join("&", parts);
+    }
+
+    internal const string DesktopModelPath = "/reading/bookapi/video_tab/video_model/v1/";
+
+    internal static string BuildDesktopModelUrl(string videoId, string deviceId, string installId, long rticket, int ts)
+    {
+        var query = string.Join("&", new[]
+        {
+            "_rticket=" + rticket,
+            "ac=wifi",
+            "aid=8662",
+            "app_name=novelread",
+            "channel=update_64",
+            "device_brand=Redmi",
+            "device_id=" + Uri.EscapeDataString(deviceId),
+            "device_level=3",
+            "device_platform=android",
+            "device_type=25053RT47C",
+            "dpi=520",
+            "iid=" + Uri.EscapeDataString(installId),
+            "language=zh",
+            "manifest_version_code=74232",
+            "need_all_video_definition=true",
+            "need_mp4_align=false",
+            "os=android",
+            "os_api=36",
+            "os_version=16",
+            "resolution=" + Uri.EscapeDataString("1280*2772"),
+            "ssmix=a",
+            "ts=" + ts,
+            "update_version_code=74232",
+            "version_code=74232",
+            "version_name=7.4.2.32",
+            "video_id=" + Uri.EscapeDataString(videoId),
+            "video_platform=1024",
+        });
+        return PlaybackHost + DesktopModelPath + "?" + query;
+    }
+
+    private async Task<JsonObject> GetDesktopModelAsync(
+        string videoId,
+        string deviceId,
+        string installId,
+        CancellationToken cancellationToken)
+    {
+        Exception? last = null;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var rticket = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var khronos = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var url = BuildDesktopModelUrl(videoId, deviceId, installId, rticket, khronos);
+            for (var guard = 0; HongguoPureSign.BranchOf(url, null, khronos) == 1 && guard < 32; guard++)
+            {
+                rticket++;
+                url = BuildDesktopModelUrl(videoId, deviceId, installId, rticket, khronos);
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.TryAddWithoutValidation("user-agent", DesktopUserAgent);
+            foreach (var header in HongguoPureSign.Sign(url, null, khronos))
+                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            try
+            {
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                if (bytes.Length == 0 || bytes.All(b => b is (byte)' ' or (byte)'\n' or (byte)'\r' or (byte)'\t'))
+                    throw new InvalidOperationException("empty body");
+                var root = JsonNode.Parse(bytes) as JsonObject ?? throw new InvalidOperationException("empty body");
+                if (HongguoGuestPlayback.CodeOf(root) != 0)
+                    throw new HongguoHighException("播放地址被拒绝");
+                return HongguoGuestPlayback.ModelOf(root["data"]?["video_model"])
+                    ?? throw new HongguoHighException("播放地址为空");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                if (attempt == 2 || !IsTransientPlaybackFailure(ex))
+                    break;
+                await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationToken);
+            }
+        }
+
+        throw last ?? new HongguoHighException("播放地址为空");
     }
 
     internal static string BuildDesktopUrl(

@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.AI;
 using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Drama;
@@ -122,6 +123,7 @@ public static class QueueMaterialStepService
             {
                 ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
                 ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+                await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
                 return;
             }
 
@@ -144,6 +146,126 @@ public static class QueueMaterialStepService
         EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, expectedEpisodeNumbers, log);
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+        await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
+    }
+
+    internal const string EmptyDownloadVideoMessage = "没有视频文件，下载未完成。";
+
+    /// <summary>
+    /// 源视频已删、上传副本仍齐全时，下载失败只是复查误判，可以跳过重下。
+    /// </summary>
+    internal static bool CanSkipFailedDownloadUsingUploadCopies(QueueProjectItem item)
+    {
+        if (!HasEmptyVideoDownloadFailure(item))
+            return false;
+        return UploadCopiesCoverExpectedEpisodes(item.ProjectDir, item);
+    }
+
+    internal static void ClearEmptyVideoDownloadFailure(string sourceProjectDir)
+    {
+        var path = Path.Combine(sourceProjectDir, ".weixin-channel-download-state.json");
+        if (!File.Exists(path))
+            return;
+        try
+        {
+            var root = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
+            if (root is null)
+                return;
+            var message = root["message"]?.GetValue<string>() ?? "";
+            if (!message.Contains(EmptyDownloadVideoMessage, StringComparison.Ordinal))
+                return;
+            root["ok"] = true;
+            root["stopped"] = false;
+            root["message"] = "上传副本齐全，下载已完成。";
+            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    internal static async Task EnsureDownloadedVideosPlayableAsync(
+        string sourceProjectDir,
+        Action<string> log,
+        CancellationToken ct,
+        QueueProjectItem? item = null)
+    {
+        if (ShortDramaDramaServices.Downloader is not DramaSourceRouter router)
+            throw new InvalidOperationException("当前下载器不能检查视频能否播放。");
+        var videos = ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir);
+        if (videos.Count == 0)
+        {
+            videos = ProjectVideoResolver.ResolveStagedUploadVideos(sourceProjectDir);
+            if (videos.Count > 0 &&
+                item is not null &&
+                TryReadExpectedEpisodeNumbers(sourceProjectDir, item) is { Count: > 1 } expected &&
+                !UploadCopiesCoverEpisodeNumbers(videos, expected))
+            {
+                throw new InvalidOperationException(
+                    $"上传副本不完整：应 {expected.Count} 集，实际 {CountCoveredEpisodes(videos, expected)} 集。");
+            }
+        }
+
+        await router.EnsureVideosPlayableAsync(
+            sourceProjectDir,
+            videos,
+            new Progress<string>(log),
+            ct).ConfigureAwait(false);
+        if (videos.Count > 0)
+            ClearEmptyVideoDownloadFailure(sourceProjectDir);
+    }
+
+    private static bool HasEmptyVideoDownloadFailure(QueueProjectItem item)
+    {
+        if ((item.LastError ?? "").Contains(EmptyDownloadVideoMessage, StringComparison.Ordinal))
+            return true;
+        var path = Path.Combine(item.ProjectDir, ".weixin-channel-download-state.json");
+        if (!File.Exists(path))
+            return false;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            return document.RootElement.TryGetProperty("message", out var message) &&
+                   message.ValueKind == JsonValueKind.String &&
+                   (message.GetString() ?? "").Contains(EmptyDownloadVideoMessage, StringComparison.Ordinal);
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool UploadCopiesCoverExpectedEpisodes(string sourceProjectDir, QueueProjectItem item)
+    {
+        var expected = TryReadExpectedEpisodeNumbers(sourceProjectDir, item);
+        if (expected is not { Count: > 1 })
+            return false;
+        return UploadCopiesCoverEpisodeNumbers(
+            ProjectVideoResolver.ResolveStagedUploadVideos(sourceProjectDir),
+            expected);
+    }
+
+    private static bool UploadCopiesCoverEpisodeNumbers(
+        IReadOnlyList<string> videos,
+        IReadOnlyList<int> expected) =>
+        CountCoveredEpisodes(videos, expected) == expected.Count;
+
+    private static int CountCoveredEpisodes(IReadOnlyList<string> videos, IReadOnlyList<int> expected)
+    {
+        var found = new HashSet<int>();
+        foreach (var video in videos)
+        {
+            if (TryReadEpisodeNumberFromFileName(video, out var episode))
+                found.Add(episode);
+        }
+
+        return expected.Count(found.Contains);
+    }
+
+    private static IReadOnlyList<int>? TryReadExpectedEpisodeNumbers(string sourceProjectDir, QueueProjectItem item)
+    {
+        var numbers = ResolveExpectedDownloadedEpisodeNumbers(sourceProjectDir, item);
+        return numbers.Count > 1 ? numbers : null;
     }
 
     internal static bool ShouldUseExistingVideosToRepairFailedDownload(bool forceRerun) => !forceRerun;
@@ -957,12 +1079,14 @@ public static class QueueMaterialStepService
         if (IsBookIdForSource(metadataBookId, selectedSource))
             return metadataBookId;
 
-        var adoptedBookId = AdoptHongguoAppBookId(selectedSource, metadataBookId);
-        if (!string.IsNullOrWhiteSpace(adoptedBookId))
+        var retargetedBookId = DramaDownloadSourceSelector.TryRetarget(metadataBookId, selectedSource);
+        if (!string.IsNullOrWhiteSpace(retargetedBookId) &&
+            !string.Equals(retargetedBookId, metadataBookId, StringComparison.OrdinalIgnoreCase))
         {
-            log($"项目书号带有红果短剧助手前缀，当前链路是红果APP，按同一书号下载：{adoptedBookId}");
-            PersistProjectBookId(sourceProjectDir, adoptedBookId);
-            return adoptedBookId;
+            log($"当前链路是{selectedLabel}，沿用同一书号：{retargetedBookId}");
+            PersistBookReference(sourceProjectDir, metadataSource, metadataBookId, metadata.Title);
+            PersistBookReference(sourceProjectDir, selectedSource, retargetedBookId, metadata.Title);
+            return retargetedBookId;
         }
 
         if (ShouldKeepRetiredBookId(selectedSource, metadataBookId))
@@ -1161,7 +1285,7 @@ public static class QueueMaterialStepService
             "hglocal" => "本地直连",
             "pikachu" => "皮卡丘",
             "playlet" => "红果短剧下载器",
-            "hongguoapp" => "红果APP下载",
+            "hongguoapp" => "红果APP",
             "dramabox" => "DramaBox",
             "foreign" => "海外短剧下载器",
             _ => "红果新接口",

@@ -59,7 +59,7 @@ public sealed partial class AccountItemViewModel : ViewModelBase
     {
         AccountStatus.Online => "在线",
         AccountStatus.LoggingIn => "登录中",
-        _ => "离线",
+        _ => Model.LastLoginAt is null ? "离线" : "已保存登录",
     };
 
     public string PlatformSummary =>

@@ -34,6 +34,28 @@ public sealed class WebView2HostLifecycleTests
                 "the host must stop callbacks before closing the COM controller");
     }
 
+    [Fact]
+    public void Hidden_host_sleeps_unless_cdp_automation_holds_it_awake()
+    {
+        var host = File.ReadAllText(FindRepoFile(
+            "src", "TikTokPublisher", "TikTokPublisher.Ui", "Controls", "WebView2Host.cs"));
+        var bridge = File.ReadAllText(FindRepoFile(
+            "src", "TikTokPublisher", "TikTokPublisher.Ui", "Services", "EmbeddedBrowserAutomationBridge.cs"));
+
+        host.Should().Contain("private bool IsIdle => !_renderedVisible && _automationLeases == 0;");
+        host.Should().Contain("controller.IsVisible = false;");
+        host.Should().Contain("CoreWebView2MemoryUsageTargetLevel.Low");
+        host.Should().Contain("TrySuspendAsync()");
+        host.Should().Contain("ResumeIfSuspended(controller);");
+
+        bridge.Should().Contain("host.AcquireAutomation");
+        bridge.Should().Contain("chromium.Disconnected += (_, _) => automationLease.Dispose();");
+        bridge.IndexOf("host.AcquireAutomation", StringComparison.Ordinal)
+            .Should().BeLessThan(
+                bridge.IndexOf("ConnectOverCDPAsync(cdp)", StringComparison.Ordinal),
+                "a suspended page must be resumed before Playwright attaches to it");
+    }
+
     private static string FindRepoFile(params string[] parts)
     {
         var current = new DirectoryInfo(AppContext.BaseDirectory);

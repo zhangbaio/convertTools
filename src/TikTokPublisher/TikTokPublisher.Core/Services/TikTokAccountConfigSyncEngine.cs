@@ -70,6 +70,7 @@ public static class TikTokAccountConfigSyncEngine
         "tiktokArchiveRootDir",
         "tiktokExcelReportPath",
         "tiktokProofSealPath",
+        "tiktokProofTemplateDocxPath",
         "tiktokExternalBrowserCdpEndpoint",
         "tiktokCopyrightMaterialFilePath",
         "updatedAt",
@@ -212,6 +213,7 @@ public static class TikTokAccountConfigSyncEngine
         updated.TiktokArchiveRootDir = local.TiktokArchiveRootDir;
         updated.TiktokExcelReportPath = local.TiktokExcelReportPath;
         updated.TiktokProofSealPath = local.TiktokProofSealPath;
+        updated.TiktokProofTemplateDocxPath = local.TiktokProofTemplateDocxPath;
         updated.TiktokExternalBrowserCdpEndpoint = local.TiktokExternalBrowserCdpEndpoint;
         updated.TiktokCopyrightMaterialFilePath = local.TiktokCopyrightMaterialFilePath;
         return updated;
@@ -527,6 +529,7 @@ public static class TikTokAccountConfigSyncEngine
         else
         {
             profile.TiktokProofSealPath = local.TiktokProofSealPath;
+            profile.TiktokProofTemplateDocxPath = local.TiktokProofTemplateDocxPath;
         }
 
         var uploadConfig = !JsonNode.DeepEquals(mergedConfig, remote.Config) || !JsonNode.DeepEquals(mergedSecrets, remote.Secrets);

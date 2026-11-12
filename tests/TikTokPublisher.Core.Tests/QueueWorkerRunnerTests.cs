@@ -637,6 +637,10 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir);
         var proofPath = TikTokProofMaterialService.GetPdfPath(workflow);
         File.WriteAllBytes(proofPath, "%PDF-1.7\nproof"u8.ToArray());
+        SaveCurrentProofCheckpoint(
+            item,
+            account,
+            [QueueStepRegistry.GenerateProofMaterial, QueueStepRegistry.UploadSeries]);
         var host = new ImmediatePublishHost();
         var ensureCalls = 0;
         QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
@@ -678,7 +682,7 @@ public sealed class QueueWorkerRunnerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_regenerates_completed_proof_when_local_pdf_is_missing()
+    public void Completed_proof_runs_again_before_validation_when_agreement_pdf_is_missing()
     {
         var account = new TikTokAccountProfile
         {
@@ -686,52 +690,75 @@ public sealed class QueueWorkerRunnerTests : IDisposable
             Name = "proof-missing-local-file",
             TiktokCopyrightMaterialTypes = ["production_agreement"],
         };
-        var store = CreateAccountStore(account);
         var item = CreateReadyToUploadItem(1, account);
         var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir);
         var proofPath = TikTokProofMaterialService.GetPdfPath(workflow);
         if (File.Exists(proofPath)) File.Delete(proofPath);
-        var host = new ImmediatePublishHost();
-        var ensureCalls = 0;
-        QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
+        var options = new QueueRunOptions
         {
-            ensureCalls++;
-            File.WriteAllBytes(proofPath, "%PDF-1.7\nregenerated-on-this-computer"u8.ToArray());
-            return Task.FromResult(proofPath);
+            EnabledSteps =
+            [
+                QueueStepRegistry.GenerateProofMaterial,
+                QueueStepRegistry.MaterialValidate,
+                QueueStepRegistry.UploadSeries,
+            ],
         };
-        var progress = new List<string>();
 
-        var summary = await new QueueWorkerRunner(ensure).RunAsync(
-            Path.Combine(Path.GetTempPath(), "tiktok-queue-missing-local-proof-test"),
-            [item],
-            new QueueRunOptions
-            {
-                EnabledSteps =
-                [
-                    QueueStepRegistry.GenerateProofMaterial,
-                    QueueStepRegistry.UploadSeries,
-                ],
-            },
-            host,
-            store,
-            FinalAction.None,
-            onProgress: update => progress.Add(update.Message),
-            onPersist: null,
-            CancellationToken.None);
-
-        summary.SuccessCount.Should().Be(1, string.Join(Environment.NewLine, progress));
-        summary.FailedCount.Should().Be(0);
-        ensureCalls.Should().Be(1);
-        File.Exists(proofPath).Should().BeTrue();
-        item.StepStates[QueueStepRegistry.GenerateProofMaterial].Should().Be(QueueStepStatus.Completed);
-        item.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
-        host.BrowserReadyCalls.Should().Be(1);
-        progress.Should().Contain(message =>
-            message.Contains("本机文件缺失或无效，已自动转为重新生成", StringComparison.Ordinal));
+        QueueWorkerRunner.ShouldRunStep(
+                item,
+                QueueStepRegistry.GenerateProofMaterial,
+                options,
+                account)
+            .Should().BeTrue("合作协议 PDF 不在时，不能把已完成的证明材料留到校验之后再补");
     }
 
     [Fact]
-    public async Task RunAsync_regenerates_completed_proof_when_newly_selected_source_files_are_missing()
+    public void Completed_proof_runs_again_when_agreement_was_not_part_of_the_saved_checkpoint()
+    {
+        var previousAccount = new TikTokAccountProfile
+        {
+            Id = "acct-proof-before-agreement",
+            Name = "proof-before-agreement",
+            TiktokCopyrightMaterialTypes =
+            [
+                TikTokPublishConstants.AiGenerationScreenshotsMaterialType,
+                TikTokPublishConstants.EditingProjectFilesMaterialType,
+            ],
+        };
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-proof-before-agreement",
+            Name = "proof-before-agreement",
+            TiktokCopyrightMaterialTypes = [TikTokPublishConstants.ProductionAgreementMaterialType],
+        };
+        var item = CreateReadyToUploadItem(1, account);
+        SaveCurrentProofCheckpoint(
+            item,
+            previousAccount,
+            [QueueStepRegistry.GenerateProofMaterial, QueueStepRegistry.UploadSeries]);
+        var proofPath = TikTokProofMaterialService.GetPdfPath(
+            ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir));
+        if (File.Exists(proofPath)) File.Delete(proofPath);
+        var options = new QueueRunOptions
+        {
+            EnabledSteps =
+            [
+                QueueStepRegistry.GenerateProofMaterial,
+                QueueStepRegistry.MaterialValidate,
+                QueueStepRegistry.UploadSeries,
+            ],
+        };
+
+        QueueWorkerRunner.ShouldRunStep(
+                item,
+                QueueStepRegistry.GenerateProofMaterial,
+                options,
+                account)
+            .Should().BeTrue("后来勾上合作协议时，旧断点不能再挡住证明材料步骤");
+    }
+
+    [Fact]
+    public void Completed_proof_runs_again_when_newly_selected_source_files_are_missing()
     {
         var account = new TikTokAccountProfile
         {
@@ -743,44 +770,30 @@ public sealed class QueueWorkerRunnerTests : IDisposable
                 TikTokPublishConstants.SourceFileInformationMaterialType,
             ],
         };
-        var store = CreateAccountStore(account);
         var item = CreateReadyToUploadItem(1, account);
         var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir);
-        var proofPath = TikTokProofMaterialService.GetPdfPath(workflow);
-        File.WriteAllBytes(proofPath, "%PDF-1.7\nexisting-agreement"u8.ToArray());
-        var host = new ImmediatePublishHost();
-        var ensureCalls = 0;
-        QueueProofMaterialPrerequisite ensure = (_, _, _, _) =>
+        File.WriteAllBytes(
+            TikTokProofMaterialService.GetPdfPath(workflow),
+            "%PDF-1.7\nexisting-agreement"u8.ToArray());
+        SaveCurrentProofCheckpoint(
+            item,
+            account,
+            [QueueStepRegistry.GenerateProofMaterial, QueueStepRegistry.UploadSeries]);
+        var options = new QueueRunOptions
         {
-            ensureCalls++;
-            return Task.FromResult(proofPath);
+            EnabledSteps =
+            [
+                QueueStepRegistry.GenerateProofMaterial,
+                QueueStepRegistry.UploadSeries,
+            ],
         };
-        var progress = new List<string>();
 
-        var summary = await new QueueWorkerRunner(ensure).RunAsync(
-            Path.Combine(Path.GetTempPath(), "tiktok-queue-new-source-files-test"),
-            [item],
-            new QueueRunOptions
-            {
-                EnabledSteps =
-                [
-                    QueueStepRegistry.GenerateProofMaterial,
-                    QueueStepRegistry.UploadSeries,
-                ],
-            },
-            host,
-            store,
-            FinalAction.None,
-            onProgress: update => progress.Add(update.Message),
-            onPersist: null,
-            CancellationToken.None);
-
-        summary.SuccessCount.Should().Be(1, string.Join(Environment.NewLine, progress));
-        summary.FailedCount.Should().Be(0);
-        ensureCalls.Should().Be(1, "新增勾选的原始文件材料缺失时应自动补生成");
-        host.BrowserReadyCalls.Should().Be(1);
-        progress.Should().Contain(message =>
-            message.Contains("本机文件缺失或无效，已自动转为重新生成", StringComparison.Ordinal));
+        QueueWorkerRunner.ShouldRunStep(
+                item,
+                QueueStepRegistry.GenerateProofMaterial,
+                options,
+                account)
+            .Should().BeTrue("新增勾选的原始文件材料缺失时要重新生成证明材料");
     }
 
     [Fact]
@@ -1179,6 +1192,58 @@ public sealed class QueueWorkerRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task ShowItems_puts_a_later_drama_on_the_list_without_starting_it()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-test",
+            Name = "test",
+            TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+        };
+        var store = CreateAccountStore(account);
+        var runningItem = CreateReadyToUploadItem(1, account);
+        var waitingItem = CreateReadyToUploadItem(2, account);
+        List<QueueProjectItem>? persisted = null;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var host = new BlockingPublishHost();
+        var runner = new QueueWorkerRunner();
+        var runTask = runner.RunAsync(
+            Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-show-items-test"),
+            [runningItem],
+            new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.UploadSeries],
+                ProjectConcurrency = 1,
+            },
+            host,
+            store,
+            FinalAction.None,
+            onProgress: null,
+            onPersist: items => persisted = items.ToList(),
+            cts.Token);
+
+        await host.WaitForPublishCountAsync(1).WaitAsync(cts.Token);
+        runner.ShowItems([waitingItem]).Should().Be(1);
+        var shownAt = DateTime.UtcNow;
+        while (persisted?.Count != 2)
+        {
+            if (DateTime.UtcNow - shownAt > TimeSpan.FromSeconds(5))
+                break;
+            await Task.Delay(50, cts.Token);
+        }
+        persisted.Should().NotBeNull();
+        persisted!.Count.Should().Be(2);
+        persisted!.Should().Contain(item => item.ProjectDir == waitingItem.ProjectDir && item.Enabled);
+        host.PublishedProjectDirs.Should().Equal(runningItem.ProjectDir);
+
+        host.ReleaseNext();
+        var summary = await runTask.WaitAsync(cts.Token);
+        summary.SuccessCount.Should().Be(1);
+        host.PublishedProjectDirs.Should().Equal(runningItem.ProjectDir);
+    }
+
+    [Fact]
     public async Task RunAsync_preserves_fifo_when_multiple_batches_are_appended_to_the_queue_tail()
     {
         var account = new TikTokAccountProfile
@@ -1456,6 +1521,42 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         persisted.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Pending);
     }
 
+    private static void SaveCurrentProofCheckpoint(
+        QueueProjectItem item,
+        TikTokAccountProfile account,
+        IReadOnlyList<string> enabledSteps)
+    {
+        item.ProofMaterialStatementDate = "2026-11-06";
+        var settings = ClientSettingsStore.Load();
+        var workflow = ProjectWorkspaceService.EnsureWorkflowProjectDir(item.ProjectDir);
+        var pdfPath = TikTokProofMaterialService.GetPdfPath(workflow);
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            item,
+            settings,
+            account,
+            workflow,
+            new DateOnly(2026, 11, 6));
+        if (request.GenerateProductionAgreement && !File.Exists(pdfPath))
+            File.WriteAllBytes(pdfPath, "%PDF-1.7\nproof"u8.ToArray());
+        var selection = TikTokSourceFileInfoPackageSelection.FromEnabledSteps(
+            enabledSteps,
+            request.IncludeSourceInfoRoleVector,
+            request.IncludeSourceInfoRoleSceneScreenshot);
+        TikTokProofMaterialService.SaveState(
+            ProjectWorkspaceService.LoadContext(item.ProjectDir),
+            request,
+            TikTokProofMaterialService.ComputeComponentFingerprints(request, selection),
+            new TikTokProofMaterialResult(
+                request.GenerateProductionAgreement ? pdfPath : string.Empty,
+                null,
+                "WPS",
+                new TikTokProofMaterialReplacementCounts(0, 0, 0, 0, 0)),
+            coreCompleted: true,
+            sourceFileScreenshotsCompleted: true,
+            aiGenerationScreenshotsCompleted: true,
+            editingProjectFilesCompleted: true);
+    }
+
     private static QueueProjectItem CreateReadyToUploadItem(int index, TikTokAccountProfile account)
     {
         var projectDir = Path.Combine(Path.GetTempPath(), $"tiktok-ready-upload-{Guid.NewGuid():N}-{index}");
@@ -1504,7 +1605,7 @@ public sealed class QueueWorkerRunnerTests : IDisposable
                  {
                      "-y",
                      "-f", "lavfi",
-                     "-i", "color=c=black:s=16x16:r=1:d=16",
+                     "-i", "color=c=black:s=1080x1920:r=1:d=16",
                      "-an",
                      "-c:v", "libx264",
                      "-pix_fmt", "yuv420p",

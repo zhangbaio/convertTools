@@ -6,21 +6,12 @@ using SixLabors.ImageSharp.Processing;
 
 namespace ShortDrama.Infrastructure.Files;
 
-internal static class PosterTitleProgrammaticRenderer
+internal static partial class PosterTitleProgrammaticRenderer
 {
-    private static readonly string[] FontCandidates =
-    [
-        "C:/Windows/Fonts/msyhbd.ttc",
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simhei.ttf",
-        "C:/Windows/Fonts/simsun.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-        "/System/Library/Fonts/STHeiti Medium.ttc",
-    ];
-
     private static readonly FontCollection SharedFontCollection = new();
     private static readonly object FontLoadLock = new();
-    private static FontFamily? _cachedPosterFamily;
+    private static readonly Dictionary<string, FontFamily> FamiliesByPath = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<PosterTitleScript, FontFamily> FamiliesByScript = [];
 
     public static void Render(
         string inputPath,
@@ -33,12 +24,13 @@ internal static class PosterTitleProgrammaticRenderer
 
         var width = canvas.Width;
         var height = canvas.Height;
-        var displayTitle = FormatTitleLines(title);
-        var renderLayout = CreateFixedTemplateLayout(displayTitle, width, height);
-        var rx = Math.Max(0, (int)Math.Round(width * renderLayout.X));
-        var ry = Math.Max(0, (int)Math.Round(height * renderLayout.Y));
-        var rw = Math.Min(width - rx, (int)Math.Round(width * renderLayout.Width));
-        var rh = Math.Min(height - ry, (int)Math.Round(height * renderLayout.Height));
+        var placed = PlaceFixedTitle(title, width, height);
+        var displayTitle = placed.Text;
+        var renderLayout = placed.Layout;
+        var rx = placed.Rect.X;
+        var ry = placed.Rect.Y;
+        var rw = placed.Rect.Width;
+        var rh = placed.Rect.Height;
 
         if (renderLayout.BackgroundOpacity > 0)
         {
@@ -47,13 +39,9 @@ internal static class PosterTitleProgrammaticRenderer
             canvas.Mutate(ctx => ctx.Fill(overlay, new Rectangle(rx, ry, rw, rh)));
         }
 
-        var fontSize = Math.Max(24, (int)Math.Round(height * renderLayout.FontScale));
-        var minimumFontSize = Math.Max(18, (int)Math.Round(height * (56f / 858f)));
-        var strokeWidth = Math.Max(2f, fontSize / 18f);
-        var font = FitTitleFont(displayTitle, rw, rh, fontSize, minimumFontSize, strokeWidth);
-        var textBounds = TextMeasurer.MeasureBounds(
-            displayTitle,
-            new TextOptions(font) { Dpi = 72 });
+        var font = placed.Font;
+        var strokeWidth = placed.StrokeWidth;
+        var textBounds = MeasureText(displayTitle, font, placed.Script);
         var textWidth = textBounds.Width;
         var textHeight = textBounds.Height;
         var tx = renderLayout.Align switch
@@ -66,7 +54,7 @@ internal static class PosterTitleProgrammaticRenderer
         var origin = new PointF(tx, ty);
         var strokeColor = ChooseStrokeColor(renderLayout.TextColor);
 
-        canvas.Mutate(ctx => DrawOutlinedText(ctx, displayTitle, font, renderLayout.TextColor, strokeColor, strokeWidth, origin));
+        canvas.Mutate(ctx => DrawOutlinedText(ctx, displayTitle, font, renderLayout.TextColor, strokeColor, strokeWidth, origin, placed.Script));
 
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         SaveCanvas(canvas, outputPath);
@@ -78,17 +66,16 @@ internal static class PosterTitleProgrammaticRenderer
         using var canvas = source.CloneAs<Rgba32>();
         var width = canvas.Width;
         var height = canvas.Height;
-        var displayTitle = FormatLowerHalfLines(title);
-        var renderLayout = CreateLowerHalfLayout(displayTitle, width, height);
-        var rx = Math.Max(0, (int)Math.Round(width * renderLayout.X));
-        var ry = Math.Max(0, (int)Math.Round(height * renderLayout.Y));
-        var rw = Math.Min(width - rx, (int)Math.Round(width * renderLayout.Width));
-        var rh = Math.Min(height - ry, (int)Math.Round(height * renderLayout.Height));
-        var fontSize = Math.Max(28, (int)Math.Round(height * renderLayout.FontScale));
-        var minimumFontSize = Math.Max(18, (int)Math.Round(height * (40f / 858f)));
-        var strokeWidth = Math.Max(3f, fontSize / 12f);
-        var font = FitTitleFont(displayTitle, rw, rh, fontSize, minimumFontSize, strokeWidth);
-        var textBounds = TextMeasurer.MeasureBounds(displayTitle, new TextOptions(font) { Dpi = 72 });
+        var placed = PlaceLowerHalfTitle(title, width, height);
+        var displayTitle = placed.Text;
+        var renderLayout = placed.Layout;
+        var rx = placed.Rect.X;
+        var ry = placed.Rect.Y;
+        var rw = placed.Rect.Width;
+        var rh = placed.Rect.Height;
+        var font = placed.Font;
+        var strokeWidth = placed.StrokeWidth;
+        var textBounds = MeasureText(displayTitle, font, placed.Script);
         var origin = new PointF(
             rx + (rw - textBounds.Width) / 2f - textBounds.Left,
             ry + (rh - textBounds.Height) / 2f - textBounds.Top);
@@ -99,7 +86,8 @@ internal static class PosterTitleProgrammaticRenderer
             renderLayout.TextColor,
             new Rgba32(0, 0, 0, 255),
             strokeWidth,
-            origin));
+            origin,
+            placed.Script));
         Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
         SaveCanvas(canvas, outputPath);
     }
@@ -123,7 +111,8 @@ internal static class PosterTitleProgrammaticRenderer
         Rgba32 fillColor,
         Rgba32 strokeColor,
         float strokeWidth,
-        PointF origin)
+        PointF origin,
+        PosterTitleScript script)
     {
         var offsets = new (float X, float Y)[]
         {
@@ -133,14 +122,31 @@ internal static class PosterTitleProgrammaticRenderer
         };
 
         var shadowOffset = Math.Max(2f, strokeWidth * 1.25f);
-        ctx.DrawText(title, font, new Rgba32(0, 0, 0, 150), new PointF(origin.X + shadowOffset, origin.Y + shadowOffset));
+        DrawTextRun(ctx, title, font, new Rgba32(0, 0, 0, 150), new PointF(origin.X + shadowOffset, origin.Y + shadowOffset), script);
 
         foreach (var (ox, oy) in offsets)
         {
-            ctx.DrawText(title, font, strokeColor, new PointF(origin.X + ox, origin.Y + oy));
+            DrawTextRun(ctx, title, font, strokeColor, new PointF(origin.X + ox, origin.Y + oy), script);
         }
 
-        ctx.DrawText(title, font, fillColor, origin);
+        DrawTextRun(ctx, title, font, fillColor, origin, script);
+    }
+
+    private static void DrawTextRun(
+        IImageProcessingContext ctx,
+        string title,
+        Font font,
+        Rgba32 color,
+        PointF origin,
+        PosterTitleScript script)
+    {
+        if (script != PosterTitleScript.Arabic)
+        {
+            ctx.DrawText(title, font, color, origin);
+            return;
+        }
+
+        ctx.DrawText(CreateTextOptions(font, origin, script), title, color);
     }
 
     internal static string FormatTitleLines(string? title)
@@ -214,34 +220,7 @@ internal static class PosterTitleProgrammaticRenderer
             Align: HorizontalAlignment.Left);
     }
 
-    internal static string FormatLowerHalfLines(string? title)
-    {
-        var text = (title ?? string.Empty).Replace("\r", string.Empty, StringComparison.Ordinal).Trim();
-        var cjk = text.Count(character => character is >= '\u4E00' and <= '\u9FFF');
-        var letters = text.Count(char.IsLetter);
-        if (cjk >= 4 && cjk * 2 >= letters)
-            return FormatTitleLines(text);
-
-        var words = text.Split([' ', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries);
-        if (words.Length <= 1)
-            return text;
-
-        var lineCount = words.Length <= 4 ? 2 : 3;
-        var lines = new List<string>(lineCount);
-        var target = Math.Max(1, (int)Math.Ceiling(words.Length / (double)lineCount));
-        var index = 0;
-        for (var lineIndex = 0; lineIndex < lineCount && index < words.Length; lineIndex++)
-        {
-            var remainingLines = lineCount - lineIndex;
-            var take = lineIndex == lineCount - 1
-                ? words.Length - index
-                : Math.Max(1, Math.Min(target, words.Length - index - (remainingLines - 1)));
-            lines.Add(string.Join(' ', words.Skip(index).Take(take)));
-            index += take;
-        }
-
-        return string.Join('\n', lines);
-    }
+    internal static string FormatLowerHalfLines(string? title) => FormatBalancedPosterLines(title);
 
     internal static PosterTitleLayout CreateLowerHalfLayout(
         string displayTitle,
@@ -267,6 +246,153 @@ internal static class PosterTitleProgrammaticRenderer
             Align: HorizontalAlignment.Center);
     }
 
+    private readonly record struct PixelRect(int X, int Y, int Width, int Height);
+
+    private readonly record struct PlacedTitle(
+        string Text,
+        Font Font,
+        float StrokeWidth,
+        PosterTitleScript Script,
+        PosterTitleLayout Layout,
+        PixelRect Rect);
+
+    private static PlacedTitle PlaceFixedTitle(string title, int canvasWidth, int canvasHeight)
+    {
+        var script = ClassifyTitleScript(title);
+        if (script == PosterTitleScript.Chinese)
+        {
+            var text = FormatTitleLines(title);
+            var layout = CreateFixedTemplateLayout(text, canvasWidth, canvasHeight);
+            var rect = ToPixelRect(layout, canvasWidth, canvasHeight);
+            var fontSize = Math.Max(24, (int)Math.Round(canvasHeight * layout.FontScale));
+            var minimumFontSize = Math.Max(18, (int)Math.Round(canvasHeight * (56f / 858f)));
+            var strokeWidth = Math.Max(2f, fontSize / 18f);
+            var font = FitTitleFont(text, rect.Width, rect.Height, fontSize, minimumFontSize, strokeWidth);
+            return new PlacedTitle(text, font, strokeWidth, script, layout, rect);
+        }
+
+        return PlaceMeasuredTitle(
+            title,
+            script,
+            canvasWidth,
+            canvasHeight,
+            Math.Max(1, (int)Math.Round(canvasWidth * (480f / 600f))),
+            Math.Max(24, (int)Math.Round(canvasHeight * (64f / 858f))),
+            Math.Max(18, (int)Math.Round(canvasHeight * (56f / 858f))),
+            lowerHalf: false);
+    }
+
+    private static PlacedTitle PlaceLowerHalfTitle(string title, int canvasWidth, int canvasHeight)
+    {
+        var script = ClassifyTitleScript(title);
+        if (script == PosterTitleScript.Chinese)
+        {
+            var text = FormatTitleLines(title);
+            var layout = CreateLowerHalfLayout(text, canvasWidth, canvasHeight);
+            var rect = ToPixelRect(layout, canvasWidth, canvasHeight);
+            var fontSize = Math.Max(28, (int)Math.Round(canvasHeight * layout.FontScale));
+            var minimumFontSize = Math.Max(18, (int)Math.Round(canvasHeight * (40f / 858f)));
+            var strokeWidth = Math.Max(3f, fontSize / 12f);
+            var font = FitTitleFont(text, rect.Width, rect.Height, fontSize, minimumFontSize, strokeWidth);
+            return new PlacedTitle(text, font, strokeWidth, script, layout, rect);
+        }
+
+        return PlaceMeasuredTitle(
+            title,
+            script,
+            canvasWidth,
+            canvasHeight,
+            Math.Max(1, (int)Math.Round(canvasWidth * 0.86f)),
+            Math.Max(28, (int)Math.Round(canvasHeight * 0.078f)),
+            Math.Max(18, (int)Math.Round(canvasHeight * (40f / 858f))),
+            lowerHalf: true);
+    }
+
+    private static PlacedTitle PlaceMeasuredTitle(
+        string title,
+        PosterTitleScript script,
+        int canvasWidth,
+        int canvasHeight,
+        int boxWidth,
+        int initialSize,
+        int minimumSize,
+        bool lowerHalf)
+    {
+        var prepared = PreparePosterTitle(title, script);
+        var size = Math.Max(minimumSize, initialSize);
+        Font? chosenFont = null;
+        var chosenText = prepared;
+        var chosenStroke = lowerHalf ? Math.Max(3f, size / 12f) : Math.Max(2f, size / 18f);
+        var chosenLayout = lowerHalf
+            ? CreateLowerHalfLayout(prepared, canvasWidth, canvasHeight)
+            : CreateFixedTemplateLayout(prepared, canvasWidth, canvasHeight);
+        while (size >= minimumSize)
+        {
+            var font = LoadPosterFont(script, size);
+            var stroke = lowerHalf ? Math.Max(3f, size / 12f) : Math.Max(2f, size / 18f);
+            var widthLimit = Math.Max(1f, boxWidth * 0.96f - stroke * 2f);
+            var text = FormatMeasuredPosterLines(prepared, widthLimit, line => MeasureLineWidth(line, font, script));
+            var layout = lowerHalf
+                ? CreateLowerHalfLayout(text, canvasWidth, canvasHeight)
+                : CreateFixedTemplateLayout(text, canvasWidth, canvasHeight);
+            var regionHeight = Math.Max(1f, canvasHeight * layout.Height);
+            var bounds = MeasureText(text, font, script);
+            chosenFont = font;
+            chosenText = text;
+            chosenStroke = stroke;
+            chosenLayout = layout;
+            if (bounds.Width + stroke * 2f <= boxWidth * 0.96f
+                && bounds.Height + stroke * 2f <= regionHeight * 0.9f)
+            {
+                break;
+            }
+
+            size -= 2;
+        }
+
+        return new PlacedTitle(
+            chosenText,
+            chosenFont ?? LoadPosterFont(script, minimumSize),
+            chosenStroke,
+            script,
+            chosenLayout,
+            ToPixelRect(chosenLayout, canvasWidth, canvasHeight));
+    }
+
+    private static PixelRect ToPixelRect(PosterTitleLayout layout, int canvasWidth, int canvasHeight)
+    {
+        var rx = Math.Max(0, (int)Math.Round(canvasWidth * layout.X));
+        var ry = Math.Max(0, (int)Math.Round(canvasHeight * layout.Y));
+        var rw = Math.Min(canvasWidth - rx, (int)Math.Round(canvasWidth * layout.Width));
+        var rh = Math.Min(canvasHeight - ry, (int)Math.Round(canvasHeight * layout.Height));
+        return new PixelRect(rx, ry, rw, rh);
+    }
+
+    private static FontRectangle MeasureText(string text, Font font, PosterTitleScript script)
+    {
+        var options = script == PosterTitleScript.Arabic
+            ? CreateTextOptions(font, PointF.Empty, script)
+            : new TextOptions(font) { Dpi = 72 };
+        return TextMeasurer.MeasureBounds(text, options);
+    }
+
+    private static float MeasureLineWidth(string text, Font font, PosterTitleScript script) =>
+        text.Length == 0 ? 0 : MeasureText(text, font, script).Width;
+
+    private static RichTextOptions CreateTextOptions(Font font, PointF origin, PosterTitleScript script)
+    {
+        var options = new RichTextOptions(font)
+        {
+            Dpi = 72,
+            Origin = origin,
+            WrappingLength = float.MaxValue,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        if (script == PosterTitleScript.Arabic)
+            options.TextDirection = TextDirection.RightToLeft;
+        return options;
+    }
+
     private static Font FitTitleFont(
         string title,
         int maxWidth,
@@ -278,7 +404,7 @@ internal static class PosterTitleProgrammaticRenderer
         var size = Math.Max(minimumSize, initialSize);
         while (size >= minimumSize)
         {
-            var font = LoadPosterFont(size);
+            var font = LoadPosterFont(PosterTitleScript.Chinese, size);
             var bounds = TextMeasurer.MeasureBounds(title, new TextOptions(font) { Dpi = 72 });
             if (bounds.Width + strokeWidth * 2 <= maxWidth * 0.96f
                 && bounds.Height + strokeWidth * 2 <= maxHeight * 0.9f)
@@ -289,7 +415,7 @@ internal static class PosterTitleProgrammaticRenderer
             size -= 2;
         }
 
-        return LoadPosterFont(minimumSize);
+        return LoadPosterFont(PosterTitleScript.Chinese, minimumSize);
     }
 
     public static PosterTitleLayout ToTitleLayout(
@@ -304,37 +430,36 @@ internal static class PosterTitleProgrammaticRenderer
         HorizontalAlignment align) =>
         new(x, y, width, height, fontScale, textColor, backgroundColor, backgroundOpacity, align);
 
-    private static Font LoadPosterFont(int size)
+    private static Font LoadPosterFont(PosterTitleScript script, int size)
     {
-        var family = ResolvePosterFontFamily();
-        return family.CreateFont(size, FontStyle.Bold);
+        var family = ResolvePosterFontFamily(script);
+        try
+        {
+            return family.CreateFont(size, FontStyle.Bold);
+        }
+        catch (Exception)
+        {
+            return family.CreateFont(size, FontStyle.Regular);
+        }
     }
 
-    private static FontFamily ResolvePosterFontFamily()
+    private static FontFamily ResolvePosterFontFamily(PosterTitleScript script)
     {
-        if (_cachedPosterFamily is not null)
-        {
-            return _cachedPosterFamily.Value;
-        }
-
         lock (FontLoadLock)
         {
-            if (_cachedPosterFamily is not null)
-            {
-                return _cachedPosterFamily.Value;
-            }
+            if (FamiliesByScript.TryGetValue(script, out var cached))
+                return cached;
 
-            foreach (var candidate in FontCandidates)
+            foreach (var candidate in FontFilesFor(script))
             {
                 if (!File.Exists(candidate))
-                {
                     continue;
-                }
 
                 try
                 {
-                    _cachedPosterFamily = SharedFontCollection.Add(candidate);
-                    return _cachedPosterFamily.Value;
+                    var family = AddFontFile(candidate);
+                    FamiliesByScript[script] = family;
+                    return family;
                 }
                 catch
                 {
@@ -342,18 +467,35 @@ internal static class PosterTitleProgrammaticRenderer
                 }
             }
 
-            foreach (var familyName in new[] { "Microsoft YaHei", "SimHei", "PingFang SC", "Arial Unicode MS" })
+            foreach (var familyName in FontFamilyNamesFor(script))
             {
                 if (SystemFonts.TryGet(familyName, out var family))
                 {
-                    _cachedPosterFamily = family;
+                    FamiliesByScript[script] = family;
                     return family;
                 }
             }
 
-            _cachedPosterFamily = SystemFonts.Families.First();
-            return _cachedPosterFamily.Value;
+            if (script != PosterTitleScript.Chinese && FamiliesByScript.TryGetValue(PosterTitleScript.Chinese, out var chinese))
+            {
+                FamiliesByScript[script] = chinese;
+                return chinese;
+            }
+
+            var fallback = SystemFonts.Families.First();
+            FamiliesByScript[script] = fallback;
+            return fallback;
         }
+    }
+
+    private static FontFamily AddFontFile(string path)
+    {
+        if (FamiliesByPath.TryGetValue(path, out var existing))
+            return existing;
+
+        var family = SharedFontCollection.Add(path);
+        FamiliesByPath[path] = family;
+        return family;
     }
 
     private static Rgba32 ChooseStrokeColor(Rgba32 textColor)

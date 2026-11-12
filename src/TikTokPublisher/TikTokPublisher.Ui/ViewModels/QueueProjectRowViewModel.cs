@@ -114,6 +114,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
         : Item.AccountProfileName;
 
     public string DownloadStatus => StepOf(QueueStepKeys.Download);
+    public string DedupStatus => StepOf(QueueStepKeys.VideoDedup);
     public string RewriteStatus => StepOf(QueueStepKeys.RewriteInfo);
     public string PosterStatus => StepOf(QueueStepKeys.GeneratePoster);
     public string EpisodeScriptStatus => StepOf(QueueStepKeys.GenerateEpisodeScript);
@@ -126,11 +127,11 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public string RepairStatus => StepOf(QueueStepKeys.SmallVideoRepair);
     public string VideoTranslateStatus => StepOf(QueueStepKeys.VideoTranslate);
     public string ValidateStatus => StepOf(QueueStepKeys.MaterialValidate);
-    public string DeleteSourceStatus => StepOf(QueueStepKeys.DeleteSourceVideos);
     public string UploadStatus => StepOf(QueueStepKeys.UploadSeries);
 
     public string StatusText => Item.StatusText;
     public IBrush DownloadStatusBrush => BrushOf(DownloadStatus);
+    public IBrush DedupStatusBrush => BrushOf(DedupStatus);
     public IBrush RewriteStatusBrush => BrushOf(RewriteStatus);
     public IBrush PosterStatusBrush => BrushOf(PosterStatus);
     public IBrush EpisodeScriptStatusBrush => BrushOf(EpisodeScriptStatus);
@@ -143,7 +144,6 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush RepairStatusBrush => BrushOf(RepairStatus);
     public IBrush VideoTranslateStatusBrush => BrushOf(VideoTranslateStatus);
     public IBrush ValidateStatusBrush => BrushOf(ValidateStatus);
-    public IBrush DeleteSourceStatusBrush => BrushOf(DeleteSourceStatus);
     public IBrush UploadStatusBrush => BrushOf(UploadStatus);
     public IBrush StatusTextBrush => BrushOf(StatusText);
     public IBrush DramaTitleBrush => HasFailure
@@ -154,6 +154,7 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
                 ? RunningTitleBrush
                 : PrimaryTextBrush;
     public IBrush DownloadStatusBackgroundBrush => BackgroundOf(DownloadStatus);
+    public IBrush DedupStatusBackgroundBrush => BackgroundOf(DedupStatus);
     public IBrush RewriteStatusBackgroundBrush => BackgroundOf(RewriteStatus);
     public IBrush PosterStatusBackgroundBrush => BackgroundOf(PosterStatus);
     public IBrush EpisodeScriptStatusBackgroundBrush => BackgroundOf(EpisodeScriptStatus);
@@ -166,10 +167,10 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush RepairStatusBackgroundBrush => BackgroundOf(RepairStatus);
     public IBrush VideoTranslateStatusBackgroundBrush => BackgroundOf(VideoTranslateStatus);
     public IBrush ValidateStatusBackgroundBrush => BackgroundOf(ValidateStatus);
-    public IBrush DeleteSourceStatusBackgroundBrush => BackgroundOf(DeleteSourceStatus);
     public IBrush UploadStatusBackgroundBrush => BackgroundOf(UploadStatus);
     public IBrush StatusTextBackgroundBrush => BackgroundOf(StatusText);
     public IBrush DownloadStatusBorderBrush => BorderOf(DownloadStatus);
+    public IBrush DedupStatusBorderBrush => BorderOf(DedupStatus);
     public IBrush RewriteStatusBorderBrush => BorderOf(RewriteStatus);
     public IBrush PosterStatusBorderBrush => BorderOf(PosterStatus);
     public IBrush EpisodeScriptStatusBorderBrush => BorderOf(EpisodeScriptStatus);
@@ -182,7 +183,6 @@ public sealed partial class QueueProjectRowViewModel : ViewModelBase
     public IBrush RepairStatusBorderBrush => BorderOf(RepairStatus);
     public IBrush VideoTranslateStatusBorderBrush => BorderOf(VideoTranslateStatus);
     public IBrush ValidateStatusBorderBrush => BorderOf(ValidateStatus);
-    public IBrush DeleteSourceStatusBorderBrush => BorderOf(DeleteSourceStatus);
     public IBrush UploadStatusBorderBrush => BorderOf(UploadStatus);
     public IBrush StatusTextBorderBrush => BorderOf(StatusText);
     public string LastError => Item.LastError;

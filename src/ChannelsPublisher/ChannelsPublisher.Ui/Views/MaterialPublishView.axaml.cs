@@ -17,8 +17,9 @@ namespace ChannelsPublisher.Desktop.Views;
 /// 可独立放进窗口（MainWindow），也可被 ConvertTools 壳作为一个 Tab 承载。</summary>
 public partial class MaterialPublishView : UserControl
 {
-    // 每账号一个内嵌浏览器（都挂在 BrowserArea 里，靠 IsVisible 切换显示，隐藏的仍存活）
+    // 内嵌浏览器只在登录或发布时创建；切换账号时关闭空闲的，每个约占 0.6 GB。
     private readonly Dictionary<string, WebView2Host> _hosts = new();
+    private readonly HashSet<string> _busyAccountIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly PlaywrightPublishAutomation _automation = new();
     private PublishScheduler? _scheduler;
     private MainViewModel? _vm;
@@ -95,6 +96,17 @@ public partial class MaterialPublishView : UserControl
     public void ShowAccountSettings()
     {
         WorkspaceTabs.SelectedIndex = 1;
+    }
+
+    public void SetAccountSettingsOnly(bool settingsOnly)
+    {
+        for (var index = 0; index < WorkspaceTabs.ItemCount; index++)
+        {
+            if (WorkspaceTabs.Items[index] is TabItem tab)
+                tab.IsVisible = !settingsOnly || index == 1;
+        }
+        if (settingsOnly)
+            ShowAccountSettings();
     }
 
     public void SelectAccount(string accountId)
@@ -210,18 +222,18 @@ public partial class MaterialPublishView : UserControl
     {
         if (!_ready || BrowserArea is null || EmptyHint is null) return;
 
+        ReleaseIdleHosts(account?.Id);
         foreach (var host in _hosts.Values)
             host.IsVisible = false;
 
-        if (account is null)
+        if (account is not null && _hosts.TryGetValue(account.Id, out var target))
         {
-            EmptyHint.IsVisible = _hosts.Count == 0;
+            target.IsVisible = true;
+            EmptyHint.IsVisible = false;
             return;
         }
 
-        var target = GetOrCreateHost(account);
-        target.IsVisible = true;
-        EmptyHint.IsVisible = false;
+        EmptyHint.IsVisible = true;
     }
 
     private WebView2Host GetOrCreateHost(AccountItemViewModel account)
@@ -233,22 +245,53 @@ public partial class MaterialPublishView : UserControl
         {
             UserDataFolder = account.Model.ProfileDir,
             StorageStatePath = account.Model.WeixinAuthStatePath,
-            RemoteDebuggingPort = 9222 + _hosts.Count, // 每账号唯一 CDP 端口
-            IsVisible = false,
+            RemoteDebuggingPort = NextFreeDebuggingPort(),
+            IsVisible = _vm?.SelectedAccount?.Id == account.Id,
         };
         host.Ready += () => _vm?.RecordAccountLogin(account);
         _hosts[account.Id] = host;
         BrowserArea.Children.Add(host);
+        if (host.IsVisible) EmptyHint.IsVisible = false;
 
         host.Navigate(MainViewModel.ChannelsLoginUrl);
         return host;
     }
 
+    private int NextFreeDebuggingPort()
+    {
+        var used = _hosts.Values.Select(host => host.RemoteDebuggingPort).ToHashSet();
+        var port = 9222;
+        while (used.Contains(port)) port++;
+        return port;
+    }
+
+    private void ReleaseIdleHosts(string? keepAccountId)
+    {
+        foreach (var id in _hosts.Keys.ToArray())
+        {
+            if (string.Equals(id, keepAccountId, StringComparison.OrdinalIgnoreCase) || _busyAccountIds.Contains(id))
+                continue;
+            RemoveHost(id);
+        }
+    }
+
+    private void RemoveHost(string accountId)
+    {
+        if (!_hosts.Remove(accountId, out var host)) return;
+        BrowserArea.Children.Remove(host);
+        if (_vm?.Accounts.FirstOrDefault(item => item.Id == accountId) is { Status: AccountStatus.Online } account)
+            account.Status = AccountStatus.Offline;
+    }
+
     public void ReloadAccountSession(string accountId)
     {
-        if (_hosts.Remove(accountId, out var host)) BrowserArea.Children.Remove(host);
+        var wasOpen = _hosts.ContainsKey(accountId);
+        RemoveHost(accountId);
         if (_vm?.Accounts.FirstOrDefault(item => item.Id == accountId) is { } account)
+        {
+            if (wasOpen) GetOrCreateHost(account);
             ShowAccount(account);
+        }
     }
 
     public void RefreshImportedAccount(PublishAccount account)
@@ -266,7 +309,7 @@ public partial class MaterialPublishView : UserControl
         var preferred = importedAccounts.LastOrDefault()?.Id ?? _vm?.SelectedAccount?.Id;
         _vm?.ReloadAccounts(preferred);
         foreach (var id in ids)
-            if (_hosts.Remove(id, out var host)) BrowserArea.Children.Remove(host);
+            RemoveHost(id);
         ShowAccount(_vm?.SelectedAccount);
         SelectedAccountChanged?.Invoke(_vm?.SelectedAccount?.Model);
     }
@@ -281,11 +324,6 @@ public partial class MaterialPublishView : UserControl
         var vm = _vm;
         var account = vm?.SelectedAccount;
         if (vm is null || account is null) { if (vm != null) vm.StatusMessage = "请先选择账号"; return; }
-        if (!_hosts.TryGetValue(account.Id, out var host) || host.CdpEndpoint is null)
-        {
-            vm.StatusMessage = "该账号内嵌浏览器未就绪（先点「登录」或等待加载完成）";
-            return;
-        }
         if (Storage is null) return;
 
         var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -300,16 +338,26 @@ public partial class MaterialPublishView : UserControl
         var item = new PublishItem { VideoPath = file.Path.LocalPath, Description = "【多账号发布测试】" };
         ApplyConfigDefaults(item); // 描述已填则保留测试标记，仅补剧集/封面/原创等配置默认
         _scheduler ??= new PublishScheduler(_automation);
-        var job = new AccountPublishJob(account.Model, host.CdpEndpoint!, new[] { item });
 
-        vm.StatusMessage = $"[{account.Name}] 发布中：{item.DisplayName}…";
+        _busyAccountIds.Add(account.Id);
         try
         {
+            string endpoint;
+            try { endpoint = await EnsureAccountCdpEndpointAsync(account.Id, CancellationToken.None); }
+            catch (Exception)
+            {
+                vm.StatusMessage = "该账号内嵌浏览器未就绪（先点「登录」或等待加载完成）";
+                return;
+            }
+
+            var job = new AccountPublishJob(account.Model, endpoint, new[] { item });
+            vm.StatusMessage = $"[{account.Name}] 发布中：{item.DisplayName}…";
             await _scheduler.RunAsync(new[] { job }, FinalAction.None, maxParallelAccounts: 1,
                 p => Dispatcher.UIThread.Post(() => vm.StatusMessage = $"[{p.AccountName}] {p.ItemName}：{p.Message}"),
                 CancellationToken.None);
         }
         catch (Exception ex) { vm.StatusMessage = $"发布失败：{ex.Message}"; }
+        finally { _busyAccountIds.Remove(account.Id); }
     }
 
     // ────────────── 全局配置对话框 ──────────────
@@ -438,25 +486,34 @@ public partial class MaterialPublishView : UserControl
             }
         }
 
+        _publishCts = new CancellationTokenSource();
+        SetPublishing(true);
+        var runAccountIds = candidates.Select(t => t.Account.Id).Distinct().ToList();
+        _busyAccountIds.UnionWith(runAccountIds);
         var jobs = new List<AccountPublishJob>();
         foreach (var group in candidates.GroupBy(t => t.Account.Id))
         {
             var acctVm = group.First().Account;
-            if (!_hosts.TryGetValue(acctVm.Id, out var host) || host.CdpEndpoint is null)
+            string endpoint;
+            try { endpoint = await EnsureAccountCdpEndpointAsync(acctVm.Id, _publishCts.Token); }
+            catch (Exception)
             {
                 foreach (var t in group) { t.Status = PublishTaskStatus.Failed; t.Message = "浏览器未就绪（先登录该账号）"; }
                 continue;
             }
             foreach (var t in group) { t.Status = PublishTaskStatus.Pending; t.Message = "排队中"; }
-            jobs.Add(new AccountPublishJob(acctVm.Model, host.CdpEndpoint!, group.Select(t => t.Item).ToList()));
+            jobs.Add(new AccountPublishJob(acctVm.Model, endpoint, group.Select(t => t.Item).ToList()));
         }
-        if (jobs.Count == 0) { vm.StatusMessage = "无可发布账号（选中账号的浏览器都未就绪）"; return; }
+        if (jobs.Count == 0)
+        {
+            vm.StatusMessage = "无可发布账号（选中账号的浏览器都未就绪）";
+            EndPublishRun(runAccountIds);
+            return;
+        }
 
         _scheduler ??= new PublishScheduler(_automation);
         var finalAction = vm.SelectedFinalAction?.Value ?? FinalAction.None;
         var strategyLabel = strategy switch { "resume" => "断点续传", "retry_failed" => "仅重试失败", _ => "全部" };
-        _publishCts = new CancellationTokenSource();
-        SetPublishing(true);
         vm.StatusMessage = $"开始发布：{jobs.Count} 账号 / {candidates.Count} 素材（{strategyLabel}，{finalAction.ToLabel()}，并发 {vm.MaxParallel}）"
                            + (resumed > 0 ? $"，续传跳过 {resumed}" : "");
         try
@@ -476,12 +533,16 @@ public partial class MaterialPublishView : UserControl
             vm.StatusMessage = "已停止：完成的已保留，未完成可再次「开始」续传";
         }
         catch (Exception ex) { vm.StatusMessage = $"发布出错：{ex.Message}"; }
-        finally
-        {
-            _publishCts?.Dispose();
-            _publishCts = null;
-            SetPublishing(false);
-        }
+        finally { EndPublishRun(runAccountIds); }
+    }
+
+    private void EndPublishRun(IEnumerable<string> accountIds)
+    {
+        _publishCts?.Dispose();
+        _publishCts = null;
+        SetPublishing(false);
+        _busyAccountIds.ExceptWith(accountIds);
+        ShowAccount(_vm?.SelectedAccount);
     }
 
     private void OnStopPublishClick(object? sender, RoutedEventArgs e)

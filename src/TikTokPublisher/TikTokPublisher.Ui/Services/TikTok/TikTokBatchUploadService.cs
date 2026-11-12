@@ -70,6 +70,14 @@ public static class TikTokBatchUploadService
             baselineReadyCount: 0,
             expectedTotal: payload.EpisodeCount);
 
+        await WaitAllEpisodesReadyAsync(
+            page,
+            Math.Max(payload.EpisodeCount, uploadPaths.Count),
+            uploadPaths,
+            TikTokBrowserActions.PayloadTitleCandidates(payload),
+            options,
+            log,
+            ct);
         await TikTokBrowserActions.FillSharedPublishFieldsAsync(
             page, payload, options, recommendation, log, ct);
         log?.Invoke("TikTok 分批上传完成，其余表单已填写。");
@@ -122,80 +130,248 @@ public static class TikTokBatchUploadService
         // 进度分母使用短剧总集数（补传时=已就绪 baseline + 本次补传数，通常等于总集数）。
         var grandTotal = Math.Max(expectedTotal, baselineReadyCount + total);
 
-        var batches = new List<List<string>>();
-        for (var i = 0; i < total; i += batchSize)
-            batches.Add(videoPaths.Skip(i).Take(batchSize).ToList());
-
+        var batchCount = (total + batchSize - 1) / batchSize;
         log?.Invoke(
-            $"分批上传：短剧总集数 {grandTotal}，本次补传 {total} 集，每批 {batchSize} 个，分 {batches.Count} 批顺序上传" +
+            $"分批上传：短剧总集数 {grandTotal}，本次补传 {total} 集，每批 {batchSize} 个，分 {batchCount} 批顺序上传" +
             (baselineReadyCount > 0 ? $"（已有 {baselineReadyCount} 集就绪）。" : "。"));
 
         var readyDone = baselineReadyCount;
-        for (var batchIndex = 0; batchIndex < batches.Count; batchIndex++)
+        var uploadedCount = 0;
+        var orderRepairs = 0;
+        var orderDeferred = false;
+        while (uploadedCount < total)
         {
-            var batch = batches[batchIndex];
+            var batchIndex = uploadedCount / batchSize;
+            var batch = videoPaths.Skip(uploadedCount).Take(batchSize).ToList();
             var labels = string.Join("、", batch.Select(EpisodeLabel));
+            var batchEpisodes = batch.Select(EpisodeNumber).Where(episode => episode > 0).ToArray();
             var targetReady = readyDone + batch.Count;
+            var batchStallSeconds = TikTokBrowserActions.ResolveUploadStallSeconds(
+                stallSeconds, batch.Count, batch);
             var attempt = 0;
+            var feedThisAttempt = true;
 
             while (true)
             {
                 attempt++;
                 ct.ThrowIfCancellationRequested();
-                log?.Invoke($"第 {batchIndex + 1}/{batches.Count} 批（{labels}）开始上传（第 {attempt} 次尝试）。");
-
-                var accepted = await FeedBatchAsync(page, batch, targetReady, log, ct);
-                var outcome = BatchWaitOutcome.Stuck;
-                if (accepted)
+                if (feedThisAttempt)
                 {
-                    var batchStallSeconds = TikTokBrowserActions.ResolveUploadStallSeconds(
-                        stallSeconds, batch.Count, batch);
-                    outcome = await WaitBatchAsync(
-                        page,
-                        batch.Select(EpisodeNumber).Where(episode => episode > 0).ToArray(),
-                        targetReady,
-                        grandTotal,
-                        titleCandidates,
-                        batchStallSeconds,
-                        log,
-                        ct);
-                }
+                    log?.Invoke($"第 {batchIndex + 1}/{batchCount} 批（{labels}）开始上传（第 {attempt} 次尝试）。");
+                    var accepted = await FeedBatchAsync(page, batch, targetReady, log, ct);
+                    if (!accepted && !await BatchEpisodesAreOnPageAsync(page, batchEpisodes))
+                    {
+                        // 文件选择命令成功返回后，页面可能只是延迟渲染视频行。此时再次选择
+                        // 同一批会把已经被平台接收的文件重复加入列表。确认超时后只重读编辑页，
+                        // 由对齐逻辑补真正缺失的集，不在同一次选择里重传本批。
+                        throw new BatchUploadAcceptanceUncertainException(
+                            $"TikTok 分批上传状态不确定：第 {batchIndex + 1} 批（{labels}）" +
+                            $"执行文件选择后，{BatchAcceptanceTimeoutSeconds} 秒内页面仍未显示对应视频行。" +
+                            "已停止自动重选，避免重复上传。");
+                    }
 
-                if (outcome == BatchWaitOutcome.Done)
-                {
-                    readyDone = targetReady;
-                    log?.Invoke(
-                        $"第 {batchIndex + 1}/{batches.Count} 批上传完成（已就绪 {readyDone}/{grandTotal}）。");
-                    break;
-                }
-
-                if (accepted)
-                {
-                    log?.Invoke($"⚠️ 第 {batchIndex + 1} 批检测到卡死，删除本批并重传（第 {attempt}/{maxRetries} 次）。");
-                    var batchEpisodes = batch.Select(EpisodeNumber).Where(n => n > 0).ToList();
-                    await DeleteBatchRowsAsync(page, batchEpisodes, log, ct);
+                    if (!accepted)
+                        log?.Invoke($"第 {batchIndex + 1} 批文件已在页面上，继续等待，不再重新选择。");
                 }
                 else
                 {
-                    // 文件选择命令成功返回后，页面可能只是延迟渲染视频行。此时再次选择
-                    // 同一批会把已经被平台接收的文件重复加入列表。确认超时后只重读编辑页，
-                    // 由对齐逻辑补真正缺失的集，不在同一次选择里重传本批。
-                    throw new BatchUploadAcceptanceUncertainException(
-                        $"TikTok 分批上传状态不确定：第 {batchIndex + 1} 批（{labels}）" +
-                        $"执行文件选择后，{BatchAcceptanceTimeoutSeconds} 秒内页面仍未显示对应视频行。" +
-                        "已停止自动重选，避免重复上传。");
+                    log?.Invoke($"第 {batchIndex + 1}/{batchCount} 批（{labels}）继续处理（第 {attempt} 次尝试）。");
                 }
+
+                var outcome = await WaitBatchAsync(
+                    page,
+                    batchEpisodes,
+                    targetReady,
+                    grandTotal,
+                    titleCandidates,
+                    batchStallSeconds,
+                    log,
+                    ct);
+                if (outcome.Kind == BatchWaitKind.CardFailed)
+                {
+                    log?.Invoke(
+                        $"⚠️ {DescribeFailedEpisodeCards(outcome.FailedEpisodes)}，先点重试" +
+                        $"（第 {attempt}/{maxRetries} 次）。");
+                    await RetryFailedEpisodeCardsAsync(page, outcome.FailedEpisodes, log, ct);
+                    if (await WaitForBatchFailureToClearAsync(page, batchEpisodes, log, ct))
+                    {
+                        outcome = await WaitBatchAsync(
+                            page,
+                            batchEpisodes,
+                            targetReady,
+                            grandTotal,
+                            titleCandidates,
+                            batchStallSeconds,
+                            log,
+                            ct);
+                    }
+                }
+
+                if (outcome.Kind == BatchWaitKind.Done)
+                {
+                    readyDone = targetReady;
+                    log?.Invoke(
+                        $"第 {batchIndex + 1}/{batchCount} 批上传完成（已就绪 {readyDone}/{grandTotal}）。");
+                    break;
+                }
+
+                var reason = outcome.Kind == BatchWaitKind.CardFailed
+                    ? DescribeFailedEpisodeCards(outcome.FailedEpisodes)
+                    : outcome.Kind == BatchWaitKind.TrimFailed
+                        ? "多出的正片行还没删掉"
+                        : "进度停住";
+                log?.Invoke(
+                    $"⚠️ 第 {batchIndex + 1} 批{reason}，删除本批并重传（第 {attempt}/{maxRetries} 次）。");
+                var removed = await TryDeleteBatchRowsAsync(page, batchEpisodes, log, ct);
+                if (!removed)
+                {
+                    log?.Invoke(
+                        $"⚠️ 第 {batchIndex + 1} 批删除按钮还没出现或仍不可点，留到下一次尝试，不重新选择文件。");
+                    feedThisAttempt = false;
+                }
+                else
+                {
+                    feedThisAttempt = true;
+                }
+
                 if (attempt >= maxRetries)
                 {
                     throw new InvalidOperationException(
-                        accepted
-                            ? $"TikTok 分批上传失败：第 {batchIndex + 1} 批（{labels}）重试 {maxRetries} 次仍卡死。"
-                            : $"TikTok 分批上传失败：第 {batchIndex + 1} 批（{labels}）执行文件选择 {maxRetries} 次后，页面仍未出现视频行或上传状态。");
+                        removed
+                            ? $"TikTok 分批上传失败：第 {batchIndex + 1} 批（{labels}）重试 {maxRetries} 次仍未完成。"
+                            : $"TikTok 分批上传失败：第 {batchIndex + 1} 批（{labels}）重试 {maxRetries} 次仍无法删除本批行。");
                 }
+
+                if (!removed)
+                    await page.WaitForTimeoutAsync(1500);
             }
+
+            // 重试、补传的那一集会被平台接到列表末尾，后面每批都会跟着错位。每批传完就核对位置，
+            // 错了只删从错位处开始的行再接着传，不等全部传完才发现。
+            var uploadedSoFar = videoPaths.Take(uploadedCount + batch.Count).Select(EpisodeNumber).ToList();
+            var order = await ReadUploadedOrderAsync(page, uploadedSoFar, ct);
+            if (order is null)
+            {
+                log?.Invoke($"⚠️ 第 {batchIndex + 1} 批完成后未能读全正片集号，跳过本批顺序校验。");
+                uploadedCount += batch.Count;
+                continue;
+            }
+
+            var check = order.Value;
+            if (check.Aligned >= uploadedSoFar.Count)
+            {
+                log?.Invoke($"第 {batchIndex + 1}/{batchCount} 批顺序校验通过：正片 {check.RowCount} 行集号与位置一致。");
+                uploadedCount += batch.Count;
+                continue;
+            }
+
+            // 只是位置不对、没有重复时不删行，全部处理完后由 WaitAllEpisodesReadyAsync 按集号拖动排序。
+            if (!check.Duplicated)
+            {
+                if (!orderDeferred)
+                {
+                    var slot = check.RowCount - uploadedSoFar.Count + check.Aligned + 1;
+                    log?.Invoke(
+                        $"第 {batchIndex + 1} 批完成后顺序不对：第 {slot} 个位置应为第 {uploadedSoFar[check.Aligned]} 集，" +
+                        $"实际是第 {check.ActualAtFirstBad} 集。不删行，全部传完后按集号拖动排序。");
+                    orderDeferred = true;
+                }
+
+                uploadedCount += batch.Count;
+                continue;
+            }
+
+            orderRepairs++;
+            var keepSlots = check.RowCount - uploadedSoFar.Count + check.Aligned;
+            var expectedEpisode = uploadedSoFar[check.Aligned];
+            if (orderRepairs > MaxBatchOrderRepairs)
+            {
+                throw new InvalidOperationException(
+                    $"TikTok 分批上传顺序校验失败：第 {keepSlots + 1} 个位置应为第 {expectedEpisode} 集，" +
+                    $"实际是第 {check.ActualAtFirstBad} 集，已重传 {MaxBatchOrderRepairs} 次仍错位。");
+            }
+
+            log?.Invoke(
+                $"⚠️ 第 {batchIndex + 1} 批完成后顺序不对：第 {keepSlots + 1} 个位置应为第 {expectedEpisode} 集，" +
+                $"实际是第 {check.ActualAtFirstBad} 集。删除第 {keepSlots + 1} 个位置起的所有行，" +
+                $"从第 {expectedEpisode} 集重新上传（第 {orderRepairs}/{MaxBatchOrderRepairs} 次）。");
+            await TikTokBrowserActions.DeleteEditVideoRowsFromSlotAsync(page, keepSlots, log, ct);
+            uploadedCount = check.Aligned;
+            readyDone = keepSlots;
         }
 
         await EnsureFailedEpisodesRetriedAsync(page, videoPaths, log, ct);
+    }
+
+    private const int MaxBatchOrderRepairs = 3;
+
+    internal readonly record struct UploadOrderCheck(int RowCount, int Aligned, int ActualAtFirstBad, bool Duplicated = false);
+
+    /// <summary>
+    /// 核对本次已传的集是否按顺序排在列表末尾。返回从本次第一集起位置正确的集数；
+    /// 集号读不全或文件名里没有集号时返回 null，表示无法判断。
+    /// </summary>
+    internal static UploadOrderCheck? CheckUploadedOrder(
+        IReadOnlyList<TikTokBrowserActions.EditVideoRow> rows,
+        IReadOnlyList<int> uploadedEpisodes)
+    {
+        if (uploadedEpisodes.Count == 0 || uploadedEpisodes.Any(episode => episode <= 0))
+            return null;
+
+        var ordered = rows.OrderBy(row => row.Slot).ToList();
+        if (ordered.Count < uploadedEpisodes.Count)
+            return null;
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            if (ordered[index].Slot != index + 1)
+                return null;
+        }
+
+        var offset = ordered.Count - uploadedEpisodes.Count;
+        var seen = ordered.Take(offset).Select(row => row.Real).ToHashSet();
+        var duplicated = ordered.Select(row => row.Real).Distinct().Count() != ordered.Count;
+        for (var index = 0; index < uploadedEpisodes.Count; index++)
+        {
+            var real = ordered[offset + index].Real;
+            if (real != uploadedEpisodes[index] || !seen.Add(real))
+                return new UploadOrderCheck(ordered.Count, index, real, duplicated);
+        }
+
+        return new UploadOrderCheck(ordered.Count, uploadedEpisodes.Count, 0);
+    }
+
+    private static async Task<UploadOrderCheck?> ReadUploadedOrderAsync(
+        IPage page,
+        IReadOnlyList<int> uploadedEpisodes,
+        CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var rows = await TikTokBrowserActions.ReadEditVideoRowsAsync(page, ct);
+                var rowCount = await ReadUploadTableRowCountAsync(page);
+                if (rows.Count > 0 && rows.Count == rowCount)
+                {
+                    var check = CheckUploadedOrder(rows, uploadedEpisodes);
+                    if (check is not null)
+                        return check;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // 列表刚重绘时读不全，稍后再读。
+            }
+
+            await page.WaitForTimeoutAsync(1500);
+        }
+
+        return null;
     }
 
     private static async Task<bool> FeedBatchAsync(
@@ -273,9 +449,9 @@ public static class TikTokBatchUploadService
             var rowCount = await ReadUploadTableRowCountAsync(page);
             if (rowCount > targetReady)
             {
-                throw new InvalidOperationException(
-                    $"TikTok 本批上传后正片表格已有 {rowCount} 行，超过本批目标 {targetReady} 行。" +
-                    "已立即停止后续批次，避免继续产生重复视频；请重新执行编辑，程序会清空正片后从第1集重传。");
+                if (!await TryTrimExtraRowsAsync(page, targetReady, rowCount, log, ct))
+                    await page.WaitForTimeoutAsync(1500);
+                continue;
             }
 
             var activity = TikTokUploadProgressParser.DetectUploadActivity(bodyText, cardTexts);
@@ -308,7 +484,7 @@ public static class TikTokBatchUploadService
         return null;
     }
 
-    private static async Task<BatchWaitOutcome> WaitBatchAsync(
+    private static async Task<BatchWaitResult> WaitBatchAsync(
         IPage page,
         IReadOnlyCollection<int> batchEpisodes,
         int targetReady,
@@ -336,8 +512,11 @@ public static class TikTokBatchUploadService
             await TikTokBrowserActions.ThrowIfDailyEpisodeLimitAsync(page).ConfigureAwait(false);
 
             var cardTexts = await TikTokBrowserActions.ReadUploadTableTextsAsync(page);
-            if (TikTokUploadProgressParser.CurrentBatchUploadFailed(cardTexts, batchEpisodes))
-                return BatchWaitOutcome.Stuck;
+            var failedInBatch = TikTokUploadProgressParser.FailedEpisodeNumbers(cardTexts)
+                .Where(batchEpisodes.Contains)
+                .ToArray();
+            if (failedInBatch.Length > 0)
+                return BatchWaitResult.CardFailed(failedInBatch);
 
             var otherFailures = TikTokUploadProgressParser.FailedEpisodeNumbers(cardTexts)
                 .Where(episode => !batchEpisodes.Contains(episode) && retriedOtherEpisodes.Add(episode))
@@ -355,20 +534,21 @@ public static class TikTokBatchUploadService
 
             if (rowCount > targetReady)
             {
-                throw new InvalidOperationException(
-                    $"TikTok 本批上传后正片表格已有 {rowCount} 行，超过本批目标 {targetReady} 行。" +
-                    "已立即停止后续批次，避免继续产生重复视频；请重新执行编辑，程序会清空正片后从第1集重传。");
+                if (!await TryTrimExtraRowsAsync(page, targetReady, rowCount, log, ct))
+                    return BatchWaitResult.TrimFailed;
+                lastChange = DateTime.UtcNow;
+                continue;
             }
 
             if (TikTokUploadProgressParser.IsUploadComplete(ready, targetReady, activity))
-                return BatchWaitOutcome.Done;
+                return BatchWaitResult.Done;
 
             if (rowCount >= targetReady && !uploading && activity.WaitingCount == 0)
             {
                 // 全量行数已达标且页面无上传中标记；连续确认多轮，防止虚拟化把正在上传的行滚出视口造成误判。
                 doneStreak++;
                 if (doneStreak >= 3)
-                    return BatchWaitOutcome.Done;
+                    return BatchWaitResult.Done;
             }
             else
             {
@@ -383,7 +563,7 @@ public static class TikTokBatchUploadService
             }
             else if ((DateTime.UtcNow - lastChange).TotalSeconds >= stallSeconds)
             {
-                return BatchWaitOutcome.Stuck;
+                return BatchWaitResult.Stalled;
             }
 
             var readyLabel = ready?.ToString() ?? "识别中";
@@ -404,7 +584,11 @@ public static class TikTokBatchUploadService
     private static async Task<int> ReadUploadTableRowCountAsync(IPage page) =>
         await TikTokBrowserActions.ReadEpisodeListCountAsync(page) ?? 0;
 
-    private static async Task<int> DeleteBatchRowsAsync(
+    /// <summary>
+    /// 删掉本批对应的行。按钮要等真实鼠标悬停才出现；第一次找不到或不可点时返回 false，
+    /// 由外层留在重试里，不把已经传好的剧集整部作废。
+    /// </summary>
+    private static async Task<bool> TryDeleteBatchRowsAsync(
         IPage page,
         IReadOnlyList<int> episodes,
         Action<string>? log,
@@ -412,21 +596,36 @@ public static class TikTokBatchUploadService
     {
         ct.ThrowIfCancellationRequested();
         var targets = episodes.Where(e => e > 0).Distinct().OrderBy(e => e).ToList();
-        if (targets.Count == 0) return 0;
+        if (targets.Count == 0)
+            return true;
 
         var deleted = 0;
+        var misses = 0;
         for (var guard = 0; guard < 200; guard++)
         {
             ct.ThrowIfCancellationRequested();
             var result = await ClickBatchDeleteButtonAsync(page, targets);
+            if (await TikTokBrowserActions.HoverDeletePointAsync(page, result))
+                result = await ClickBatchDeleteButtonAsync(page, targets);
 
             if (result == "no-table")
-                throw new InvalidOperationException("删除本批行失败：页面上未找到剧集正片列表。");
+            {
+                log?.Invoke("删除本批行失败：页面上未找到剧集正片列表。");
+                return false;
+            }
             if (result.StartsWith("none:", StringComparison.Ordinal))
                 break;
             if (!result.StartsWith("clicked:", StringComparison.Ordinal))
-                throw new InvalidOperationException($"删除本批行失败：{result}");
+            {
+                misses++;
+                log?.Invoke($"删除本批行还没点到（{result}）。");
+                if (misses >= 3)
+                    return false;
+                await page.WaitForTimeoutAsync(600);
+                continue;
+            }
 
+            misses = 0;
             await page.WaitForTimeoutAsync(500);
             await TikTokBrowserActions.ConfirmDeleteDialogIfPresentAsync(page, ct);
             await page.WaitForTimeoutAsync(700);
@@ -437,7 +636,7 @@ public static class TikTokBatchUploadService
             throw new InvalidOperationException("删除本批行次数异常超限，已中止。");
 
         log?.Invoke($"已删除本批 {deleted} 行（集号 {string.Join(", ", targets)}）。");
-        return deleted;
+        return true;
     }
 
     private static async Task<string> ClickBatchDeleteButtonAsync(
@@ -491,7 +690,12 @@ public static class TikTokBatchUploadService
                 hoverRow(target.tr);
                 await sleep(60);
                 const button = findDeleteButton(target.tr);
-                if (!button) return `no-button:${target.episode}`;
+                if (!button) {
+                  const box = target.tr.getBoundingClientRect();
+                  const x = Math.round(box.x + box.width / 2);
+                  const y = Math.round(box.y + box.height / 2);
+                  return `need-hover:${target.episode}:${x}:${y}`;
+                }
                 if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
                   return `disabled:${target.episode}`;
                 }
@@ -669,6 +873,249 @@ public static class TikTokBatchUploadService
             "已停止提交，避免带着失败视频继续；请重新执行编辑。");
     }
 
+    internal enum EpisodeReadyVerdict
+    {
+        Ready,
+        Waiting,
+        RowsMissing,
+        RowsExtra,
+    }
+
+    /// <summary>
+    /// 「剧集正片 X/Y」里的 X 只数处理完的集，行出现不代表平台已收下。
+    /// 就绪数、行数都到总集数，且没有上传中、等待中、失败卡片，才算全部完成。
+    /// </summary>
+    internal static EpisodeReadyVerdict JudgeAllEpisodesReady(
+        int? readyCount,
+        int rowCount,
+        int expectedCount,
+        int failedCount,
+        TikTokUploadActivity activity)
+    {
+        var idle = !activity.Uploading && activity.WaitingCount == 0 && failedCount == 0;
+        var readyEnough = readyCount is null
+            ? rowCount >= expectedCount
+            : readyCount.Value >= expectedCount;
+        if (idle && readyEnough && (rowCount <= 0 || rowCount == expectedCount))
+            return EpisodeReadyVerdict.Ready;
+
+        if (idle && rowCount > 0 && rowCount < expectedCount)
+            return EpisodeReadyVerdict.RowsMissing;
+
+        if (idle && rowCount > expectedCount)
+            return EpisodeReadyVerdict.RowsExtra;
+
+        return EpisodeReadyVerdict.Waiting;
+    }
+
+    private const int MaxEpisodeCardRetries = 2;
+    private const int EpisodeFailureGraceSeconds = 60;
+    private const int RowsMissingGraceSeconds = 60;
+    private const int MaxMissingEpisodeRefills = 1;
+
+    /// <summary>
+    /// 填写其余表单前等全部正片上传并处理完，并确认集号与位置一致。
+    /// 失败卡片先点重试；缺行时把缺的集补传到末尾；顺序不对时按集号拖动排序。
+    /// 这些都修不好就停下，不再带着残缺或乱序的正片去填表和提交。
+    /// </summary>
+    public static async Task WaitAllEpisodesReadyAsync(
+        IPage page,
+        int expectedCount,
+        IReadOnlyList<string> videoPaths,
+        IReadOnlyList<string>? titleCandidates,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (expectedCount <= 0)
+            return;
+
+        var stallLimit = TikTokBrowserActions.ResolveUploadStallSeconds(options.UploadStallSeconds, expectedCount, videoPaths);
+        var deadline = DateTime.UtcNow.AddSeconds(
+            TikTokBrowserActions.ResolveUploadTimeoutSeconds(7200, expectedCount, videoPaths));
+        var retries = new Dictionary<int, int>();
+        DateTime? lastRetryAt = null;
+        DateTime? rowsMissingSince = null;
+        var refills = 0;
+        (int? Ready, int Rows, int Failed, bool Uploading, int Waiting)? lastSig = null;
+        var lastChange = DateTime.UtcNow;
+        var readyStreak = 0;
+        var lastLog = "";
+
+        log?.Invoke($"等待全部 {expectedCount} 集正片上传并处理完成，再填写其余表单。");
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            string bodyText;
+            try { bodyText = await page.Locator("body").InnerTextAsync(new() { Timeout = 5000 }); }
+            catch { bodyText = ""; }
+
+            TikTokBrowserActions.ThrowIfTikTokCrashText(bodyText);
+            await TikTokBrowserActions.ThrowIfDailyEpisodeLimitAsync(page).ConfigureAwait(false);
+
+            IReadOnlyList<string> cards;
+            try { cards = await TikTokBrowserActions.ReadUploadTableTextsAsync(page); }
+            catch { cards = Array.Empty<string>(); }
+
+            var failed = TikTokUploadProgressParser.FailedEpisodeNumbers(cards);
+            var ready = TikTokBrowserActions.ExtractReadyUploadedVideoCount(bodyText, titleCandidates);
+            var rowCount = await ReadUploadTableRowCountAsync(page);
+            var activity = TikTokUploadProgressParser.DetectUploadActivity(bodyText, cards);
+            var verdict = JudgeAllEpisodesReady(ready, rowCount, expectedCount, failed.Count, activity);
+
+            if (verdict == EpisodeReadyVerdict.Ready)
+            {
+                if (++readyStreak >= 2)
+                {
+                    await EnsureEpisodeOrderAsync(page, log, ct);
+                    log?.Invoke($"全部 {expectedCount} 集正片已上传并处理完成（表格 {rowCount} 行），开始填写其余表单。");
+                    return;
+                }
+            }
+            else
+            {
+                readyStreak = 0;
+            }
+
+            if (failed.Count > 0)
+            {
+                var retryable = failed
+                    .Where(episode => retries.GetValueOrDefault(episode) < MaxEpisodeCardRetries)
+                    .ToArray();
+                var graceOver = lastRetryAt is null ||
+                                (DateTime.UtcNow - lastRetryAt.Value).TotalSeconds >= EpisodeFailureGraceSeconds;
+                if (retryable.Length > 0 && graceOver)
+                {
+                    foreach (var episode in retryable)
+                        retries[episode] = retries.GetValueOrDefault(episode) + 1;
+                    log?.Invoke(
+                        $"⚠️ 第 {string.Join("、", retryable)} 集上传失败，点卡片上的重试" +
+                        $"（第 {retries[retryable[0]]}/{MaxEpisodeCardRetries} 次）。");
+                    await RetryFailedEpisodeCardsAsync(page, retryable, log, ct);
+                    lastRetryAt = DateTime.UtcNow;
+                    lastChange = DateTime.UtcNow;
+                }
+                else if (retryable.Length == 0 && graceOver)
+                {
+                    throw new InvalidOperationException(
+                        $"TikTok 第 {string.Join("、", failed)} 集上传失败，重试 {MaxEpisodeCardRetries} 次仍未恢复。" +
+                        "已停止，不填写其余表单、不提交。");
+                }
+            }
+
+            if (verdict is EpisodeReadyVerdict.RowsMissing or EpisodeReadyVerdict.RowsExtra)
+            {
+                rowsMissingSince ??= DateTime.UtcNow;
+                if ((DateTime.UtcNow - rowsMissingSince.Value).TotalSeconds >= RowsMissingGraceSeconds)
+                {
+                    if (verdict == EpisodeReadyVerdict.RowsExtra)
+                    {
+                        throw new InvalidOperationException(
+                            $"TikTok 正片表格有 {rowCount} 行，超过总集数 {expectedCount}。已停止，不填写其余表单、不提交。");
+                    }
+
+                    var missing = refills < MaxMissingEpisodeRefills
+                        ? await ResolveMissingEpisodePathsAsync(page, videoPaths, rowCount, ct)
+                        : Array.Empty<string>();
+                    if (missing.Count == 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"TikTok 正片表格只有 {rowCount}/{expectedCount} 行，页面已没有上传中的视频，" +
+                            $"缺 {expectedCount - rowCount} 集。已停止，不填写其余表单、不提交。");
+                    }
+
+                    refills++;
+                    log?.Invoke(
+                        $"⚠️ 正片表格只有 {rowCount}/{expectedCount} 行，缺第 " +
+                        $"{string.Join("、", missing.Select(EpisodeNumber))} 集，补传到末尾，处理完成后按集号拖动排序。");
+                    await UploadPathsInBatchesAsync(
+                        page, missing, options, titleCandidates, log, ct,
+                        baselineReadyCount: rowCount, expectedTotal: expectedCount);
+                    rowsMissingSince = null;
+                    lastSig = null;
+                    lastChange = DateTime.UtcNow;
+                    continue;
+                }
+            }
+            else
+            {
+                rowsMissingSince = null;
+            }
+
+            var sig = (ready, rowCount, failed.Count, activity.Uploading, activity.WaitingCount);
+            if (lastSig != sig)
+            {
+                lastSig = sig;
+                lastChange = DateTime.UtcNow;
+            }
+            else if ((DateTime.UtcNow - lastChange).TotalSeconds >= stallLimit)
+            {
+                throw new TimeoutException(
+                    $"TikTok 正片处理约 {(int)stallLimit} 秒没有进展（已就绪 {ready?.ToString() ?? "识别中"}/{expectedCount}，" +
+                    $"表格 {rowCount} 行）。已停止，不填写其余表单、不提交。");
+            }
+
+            var msg =
+                $"⏳ 等待正片处理：已就绪 {ready?.ToString() ?? "识别中"}/{expectedCount}，表格 {rowCount} 行，" +
+                $"{(activity.Uploading ? "仍在处理" : "无处理中标记")}，等待中 {activity.WaitingCount} 个" +
+                (failed.Count > 0 ? $"，第 {string.Join("、", failed)} 集上传失败" : "") + "。";
+            if (verdict != EpisodeReadyVerdict.Ready && msg != lastLog)
+            {
+                log?.Invoke(msg);
+                lastLog = msg;
+            }
+
+            await page.WaitForTimeoutAsync(3000);
+        }
+
+        throw new TimeoutException(
+            $"等待 TikTok 全部 {expectedCount} 集正片处理完成超时。已停止，不填写其余表单、不提交。");
+    }
+
+    /// <summary>集号读全（读到的行数等于表格行数）才按集号算缺失，否则会把读漏的集当成缺失重复上传。</summary>
+    private static async Task<IReadOnlyList<string>> ResolveMissingEpisodePathsAsync(
+        IPage page,
+        IReadOnlyList<string> videoPaths,
+        int rowCount,
+        CancellationToken ct)
+    {
+        List<TikTokBrowserActions.EditVideoRow> rows;
+        try
+        {
+            rows = await TikTokBrowserActions.ReadEditVideoRowsAsync(page, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Array.Empty<string>();
+        }
+
+        if (rows.Count != rowCount)
+            return Array.Empty<string>();
+        return TikTokBrowserActions.ResolveMissingUploadPathsByIndexes(
+            videoPaths, rows.Select(row => row.Real).ToList());
+    }
+
+    private static async Task EnsureEpisodeOrderAsync(IPage page, Action<string>? log, CancellationToken ct)
+    {
+        var rows = await TikTokBrowserActions.ReadEditVideoRowsAsync(page, ct);
+        if (rows.Count == 0)
+        {
+            log?.Invoke("⚠️ 未读到正片集号，跳过顺序核对。");
+            return;
+        }
+
+        var aligned = TikTokBrowserActions.FindAlignedEditVideoPrefixCount(rows);
+        if (aligned >= rows.Count)
+            return;
+
+        if (await TikTokBrowserActions.ReorderEditVideosByEpisodeAsync(page, log, ct))
+            return;
+
+        throw new InvalidOperationException(
+            $"TikTok 正片顺序不对（前 {aligned} 个位置正确，共 {rows.Count} 行），拖动排序未成功。" +
+            "已停止，不填写其余表单、不提交。");
+    }
+
     private static IReadOnlyList<int> ReadRetryEpisodes(string result, string marker)
     {
         var start = result.IndexOf(marker, StringComparison.Ordinal);
@@ -700,9 +1147,107 @@ public static class TikTokBatchUploadService
         public BatchUploadAcceptanceUncertainException(string message) : base(message) { }
     }
 
-    private enum BatchWaitOutcome
+    private enum BatchWaitKind
     {
         Done,
-        Stuck,
+        CardFailed,
+        Stalled,
+        TrimFailed,
+    }
+
+    private readonly record struct BatchWaitResult(BatchWaitKind Kind, IReadOnlyList<int> FailedEpisodes)
+    {
+        public static BatchWaitResult Done { get; } = new(BatchWaitKind.Done, Array.Empty<int>());
+        public static BatchWaitResult Stalled { get; } = new(BatchWaitKind.Stalled, Array.Empty<int>());
+        public static BatchWaitResult TrimFailed { get; } = new(BatchWaitKind.TrimFailed, Array.Empty<int>());
+
+        public static BatchWaitResult CardFailed(IReadOnlyList<int> episodes) =>
+            new(BatchWaitKind.CardFailed, episodes);
+    }
+
+    internal static string DescribeFailedEpisodeCards(IReadOnlyList<int> episodes)
+    {
+        if (episodes.Count == 0)
+            return "本批卡片显示上传失败";
+        return $"第 {string.Join("、", episodes)} 集卡片显示上传失败";
+    }
+
+    private static async Task<bool> BatchEpisodesAreOnPageAsync(IPage page, IReadOnlyCollection<int> episodes)
+    {
+        if (episodes.Count == 0)
+            return false;
+        try
+        {
+            var cards = await TikTokBrowserActions.ReadUploadTableTextsAsync(page);
+            return TikTokUploadProgressParser.BatchEpisodesAreOnPage(cards, episodes);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> WaitForBatchFailureToClearAsync(
+        IPage page,
+        IReadOnlyCollection<int> episodes,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            await page.WaitForTimeoutAsync(1000);
+            IReadOnlyList<string> cards;
+            try
+            {
+                cards = await TikTokBrowserActions.ReadUploadTableTextsAsync(page);
+            }
+            catch
+            {
+                continue;
+            }
+
+            var failed = TikTokUploadProgressParser.FailedEpisodeNumbers(cards)
+                .Where(episodes.Contains)
+                .ToArray();
+            if (failed.Length == 0)
+            {
+                log?.Invoke("失败卡片已离开「上传失败」，继续等待本批完成。");
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> TryTrimExtraRowsAsync(
+        IPage page,
+        int keepCount,
+        int rowCount,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var extra = rowCount - keepCount;
+        // 正常多出的是本批多选的几行。差额大过一整批时，多半是草稿里已经有更早的集，
+        // 按目标行数删会把已经传好的集清掉。
+        if (extra > 20)
+        {
+            log?.Invoke(
+                $"正片表格已有 {rowCount} 行，比目标 {keepCount} 行多出 {extra} 行，超过一批，不自动删行。");
+            return false;
+        }
+
+        log?.Invoke($"正片表格已有 {rowCount} 行，超过目标 {keepCount} 行，先删除多出的行。");
+        try
+        {
+            await TikTokBrowserActions.DeleteEditVideoRowsFromSlotAsync(page, keepCount, log, ct);
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            log?.Invoke($"删除多出行未完成：{ex.Message}");
+            return false;
+        }
     }
 }

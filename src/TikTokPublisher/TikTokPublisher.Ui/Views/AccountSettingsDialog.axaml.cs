@@ -13,6 +13,7 @@ public partial class AccountSettingsDialog : Window
 {
     private readonly TikTokAccountProfile _profile;
     private readonly Func<TikTokAccountProfile, Task>? _persist;
+    private bool _suppressDramaMarketPrompt;
 
     public AccountSettingsDialog(
         TikTokAccountProfile profile,
@@ -28,6 +29,19 @@ public partial class AccountSettingsDialog : Window
     private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
 
     private void LoadToUi()
+    {
+        _suppressDramaMarketPrompt = true;
+        try
+        {
+            LoadToUiCore();
+        }
+        finally
+        {
+            _suppressDramaMarketPrompt = false;
+        }
+    }
+
+    private void LoadToUiCore()
     {
         var p = _profile;
         NameBox.Text = p.Name;
@@ -48,12 +62,13 @@ public partial class AccountSettingsDialog : Window
         var submitAction = NormalizeSubmitAction(p.TiktokSubmitAction, p.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
-        SelectByTag(UploadBrowserModeCombo, p.TiktokUploadBrowserMode, "embedded");
+        SelectByTag(UploadBrowserModeCombo, p.TiktokUploadBrowserMode, "playwright");
         PlaywrightHeadlessBox.IsChecked = p.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
+        SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(p.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
-        SelectByTag(UploadStrategyCombo, p.TiktokUploadStrategy, "classic");
+        SelectByTag(UploadStrategyCombo, p.TiktokUploadStrategy, "api");
 
         PaidEnabledBox.IsChecked = p.TiktokPaidEnabled;
         PaidRatioEnabledBox.IsChecked = p.TiktokPaidRatioEnabled;
@@ -69,6 +84,7 @@ public partial class AccountSettingsDialog : Window
             p.TiktokUploadAiScriptOutlineWithScreenshots,
             p.TiktokUploadSourceInfoRoleVector,
             p.TiktokUploadSourceInfoRoleSceneScreenshot);
+        ProofTemplatePathBox.Text = p.TiktokProofTemplateDocxPath;
         ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = p.TiktokProofSealPath;
@@ -113,6 +129,8 @@ public partial class AccountSettingsDialog : Window
         UploadBatchSizeBox.Value = p.TiktokUploadBatchSize;
         UploadBatchStallBox.Value = p.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = p.TiktokUploadBatchMaxRetries;
+        UploadApiConcurrencyBox.Value = p.TiktokUploadApiConcurrency;
+        UploadApiFallbackBox.IsChecked = p.TiktokUploadApiFallbackToBatch;
         SelectByTag(ExpectedPriceModeCombo, p.TiktokExpectedFullPriceMode, "manual");
         ExpectedPriceOptionIndexBox.Value = p.TiktokExpectedFullPriceOptionIndex;
         ExpectedPriceValueBox.Text = !string.IsNullOrWhiteSpace(p.TiktokExpectedFullPriceLabel)
@@ -152,12 +170,13 @@ public partial class AccountSettingsDialog : Window
         p.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
         p.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
         p.TiktokSubmitEnabled = string.Equals(p.TiktokSubmitAction, "submit", StringComparison.Ordinal);
-        p.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "embedded");
+        p.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "playwright");
         p.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
+        p.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
         p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
-        p.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "classic");
+        p.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "api");
         p.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
         p.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
         p.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
@@ -169,6 +188,8 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
         p.TiktokUploadSourceInfoRoleVector = CopyrightMaterials.UploadSourceInfoRoleVector;
         p.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
+        p.TiktokProofTemplateDocxPath = ProofTemplatePathBox.Text?.Trim() ?? "";
+        p.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.ChineseLanguage;
         p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
@@ -208,6 +229,8 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
         p.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
         p.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
+        p.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
+        p.TiktokUploadApiFallbackToBatch = UploadApiFallbackBox.IsChecked != false;
         p.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
         p.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
         var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
@@ -294,6 +317,49 @@ public partial class AccountSettingsDialog : Window
         var path = files.FirstOrDefault()?.TryGetLocalPath();
         if (!string.IsNullOrWhiteSpace(path))
             ProofSealPathBox.Text = path;
+    }
+
+    private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e)
+    {
+        if (Storage is null) return;
+        var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择证明材料 Word 模板",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Word 模板")
+                {
+                    Patterns = ["*.docx"],
+                },
+            ],
+        });
+        var path = files.FirstOrDefault()?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(path))
+            ProofTemplatePathBox.Text = path;
+    }
+
+    private async void OnDramaMarketSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressDramaMarketPrompt)
+            return;
+        if (!string.Equals(
+                TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal),
+                TikTokAccountProfile.DramaMarketOverseas,
+                StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var confirmed = await ConfirmDialog.ShowAsync(
+            this,
+            "海外剧",
+            "是否同步把源语言改为「AI识别语言」，并勾选「改写信息跟随源语言」？",
+            520,
+            200);
+        if (!confirmed)
+            return;
+
+        SelectByTag(SourceLanguageCombo, "auto", "auto");
+        RewriteFollowsSourceLanguageBox.IsChecked = true;
     }
 
     private void OnSave(object? sender, RoutedEventArgs e)

@@ -5,6 +5,7 @@ public enum DispatchConfirmDecision
     Execute,
     RejectOnce,
     RejectToday,
+    Dismissed,
 }
 
 public enum DispatchConfirmOffer

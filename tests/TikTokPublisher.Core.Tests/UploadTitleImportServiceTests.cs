@@ -7,6 +7,15 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class UploadTitleImportServiceTests
 {
     [Fact]
+    public void BookIdForSeries_maps_hongguo_app_and_offline_to_the_same_chain()
+    {
+        UploadTitleImportService.BookIdForSeries("hongguoapp", "731").Should().Be("hongguoapp:731");
+        UploadTitleImportService.BookIdForSeries("hgoffline", "731").Should().Be("hongguoapp:731");
+        UploadTitleImportService.BookIdForSeries("hglocal", "731").Should().Be("hglocal:731");
+        UploadTitleImportService.BookIdForSeries("unknown", "731").Should().Be("");
+    }
+
+    [Fact]
     public void PickPreferredSearchMatch_Should_Report_Empty_Upstream_Result()
     {
         var (_, reason) = UploadTitleImportService.PickPreferredSearchMatch("亮亮就业", []);

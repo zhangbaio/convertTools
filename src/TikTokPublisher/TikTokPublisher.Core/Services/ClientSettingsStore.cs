@@ -357,6 +357,18 @@ public static class ClientSettingsStore
         Save(settings, databasePath);
     }
 
+    public static void RememberServerDispatchMode(string? mode, string? databasePath = null)
+    {
+        var canonical = QueueProjectSlotCoordinator.NormalizeServerDispatchMode(mode);
+        if (canonical.Length == 0)
+            return;
+        var settings = Load(databasePath);
+        if (string.Equals(settings.ServerDispatchMode, canonical, StringComparison.Ordinal))
+            return;
+        settings.ServerDispatchMode = canonical;
+        Save(settings, databasePath);
+    }
+
     public static void PatchHongguoAppPlaybackIdentity(string deviceId, string installId, string? databasePath = null)
     {
         if (string.IsNullOrWhiteSpace(deviceId) || string.IsNullOrWhiteSpace(installId))
@@ -368,13 +380,23 @@ public static class ClientSettingsStore
         Save(settings, databasePath);
     }
 
+    public static string NormalizeDramaDownloadQuality(string? quality)
+    {
+        var text = (quality ?? "").Trim();
+        if (text.Contains("1080", StringComparison.OrdinalIgnoreCase) && text.Contains('+'))
+            return "1080P+";
+        if (text.Contains("720", StringComparison.OrdinalIgnoreCase))
+            return "720P";
+        if (text.Contains("1080", StringComparison.OrdinalIgnoreCase))
+            return "1080P";
+        return "1080P";
+    }
+
     private static ClientSettings Normalize(ClientSettings settings)
     {
         settings.DramaSourceChain = VisibleDramaSource.Normalize(settings.DramaSourceChain);
 
-        settings.DramaDownloadDefaultQuality = string.IsNullOrWhiteSpace(settings.DramaDownloadDefaultQuality)
-            ? "1080P"
-            : settings.DramaDownloadDefaultQuality.Trim();
+        settings.DramaDownloadDefaultQuality = NormalizeDramaDownloadQuality(settings.DramaDownloadDefaultQuality);
         settings.DramaDownloadConcurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
         settings.DramaDownloadMaxParallelProjects = Math.Clamp(
             settings.DramaDownloadMaxParallelProjects <= 0 ? 1 : settings.DramaDownloadMaxParallelProjects,
@@ -403,6 +425,24 @@ public static class ClientSettingsStore
         settings.ForeignSearchSource = ForeignPlayletClient.NormalizeSource(settings.ForeignSearchSource);
         settings.ForeignLanguage = ForeignPlayletClient.NormalizeLanguage(settings.ForeignLanguage);
         settings.TiktokMaterialValidateConcurrency = Math.Clamp(settings.TiktokMaterialValidateConcurrency, 1, 16);
+        settings.TiktokGlobalProjectConcurrency = Math.Clamp(
+            settings.TiktokGlobalProjectConcurrency <= 0 ? QueueProjectSlotCoordinator.DefaultCapacity : settings.TiktokGlobalProjectConcurrency,
+            1,
+            QueueProjectSlotCoordinator.MaxCapacity);
+        settings.TiktokAccountScheduleMode = QueueProjectSlotCoordinator.NormalizeMode(settings.TiktokAccountScheduleMode);
+        settings.ServerDispatchMode = QueueProjectSlotCoordinator.NormalizeServerDispatchMode(settings.ServerDispatchMode);
+        settings.TiktokVideoDedupConcurrency = Math.Clamp(
+            settings.TiktokVideoDedupConcurrency <= 0 ? 2 : settings.TiktokVideoDedupConcurrency,
+            1,
+            4);
+        settings.TiktokUploadConcurrency = Math.Clamp(
+            settings.TiktokUploadConcurrency <= 0 ? 2 : settings.TiktokUploadConcurrency,
+            1,
+            UploadSlotCoordinator.MaxCapacity);
+        settings.KuaishouProjectImageConcurrency = Math.Clamp(
+            settings.KuaishouProjectImageConcurrency <= 0 ? 3 : settings.KuaishouProjectImageConcurrency,
+            1,
+            8);
         settings.TiktokAsrLanguage = string.IsNullOrWhiteSpace(settings.TiktokAsrLanguage)
             ? "zh-CN"
             : settings.TiktokAsrLanguage.Trim();
@@ -534,6 +574,8 @@ public static class ClientSettingsStore
         settings.TiktokProofTemplateDocxPath = (settings.TiktokProofTemplateDocxPath ?? "").Trim();
         if (TikTokProofMaterialTemplateProvider.IsLegacyDefaultPath(settings.TiktokProofTemplateDocxPath))
             settings.TiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+        settings.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.NormalizeSystemLanguage(
+            settings.TiktokProofTemplateLanguage);
         settings.TiktokProofDeclarantCompanyName = (settings.TiktokProofDeclarantCompanyName ?? "").Trim();
         settings.TiktokProofSealPath = (settings.TiktokProofSealPath ?? "").Trim();
         settings.TiktokProofPdfRenderer = NormalizeProofPdfRenderer(settings.TiktokProofPdfRenderer);
@@ -623,7 +665,11 @@ public static class ClientSettingsStore
     {
         var current = settings.KuaishouPublishInfoPrompt?.Trim() ?? "";
         if (current.Length > 0)
-            return current;
+        {
+            return string.Equals(current, ClientSettingsDefaults.KuaishouPublishInfoPromptPrevious.Trim(), StringComparison.Ordinal)
+                ? ClientSettingsDefaults.KuaishouPublishInfoPrompt
+                : current;
+        }
 
         var legacy = settings.AiFullInfoSystemPrompt?.Trim() ?? "";
         return legacy.Length > 0 &&

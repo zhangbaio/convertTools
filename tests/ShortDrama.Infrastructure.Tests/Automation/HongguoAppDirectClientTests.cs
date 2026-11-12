@@ -298,35 +298,74 @@ public sealed class HongguoAppDirectClientTests
     }
 
     [Fact]
-    public async Task DesktopPlanPlaybackUsesSignedModel()
+    public async Task DesktopPlanPlaybackUsesVideoTabModel()
     {
         var urls = new List<string>();
         const string videoId = "7600111222333444555";
         var model = """
-            {"code":0,"data":{"7600111222333444555":{"video_model":{"video_list":[{"main_url":"https://v.fqnovelvod.com/a","video_meta":{"definition":"1080p","size":12}}]}}}}
+            {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/a\",\"codec_type\":\"bytevc1\",\"video_meta\":{\"definition\":\"1080p\",\"size\":12}}]}"}}
             """;
-        HongguoSignedPlayback.Transport = Script(urls, _ => Json(model));
-        try
-        {
-            using var http = new HttpClient();
-            var client = new HongguoAppDirectClient(http);
-            var playback = await client.GetVideoPlaybackAsync(
-                HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, videoId),
-                "1080",
-                CancellationToken.None,
-                "2855907370751180",
-                "2855907370755276",
-                plan: "2");
-            Assert.StartsWith("https://v.fqnovelvod.com/a", playback.Url, StringComparison.Ordinal);
-            Assert.Contains(urls, url => url.Contains("https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/v1/", StringComparison.Ordinal));
-            Assert.Contains(urls, url => url.Contains("version_name=7.1.3.32", StringComparison.Ordinal));
-            Assert.Contains(urls, url => url.Contains("device_id=2855907370751180", StringComparison.Ordinal));
-            Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/preload/", StringComparison.Ordinal));
-        }
-        finally
-        {
-            HongguoSignedPlayback.Transport = null;
-        }
+        using var http = new HttpClient(Script(urls, _ => Json(model)));
+        var client = new HongguoAppDirectClient(http);
+        var playback = await client.GetVideoPlaybackAsync(
+            HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, videoId),
+            "1080",
+            CancellationToken.None,
+            "2855907370751180",
+            "2855907370755276",
+            plan: "2");
+
+        Assert.StartsWith("https://v.fqnovelvod.com/a", playback.Url, StringComparison.Ordinal);
+        Assert.Contains(urls, url => url.Contains("https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/video_model/v1/?", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("version_name=7.4.2.32", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("device_level=3", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("video_platform=1024", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("video_id=" + videoId, StringComparison.Ordinal));
+        Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task DesktopPlanLowersToHevcWhenRequestedQualityIsByteVc2()
+    {
+        var urls = new List<string>();
+        var model = """
+            {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/1080\",\"codec_type\":\"bytevc2\",\"video_meta\":{\"definition\":\"1080p\",\"size\":20}},{\"main_url\":\"https://v.fqnovelvod.com/720\",\"codec_type\":\"bytevc1\",\"video_meta\":{\"definition\":\"720p\",\"size\":8}}]}"}}
+            """;
+        using var http = new HttpClient(Script(urls, _ => Json(model)));
+        var client = new HongguoAppDirectClient(http);
+        var playback = await client.GetVideoPlaybackAsync(
+            HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 6, "7600111222333444555"),
+            "1080P",
+            CancellationToken.None,
+            "2855907370751180",
+            "2855907370755276",
+            plan: "2");
+
+        Assert.Equal("https://v.fqnovelvod.com/720", playback.Url);
+        Assert.Equal(720, playback.Definition);
+    }
+
+    [Fact]
+    public async Task DesktopPlanSkipsWhenNoHevcRemains()
+    {
+        var urls = new List<string>();
+        var model = """
+            {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/1080\",\"codec_type\":\"bytevc2\",\"video_meta\":{\"definition\":\"1080p\",\"size\":20}},{\"main_url\":\"https://v.fqnovelvod.com/720\",\"codec_type\":\"bytevc2\",\"video_meta\":{\"definition\":\"720p\",\"size\":8}}]}"}}
+            """;
+        using var http = new HttpClient(Script(urls, _ => Json(model)));
+        var client = new HongguoAppDirectClient(http);
+        var error = await Assert.ThrowsAsync<HongguoHighException>(() => client.GetVideoPlaybackAsync(
+            HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 14, "7600111222333444555"),
+            "1080P",
+            CancellationToken.None,
+            "2855907370751180",
+            "2855907370755276",
+            plan: "2"));
+
+        Assert.Contains("没有 FFmpeg 可播放的下载地址", error.Message, StringComparison.Ordinal);
+        Assert.Contains("更换剧集", error.Message, StringComparison.Ordinal);
+        Assert.Contains("更换下载链路", error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("桌面链路失败", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -468,8 +507,64 @@ public sealed class HongguoAppDirectClientTests
         }
     }
 
+    [Fact]
+    public async Task EmulatorRankUsesInstalledBoardKeys()
+    {
+        var urls = new List<string>();
+        using var http = new HttpClient(Script(urls, _ => Json(RankPayload)));
+        var client = new HongguoAppDirectClient(http);
+        HongguoAppDirectClient.ReadEmulatorDevice = EmulatorPair;
+        try
+        {
+            var page = await client.GetRankPageAsync("AI剧", "预约榜", 10, CancellationToken.None);
+            Assert.Equal("归墟第一季", page.Items[0].Title);
+            Assert.True(page.HasMore);
+            Assert.Equal(10, page.NextOffset);
+            Assert.Contains(urls, url => url.Contains("https://reading.snssdk.com/reading/bookapi/bookmall/cell/change/v?", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("selected_items=ai_playlet", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("sub_selected_items=ai_playlet_subscribe", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("version_name=7.4.3.32", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("offset=10", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("device_id=1234567890123456", StringComparison.Ordinal));
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+        }
+    }
+
+    [Fact]
+    public async Task RankWithoutEmulatorUsesAuditHost()
+    {
+        var urls = new List<string>();
+        using var http = new HttpClient(Script(urls, _ => Json(RankPayload)));
+        var client = new HongguoAppDirectClient(http);
+        var devicePath = Path.Combine(Path.GetTempPath(), "hongguo-audit-" + Guid.NewGuid().ToString("N") + ".json");
+        HongguoAppDirectClient.ReadEmulatorDevice = NoEmulator;
+        HongguoAppDirectClient.AuditDevicePathOverride = devicePath;
+        try
+        {
+            var page = await client.GetRankPageAsync("漫剧", "推荐榜", 0, CancellationToken.None);
+            Assert.Equal("归墟第一季", page.Items[0].Title);
+            Assert.Contains(urls, url => url.Contains("https://api5-normal-sinfonlinea.fqnovel.com/reading/bookapi/bookmall/cell/change/v?", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("selected_items=comic_series_rank", StringComparison.Ordinal));
+            Assert.Contains(urls, url => url.Contains("sub_selected_items=comic_series_hot_rank", StringComparison.Ordinal));
+            Assert.DoesNotContain(urls, url => url.Contains("offset=", StringComparison.Ordinal));
+        }
+        finally
+        {
+            HongguoAppDirectClient.ReadEmulatorDevice = null;
+            HongguoAppDirectClient.AuditDevicePathOverride = null;
+            try { File.Delete(devicePath); } catch { /* 测试身份用完即删。 */ }
+        }
+    }
+
+    private const string RankPayload = """
+        {"code":0,"data":{"has_more":true,"next_offset":10,"cell_view":{"cell_data":[{"video_data":[{"series_id":"7123456789","title":"归墟第一季","episode_cnt":64}]}]}}}
+        """;
+
     private const string AuditModel = """
-        {"code":0,"data":{"video_model":{"video_list":[{"main_url":"https://example.test/a","video_meta":{"definition":"1080p","size":12},"encrypt_info":{"spade_a":"abc"}}]}}}
+        {"code":0,"data":{"video_model":{"video_list":[{"main_url":"https://example.test/a","codec_type":"bytevc1","video_meta":{"definition":"1080p","size":12},"encrypt_info":{"spade_a":"abc"}}]}}}
         """;
 
     private static bool NoEmulator(out string deviceId, out string installId)

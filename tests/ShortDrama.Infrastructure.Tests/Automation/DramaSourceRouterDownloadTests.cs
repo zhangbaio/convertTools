@@ -1296,6 +1296,77 @@ public sealed class DramaSourceRouterDownloadTests
             Concurrent: 1,
             EpisodeNumberMode: "source");
 
+    [Fact]
+    public async Task EnsureVideosPlayableAsync_rejects_a_codec_ffmpeg_cannot_decode()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-playback-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var playable = Path.Combine(outputDir, "第1集.mp4");
+        var blocked = Path.Combine(outputDir, "第2集.mp4");
+        await File.WriteAllBytesAsync(playable, [0, 1, 2]);
+        await File.WriteAllBytesAsync(blocked, [0, 1, 2]);
+        var previousResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        var previousRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+        using var httpClient = new HttpClient();
+
+        try
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = (startInfo, _) =>
+            {
+                var path = startInfo.ArgumentList.Last();
+                var codec = path.Contains("第2集", StringComparison.Ordinal) ? "unknown" : "h264";
+                return Task.FromResult(ProbeResult(codec));
+            };
+            var router = CreateRouter(httpClient, new DramaSourceSettings());
+            var progress = new RecordingProgress();
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                router.EnsureVideosPlayableAsync(outputDir, [playable, blocked], progress, CancellationToken.None));
+
+            error.Message.Should().Contain("第2集无法播放");
+            error.Message.Should().Contain("请更换剧集或更换下载链路");
+            progress.Messages.Should().Contain(message => message.Contains("正在检查 2 个视频", StringComparison.Ordinal));
+            var state = JsonDocument.Parse(File.ReadAllText(Path.Combine(outputDir, ".weixin-channel-download-state.json")));
+            state.RootElement.GetProperty("ok").GetBoolean().Should().BeFalse();
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousRunner;
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task EnsureVideosPlayableAsync_accepts_ffmpeg_decodable_videos()
+    {
+        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-playback-ok-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outputDir);
+        var path = Path.Combine(outputDir, "第1集.mp4");
+        await File.WriteAllBytesAsync(path, [0, 1, 2]);
+        var previousResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
+        var previousRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
+        using var httpClient = new HttpClient();
+
+        try
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
+            DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) => Task.FromResult(ProbeResult("h264"));
+            var router = CreateRouter(httpClient, new DramaSourceSettings());
+
+            await router.EnsureVideosPlayableAsync(outputDir, [path], progress: null, CancellationToken.None);
+
+            File.Exists(Path.Combine(outputDir, ".weixin-channel-download-state.json")).Should().BeFalse();
+        }
+        finally
+        {
+            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousResolver;
+            DramaSourceRouter.RunProcessAsyncForTests.Value = previousRunner;
+            Directory.Delete(outputDir, recursive: true);
+        }
+    }
+
     private static DramaSourceRouter CreateRouter(HttpClient httpClient, DramaSourceSettings settings) =>
         new(
             httpClient,

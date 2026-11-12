@@ -10,6 +10,11 @@ public static class QueueStepLogFilters
     public static bool RequiresLosslessUiDelivery(string? stepKey) =>
         string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal);
 
+    /// <summary>接口直传的逐集上传、挂载和测速汇总常在同一秒内连发，也要逐条传递。</summary>
+    public static bool RequiresLosslessUiDelivery(string? stepKey, string? message) =>
+        RequiresLosslessUiDelivery(stepKey) ||
+        (message?.Contains("接口直传", StringComparison.Ordinal) ?? false);
+
     public static Action<string> SummaryOnly(Action<string> forward) => message =>
     {
         if (string.IsNullOrWhiteSpace(message))

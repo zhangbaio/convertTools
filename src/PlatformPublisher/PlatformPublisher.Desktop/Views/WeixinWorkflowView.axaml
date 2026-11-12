@@ -260,7 +260,7 @@
                             <Button Content="全选已完成" Command="{Binding CheckCompletedCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
                             <Button Content="取消" Command="{Binding UncheckAllVisibleCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
                             <Button Content="删除勾选" Command="{Binding RemoveCheckedJobsCommand}" Classes="dangerSoftAction compactAction"
-                                    ToolTip.Tip="只从任务队列删除，保留项目目录和文件" />
+                                    ToolTip.Tip="从队列移出，并删除工作目录中对应的项目文件夹" />
                         </WrapPanel>
                     </Border>
                     <Border Classes="kuaishouButtonGroup" Background="#FFF5F5" BorderBrush="#F3C7C3">
@@ -277,7 +277,9 @@
                                     ToolTip.Tip="打开当前版本的上传记录 Excel。文件被占用时会另存为 pending 副本。" />
                             <Button Content="经营者管理平台" Command="{Binding OpenLoginCommand}" Classes="browserAction compactAction" Margin="0,0,6,0" />
                             <Button Content="同步管理系统" Command="{Binding SyncCheckedManagementCommand}" Classes="repairAction compactAction" Margin="0,0,6,0" />
-                            <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="logAction compactAction" />
+                            <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="logAction compactAction" Margin="0,0,6,0" />
+                            <Button x:Name="KuaishouRepairVideosButton" Content="视频补传" Click="OnRepairKuaishouVideosClick" Classes="repairAction compactAction"
+                                    ToolTip.Tip="按新剧名补传无法播放的集。列表里还有视频就直接补传；已归档的先回退并重新下载。" />
                         </WrapPanel>
                     </Border>
                     <StackPanel Orientation="Horizontal" IsVisible="False">

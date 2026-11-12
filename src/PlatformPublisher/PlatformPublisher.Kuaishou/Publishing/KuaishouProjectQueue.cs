@@ -1,7 +1,7 @@
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 /// <summary>
-/// 快手分账勾选队列：多个项目按配置同时执行。浏览器上传共用同一份登录态，由 <see cref="KuaishouUploadSlot"/> 保证同一时间只有一个项目在上传。
+/// 快手分账勾选队列：多个项目按配置同时执行。上传名额由本机闸门按账号分配，同一个账号的剧可以同时上传。
 /// </summary>
 public static class KuaishouProjectQueue
 {
@@ -70,21 +70,45 @@ public static class KuaishouProjectQueue
 public sealed class KuaishouUploadSlot
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _holderLock = new();
+    private string _holder = "";
 
-    public async Task<IDisposable> AcquireAsync(CancellationToken cancellationToken)
+    public async Task<IDisposable> AcquireAsync(
+        CancellationToken cancellationToken,
+        string? holder = null,
+        Func<string, Task>? onWait = null)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return new Release(_gate);
+        if (!await _gate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
+            if (onWait is not null)
+            {
+                string current;
+                lock (_holderLock)
+                    current = _holder;
+                await onWait(current).ConfigureAwait(false);
+            }
+
+            await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        lock (_holderLock)
+            _holder = holder?.Trim() ?? "";
+        return new Release(this);
     }
 
-    private sealed class Release(SemaphoreSlim gate) : IDisposable
+    private void ReleaseHolder()
     {
-        private int _released;
+        lock (_holderLock)
+            _holder = "";
+        _gate.Release();
+    }
 
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _released, 1) == 0)
-                gate.Release();
-        }
+    private sealed class Release : IDisposable
+    {
+        private KuaishouUploadSlot? _slot;
+
+        public Release(KuaishouUploadSlot slot) => _slot = slot;
+
+        public void Dispose() => Interlocked.Exchange(ref _slot, null)?.ReleaseHolder();
     }
 }

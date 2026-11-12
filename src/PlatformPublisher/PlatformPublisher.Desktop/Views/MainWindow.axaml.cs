@@ -46,6 +46,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         WeixinPublisherView.SetSidebarVisible(false);
+        WeixinPublisherView.SetAccountSettingsOnly(!YunfanFeatures.WeixinAssistantEnabled);
+        WeixinNavButton.IsVisible = YunfanFeatures.WeixinAssistantEnabled;
         GlobalAccountSidebar.UseShellChrome();
         KuaishouWorkflowPage.KuaishouConfigRequested += (_, _) =>
             ShowKuaishouConfigPage(ViewModel?.IsKuaishouPlatform == true
@@ -230,11 +232,9 @@ public partial class MainWindow : Window
     public void BindWeixinDownload(MainWindowViewModel mainViewModel)
     {
         var viewModel = new DramaDownloadViewModel(PlatformPublisherPaths.SettingsDatabasePath);
-        viewModel.ConfigurePlatformQueues(
-        [
-            (DramaQueuePlatforms.Kuaishou, "快手分账"),
-            (DramaQueuePlatforms.Weixin, "视频号"),
-        ]);
+        viewModel.ConfigurePlatformQueues(DramaQueuePlatformKeys()
+            .Select(key => (key, DramaQueuePlatformLabel(key)))
+            .ToArray());
         viewModel.PlatformQueueTargetRequested += ResolveDramaQueueTarget;
         viewModel.TikTokQueueTargetRequested += () =>
         {
@@ -267,8 +267,13 @@ public partial class MainWindow : Window
         };
         RefreshTarget();
         DramaDownloadHost.Content = view;
-        WeixinPublisherView.SetDramaDownloadContent(CreateDramaDownloadShortcut());
+        if (YunfanFeatures.WeixinAssistantEnabled)
+            WeixinPublisherView.SetDramaDownloadContent(CreateDramaDownloadShortcut());
     }
+
+    private static string[] DramaQueuePlatformKeys() => YunfanFeatures.WeixinAssistantEnabled
+        ? [DramaQueuePlatforms.Kuaishou, DramaQueuePlatforms.Weixin]
+        : [DramaQueuePlatforms.Kuaishou];
 
     private Control CreateDramaDownloadShortcut()
     {
@@ -322,11 +327,7 @@ public partial class MainWindow : Window
         var targets = new List<TikTokQueueImportTarget>();
         foreach (var account in WeixinPublisherView.AccountProfiles)
         {
-            foreach (var platformKey in new[]
-                     {
-                         DramaQueuePlatforms.Kuaishou,
-                         DramaQueuePlatforms.Weixin,
-                     })
+            foreach (var platformKey in DramaQueuePlatformKeys())
             {
                 var workspace = ResolveDramaQueueWorkspace(account, platformKey);
                 if (workspace is null) continue;
@@ -421,8 +422,26 @@ public partial class MainWindow : Window
 
     private void OnGlobalAccountSettingsRequested(object? sender, EventArgs e)
     {
-        ShowWeixinPage();
+        if (YunfanFeatures.WeixinAssistantEnabled)
+            ShowWeixinPage();
+        else
+            ShowAccountSettingsPage();
         WeixinPublisherView.ShowAccountSettings();
+    }
+
+    private void ShowAccountSettingsPage()
+    {
+        WeixinPublisherView.IsVisible = true;
+        DramaDownloadPage.IsVisible = false;
+        PipelinePage.IsVisible = false;
+        KuaishouWorkflowPage.IsVisible = false;
+        KuaishouLogPage.IsVisible = false;
+        KuaishouArchivePage.IsVisible = false;
+        KuaishouConfigPage.IsVisible = false;
+        SettingsPage.IsVisible = false;
+        XingeServicesPage.IsVisible = false;
+        AnalyticsPage.IsVisible = false;
+        SetActiveNavigation(WeixinNavButton);
     }
 
     private void OnWeixinNavClick(object? sender, RoutedEventArgs e) => ShowWeixinPage();
@@ -704,6 +723,11 @@ public partial class MainWindow : Window
                 ViewModel.StatusMessage = message;
         };
         XingeConnectionView.Bind(connection);
+        ViewModel.KuaishouDailyUploadLimitReached += (accountId, message) =>
+        {
+            _xingeDispatch?.ReportDailyUploadLimit(accountId);
+            _ = ConfirmDialog.ShowAsync(this, "今日短剧上传已达上限", message, 480, 210);
+        };
         _xingeDispatch = new YunfanXingeDispatchService(ViewModel);
         _xingeDispatch.StatusChanged += message =>
         {

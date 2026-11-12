@@ -46,4 +46,106 @@ public sealed class KuaishouUploadDrawerFailureTests
             sawThisUpload: true,
             stillUploading: true));
     }
+
+    [Fact]
+    public void Repair_page_keeps_the_old_upload_failure_banner_without_failing_submit()
+    {
+        const string banner = "上传失败：第10集上传失败，请重新上传。待提交";
+        Assert.False(KuaishouPersonalEpisodeUploadService.ReviewPageShowsNewFailure(banner, banner));
+    }
+
+    [Fact]
+    public void A_new_submit_failure_still_stops_the_review_wait()
+    {
+        Assert.True(KuaishouPersonalEpisodeUploadService.ReviewPageShowsNewFailure(
+            "上传失败：第10集上传失败，请重新上传。提交失败",
+            "上传失败：第10集上传失败，请重新上传。"));
+        Assert.True(KuaishouPersonalEpisodeUploadService.ReviewPageShowsNewFailure("提交失败", null));
+    }
+
+    [Fact]
+    public void Preview_on_a_card_finishes_the_gap_upload_even_if_an_old_error_class_remains()
+    {
+        Assert.Equal("uploaded", KuaishouPersonalEpisodeUploadService.ClassifyGapCard("第10集 视频预览"));
+        Assert.Equal("uploading", KuaishouPersonalEpisodeUploadService.ClassifyGapCard("第10集 上传中 46%"));
+        Assert.Equal("pending", KuaishouPersonalEpisodeUploadService.ClassifyGapCard("第10集 视频无法正常播放，建议重新制作"));
+    }
+
+    [Theory]
+    [InlineData("以下 0 项审核不通过，请修改", 0)]
+    [InlineData("以下1项审核不通过", 1)]
+    [InlineData("以下 12 项审核不通过", 12)]
+    public void Review_banner_counts_rejected_items(string pageText, int count)
+    {
+        Assert.Equal(count, KuaishouPersonalEpisodeUploadService.ReadReviewRejectionCount(pageText));
+    }
+
+    [Fact]
+    public void Page_without_a_review_banner_has_no_rejection_count()
+    {
+        Assert.Null(KuaishouPersonalEpisodeUploadService.ReadReviewRejectionCount("提交审核 上一步"));
+    }
+
+    [Fact]
+    public void Clean_preview_and_zero_rejections_finish_without_waiting()
+    {
+        var decision = KuaishouPersonalEpisodeUploadService.DecideGapUploadIdle(
+            "第18集 饺香满街 视频预览",
+            "以下 0 项审核不通过，请修改",
+            timedOut: false,
+            replaceRetried: false);
+        Assert.Equal(KuaishouPersonalEpisodeUploadService.GapUploadIdleDecision.TreatAsUploaded, decision);
+    }
+
+    [Fact]
+    public void Unplayable_card_with_remaining_rejections_retries_the_replace_input()
+    {
+        var decision = KuaishouPersonalEpisodeUploadService.DecideGapUploadIdle(
+            "第18集 视频无法正常播放，建议重新制作",
+            "以下 1 项审核不通过，请修改",
+            timedOut: true,
+            replaceRetried: false);
+        Assert.Equal(KuaishouPersonalEpisodeUploadService.GapUploadIdleDecision.RetryReplaceInput, decision);
+    }
+
+    [Fact]
+    public void Replace_retry_timeout_still_continues_to_submit_review()
+    {
+        var decision = KuaishouPersonalEpisodeUploadService.DecideGapUploadIdle(
+            "第18集 视频无法正常播放，建议重新制作",
+            "以下 1 项审核不通过，请修改",
+            timedOut: true,
+            replaceRetried: true);
+        Assert.Equal(KuaishouPersonalEpisodeUploadService.GapUploadIdleDecision.ContinueToSubmitReview, decision);
+    }
+
+    [Fact]
+    public void Zero_rejections_after_the_idle_timeout_continue_to_submit_review()
+    {
+        var decision = KuaishouPersonalEpisodeUploadService.DecideGapUploadIdle(
+            "第18集 饺香满街",
+            "以下 0 项审核不通过，请修改",
+            timedOut: true,
+            replaceRetried: false);
+        Assert.Equal(KuaishouPersonalEpisodeUploadService.GapUploadIdleDecision.ContinueToSubmitReview, decision);
+    }
+
+    [Fact]
+    public void Idle_card_without_a_review_banner_keeps_the_upload_failure()
+    {
+        var decision = KuaishouPersonalEpisodeUploadService.DecideGapUploadIdle(
+            "第18集 上传视频",
+            "批量上传视频",
+            timedOut: true,
+            replaceRetried: false);
+        Assert.Equal(KuaishouPersonalEpisodeUploadService.GapUploadIdleDecision.KeepWaiting, decision);
+    }
+
+    [Fact]
+    public void Finished_drawer_with_no_failures_can_be_closed()
+    {
+        Assert.False(KuaishouPersonalEpisodeUploadService.GapDrawerReadyToClose("上传中 46% 上传完成 0集成功，1集失败"));
+        Assert.True(KuaishouPersonalEpisodeUploadService.GapDrawerReadyToClose(
+            "上传完成 0集成功，1集失败 上传完成 1集成功，0集失败"));
+    }
 }

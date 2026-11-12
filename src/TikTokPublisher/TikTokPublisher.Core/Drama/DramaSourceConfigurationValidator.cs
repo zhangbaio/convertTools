@@ -9,13 +9,13 @@ public static class VisibleDramaSource
     public static string Normalize(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" ? chain : DefaultChain;
+        return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" or "foreign" ? chain : DefaultChain;
     }
 
     public static bool IsRetired(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hgnew" or "mapleleaf" or "downloader" or "foreign";
+        return chain is "hgnew" or "mapleleaf" or "downloader";
     }
 }
 
@@ -61,7 +61,7 @@ public static class DramaSourceConfigurationValidator
         "hglocal" => "本地直连",
         "pikachu" => "皮卡丘",
         "playlet" => "红果短剧下载器",
-        "hongguoapp" => "红果APP下载",
+        "hongguoapp" => "红果APP",
         "foreign" => "海外短剧下载器",
         "dramabox" => "DramaBox",
         "downloader" => "统一下载器",

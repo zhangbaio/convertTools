@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -747,61 +749,77 @@ public static class TikTokAiGenerationScreenshotService
                 var requestNumber = pairIndex + 1;
                 var a = frames[(shotIndex * KeyframeRatios.Length + 2) % frames.Count];
                 var b = frames[((shotIndex + 1) * KeyframeRatios.Length + 2) % frames.Count];
+                var shotLabel = $"镜头 {shotIndex + 1}-{Math.Min(shotIndex + 2, count)}";
                 var requestTimer = Stopwatch.StartNew();
                 log?.Invoke(
                     $"AI 截图/反推 [{requestNumber}/{requestCount}] 请求已发送：" +
-                    $"镜头 {shotIndex + 1}-{Math.Min(shotIndex + 2, count)}，正在等待模型响应…");
-                try
+                    $"{shotLabel}，正在等待模型响应…");
+                Exception? error = null;
+                (ShotAnalysis First, ShotAnalysis Second)? pair = null;
+                for (var attempt = 1; attempt <= 2; attempt++)
                 {
-                    var pair = await AnalyzeShotPairAsync(
-                            endpoint,
-                            apiKey,
-                            model,
-                            a,
-                            b,
-                            requestTimeoutSeconds,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    var completed = Interlocked.Increment(ref completedRequests);
+                    try
+                    {
+                        pair = await AnalyzeShotPairAsync(
+                                endpoint,
+                                apiKey,
+                                model,
+                                a,
+                                b,
+                                requestTimeoutSeconds,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        error = null;
+                        break;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        error = ex;
+                        if (attempt == 1)
+                        {
+                            log?.Invoke(
+                                $"AI 截图/反推 [{requestNumber}/{requestCount}] {shotLabel} 未完成：" +
+                                $"{DescribeVisionMiss(ex)}，再请求一次。");
+                        }
+                    }
+                }
+
+                var completed = Interlocked.Increment(ref completedRequests);
+                if (error is null && pair is not null)
+                {
                     log?.Invoke(
                         $"AI 截图/反推 [{requestNumber}/{requestCount}] 响应完成：" +
-                        $"镜头 {shotIndex + 1}-{Math.Min(shotIndex + 2, count)}；" +
-                        $"耗时={FormatElapsed(requestTimer.Elapsed)}；总进度={completed}/{requestCount}。");
-                    return (ShotIndex: shotIndex, First: pair.Item1, Second: pair.Item2, Error: (Exception?)null);
+                        $"{shotLabel}；耗时={FormatElapsed(requestTimer.Elapsed)}；总进度={completed}/{requestCount}。");
+                    return (ShotIndex: shotIndex, First: pair.Value.First, Second: pair.Value.Second, Error: (Exception?)null);
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    var completed = Interlocked.Increment(ref completedRequests);
-                    log?.Invoke(
-                        $"AI 截图/反推 [{requestNumber}/{requestCount}] 请求失败：" +
-                        $"镜头 {shotIndex + 1}-{Math.Min(shotIndex + 2, count)}；" +
-                        $"耗时={FormatElapsed(requestTimer.Elapsed)}；总进度={completed}/{requestCount}；" +
-                        $"将使用本地兜底。");
-                    return (
-                        ShotIndex: shotIndex,
-                        First: FallbackAnalysis(shotIndex, title),
-                        Second: FallbackAnalysis(shotIndex + 1, title),
-                        Error: (Exception?)ex);
-                }
+
+                log?.Invoke(
+                    $"AI 截图/反推 [{requestNumber}/{requestCount}] {shotLabel}：" +
+                    $"{DescribeVisionMiss(error!)}，已改用本地描述。" +
+                    $"耗时={FormatElapsed(requestTimer.Elapsed)}；总进度={completed}/{requestCount}。");
+                return (
+                    ShotIndex: shotIndex,
+                    First: FallbackAnalysis(shotIndex, title),
+                    Second: FallbackAnalysis(shotIndex + 1, title),
+                    Error: error);
             })
             .ToArray();
 
         var results = Task.WhenAll(tasks).GetAwaiter().GetResult();
-        log?.Invoke(
-            $"AI 截图/反推：全部请求处理完成；共 {requestCount} 组、{count} 个镜头；" +
-            $"总耗时={FormatElapsed(totalTimer.Elapsed)}。");
         var analyses = new ShotAnalysis[count];
+        var modelShots = 0;
+        var localShots = 0;
         foreach (var result in results.OrderBy(item => item.ShotIndex))
         {
-            if (result.Error is not null)
-            {
-                log?.Invoke(
-                    $"AI 截图：视觉反推失败（镜 {result.ShotIndex + 1}），改用本地兜底：{result.Error.Message}");
-            }
+            var shotCount = result.ShotIndex + 1 < count ? 2 : 1;
+            if (result.Error is null)
+                modelShots += shotCount;
+            else
+                localShots += shotCount;
 
             analyses[result.ShotIndex] = result.First;
             if (result.ShotIndex + 1 < count)
@@ -809,6 +827,12 @@ public static class TikTokAiGenerationScreenshotService
                 analyses[result.ShotIndex + 1] = result.Second;
             }
         }
+
+        log?.Invoke(
+            $"AI 截图/反推：{count.ToString(CultureInfo.InvariantCulture)} 个镜头，" +
+            $"{modelShots.ToString(CultureInfo.InvariantCulture)} 个来自模型，" +
+            $"{localShots.ToString(CultureInfo.InvariantCulture)} 个使用本地描述。" +
+            $"总耗时={FormatElapsed(totalTimer.Elapsed)}。");
 
         return analyses.ToList();
     }
@@ -1814,28 +1838,76 @@ public static class TikTokAiGenerationScreenshotService
         return "data:image/jpeg;base64," + Convert.ToBase64String(ms.ToArray());
     }
 
-    private static string ExtractJsonObject(string content)
+    internal static string ExtractJsonObject(string content)
     {
         var text = content.Trim();
-        if (text.StartsWith("```", StringComparison.Ordinal))
-        {
-            var start = text.IndexOf('{');
-            var end = text.LastIndexOf('}');
-            if (start >= 0 && end > start)
-            {
-                return text[start..(end + 1)];
-            }
-        }
+        var start = text.IndexOf('{');
+        if (start < 0)
+            throw new InvalidOperationException("视觉接口未返回 JSON 对象。");
 
-        var s = text.IndexOf('{');
-        var e = text.LastIndexOf('}');
-        if (s >= 0 && e > s)
+        var depth = 0;
+        var inString = false;
+        var escape = false;
+        for (var index = start; index < text.Length; index++)
         {
-            return text[s..(e + 1)];
+            var ch = text[index];
+            if (inString)
+            {
+                if (escape)
+                {
+                    escape = false;
+                    continue;
+                }
+
+                if (ch == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (ch == '"')
+                    inString = false;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inString = true;
+                continue;
+            }
+
+            if (ch == '{')
+            {
+                depth++;
+                continue;
+            }
+
+            if (ch != '}')
+                continue;
+
+            depth--;
+            if (depth == 0)
+                return text[start..(index + 1)];
         }
 
         throw new InvalidOperationException("视觉接口未返回 JSON 对象。");
     }
+
+    private static string DescribeVisionMiss(Exception exception)
+    {
+        if (exception is OperationCanceledException)
+            return "等待模型响应过久";
+
+        var message = exception.Message.Split('\n', 2)[0].Trim();
+        var status = VisionStatusPattern.Match(message);
+        if (status.Success)
+            return $"接口返回 {status.Groups[1].Value}";
+        if (message.Contains("JSON", StringComparison.OrdinalIgnoreCase))
+            return "返回内容不是 JSON";
+        return "模型结果不能使用";
+    }
+
+    private static readonly Regex VisionStatusPattern = new(@"视觉接口失败\s+(\d{3})", RegexOptions.CultureInvariant);
 
     private static FontFamily? ResolveFontFamily()
     {

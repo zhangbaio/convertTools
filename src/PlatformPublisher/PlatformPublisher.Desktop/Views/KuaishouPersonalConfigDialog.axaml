@@ -23,6 +23,11 @@
                         <TextBlock Text="未选择时不能生成产物或上传。改成另一种类型会删除另一版本的任务记录，不删除项目文件。"
                                    Foreground="#64748B" TextWrapping="Wrap" />
                     </StackPanel>
+                    <StackPanel Spacing="6">
+                        <CheckBox x:Name="RemoteDispatchBox" Content="远程分发" />
+                        <TextBlock Text="每个账号单独勾选。服务端也启用这个账号，并且客户端没有正在执行时，才会接收这一轮派发的剧集。"
+                                   Foreground="#64748B" TextWrapping="Wrap" />
+                    </StackPanel>
                     <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
                         <TextBlock Text="API Base URL" VerticalAlignment="Center" />
                         <TextBox x:Name="ApiBaseUrlBox" Grid.Column="1" />

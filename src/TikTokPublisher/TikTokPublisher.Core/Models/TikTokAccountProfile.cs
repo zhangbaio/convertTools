@@ -78,9 +78,9 @@ public sealed class TikTokAccountProfile
         XingeRemoteDispatchConfigured && XingeRemoteDispatchEnabled;
     public string TiktokSubmitAction { get; set; } = "submit"; // none | submit | save
     /// <summary>上传剧集使用的浏览器：embedded=内置 WebView2；playwright=程序自动启动的外部浏览器。</summary>
-    public string TiktokUploadBrowserMode { get; set; } = "embedded"; // embedded | playwright
+    public string TiktokUploadBrowserMode { get; set; } = "playwright"; // embedded | playwright
     /// <summary>playwright 模式：程序自动启动的外部浏览器是否无头运行（false=有头可见窗口）。</summary>
-    public bool TiktokPlaywrightUploadHeadless { get; set; }
+    public bool TiktokPlaywrightUploadHeadless { get; set; } = true;
     public string TiktokContractId { get; set; } = "";
     public string TiktokContractIdMode { get; set; } = "manual";
     public bool TiktokPaidEnabled { get; set; }
@@ -97,6 +97,17 @@ public sealed class TikTokAccountProfile
     public List<string> TiktokSelectedPublishAccountKeys { get; set; } = [];
     public string TiktokTargetAudienceMode { get; set; } = "ai_recommend";
     public int TiktokGenreCount { get; set; } = 3;
+    public const string DramaMarketLocal = "local";
+    public const string DramaMarketOverseas = "overseas";
+
+    /// <summary>剧集类型：local=本土剧；overseas=海外剧。未保存过的账号按本土剧。</summary>
+    public string TiktokDramaMarket { get; set; } = DramaMarketLocal;
+
+    public static string NormalizeDramaMarket(string? value) =>
+        string.Equals((value ?? "").Trim(), DramaMarketOverseas, StringComparison.OrdinalIgnoreCase)
+            ? DramaMarketOverseas
+            : DramaMarketLocal;
+
     public string TiktokSourceLanguage { get; set; } = "zh";
     public bool TiktokIsAiDrama { get; set; } = true;
     public string TiktokContentCreationType { get; set; } = "original";
@@ -129,6 +140,10 @@ public sealed class TikTokAccountProfile
     public int TiktokRoleVectorMinimumCharacterCount { get; set; } = DefaultRoleVectorMinimumCharacterCount;
     /// <summary>与本公司名称匹配的印章图片；留空时仅允许保留模板固定公司的印章。</summary>
     public string TiktokProofSealPath { get; set; } = "";
+    /// <summary>本账号的权利声明 Word 模板。留空时使用系统设置中的模板，系统设置也留空时使用内置中文模板。</summary>
+    public string TiktokProofTemplateDocxPath { get; set; } = "";
+    /// <summary>证明材料内置模板语言。界面不再提供选择，固定为中文。</summary>
+    public string TiktokProofTemplateLanguage { get; set; } = "zh";
     /// <summary>旧全局证明材料配置是否已迁移为账号级配置。</summary>
     public bool TiktokProofAccountConfigMigrated { get; set; }
 
@@ -169,10 +184,12 @@ public sealed class TikTokAccountProfile
     public string TiktokExpectedFullPriceLabel { get; set; } = "";
     public string TiktokExpectedFullPriceOptionsJson { get; set; } = "";
     public int TiktokUploadStallSeconds { get; set; } = 180;
-    public string TiktokUploadStrategy { get; set; } = "classic";
+    public string TiktokUploadStrategy { get; set; } = "api";
     public int TiktokUploadBatchSize { get; set; } = 3;
     public int TiktokUploadBatchStallSeconds { get; set; } = 75;
     public int TiktokUploadBatchMaxRetries { get; set; } = 3;
+    public int TiktokUploadApiConcurrency { get; set; } = 3;
+    public bool TiktokUploadApiFallbackToBatch { get; set; } = true;
     public string TiktokExcelReportPath { get; set; } = "";
     public List<string>? TiktokQueueEnabledSteps { get; set; }
     public bool? TiktokQueueAutoArchiveAfterUpload { get; set; }
@@ -182,6 +199,9 @@ public sealed class TikTokAccountProfile
     public bool TiktokDeleteVideosOnArchiveConfigured { get; set; }
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
+
+    /// <summary>账号自己的视频去重方案。为空时去重步骤使用内置默认方案。</summary>
+    public VideoDedupPreset? VideoDedupPreset { get; set; }
 
     /// <summary>WebView2 UserDataFolder（每账号独立浏览器会话）。</summary>
     public string ProfileDir { get; set; } = "";

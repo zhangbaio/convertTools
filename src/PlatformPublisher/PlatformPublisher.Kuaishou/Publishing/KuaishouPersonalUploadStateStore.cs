@@ -15,6 +15,8 @@ public sealed class KuaishouPersonalUploadState
     public bool EpisodeInfoCompleted { get; set; }
     public bool VideosUploaded { get; set; }
     public bool ReviewSubmitted { get; set; }
+    /// <summary>第一次提交审核的时间。补传或再次保存不改这个时间，今日上传只认这一天。</summary>
+    public DateTimeOffset SubmittedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
 }
 
@@ -67,6 +69,8 @@ public sealed class KuaishouPersonalUploadStateStore
         PublishPlatform platform = PublishPlatform.KuaishouPersonalRevenue)
     {
         Directory.CreateDirectory(workflowDirectory);
+        if (AlreadySubmitted(state) && state.SubmittedAt == default)
+            state.SubmittedAt = state.UpdatedAt != default ? state.UpdatedAt : DateTimeOffset.Now;
         state.UpdatedAt = DateTimeOffset.Now;
         _databaseStore?.Save(workflowDirectory, DocumentType(platform), state);
         var path = GetPath(workflowDirectory, platform);
@@ -106,6 +110,23 @@ public sealed class KuaishouPersonalUploadStateStore
         state.VideosUploaded |= ReadBool(root, "videos_uploaded") || total > 0 && uploaded >= total;
         state.ReviewSubmitted |= ReadBool(root, "review_submitted") ||
                                  state.CurrentStage.Contains("review", StringComparison.OrdinalIgnoreCase);
+        if (state.SubmittedAt == default &&
+            !root.TryGetProperty("SubmittedAt", out _) &&
+            !root.TryGetProperty("submittedAt", out _) &&
+            !root.TryGetProperty("UpdatedAt", out _) &&
+            DateTimeOffset.TryParse(ReadString(root, "updated_at"), out var legacyUpdated))
+            state.UpdatedAt = legacyUpdated;
+        if (state.SubmittedAt == default && AlreadySubmitted(state) && state.UpdatedAt != default)
+            state.SubmittedAt = state.UpdatedAt;
+    }
+
+    private static bool AlreadySubmitted(KuaishouPersonalUploadState state)
+    {
+        if (state.ReviewSubmitted)
+            return true;
+        var status = state.Status?.Trim() ?? "";
+        return status.Equals("completed", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("success", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool StageAtLeastVideo(string stage) =>

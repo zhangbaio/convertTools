@@ -50,6 +50,7 @@ public sealed class TikTokPublishDefaultsTests
         settings.TiktokProjectImageRenderEpisodeLimit.Should().Be(6);
         settings.TiktokProofTemplateDocxPath.Should().Be(ClientSettingsDefaults.TiktokProofTemplateDocxPath);
         ClientSettingsDefaults.TiktokProofTemplateDocxPath.Should().BeEmpty();
+        settings.TiktokProofTemplateLanguage.Should().Be("zh");
         settings.TiktokProofDeclarantCompanyName.Should().BeEmpty();
         settings.TiktokProofSealPath.Should().BeEmpty();
         settings.TiktokProofPdfRenderer.Should().Be("wps");
@@ -666,6 +667,7 @@ public sealed class TikTokPublishDefaultsTests
         var settings = new ClientSettings
         {
             TiktokProofTemplateDocxPath = @"D:\templates\proof.docx",
+            TiktokProofTemplateLanguage = "en",
             TiktokProofDeclarantCompanyName = "声明公司",
             TiktokProofSealPath = @"D:\templates\seal.png",
             TiktokProofPdfRenderer = "libreoffice",
@@ -676,6 +678,7 @@ public sealed class TikTokPublishDefaultsTests
         var clone = settings.Clone();
 
         clone.TiktokProofTemplateDocxPath.Should().Be(settings.TiktokProofTemplateDocxPath);
+        clone.TiktokProofTemplateLanguage.Should().Be("en");
         clone.TiktokProofDeclarantCompanyName.Should().Be(settings.TiktokProofDeclarantCompanyName);
         clone.TiktokProofSealPath.Should().Be(settings.TiktokProofSealPath);
         clone.TiktokProofPdfRenderer.Should().Be("libreoffice");
@@ -847,8 +850,8 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokLoginBrowserMode.Should().Be("embedded");
         account.TiktokSubmitEnabled.Should().BeTrue();
         account.TiktokSubmitAction.Should().Be("submit");
-        account.TiktokUploadBrowserMode.Should().Be("embedded");
-        account.TiktokPlaywrightUploadHeadless.Should().BeFalse();
+        account.TiktokUploadBrowserMode.Should().Be("playwright");
+        account.TiktokPlaywrightUploadHeadless.Should().BeTrue();
         account.TiktokContractId.Should().Be("");
         account.TiktokContractIdMode.Should().Be("manual");
         account.TiktokAnchorPromotionEnabled.Should().BeTrue();
@@ -857,6 +860,7 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokSelectedPublishAccountKeys.Should().BeEmpty();
         account.TiktokTargetAudienceMode.Should().Be("ai_recommend");
         account.TiktokGenreCount.Should().Be(3);
+        account.TiktokDramaMarket.Should().Be(TikTokAccountProfile.DramaMarketLocal);
         account.TiktokSourceLanguage.Should().Be("zh");
         account.TiktokIsAiDrama.Should().BeTrue();
         account.TiktokContentCreationType.Should().Be("original");
@@ -881,11 +885,20 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokFreePreviewEpisodes.Should().Be(3);
         account.TiktokExpectedFullPriceMode.Should().Be("manual");
         account.TiktokExpectedFullPriceOptionIndex.Should().Be(1);
-        account.TiktokUploadStrategy.Should().Be("classic");
+        account.TiktokUploadStrategy.Should().Be("api");
         account.TiktokUploadBatchSize.Should().Be(3);
         account.TiktokUploadBatchStallSeconds.Should().Be(75);
         account.TiktokUploadBatchMaxRetries.Should().Be(3);
         account.TiktokDeleteVideosOnArchive.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Drama_market_blank_or_unknown_stays_local_and_overseas_is_kept()
+    {
+        TikTokAccountProfile.NormalizeDramaMarket(null).Should().Be("local");
+        TikTokAccountProfile.NormalizeDramaMarket(" ").Should().Be("local");
+        TikTokAccountProfile.NormalizeDramaMarket("classic").Should().Be("local");
+        TikTokAccountProfile.NormalizeDramaMarket("OVERSEAS").Should().Be("overseas");
     }
 
     [Fact]
@@ -1030,7 +1043,7 @@ public sealed class TikTokPublishDefaultsTests
         options.ExpectedFullPriceMode.Should().Be("manual");
         options.ExpectedFullPriceOptionIndex.Should().Be(1);
         options.UploadStallSeconds.Should().Be(180);
-        options.UploadStrategy.Should().Be("classic");
+        options.UploadStrategy.Should().Be("api");
         options.UploadBatchSize.Should().Be(3);
         options.UploadBatchStallSeconds.Should().Be(75);
         options.UploadBatchMaxRetries.Should().Be(3);

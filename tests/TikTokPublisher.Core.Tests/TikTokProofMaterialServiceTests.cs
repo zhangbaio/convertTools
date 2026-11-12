@@ -1538,6 +1538,42 @@ public sealed class TikTokProofMaterialServiceTests
         after.EditingProject.Should().NotBe(before.EditingProject);
     }
 
+    [Fact]
+    public void Queue_request_uses_account_template_and_falls_back_to_global()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var accountTemplate = fixture.CreateTemplate();
+        var globalTemplate = fixture.CreateTemplate();
+        var item = new QueueProjectItem { NewTitle = "分账号模板" };
+        var settings = new ClientSettings { TiktokProofTemplateDocxPath = globalTemplate };
+        var account = new TikTokAccountProfile
+        {
+            Name = "张莉",
+            TiktokProofTemplateDocxPath = accountTemplate,
+            TiktokProofAccountConfigMigrated = true,
+        };
+
+        var own = TikTokProofMaterialService.CreateQueueRequest(
+            item, settings, account, fixture.DirectoryPath, new DateOnly(2026, 11, 10));
+        own.TemplateDocxPath.Should().Be(Path.GetFullPath(accountTemplate));
+
+        account.TiktokProofTemplateDocxPath = "";
+        var shared = TikTokProofMaterialService.CreateQueueRequest(
+            item, settings, account, fixture.DirectoryPath, new DateOnly(2026, 11, 10));
+        shared.TemplateDocxPath.Should().Be(Path.GetFullPath(globalTemplate));
+
+        account.TiktokProofTemplateDocxPath = Path.Combine(fixture.DirectoryPath, "missing.docx");
+        var missing = () => TikTokProofMaterialService.CreateQueueRequest(
+            item, settings, account, fixture.DirectoryPath, new DateOnly(2026, 11, 10));
+        missing.Should().Throw<InvalidOperationException>().WithMessage("*张莉*证明材料模板不存在*");
+
+        account.TiktokProofTemplateDocxPath = Path.Combine(fixture.DirectoryPath, "template.txt");
+        File.WriteAllText(account.TiktokProofTemplateDocxPath, "not a docx");
+        var wrongType = () => TikTokProofMaterialService.CreateQueueRequest(
+            item, settings, account, fixture.DirectoryPath, new DateOnly(2026, 11, 10));
+        wrongType.Should().Throw<InvalidOperationException>().WithMessage("*张莉*必须是 .docx*");
+    }
+
     private static TikTokProofMaterialRequest CreateRequest(string templatePath, string outputPath) =>
         new(
             templatePath,

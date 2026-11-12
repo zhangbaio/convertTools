@@ -1,3 +1,4 @@
+using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 using Xunit;
 
@@ -34,6 +35,45 @@ public sealed class TikTokEditFlowUploadedStatusTests
         Assert.True(TikTokEditFlowService.DetailConfirmsSubmitted("审核中"));
         Assert.False(TikTokEditFlowService.DetailConfirmsSubmitted("草稿 - DramaReel_vn 71 托管中"));
         Assert.False(TikTokEditFlowService.DetailConfirmsSubmitted(""));
+    }
+
+    [Fact]
+    public void DraftDetailUrlFromRow_reads_series_id_from_list_row()
+    {
+        Assert.Equal(
+            "https://www.tiktokdramacenter.com/series/draft/7706505987917911092",
+            TikTokEditFlowService.DraftDetailUrlFromRow(
+                "The Lycan King Let Me Go, Now I'm Back With His Triplets ID: 7706505987917911092 " +
+                "草稿 - RAMSA0664 +9 54 0 托管中 详情 素材 剧集表现"));
+        Assert.Equal("", TikTokEditFlowService.DraftDetailUrlFromRow("尘封荣光归故里 草稿 54 托管中"));
+        Assert.Equal("", TikTokEditFlowService.DraftDetailUrlFromRow(null));
+    }
+
+    [Fact]
+    public void Submit_recovery_reopens_the_draft_from_the_current_edit_page()
+    {
+        Assert.Equal(
+            "https://www.tiktokdramacenter.com/series/draft/7706723252315378709",
+            EmbeddedBrowserPublishAutomation.ResolveSubmitRecoveryDraftUrl(
+                "https://www.tiktokdramacenter.com/series/draft/7706723252315378709?tab=content",
+                ""));
+        Assert.Equal(
+            "",
+            EmbeddedBrowserPublishAutomation.ResolveSubmitRecoveryDraftUrl(
+                "https://www.tiktokdramacenter.com/series/draft",
+                ""));
+    }
+
+    [Theory]
+    [InlineData("""{"code":0,"message":"success","data":{"token":"x"}}""", "code=0 msg=success")]
+    [InlineData("""{"status_code":10002,"status_msg":"剧集信息不完整"}""", "code=10002 msg=剧集信息不完整")]
+    [InlineData("""{"data":{},"BaseResp":{"StatusCode":0,"code":7,"msg":"busy"}}""", "code=7 msg=busy")]
+    [InlineData("""{"data":{"id":"1"}}""", "")]
+    [InlineData("not json", "")]
+    [InlineData("", "")]
+    public void DescribeSubmitResponseBody_keeps_only_code_and_message(string body, string expected)
+    {
+        Assert.Equal(expected, TikTokBrowserActions.DescribeSubmitResponseBody(body));
     }
 
     [Theory]

@@ -111,6 +111,26 @@ public sealed class QueueAccountBindingResolverTests
         QueueAccountBindingResolver.Resolve(store, item).Should().BeSameAs(workspaceAccount);
     }
 
+    [Fact]
+    public void AlignToEffectiveAccount_replaces_a_previous_account_on_the_same_drama()
+    {
+        var previous = new TikTokAccountProfile { Id = "acct-7c496ad8", Name = "账号2" };
+        var current = new TikTokAccountProfile { Id = "acct-e3c1dffa", Name = "张莉" };
+        var item = new QueueProjectItem
+        {
+            AccountProfileId = previous.Id,
+            AccountProfileName = previous.DisplayName,
+            OriginalTitle = "重回80娶洋妻",
+        };
+
+        var changed = QueueAccountBindingResolver.AlignToEffectiveAccount(item, current);
+
+        changed.Should().BeTrue();
+        item.AccountProfileId.Should().Be(current.Id);
+        item.AccountProfileName.Should().Be("张莉");
+        QueueAccountBindingResolver.AlignToEffectiveAccount(item, current).Should().BeFalse();
+    }
+
     private static AccountStore CreateAccountStore(
         IEnumerable<TikTokAccountProfile> profiles,
         string activeAccountId)

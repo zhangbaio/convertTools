@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -159,12 +160,14 @@ public static class TikTokMaterialValidationService
 
             foreach (var message in ValidateVideoLimits(fileSize, probe.DurationSeconds))
                 issues.Add($"第{episode}集 | {name} | {message}");
+            foreach (var message in ValidateVideoFrame(probe.Width, probe.Height, probe.VideoCodec))
+                issues.Add($"第{episode}集 | {name} | {message}");
 
             if (issues.Any(i => i.StartsWith($"第{episode}集", StringComparison.Ordinal)))
                 continue;
 
             log?.Invoke(
-                $"通过：第{episode}集 | {name} | {TikTokSmallVideoPaddingService.FormatSize(fileSize)} | {FormatDuration(probe.DurationSeconds)}");
+                $"通过：第{episode}集 | {name} | {TikTokSmallVideoPaddingService.FormatSize(fileSize)} | {FormatDuration(probe.DurationSeconds)} | {probe.Width.ToString(CultureInfo.InvariantCulture)}×{probe.Height.ToString(CultureInfo.InvariantCulture)} | {DescribeUploadCodec(probe.VideoCodec)}");
         }
 
         if (issues.Count > 0)
@@ -316,6 +319,62 @@ public static class TikTokMaterialValidationService
             yield return $"时长过短（{FormatDuration(durationSeconds)} < {FormatDuration(TikTokVideoConstraints.MinDurationSeconds)}）";
         if (durationSeconds > TikTokVideoConstraints.MaxDurationSeconds)
             yield return $"时长过长（{FormatDuration(durationSeconds)} > {FormatDuration(TikTokVideoConstraints.MaxDurationSeconds)}）";
+    }
+
+    public static IEnumerable<string> ValidateVideoFrame(int width, int height, string? videoCodec)
+    {
+        if (width <= 0 || height <= 0)
+        {
+            yield return "无法读取分辨率";
+            yield break;
+        }
+
+        if (Math.Min(width, height) < TikTokVideoConstraints.MinShortSide)
+            yield return $"{width.ToString(CultureInfo.InvariantCulture)}×{height.ToString(CultureInfo.InvariantCulture)}，短边小于 {TikTokVideoConstraints.MinShortSide.ToString(CultureInfo.InvariantCulture)}";
+
+        if (IsAspectOutOfRange(width, height))
+            yield return $"{width.ToString(CultureInfo.InvariantCulture)}×{height.ToString(CultureInfo.InvariantCulture)}，比例不是{(height >= width ? "9:16" : "16:9")}";
+
+        if (!IsUploadVideoCodec(videoCodec))
+            yield return $"编码 {DescribeUploadCodec(videoCodec)} 不可上传，需要 H.264 或 HEVC";
+    }
+
+    /// <summary>竖屏和 9:16、横屏和 16:9 相差超过 2% 时，TikTok 会拒收。</summary>
+    public static bool IsAspectOutOfRange(int width, int height)
+    {
+        if (width <= 0 || height <= 0)
+            return false;
+        var portrait = height >= width;
+        var aspect = portrait ? width / (double)height : height / (double)width;
+        const double expected = 9d / 16d;
+        return Math.Abs(aspect - expected) / expected > 0.02;
+    }
+
+    private static bool IsUploadVideoCodec(string? videoCodec)
+    {
+        if (string.IsNullOrWhiteSpace(videoCodec))
+            return false;
+        return videoCodec.Contains("264", StringComparison.OrdinalIgnoreCase) ||
+               videoCodec.Contains("avc", StringComparison.OrdinalIgnoreCase) ||
+               videoCodec.Contains("265", StringComparison.OrdinalIgnoreCase) ||
+               videoCodec.Contains("hevc", StringComparison.OrdinalIgnoreCase) ||
+               videoCodec.Contains("hev1", StringComparison.OrdinalIgnoreCase) ||
+               videoCodec.Contains("hvc1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string DescribeUploadCodec(string? videoCodec)
+    {
+        if (string.IsNullOrWhiteSpace(videoCodec))
+            return "未知";
+        if (videoCodec.Contains("265", StringComparison.OrdinalIgnoreCase) ||
+            videoCodec.Contains("hevc", StringComparison.OrdinalIgnoreCase) ||
+            videoCodec.Contains("hev1", StringComparison.OrdinalIgnoreCase) ||
+            videoCodec.Contains("hvc1", StringComparison.OrdinalIgnoreCase))
+            return "HEVC";
+        if (videoCodec.Contains("264", StringComparison.OrdinalIgnoreCase) ||
+            videoCodec.Contains("avc", StringComparison.OrdinalIgnoreCase))
+            return "H.264";
+        return videoCodec;
     }
 
     private static string FormatDuration(double seconds)

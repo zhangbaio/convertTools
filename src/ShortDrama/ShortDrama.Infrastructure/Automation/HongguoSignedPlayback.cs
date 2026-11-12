@@ -69,9 +69,8 @@ internal sealed class HongguoSignedPlayback
 
     internal HongguoSignedPlayback(HongguoGuestPlayback playback) => _playback = playback;
 
-    internal async Task<HongguoHighVideoPlayback> GetAsync(
+    internal async Task<JsonObject> LoadModelAsync(
         string videoId,
-        string quality,
         CancellationToken cancellationToken,
         string? deviceId = null,
         string? installId = null,
@@ -86,14 +85,7 @@ internal sealed class HongguoSignedPlayback
                     refresh == 1, deviceId, installId, persist, cancellationToken);
                 var model = await ModelAsync(videoId, identity.DeviceId, identity.InstallId, cancellationToken);
                 RevealUrls(model);
-                try
-                {
-                    return HongguoGuestPlayback.Pick(model, quality);
-                }
-                catch (HongguoHighException ex) when (ex.Message == "播放地址为空")
-                {
-                    throw new HongguoHighException("链路 2 缺少媒体档位", 0, ex);
-                }
+                return model;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -106,6 +98,25 @@ internal sealed class HongguoSignedPlayback
         }
 
         throw last ?? new HongguoHighException("链路 2 接口返回业务错误");
+    }
+
+    internal async Task<HongguoHighVideoPlayback> GetAsync(
+        string videoId,
+        string quality,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null)
+    {
+        var model = await LoadModelAsync(videoId, cancellationToken, deviceId, installId, persist);
+        try
+        {
+            return HongguoGuestPlayback.Pick(model, quality);
+        }
+        catch (HongguoHighException ex) when (ex.Message == "播放地址为空")
+        {
+            throw new HongguoHighException("链路 2 缺少媒体档位", 0, ex);
+        }
     }
 
     private static async Task<JsonObject> ModelAsync(

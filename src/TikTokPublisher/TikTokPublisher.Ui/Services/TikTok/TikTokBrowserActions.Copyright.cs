@@ -1549,17 +1549,65 @@ public static partial class TikTokBrowserActions
         string materialKey,
         string label)
     {
+        // 勾选后同名文字还会出现在悬浮提示和上传框标题里，全页搜索容易落到别的复选框上。
+        // 优先只在「上传材料类型」字段自己弹出的下拉层里找。
+        var popup = await TryFindCopyrightMaterialTypePopupAsync(page);
+        if (popup is not null)
+        {
+            var scoped = await TryFindCopyrightMaterialCheckboxInAsync(page, popup, materialKey, label);
+            if (scoped is not null)
+                return scoped;
+        }
+
+        return await TryFindCopyrightMaterialCheckboxInAsync(page, null, materialKey, label);
+    }
+
+    private static async Task<ILocator?> TryFindCopyrightMaterialTypePopupAsync(IPage page)
+    {
+        try
+        {
+            var trigger = page.Locator($"{CopyrightMaterialTypeFieldSelector} [aria-haspopup='true']").First;
+            if (await trigger.CountAsync() == 0)
+                return null;
+            var popupId = await trigger.GetAttributeAsync("data-popupid");
+            if (string.IsNullOrWhiteSpace(popupId))
+                popupId = await trigger.GetAttributeAsync("aria-describedby");
+            if (string.IsNullOrWhiteSpace(popupId))
+                return null;
+
+            var popup = page.Locator($"[id='{popupId.Trim().Replace("\\", "\\\\").Replace("'", "\\'")}']").First;
+            return await popup.CountAsync() > 0 && await popup.IsVisibleAsync() ? popup : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<CopyrightMaterialCheckbox?> TryFindCopyrightMaterialCheckboxInAsync(
+        IPage page,
+        ILocator? scope,
+        string materialKey,
+        string label)
+    {
         var candidates = GetCopyrightMaterialTextCandidates(materialKey, label);
 
         foreach (var candidateText in candidates.Distinct(StringComparer.Ordinal))
         {
-            var labelLocators = new[]
-            {
-                page.Locator(
-                    $"xpath=//*[normalize-space(translate(text(), '*', ''))={XPathLiteral(candidateText)}]"),
-                page.GetByText(candidateText, new() { Exact = true }),
-                page.GetByText(candidateText, new() { Exact = false }),
-            };
+            var xpath = $"xpath={(scope is null ? "" : ".")}//*[normalize-space(translate(text(), '*', ''))={XPathLiteral(candidateText)}]";
+            var labelLocators = scope is null
+                ? new[]
+                {
+                    page.Locator(xpath),
+                    page.GetByText(candidateText, new() { Exact = true }),
+                    page.GetByText(candidateText, new() { Exact = false }),
+                }
+                : new[]
+                {
+                    scope.Locator(xpath),
+                    scope.GetByText(candidateText, new() { Exact = true }),
+                    scope.GetByText(candidateText, new() { Exact = false }),
+                };
 
             foreach (var labels in labelLocators)
             {
@@ -1591,6 +1639,9 @@ public static partial class TikTokBrowserActions
                                 "element => element.isConnected && " +
                                 "!element.hasAttribute('disabled') && " +
                                 "element.getAttribute('aria-disabled') !== 'true'")) continue;
+                        // 悬浮提示和上传框标题最近的「含复选框祖先」是整个表单或页面，
+                        // 取到的会是别的复选框。只接受恰好包住一个复选框的选项。
+                        if (!await clickTarget.EvaluateAsync<bool>(SingleCheckboxOptionScript)) continue;
                         return new CopyrightMaterialCheckbox(control, clickTarget);
                     }
                     catch
@@ -1876,6 +1927,20 @@ public static partial class TikTokBrowserActions
                HasCheckedClass(wrapperClass) ||
                HasCheckedClass(innerClass);
     }
+
+    private const string SingleCheckboxOptionScript =
+        """
+        element => {
+          const popup = element.closest('[role="tooltip"], .semi-tooltip-wrapper');
+          if (popup && !popup.classList.contains('semi-dropdown-wrapper')) return false;
+          const selector = 'input[type="checkbox"], [role="checkbox"]';
+          const matches = [element, ...element.querySelectorAll(selector)]
+            .filter(node => node.matches(selector));
+          const outermost = matches.filter(node =>
+            !matches.some(other => other !== node && other.contains(node)));
+          return outermost.length === 1;
+        }
+        """;
 
     private static async Task<bool> IsCopyrightMaterialCheckboxSelectedAsync(ILocator control)
     {

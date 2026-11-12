@@ -10,6 +10,7 @@ public static class WorkspaceQueueDatabase
 {
     private const string QueueOptionsKey = "queue_run_options";
     private const string QueueAccountOptionsKey = "queue_run_options_by_account";
+    private const string DeletedProjectDirsKey = "deleted_project_dirs";
     internal static object WriteSyncRoot { get; } = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -34,13 +35,94 @@ public static class WorkspaceQueueDatabase
         return new WorkspaceQueueState();
     }
 
+    public static HashSet<string> LoadDeletedProjectDirs(string workspaceRoot)
+    {
+        var deleted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return deleted;
+
+        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        if (!File.Exists(dbPath))
+            return deleted;
+
+        lock (WriteSyncRoot)
+        {
+            EnsureDatabaseCore(dbPath);
+            using var conn = Open(dbPath);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT value_json FROM app_settings WHERE key = $key LIMIT 1";
+            cmd.Parameters.AddWithValue("$key", DeletedProjectDirsKey);
+            var json = cmd.ExecuteScalar()?.ToString();
+            if (string.IsNullOrWhiteSpace(json))
+                return deleted;
+
+            try
+            {
+                var paths = JsonSerializer.Deserialize<string[]>(json, JsonOptions) ?? [];
+                foreach (var path in paths)
+                {
+                    if (string.IsNullOrWhiteSpace(path))
+                        continue;
+                    try
+                    {
+                        deleted.Add(Path.GetFullPath(path));
+                    }
+                    catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+                    {
+                        deleted.Add(path.Trim());
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                return deleted;
+            }
+        }
+
+        return deleted;
+    }
+
+    public static void SaveDeletedProjectDirs(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return;
+
+        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        var paths = projectDirs
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        lock (WriteSyncRoot)
+        {
+            EnsureDatabaseCore(dbPath);
+            using var conn = Open(dbPath);
+            UpsertRawSetting(conn, DeletedProjectDirsKey, JsonSerializer.Serialize(paths, JsonOptions), DateTimeOffset.Now.ToString("o"));
+        }
+    }
+
     public static void Save(string workspaceRoot, IReadOnlyList<QueueProjectItem> items, Dictionary<string, object?>? options = null)
     {
+        var owned = new List<QueueProjectItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (item is not null &&
+                WorkspaceQueueService.IsProjectInsideWorkspace(workspaceRoot, item.ProjectDir))
+            {
+                owned.Add(item);
+            }
+        }
+
+        // 只带来了别的工作目录的路径时，不能写成空队列，否则会把这个工作目录里原有的项目清掉。
+        if (owned.Count == 0 && items.Count > 0)
+            return;
+
+        owned.RemoveAll(item => WorkspaceQueueService.IsDeletedProjectDir(workspaceRoot, item.ProjectDir));
+
         var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
         lock (WriteSyncRoot)
         {
             EnsureDatabaseCore(dbPath);
-            SaveToDatabase(dbPath, workspaceRoot, items, options ?? new Dictionary<string, object?>());
+            SaveToDatabase(dbPath, workspaceRoot, owned, options ?? new Dictionary<string, object?>());
         }
     }
 
@@ -217,6 +299,68 @@ public static class WorkspaceQueueDatabase
         return state;
     }
 
+    public static void DeleteProjects(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    {
+        var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var projectDir in projectDirs)
+        {
+            if (TryNormalizePath(projectDir, out var full))
+                targets.Add(full);
+        }
+        if (targets.Count == 0)
+            return;
+
+        var dbPath = WorkspaceQueuePaths.QueueDatabasePath(workspaceRoot);
+        if (!File.Exists(dbPath))
+            return;
+
+        lock (WriteSyncRoot)
+        {
+            EnsureDatabaseCore(dbPath);
+            var aliases = WorkspaceKeyAliases(workspaceRoot);
+            using var conn = Open(dbPath);
+            using var tx = conn.BeginTransaction();
+            var ids = new List<string>();
+            using (var select = conn.CreateCommand())
+            {
+                var placeholders = string.Join(", ", aliases.Select((_, index) => $"$workspace{index}"));
+                select.CommandText = $"""
+                    SELECT project_id, project_dir
+                    FROM upload_projects
+                    WHERE workspace_path IN ({placeholders})
+                    """;
+                for (var i = 0; i < aliases.Count; i++)
+                    select.Parameters.AddWithValue($"$workspace{i}", aliases[i]);
+                using var reader = select.ExecuteReader();
+                while (reader.Read())
+                {
+                    var projectDir = reader.IsDBNull(1) ? "" : reader.GetString(1);
+                    if (!TryNormalizePath(projectDir, out var full) || !targets.Contains(full))
+                        continue;
+                    if (!reader.IsDBNull(0))
+                        ids.Add(reader.GetString(0));
+                }
+            }
+
+            if (ids.Count == 0)
+            {
+                tx.Commit();
+                return;
+            }
+
+            using (var delete = conn.CreateCommand())
+            {
+                var placeholders = string.Join(", ", ids.Select((_, index) => $"$id{index}"));
+                delete.CommandText = $"DELETE FROM upload_projects WHERE project_id IN ({placeholders})";
+                for (var i = 0; i < ids.Count; i++)
+                    delete.Parameters.AddWithValue($"$id{i}", ids[i]);
+                delete.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+    }
+
     public static void EnsureDatabase(string dbPath)
     {
         lock (WriteSyncRoot)
@@ -353,7 +497,10 @@ public static class WorkspaceQueueDatabase
 
     private static SqliteConnection Open(string dbPath) => OpenConnection(dbPath);
 
-    private static void UpsertAppSetting(SqliteConnection conn, string key, Dictionary<string, object?> payload, string updatedAt)
+    private static void UpsertAppSetting(SqliteConnection conn, string key, Dictionary<string, object?> payload, string updatedAt) =>
+        UpsertRawSetting(conn, key, JsonSerializer.Serialize(payload, JsonOptions), updatedAt);
+
+    private static void UpsertRawSetting(SqliteConnection conn, string key, string json, string updatedAt)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -362,7 +509,7 @@ public static class WorkspaceQueueDatabase
             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
             """;
         cmd.Parameters.AddWithValue("$key", key);
-        cmd.Parameters.AddWithValue("$json", JsonSerializer.Serialize(payload, JsonOptions));
+        cmd.Parameters.AddWithValue("$json", json);
         cmd.Parameters.AddWithValue("$updated_at", updatedAt);
         cmd.ExecuteNonQuery();
     }
@@ -406,6 +553,22 @@ public static class WorkspaceQueueDatabase
             {
                 aliases.Add(value);
             }
+        }
+    }
+
+    private static bool TryNormalizePath(string? path, out string full)
+    {
+        full = "";
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+        try
+        {
+            full = Path.GetFullPath(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or IOException)
+        {
+            return false;
         }
     }
 

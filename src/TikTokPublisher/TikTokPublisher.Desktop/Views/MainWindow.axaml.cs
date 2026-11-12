@@ -47,6 +47,9 @@ public partial class MainWindow : Window
     private bool _licenseVerifyRunning;
     private bool _licenseLoginDialogOpen;
 
+    public Task CheckClientUpdateOnStartupAsync() =>
+        _viewModel.SystemServices.CheckClientUpdateOnStartupAsync();
+
     public MainWindow()
     {
         var context = new AccountContextService(_accountStore);
@@ -73,6 +76,9 @@ public partial class MainWindow : Window
         LogView.Bind(_viewModel, _viewModel.Logs);
         SettingsView.Bind(_viewModel.SystemSettings);
         ServicesView.Bind(_viewModel.SystemServices);
+        ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning);
+        _viewModel.SystemServices.ConfirmClientUpdate = message =>
+            ConfirmDialog.ShowAsync(this, "客户端升级", message);
         _viewModel.SystemServices.ConfigImported += () =>
         {
             _viewModel.ReloadAccountsFromDisk();
@@ -112,6 +118,7 @@ public partial class MainWindow : Window
         _viewModel.NavigatePageRequested += NavigateTo;
         _viewModel.RemoteQueueRunRequested += QueueView.StartQueueRunFromRemoteAsync;
         _viewModel.RemoteAllQueueRunRequested += QueueView.StartAllQueueRunFromRemoteAsync;
+        _viewModel.CheckedQueueRunRequested += QueueView.StartCheckedQueueLikeButtonAsync;
         _viewModel.StartXingeRemoteCommandService();
         _accountInventorySync.StatusChanged += _viewModel.AppendLog;
         _accountInventorySync.Start();
@@ -414,6 +421,8 @@ public partial class MainWindow : Window
     {
         if (_activeNavTag == "browser")
             ScheduleBrowserHostMountLayout();
+        else if (_activeNavTag == "archived")
+            _viewModel.ArchivedProjects.RefreshCommand.Execute(null);
     }
 
     private void EnsureBrowserHostMounted()
@@ -457,9 +466,14 @@ public partial class MainWindow : Window
             Math.Abs(current.Top - rect.Y) < 0.5 &&
             Math.Abs(BrowserHostMount.Width - rect.Width) < 0.5 &&
             Math.Abs(BrowserHostMount.Height - rect.Height) < 0.5;
+        var windowMoved = ConsumeBrowserWindowMovement();
+        // 切账号会触发布局，但挂载区域没变。此时再同步 WebView2 会在 UI 线程上
+        // 反复调用 NotifyParentWindowPositionChanged，表现为点左侧账号卡住。
+        // 窗口本身被拖动时矩形不变，仍要单独通知一次，否则网页停在旧位置。
         if (unchanged)
         {
-            _browserHost.RefreshPresentationBounds();
+            if (windowMoved)
+                _browserHost.NotifyPresentationParentMoved();
             return;
         }
 
@@ -473,6 +487,22 @@ public partial class MainWindow : Window
     }
 
     private bool _mountLayoutSyncPending;
+    private bool _browserWindowMetricsReady;
+    private PixelPoint _browserWindowPosition;
+    private Size _browserWindowClientSize;
+
+    private bool ConsumeBrowserWindowMovement()
+    {
+        var position = Position;
+        var clientSize = ClientSize;
+        var moved = !_browserWindowMetricsReady ||
+                    position != _browserWindowPosition ||
+                    clientSize != _browserWindowClientSize;
+        _browserWindowMetricsReady = true;
+        _browserWindowPosition = position;
+        _browserWindowClientSize = clientSize;
+        return moved;
+    }
 
     private void ScheduleBrowserHostMountLayout()
     {

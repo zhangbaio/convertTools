@@ -65,6 +65,14 @@ internal sealed class HongguoGuestPlayback
 
     internal HongguoGuestPlayback(HttpClient httpClient) => _httpClient = httpClient;
 
+    internal Task<JsonObject> LoadModelAsync(
+        string videoId,
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null,
+        Action<string, string>? persist = null) =>
+        ModelAsync(videoId, deviceId, installId, persist, cancellationToken);
+
     internal async Task<HongguoHighVideoPlayback> GetAsync(
         string videoId,
         string quality,
@@ -73,7 +81,7 @@ internal sealed class HongguoGuestPlayback
         string? installId = null,
         Action<string, string>? persist = null)
     {
-        var model = await ModelAsync(videoId, deviceId, installId, persist, cancellationToken);
+        var model = await LoadModelAsync(videoId, cancellationToken, deviceId, installId, persist);
         return Pick(model, quality);
     }
 
@@ -368,36 +376,100 @@ internal sealed class HongguoGuestPlayback
         return Concat(Convert.FromHexString("746305100000"), random, cipher);
     }
 
-    internal static HongguoHighVideoPlayback Pick(JsonObject model, string quality)
+    internal const string UnsupportedCodecMessage =
+        "没有 FFmpeg 可播放的下载地址，已跳过。请更换剧集或更换下载链路。";
+
+    private static readonly string[] FfmpegPlayableCodecs =
+    [
+        "bytevc1", "hvc1", "hev1", "hevc", "h265",
+        "h264", "avc1", "avc",
+        "av1",
+        "vp8", "vp9",
+        "mpeg4", "mp4v", "mpeg2",
+        "vc1",
+        "prores",
+    ];
+
+    internal static bool IsUnsupportedCodec(Exception? exception) =>
+        exception is HongguoHighException &&
+        exception.Message.Contains("没有 FFmpeg 可播放的下载地址", StringComparison.Ordinal);
+
+    internal static string? LowerQualityNote(int requestedDefinition, int selectedDefinition)
+    {
+        if (selectedDefinition <= 0 || requestedDefinition <= selectedDefinition)
+            return null;
+        return $"{requestedDefinition}P 没有 FFmpeg 可播放的编码，改用 {selectedDefinition}P";
+    }
+
+    internal static string ChooseUniformQuality(string quality, IReadOnlyList<JsonObject> models)
+    {
+        var requested = RequestedDefinition(quality);
+        if (models.Count == 0 || models.All(model => HasPlayableDefinition(model, requested)))
+            return requested.ToString();
+        return NextLowerDefinition(requested).ToString();
+    }
+
+    /// <summary>
+    /// 选定清晰度后，只要有一集没有 FFmpeg 可播放的地址，就整部不下载。
+    /// 全部可播时返回空。
+    /// </summary>
+    internal static string? MissingPlayableDownloadMessage(
+        IReadOnlyList<(int EpisodeNumber, JsonObject? Model)> episodes,
+        string quality)
+    {
+        var blocked = new List<int>();
+        foreach (var (episodeNumber, model) in episodes)
+        {
+            if (episodeNumber <= 0)
+                continue;
+            if (model is null)
+            {
+                blocked.Add(episodeNumber);
+                continue;
+            }
+
+            try
+            {
+                Pick(model, quality, lockDefinition: true);
+            }
+            catch (HongguoHighException ex) when (IsUnsupportedCodec(ex) ||
+                                                   ex.Message.Contains("播放地址为空", StringComparison.Ordinal))
+            {
+                blocked.Add(episodeNumber);
+            }
+        }
+
+        if (blocked.Count == 0)
+            return null;
+        var labels = string.Join("、", blocked.Distinct().Order().Select(episode => $"第{episode}集"));
+        return $"{labels}没有 FFmpeg 可播放的下载地址，未开始下载。请更换剧集或更换下载链路。";
+    }
+
+    internal static HongguoHighVideoPlayback Pick(JsonObject model, string quality, bool lockDefinition = false)
     {
         var tracks = TracksOf(model);
         if (tracks.Count == 0)
             throw new HongguoHighException("播放地址为空");
-        var requested = int.TryParse(HongguoHighCrypto.NormalizeQuality(quality), out var parsed) ? parsed : 1080;
-        var chosen = tracks
+        var requested = RequestedDefinition(quality);
+        var playable = tracks
             .Select(track => (Track: track, Definition: DefinitionNumber(track)))
-            .Where(item => item.Definition == requested)
-            .Select(item => item.Track)
-            .ToList();
-        if (chosen.Count == 0)
-        {
-            var lower = tracks
-                .Select(track => (Track: track, Definition: DefinitionNumber(track)))
-                .Where(item => item.Definition > 0 && item.Definition <= requested)
-                .OrderBy(item => item.Definition)
-                .Select(item => item.Track)
-                .LastOrDefault();
-            chosen = lower is null ? [tracks.OrderBy(DefinitionNumber).First()] : [lower];
-        }
+            .Where(item => item.Definition > 0 &&
+                           item.Definition <= requested &&
+                           (!lockDefinition || item.Definition == requested) &&
+                           IsFfmpegPlayable(item.Track))
+            .OrderByDescending(item => item.Definition)
+            .FirstOrDefault();
+        if (playable.Track is null)
+            throw new HongguoHighException(UnsupportedCodecMessage);
 
-        var track = chosen.FirstOrDefault(IsByteVc1) ?? chosen[0];
+        var track = playable.Track;
         var main = HttpUrl(Text(track, "main_url")) ?? throw new HongguoHighException("播放地址为空");
         var urls = new List<string> { main };
         foreach (var key in new[] { "backup_url", "backup_url_1", "backup_url_2", "backup_url_3", "backup" })
             CollectUrls(track[key], urls);
         var spade = SpadeOf(track);
         var size = LongOf(track["video_meta"] as JsonObject, "size");
-        return new HongguoHighVideoPlayback(main, size, urls, spade, spade.Length > 0);
+        return new HongguoHighVideoPlayback(main, size, urls, spade, spade.Length > 0, playable.Definition);
     }
 
     private static List<JsonObject> TracksOf(JsonObject model)
@@ -489,12 +561,30 @@ internal sealed class HongguoGuestPlayback
         return Text(encrypt, "spade_a") ?? Text(encrypt, "spadeA") ?? Text(track, "spade_a") ?? "";
     }
 
-    private static bool IsByteVc1(JsonObject track)
+    private static int RequestedDefinition(string quality) =>
+        int.TryParse(HongguoHighCrypto.NormalizeQuality(quality), out var parsed) ? parsed : 1080;
+
+    private static int NextLowerDefinition(int definition) => definition switch
+    {
+        > 1080 => 1080,
+        > 720 => 720,
+        > 540 => 540,
+        > 480 => 480,
+        > 360 => 360,
+        _ => definition,
+    };
+
+    private static bool HasPlayableDefinition(JsonObject model, int definition) =>
+        TracksOf(model).Any(track => DefinitionNumber(track) == definition && IsFfmpegPlayable(track));
+
+    private static bool IsFfmpegPlayable(JsonObject track)
     {
         var meta = track["video_meta"] as JsonObject;
         var codec = Text(track, "codec_type") ?? Text(meta, "codec_type") ?? "";
-        return codec.Contains("bytevc1", StringComparison.OrdinalIgnoreCase) ||
-               codec.Contains("hvc1", StringComparison.OrdinalIgnoreCase);
+        if (codec.Contains("bytevc2", StringComparison.OrdinalIgnoreCase) ||
+            codec.Contains("bvc2", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return FfmpegPlayableCodecs.Any(marker => codec.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 
     private static int DefinitionNumber(JsonObject track)

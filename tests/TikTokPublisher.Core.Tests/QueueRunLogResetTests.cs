@@ -1,6 +1,5 @@
 using FluentAssertions;
 using TikTokPublisher.Core.Queue;
-using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.ViewModels;
 using TikTokPublisher.Ui.Views;
@@ -47,19 +46,9 @@ public sealed class QueueRunLogResetTests
     }
 
     [Fact]
-    public void Selected_failure_without_memory_logs_shows_history_and_current_error()
+    public void Selected_project_without_generated_logs_does_not_show_history()
     {
-        var logs = new LogService
-        {
-            LoadProjectHistory = _ =>
-            [
-                new TikTokExecutionHistoryService.TikTokProjectHistoryEvent(
-                    new DateTime(2026, 10, 13, 22, 59, 52),
-                    "烬九州：第三十一季",
-                    "改写信息 失败：简介与历史/原简介过于相似",
-                    true),
-            ],
-        };
+        var logs = new LogService();
         var item = new QueueProjectItem
         {
             ProjectDir = @"E:\tiktok2\烬九州：第三十一季",
@@ -73,26 +62,14 @@ public sealed class QueueRunLogResetTests
         logs.UpdateSnapshot([new QueueProjectRowViewModel(item)], @"E:\tiktok2", false);
         logs.SelectedProjectPath = item.ProjectDir;
 
-        var text = logs.BuildCopyText();
-        text.Should().Contain("最近 30 天内的失败记录");
-        text.Should().Contain("简介与历史/原简介过于相似");
-        text.Should().Contain("2026-10-13 22:59:52");
+        logs.BuildCopyText().Should().BeEmpty();
+        logs.RenderedEntries.Should().BeEmpty();
     }
 
     [Fact]
-    public void Completed_project_without_current_failure_hides_old_error_history()
+    public void Selected_project_shows_only_logs_generated_for_that_project()
     {
-        var logs = new LogService
-        {
-            LoadProjectHistory = _ =>
-            [
-                new TikTokExecutionHistoryService.TikTokProjectHistoryEvent(
-                    new DateTime(2026, 10, 20, 20, 37, 49),
-                    "หาบหกล้มที่ถูกซ่อนอยู่ในตำนาน",
-                    "海报 失败：未找到可用于生成海报的封面图片。",
-                    true),
-            ],
-        };
+        var logs = new LogService();
         var item = new QueueProjectItem
         {
             ProjectDir = @"E:\7.7\7.7\demo",
@@ -100,14 +77,14 @@ public sealed class QueueRunLogResetTests
             NewTitle = "หาบหกล้มที่ถูกซ่อนอยู่ในตำนาน",
             StatusText = QueueStepStatus.Completed,
         };
-        item.StepStates[QueueStepKeys.Download] = QueueStepStatus.Completed;
-        item.StepStates[QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed;
-        item.StepStates[QueueStepKeys.GeneratePoster] = QueueStepStatus.Completed;
         logs.UpdateSnapshot([new QueueProjectRowViewModel(item)], @"E:\7.7\7.7", false);
+        logs.Append("[10:00:00] INFO [หาบหกล้มที่ถูกซ่อนอยู่ในตำนาน] 本轮开始下载");
+        logs.Append("[10:00:01] INFO [其他项目] 另一部剧的日志");
         logs.SelectedProjectPath = item.ProjectDir;
 
+        logs.BuildCopyText().Should().Contain("本轮开始下载");
+        logs.BuildCopyText().Should().NotContain("另一部剧的日志");
         logs.BuildCopyText().Should().NotContain("失败记录");
-        logs.BuildCopyText().Should().NotContain("未找到可用于生成海报的封面图片");
     }
 
     [Fact]

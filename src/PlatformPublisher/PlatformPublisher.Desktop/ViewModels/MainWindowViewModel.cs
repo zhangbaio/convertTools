@@ -15,6 +15,7 @@ using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
@@ -30,6 +31,10 @@ namespace PlatformPublisher.Desktop.ViewModels;
 public sealed partial class MainWindowViewModel : ObservableObject
 {
     public event Action? ActiveAccountWorkRootDirectoryChanged;
+    public event Action<string, string>? KuaishouDailyUploadLimitReached;
+
+    private readonly object _ksDailyLimitGate = new();
+    private readonly Dictionary<string, DateOnly> _ksDailyLimitDay = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly (string Key, string Label)[] WorkflowStepDefinitions =
     [
@@ -69,6 +74,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly KuaishouPersonalPreparationService _kuaishouPersonalPreparationService;
     private readonly DramaTitleImportService _dramaTitleImportService;
     private readonly KuaishouScheduledShelfService _scheduledShelfService;
+    private readonly KuaishouPersonalUploadService _kuaishouUploadService;
+    private readonly DramaSourceRouter _dramaDownloader;
     private int _scheduledShelfGate;
     private readonly HashSet<string> _scheduledShelfIdleAnnounced = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PublishJob> _jobs = [];
@@ -77,6 +84,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private CancellationTokenSource? _operationCts;
     private readonly Dictionary<string, CancellationTokenSource> _kuaishouAccountRuns = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _kuaishouRunGate = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _kuaishouProjectRunLocks =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PublishJobRowViewModel> _jobRowCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<KuaishouLogProject>> _kuaishouLogsByAccount = new(StringComparer.OrdinalIgnoreCase);
     private int _visibleJobGeneration;
@@ -123,7 +132,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         KuaishouPersonalProjectDataService kuaishouPersonalProjectDataService,
         KuaishouPersonalPreparationService kuaishouPersonalPreparationService,
         DramaTitleImportService dramaTitleImportService,
-        KuaishouScheduledShelfService scheduledShelfService)
+        KuaishouScheduledShelfService scheduledShelfService,
+        KuaishouPersonalUploadService kuaishouUploadService,
+        DramaSourceRouter dramaDownloader)
     {
         _store = store;
         _accountStore = accountStore;
@@ -143,6 +154,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _kuaishouPersonalPreparationService = kuaishouPersonalPreparationService;
         _dramaTitleImportService=dramaTitleImportService;
         _scheduledShelfService = scheduledShelfService;
+        _kuaishouUploadService = kuaishouUploadService;
+        _dramaDownloader = dramaDownloader;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -1003,10 +1016,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
             await MigrateLegacyPlatformAccountsAsync(legacyAccounts);
             ApplyWorkflowSettings(await loadWorkflowSettings);
             var recovered = PublishSchedulePolicy.RecoverInterrupted(_jobs);
-            if (recovered > 0 || recoveredSteps > 0)
+            var restoredChecks = 0;
+            var restoredAt = DateTimeOffset.Now;
+            foreach (var job in _jobs)
+            {
+                if (job.Platform is not (PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+                    || job.IsChecked)
+                    continue;
+                if (!KuaishouDispatchSelection.ShouldStayChecked(job, alreadyChecked: false, restoredAt))
+                    continue;
+                job.IsChecked = true;
+                restoredChecks++;
+            }
+            if (recovered > 0 || recoveredSteps > 0 || restoredChecks > 0)
             {
                 await PersistAsync();
-                StatusMessage = $"已恢复 {recovered} 条任务、{recoveredSteps} 个中断步骤。";
+                StatusMessage = restoredChecks > 0
+                    ? $"已勾选今日分发和今日执行的 {restoredChecks} 部剧。"
+                    : $"已恢复 {recovered} 条任务、{recoveredSteps} 个中断步骤。";
             }
             RefreshVisibleJobs();
             RefreshVisibleAccounts(_activeGlobalAccount?.Id);
@@ -1789,7 +1816,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             }
                             if (key == "project-image" && IsKuaishouPlatform)
                             {
-                                await GenerateKuaishouProjectImagesAsync(projectDirectory, trackedJob, cancellationToken);
+                                await GenerateKuaishouProjectImagesAsync(projectDirectory, trackedJob, cancellationToken, row: trackedRow);
                                 return;
                             }
                             var result = await _workService.RunProjectStepAsync(
@@ -2139,6 +2166,38 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedPlatform.Value == request.Platform &&
         string.Equals(_activeGlobalAccount?.Id, request.AccountId, StringComparison.OrdinalIgnoreCase);
 
+    public bool IsKuaishouDailyUploadLimited(string? accountId)
+    {
+        var id = (accountId ?? "").Trim();
+        if (id.Length == 0)
+            return false;
+        lock (_ksDailyLimitGate)
+            return _ksDailyLimitDay.TryGetValue(id, out var day) && day == DateOnly.FromDateTime(DateTime.Now);
+    }
+
+    public void NoteKuaishouDailyUploadLimit(string? accountId, string? accountName)
+    {
+        var id = (accountId ?? "").Trim();
+        if (id.Length == 0)
+            return;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var first = false;
+        lock (_ksDailyLimitGate)
+        {
+            if (!_ksDailyLimitDay.TryGetValue(id, out var day) || day != today)
+            {
+                _ksDailyLimitDay[id] = today;
+                first = true;
+            }
+        }
+        if (!first)
+            return;
+        var name = string.IsNullOrWhiteSpace(accountName) ? id : accountName.Trim();
+        var message = $"账号「{name}」今天最多上传 10 部短剧，额度已经用完。队列已停止，今天不再分发，明天会自动恢复。";
+        AppendActivityLog(message);
+        Dispatcher.UIThread.Post(() => KuaishouDailyUploadLimitReached?.Invoke(id, message));
+    }
+
     private async Task<(int Succeeded, int Failed, string Error)> RunKuaishouCheckedProjectsAsync(
         IReadOnlyList<string> targets,
         string accountKey,
@@ -2157,6 +2216,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var counts = new int[2];
+        var dailyLimitDetail = "";
+        var loginDetail = "";
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var work = targets.Select(directory =>
         {
             var trackedJob = _jobs.FirstOrDefault(job =>
@@ -2170,7 +2232,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 : RowForJob(trackedJob);
             return (directory, trackedJob, trackedRow);
         }).ToArray();
-        var uploadSlot = new KuaishouUploadSlot();
 
         try
         {
@@ -2185,6 +2246,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ActivityLogPlatformScope.Value = request.Platform;
                 try
                 {
+                    if (IsKuaishouDailyUploadLimited(request.AccountId))
+                        throw new OperationCanceledException(KuaishouDailyUploadLimit.Detail);
+                    using var projectSlot = await KuaishouMachineGate.Shared.AcquireProjectAsync(
+                        request.AccountId,
+                        KuaishouAccountOrder(request.AccountId),
+                        ct,
+                        () => AppendActivityLog($"等待全局剧集名额：{projectName}", projectName));
                     SetKuaishouLogTone(item.directory, "running");
                     AppendActivityLog($"快手分账{request.EditionLabel} {index + 1}/{work.Length}：{projectName}", projectName);
                     await RunKuaishouSettlementPipelineAsync(
@@ -2192,7 +2260,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         item.trackedJob,
                         item.trackedRow,
                         request,
-                        uploadSlot,
                         ct);
                     SetKuaishouLogTone(item.directory, "ok");
                     RememberKuaishouUploadReport(item.directory, request, succeeded: true, error: "");
@@ -2207,6 +2274,33 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     SetKuaishouLogTone(item.directory, "none");
                     throw;
+                }
+                catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
+                {
+                    Interlocked.Increment(ref counts[1]);
+                    lastError = KuaishouDailyUploadLimit.Detail;
+                    dailyLimitDetail = KuaishouDailyUploadLimit.Detail;
+                    SetKuaishouLogTone(item.directory, "failed");
+                    RememberKuaishouUploadReport(item.directory, request, succeeded: false, error: KuaishouDailyUploadLimit.Detail);
+                    var stopped = $"共享项目流水线失败：{KuaishouDailyUploadLimit.Detail}";
+                    ReportRunStatus(stopped);
+                    AppendActivityLog(stopped, projectName);
+                    NoteKuaishouDailyUploadLimit(request.AccountId, request.AccountName);
+                    stop.Cancel();
+                    throw new OperationCanceledException(KuaishouDailyUploadLimit.Detail);
+                }
+                catch (Exception ex) when (IsKuaishouLoginFailure(ex))
+                {
+                    Interlocked.Increment(ref counts[1]);
+                    lastError = ex.Message;
+                    loginDetail = ex.Message;
+                    SetKuaishouLogTone(item.directory, "failed");
+                    RememberKuaishouUploadReport(item.directory, request, succeeded: false, error: ex.Message);
+                    var stopped = $"共享项目流水线失败：{ex.Message}";
+                    ReportRunStatus(stopped);
+                    AppendActivityLog(stopped, projectName);
+                    stop.Cancel();
+                    throw new OperationCanceledException(ex.Message);
                 }
                 catch (Exception ex)
                 {
@@ -2224,13 +2318,32 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ActivityLogAccountScope.Value = null;
                     ActivityLogPlatformScope.Value = null;
                 }
-            }, cancellationToken);
+            }, stop.Token);
+        }
+        catch (OperationCanceledException) when (dailyLimitDetail.Length > 0)
+        {
+            ReportRunStatus(dailyLimitDetail);
+            AppendActivityLog("快手分账今日短剧上传已达上限，队列已停止。");
+            return (counts[0], counts[1], dailyLimitDetail);
+        }
+        catch (OperationCanceledException) when (loginDetail.Length > 0)
+        {
+            ReportRunStatus(loginDetail);
+            AppendActivityLog(loginDetail);
+            return (counts[0], counts[1], loginDetail);
         }
         catch (OperationCanceledException)
         {
             ReportRunStatus("共享项目流水线已停止。");
             AppendActivityLog("共享项目流水线已停止。");
             return (counts[0], counts[1], "已停止");
+        }
+
+        if (dailyLimitDetail.Length > 0)
+        {
+            ReportRunStatus(dailyLimitDetail);
+            AppendActivityLog("快手分账今日短剧上传已达上限，队列已停止。");
+            return (counts[0], counts[1], dailyLimitDetail);
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -2364,12 +2477,57 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private static string FirstPosterSetting(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "";
 
+    private static bool KuaishouArtifactDone(KuaishouArtifactColumnStatus? artifacts, string assistantKey)
+    {
+        var status = assistantKey switch
+        {
+            "download" => artifacts?.DownloadStatus,
+            "rewrite_info" => artifacts?.RewriteStatus,
+            "generate_poster" => artifacts?.PosterStatus,
+            "generate_project_images" => artifacts?.ProjectImageStatus,
+            "auto_fill_info" => artifacts?.AutoFillStatus,
+            _ => null,
+        };
+        return status?.StartsWith("已完成", StringComparison.Ordinal) == true;
+    }
+
+    /// <summary>
+    /// 本地勾选队列和星鸽派单都会跑这条流水线。同一部剧同时跑两轮时，一轮在下载、另一轮已经去改写和做海报，
+    /// 会拿到没下载完的海报、把改写后的简介当原文再改一遍。同一目录只能一轮一轮执行。
+    /// </summary>
     private async Task RunKuaishouSettlementPipelineAsync(
         string projectDirectory,
         PublishJob? trackedJob,
         PublishJobRowViewModel? trackedRow,
         KuaishouPipelineRequest request,
-        KuaishouUploadSlot uploadSlot,
+        CancellationToken cancellationToken)
+    {
+        var runLock = _kuaishouProjectRunLocks.GetOrAdd(Path.GetFullPath(projectDirectory), _ => new SemaphoreSlim(1, 1));
+        if (!await runLock.WaitAsync(0, cancellationToken))
+        {
+            var projectName = string.IsNullOrWhiteSpace(trackedJob?.ProjectName)
+                ? Path.GetFileName(projectDirectory)
+                : trackedJob!.ProjectName;
+            AppendActivityLog("这部剧已有一轮正在执行，等上一轮结束后再继续，已完成的步骤会跳过。", projectName);
+            await runLock.WaitAsync(cancellationToken);
+        }
+
+        try
+        {
+            await RunKuaishouSettlementPipelineCoreAsync(
+                projectDirectory, trackedJob, trackedRow, request, cancellationToken);
+        }
+        finally
+        {
+            runLock.Release();
+        }
+    }
+
+    private async Task RunKuaishouSettlementPipelineCoreAsync(
+        string projectDirectory,
+        PublishJob? trackedJob,
+        PublishJobRowViewModel? trackedRow,
+        KuaishouPipelineRequest request,
         CancellationToken cancellationToken)
     {
         var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
@@ -2411,18 +2569,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 foreach (var step in enabled)
                 {
-                    var artifactStatus = step.AssistantKey switch
-                    {
-                        "download" => artifacts?.DownloadStatus,
-                        "rewrite_info" => artifacts?.RewriteStatus,
-                        "generate_poster" => artifacts?.PosterStatus,
-                        "generate_project_images" => artifacts?.ProjectImageStatus,
-                        "auto_fill_info" => artifacts?.AutoFillStatus,
-                        _ => null,
-                    };
-                    var alreadyCompleted = artifactStatus?.StartsWith("已完成", StringComparison.Ordinal) == true
-                        || (trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var existing) == true
-                            && existing.Status == PublishJobStepStatus.Succeeded);
+                    var artifactDone = KuaishouArtifactDone(artifacts, step.AssistantKey);
+                    var stepSucceeded = trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var existing) == true
+                        && existing.Status == PublishJobStepStatus.Succeeded;
+                    // 下载列失败时不能只看步骤曾经成功，否则会接着改写、海报和上传。
+                    var alreadyCompleted = step.AssistantKey == "download"
+                        ? artifactDone
+                        : artifactDone || stepSucceeded;
                     if (!alreadyCompleted)
                         continue;
                     preserved.Add(step.YunfanKey);
@@ -2449,6 +2602,31 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             try
             {
+                async Task SkipIfCompletedMeanwhileAsync(string yunfanKey)
+                {
+                    if (request.Force || preserved.Contains(yunfanKey))
+                        return;
+                    var step = enabled.FirstOrDefault(item => item.YunfanKey == yunfanKey);
+                    if (step.YunfanKey is null)
+                        return;
+                    KuaishouArtifactColumnStatus? current;
+                    try
+                    {
+                        current = KuaishouArtifactColumnStatusReader.Read(
+                            projectDirectory,
+                            request.Platform == PublishPlatform.KuaishouEnterpriseRevenue);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+                    if (!KuaishouArtifactDone(current, step.AssistantKey))
+                        return;
+                    preserved.Add(yunfanKey);
+                    AppendActivityLog($"{step.Label}已经完成，跳过。", projectName);
+                    await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "已完成，跳过");
+                }
+
                 void MarkPrepareStep(string step)
                 {
                     var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
@@ -2461,8 +2639,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 if (request.Download && !preserved.Contains("download"))
                 {
-                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在下载剧集");
                     var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在下载剧集");
                     SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
                     if (KuaishouDownloadPolicy.ShouldSkip(projectDirectory))
                     {
@@ -2498,9 +2676,36 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         SyncKuaishouWorkflow(directories.SourceDirectory, projectName);
                     }
 
+                    if (TryReadDownloadFailure(directories.SourceDirectory, out var downloadFailure))
+                    {
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Failed, downloadFailure);
+                        throw new InvalidOperationException(downloadFailure);
+                    }
+
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Running, "正在检查视频能否播放");
+                    try
+                    {
+                        await _dramaDownloader.EnsureVideosPlayableAsync(
+                            directories.SourceDirectory,
+                            ListDownloadedVideos(projectDirectory),
+                            new Progress<string>(message => AppendActivityLog(message, projectName)),
+                            cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Failed, ex.Message);
+                        throw;
+                    }
+
                     await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Succeeded, "执行完成");
                     MarkPrepareStep("download");
                 }
+                await SkipIfCompletedMeanwhileAsync("rewrite");
+                await SkipIfCompletedMeanwhileAsync("auto-fill-info");
                 if ((request.Rewrite && !preserved.Contains("rewrite")) ||
                     (request.AutoFill && !preserved.Contains("auto-fill-info")))
                 {
@@ -2534,6 +2739,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         MarkPrepareStep("auto_fill_info");
                     }
                 }
+                await SkipIfCompletedMeanwhileAsync("poster-rename");
                 if (request.Poster && !preserved.Contains("poster-rename"))
                 {
                     await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Running, "正在生成快手海报");
@@ -2548,7 +2754,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 if (request.ProjectImages && !preserved.Contains("project-image"))
                 {
-                    await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Running, "正在生成工程图");
+                    await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Running, "等待槽位");
                     await GenerateKuaishouProjectImagesAsync(
                         projectDirectory,
                         trackedJob,
@@ -2556,7 +2762,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         request.Platform,
                         request.AccountId,
                         request.ConfigPath,
-                        request.Force);
+                        request.Force,
+                        trackedRow);
                     await UpdateStepStateAsync(trackedJob, trackedRow, "project-image", "生成工程图", PublishJobStepStatus.Succeeded, "执行完成");
                     MarkPrepareStep("generate_project_images");
                 }
@@ -2604,22 +2811,36 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var uploadAlreadyDone = !request.Force
             && trackedJob.StepStates.TryGetValue("weixin-upload", out var existingUpload)
             && existingUpload.Status == PublishJobStepStatus.Succeeded;
-        if (!uploadAlreadyDone && request.Parallelism > 1)
-        {
-            AppendActivityLog("等待浏览器上传槽位：上传剧集", projectName);
-            await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Running, "等待槽位");
-        }
 
-        IDisposable? uploadLease = null;
+        IDisposable? machineUploadLease = null;
+        var announcedUploadWait = false;
         if (!uploadAlreadyDone)
         {
+            async Task AnnounceUploadWaitAsync(string message)
+            {
+                announcedUploadWait = true;
+                AppendActivityLog(message, projectName);
+                SetStatusMessage(message);
+                await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Running, "等待槽位");
+            }
+
             try
             {
-                uploadLease = await uploadSlot.AcquireAsync(cancellationToken);
+                machineUploadLease = await KuaishouMachineGate.Shared.AcquireUploadAsync(
+                    cancellationToken,
+                    KuaishouUploadHolderLabel(request.AccountName, projectName),
+                    async holder =>
+                    {
+                        var who = string.IsNullOrWhiteSpace(holder) ? "其他账号" : holder.Trim();
+                        await AnnounceUploadWaitAsync($"等待上传名额：{who}");
+                    },
+                    KuaishouUploadAccountKey(request));
             }
             catch (OperationCanceledException)
             {
-                if (request.Parallelism > 1)
+                machineUploadLease?.Dispose();
+                machineUploadLease = null;
+                if (announcedUploadWait)
                     await UpdateStepStateAsync(trackedJob, trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Pending, "已停止，可继续执行");
                 throw;
             }
@@ -2654,13 +2875,51 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 trackedJob.StatusMessage = "发布流程执行完成";
                 trackedJob.LastCompletedAt = DateTimeOffset.Now;
             });
-            if (KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, uploadCompleted: true))
-                await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
         }
         finally
         {
-            uploadLease?.Dispose();
+            machineUploadLease?.Dispose();
         }
+
+        if (KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, uploadCompleted: true))
+            await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
+    }
+
+    private static string KuaishouUploadAccountKey(KuaishouPipelineRequest request)
+    {
+        var id = string.IsNullOrWhiteSpace(request.AccountId) ? "default" : request.AccountId.Trim();
+        var edition = request.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "enterprise" : "personal";
+        return id + "|" + edition;
+    }
+
+    private static bool IsKuaishouLoginFailure(Exception ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current.Message.Contains("登录态无效", StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string KuaishouUploadHolderLabel(string? accountName, string projectName)
+    {
+        var project = string.IsNullOrWhiteSpace(projectName) ? "当前剧" : projectName.Trim();
+        var account = (accountName ?? "").Trim();
+        return account.Length == 0 ? project : $"{account} · {project}";
+    }
+
+    private int KuaishouAccountOrder(string? accountId)
+    {
+        var id = (accountId ?? "").Trim();
+        for (var i = 0; i < _globalAccounts.Count; i++)
+        {
+            if (string.Equals(_globalAccounts[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+
+        return int.MaxValue;
     }
 
     private static bool KuaishouUploadCompleted(PublishJob job, string projectDirectory, KuaishouPipelineRequest request)
@@ -2764,8 +3023,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishPlatform? platform = null,
         string? accountId = null,
         string? configPath = null,
-        bool? force = null)
+        bool? force = null,
+        PublishJobRowViewModel? row = null)
     {
+        var title = string.IsNullOrWhiteSpace(job?.ProjectName)
+            ? Path.GetFileName(projectDirectory)
+            : job.ProjectName;
+        await UpdateStepStateAsync(job, row, "project-image", "生成工程图", PublishJobStepStatus.Running, "等待槽位");
+        using var projectImageLease = await KuaishouMachineGate.Shared.AcquireProjectImageAsync(
+            cancellationToken,
+            () => AppendActivityLog($"等待全局工程图名额：{title}", title));
+        await UpdateStepStateAsync(job, row, "project-image", "生成工程图", PublishJobStepStatus.Running, "正在生成工程图");
+
         var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath).Clone();
         var selectedPlatform = platform ?? SelectedPlatform.Value;
         var config = KuaishouPersonalConfig.Load(new PublishJob
@@ -2786,9 +3055,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             settings.TiktokProjectImageTemplateId = templateId.Trim();
         settings.TiktokProjectImageGenerationMode = TikTokProjectImageService.ImageTemplateMode;
 
-        var title = string.IsNullOrWhiteSpace(job?.ProjectName)
-            ? Path.GetFileName(projectDirectory)
-            : job.ProjectName;
         await TikTokProjectImageService.GenerateAsync(
             new QueueProjectItem
             {
@@ -3204,6 +3470,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         }
 
+        if (IsKuaishouPlatform)
+        {
+            await DeleteCheckedKuaishouProjectsAsync(targets);
+            return;
+        }
+
         var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
         var confirmed = await ConfirmDialog.ShowAsync(
             owner,
@@ -3220,6 +3492,73 @@ public sealed partial class MainWindowViewModel : ObservableObject
         RefreshVisibleJobs();
         StatusMessage = $"已从队列移出 {targets.Length} 条任务，项目文件未删除。";
         AppendActivityLog(StatusMessage);
+    }
+
+    private async Task DeleteCheckedKuaishouProjectsAsync(PublishJob[] targets)
+    {
+        var owner = (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.MainWindow;
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "确认删除勾选",
+            $"确认删除勾选的 {targets.Length} 部剧？将删除工作目录中对应的文件夹，此操作不可撤销。",
+            480,
+            200);
+        if (!confirmed)
+            return;
+
+        var workspace = DraftProjectDirectory;
+        var removed = 0;
+        var deletedDirectories = 0;
+        var errors = new List<string>();
+        foreach (var job in targets)
+        {
+            var plan = KuaishouCheckedProjectDeletion.Resolve(workspace, job.ProjectDirectory);
+            if (plan.Refusal is not null)
+            {
+                errors.Add($"{job.ProjectName}：{plan.Refusal}");
+                continue;
+            }
+
+            var failed = false;
+            foreach (var path in plan.Directories)
+            {
+                try
+                {
+                    var deleted = await Task.Run(() =>
+                    {
+                        if (!Directory.Exists(path))
+                            return false;
+                        Directory.Delete(path, recursive: true);
+                        return true;
+                    });
+                    KuaishouWorkspaceProjects.Invalidate(path);
+                    if (deleted)
+                        deletedDirectories++;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    failed = true;
+                    errors.Add($"{job.ProjectName}：{ex.Message}");
+                }
+            }
+
+            if (Directory.Exists(job.ProjectDirectory))
+                continue;
+
+            _jobs.Remove(job);
+            _jobRowCache.Remove(job.Id);
+            removed++;
+        }
+
+        if (removed > 0)
+            await PersistAsync();
+        RefreshVisibleJobs();
+        StatusMessage = errors.Count == 0
+            ? $"已删除 {removed} 部剧，共 {deletedDirectories} 个文件夹。"
+            : $"已删除 {removed} 部剧，{errors.Count} 部失败。";
+        AppendActivityLog(StatusMessage);
+        foreach (var error in errors.Take(5))
+            AppendActivityLog($"删除失败：{error}");
     }
 
     private async Task RunRunnableAsync()
@@ -3715,6 +4054,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         var dueJobs = _jobs
             .Where(job => PublishSchedulePolicy.IsDue(job, DateTimeOffset.Now))
+            .Where(job => YunfanFeatures.WeixinAssistantEnabled || job.Platform != PublishPlatform.WeixinChannel)
             .OrderBy(job => job.ScheduledAt)
             .ToArray();
         if (dueJobs.Length == 0)
@@ -4083,7 +4423,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return;
         var currentId = _activeGlobalAccount?.Id ?? "";
         var forCurrent = string.IsNullOrWhiteSpace(accountKey)
-            || string.Equals(accountKey, currentId, StringComparison.OrdinalIgnoreCase);
+            || string.Equals(accountKey, currentId, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(currentId) &&
+                accountKey.StartsWith(currentId + "|", StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrWhiteSpace(accountKey))
             _lastUnaffiliatedLog = text;
         else
@@ -4977,5 +5319,76 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AssignCheckedToCurrentAccountCommand.NotifyCanExecuteChanged();
         PreviousWorkflowPageCommand.NotifyCanExecuteChanged();
         NextWorkflowPageCommand.NotifyCanExecuteChanged();
+    }
+
+    private static bool TryReadDownloadFailure(string directory, out string message)
+    {
+        message = "";
+        var path = Path.Combine(directory, ".weixin-channel-download-state.json");
+        if (!File.Exists(path))
+            return false;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("ok", out var ok))
+                return false;
+            var failed = ok.ValueKind == JsonValueKind.False
+                || (ok.ValueKind == JsonValueKind.String &&
+                    string.Equals(ok.GetString(), "false", StringComparison.OrdinalIgnoreCase));
+            if (!failed)
+                return false;
+            message = root.TryGetProperty("message", out var text) && text.ValueKind == JsonValueKind.String
+                ? text.GetString()?.Trim() ?? ""
+                : "";
+            if (string.IsNullOrWhiteSpace(message))
+                message = "下载未完成。";
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<string> ListDownloadedVideos(string projectDirectory)
+    {
+        var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+        var roots = new[]
+        {
+            directories.SourceDirectory,
+            Path.Combine(directories.SourceDirectory, "videos"),
+            Path.Combine(directories.WorkflowDirectory, "videos"),
+        };
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paths = new List<string>();
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root))
+                continue;
+            foreach (var path in Directory.EnumerateFiles(root))
+            {
+                if (!IsDownloadedVideo(path))
+                    continue;
+                var full = Path.GetFullPath(path);
+                if (seen.Add(full))
+                    paths.Add(full);
+            }
+        }
+
+        return paths;
+    }
+
+    private static bool IsDownloadedVideo(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".mov", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".m4v", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".mkv", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".avi", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".flv", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".wmv", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".webm", StringComparison.OrdinalIgnoreCase);
     }
 }

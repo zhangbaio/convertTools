@@ -287,6 +287,7 @@ public static class DeletedCopyrightProofProjectRecoveryService
         recovered.StepStates = new Dictionary<string, string>(history.StepStates);
         recovered.NormalizeStepStates();
 
+        WorkspaceQueueService.ForgetDeletedProjects(workspace, [recovered.ProjectDir]);
         var options = WorkspaceQueueService.LoadRunOptions(workspace);
         WorkspaceQueueService.SaveRunOptions(workspace, projects, options);
     }

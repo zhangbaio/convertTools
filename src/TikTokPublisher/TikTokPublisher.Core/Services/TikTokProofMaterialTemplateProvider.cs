@@ -7,9 +7,14 @@ public static class TikTokProofMaterialTemplateProvider
     public const string LegacyDefaultTemplatePath =
         @"C:\Users\PC\Desktop\zhangbiao\word\权力声明模板.docx";
     public const string BuiltInTemplateFileName = "权力声明模板.docx";
+    public const string BuiltInEnglishTemplateFileName = "权利声明模板-英文.docx";
+    public const string ChineseLanguage = "zh";
+    public const string EnglishLanguage = "en";
 
     internal const string EmbeddedResourceName =
         "TikTokPublisher.Core.Resources.ProofMaterialTemplate.docx";
+    internal const string EmbeddedEnglishResourceName =
+        "TikTokPublisher.Core.Resources.ProofMaterialTemplate.en.docx";
 
     private static readonly object ReleaseLock = new();
 
@@ -23,20 +28,42 @@ public static class TikTokProofMaterialTemplateProvider
         return customPath ?? EnsureBuiltInTemplate(dataRoot);
     }
 
-    public static string EnsureBuiltInTemplate(string? dataRoot = null)
+    public static string NormalizeSystemLanguage(string? value) =>
+        IsEnglishLanguage(value) ? EnglishLanguage : ChineseLanguage;
+
+    public static string NormalizeAccountLanguage(string? value)
     {
+        _ = value;
+        return ChineseLanguage;
+    }
+
+    public static string ResolveLanguage(string? accountLanguage, string? systemLanguage)
+    {
+        _ = accountLanguage;
+        _ = systemLanguage;
+        return ChineseLanguage;
+    }
+
+    public static string EnsureBuiltInTemplate(string? dataRoot = null) =>
+        EnsureBuiltInTemplate(dataRoot, ChineseLanguage);
+
+    public static string EnsureBuiltInTemplate(string? dataRoot, string? language)
+    {
+        var english = NormalizeSystemLanguage(language) == EnglishLanguage;
+        var fileName = english ? BuiltInEnglishTemplateFileName : BuiltInTemplateFileName;
+        var resourceName = english ? EmbeddedEnglishResourceName : EmbeddedResourceName;
         var root = string.IsNullOrWhiteSpace(dataRoot)
             ? AppPaths.DataRoot
             : Path.GetFullPath(dataRoot);
         var targetDirectory = Path.Combine(root, "templates", "proof-material");
-        var targetPath = Path.Combine(targetDirectory, BuiltInTemplateFileName);
+        var targetPath = Path.Combine(targetDirectory, fileName);
 
         lock (ReleaseLock)
         {
             var assembly = typeof(TikTokProofMaterialTemplateProvider).Assembly;
-            using var resourceStream = assembly.GetManifestResourceStream(EmbeddedResourceName)
+            using var resourceStream = assembly.GetManifestResourceStream(resourceName)
                 ?? throw new InvalidOperationException(
-                    $"程序集缺少内置证明材料模板资源：{EmbeddedResourceName}");
+                    $"程序集缺少内置证明材料模板资源：{resourceName}");
             using var buffer = new MemoryStream();
             resourceStream.CopyTo(buffer);
             var resourceBytes = buffer.ToArray();
@@ -49,7 +76,7 @@ public static class TikTokProofMaterialTemplateProvider
             Directory.CreateDirectory(targetDirectory);
             var temporaryPath = Path.Combine(
                 targetDirectory,
-                $".{BuiltInTemplateFileName}.{Guid.NewGuid():N}.tmp");
+                $".{fileName}.{Guid.NewGuid():N}.tmp");
             try
             {
                 File.WriteAllBytes(temporaryPath, resourceBytes);
@@ -143,6 +170,14 @@ public static class TikTokProofMaterialTemplateProvider
     {
         if (bytes.Length < 4 || bytes[0] != (byte)'P' || bytes[1] != (byte)'K')
             throw new InvalidDataException("程序集内置证明材料模板不是有效的 DOCX/ZIP 文件。");
+    }
+
+    private static bool IsEnglishLanguage(string? value)
+    {
+        var text = (value ?? "").Trim();
+        return text.Equals(EnglishLanguage, StringComparison.OrdinalIgnoreCase) ||
+               text.Equals("english", StringComparison.OrdinalIgnoreCase) ||
+               text.Equals("英文", StringComparison.Ordinal);
     }
 
     private static bool PathsEqual(string left, string right)

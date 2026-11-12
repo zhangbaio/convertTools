@@ -78,6 +78,8 @@ public static class TikTokUploadFilePreflightService
 
             foreach (var message in TikTokMaterialValidationService.ValidateVideoLimits(fileSize, probe.DurationSeconds))
                 issues.Add($"第{episode}集 | {name} | {message}");
+            foreach (var message in TikTokMaterialValidationService.ValidateVideoFrame(probe.Width, probe.Height, probe.VideoCodec))
+                issues.Add($"第{episode}集 | {name} | {message}");
         }
 
         if (issues.Count == 0)

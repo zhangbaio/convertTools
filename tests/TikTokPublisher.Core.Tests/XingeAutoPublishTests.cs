@@ -41,7 +41,7 @@ public sealed class XingeAutoPublishTests : IDisposable
     }
 
     [Theory]
-    [InlineData("download", "下载超时", XingeAutoPublishFailureKinds.Source)]
+        [InlineData("download", "下载超时", XingeAutoPublishFailureKinds.Download)]
     [InlineData("material_validate", "素材校验未通过", XingeAutoPublishFailureKinds.Source)]
     [InlineData("upload_series", "自动登录失败：未找到账号「A」。", XingeAutoPublishFailureKinds.AccountLogin)]
     [InlineData("upload_series", "已达单日创建剧集上限", XingeAutoPublishFailureKinds.AccountDailyLimit)]
@@ -60,6 +60,43 @@ public sealed class XingeAutoPublishTests : IDisposable
     [InlineData("网络错误", XingeAutoPublishFailureKinds.Upload)]
     public void ClassifyImportFailure_BlocksOnlyDramaSpecificProblems(string reason, string expected) =>
         XingeAutoPublishFailureClassifier.ClassifyImportFailure(reason).Should().Be(expected);
+
+    [Fact]
+    public void ShouldKeepChecked_UsesLocalDispatchDayAndAccount()
+    {
+        var today = new DateTime(2026, 11, 10);
+        var offset = TimeZoneInfo.Local.GetUtcOffset(today);
+        var marker = new XingeAutoPublishMarker
+        {
+            AssignmentId = 42,
+            AccountProfileId = "acc-1",
+            CreatedAt = new DateTimeOffset(2026, 11, 10, 10, 29, 0, offset),
+            FinalStatus = "failed",
+        };
+
+        XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today).Should().BeTrue();
+        XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-2", today).Should().BeFalse();
+        XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today.AddDays(-1)).Should().BeFalse();
+        marker.CreatedAt = new DateTimeOffset(2026, 11, 9, 23, 0, 0, offset);
+        XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today).Should().BeFalse();
+        XingeAutoPublishMarkerStore.ShouldKeepChecked(null, "acc-1", today).Should().BeFalse();
+        marker.CreatedAt = new DateTimeOffset(2026, 11, 10, 10, 29, 0, offset);
+        marker.FinalStatus = XingeAutoPublishStatuses.UserStopped;
+        XingeAutoPublishMarkerStore.ShouldKeepChecked(marker, "acc-1", today).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Recovery_DoesNotResumeAfterManualStop()
+    {
+        var marker = new XingeAutoPublishMarker
+        {
+            AssignmentId = 7,
+            FinalStatus = XingeAutoPublishStatuses.UserStopped,
+        };
+
+        XingeAutoPublishRecovery.Decide("accepted", marker, true).Should().Be(XingeAutoPublishRecoveryAction.None);
+        XingeAutoPublishRecovery.Decide("running", marker, true).Should().Be(XingeAutoPublishRecoveryAction.None);
+    }
 
     [Fact]
     public void Parse_ReadsRetryQueueItems()
@@ -123,7 +160,7 @@ public sealed class XingeAutoPublishTests : IDisposable
         item.LastError = "剧集下载失败";
         var failed = observer.Observe(Progress(item, "失败"), true);
         failed!.Status.Should().Be(XingeUploadTaskStatuses.Failed);
-        failed.FailureKind.Should().Be(XingeAutoPublishFailureKinds.Source);
+        failed.FailureKind.Should().Be(XingeAutoPublishFailureKinds.Download);
         failed.FailureReason.Should().Contain("剧集下载失败");
 
         var uploaded = CreatePlainProject("uploaded");
@@ -131,6 +168,37 @@ public sealed class XingeAutoPublishTests : IDisposable
         uploaded.StepStates[QueueStepRegistry.UploadSeries] = QueueStepStatus.Completed;
         uploaded.UploadCompletedAt = DateTimeOffset.Now.AddHours(-1).ToString("o");
         observer.Observe(Progress(uploaded, "补跑其他步骤"), true).Should().BeNull("上传在本次运行前已完成");
+    }
+
+    [Fact]
+    public void Observer_RetriesADispatchedProjectLocallyUntilTheThirdFailure()
+    {
+        var (dir, item) = CreateProject(31, DateTimeOffset.Now.AddMinutes(-5));
+        var observer = new XingeUploadTaskObserver();
+        item.StatusText = QueueStepStatus.Running;
+        observer.Observe(Progress(item, "下载中"), true);
+
+        item.StatusText = QueueStepStatus.Failed;
+        item.StepStates[QueueStepRegistry.Download] = QueueStepStatus.Failed;
+        item.LastError = "剧集下载失败";
+
+        observer.Observe(Progress(item, "失败"), true).Should().BeNull("前两次失败留在本地");
+        XingeAutoPublishMarkerStore.TryRead(dir)!.LocalFailures.Should().Be(1);
+        XingeAutoPublishMarkerStore.IsActive(dir).Should().BeTrue();
+
+        item.StatusText = QueueStepStatus.Running;
+        observer.Observe(Progress(item, "再次下载"), true);
+        item.StatusText = QueueStepStatus.Failed;
+        observer.Observe(Progress(item, "又失败"), true).Should().BeNull();
+        XingeAutoPublishMarkerStore.TryRead(dir)!.LocalFailures.Should().Be(2);
+
+        item.StatusText = QueueStepStatus.Running;
+        observer.Observe(Progress(item, "第三次"), true);
+        item.StatusText = QueueStepStatus.Failed;
+        var reported = observer.Observe(Progress(item, "第三次失败"), true);
+        reported!.Status.Should().Be(XingeUploadTaskStatuses.Failed);
+        XingeAutoPublishMarkerStore.TryRead(dir)!.FinalStatus.Should().Be(XingeUploadTaskStatuses.Failed);
+        XingeAutoPublishMarkerStore.IsActive(dir).Should().BeFalse();
     }
 
     [Fact]
@@ -296,6 +364,7 @@ public sealed class XingeAutoPublishTests : IDisposable
     [InlineData("accepted", true, true, XingeAutoPublishRecoveryAction.Resume)]
     [InlineData("running", false, false, XingeAutoPublishRecoveryAction.ReportInterrupted)]
     [InlineData("dispatched", false, false, XingeAutoPublishRecoveryAction.None)]
+    [InlineData("retry_wait", true, true, XingeAutoPublishRecoveryAction.None)]
     [InlineData("accepted", true, false, XingeAutoPublishRecoveryAction.ReportSuccess)]
     public void Recovery_DecidesFromServerStatusAndLocalProject(
         string serverStatus,
@@ -313,9 +382,120 @@ public sealed class XingeAutoPublishTests : IDisposable
     }
 
     [Fact]
+    public void NotExecutableDetail_is_the_release_reason()
+    {
+        XingeAutoPublishRecovery.NotExecutableDetail.Should().Be("目标目录没有可执行项目");
+    }
+
+    [Fact]
+    public void EnableForResume_checks_projects_without_resetting_finished_steps()
+    {
+        var stoppedDir = Path.Combine(_root, "stopped");
+        var failedDir = Path.Combine(_root, "failed");
+        var archivedDir = Path.Combine(_root, "archived");
+        var stopped = new QueueProjectItem
+        {
+            ProjectDir = stoppedDir,
+            Enabled = false,
+            StatusText = QueueStepStatus.Stopped,
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepKeys.Download] = QueueStepStatus.Stopped,
+                [QueueStepKeys.RewriteInfo] = QueueStepStatus.Completed,
+            },
+        };
+        var failed = new QueueProjectItem
+        {
+            ProjectDir = failedDir,
+            Enabled = false,
+            StatusText = QueueStepStatus.Failed,
+            StepStates = new Dictionary<string, string>
+            {
+                [QueueStepKeys.Download] = QueueStepStatus.Failed,
+            },
+        };
+        var archived = new QueueProjectItem
+        {
+            ProjectDir = archivedDir,
+            Enabled = false,
+            Archived = true,
+            StatusText = QueueStepStatus.Stopped,
+        };
+        var unrelated = new QueueProjectItem
+        {
+            ProjectDir = Path.Combine(_root, "other"),
+            Enabled = false,
+        };
+
+        var enabled = XingeAutoPublishRecoveryQueue.EnableForResume(
+            [unrelated, archived, failed, stopped],
+            [stoppedDir, archivedDir, failedDir]);
+
+        enabled.Select(item => item.ProjectDir).Should().Equal(stoppedDir, failedDir);
+        stopped.Enabled.Should().BeTrue();
+        stopped.StatusText.Should().Be(QueueStepStatus.Stopped);
+        stopped.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Stopped);
+        stopped.StepStates[QueueStepKeys.RewriteInfo].Should().Be(QueueStepStatus.Completed);
+        failed.Enabled.Should().BeTrue();
+        failed.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Failed);
+        archived.Enabled.Should().BeFalse();
+        unrelated.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void QuotaFull_holds_until_the_business_day_ends_and_skips_work_that_has_not_started()
+    {
+        var until = new DateTimeOffset(2026, 11, 4, 8, 50, 0, TimeSpan.FromHours(8));
+        XingeQuotaFull.IsHeld(until, until.AddMinutes(-1)).Should().BeTrue();
+        XingeQuotaFull.IsHeld(until, until).Should().BeFalse();
+        XingeQuotaFull.ShouldSkipRecovery(accountFull: true, "dispatched").Should().BeTrue();
+        XingeQuotaFull.ShouldSkipRecovery(accountFull: true, XingeAutoPublishStatuses.Accepted).Should().BeTrue();
+        XingeQuotaFull.ShouldSkipRecovery(accountFull: true, XingeAutoPublishStatuses.Running).Should().BeTrue();
+        XingeQuotaFull.ShouldSkipRecovery(accountFull: false, "dispatched").Should().BeFalse();
+
+        var uploaded = new QueueProjectItem
+        {
+            Enabled = true,
+            AccountProfileId = "acc-1",
+            UploadCompletedAt = "2026-11-03T10:00:00+08:00",
+        };
+        var failed = new QueueProjectItem
+        {
+            Enabled = true,
+            AccountProfileId = "acc-1",
+            StepStates = new Dictionary<string, string> { [QueueStepKeys.Download] = QueueStepStatus.Failed },
+        };
+        var other = new QueueProjectItem
+        {
+            Enabled = true,
+            AccountProfileId = "acc-2",
+            StepStates = new Dictionary<string, string> { [QueueStepKeys.Download] = QueueStepStatus.Failed },
+        };
+        QueueWorkerRunner.DisableAccountProjectsBeforeUpload([uploaded, failed, other], "acc-1").Should().Be(1);
+        uploaded.Enabled.Should().BeTrue();
+        failed.Enabled.Should().BeFalse();
+        other.Enabled.Should().BeTrue();
+    }
+
+    [Fact]
     public void Classify_QueueBusyDoesNotLookLikeAnUploadFailure() =>
         XingeAutoPublishFailureClassifier.Classify("", "当前已有 TikTok 队列在执行，请等待完成后再发起新任务。")
             .Should().Be(XingeAutoPublishFailureKinds.QueueBusy);
+
+    [Fact]
+    public void DownloadFailureStopsLaterSteps()
+    {
+        var item = new QueueProjectItem
+        {
+            StepStates = new Dictionary<string, string> { [QueueStepKeys.Download] = QueueStepStatus.Failed },
+        };
+        QueueWorkerRunner.ShouldStopAfterDownloadFailure(item, QueueStepKeys.Download).Should().BeFalse();
+        QueueWorkerRunner.ShouldStopAfterDownloadFailure(item, QueueStepKeys.RewriteInfo).Should().BeTrue();
+        QueueWorkerRunner.ShouldStopAfterDownloadFailure(item, QueueStepKeys.UploadSeries).Should().BeTrue();
+
+        item.StepStates[QueueStepKeys.Download] = QueueStepStatus.Completed;
+        QueueWorkerRunner.ShouldStopAfterDownloadFailure(item, QueueStepKeys.SmallVideoRepair).Should().BeFalse();
+    }
 
     private (string Dir, QueueProjectItem Item) CreateProject(long assignmentId, DateTimeOffset createdAt, string account = "acc-1")
     {

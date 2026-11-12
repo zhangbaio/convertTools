@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
@@ -20,6 +21,9 @@ public static partial class TikTokBrowserActions
         @"第\s*(\d+)\s*集.*?-第\s*(\d+)\s*集",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
+    /// <summary>接口直传失败并回退后，本次流程里的递归补传不再重试接口。</summary>
+    private static readonly AsyncLocal<bool> ApiUploadSuspended = new();
+
     public sealed record EditVideoRow(int Slot, int Real);
 
     public sealed record EditFlowVideoState(
@@ -39,7 +43,17 @@ public static partial class TikTokBrowserActions
         ct.ThrowIfCancellationRequested();
         Log(log, "TikTok 已切换到草稿编辑流程，保留已有合同和剧名；简介为空时自动补全。");
         await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
+        var uploadPaths = payload.UploadVideoPaths.Count > 0 ? payload.UploadVideoPaths : payload.VideoPaths;
+        await TikTokBatchUploadService.WaitAllEpisodesReadyAsync(
+            page,
+            Math.Max(payload.EpisodeCount, uploadPaths.Count),
+            uploadPaths,
+            PayloadTitleCandidates(payload),
+            options,
+            log,
+            ct);
         await EnsureEditCoverUploadedAsync(page, coverPath, log, ct);
+        await EnsureEditTitleFilledAsync(page, payload.Title, log, ct);
         await EnsureEditDescriptionFilledAsync(page, payload.Description, log, ct);
         await FillSharedPublishFieldsAsync(
             page,
@@ -317,6 +331,36 @@ public static partial class TikTokBrowserActions
         }
     }
 
+    private static async Task EnsureEditTitleFilledAsync(
+        IPage page,
+        string? title,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var next = (title ?? "").Trim();
+        if (next.Length == 0)
+            return;
+
+        await EnsureEditBaseInfoSectionAsync(page, log, ct);
+        var field = page.Locator("#title").First;
+        try
+        {
+            await field.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 10000 });
+            if (!string.IsNullOrWhiteSpace(await field.InputValueAsync()) || !await field.IsEditableAsync())
+                return;
+
+            await field.FillAsync(next);
+            await BlurActiveElementAsync(page);
+            await page.WaitForTimeoutAsync(500);
+            Log(log, $"TikTok 编辑页剧名为空，已填写「{TrimForLog(next)}」。");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log(log, $"TikTok 编辑页剧名为空，自动填写失败：{ex.Message}");
+        }
+    }
+
     private static async Task EnsureEditDescriptionFilledAsync(
         IPage page,
         string description,
@@ -393,6 +437,26 @@ public static partial class TikTokBrowserActions
         if (expectedCount <= 0) return;
 
         await EnsureEditContentUploadTabAsync(page, ct);
+        if (options.UseApiUpload && !ApiUploadSuspended.Value)
+        {
+            var seriesId = TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url);
+            if (seriesId is null)
+            {
+                Log(log, "接口直传：当前页面地址里没有剧集 ID，改用网页分批上传。");
+            }
+            else
+            {
+                try
+                {
+                    await TikTokApiUploadService.SyncEpisodesAsync(page, seriesId, uploadPaths, options, log, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException && options.UploadApiFallbackToBatch)
+                {
+                    ApiUploadSuspended.Value = true;
+                    Log(log, $"接口直传未完成：{ex.Message}。本次改用网页分批上传补齐。");
+                }
+            }
+        }
 
         List<EditVideoRow> rows;
         try
@@ -413,7 +477,8 @@ public static partial class TikTokBrowserActions
         }
 
         var tableRowCount = await ReadEditVideoTableRowCountAsync(page);
-        if (ShouldRebuildOverfilledEditVideoTable(tableRowCount, expectedCount))
+        if (ShouldRebuildOverfilledEditVideoTable(tableRowCount, expectedCount) &&
+            FindAlignedEditVideoPrefixCount(rows) == 0)
         {
             Log(log,
                 $"TikTok 草稿正片已有 {tableRowCount}/{expectedCount} 行，检测到多传视频；" +
@@ -438,7 +503,33 @@ public static partial class TikTokBrowserActions
             var aligned = FindAlignedEditVideoPrefixCount(rows);
 
             List<string> missingPaths;
-            if (aligned < rows.Count)
+            var reals = rows.Select(row => row.Real).ToList();
+            var sortable = aligned < rows.Count &&
+                           rows.Count == tableRowCount &&
+                           tableRowCount <= expectedCount &&
+                           PlanEpisodeReorder(reals) is not null;
+            if (sortable)
+            {
+                var firstBad = aligned + 1;
+                missingPaths = ResolveMissingUploadPathsByIndexes(uploadPaths, reals);
+                if (missingPaths.Count > 0)
+                {
+                    Log(log,
+                        $"检测到集数错位：第{firstBad}个位置起与真实集数不一致（共 {rows.Count} 行）。不删行，" +
+                        $"先补传缺的第 {string.Join(", ", ExtractEpisodeIndexesFromPaths(missingPaths))} 集，处理完成后按集号拖动排序。");
+                }
+                else
+                {
+                    Log(log, $"检测到集数错位：第{firstBad}个位置起与真实集数不一致（共 {rows.Count} 行），按集号拖动排序。");
+                    if (await ReorderEditVideosByEpisodeAsync(page, log, ct))
+                        return;
+
+                    Log(log, $"拖动排序未成功，改为删除第{firstBad}个位置及其后所有行并重传补齐。");
+                    await DeleteEditVideoRowsFromSlotAsync(page, aligned, log, ct);
+                    missingPaths = uploadPaths.Skip(aligned).ToList();
+                }
+            }
+            else if (aligned < rows.Count)
             {
                 var firstBad = aligned + 1;
                 Log(log,
@@ -446,6 +537,13 @@ public static partial class TikTokBrowserActions
                     $"删除第{firstBad}集及其后所有行并从第{firstBad}集起重传补齐。");
                 await DeleteEditVideoRowsFromSlotAsync(page, aligned, log, ct);
                 missingPaths = uploadPaths.Skip(aligned).ToList();
+            }
+            else if (ShouldTrimExtraEditVideoRows(tableRowCount, expectedCount) && aligned >= expectedCount)
+            {
+                Log(log,
+                    $"TikTok 草稿前 {expectedCount} 集顺序正确，表格另有 {tableRowCount - expectedCount} 行，只删除多出的行。");
+                await DeleteEditVideoRowsFromSlotAsync(page, expectedCount, log, ct);
+                return;
             }
             else if (tableRowCount >= expectedCount && rows.Count < expectedCount)
             {
@@ -575,7 +673,7 @@ public static partial class TikTokBrowserActions
             $"第 {string.Join("、", unavailable)} 集缺少本地源文件无法补传，请补齐后重新执行上传。");
     }
 
-    private static async Task EnsureEditContentUploadTabAsync(IPage page, CancellationToken ct)
+    internal static async Task EnsureEditContentUploadTabAsync(IPage page, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         try
@@ -692,7 +790,7 @@ public static partial class TikTokBrowserActions
             await WaitVideoUploadFinishedAsync(
                 page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
                 videoPaths: missingPaths);
-            await EnsureEditVideoTableCountMatchesAsync(page, expectedCount, log);
+            await FinishEditVideoUploadAsync(page, payload, options, expectedCount, log, ct);
             return;
         }
 
@@ -733,13 +831,85 @@ public static partial class TikTokBrowserActions
         await WaitVideoUploadFinishedAsync(
             page, expectedCount, titleCandidates, options.UploadStallSeconds, log, ct,
             videoPaths: missingPaths);
-        await EnsureEditVideoTableCountMatchesAsync(page, expectedCount, log);
+        await FinishEditVideoUploadAsync(page, payload, options, expectedCount, log, ct);
+    }
+
+    private static int _misalignmentRepairDepth;
+
+    /// <summary>
+    /// 补传过程中可能把某一集补到列表末尾，后面的集整体前移。行数对上也不算完成，先删掉错位的那一段再补传。
+    /// </summary>
+    private static async Task<bool> TryRepairMisalignedSuffixAsync(
+        IPage page,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        int expectedCount,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (_misalignmentRepairDepth > 0)
+            return false;
+
+        List<EditVideoRow> rows;
+        try
+        {
+            rows = await ReadEditVideoRowsAsync(page, ct);
+        }
+        catch (Exception ex)
+        {
+            Log(log, $"补传后读取正片顺序失败（{ex.Message}）。");
+            return false;
+        }
+
+        if (rows.Count == 0)
+            return false;
+
+        var aligned = FindAlignedEditVideoPrefixCount(rows);
+        if (aligned >= rows.Count)
+            return false;
+
+        if (PlanEpisodeReorder(rows.Select(row => row.Real).ToList()) is not null)
+        {
+            Log(log, $"补传后第{aligned + 1}个位置起顺序不对（共 {rows.Count} 行），按集号拖动排序。");
+            if (await ReorderEditVideosByEpisodeAsync(page, log, ct))
+                return false;
+        }
+
+        _misalignmentRepairDepth++;
+        try
+        {
+            var firstBad = aligned + 1;
+            Log(log,
+                $"补传后第{firstBad}集起顺序仍不对（共 {rows.Count} 行），删除第{firstBad}集及其后所有行并重新补传。");
+            await DeleteEditVideoRowsFromSlotAsync(page, aligned, log, ct);
+            await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
+            return true;
+        }
+        finally
+        {
+            _misalignmentRepairDepth--;
+        }
+    }
+
+    private static async Task FinishEditVideoUploadAsync(
+        IPage page,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        int expectedCount,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (await TryRepairMisalignedSuffixAsync(page, payload, options, expectedCount, log, ct))
+            return;
+
+        await EnsureEditVideoTableCountMatchesAsync(page, expectedCount, log, ct);
     }
 
     private static async Task EnsureEditVideoTableCountMatchesAsync(
         IPage page,
         int expectedCount,
-        Action<string>? log)
+        Action<string>? log,
+        CancellationToken ct)
     {
         var rowCount = await ReadEditVideoTableRowCountAsync(page);
         if (rowCount <= 0)
@@ -866,8 +1036,15 @@ public static partial class TikTokBrowserActions
         return aligned;
     }
 
+    internal const int MaxSmallExtraEditVideoRows = 3;
+
+    internal static bool ShouldTrimExtraEditVideoRows(int tableRowCount, int expectedCount) =>
+        expectedCount > 0 &&
+        tableRowCount > expectedCount &&
+        tableRowCount - expectedCount <= MaxSmallExtraEditVideoRows;
+
     internal static bool ShouldRebuildOverfilledEditVideoTable(int tableRowCount, int expectedCount) =>
-        expectedCount > 0 && tableRowCount > expectedCount;
+        expectedCount > 0 && tableRowCount - expectedCount > MaxSmallExtraEditVideoRows;
 
     private static bool TryReadIntProperty(JsonElement item, string name, out int value)
     {
@@ -907,6 +1084,9 @@ public static partial class TikTokBrowserActions
         }
 
         var deleted = 0;
+        var misses = 0;
+        var stalledAttempts = 0;
+        var refreshRounds = 0;
         for (var guard = 0; guard < 500; guard++)
         {
             ct.ThrowIfCancellationRequested();
@@ -914,12 +1094,47 @@ public static partial class TikTokBrowserActions
             if (count <= keepCount) break;
 
             var clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
-            if (!TryReadClickedEditVideoRow(clickResult, out var slot, out var uid, out _))
+            if (await HoverDeletePointAsync(page, clickResult))
+                clickResult = await ClickEditVideoDeleteButtonBeyondKeepAsync(page, keepCount, count);
+            if (!TryReadClickedEditVideoRow(clickResult, out var slot, out var uid, out var rowText))
+            {
+                if (IsRetryableDeleteMiss(clickResult) && misses < 2)
+                {
+                    misses++;
+                    await page.WaitForTimeoutAsync(600);
+                    continue;
+                }
+
+                var missed = await StallEditVideoDeleteAsync(
+                    page, log, ct, count, "未点到删除按钮", stalledAttempts, refreshRounds);
+                stalledAttempts = missed.StalledAttempts;
+                refreshRounds = missed.RefreshRounds;
+                if (missed.Continue)
+                    continue;
                 throw new InvalidOperationException($"未找到错位行的删除按钮（{clickResult}）。");
+            }
+
+            misses = 0;
 
             planned = Math.Max(planned, deleted + Math.Max(0, count - keepCount));
             await ConfirmDeleteDialogIfPresentAsync(page, ct);
             var remaining = await WaitForEditVideoRowCountDecreaseAsync(page, count, uid, ct);
+            if (remaining is null)
+            {
+                var target = DescribeDeleteTarget(slot, rowText);
+                var stalled = await StallEditVideoDeleteAsync(
+                    page, log, ct, count, target, stalledAttempts, refreshRounds);
+                stalledAttempts = stalled.StalledAttempts;
+                refreshRounds = stalled.RefreshRounds;
+                if (stalled.Continue)
+                    continue;
+                throw new InvalidOperationException(
+                    $"点击删除后等待 15 秒行数仍未减少" +
+                    $"（删除前 {count}，最后读取 {count}，卡在{target}），可能删除请求未被平台接受，已中止。");
+            }
+
+            stalledAttempts = 0;
+            refreshRounds = 0;
             deleted++;
             if (deleted % 10 == 0 && deleted < planned)
             {
@@ -936,6 +1151,117 @@ public static partial class TikTokBrowserActions
         }
         return deleted;
     }
+
+    internal static bool TryReadHoverPoint(string result, out float x, out float y)
+    {
+        x = 0;
+        y = 0;
+        if (string.IsNullOrWhiteSpace(result) ||
+            !result.StartsWith("need-hover:", StringComparison.Ordinal))
+            return false;
+
+        var parts = result.Split(':');
+        if (parts.Length < 4)
+            return false;
+        return float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out x) &&
+               float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out y) &&
+               x >= 0 &&
+               y >= 0;
+    }
+
+    internal static async Task<bool> HoverDeletePointAsync(IPage page, string result)
+    {
+        if (!TryReadHoverPoint(result, out var x, out var y))
+            return false;
+
+        await page.Mouse.MoveAsync(x, y);
+        await page.WaitForTimeoutAsync(280);
+        return true;
+    }
+
+    internal readonly record struct DeleteStallDecision(bool Refresh, bool Abort);
+
+    /// <summary>
+    /// 同一轮连续点了 maxAttempts 次仍不减少才刷新；刷新满 maxRefreshes 轮后中止。
+    /// </summary>
+    internal static DeleteStallDecision DecideDeleteStall(
+        int consecutiveAttempts,
+        int refreshRounds,
+        int maxAttempts = 3,
+        int maxRefreshes = 2)
+    {
+        if (consecutiveAttempts < Math.Max(1, maxAttempts))
+            return new DeleteStallDecision(false, false);
+        if (refreshRounds >= Math.Max(0, maxRefreshes))
+            return new DeleteStallDecision(false, true);
+        return new DeleteStallDecision(true, false);
+    }
+
+    internal static string DescribeDeleteTarget(int slot, string? rowText)
+    {
+        var compact = Regex.Replace(rowText ?? "", @"\s+", " ").Trim();
+        if (compact.Length > 80)
+            compact = compact[..80];
+        if (compact.Length > 0)
+            return compact;
+        return slot > 0 ? $"第 {slot} 集" : "末行";
+    }
+
+    private readonly record struct DeleteStallProgress(bool Continue, int StalledAttempts, int RefreshRounds);
+
+    private static async Task<DeleteStallProgress> StallEditVideoDeleteAsync(
+        IPage page,
+        Action<string>? log,
+        CancellationToken ct,
+        int count,
+        string target,
+        int stalledAttempts,
+        int refreshRounds)
+    {
+        stalledAttempts++;
+        var decision = DecideDeleteStall(stalledAttempts, refreshRounds);
+        if (decision.Abort)
+            return new DeleteStallProgress(false, stalledAttempts, refreshRounds);
+        if (!decision.Refresh)
+        {
+            Log(log, $"删除{target}后行数仍是 {count}，准备重试（{stalledAttempts}/3）。");
+            await page.WaitForTimeoutAsync(400);
+            return new DeleteStallProgress(true, stalledAttempts, refreshRounds);
+        }
+
+        refreshRounds++;
+        stalledAttempts = 0;
+        Log(log, $"删除{target}连续 3 次没有减少行数，刷新编辑页后继续。当前仍是 {count} 行。");
+        await ReloadEditVideoPageAsync(page, ct);
+        return new DeleteStallProgress(true, stalledAttempts, refreshRounds);
+    }
+
+    private static async Task ReloadEditVideoPageAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        await page.ReloadAsync(new PageReloadOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 60000,
+        });
+        try
+        {
+            await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 15000 });
+        }
+        catch
+        {
+            // 编辑页常驻连接时 NetworkIdle 到不了，列表出现即可继续删。
+        }
+
+        await EnsureEditContentUploadTabAsync(page, ct);
+        await page.WaitForTimeoutAsync(800);
+    }
+
+    internal static bool IsRetryableDeleteMiss(string result) =>
+        result.StartsWith("no-button:", StringComparison.Ordinal) ||
+        result.StartsWith("need-hover:", StringComparison.Ordinal) ||
+        result.StartsWith("disabled:", StringComparison.Ordinal) ||
+        result.StartsWith("not-rendered:", StringComparison.Ordinal);
 
     internal static bool TryReadClickedEditVideoRow(
         string clickResult,
@@ -958,7 +1284,7 @@ public static partial class TikTokBrowserActions
         return int.TryParse(parts[0], out slot);
     }
 
-    private static async Task<int> WaitForEditVideoRowCountDecreaseAsync(
+    private static async Task<int?> WaitForEditVideoRowCountDecreaseAsync(
         IPage page,
         int previousCount,
         string removedUid,
@@ -967,23 +1293,21 @@ public static partial class TikTokBrowserActions
     {
         var deadline = DateTime.UtcNow.AddSeconds(Math.Max(3, timeoutSeconds));
         int? candidate = null;
-        var lastCount = previousCount;
 
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
             var probe = await ProbeEditVideoRowRemovalAsync(page, removedUid);
-            lastCount = probe.Count;
-            if (probe.Removed && lastCount == previousCount - 1)
-                return lastCount;
+            if (probe.Removed && probe.Count == previousCount - 1)
+                return probe.Count;
 
-            if (lastCount < previousCount)
+            if (probe.Count < previousCount)
             {
                 // TikTok briefly tears down the virtual table while applying a deletion. Require
                 // the lower count twice so a transient zero is not mistaken for an empty list.
-                if (candidate == lastCount)
-                    return lastCount;
-                candidate = lastCount;
+                if (candidate == probe.Count)
+                    return probe.Count;
+                candidate = probe.Count;
             }
             else
             {
@@ -993,9 +1317,7 @@ public static partial class TikTokBrowserActions
             await page.WaitForTimeoutAsync(200);
         }
 
-        throw new InvalidOperationException(
-            $"点击删除后等待 {Math.Max(3, timeoutSeconds)} 秒行数仍未减少" +
-            $"（删除前 {previousCount}，最后读取 {lastCount}），可能删除请求未被平台接受，已中止。");
+        return null;
     }
 
     /// <summary>
@@ -1091,7 +1413,12 @@ public static partial class TikTokBrowserActions
                 hoverRow(target.tr);
                 await sleep(60);
                 const button = findDeleteButton(target.tr);
-                if (!button) return `no-button:${target.slot}\t${target.text || ''}`;
+                if (!button) {
+                  const box = target.tr.getBoundingClientRect();
+                  const x = Math.round(box.x + box.width / 2);
+                  const y = Math.round(box.y + box.height / 2);
+                  return `need-hover:${target.slot}:${x}:${y}`;
+                }
                 if (button.disabled || button.getAttribute('aria-disabled') === 'true') {
                   return `disabled:${target.slot}\t${target.text || ''}`;
                 }
@@ -1276,7 +1603,7 @@ public static partial class TikTokBrowserActions
     private static List<string> ResolveMissingUploadPaths(IReadOnlyList<string> videoPaths, int uploadedCount) =>
         videoPaths.Skip(Math.Max(0, uploadedCount)).ToList();
 
-    private static List<string> ResolveMissingUploadPathsByIndexes(
+    internal static List<string> ResolveMissingUploadPathsByIndexes(
         IReadOnlyList<string> videoPaths,
         IReadOnlyList<int> uploadedIndexes)
     {

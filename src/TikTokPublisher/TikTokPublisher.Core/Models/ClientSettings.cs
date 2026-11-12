@@ -73,6 +73,13 @@ public sealed class ClientSettings
     public int TiktokImageGenerationConcurrency { get; set; } = 2;
     public int TiktokVisualConcurrency { get; set; } = 2;
     public int TiktokDocumentConcurrency { get; set; } = 2;
+    public int TiktokGlobalProjectConcurrency { get; set; } = 4;
+    public string TiktokAccountScheduleMode { get; set; } = "account_order";
+    /// <summary>服务端监控屏的分发模式。空表示还没收到，执行时按轮流分发。</summary>
+    public string ServerDispatchMode { get; set; } = "";
+    public int TiktokVideoDedupConcurrency { get; set; } = 2;
+    public int TiktokUploadConcurrency { get; set; } = 2;
+    public int KuaishouProjectImageConcurrency { get; set; } = 3;
     public string TiktokAsrLanguage { get; set; } = "zh-CN";
     public bool TiktokManualInterventionOnSingleFailure { get; set; } = true;
     public bool TiktokCopyrightProofAuditIncludePublished { get; set; }
@@ -164,6 +171,7 @@ public sealed class ClientSettings
     public string TiktokProjectImageFableCutRoot { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
     public int TiktokProjectImageFableCutClipCount { get; set; } = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
     public string TiktokProofTemplateDocxPath { get; set; } = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
+    public string TiktokProofTemplateLanguage { get; set; } = ClientSettingsDefaults.TiktokProofTemplateLanguage;
     public string TiktokProofWpsPath { get; set; } = ClientSettingsDefaults.TiktokProofWpsPath;
     // Legacy global values retained only for one-time/account-unmigrated compatibility.
     // New runtime configuration belongs to TikTokAccountProfile.
@@ -278,6 +286,12 @@ public sealed class ClientSettings
         TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency,
         TiktokVisualConcurrency = TiktokVisualConcurrency,
         TiktokDocumentConcurrency = TiktokDocumentConcurrency,
+        TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency,
+        TiktokAccountScheduleMode = TiktokAccountScheduleMode,
+        ServerDispatchMode = ServerDispatchMode,
+        TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency,
+        TiktokUploadConcurrency = TiktokUploadConcurrency,
+        KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency,
         TiktokAsrLanguage = TiktokAsrLanguage,
         TiktokManualInterventionOnSingleFailure = TiktokManualInterventionOnSingleFailure,
         TiktokCopyrightProofAuditIncludePublished = TiktokCopyrightProofAuditIncludePublished,
@@ -357,6 +371,7 @@ public sealed class ClientSettings
         TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot,
         TiktokProjectImageFableCutClipCount = TiktokProjectImageFableCutClipCount,
         TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath,
+        TiktokProofTemplateLanguage = TiktokProofTemplateLanguage,
         TiktokProofWpsPath = TiktokProofWpsPath,
         TiktokProofDeclarantCompanyName = TiktokProofDeclarantCompanyName,
         TiktokProofSealPath = TiktokProofSealPath,

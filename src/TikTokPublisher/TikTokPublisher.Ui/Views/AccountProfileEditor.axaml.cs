@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.ComponentModel;
 using System.Net;
@@ -7,6 +8,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
+using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
@@ -21,6 +24,9 @@ public partial class AccountProfileEditor : UserControl
     private SystemServicesViewModel? _systemServices;
     private bool _isReloadingFromSelectedAccount;
     private bool _persistedRemoteDispatch;
+    private bool _suppressUploadedSeriesSearch;
+    private int _uploadedSeriesGeneration;
+    private IReadOnlyList<AccountUploadedSeriesRow> _uploadedSeriesRows = Array.Empty<AccountUploadedSeriesRow>();
 
     public event EventHandler? LoginRequested;
     public event EventHandler? ReloginRequested;
@@ -31,6 +37,7 @@ public partial class AccountProfileEditor : UserControl
         InitializeComponent();
         ExpectedPriceModeCombo.SelectionChanged += (_, _) => UpdateExpectedPriceModeVisibility();
         PublishAccounts.FetchRequested += (_, _) => _ = FetchPublishAccountsAsync();
+        VideoDedupEditor.ApplyToAllAccountsRequested += (_, _) => _ = ApplyDedupPresetToAllAccountsAsync();
         DataContextChanged += (_, _) => ReloadFromSelectedAccount();
     }
 
@@ -113,6 +120,7 @@ public partial class AccountProfileEditor : UserControl
             ClearFields();
             LoginStatusText.Text = "尚未登录";
             ShowPersistedRemoteDispatch(null);
+            RequestUploadedSeriesReload();
             return;
         }
 
@@ -139,12 +147,13 @@ public partial class AccountProfileEditor : UserControl
         var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
-        SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "embedded");
+        SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "playwright");
         PlaywrightHeadlessBox.IsChecked = profile.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
+        SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
-        SelectByTag(UploadStrategyCombo, profile.TiktokUploadStrategy, "classic");
+        SelectByTag(UploadStrategyCombo, profile.TiktokUploadStrategy, "api");
 
         PaidEnabledBox.IsChecked = profile.TiktokPaidEnabled;
         PaidRatioEnabledBox.IsChecked = profile.TiktokPaidRatioEnabled;
@@ -160,6 +169,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadAiScriptOutlineWithScreenshots,
             profile.TiktokUploadSourceInfoRoleVector,
             profile.TiktokUploadSourceInfoRoleSceneScreenshot);
+        ProofTemplatePathBox.Text = profile.TiktokProofTemplateDocxPath;
         ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
         TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         ProofSealPathBox.Text = profile.TiktokProofSealPath;
@@ -204,6 +214,8 @@ public partial class AccountProfileEditor : UserControl
         UploadBatchSizeBox.Value = profile.TiktokUploadBatchSize;
         UploadBatchStallBox.Value = profile.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = profile.TiktokUploadBatchMaxRetries;
+        UploadApiConcurrencyBox.Value = profile.TiktokUploadApiConcurrency;
+        UploadApiFallbackBox.IsChecked = profile.TiktokUploadApiFallbackToBatch;
 
         SelectByTag(ExpectedPriceModeCombo, profile.TiktokExpectedFullPriceMode, "manual");
         ExpectedPriceOptionIndexBox.Value = profile.TiktokExpectedFullPriceOptionIndex;
@@ -219,6 +231,8 @@ public partial class AccountProfileEditor : UserControl
         ProxyPasswordBox.Text = profile.TiktokProxyPassword;
         ProxyLabelBox.Text = profile.TiktokProxyLabel;
         StaticIpNoteBox.Text = profile.TiktokStaticIpNote;
+        VideoDedupEditor.Load(profile.VideoDedupPreset);
+        RequestUploadedSeriesReload();
     }
 
     private void SyncWorkspaceBoxFromSelectedAccount()
@@ -277,12 +291,13 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
             profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
             profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
-            profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "embedded");
+            profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "playwright");
             profile.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
+            profile.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
             profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
-            profile.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "classic");
+            profile.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "api");
             profile.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
@@ -294,6 +309,8 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
             profile.TiktokUploadSourceInfoRoleVector = CopyrightMaterials.UploadSourceInfoRoleVector;
             profile.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
+            profile.TiktokProofTemplateDocxPath = ProofTemplatePathBox.Text?.Trim() ?? "";
+            profile.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.ChineseLanguage;
             profile.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
@@ -333,6 +350,8 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
             profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
             profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
+            profile.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
+            profile.TiktokUploadApiFallbackToBatch = UploadApiFallbackBox.IsChecked != false;
             profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
             profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
             var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
@@ -347,6 +366,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokProxyPassword = ProxyPasswordBox.Text ?? "";
             profile.TiktokProxyLabel = ProxyLabelBox.Text?.Trim() ?? "";
             profile.TiktokStaticIpNote = StaticIpNoteBox.Text?.Trim() ?? "";
+            profile.VideoDedupPreset = VideoDedupEditor.Read();
 
             _vm.SaveAccountProfile(profile);
             _vm.SelectedAccount?.RefreshFromModel();
@@ -361,6 +381,70 @@ public partial class AccountProfileEditor : UserControl
             _vm.AppendLog($"保存账号配置失败：{ex.GetType().Name}: {ex.Message}");
             return false;
         }
+    }
+
+    private async Task ApplyDedupPresetToAllAccountsAsync()
+    {
+        if (_vm is null)
+            return;
+
+        var accounts = _vm.Accounts.Select(item => item.Model).ToList();
+        if (accounts.Count == 0)
+        {
+            _vm.StatusMessage = "没有账号可以同步视频去重方案。";
+            return;
+        }
+
+        VideoDedupPreset preset;
+        try
+        {
+            preset = VideoDedupEditor.Read();
+        }
+        catch (Exception ex)
+        {
+            _vm.StatusMessage = $"读取视频去重方案失败：{ex.Message}";
+            return;
+        }
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "同步视频去重",
+            $"把当前视频去重方案写到全部 {accounts.Count} 个账号？登录、代理、发布和上传配置不变。已经去重过的成片不会马上重做。",
+            520,
+            220);
+        if (!confirmed)
+            return;
+
+        preset.CopyOnto(accounts);
+        foreach (var account in accounts)
+            _vm.SaveAccountProfile(account);
+
+        _vm.StatusMessage = $"已把视频去重方案同步到 {accounts.Count} 个账号。";
+    }
+
+    private async void OnDramaMarketSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_isReloadingFromSelectedAccount)
+            return;
+        if (!string.Equals(
+                TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal),
+                TikTokAccountProfile.DramaMarketOverseas,
+                StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        var confirmed = await ConfirmDialog.ShowAsync(
+            owner,
+            "海外剧",
+            "是否同步把源语言改为「AI识别语言」，并勾选「改写信息跟随源语言」？",
+            520,
+            200);
+        if (!confirmed)
+            return;
+
+        SelectByTag(SourceLanguageCombo, "auto", "auto");
+        RewriteFollowsSourceLanguageBox.IsChecked = true;
     }
 
     private async void OnSyncAccountsClick(object? sender, RoutedEventArgs e)
@@ -891,6 +975,7 @@ public partial class AccountProfileEditor : UserControl
         RemoteDispatchBox.IsChecked = false;
         CdpEndpointBox.Text = "";
         ContractIdBox.Text = "";
+        ProofTemplatePathBox.Text = "";
         ProofDeclarantCompanyNameBox.Text = "";
         ProofSealPathBox.Text = "";
         ProofCopyrightCompanyNameBox.Text = "";
@@ -899,11 +984,13 @@ public partial class AccountProfileEditor : UserControl
         RoleVectorCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorCharacterCount;
         RoleVectorMinimumCharacterCountBox.Value = TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount;
         CopyrightMaterials.Clear();
+        SelectByTag(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal, TikTokAccountProfile.DramaMarketLocal);
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;
         ExpectedPriceValueBox.Text = "";
         ExpectedPriceOptionsCombo.Items.Clear();
+        VideoDedupEditor.Load(null);
         ProxyHostBox.Text = "";
         ProxyUsernameBox.Text = "";
         ProxyPasswordBox.Text = "";
@@ -928,6 +1015,9 @@ public partial class AccountProfileEditor : UserControl
 
     private async void OnBrowseProofSealClick(object? sender, RoutedEventArgs e) =>
         await PickFileAsync(ProofSealPathBox, "选择公司印章图片", ["png", "jpg", "jpeg", "bmp"]);
+
+    private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e) =>
+        await PickFileAsync(ProofTemplatePathBox, "选择证明材料 Word 模板", ["docx"]);
 
     private async Task FetchPublishAccountsAsync()
     {
@@ -1095,4 +1185,117 @@ public partial class AccountProfileEditor : UserControl
 
     private static string TagOf(ComboBox combo, string fallback) =>
         (combo.SelectedItem as ComboBoxItem)?.Tag as string ?? fallback;
+
+    private void OnRefreshUploadedSeriesClick(object? sender, RoutedEventArgs e) =>
+        RequestUploadedSeriesReload();
+
+    private void OnUploadedSeriesSearchChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_suppressUploadedSeriesSearch)
+            return;
+        ApplyUploadedSeriesFilter();
+    }
+
+    private void OnOpenUploadedSeriesDirectoryClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AccountUploadedSeriesRow row } || !row.CanOpenDirectory)
+            return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = row.ProjectDirectory,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            ShowUploadedSeriesMessage($"打开项目目录失败：{ex.Message}", hasRows: true);
+        }
+    }
+
+    private void RequestUploadedSeriesReload()
+    {
+        var generation = ++_uploadedSeriesGeneration;
+        var profile = _vm?.SelectedAccount?.Model;
+        _suppressUploadedSeriesSearch = true;
+        UploadedSeriesSearchBox.Text = "";
+        _suppressUploadedSeriesSearch = false;
+        _uploadedSeriesRows = Array.Empty<AccountUploadedSeriesRow>();
+        UploadedSeriesList.ItemsSource = null;
+
+        if (profile is null)
+        {
+            ShowUploadedSeriesMessage("尚未选择账号");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(profile.ResolveWorkspacePath()))
+        {
+            ShowUploadedSeriesMessage("请先在基础设置里配置上传工作目录。");
+            return;
+        }
+
+        ShowUploadedSeriesMessage("正在读取已上传剧集…");
+        _ = LoadUploadedSeriesAsync(profile, generation);
+    }
+
+    private async Task LoadUploadedSeriesAsync(TikTokAccountProfile profile, int generation)
+    {
+        IReadOnlyList<AccountUploadedSeriesRow> rows;
+        string? error = null;
+        try
+        {
+            rows = await Task.Run(() => AccountUploadedSeriesCatalog.Load(profile));
+        }
+        catch (Exception ex)
+        {
+            rows = Array.Empty<AccountUploadedSeriesRow>();
+            error = ex.Message;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation != _uploadedSeriesGeneration)
+                return;
+            if (error is not null)
+            {
+                ShowUploadedSeriesMessage($"读取已上传剧集失败：{error}");
+                return;
+            }
+
+            _uploadedSeriesRows = rows;
+            ApplyUploadedSeriesFilter();
+        });
+    }
+
+    private void ApplyUploadedSeriesFilter()
+    {
+        var keyword = (UploadedSeriesSearchBox.Text ?? "").Trim();
+        var rows = keyword.Length == 0
+            ? _uploadedSeriesRows
+            : _uploadedSeriesRows.Where(row =>
+                row.OriginalTitle.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                row.NewTitle.Contains(keyword, StringComparison.OrdinalIgnoreCase)).ToArray();
+        UploadedSeriesList.ItemsSource = rows;
+        if (rows.Count == 0)
+        {
+            ShowUploadedSeriesMessage(keyword.Length == 0
+                ? "该账号还没有已上传剧集。"
+                : "没有匹配的剧集。");
+            return;
+        }
+
+        UploadedSeriesStatusText.IsVisible = false;
+        UploadedSeriesStatusText.Text = "";
+    }
+
+    private void ShowUploadedSeriesMessage(string message, bool hasRows = false)
+    {
+        UploadedSeriesStatusText.Text = message;
+        UploadedSeriesStatusText.IsVisible = true;
+        if (!hasRows)
+            UploadedSeriesList.ItemsSource = null;
+    }
 }

@@ -5,6 +5,7 @@ using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Queue;
 
@@ -100,16 +101,25 @@ public sealed class QueueWorkerRunner
     private const int ProjectConcurrencyHardMax = 20;
 
     private readonly UploadSlotCoordinator _uploadSlots;
+    private readonly QueueProjectSlotCoordinator? _projectSlots;
+    private readonly Dictionary<QueueProjectItem, string> _heldProjectSlots = new(ReferenceEqualityComparer.Instance);
     private readonly QueueProofMaterialPrerequisiteWithFallback _ensureProofMaterial;
     private readonly List<QueueProjectItem> _incomingItems = new();
+    private readonly List<QueueProjectItem> _incomingVisibleOnly = new();
     private readonly object _incomingLock = new();
     private bool _acceptingItems = true;
     private bool _runStarted;
     private IList<QueueProjectItem>? _runItems;
     private Action<IReadOnlyList<QueueProjectItem>>? _runPersist;
+    private readonly HashSet<string> _removedProjectDirs = new(StringComparer.OrdinalIgnoreCase);
     public ManualInterventionCoordinator ManualIntervention { get; } = new();
 
-    public QueueWorkerRunner(UploadSlotCoordinator? sharedUploadSlots = null)
+    /// <param name="sharedProjectSlots">
+    /// 本机所有账号队列共享的剧集名额。传入后，同时运行剧集、账号顺序和全机上传上限按系统设置生效。
+    /// </param>
+    public QueueWorkerRunner(
+        UploadSlotCoordinator? sharedUploadSlots = null,
+        QueueProjectSlotCoordinator? sharedProjectSlots = null)
         : this(
             (item, account, log, ct, episodeFallback, runOptions) =>
                 TikTokProofMaterialService.EnsureCurrentForUploadAsync(
@@ -119,25 +129,30 @@ public sealed class QueueWorkerRunner
                     ct,
                     episodeFallback,
                     runOptions),
-            sharedUploadSlots)
+            sharedUploadSlots,
+            sharedProjectSlots)
     {
     }
 
     internal QueueWorkerRunner(
         QueueProofMaterialPrerequisite ensureProofMaterial,
-        UploadSlotCoordinator? sharedUploadSlots = null)
+        UploadSlotCoordinator? sharedUploadSlots = null,
+        QueueProjectSlotCoordinator? sharedProjectSlots = null)
         : this(
             (item, account, log, ct, _, _) => ensureProofMaterial(item, account, log, ct),
-            sharedUploadSlots)
+            sharedUploadSlots,
+            sharedProjectSlots)
     {
     }
 
     private QueueWorkerRunner(
         QueueProofMaterialPrerequisiteWithFallback ensureProofMaterial,
-        UploadSlotCoordinator? sharedUploadSlots)
+        UploadSlotCoordinator? sharedUploadSlots,
+        QueueProjectSlotCoordinator? sharedProjectSlots)
     {
         _ensureProofMaterial = ensureProofMaterial ?? throw new ArgumentNullException(nameof(ensureProofMaterial));
         _uploadSlots = sharedUploadSlots ?? new UploadSlotCoordinator();
+        _projectSlots = sharedProjectSlots;
     }
 
     /// <summary>
@@ -167,7 +182,56 @@ public sealed class QueueWorkerRunner
         }
 
         if (changed > 0)
-            persist?.Invoke(items.ToList());
+            Persist("", items, persist);
+        return changed;
+    }
+
+    /// <summary>
+    /// 从本轮执行列表里拿掉已删除的项目。还没开始的步骤不再执行，之后的落盘也不再写回这些项目。
+    /// </summary>
+    public int RemoveProjects(IReadOnlyCollection<string> projectDirs)
+    {
+        var remove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in projectDirs)
+        {
+            var full = NormalizeProjectDir(path);
+            if (full.Length > 0)
+                remove.Add(full);
+        }
+
+        if (remove.Count == 0)
+            return 0;
+
+        IList<QueueProjectItem>? items;
+        Action<IReadOnlyList<QueueProjectItem>>? persist;
+        var changed = 0;
+        lock (_incomingLock)
+        {
+            foreach (var dir in remove)
+            {
+                if (_removedProjectDirs.Add(dir))
+                    changed++;
+            }
+
+            _incomingItems.RemoveAll(item => remove.Contains(NormalizeProjectDir(item.ProjectDir)));
+            _incomingVisibleOnly.RemoveAll(item => remove.Contains(NormalizeProjectDir(item.ProjectDir)));
+            items = _runItems;
+            persist = _runPersist;
+            if (items is not null)
+            {
+                foreach (var item in items)
+                {
+                    var full = NormalizeProjectDir(item?.ProjectDir);
+                    if (full.Length == 0 || !remove.Contains(full) || item is null || !item.Enabled)
+                        continue;
+                    item.Enabled = false;
+                    changed++;
+                }
+            }
+        }
+
+        if (changed > 0 && items is not null)
+            Persist("", items, persist);
         return changed;
     }
 
@@ -212,6 +276,53 @@ public sealed class QueueWorkerRunner
                 : string.Compare(left.ProjectDir, right.ProjectDir, StringComparison.OrdinalIgnoreCase);
         });
         return ordered.Select(item => item.ProjectDir).ToArray();
+    }
+
+    /// <summary>
+    /// 今日上传已达标时，取消该账号还没上传完成的项目。已经上传完成的保留。
+    /// </summary>
+    public static int DisableAccountProjectsBeforeUpload(IEnumerable<QueueProjectItem> items, string? accountProfileId)
+    {
+        var accountId = (accountProfileId ?? "").Trim();
+        var changed = 0;
+        foreach (var item in items)
+        {
+            if (item is null || item.Archived || !item.Enabled)
+                continue;
+            var id = (item.AccountProfileId ?? "").Trim();
+            if (accountId.Length > 0 && id.Length > 0 &&
+                !string.Equals(id, accountId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (HasFinishedUpload(item))
+                continue;
+            item.Enabled = false;
+            changed++;
+        }
+
+        return changed;
+    }
+
+    public static bool HasFinishedUpload(QueueProjectItem item) =>
+        item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed
+        || !string.IsNullOrWhiteSpace(item.UploadCompletedAt);
+
+    public int DisableAccountBeforeUpload(string? accountProfileId)
+    {
+        IList<QueueProjectItem>? items;
+        Action<IReadOnlyList<QueueProjectItem>>? persist;
+        int changed;
+        lock (_incomingLock)
+        {
+            items = _runItems;
+            persist = _runPersist;
+            if (items is null)
+                return 0;
+            changed = DisableAccountProjectsBeforeUpload(items, accountProfileId);
+        }
+
+        if (changed > 0)
+            Persist("", items, persist);
+        return changed;
     }
 
     public static bool HasRetryableFailure(QueueProjectItem item)
@@ -289,6 +400,28 @@ public sealed class QueueWorkerRunner
                 return 0;
             _incomingItems.AddRange(added);
         }
+        return added.Count;
+    }
+
+    /// <summary>
+    /// 放进当前队列的列表里，但不参加这一轮执行。轮流分发时后到的剧要看得见，等当前这部结束再启动。
+    /// </summary>
+    public int ShowItems(IEnumerable<QueueProjectItem> items)
+    {
+        var added = items
+            .Where(item => item.Enabled)
+            .Select(CloneQueueItem)
+            .ToList();
+        if (added.Count == 0)
+            return 0;
+
+        lock (_incomingLock)
+        {
+            if (!_acceptingItems)
+                return 0;
+            _incomingVisibleOnly.AddRange(added);
+        }
+
         return added.Count;
     }
 
@@ -421,12 +554,75 @@ public sealed class QueueWorkerRunner
         finally
         {
             StopAcceptingItems();
+            ReleaseAllProjectSlots();
             lock (_incomingLock)
             {
                 _runItems = null;
                 _runPersist = null;
             }
         }
+    }
+
+    private bool TryAcquireProjectSlot(QueueProjectItem item, string accountKey, int accountOrder)
+    {
+        if (_projectSlots is null)
+            return true;
+        lock (_heldProjectSlots)
+        {
+            if (_heldProjectSlots.ContainsKey(item))
+                return true;
+            if (!_projectSlots.TryAcquire(accountKey, accountOrder))
+                return false;
+            _heldProjectSlots[item] = accountKey;
+            return true;
+        }
+    }
+
+    private bool HoldsProjectSlot(QueueProjectItem item)
+    {
+        if (_projectSlots is null)
+            return true;
+        lock (_heldProjectSlots)
+            return _heldProjectSlots.ContainsKey(item);
+    }
+
+    private void ReleaseProjectSlot(QueueProjectItem item)
+    {
+        if (_projectSlots is null)
+            return;
+        lock (_heldProjectSlots)
+        {
+            if (_heldProjectSlots.Remove(item, out var accountKey))
+                _projectSlots.Release(accountKey);
+        }
+    }
+
+    private void ReleaseAllProjectSlots()
+    {
+        _uploadSlots.ClearReady(this);
+        if (_projectSlots is null)
+            return;
+        _projectSlots.ClearDemand(this);
+        lock (_heldProjectSlots)
+        {
+            foreach (var accountKey in _heldProjectSlots.Values)
+                _projectSlots.Release(accountKey);
+            _heldProjectSlots.Clear();
+        }
+    }
+
+    internal static int AccountOrderOf(AccountStore accountStore, string? accountKey)
+    {
+        var key = (accountKey ?? "").Trim();
+        if (key.Length == 0)
+            return int.MaxValue;
+        var accounts = accountStore.Accounts;
+        for (var i = 0; i < accounts.Count; i++)
+        {
+            if (string.Equals(accounts[i].Id, key, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return int.MaxValue;
     }
 
     private async Task<QueueWorkerSummary> RunCoreAsync(
@@ -468,7 +664,8 @@ public sealed class QueueWorkerRunner
         var preUploadTasks = new Dictionary<Task, QueueProjectItem>();
         var preUploadStepsByTask = new Dictionary<Task, IReadOnlyList<string>>();
         var uploadTasks = new Dictionary<Task<bool>, (QueueProjectItem Item, string AccountKey, TikTokAccountProfile Account)>();
-        var activeUploadAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var waitingProjectSlotReported = new HashSet<QueueProjectItem>(ReferenceEqualityComparer.Instance);
+        var limitsRefreshTimer = new Stopwatch();
 
         var runActionLabel = IsReplaceDraftRun(options)
             ? "新剧替换草稿"
@@ -497,27 +694,140 @@ public sealed class QueueWorkerRunner
                     QueueAccountBindingResolver.Resolve(accountStore, item));
         });
 
+        (string Key, int Order) SlotAccountOf(QueueProjectItem item)
+        {
+            var key = QueueAccountBindingResolver.Resolve(accountStore, item)?.Id
+                      ?? (item.AccountProfileId ?? "").Trim();
+            return (key, AccountOrderOf(accountStore, key));
+        }
+
+        void ReportWaitingProjectSlot(QueueProjectItem item)
+        {
+            if (_projectSlots is null || !waitingProjectSlotReported.Add(item))
+                return;
+            Report(
+                onProgress,
+                workspace,
+                item,
+                $"等待全局剧集名额（运行中 {_projectSlots.ActiveCount}/{_projectSlots.Capacity}）");
+        }
+
+        // 只登记本队列此刻能马上开始的剧，避免本队列自己的项目并发已满时还挡住其他账号。
+        void PublishProjectSlotDemand()
+        {
+            if (_projectSlots is null)
+                return;
+            var counts = new Dictionary<string, (int Order, int Count)>(StringComparer.OrdinalIgnoreCase);
+            void Add(QueueProjectItem item)
+            {
+                var (key, order) = SlotAccountOf(item);
+                counts[key] = counts.TryGetValue(key, out var current)
+                    ? (current.Order, current.Count + 1)
+                    : (order, 1);
+            }
+
+            if (!stopped && !ct.IsCancellationRequested)
+            {
+                var free = Math.Max(0, projectConcurrency - preUploadTasks.Count);
+                foreach (var (_, item) in pendingPreUpload)
+                {
+                    if (free <= 0)
+                        break;
+                    if (!item.Enabled)
+                        continue;
+                    Add(item);
+                    free--;
+                }
+
+                foreach (var item in readyForUpload)
+                {
+                    if (!item.Enabled || HoldsProjectSlot(item))
+                        continue;
+                    Add(item);
+                }
+            }
+
+            _projectSlots.SetDemand(
+                this,
+                counts.Select(pair => new QueueProjectSlotDemand(pair.Key, pair.Value.Order, pair.Value.Count)).ToArray());
+        }
+
+        void PublishUploadReady()
+        {
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in readyForUpload)
+            {
+                if (!item.Enabled)
+                    continue;
+                var account = QueueAccountBindingResolver.Resolve(accountStore, item);
+                if (account is null || string.IsNullOrWhiteSpace(account.Id))
+                    continue;
+                counts[account.Id] = counts.GetValueOrDefault(account.Id) + 1;
+            }
+
+            _uploadSlots.SetReady(
+                this,
+                counts.Select(pair => new UploadReadyDemand(pair.Key, pair.Value)).ToArray());
+        }
+
+        void RefreshSharedLimits()
+        {
+            if (_projectSlots is null || (limitsRefreshTimer.IsRunning && limitsRefreshTimer.Elapsed < TimeSpan.FromSeconds(5)))
+                return;
+            limitsRefreshTimer.Restart();
+            try
+            {
+                var limits = ClientSettingsStore.Load();
+                _projectSlots.Configure(
+                    limits.TiktokGlobalProjectConcurrency,
+                    QueueProjectSlotCoordinator.SlotModeForServer(limits.ServerDispatchMode));
+                _uploadSlots.Configure(limits.TiktokUploadConcurrency);
+            }
+            catch
+            {
+                // 读设置失败时沿用上一次的上限。
+            }
+        }
+
         void FillPreUploadSlots()
         {
             lock (stateLock)
             {
-                while (!stopped
-                       && !ct.IsCancellationRequested
-                       && pendingPreUpload.Count > 0
-                       && preUploadTasks.Count < projectConcurrency)
+                var entries = pendingPreUpload.ToList();
+                pendingPreUpload.Clear();
+                var waiting = new List<(int Index, QueueProjectItem Item)>();
+                foreach (var entry in entries)
                 {
-                    var (_, item) = pendingPreUpload.Dequeue();
+                    if (stopped || ct.IsCancellationRequested || preUploadTasks.Count >= projectConcurrency)
+                    {
+                        waiting.Add(entry);
+                        continue;
+                    }
+
+                    var item = entry.Item;
                     if (!item.Enabled)
                         continue;
                     var currentSteps = options.OrderedEnabledSteps();
+                    var itemPreUploadSteps = currentSteps
+                        .Where(step => step != QueueStepRegistry.UploadSeries)
+                        .ToList();
+                    if (itemPreUploadSteps.Count > 0)
+                    {
+                        var slotAccount = SlotAccountOf(item);
+                        if (!TryAcquireProjectSlot(item, slotAccount.Key, slotAccount.Order))
+                        {
+                            waiting.Add(entry);
+                            ReportWaitingProjectSlot(item);
+                            continue;
+                        }
+                    }
+
+                    waitingProjectSlotReported.Remove(item);
                     MarkQueuedForRun(
                         item,
                         currentSteps,
                         options,
                         QueueAccountBindingResolver.Resolve(accountStore, item));
-                    var itemPreUploadSteps = currentSteps
-                        .Where(step => step != QueueStepRegistry.UploadSeries)
-                        .ToList();
 
                     if (itemPreUploadSteps.Count > 0)
                     {
@@ -552,6 +862,10 @@ public sealed class QueueWorkerRunner
 
                     Persist(workspace, items, onPersist);
                 }
+
+                foreach (var entry in waiting)
+                    pendingPreUpload.Enqueue(entry);
+                PublishProjectSlotDemand();
             }
         }
 
@@ -559,7 +873,11 @@ public sealed class QueueWorkerRunner
         {
             lock (stateLock)
             {
-                if (readyForUpload.Count == 0) return 0;
+                if (readyForUpload.Count == 0)
+                {
+                    PublishUploadReady();
+                    return 0;
+                }
 
                 var started = 0;
                 var rotations = readyForUpload.Count;
@@ -568,6 +886,7 @@ public sealed class QueueWorkerRunner
                     var item = readyForUpload.Dequeue();
                     if (!item.Enabled)
                     {
+                        ReleaseProjectSlot(item);
                         rotations = readyForUpload.Count;
                         continue;
                     }
@@ -579,19 +898,14 @@ public sealed class QueueWorkerRunner
                             QueueStepRegistry.UploadSeries,
                             $"未找到绑定账号：{DescribeBoundAccount(item)}，已中止上传，避免误用当前账号。");
                         failed++;
+                        ReleaseProjectSlot(item);
                         Persist(workspace, items, onPersist);
                         rotations = readyForUpload.Count;
                         continue;
                     }
 
                     var accountKey = account.Id;
-
-                    if (activeUploadAccounts.Contains(accountKey))
-                    {
-                        readyForUpload.Enqueue(item);
-                        rotations--;
-                        continue;
-                    }
+                    PublishUploadReady();
 
                     if (!_uploadSlots.TryAcquire(accountKey))
                     {
@@ -599,6 +913,17 @@ public sealed class QueueWorkerRunner
                         rotations--;
                         continue;
                     }
+
+                    // 没有上传前步骤的剧直接进上传，这里才占剧集名额。
+                    if (!TryAcquireProjectSlot(item, accountKey, AccountOrderOf(accountStore, accountKey)))
+                    {
+                        _uploadSlots.Release(accountKey);
+                        readyForUpload.Enqueue(item);
+                        ReportWaitingProjectSlot(item);
+                        rotations--;
+                        continue;
+                    }
+                    waitingProjectSlotReported.Remove(item);
 
                     if (!string.Equals((item.AccountProfileId ?? "").Trim(), account.Id, StringComparison.Ordinal) ||
                         !string.Equals((item.AccountProfileName ?? "").Trim(), account.DisplayName, StringComparison.Ordinal))
@@ -615,7 +940,6 @@ public sealed class QueueWorkerRunner
                         Persist(workspace, items, onPersist);
                     }
 
-                    activeUploadAccounts.Add(accountKey);
                     var capturedAccount = account;
                     var capturedItem = item;
                     var task = MakeUniqueTask(RunUploadPipelineAsync(
@@ -637,6 +961,7 @@ public sealed class QueueWorkerRunner
                     rotations = readyForUpload.Count;
                 }
 
+                PublishUploadReady();
                 return started;
             }
         }
@@ -656,10 +981,13 @@ public sealed class QueueWorkerRunner
                 while (readyForUpload.Count > 0)
                 {
                     var item = readyForUpload.Dequeue();
+                    ReleaseProjectSlot(item);
                     if (!item.Enabled)
                         continue;
                     MarkStopped(item, QueueStepRegistry.UploadSeries);
                 }
+
+                PublishProjectSlotDemand();
             });
         }
 
@@ -675,7 +1003,7 @@ public sealed class QueueWorkerRunner
 
             lock (_incomingLock)
             {
-                if (_incomingItems.Count > 0)
+                if (_incomingItems.Count > 0 || _incomingVisibleOnly.Count > 0)
                     return false;
 
                 _acceptingItems = false;
@@ -700,11 +1028,13 @@ public sealed class QueueWorkerRunner
                 onPersist);
         }
 
+        RefreshSharedLimits();
         FillPreUploadSlots();
         StartReadyUploads();
 
         while (true)
         {
+            RefreshSharedLimits();
             if (stopped || ct.IsCancellationRequested)
             {
                 StopAcceptingItems();
@@ -737,7 +1067,21 @@ public sealed class QueueWorkerRunner
 
             Task[] watchTasks;
             lock (stateLock)
+            {
                 watchTasks = preUploadTasks.Keys.Concat(uploadTasks.Keys).ToArray();
+                // 名额被其他账号的队列占着时，本队列自己的任务不会结束，要定时醒来重新申请。
+                if (_projectSlots is not null && watchTasks.Length > 0 &&
+                    (pendingPreUpload.Count > 0 || readyForUpload.Count > 0))
+                {
+                    watchTasks = watchTasks.Append(Task.Delay(500, ct)).ToArray();
+                }
+            }
+
+            if (watchTasks.Length > 0)
+            {
+                // 当前步骤还在跑时，后到的剧也要在这一轮醒来后进列表，不能等这部下完才看得到。
+                watchTasks = watchTasks.Append(Task.Delay(400, ct)).ToArray();
+            }
 
             if (watchTasks.Length == 0)
             {
@@ -784,6 +1128,11 @@ public sealed class QueueWorkerRunner
                         if (stopped)
                         {
                             MarkStopped(preItem, uploadEnabledNow ? QueueStepRegistry.UploadSeries : preItem.CurrentStep);
+                        }
+                        else if (ShouldStopAfterDownloadFailure(preItem, QueueStepRegistry.UploadSeries))
+                        {
+                            if (preItem.StatusText != QueueStepStatus.Failed)
+                                MarkFailed(preItem, QueueStepRegistry.Download, "下载失败，不再执行后续步骤");
                         }
                         else if (uploadEnabledNow && ShouldRunStep(preItem, QueueStepRegistry.UploadSeries, options))
                         {
@@ -854,13 +1203,19 @@ public sealed class QueueWorkerRunner
                     }
                 }
 
+                lock (stateLock)
+                {
+                    if (!readyForUpload.Contains(preItem))
+                        ReleaseProjectSlot(preItem);
+                }
+
                 continue;
             }
 
             if (completed is Task<bool> uploadTask && uploadTasks.Remove(uploadTask, out var uploadCtx))
             {
-                activeUploadAccounts.Remove(uploadCtx.AccountKey);
                 _uploadSlots.Release(uploadCtx.AccountKey);
+                ReleaseProjectSlot(uploadCtx.Item);
 
                 try
                 {
@@ -885,7 +1240,11 @@ public sealed class QueueWorkerRunner
                                         queuedAt: uploadCtx.Item.QueuedAt,
                                         ct: ct)
                                     .ConfigureAwait(false);
-                                Mutate(() => uploadCtx.Item.Archived = true);
+                                Mutate(() =>
+                                {
+                                    uploadCtx.Item.Archived = true;
+                                    items.Remove(uploadCtx.Item);
+                                });
                                 Report(onProgress, workspace, uploadCtx.Item,
                                     "上传完成，已自动归档", QueueStepRegistry.UploadSeries);
                             }
@@ -1032,11 +1391,36 @@ public sealed class QueueWorkerRunner
         {
             ct.ThrowIfCancellationRequested();
 
+            if (ShouldStopAfterDownloadFailure(item, stepKey))
+            {
+                throw new QueueStepExecutionException(
+                    QueueStepRegistry.Download,
+                    new InvalidOperationException("下载失败，不再执行后续步骤"));
+            }
+
             var wasCompletedBeforeRun = item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed;
             var stepAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
             if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
+                return;
+            }
+
+            if (string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal) &&
+                !options.ForceRerunCompletedSteps &&
+                item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Failed &&
+                QueueMaterialStepService.CanSkipFailedDownloadUsingUploadCopies(item))
+            {
+                mutate(() =>
+                {
+                    item.StepStates[stepKey] = QueueStepStatus.Completed;
+                    if ((item.LastError ?? "").Contains(QueueMaterialStepService.EmptyDownloadVideoMessage, StringComparison.Ordinal))
+                        item.LastError = "";
+                    if (item.StatusText == QueueStepStatus.Failed)
+                        item.StatusText = QueueStepStatus.Pending;
+                });
+                QueueMaterialStepService.ClearEmptyVideoDownloadFailure(item.ProjectDir);
+                Report(onProgress, workspace, item, "上传副本齐全，下载已完成，跳过", stepKey);
                 return;
             }
 
@@ -1058,6 +1442,8 @@ public sealed class QueueWorkerRunner
 
             try
             {
+                if (stepKey is QueueStepRegistry.VideoDedup or QueueStepRegistry.SmallVideoRepair)
+                    QueueWorkloadResourceScheduler.Configure(ClientSettingsStore.Load());
                 var useProjectGate = activeSteps.Count > 1;
                 if (useProjectGate)
                     await projectGenerationSlots.WaitAsync(ct).ConfigureAwait(false);
@@ -1635,6 +2021,16 @@ public sealed class QueueWorkerRunner
                     log,
                     ct).ConfigureAwait(false);
                 break;
+            case QueueStepRegistry.VideoDedup:
+                if (account is null || string.IsNullOrWhiteSpace(account.Id))
+                    throw new InvalidOperationException("项目没有绑定账号，无法读取视频去重预设。");
+                await VideoDedupService.RunAsync(
+                    item,
+                    account,
+                    options.ForceRerunCompletedSteps,
+                    log,
+                    ct).ConfigureAwait(false);
+                break;
             case QueueStepRegistry.RewriteInfo:
                 await QueueMaterialStepService.RunRewriteAsync(
                     item, settings, account, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
@@ -1732,9 +2128,6 @@ public sealed class QueueWorkerRunner
                     options.ForceRerunCompletedSteps || options.RegeneratesCopyrightProofMaterials(),
                     log,
                     ct).ConfigureAwait(false);
-                break;
-            case QueueStepRegistry.DeleteSourceVideos:
-                await QueueMaterialStepService.RunDeleteSourceVideosAsync(item, settings, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.SmallVideoRepair:
                 TikTokSmallVideoRepairService.Repair(item.ProjectDir, item.Title, item.OriginalTitle, log, ct);
@@ -1840,6 +2233,17 @@ public sealed class QueueWorkerRunner
                 : QueueStepRegistry.LabelOf(step)));
     }
 
+    // 下载步骤失败时，改写、海报、修复、上传等后续步骤都不再跑。
+    internal static bool ShouldStopAfterDownloadFailure(QueueProjectItem item, string stepKey)
+    {
+        if (string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal))
+            return false;
+        return string.Equals(
+            item.StepStates.GetValueOrDefault(QueueStepRegistry.Download),
+            QueueStepStatus.Failed,
+            StringComparison.Ordinal);
+    }
+
     internal static bool ShouldRunStep(
         QueueProjectItem item,
         string stepKey,
@@ -1908,8 +2312,11 @@ public sealed class QueueWorkerRunner
         {
             return true;
         }
+        // 校验排在上传前面。证明材料虽然已完成，账号后来勾了合作协议、或 PDF 已经不在时，
+        // 也要先补生成。只在没勾上传时才检查的话，成片检查会在补文件之前失败。
+        // 账号还没解析出来时不在这里重跑，避免配置读失败被当成必须重做。
         if (stepKey == QueueStepRegistry.GenerateProofMaterial &&
-            !options.IsStepEnabled(QueueStepRegistry.UploadSeries) &&
+            account is not null &&
             item.StepStates.GetValueOrDefault(stepKey) == QueueStepStatus.Completed &&
             TikTokProofMaterialService.NeedsGenerateProofMaterial(
                 item,
@@ -1982,7 +2389,7 @@ public sealed class QueueWorkerRunner
     private static bool NeedsDownloadArtifacts(QueueProjectItem item)
     {
         if (item.StepStates.GetValueOrDefault(QueueStepRegistry.UploadSeries) == QueueStepStatus.Completed ||
-            item.StepStates.GetValueOrDefault(QueueStepRegistry.DeleteSourceVideos) == QueueStepStatus.Completed)
+            item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos) == QueueStepStatus.Completed)
         {
             return false;
         }
@@ -2264,13 +2671,28 @@ public sealed class QueueWorkerRunner
         item.LastError = error ?? "";
     }
 
-    private static void Persist(
+    private void Persist(
         string workspace,
         IList<QueueProjectItem>? items,
         Action<IReadOnlyList<QueueProjectItem>>? onPersist)
     {
         if (onPersist is null || items is null) return;
-        onPersist(items.ToList());
+        List<QueueProjectItem> snapshot;
+        lock (_incomingLock)
+        {
+            snapshot = new List<QueueProjectItem>(items.Count);
+            foreach (var item in items)
+            {
+                if (item is null)
+                    continue;
+                var full = NormalizeProjectDir(item.ProjectDir);
+                if (full.Length > 0 && _removedProjectDirs.Contains(full))
+                    continue;
+                snapshot.Add(item);
+            }
+        }
+
+        onPersist(snapshot);
     }
 
     private static void Report(
@@ -2307,12 +2729,15 @@ public sealed class QueueWorkerRunner
         Action<IReadOnlyList<QueueProjectItem>>? onPersist)
     {
         List<QueueProjectItem> batch;
+        List<QueueProjectItem> visibleOnly;
         lock (_incomingLock)
         {
-            if (_incomingItems.Count == 0)
+            if (_incomingItems.Count == 0 && _incomingVisibleOnly.Count == 0)
                 return;
             batch = _incomingItems.ToList();
+            visibleOnly = _incomingVisibleOnly.ToList();
             _incomingItems.Clear();
+            _incomingVisibleOnly.Clear();
         }
 
         lock (stateLock)
@@ -2359,6 +2784,21 @@ public sealed class QueueWorkerRunner
                     QueueAccountBindingResolver.Resolve(accountStore, queueItem));
                 candidates.Add(queueItem);
                 pendingPreUpload.Enqueue((candidates.Count, queueItem));
+                added = true;
+            }
+
+            foreach (var item in visibleOnly)
+            {
+                if (!item.Enabled || string.IsNullOrWhiteSpace(item.ProjectDir))
+                    continue;
+                var projectDir = Path.GetFullPath(item.ProjectDir);
+                if (candidates.Any(existing => SameProjectDir(existing, projectDir)) ||
+                    items.Any(existing => SameProjectDir(existing, projectDir)))
+                    continue;
+
+                item.Enabled = true;
+                item.StatusText = QueueStepStatus.Pending;
+                items.Add(item);
                 added = true;
             }
 

@@ -38,7 +38,7 @@
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="DramaSourceCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="默认清晰度" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DramaDownloadDefaultQuality}" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="DramaQualityCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="分集下载并发" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding DramaDownloadConcurrent}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
@@ -334,38 +334,27 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果APP下载" FontWeight="Bold" />
-                        <TextBlock Text="搜索、分集、漫剧上新、AI短剧上新和播放地址由本机直接请求红果，不需要红果短剧助手账号。加密视频仍用返回的媒体密钥解密。榜单仍使用上面的红果短剧助手账号。漫剧上新和 AI短剧上新固定为最新上架、7天内上新。方案1用本机模拟器里已注册的设备和已安装版本。方案2的分集按桌面版 7.4.2.32 请求；播放用下面保存的设备号走红米签名取址，不走会返回空包的 preload。默认方案1。方案1的播放地址按勾选的链路获取，至少选择一条；两条都选时先走链路 1，失败再走链路 2。播放设备号和安装号在软件第一次启动时自动生成并保存，之后继续使用；清空两个号码并重新打开助手后会重新生成。"
-                                   Classes="pageSummary"
-                                   TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="下载方案" VerticalAlignment="Center" />
-                            <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="16">
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="下载方案" VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16">
                                 <RadioButton Content="方案1" GroupName="HongguoAppPlan" IsChecked="{Binding HongguoAppPlanIsCurrent}" />
                                 <RadioButton Content="方案2" GroupName="HongguoAppPlan" IsChecked="{Binding HongguoAppPlanIsDesktop}" />
                             </StackPanel>
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="取流链路" VerticalAlignment="Center" IsEnabled="{Binding HongguoAppPlanIsCurrent}" />
-                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="16" IsEnabled="{Binding HongguoAppPlanIsCurrent}">
-                                <CheckBox Content="链路 1" IsChecked="{Binding HongguoAppStreamLink1}" />
-                                <CheckBox Content="链路 2" IsChecked="{Binding HongguoAppStreamLink2}" />
-                            </StackPanel>
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="播放设备号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1"
-                                     Text="{Binding HongguoAppDeviceId}"
-                                     Watermark="首次启动时自动生成" />
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="播放安装号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1"
-                                     Text="{Binding HongguoAppInstallId}"
-                                     Watermark="首次启动时与设备号成对生成" />
                         </Grid>
+                        <StackPanel IsVisible="False">
+                            <CheckBox Content="链路 1" IsChecked="{Binding HongguoAppStreamLink1}" />
+                            <CheckBox Content="链路 2" IsChecked="{Binding HongguoAppStreamLink2}" />
+                            <TextBox Text="{Binding HongguoAppDeviceId}" />
+                            <TextBox Text="{Binding HongguoAppInstallId}" />
+                        </StackPanel>
 
-                        <Separator Margin="0,4" IsVisible="False" />
+                        <Separator Margin="0,4" />
 
-                        <TextBlock Text="海外短剧下载器（v2.4.0）" FontWeight="Bold" IsVisible="False" />
+                        <TextBlock Text="海外短剧下载器（v2.4.0）" FontWeight="Bold" />
                         <TextBlock Text="认证与红果短剧下载器相同：使用软件设置里的设备号登记会员。搜索源决定去哪个平台找剧，下拉里的源都已接入搜索和下载。"
                                    Classes="pageSummary"
-                                   TextWrapping="Wrap"
-                                   IsVisible="False" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
+                                   TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="服务地址" VerticalAlignment="Center" />
                             <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ForeignServerUrl}" />
 
@@ -738,11 +727,11 @@
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
                         <TextBlock Text="TikTok 证明材料" FontWeight="Bold" />
-                        <TextBlock Text="以 Word 模板生成权利声明 PDF；PDF 渲染器默认使用 WPS。公司与印章信息按账号分别配置。" Classes="pageSummary" TextWrapping="Wrap" />
+                        <TextBlock Text="以 Word 模板生成权利声明 PDF；PDF 渲染器默认使用 WPS。Word 模板留空时使用内置中文模板。公司、印章和账号自己的模板在账号配置里设置。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Word 模板" VerticalAlignment="Center" />
                             <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto">
-                                <TextBox Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="留空使用软件内置模板" />
+                                <TextBox Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="账号未单独指定时使用，留空则使用内置中文模板" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofTemplateClick" Margin="8,0,0,0" />
                             </Grid>
 
@@ -813,6 +802,40 @@
 
                         <TextBlock Text="数据统计" FontWeight="Bold" />
                         <TextBox Text="{Binding DatabaseStatsText}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="全局账号配置">
+                <ScrollViewer>
+                    <StackPanel Spacing="14" Margin="4">
+                        <TextBlock Text="剧集名额" FontWeight="Bold" />
+                        <TextBlock Text="本机所有账号队列共享。一部剧从开始执行到上传结束、失败或停止都占 1 个名额，已完成的剧不占。修改后对新开始的剧生效。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="同时运行剧集" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGlobalProjectConcurrency}" Minimum="1" Maximum="12" Width="120" HorizontalAlignment="Left" />
+                        </Grid>
+                        <TextBlock Text="谁先跑由服务端监控屏的「分发模式」决定。按账号分发时先做完前面的账号，这个账号里同时几部不超过上面的数量，也不超过该账号自己的并发。轮流分发时多个账号各先跑一部。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+
+                        <TextBlock Text="全局步骤配置" FontWeight="Bold" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="视频去重同时剧集" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="4" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding KuaishouProjectImageConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
+                        </Grid>
+                        <TextBlock IsVisible="{Binding ShowsTikTokPublishPrompt}"
+                                   Text="超过 1 部时，同一个账号的剧共用一个浏览器、多开标签页；不同账号不会共用浏览器。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+                        <TextBlock IsVisible="{Binding ShowsKuaishouPublishPrompt}"
+                                   Text="超过 1 部时，同一个账号的同一版本共用一个浏览器、多开标签页；个人版和企业版、不同账号不会共用。本机同时上传不超过「同时上传剧集」，同时生成工程图不超过「同时生成工程图」。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

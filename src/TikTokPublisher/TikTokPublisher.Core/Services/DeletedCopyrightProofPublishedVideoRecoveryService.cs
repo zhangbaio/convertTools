@@ -168,6 +168,7 @@ public static class DeletedCopyrightProofPublishedVideoRecoveryService
             recovered.StepStates = CompletedProofOnlyStepStates();
             recovered.NormalizeStepStates();
 
+            WorkspaceQueueService.ForgetDeletedProjects(workspace, [recovered.ProjectDir]);
             WorkspaceQueueService.SaveRunOptions(
                 workspace,
                 projects,

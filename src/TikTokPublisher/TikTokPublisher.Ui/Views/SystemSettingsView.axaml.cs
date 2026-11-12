@@ -38,7 +38,8 @@ public partial class SystemSettingsView : UserControl
         SyncCombosFromVm();
         vm.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName is nameof(SystemSettingsViewModel.DramaSourceChain)
+            if (args.PropertyName is nameof(SystemSettingsViewModel.DramaDownloadDefaultQuality)
+                or nameof(SystemSettingsViewModel.DramaSourceChain)
                 or nameof(SystemSettingsViewModel.HghighEdition)
                 or nameof(SystemSettingsViewModel.PikachuDramaType)
                 or nameof(SystemSettingsViewModel.HongguoLocalDownloadMode)
@@ -109,9 +110,16 @@ public partial class SystemSettingsView : UserControl
         DramaSourceCombo.Items.Add(CreateItem("统一下载器", "downloader"));
         DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
-        DramaSourceCombo.Items.Add(CreateItem("红果APP下载", "hongguoapp"));
+        DramaSourceCombo.Items.Add(CreateItem("红果APP", "hongguoapp"));
         DramaSourceCombo.Items.Add(CreateItem("DramaBox", "dramabox"));
+        DramaSourceCombo.Items.Add(CreateItem("海外短剧下载器", "foreign"));
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
+
+        DramaQualityCombo.Items.Clear();
+        DramaQualityCombo.Items.Add(CreateItem("1080p+", "1080P+"));
+        DramaQualityCombo.Items.Add(CreateItem("1080p", "1080P"));
+        DramaQualityCombo.Items.Add(CreateItem("720p", "720P"));
+        DramaQualityCombo.SelectionChanged += OnDramaQualityChanged;
 
         ForeignSourceCombo.Items.Clear();
         foreach (var source in ForeignPlayletClient.Sources)
@@ -219,6 +227,7 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null) return;
         SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
+        SelectComboItem(DramaQualityCombo, _vm.DramaDownloadDefaultQuality);
         SelectComboItem(ForeignSourceCombo, _vm.ForeignSearchSource);
         SelectComboItem(ForeignLanguageCombo, _vm.ForeignLanguage);
         SelectComboItem(HghighEditionCombo, _vm.HghighEdition);
@@ -290,6 +299,12 @@ public partial class SystemSettingsView : UserControl
         {
             _syncingProjectImageTemplateCombo = false;
         }
+    }
+
+    private void OnDramaQualityChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || DramaQualityCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.DramaDownloadDefaultQuality = item.Tag as string ?? "1080P";
     }
 
     private void OnDramaSourceChanged(object? sender, SelectionChangedEventArgs e)

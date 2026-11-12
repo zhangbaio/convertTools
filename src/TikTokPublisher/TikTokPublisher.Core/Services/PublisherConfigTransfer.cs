@@ -65,6 +65,7 @@ public static class PublisherConfigTransfer
                     Workspace = ConfiguredWorkspace(account),
                     Excel = SafeFullPath(TikTokExcelExportService.ResolveReportPath(account)),
                     Seal = SafeFullPath(account.TiktokProofSealPath),
+                    ProofTemplate = SafeFullPath(account.TiktokProofTemplateDocxPath),
                     Archive = SafeFullPath(account.TiktokArchiveRootDir),
                 };
                 if (includeRunData)
@@ -73,6 +74,11 @@ public static class PublisherConfigTransfer
                     CopyLoginState(account, tempRoot, entry);
                 CopyFile(entry.Seal, Path.Combine(tempRoot, "seals", account.Id, Path.GetFileName(entry.Seal)), out var hasSeal);
                 entry.HasSeal = hasSeal;
+                CopyFile(
+                    entry.ProofTemplate,
+                    Path.Combine(tempRoot, "proof-templates", account.Id, Path.GetFileName(entry.ProofTemplate)),
+                    out var hasProofTemplate);
+                entry.HasProofTemplate = hasProofTemplate;
                 if (includeRunData)
                 {
                     CopyFile(entry.Excel, Path.Combine(tempRoot, "excel", account.Id, Path.GetFileName(entry.Excel)), out var hasExcel);
@@ -138,6 +144,7 @@ public static class PublisherConfigTransfer
                 var entry = manifest.Accounts.FirstOrDefault(item => item.Id == account.Id);
                 RestoreProfile(tempRoot, account);
                 RestoreSeal(tempRoot, account, entry, notes);
+                RestoreProofTemplate(tempRoot, account, entry, notes);
                 if (applyData)
                 {
                     RestoreExcel(tempRoot, account, entry, notes);
@@ -232,6 +239,30 @@ public static class PublisherConfigTransfer
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         File.Copy(source, dest, overwrite: true);
         account.TiktokProofSealPath = dest;
+    }
+
+    private static void RestoreProofTemplate(string tempRoot, TikTokAccountProfile account, ConfigAccountEntry? entry, List<string> notes)
+    {
+        var source = Directory.Exists(Path.Combine(tempRoot, "proof-templates", account.Id))
+            ? Directory.EnumerateFiles(Path.Combine(tempRoot, "proof-templates", account.Id)).FirstOrDefault()
+            : null;
+        if (string.IsNullOrWhiteSpace(source))
+            return;
+        var original = entry?.ProofTemplate ?? "";
+        var parent = string.IsNullOrWhiteSpace(original) ? "" : Path.GetDirectoryName(original);
+        string dest;
+        if (!string.IsNullOrWhiteSpace(parent) && Directory.Exists(parent))
+            dest = original;
+        else
+        {
+            dest = Path.Combine(account.ProfileDir, Path.GetFileName(source));
+            if (!string.IsNullOrWhiteSpace(original))
+                notes.Add($"「{account.DisplayName}」证明材料模板原目录不存在，已改存到账号目录。");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+        File.Copy(source, dest, overwrite: true);
+        account.TiktokProofTemplateDocxPath = dest;
     }
 
     private static void RestoreExcel(string tempRoot, TikTokAccountProfile account, ConfigAccountEntry? entry, List<string> notes)
@@ -335,6 +366,7 @@ public static class PublisherConfigTransfer
             $"系统设置：{(manifest.HasAppSettings || manifest.HasAppDatabase ? "有" : "无")}",
             $"TikTok 登录态 {loginCount} 个",
             $"印章 {sealCount} 个",
+            $"证明材料模板 {manifest.Accounts.Count(item => item.HasProofTemplate)} 个",
         };
         if (packageContents && manifest.IncludesRunData)
         {
@@ -661,10 +693,12 @@ public static class PublisherConfigTransfer
         public string Workspace { get; set; } = "";
         public string Excel { get; set; } = "";
         public string Seal { get; set; } = "";
+        public string ProofTemplate { get; set; } = "";
         public string Archive { get; set; } = "";
         public bool HasQueueDatabase { get; set; }
         public bool HasExcel { get; set; }
         public bool HasSeal { get; set; }
+        public bool HasProofTemplate { get; set; }
         public bool HasLoginState { get; set; }
     }
 

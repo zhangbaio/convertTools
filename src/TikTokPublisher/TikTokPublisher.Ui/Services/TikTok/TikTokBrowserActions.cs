@@ -145,6 +145,17 @@ public static partial class TikTokBrowserActions
         var uploadPaths = payload.UploadVideoPaths.Count > 0
             ? payload.UploadVideoPaths.ToList()
             : payload.VideoPaths.ToList();
+        if (options.UseApiUpload &&
+            TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url) is null &&
+            TikTokApiUploadService.ResolveLocalEpisodes(uploadPaths) is not null)
+        {
+            if (!coverAlreadyUploaded)
+                await UploadCoverAsync(page, coverPath, log, ct);
+            await TikTokApiUploadService.ContinueCreateAsDraftAsync(
+                page, payload, options, recommendation, coverPath, uploadPaths, log, ct);
+            return;
+        }
+
         if (TikTokBatchUploadService.ShouldUseBatchedUpload(options, uploadPaths.Count))
         {
             await TikTokBatchUploadService.FillRemainingWithBatchedUploadAsync(
@@ -156,8 +167,6 @@ public static partial class TikTokBrowserActions
             await UploadCoverAsync(page, coverPath, log, ct);
 
         await UploadLocalVideosAsync(page, uploadPaths, waitForFinish: false, log, ct);
-        await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
-        Log(log, "TikTok 其余表单已填写完成，开始检查视频是否上传完成。");
         await WaitVideoUploadFinishedAsync(
             page,
             expectedCount: uploadPaths.Count,
@@ -166,6 +175,16 @@ public static partial class TikTokBrowserActions
             log,
             ct,
             videoPaths: uploadPaths);
+        await TikTokBatchUploadService.WaitAllEpisodesReadyAsync(
+            page,
+            Math.Max(payload.EpisodeCount, uploadPaths.Count),
+            uploadPaths,
+            PayloadTitleCandidates(payload),
+            options,
+            log,
+            ct);
+        await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
+        Log(log, "TikTok 视频已全部上传完成，其余表单已填写。");
     }
 
     public static async Task SubmitAsync(
@@ -173,7 +192,8 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct,
         IReadOnlyList<string>? titleCandidates = null,
-        bool verifySeriesListStatus = true)
+        bool verifySeriesListStatus = true,
+        bool resubmitInPlaceOnDraft = true)
     {
         await WaitBeforeSubmitAsync(log, ct).ConfigureAwait(false);
         await DismissFloatingAssistantAsync(page, log);
@@ -184,6 +204,8 @@ public static partial class TikTokBrowserActions
             page,
             platformFailureCts.Token);
         string? platformFailure = null;
+        var submitResponses = new SubmitResponseRecorder(page);
+        var submitResponseSummary = "";
         try
         {
             await button.ClickAsync(new() { Timeout = 15000 });
@@ -197,7 +219,11 @@ public static partial class TikTokBrowserActions
         finally
         {
             platformFailureCts.Cancel();
+            submitResponseSummary = await submitResponses.StopAsync().ConfigureAwait(false);
         }
+        Log(log, string.IsNullOrWhiteSpace(submitResponseSummary)
+            ? "提交后未捕获到 TikTok 提交请求。"
+            : $"提交请求返回：{submitResponseSummary}");
         if (platformFailure is not null)
         {
             var message = TikTokPlatformSubmitFailureDetector.BuildRetryMessage(platformFailure);
@@ -209,7 +235,9 @@ public static partial class TikTokBrowserActions
             throw new TikTokDailyLimitException(dailyLimit);
         if (verifySeriesListStatus)
         {
-            await VerifySubmitAcceptedAsync(page, titleCandidates, log, ct).ConfigureAwait(false);
+            await VerifySubmitAcceptedAsync(
+                    page, titleCandidates, resubmitInPlaceOnDraft, submitResponseSummary, log, ct)
+                .ConfigureAwait(false);
             Log(log, "TikTok 表单已提交并通过平台状态校验。");
         }
         else
@@ -1515,6 +1543,8 @@ public static partial class TikTokBrowserActions
     private static async Task VerifySubmitAcceptedAsync(
         IPage page,
         IReadOnlyList<string>? titleCandidates,
+        bool resubmitInPlaceOnDraft,
+        string submitResponseSummary,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -1531,11 +1561,19 @@ public static partial class TikTokBrowserActions
                 page,
                 titleCandidates,
                 log,
-                ct)
+                ct,
+                resubmitInPlaceOnDraft: resubmitInPlaceOnDraft)
             .ConfigureAwait(false);
 
         if (!result.Accepted)
-            throw new InvalidOperationException(result.Message);
+        {
+            var message = string.IsNullOrWhiteSpace(submitResponseSummary)
+                ? $"{result.Message}；提交后未捕获到 TikTok 提交请求。"
+                : $"{result.Message}；提交请求返回：{submitResponseSummary}";
+            if (!string.IsNullOrWhiteSpace(result.DraftDetailUrl))
+                throw new TikTokSubmitStillDraftException(message, result.DraftDetailUrl);
+            throw new InvalidOperationException(message);
+        }
 
         Log(log, result.Message);
     }
@@ -1555,15 +1593,49 @@ public static partial class TikTokBrowserActions
 
             if (DateTime.UtcNow >= nextLogAt)
             {
-                Log(log, "视频上传已完成，但 TikTok 提交按钮仍不可用，正在等待页面完成表单校验。");
+                var videoState = await ReadSubmitBlockingVideoStateAsync(button.Page);
+                Log(log, "视频上传已完成，但 TikTok 提交按钮仍不可用，正在等待页面完成表单校验" +
+                         (string.IsNullOrWhiteSpace(videoState) ? "。" : $"（{videoState}）。"));
                 nextLogAt = DateTime.UtcNow.AddSeconds(30);
             }
 
             await Task.Delay(2000, ct);
         }
-        throw new TimeoutException(
-            $"视频上传已完成，但 TikTok 可见的提交按钮在 {Math.Max(30, timeoutSeconds)} 秒内仍不可用。" +
-            "请检查页面必填项、平台提示或账号风控状态。");
+        var finalVideoState = await ReadSubmitBlockingVideoStateAsync(button.Page);
+        throw new TikTokSubmitButtonDisabledException(
+            $"视频上传已完成，但 TikTok 可见的提交按钮在 {Math.Max(30, timeoutSeconds)} 秒内仍不可用" +
+            (string.IsNullOrWhiteSpace(finalVideoState) ? "" : $"（{finalVideoState}）") +
+            "。请检查页面必填项、平台提示或账号风控状态。");
+    }
+
+    /// <summary>提交按钮不可用时，多半是正片里还有处理中、上传失败或缺集的视频。</summary>
+    private static async Task<string> ReadSubmitBlockingVideoStateAsync(IPage page)
+    {
+        try
+        {
+            return await page.EvaluateAsync<string>(
+                """
+                () => {
+                  const text = document.body ? document.body.innerText : '';
+                  const start = text.lastIndexOf('剧集正片');
+                  if (start < 0) return '';
+                  const panel = text.slice(start);
+                  const counter = panel.match(/(\d+)\s*\/\s*(\d+)/);
+                  const count = pattern => (panel.match(pattern) || []).length;
+                  const total = document.querySelector("[x-field-id='totalVideoNum'] input");
+                  const parts = [];
+                  if (counter) parts.push(`页面正片 ${counter[1]}/${counter[2]}`);
+                  if (total && total.value) parts.push(`总集数 ${total.value}`);
+                  parts.push(`处理中 ${count(/处理中|上传中|正在上传|转码中/g)}`);
+                  parts.push(`上传失败 ${count(/上传失败|处理失败/g)}`);
+                  return parts.join('，');
+                }
+                """);
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private static async Task<bool> IsAriaDisabledAsync(ILocator locator)
@@ -1579,6 +1651,14 @@ public static partial class TikTokBrowserActions
     {
         try { return (await locator.InnerTextAsync(new() { Timeout = 3000 })).Trim(); }
         catch { return ""; }
+    }
+}
+
+internal sealed class TikTokSubmitButtonDisabledException : TimeoutException
+{
+    public TikTokSubmitButtonDisabledException(string message)
+        : base(message)
+    {
     }
 }
 

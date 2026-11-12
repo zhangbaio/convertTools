@@ -329,7 +329,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     public IReadOnlyList<string> SearchCategoryOptions { get; } = ["漫剧", "短剧", "合集", "默认", "短剧ID"];
     public IReadOnlyList<string> RankCategoryOptions { get; } = ["全部", "真人剧", "漫剧", "AI剧"];
-    public IReadOnlyList<string> RankBoardOptions { get; } = ["热播榜", "推荐榜", "新剧榜", "必看榜", "热搜榜", "收藏榜"];
+    public IReadOnlyList<string> RankBoardOptions => ShortDramaDramaServices.RankBoardsFor(RankCategory);
     public IReadOnlyList<string> SearchViewModeOptions { get; } = ["列表视图", "封面视图"];
     public IReadOnlyList<string> EpisodeRangeOptions { get; } = ["全部", "前1集", "前3集", "前5集", "自定义"];
 
@@ -429,7 +429,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             AutoGenerateMaterials = state.AutoGenerateMaterials;
             DownloadConcurrent = state.DownloadConcurrent;
             EpisodeNumberMode = state.DownloadEpisodeNumberMode;
-            DefaultQuality = state.DefaultQuality;
+            DefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(state.DefaultQuality);
             CategoryInclude = state.CategoryInclude;
             CategoryExclude = state.CategoryExclude;
             AuthorExclude = state.AuthorExclude;
@@ -453,9 +453,10 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     public void ApplyClientSettings(ClientSettings settings, bool preferSavedWorkspace = false)
     {
-        DefaultQuality = string.IsNullOrWhiteSpace(settings.DramaDownloadDefaultQuality)
-            ? DefaultQuality
-            : settings.DramaDownloadDefaultQuality;
+        DefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(
+            string.IsNullOrWhiteSpace(settings.DramaDownloadDefaultQuality)
+                ? DefaultQuality
+                : settings.DramaDownloadDefaultQuality);
         DownloadConcurrent = settings.DramaDownloadConcurrent > 0
             ? settings.DramaDownloadConcurrent
             : DownloadConcurrent;
@@ -611,6 +612,16 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     {
         SearchPage += 1;
         await SearchAsync();
+    }
+
+    partial void OnRankCategoryChanged(string value)
+    {
+        OnPropertyChanged(nameof(RankBoardOptions));
+        if (RankBoardOptions.Contains(RankBoard, StringComparer.Ordinal))
+            return;
+        var first = RankBoardOptions.FirstOrDefault();
+        if (!string.IsNullOrEmpty(first))
+            RankBoard = first;
     }
 
     [RelayCommand]

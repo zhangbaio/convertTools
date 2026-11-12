@@ -186,11 +186,14 @@ public static class ShortDramaDramaServices
         return Router.Value.IsHighSourceSelected();
     }
 
+    public static IReadOnlyList<string> RankBoardsFor(string category) =>
+        HongguoRankCatalog.BoardsFor(category);
+
     public static string? RankBlockReason(string category, string board)
     {
         RefreshSettings();
         if (!Router.Value.IsRankSourceSelected())
-            return "榜单接入红果高码率标准版、红果短剧下载器和红果APP下载。请先切换到其中一条数据链路。";
+            return "榜单接入红果高码率标准版、红果短剧下载器和红果APP。请先切换到其中一条数据链路。";
         return HongguoRankCatalog.UnavailableReason(category, board);
     }
 

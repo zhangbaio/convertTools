@@ -9,6 +9,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 
 namespace ShortDrama.Infrastructure.Automation;
@@ -516,6 +517,262 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return SortByPublishTimeDescending(merged);
     }
 
+    public async Task EnsureVideosPlayableAsync(
+        string stateDirectory,
+        IReadOnlyList<string> paths,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (paths.Count == 0)
+            throw PlaybackCheckFailed(stateDirectory, "没有视频文件，下载未完成。");
+
+        progress?.Report($"正在检查 {paths.Count} 个视频能否播放。");
+        var failedEpisodes = new List<int>();
+        var failedNames = new List<string>();
+        for (var index = 0; index < paths.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var path = paths[index];
+            if ((index + 1) % 10 == 0 || index + 1 == paths.Count)
+                progress?.Report($"播放检查 {index + 1}/{paths.Count}");
+            if (await HasFfmpegSupportedVideoAsync(path, cancellationToken).ConfigureAwait(false))
+                continue;
+            if (TryReadEpisodeNumber(path, out var episode))
+                failedEpisodes.Add(episode);
+            else
+                failedNames.Add(Path.GetFileName(path));
+        }
+
+        if (failedEpisodes.Count == 0 && failedNames.Count == 0)
+        {
+            progress?.Report($"播放检查通过：{paths.Count} 个视频都可以播放。");
+            return;
+        }
+
+        var labels = failedEpisodes
+            .Distinct()
+            .Order()
+            .Select(episode => $"第{episode}集")
+            .Concat(failedNames)
+            .ToArray();
+        throw PlaybackCheckFailed(
+            stateDirectory,
+            $"{string.Join("、", labels)}无法播放，当前 FFmpeg 不支持该编码。下载未完成，请更换剧集或更换下载链路。");
+    }
+
+    public async Task<bool> HasFfmpegSupportedVideoAsync(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            return false;
+        }
+    }
+
+    public async Task<DramaDownloadResult> RedownloadEpisodesAsync(
+        string metadataDirectory,
+        string outputDirectory,
+        IReadOnlyList<int> episodes,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var selected = episodes.Where(episode => episode > 0).Distinct().Order().ToArray();
+        if (selected.Length == 0)
+            return new DramaDownloadResult(false, outputDirectory, 0, "没有需要重新下载的集。");
+        var metadata = ProjectAutomationMetadata.Resolve(metadataDirectory);
+        var quality = string.IsNullOrWhiteSpace(metadata.Quality) ? "1080P" : metadata.Quality;
+        Directory.CreateDirectory(outputDirectory);
+        var request = new DramaDownloadRequest(
+            ProjectDir: outputDirectory,
+            OutputDir: outputDirectory,
+            DisplayName: FirstText(metadata.OriginalTitle, metadata.Title, metadata.DisplayName, Path.GetFileName(metadataDirectory)),
+            BookId: metadata.BookId,
+            Episodes: string.Join(",", selected),
+            Quality: quality,
+            Concurrent: Math.Clamp(metadata.Concurrent <= 0 ? 4 : metadata.Concurrent, 1, 10),
+            EpisodeNumberMode: ReadEpisodeNumberMode(metadataDirectory),
+            ExistingVideoPolicy: ExistingVideoPolicy.ReplaceAll,
+            MetadataDirectory: metadataDirectory);
+        return await DownloadAsync(request, progress, cancellationToken);
+    }
+
+    private static string ReadEpisodeNumberMode(string directory)
+    {
+        var path = Path.Combine(directory, "shortdrama-project.json");
+        if (!File.Exists(path))
+            return "source";
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(path));
+            if (document.RootElement.TryGetProperty("episodeNumberMode", out var value) &&
+                value.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(value.GetString()))
+                return value.GetString()!.Trim();
+        }
+        catch (JsonException)
+        {
+            // 读不到集号方式时按片源集号下载。
+        }
+
+        return "source";
+    }
+
+    private static string FirstText(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+
+    private async Task<(string BookId, string? Error)> AlignBookIdToCurrentChainAsync(
+        DramaDownloadRequest request,
+        string bookId,
+        DramaSourceSettings settings,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var selected = DramaDownloadSourceSelector.Normalize(settings.DramaSourceChain);
+        var directory = FirstProjectDirectory(request.MetadataDirectory, request.ProjectDir, request.OutputDir);
+        var decided = DramaDownloadSourceSelector.TryRetarget(bookId, selected);
+        if (decided is not null)
+        {
+            if (!string.Equals(decided, bookId, StringComparison.OrdinalIgnoreCase))
+            {
+                var title = ReadProjectTitle(directory, request.DisplayName);
+                progress?.Report($"当前链路是{DramaDownloadSourceSelector.Label(selected)}，沿用同一书号：{decided}");
+                DramaDownloadSourceSelector.Remember(directory, DramaDownloadSourceSelector.InferSource(bookId), bookId, title);
+                DramaDownloadSourceSelector.Remember(directory, selected, decided, title);
+            }
+
+            return (decided, null);
+        }
+
+        var cached = DramaDownloadSourceSelector.ReadCachedBookId(directory, selected);
+        if (!string.IsNullOrWhiteSpace(cached) &&
+            string.Equals(DramaDownloadSourceSelector.InferSource(cached), selected, StringComparison.Ordinal))
+        {
+            progress?.Report($"当前链路是{DramaDownloadSourceSelector.Label(selected)}，使用已匹配书号：{cached}");
+            return (cached, null);
+        }
+
+        var titles = ReadSearchTitles(directory, request.DisplayName);
+        if (titles.Count == 0)
+            return (bookId, $"切换到{DramaDownloadSourceSelector.Label(selected)}后，项目没有原剧名，无法重新匹配。");
+
+        var expectedEpisodes = DramaDownloadSourceSelector.ReadEpisodeCount(directory);
+        string? failure = null;
+        foreach (var title in titles)
+        {
+            IReadOnlyList<DramaSearchItem> results;
+            try
+            {
+                results = await SearchAsync(title, 1, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var detail = ex.Message.Contains("http", StringComparison.OrdinalIgnoreCase)
+                    ? "搜索没有返回结果。"
+                    : ex.Message;
+                failure = $"切换到{DramaDownloadSourceSelector.Label(selected)}后，按原剧名《{title}》搜索失败：{detail}";
+                continue;
+            }
+
+            var match = ChooseUniqueTitle(results, title, expectedEpisodes, selected);
+            if (match.Item is not null)
+            {
+                var resolved = match.Item.BookId.Trim();
+                var storedTitle = ReadProjectTitle(directory, title);
+                progress?.Report($"当前链路是{DramaDownloadSourceSelector.Label(selected)}，按原剧名《{title}》匹配到 {resolved}");
+                DramaDownloadSourceSelector.Remember(directory, DramaDownloadSourceSelector.InferSource(bookId), bookId, storedTitle);
+                DramaDownloadSourceSelector.Remember(directory, selected, resolved, storedTitle);
+                return (resolved, null);
+            }
+
+            failure = match.Error;
+        }
+
+        return (bookId, failure ?? $"切换到{DramaDownloadSourceSelector.Label(selected)}后，未能按原剧名找到唯一剧集。");
+    }
+
+    private static (DramaSearchItem? Item, string? Error) ChooseUniqueTitle(
+        IReadOnlyList<DramaSearchItem> results,
+        string title,
+        int expectedEpisodes,
+        string selected)
+    {
+        var exact = results
+            .Where(item => !string.IsNullOrWhiteSpace(item.BookId) && SameTitle(item.Title, title))
+            .ToArray();
+        if (exact.Length == 1)
+            return (exact[0], null);
+        if (exact.Length > 1 && expectedEpisodes > 0)
+        {
+            var counted = exact.Where(item => item.EpisodeTotal == expectedEpisodes).ToArray();
+            if (counted.Length == 1)
+                return (counted[0], null);
+        }
+
+        var label = DramaDownloadSourceSelector.Label(selected);
+        return exact.Length == 0
+            ? (null, $"切换到{label}后，未能按原剧名《{title}》找到唯一剧集。")
+            : (null, $"切换到{label}后，原剧名《{title}》匹配到多部剧，没有继续下载。");
+    }
+
+    private static bool SameTitle(string? left, string? right)
+    {
+        var a = (left ?? string.Empty).Trim();
+        var b = (right ?? string.Empty).Trim();
+        if (a.Length == 0 || b.Length == 0)
+            return false;
+        if (string.Equals(a, b, StringComparison.Ordinal))
+            return true;
+        return string.Equals(RemoveSpaces(a), RemoveSpaces(b), StringComparison.Ordinal);
+    }
+
+    private static string RemoveSpaces(string value) =>
+        value.Replace(" ", string.Empty, StringComparison.Ordinal).Replace("\u3000", string.Empty, StringComparison.Ordinal);
+
+    private static string? FirstProjectDirectory(params string?[] directories)
+    {
+        foreach (var directory in directories)
+        {
+            if (!string.IsNullOrWhiteSpace(directory) &&
+                File.Exists(Path.Combine(directory, "shortdrama-project.json")))
+                return directory;
+        }
+
+        return directories.FirstOrDefault(directory => !string.IsNullOrWhiteSpace(directory));
+    }
+
+    private static string ReadProjectTitle(string? directory, string? fallback)
+    {
+        var metadata = string.IsNullOrWhiteSpace(directory)
+            ? null
+            : ProjectAutomationMetadata.Resolve(directory);
+        return FirstText(metadata?.OriginalTitle, metadata?.Title, metadata?.DisplayName, fallback);
+    }
+
+    private static List<string> ReadSearchTitles(string? directory, string? fallback)
+    {
+        var metadata = string.IsNullOrWhiteSpace(directory)
+            ? null
+            : ProjectAutomationMetadata.Resolve(directory);
+        var titles = new List<string>();
+        foreach (var title in new[] { metadata?.OriginalTitle, metadata?.Title, metadata?.DisplayName, fallback })
+        {
+            var text = (title ?? string.Empty).Trim();
+            if (text.Length == 0 || titles.Contains(text, StringComparer.Ordinal))
+                continue;
+            titles.Add(text);
+        }
+
+        return titles;
+    }
+
     public async Task<DramaDownloadResult> DownloadAsync(
         DramaDownloadRequest request,
         IProgress<string>? progress,
@@ -526,6 +783,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var downloadAttempts = ParsePositiveInt(settings.HongguoEpisodeDownloadAttempts, 5);
         var downloadFileSegments = ParseDownloadFileSegments(settings.DownloadFileSegments);
         var bookId = request.BookId?.Trim() ?? string.Empty;
+        if (bookId.Length > 0)
+        {
+            var aligned = await AlignBookIdToCurrentChainAsync(request, bookId, settings, progress, cancellationToken);
+            if (aligned.Error is not null)
+                return new DramaDownloadResult(false, request.OutputDir, 0, aligned.Error);
+            bookId = aligned.BookId;
+        }
 
         if (bookId.StartsWith(DownloaderGatewayApiService.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
             bookId.StartsWith(DownloaderGatewayApiService.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -683,18 +947,31 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             var appBookId = bookId.StartsWith(HongguoAppBookPrefix, StringComparison.OrdinalIgnoreCase)
                 ? bookId
                 : HongguoAppBookPrefix + bookId;
+            var playbackModels = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
             return await DownloadWithProviderAsync(
                 request,
                 progress,
                 cancellationToken,
                 resolveEpisodes: ct => GetHongguoAppEpisodesAsync(appBookId, settings, ct),
-                resolveVideo: (videoId, quality, ct) => GetHongguoAppVideoUrlAsync(videoId, quality, settings, ct),
+                resolveVideo: (videoId, quality, ct) => GetHongguoAppVideoUrlAsync(
+                    videoId,
+                    quality,
+                    settings,
+                    ct,
+                    playbackModels,
+                    lockDefinition: true),
                 posterPrefix: HongguoAppBookPrefix,
                 validateVideoEncoding: ShouldValidateVideoEncodingForSource("hongguoapp"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
-                separateResolveConcurrency: 1);
+                separateResolveConcurrency: 1,
+                adjustQuality: (tasks, quality, report, ct) => ChooseHongguoAppDownloadQualityAsync(
+                    tasks,
+                    quality,
+                    playbackModels,
+                    report,
+                    ct));
         }
 
         if (bookId.StartsWith(PlayletDramaClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -835,7 +1112,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int minConcurrency = 0,
         int pieceSize = 0,
         int pieceWorkers = 0,
-        Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null)
+        Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null,
+        Func<IReadOnlyList<EpisodeTask>, string, IProgress<string>?, CancellationToken, Task<string>>? adjustQuality = null)
     {
         Directory.CreateDirectory(request.OutputDir);
         progress?.Report($"开始下载《{request.DisplayName}》...");
@@ -860,9 +1138,31 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var failures = new List<string>();
         var concurrency = ResolveDownloadConcurrency(request.Concurrent, minConcurrency);
         var resolveConcurrency = Math.Clamp(separateResolveConcurrency, 0, 10);
+        var quality = request.Quality;
+        var existingVideoPolicy = request.ExistingVideoPolicy;
+        if (adjustQuality is not null)
+        {
+            try
+            {
+                var chosen = await adjustQuality(tasks, request.Quality, progress, cancellationToken);
+                if (!string.Equals(
+                        HongguoHighCrypto.NormalizeQuality(request.Quality),
+                        HongguoHighCrypto.NormalizeQuality(chosen),
+                        StringComparison.Ordinal))
+                    existingVideoPolicy = ExistingVideoPolicy.ReplaceAll;
+                quality = chosen;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                var failed = new DramaDownloadResult(false, request.OutputDir, CountVideoFiles(request.OutputDir), ex.Message);
+                WriteDownloadState(request, failed, tasks, [ex.Message], episodeNumberMode);
+                return failed;
+            }
+        }
+
         var validateReplacement = RequiresVideoEncodingValidation(
             validateVideoEncoding,
-            request.ExistingVideoPolicy);
+            existingVideoPolicy);
         var plannedVideoIds = new List<string>(tasks.Count);
         if (registerResolvePlan is not null)
         {
@@ -873,7 +1173,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     task.EpisodeNumber,
                     report: null,
                     validateReplacement,
-                    request.ExistingVideoPolicy,
+                    existingVideoPolicy,
                     replacementCandidates: null,
                     cancellationToken);
                 if (string.IsNullOrWhiteSpace(existing))
@@ -890,7 +1190,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         var downloads = tasks.Select(task => DownloadEpisodeAsync(
             request.OutputDir,
-            request.Quality,
+            quality,
             task,
             tasks.Count,
             resolveVideo,
@@ -899,7 +1199,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             resolveSemaphore,
             failures,
             validateReplacement,
-            request.ExistingVideoPolicy,
+            existingVideoPolicy,
             downloadFileSegments,
             downloadTimeoutSeconds,
             downloadAttempts,
@@ -1085,6 +1385,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 try
                 {
                     var detail = await ResolveAsync();
+                    ReportLowerHevc(detail, quality, task, totalCount, progress);
                     var stats = await DownloadAsync(detail);
                     DeleteReplacedAlternateFiles(finalPath, replacementCandidates);
                     progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
@@ -1104,7 +1405,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 {
                     CleanupDownloadArtifacts(finalPath, keepVideo: true);
                     RememberEpisodeFailure(failures, task, ex, accountFailureStop);
-                    progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
+                    progress?.Report(DescribeEpisodeDownloadFailure(task, totalCount, ex));
                     return;
                 }
             }
@@ -1112,6 +1413,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             try
             {
                 var detail = await ResolveAsync();
+                ReportLowerHevc(detail, quality, task, totalCount, progress);
                 var stats = await DownloadAsync(detail);
                 DeleteReplacedAlternateFiles(finalPath, replacementCandidates);
                 progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载完成（{FormatBytes(stats.Bytes)}, {stats.Elapsed.TotalSeconds:0.#}s, {FormatBytes(stats.BytesPerSecond)}/s；{stats.MediaSummary}）");
@@ -1124,7 +1426,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             {
                 CleanupDownloadArtifacts(finalPath, keepVideo: true);
                 RememberEpisodeFailure(failures, task, ex, accountFailureStop);
-                progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集下载失败: {ex.Message}");
+                progress?.Report(DescribeEpisodeDownloadFailure(task, totalCount, ex));
             }
         }
         finally
@@ -2278,9 +2580,34 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             accountFailureStop?.Cancel();
     }
 
+    private static void ReportLowerHevc(
+        SourceVideoDetail detail,
+        string quality,
+        EpisodeTask task,
+        int totalCount,
+        IProgress<string>? progress)
+    {
+        if (!int.TryParse(HongguoHighCrypto.NormalizeQuality(quality), out var requested))
+            return;
+        var note = HongguoGuestPlayback.LowerQualityNote(requested, detail.SelectedDefinition);
+        if (note is null)
+            return;
+        progress?.Report($"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集 {note}");
+    }
+
+    private static string DescribeEpisodeDownloadFailure(EpisodeTask task, int totalCount, Exception exception)
+    {
+        var prefix = $"[{task.Order:00}/{totalCount:00}] 第{task.EpisodeNumber:00}集";
+        return HongguoGuestPlayback.IsUnsupportedCodec(exception)
+            ? $"{prefix}未下载: {exception.Message}"
+            : $"{prefix}下载失败: {exception.Message}";
+    }
+
     internal static bool ShouldRetryDownload(Exception exception)
     {
         if (IsAccountLevelDownloadFailure(exception.Message))
+            return false;
+        if (HongguoGuestPlayback.IsUnsupportedCodec(exception))
             return false;
         if (exception is HongguoHighException highException)
         {
@@ -2395,12 +2722,16 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int offset,
         CancellationToken cancellationToken)
     {
-        var page = await _hghighApiService.GetRankPageAsync(
-            ForHongguoApp(_settingsProvider.Get()),
+        var settings = _settingsProvider.Get();
+        var page = await _hongguoApp.GetRankPageAsync(
             category,
             board,
             offset,
-            cancellationToken);
+            cancellationToken,
+            settings.HongguoAppDeviceId,
+            settings.HongguoAppInstallId,
+            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+            settings.HongguoAppPlan);
         return new HongguoRankPage(
             page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray(),
             page.HasMore,
@@ -2815,34 +3146,82 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             .ToArray();
     }
 
+    private async Task<string> ChooseHongguoAppDownloadQualityAsync(
+        IReadOnlyList<EpisodeTask> tasks,
+        string quality,
+        Dictionary<string, JsonObject> models,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var current = _settingsProvider.Get();
+        foreach (var task in tasks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (models.ContainsKey(task.VideoId))
+                continue;
+            models[task.VideoId] = await _hongguoApp.GetPlaybackModelAsync(
+                task.VideoId,
+                cancellationToken,
+                current.HongguoAppDeviceId,
+                current.HongguoAppInstallId,
+                (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+                current.HongguoAppStreamLink1,
+                current.HongguoAppStreamLink2,
+                current.HongguoAppPlan);
+        }
+
+        var requested = HongguoHighCrypto.NormalizeQuality(quality);
+        var chosen = HongguoGuestPlayback.ChooseUniformQuality(quality, models.Values.ToArray());
+        if (!string.Equals(requested, chosen, StringComparison.Ordinal))
+            progress?.Report($"有剧集的 {requested}P 没有 FFmpeg 可播放的编码，全部改用 {chosen}P。");
+        var blocked = HongguoGuestPlayback.MissingPlayableDownloadMessage(
+            tasks.Select(task => (
+                task.EpisodeNumber,
+                models.TryGetValue(task.VideoId, out var model) ? model : null)).ToArray(),
+            chosen);
+        if (blocked is not null)
+        {
+            progress?.Report(blocked);
+            throw new HongguoHighException(blocked);
+        }
+
+        return chosen;
+    }
+
     private async Task<SourceVideoDetail> GetHongguoAppVideoUrlAsync(
         string prefixedVideoId,
         string quality,
         DramaSourceSettings settings,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, JsonObject>? models = null,
+        bool lockDefinition = false)
     {
-        var current = _settingsProvider.Get();
-        var detail = await _hongguoApp.GetVideoPlaybackAsync(
-            prefixedVideoId,
-            quality,
-            cancellationToken,
-            current.HongguoAppDeviceId,
-            current.HongguoAppInstallId,
-            (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
-            current.HongguoAppStreamLink1,
-            current.HongguoAppStreamLink2,
-            current.HongguoAppPlan);
+        HongguoHighVideoPlayback detail;
+        if (models is not null && models.TryGetValue(prefixedVideoId, out var model))
+        {
+            detail = HongguoGuestPlayback.Pick(model, quality, lockDefinition);
+        }
+        else
+        {
+            var current = _settingsProvider.Get();
+            detail = await _hongguoApp.GetVideoPlaybackAsync(
+                prefixedVideoId,
+                quality,
+                cancellationToken,
+                current.HongguoAppDeviceId,
+                current.HongguoAppInstallId,
+                (deviceId, installId) => _settingsProvider.SaveHongguoAppPlaybackIdentity(deviceId, installId),
+                current.HongguoAppStreamLink1,
+                current.HongguoAppStreamLink2,
+                current.HongguoAppPlan);
+        }
+
         return new SourceVideoDetail(
             detail.Url,
             HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),
-            ExpectedSize: detail.Size);
+            ExpectedSize: detail.Size,
+            SelectedDefinition: detail.Definition);
     }
-
-    private static DramaSourceSettings ForHongguoApp(DramaSourceSettings settings) => settings with
-    {
-        HghighEdition = HongguoClientProfile.StandardEdition,
-        HghighStandardPlaybackMode = HongguoClientProfile.StandardPlaybackSingle,
-    };
 
     private async Task<IReadOnlyList<SourceEpisode>> GetHgnewEpisodesAsync(string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
@@ -3528,6 +3907,45 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                fileEpisodeNumber == outputEpisodeNumber;
     }
 
+    private static InvalidOperationException PlaybackCheckFailed(string stateDirectory, string message)
+    {
+        RecordUnplayableDownload(stateDirectory, message);
+        return new InvalidOperationException(message);
+    }
+
+    private static void RecordUnplayableDownload(string directory, string message)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+            return;
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, DownloadStateFileName);
+            var root = File.Exists(path)
+                ? JsonNode.Parse(File.ReadAllText(path)) as JsonObject ?? new JsonObject()
+                : new JsonObject();
+            root["ok"] = false;
+            root["stopped"] = false;
+            root["message"] = message;
+            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static bool TryReadEpisodeNumber(string path, out int episode)
+    {
+        episode = 0;
+        var name = Path.GetFileNameWithoutExtension(path);
+        var start = name.IndexOf('第');
+        var end = start < 0 ? -1 : name.IndexOf('集', start + 1);
+        return start >= 0 &&
+               end > start &&
+               int.TryParse(name[(start + 1)..end].Trim(), out episode) &&
+               episode > 0;
+    }
+
     private static void WriteDownloadState(
         DramaDownloadRequest request,
         DramaDownloadResult result,
@@ -3853,7 +4271,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         HongguoCdnDownload? HongguoCdn = null,
         bool EnsureWindowsCompatible = false,
         string TranscodeEngine = "auto",
-        long ExpectedSize = 0);
+        long ExpectedSize = 0,
+        int SelectedDefinition = 0);
 
     private sealed record HongguoCdnDownload(
         IReadOnlyList<string> EncryptedUrls,

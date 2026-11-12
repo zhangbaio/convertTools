@@ -12,6 +12,7 @@ using TikTokPublisher.Ui.Common;
 
 using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.Services.TikTok;
+using TikTokPublisher.Ui.Views;
 
 namespace TikTokPublisher.Ui.ViewModels;
 
@@ -80,6 +81,10 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly WorkspaceQueueOrchestrator _queueOrchestrator = new();
     private readonly QueueStatePersistService _queueStatePersist = new();
     private readonly XingeRemoteCommandService _xingeRemoteCommandService = new();
+    private readonly TikTokDispatchQueueScheduler _dispatchScheduler = new();
+    private readonly Dictionary<string, QueueRunOptions> _dispatchOptions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, XingeAutoPublishProgress> _dispatchStartNotices = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _dispatchPump = new(1, 1);
     private readonly object _xingeUploadScanSync = new();
     private bool _xingeUploadScanRunning;
     private IReadOnlyDictionary<string, IReadOnlyList<TikTokUploadedDrama>?>? _lastXingeUploadedToday;
@@ -88,6 +93,10 @@ public sealed partial class MainViewModel : ViewModelBase
         new(StringComparer.OrdinalIgnoreCase);
     private readonly object _localCheckedQueueLock = new();
     private readonly HashSet<string> _localCheckedQueueWorkspaces = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _checkedQueueFollowUpLock = new();
+    private readonly Dictionary<string, PendingCheckedQueue> _checkedQueueFollowUps = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _checkedQueueFollowUpArmed = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _manualStopEpoch = new(StringComparer.OrdinalIgnoreCase);
     private string? _manualInterventionWorkspaceRoot;
     private bool _applyingQueueStepToggles;
     private bool _queueRunActive;
@@ -129,6 +138,10 @@ public sealed partial class MainViewModel : ViewModelBase
     /// <summary>检测到 TikTok 单日创建剧集上限、队列已停止时触发（用于弹窗提示，对齐 Python）。</summary>
     public event Action<string>? DailyLimitReached;
     private bool _dailyLimitNotified;
+    private readonly Dictionary<string, DateOnly> _dailyLimitReportedAccounts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<long> _autoPublishResumeAbandoned = new();
+    private bool _restartResumeConfirmed;
+    private bool _restartResumeDismissed;
 
     public IReadOnlyList<FinalActionChoice> FinalActionChoices { get; } = new[]
     {
@@ -156,6 +169,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _preferUploadWhenReady;
     [ObservableProperty] private bool _syncManagementAfterUpload;
     [ObservableProperty] private bool _queueDownloadEnabled;
+    [ObservableProperty] private bool _queueVideoDedupEnabled;
     [ObservableProperty] private bool _queueRewriteEnabled;
     [ObservableProperty] private bool _queueGeneratePosterEnabled;
     [ObservableProperty] private bool _queueGenerateEpisodeScriptEnabled;
@@ -164,7 +178,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [ObservableProperty] private bool _queueGenerateRoleVectorEnabled;
     [ObservableProperty] private bool _queueGenerateProofMaterialEnabled;
     [ObservableProperty] private bool _queueGenerateTimestampCertificateEnabled;
-    [ObservableProperty] private bool _queueDeleteSourceVideosEnabled;
     [ObservableProperty] private bool _queueSmallVideoRepairEnabled;
     [ObservableProperty] private bool _queueVideoTranslateEnabled;
     [ObservableProperty] private bool _queueMaterialValidateEnabled;
@@ -229,6 +242,8 @@ public sealed partial class MainViewModel : ViewModelBase
     public event Action<AccountItemViewModel, bool>? AccountLoginRequested;
     public event Func<WorkspaceQueueTarget, QueueRunOptions?, Task<bool>>? RemoteQueueRunRequested;
     public event Func<QueueRunOptions?, IReadOnlyList<WorkspaceQueueTarget>, Task<bool>>? RemoteAllQueueRunRequested;
+    // 与界面「执行勾选队列」相同：只跑当前勾选，步骤用界面上的勾选。
+    public event Func<Task<bool>>? CheckedQueueRunRequested;
 
     public MainViewModel(AccountStore store, AccountContextService context)
     {
@@ -318,6 +333,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private void WireXingeRemoteCommandService()
     {
         SystemServices.SettingsSaved += RestartXingeRemoteCommandService;
+        _xingeRemoteCommandService.AssignmentAlreadyLocal = AssignmentAlreadyLocal;
         _xingeRemoteCommandService.StatusChanged += OnXingeRemoteStatusChanged;
         XingeAutoPublishProgressReporter.Shared.Log += AppendLog;
         XingeUploadTaskReporter.Shared.Log += AppendLog;
@@ -333,7 +349,8 @@ public sealed partial class MainViewModel : ViewModelBase
             ExecuteXingeRemoteCommandAsync,
             BuildXingeRemoteRegistrationSnapshotAsync,
             AppendLog,
-            RecoverOpenAutoPublishAsync);
+            RecoverOpenAutoPublishAsync,
+            OnAutoPublishPollIdle);
     }
 
     private void OnXingeRemoteStatusChanged(string message)
@@ -370,12 +387,70 @@ public sealed partial class MainViewModel : ViewModelBase
 
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
         {
+            await ConfirmRestartResumeAsync(open, located);
             foreach (var assignment in open)
             {
                 located.TryGetValue(assignment.Id, out var place);
                 await ApplyRecoveredAutoPublishAsync(assignment, place);
             }
+
+            _ = PumpAutoPublishQueuesAsync();
         });
+    }
+
+    // 重启后第一次准备自动续跑时提示一次。倒计时结束或点立即执行才开跑，关掉则本次启动不再自动续跑。
+    private async Task ConfirmRestartResumeAsync(
+        IReadOnlyList<XingeRemoteCommandService.XingeOpenAutoPublishAssignment> open,
+        IReadOnlyDictionary<long, AutoPublishProjectLocation> located)
+    {
+        if (_restartResumeConfirmed || _restartResumeDismissed)
+            return;
+
+        var pending = new List<DispatchConfirmItem>();
+        var anyReady = false;
+        foreach (var assignment in open)
+        {
+            if (!located.TryGetValue(assignment.Id, out var place))
+                continue;
+            if (XingeAutoPublishRecovery.Decide(assignment.Status, place.Marker, place.ProjectExists) != XingeAutoPublishRecoveryAction.Resume)
+                continue;
+            if (_autoPublishResumeAbandoned.Contains(assignment.Id))
+                continue;
+            pending.Add(new DispatchConfirmItem
+            {
+                MessageId = assignment.Id,
+                AssignmentId = assignment.Id,
+                AccountName = place.AccountName,
+                Title = FirstNonEmptyText(place.Marker?.Title, assignment.Title),
+                ConfirmSeconds = DispatchConfirmSession.DefaultCountdownSeconds,
+            });
+            if (CanResumeAutoPublishNow(place))
+                anyReady = true;
+        }
+
+        if (!anyReady || pending.Count == 0)
+            return;
+
+        var session = new DispatchConfirmSession(DateTimeOffset.Now, DispatchConfirmSession.DefaultCountdownSeconds);
+        foreach (var item in pending)
+            session.TryAdd(item);
+        AppendLog($"客户端重启后将继续执行 {pending.Count} 部下发剧集，{DispatchConfirmSession.DefaultCountdownSeconds} 秒后自动开始。");
+        if (await XingeRestartResumePrompt.ConfirmAsync(session))
+        {
+            _restartResumeConfirmed = true;
+            AppendLog("已确认继续执行重启前下发的剧集。");
+            return;
+        }
+
+        _restartResumeDismissed = true;
+        AppendLog("已关闭继续执行提示，本次启动不再自动执行已下发剧集。");
+    }
+
+    private bool CanResumeAutoPublishNow(AutoPublishProjectLocation located)
+    {
+        if (!located.ProjectExists || string.IsNullOrWhiteSpace(located.Workspace) || string.IsNullOrWhiteSpace(located.ProjectDir))
+            return false;
+        return !IsLocalCheckedQueueRunning(located.Workspace) && !IsWorkspaceQueueRunning(located.Workspace);
     }
 
     private async Task ApplyRecoveredAutoPublishAsync(
@@ -397,9 +472,18 @@ public sealed partial class MainViewModel : ViewModelBase
                 await ReportRecoveredAutoPublishAsync(model, XingeAutoPublishStatuses.Success, "upload_series", "本地项目已上传成功");
                 break;
             case XingeAutoPublishRecoveryAction.ReportInterrupted:
+                if (located.LookupFailed || LocalAutoPublishMarkerExists(assignment.Id, located))
+                {
+                    AppendLog($"自动上新派单 {assignment.Id} 的本地项目还在，或队列库暂时读不到，这次不向服务器报告项目丢失。");
+                    break;
+                }
                 await ReportRecoveredAutoPublishAsync(model, XingeAutoPublishStatuses.Interrupted, "import", "客户端未找到本地项目");
                 break;
             case XingeAutoPublishRecoveryAction.Resume:
+                if (_restartResumeDismissed || !_restartResumeConfirmed)
+                    break;
+                if (_autoPublishResumeAbandoned.Contains(assignment.Id))
+                    break;
                 if (IsLocalCheckedQueueRunning(located.Workspace))
                 {
                     AppendLog($"本地正在执行勾选队列，自动上新恢复等到该队列结束后再继续：{located.Workspace}");
@@ -407,9 +491,21 @@ public sealed partial class MainViewModel : ViewModelBase
                 }
                 if (string.IsNullOrWhiteSpace(located.Workspace) || IsWorkspaceQueueRunning(located.Workspace))
                     break;
-                XingeAutoPublishProgressReporter.Shared.Enqueue(XingeAutoPublishProgress.For(
-                    model, XingeAutoPublishStatuses.Running, "upload_series", "客户端重启后继续执行"));
-                await StartRecoveredAutoPublishQueueAsync(located);
+                if (!EnableRecoveredAutoPublishProject(located))
+                {
+                    AppendLog($"自动上新派单 {assignment.Id} 还没写进可执行队列，这次不释放，下一轮再继续。");
+                    break;
+                }
+                var serverOptions = BuildRecoveredServerOptions(assignment);
+                if (serverOptions is not null)
+                    ApplyAutoPublishServerSteps(FindAccountById(located.AccountId)?.Model, located.Workspace, serverOptions);
+                NoteAutoPublishDispatch(
+                    located.Workspace,
+                    located.AccountId,
+                    [located.ProjectDir],
+                    serverOptions,
+                    XingeAutoPublishProgress.For(model, XingeAutoPublishStatuses.Running, "upload_series", "客户端重启后继续执行"));
+                AppendLog($"自动上新派单 {assignment.Id} 已进入本机执行顺序。");
                 break;
         }
     }
@@ -423,13 +519,56 @@ public sealed partial class MainViewModel : ViewModelBase
             AppendLog($"自动上新派单 {assignment.AssignmentId} 的恢复结果暂未送达 XINGE，将在连接恢复后补发。");
     }
 
-    private async Task StartRecoveredAutoPublishQueueAsync(AutoPublishProjectLocation located)
+    private bool EnableRecoveredAutoPublishProject(AutoPublishProjectLocation located)
+    {
+        if (string.IsNullOrWhiteSpace(located.Workspace) || string.IsNullOrWhiteSpace(located.ProjectDir))
+            return false;
+        try
+        {
+            if (Directory.Exists(located.ProjectDir))
+            {
+                var account = FindAccountById(located.AccountId)?.Model;
+                WorkspaceQueueService.AddProjectsToQueue(
+                    located.Workspace,
+                    [located.ProjectDir],
+                    located.AccountId,
+                    account?.DisplayName ?? located.AccountName);
+            }
+            var state = WorkspaceQueueDatabase.Load(located.Workspace);
+            var enabled = XingeAutoPublishRecoveryQueue.EnableForResume(state.Items, new[] { located.ProjectDir });
+            if (enabled.Count == 0)
+                return false;
+            WorkspaceQueueService.SaveProjects(located.Workspace, state.Items, state.Options);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppendLog($"自动上新派单勾选继续执行的项目失败：{ex.Message}");
+            return false;
+        }
+    }
+
+    private static QueueRunOptions? BuildRecoveredServerOptions(XingeRemoteCommandService.XingeOpenAutoPublishAssignment assignment)
+    {
+        if (assignment.EnabledSteps is not { Count: > 0 })
+            return null;
+        return TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(
+            ClientSettingsStore.Load(),
+            new TikTokRemoteCommand(
+                TikTokRemoteCommandNames.UploadSeries,
+                EnabledSteps: assignment.EnabledSteps,
+                QueueOptions: assignment.ReadQueueOptions()));
+    }
+
+    private async Task<bool> StartRecoveredAutoPublishQueueAsync(
+        AutoPublishProjectLocation located,
+        QueueRunOptions? serverOptions)
     {
         var run = RemoteQueueRunRequested;
         if (run is null || string.IsNullOrWhiteSpace(located.ProjectDir))
         {
             AppendLog($"自动上新派单已找到本地项目，但队列视图尚未初始化：{located.ProjectDir}");
-            return;
+            return false;
         }
 
         var started = await run(new WorkspaceQueueTarget(
@@ -437,10 +576,11 @@ public sealed partial class MainViewModel : ViewModelBase
             located.AccountName,
             located.AccountId,
             new[] { located.ProjectDir },
-            PreferPersistedQueueSnapshot: true), null);
+            PreferPersistedQueueSnapshot: true), serverOptions);
         AppendLog(started
             ? $"自动上新派单已从中断处继续：{located.ProjectDir}"
             : $"自动上新派单暂时无法继续执行：{located.ProjectDir}");
+        return started;
     }
 
     private static AutoPublishProjectLocation FindAutoPublishProject(
@@ -448,6 +588,7 @@ public sealed partial class MainViewModel : ViewModelBase
         IReadOnlyList<XingeRemoteAccountSeed> accounts)
     {
         var seenWorkspaces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lookupFailed = false;
         foreach (var account in accounts)
         {
             string workspace;
@@ -468,25 +609,86 @@ public sealed partial class MainViewModel : ViewModelBase
             {
                 items = WorkspaceQueueDatabase.Load(workspace).Items;
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException || ex.GetType().Name == "SqliteException")
             {
+                lookupFailed = true;
                 continue;
             }
 
-            foreach (var item in items)
-            {
-                if (string.IsNullOrWhiteSpace(item.ProjectDir))
-                    continue;
-                var marker = XingeAutoPublishMarkerStore.TryRead(item.ProjectDir);
-                if (marker is null || marker.AssignmentId != assignmentId)
-                    continue;
-                var owner = accounts.FirstOrDefault(candidate =>
-                    string.Equals(candidate.Id, marker.AccountProfileId, StringComparison.OrdinalIgnoreCase)) ?? account;
-                return new AutoPublishProjectLocation(marker, true, workspace, item.ProjectDir, owner.Id, owner.Name);
-            }
+            var located = FindAutoPublishProjectInItems(assignmentId, accounts, account, workspace, items);
+            if (located.ProjectExists)
+                return located;
+
+            located = FindAutoPublishProjectOnDisk(assignmentId, accounts, account, workspace);
+            if (located.ProjectExists)
+                return located;
+            if (located.LookupFailed)
+                lookupFailed = true;
+        }
+
+        return new AutoPublishProjectLocation(null, false, "", "", "", "", LookupFailed: lookupFailed);
+    }
+
+    private static AutoPublishProjectLocation FindAutoPublishProjectInItems(
+        long assignmentId,
+        IReadOnlyList<XingeRemoteAccountSeed> accounts,
+        XingeRemoteAccountSeed account,
+        string workspace,
+        IReadOnlyList<QueueProjectItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (string.IsNullOrWhiteSpace(item.ProjectDir))
+                continue;
+            var marker = XingeAutoPublishMarkerStore.TryRead(item.ProjectDir);
+            if (marker is null || marker.AssignmentId != assignmentId)
+                continue;
+            var owner = accounts.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, marker.AccountProfileId, StringComparison.OrdinalIgnoreCase)) ?? account;
+            return new AutoPublishProjectLocation(marker, true, workspace, item.ProjectDir, owner.Id, owner.Name);
         }
 
         return new AutoPublishProjectLocation(null, false, "", "", "", "");
+    }
+
+    // 队列库还没刷上磁盘时，项目目录里的派单标记仍然算找到了，不能向服务器报「项目丢失」。
+    private static AutoPublishProjectLocation FindAutoPublishProjectOnDisk(
+        long assignmentId,
+        IReadOnlyList<XingeRemoteAccountSeed> accounts,
+        XingeRemoteAccountSeed account,
+        string workspace)
+    {
+        IEnumerable<string> children;
+        try
+        {
+            children = Directory.EnumerateDirectories(workspace);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new AutoPublishProjectLocation(null, false, workspace, "", "", "", LookupFailed: true);
+        }
+
+        foreach (var dir in children)
+        {
+            var marker = XingeAutoPublishMarkerStore.TryRead(dir);
+            if (marker is null || marker.AssignmentId != assignmentId)
+                continue;
+            var owner = accounts.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, marker.AccountProfileId, StringComparison.OrdinalIgnoreCase)) ?? account;
+            return new AutoPublishProjectLocation(marker, true, workspace, dir, owner.Id, owner.Name);
+        }
+
+        return new AutoPublishProjectLocation(null, false, "", "", "", "");
+    }
+
+    private static bool LocalAutoPublishMarkerExists(long assignmentId, AutoPublishProjectLocation located)
+    {
+        if (located.Marker?.AssignmentId == assignmentId)
+            return true;
+        if (string.IsNullOrWhiteSpace(located.ProjectDir))
+            return false;
+        var marker = XingeAutoPublishMarkerStore.TryRead(located.ProjectDir);
+        return marker?.AssignmentId == assignmentId;
     }
 
     private readonly record struct AutoPublishProjectLocation(
@@ -495,7 +697,8 @@ public sealed partial class MainViewModel : ViewModelBase
         string Workspace,
         string ProjectDir,
         string AccountId,
-        string AccountName);
+        string AccountName,
+        bool LookupFailed = false);
 
     private Task<TikTokRemoteCommandResult> ExecuteXingeRemoteCommandAsync(TikTokRemoteCommand command)
     {
@@ -522,6 +725,19 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private XingeRegistrationCapture CaptureXingeRegistration() =>
         new(WorkspacePath ?? "", SelectedAccount?.Id ?? "", CaptureXingeAccountSeeds());
+
+    private bool AssignmentAlreadyLocal(long assignmentId)
+    {
+        if (assignmentId <= 0)
+            return false;
+        IReadOnlyList<XingeRemoteAccountSeed> seeds;
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            seeds = CaptureXingeAccountSeeds();
+        else
+            seeds = Avalonia.Threading.Dispatcher.UIThread.Invoke(CaptureXingeAccountSeeds);
+        var located = FindAutoPublishProject(assignmentId, seeds);
+        return located.ProjectExists && located.Marker?.IsActive == true;
+    }
 
     private IReadOnlyList<XingeRemoteAccountSeed> CaptureXingeAccountSeeds()
     {
@@ -764,9 +980,11 @@ public sealed partial class MainViewModel : ViewModelBase
 
         _context.SwitchTo(value.Id);
         RestoreQueueSearchTextForSelectedAccount();
-        RefreshWorkspaceFromActiveAccount();
+        // 账号高亮先画出来。工作目录换表放到后台优先级，避免这次刷新插在渲染前面把点击卡住。
+        Avalonia.Threading.Dispatcher.UIThread.Post(
+            RefreshWorkspaceFromActiveAccount,
+            Avalonia.Threading.DispatcherPriority.Background);
         AccountSwitchRequested?.Invoke(value);
-        RefreshTodayUploadCount();
     }
 
     private string GetQueueSearchAccountKey()
@@ -792,6 +1010,7 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     partial void OnQueueDownloadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
+    partial void OnQueueVideoDedupEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueRewriteEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGeneratePosterEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateEpisodeScriptEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -800,7 +1019,6 @@ public sealed partial class MainViewModel : ViewModelBase
     partial void OnQueueGenerateRoleVectorEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateProofMaterialEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueGenerateTimestampCertificateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
-    partial void OnQueueDeleteSourceVideosEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueUploadEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueSmallVideoRepairEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
     partial void OnQueueVideoTranslateEnabledChanged(bool value) => UpdateQueueRunOptionsFromUi();
@@ -988,6 +1206,7 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = true;
+            QueueVideoDedupEnabled = true;
             QueueRewriteEnabled = true;
             QueueGeneratePosterEnabled = true;
             QueueGenerateEpisodeScriptEnabled = true;
@@ -996,7 +1215,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateRoleVectorEnabled = true;
             QueueGenerateProofMaterialEnabled = true;
             QueueGenerateTimestampCertificateEnabled = true;
-            QueueDeleteSourceVideosEnabled = true;
             QueueSmallVideoRepairEnabled = true;
             QueueVideoTranslateEnabled = false;
             QueueMaterialValidateEnabled = true;
@@ -1021,6 +1239,7 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = false;
+            QueueVideoDedupEnabled = false;
             QueueRewriteEnabled = false;
             QueueGeneratePosterEnabled = false;
             QueueGenerateEpisodeScriptEnabled = false;
@@ -1029,7 +1248,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateRoleVectorEnabled = false;
             QueueGenerateProofMaterialEnabled = false;
             QueueGenerateTimestampCertificateEnabled = false;
-            QueueDeleteSourceVideosEnabled = false;
             QueueSmallVideoRepairEnabled = false;
             QueueVideoTranslateEnabled = false;
             QueueMaterialValidateEnabled = false;
@@ -1231,22 +1449,23 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var generation = Interlocked.Increment(ref _workspaceRefreshGeneration);
         var root = (workspaceRoot ?? WorkspacePath).Trim();
-        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+        if (string.IsNullOrEmpty(root))
         {
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (generation != _workspaceRefreshGeneration) return;
-                ClearWorkspaceProjectCollections();
-                _queueItems.Clear();
-                _queueRowByDir.Clear();
-                _displayedWorkspaceRoot = "";
-                UpdateWorkspaceBindingSummary("");
-                UpdateQueueSummaryText();
-                RefreshLogSnapshot(force: true);
-            });
+            await ClearWorkspaceProjectsOnUiAsync(generation);
             return;
         }
 
+        // Exists 会碰到正在写视频的磁盘。放在 UI 线程上时，执行中点左侧账号会停住。
+        var rootExists = await Task.Run(() => Directory.Exists(root)).ConfigureAwait(false);
+        if (generation != Volatile.Read(ref _workspaceRefreshGeneration))
+            return;
+        if (!rootExists)
+        {
+            await ClearWorkspaceProjectsOnUiAsync(generation);
+            return;
+        }
+
+        var showedData = false;
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (generation != _workspaceRefreshGeneration) return;
@@ -1258,18 +1477,19 @@ public sealed partial class MainViewModel : ViewModelBase
                 TryGetWorkspaceQueueSnapshot(root, out var cachedItems, out var cachedOptions))
             {
                 ApplyWorkspaceScanResult(root, cachedItems, cachedOptions);
+                showedData = true;
                 return;
             }
 
             if (!string.Equals(_displayedWorkspaceRoot, SafeFullPath(root), StringComparison.OrdinalIgnoreCase))
                 ShowWorkspaceLoadingState(root);
-        });
+        }, Avalonia.Threading.DispatcherPriority.Background);
 
         // On a cold app start there is no in-memory snapshot. Populate the table from the
         // queue database first (normally tens of milliseconds) and reconcile filesystem
         // artifacts in the slower scan below. This avoids presenting an empty workspace
         // for the entire duration of a cold disk scan.
-        if (!TryGetWorkspaceQueueSnapshot(root, out _, out _))
+        if (!showedData)
         {
             var persistedSnapshot = await Task.Run(() => WorkspaceQueueService.LoadPersistedSnapshot(root))
                 .ConfigureAwait(false);
@@ -1282,9 +1502,26 @@ public sealed partial class MainViewModel : ViewModelBase
                         root,
                         persistedSnapshot.Items.ToList(),
                         persistedSnapshot.Options);
-                    QueueSummaryText = $"已加载 {persistedSnapshot.Items.Count} 个项目，正在校验工作目录 {root}";
+                    showedData = true;
+                    if (!(_queueRunActive || _queueOrchestrator.AnyRunning))
+                        QueueSummaryText = $"已加载 {persistedSnapshot.Items.Count} 个项目，正在校验工作目录 {root}";
                 });
             }
+        }
+
+        // 队列正在跑时，内存或数据库里的列表已经够切换账号。再扫工作目录会和下载抢磁盘，
+        // 扫完又在 UI 线程整表重建一次。等这轮队列结束后再校对文件。
+        var queueBusy = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+            () => _queueRunActive || _queueOrchestrator.AnyRunning);
+        if (!force && showedData && queueBusy)
+        {
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (generation != _workspaceRefreshGeneration || !IsActiveWorkspace(root))
+                    return;
+                UpdateQueueSummaryText();
+            });
+            return;
         }
 
         var scanResult = await Task.Run(() =>
@@ -1309,6 +1546,21 @@ public sealed partial class MainViewModel : ViewModelBase
         });
     }
 
+    private async Task ClearWorkspaceProjectsOnUiAsync(int generation)
+    {
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (generation != _workspaceRefreshGeneration) return;
+            ClearWorkspaceProjectCollections();
+            _queueItems.Clear();
+            _queueRowByDir.Clear();
+            _displayedWorkspaceRoot = "";
+            UpdateWorkspaceBindingSummary("");
+            UpdateQueueSummaryText();
+            RefreshLogSnapshot(force: true);
+        });
+    }
+
     private async Task RefreshWorkspaceProjectsAfterQueueRunAsync(
         string workspaceRoot,
         IReadOnlyList<QueueProjectItem>? terminalItems = null,
@@ -1326,8 +1578,9 @@ public sealed partial class MainViewModel : ViewModelBase
             if (terminalItems is not null)
             {
                 var finalOptions = terminalOptions ?? ResolveQueueOptionsForPersistedWorkspace(root);
-                CacheWorkspaceQueueSnapshot(root, terminalItems, finalOptions);
-                _queueStatePersist.Enqueue(root, terminalItems, finalOptions);
+                var visibleTerminal = WorkspaceQueueService.WithoutDeletedProjects(root, terminalItems);
+                CacheWorkspaceQueueSnapshot(root, visibleTerminal, finalOptions);
+                _queueStatePersist.Enqueue(root, visibleTerminal, finalOptions);
             }
 
             if (!IsActiveWorkspace(root))
@@ -1372,7 +1625,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 return;
 
             if (refreshError is not null && terminalItems is not null)
-                _queueItems = terminalItems.ToList();
+                _queueItems = WorkspaceQueueService.WithoutDeletedProjects(root, terminalItems);
             ReconcileQueueProjectRows(_queueItems);
             ApplyQueueProjectFilter();
             // 表格只绑定过滤集合；即使项目引用序列没有变化，也要发出一次 Reset，
@@ -1493,6 +1746,14 @@ public sealed partial class MainViewModel : ViewModelBase
             nextDisplayedRoot,
             StringComparison.OrdinalIgnoreCase);
         var replaceCollections = workspaceChanged || QueueProjectRows.Count == 0;
+
+        var insideWorkspace = new List<QueueProjectItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
+                insideWorkspace.Add(item);
+        }
+        items = insideWorkspace;
 
         if (IsWorkspaceQueueRunning(root))
             items = PreserveDisplayedRuntimeState(items);
@@ -1670,6 +1931,7 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokUploadSourceInfoRoleVector = account.TiktokUploadSourceInfoRoleVector,
         TiktokUploadSourceInfoRoleSceneScreenshot = account.TiktokUploadSourceInfoRoleSceneScreenshot,
         TiktokProofSealPath = account.TiktokProofSealPath,
+        TiktokProofTemplateDocxPath = account.TiktokProofTemplateDocxPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
         TiktokRewriteFollowsSourceLanguage = account.TiktokRewriteFollowsSourceLanguage,
@@ -1856,7 +2118,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var index = 1;
         foreach (var vm in target)
             vm.RowIndex = index++;
-        if (replaceCollection)
+        if (replaceCollection || IsCurrentWorkspaceQueueRunning())
             FilteredQueueProjectRows.ReplaceAll(target);
         else
             ReconcileObservableCollection(FilteredQueueProjectRows, target);
@@ -2489,7 +2751,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (targetsOverride is null)
         {
             SyncEnabledStepsFromUi();
-            _queueStatePersist.Enqueue(WorkspacePath, _queueItems, _queueRunOptions);
+            if (CanWriteDisplayedQueue(WorkspacePath))
+                _queueStatePersist.Enqueue(WorkspacePath, _queueItems, _queueRunOptions);
             PersistAccountQueueSettings();
         }
 
@@ -2668,12 +2931,15 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = (workspaceRoot ?? WorkspacePath).Trim();
         if (!string.IsNullOrEmpty(root))
         {
+            // 先交还派单并清掉「本轮结束后再执行」，再取消队列，避免停止收尾时又被拉起来。
+            ReleaseUserStoppedAutoPublish(root);
             if (_workspaceQueueRunCancellations.TryGetValue(SafeFullPath(root), out var workspaceCts))
                 workspaceCts.Cancel();
             _queueOrchestrator.StopWorkspace(root);
         }
         else
         {
+            ReleaseUserStoppedAutoPublish(null);
             _queueOrchestrator.StopAll();
             _queueCts?.Cancel();
         }
@@ -2717,6 +2983,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (!IsQueueRunning)
             return TikTokRemoteCommandResult.Success(command.Command, "当前没有运行中的 TikTok 队列。");
 
+        ReleaseUserStoppedAutoPublish(null);
         _queueOrchestrator.StopAll();
         _queueCts?.Cancel();
         RefreshRunningWorkspacesSummary();
@@ -2894,12 +3161,15 @@ public sealed partial class MainViewModel : ViewModelBase
             var marker = XingeAutoPublishMarkerStore.TryRead(projectDir);
             if (marker is { IsActive: true } && marker.AssignmentId == assignmentId)
                 return;
+            var createdAt = marker is not null && marker.AssignmentId == assignmentId && marker.CreatedAt != default
+                ? marker.CreatedAt
+                : (DateTimeOffset?)null;
             XingeAutoPublishMarkerStore.Write(projectDir, new XingeAutoPublishAssignment(
                 assignmentId,
                 $"{XingeAutoPublishProgressReporter.DefaultProgressPathPrefix}{assignmentId}/progress",
                 marker?.SeriesId ?? "",
                 FirstNonEmptyText(marker?.AccountProfileId, accountId),
-                marker?.Title ?? ""));
+                marker?.Title ?? ""), createdAt);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -3069,6 +3339,824 @@ public sealed partial class MainViewModel : ViewModelBase
         public bool TerminalReported { get; set; }
     }
 
+    private sealed class PendingCheckedQueue
+    {
+        public string AccountId { get; set; } = "";
+        public List<string> ProjectDirs { get; } = [];
+        public int Generation { get; set; }
+        public int StopEpoch { get; set; }
+        public QueueRunOptions? ServerOptions { get; set; }
+    }
+
+    private readonly HashSet<string> _checkedQueueFollowUpRunning = new(StringComparer.OrdinalIgnoreCase);
+
+    // 手动停止：这一轮服务器派单交还 XINGE，本地不再续跑。下次分发写入新标记后可以再执行。
+    private void ReleaseUserStoppedAutoPublish(string? workspaceRoot)
+    {
+        var roots = new List<string>();
+        if (!string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            if (TryNormalizeWorkspace(workspaceRoot, out var one))
+                roots.Add(one);
+        }
+        else
+        {
+            foreach (var run in _queueOrchestrator.Snapshot())
+            {
+                if (TryNormalizeWorkspace(run.WorkspaceRoot, out var running) &&
+                    !roots.Contains(running, StringComparer.OrdinalIgnoreCase))
+                    roots.Add(running);
+            }
+
+            if (TryNormalizeWorkspace(WorkspacePath, out var current) &&
+                !roots.Contains(current, StringComparer.OrdinalIgnoreCase))
+                roots.Add(current);
+            lock (_checkedQueueFollowUpLock)
+            {
+                foreach (var key in _checkedQueueFollowUps.Keys)
+                {
+                    if (!roots.Contains(key, StringComparer.OrdinalIgnoreCase))
+                        roots.Add(key);
+                }
+            }
+        }
+
+        var released = 0;
+        foreach (var root in roots)
+            released += ReleaseUserStoppedAutoPublishWorkspace(root);
+        if (released == 0)
+            return;
+
+        var text = $"已手动停止，{released} 部服务器派单已交还。勾选保留，重启后不会自动续跑，需要继续时再执行勾选队列。";
+        StatusMessage = text;
+        AppendLog(text);
+    }
+
+    private int ReleaseUserStoppedAutoPublishWorkspace(string root)
+    {
+        List<string> extraDirs;
+        _dispatchScheduler.ClearPending(root);
+        lock (_checkedQueueFollowUpLock)
+        {
+            _manualStopEpoch[root] = _manualStopEpoch.GetValueOrDefault(root) + 1;
+            extraDirs = _checkedQueueFollowUps.TryGetValue(root, out var pending)
+                ? pending.ProjectDirs.ToList()
+                : [];
+            _checkedQueueFollowUps.Remove(root);
+            _checkedQueueFollowUpArmed.Remove(root);
+        }
+
+        var itemsByDir = new Dictionary<string, QueueProjectItem>(StringComparer.OrdinalIgnoreCase);
+        void Remember(QueueProjectItem? item)
+        {
+            if (item is null || string.IsNullOrWhiteSpace(item.ProjectDir))
+                return;
+            if (!TryNormalizeWorkspace(item.ProjectDir, out var full))
+                return;
+            itemsByDir[full] = item;
+        }
+
+        try
+        {
+            foreach (var item in WorkspaceQueueDatabase.Load(root).Items)
+                Remember(item);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppendLog($"读取队列以停止派单失败：{ex.Message}");
+        }
+
+        if (IsActiveWorkspace(root))
+        {
+            foreach (var item in _queueItems)
+                Remember(item);
+        }
+
+        foreach (var dir in extraDirs)
+        {
+            if (TryNormalizeWorkspace(dir, out var full) && !itemsByDir.ContainsKey(full))
+                itemsByDir[full] = new QueueProjectItem { ProjectDir = full };
+        }
+
+        var releasedDirs = new List<string>();
+        foreach (var (dir, item) in itemsByDir)
+        {
+            if (QueueWorkerRunner.HasFinishedUpload(item))
+                continue;
+            var marker = XingeAutoPublishMarkerStore.TryRead(dir);
+            if (marker is not { IsActive: true })
+                continue;
+            try
+            {
+                XingeAutoPublishMarkerStore.MarkFinal(dir, marker.AssignmentId, XingeAutoPublishStatuses.UserStopped);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                AppendLog($"更新自动上新标记失败：{ex.Message}");
+                continue;
+            }
+
+            XingeAutoPublishProgressReporter.Shared.Enqueue(XingeAutoPublishProgress.For(
+                marker.ToAssignment(),
+                XingeAutoPublishStatuses.UserStopped,
+                "upload_series",
+                "用户手动停止",
+                XingeAutoPublishFailureKinds.UserStopped));
+            releasedDirs.Add(dir);
+        }
+
+        if (releasedDirs.Count == 0)
+            return 0;
+
+        MarkUserStoppedProjects(root, releasedDirs);
+        return releasedDirs.Count;
+    }
+
+    private void MarkUserStoppedProjects(string root, IReadOnlyCollection<string> projectDirs)
+    {
+        var stopped = projectDirs as HashSet<string> ?? new HashSet<string>(projectDirs, StringComparer.OrdinalIgnoreCase);
+        var changed = false;
+        if (IsActiveWorkspace(root))
+        {
+            foreach (var item in _queueItems)
+                changed |= MarkRunningProjectStopped(item, stopped);
+
+            if (changed)
+            {
+                RefreshQueueRowViewModels();
+                UpdateQueueSummaryText();
+            }
+        }
+
+        try
+        {
+            var state = WorkspaceQueueDatabase.Load(root);
+            var saved = false;
+            foreach (var item in state.Items)
+                saved |= MarkRunningProjectStopped(item, stopped);
+
+            if (saved)
+                WorkspaceQueueService.SaveProjects(root, state.Items, state.Options);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AppendLog($"记录已停止派单的步骤失败：{ex.Message}");
+        }
+    }
+
+    private bool MarkRunningProjectStopped(QueueProjectItem item, IReadOnlyCollection<string> stopped)
+    {
+        if (string.IsNullOrWhiteSpace(item.ProjectDir))
+            return false;
+        if (!TryNormalizeWorkspace(item.ProjectDir, out var full) || !stopped.Contains(full))
+            return false;
+
+        var running = string.Equals(item.StatusText, QueueStepStatus.Running, StringComparison.Ordinal)
+            || string.Equals(item.StatusText, QueueStepStatus.WaitingUploadSlot, StringComparison.Ordinal);
+        if (!running)
+            return false;
+
+        var step = item.CurrentStep ?? "";
+        item.CurrentStep = "";
+        item.StatusText = QueueStepStatus.Stopped;
+        if (!string.IsNullOrWhiteSpace(step))
+            item.StepStates[step] = QueueStepStatus.Stopped;
+        return true;
+    }
+
+    private void RememberDispatchedProjectsOnScreen(string root, IReadOnlyList<QueueProjectItem> candidates)
+    {
+        if (!IsActiveWorkspace(root) || candidates.Count == 0)
+            return;
+
+        var existing = _queueItems
+            .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
+            .Select(item => Path.GetFullPath(item.ProjectDir))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var added = false;
+        foreach (var item in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(item.ProjectDir))
+                continue;
+            if (!existing.Add(Path.GetFullPath(item.ProjectDir)))
+                continue;
+            _queueItems.Add(item);
+            added = true;
+        }
+
+        if (!added)
+            return;
+
+        ReconcileQueueProjectRows(_queueItems, replaceCollections: true);
+        ApplyQueueProjectFilter(replaceCollection: true);
+        FilteredQueueProjectRows.ReplaceAll(FilteredQueueProjectRows.ToArray());
+        UpdateQueueSummaryText();
+    }
+
+    // 已分发的剧本地失败后先再跑，不满 3 次不向服务器交还，服务器也就不会重新分发。
+    private void ScheduleLocalAutoPublishRetries(string workspace)
+    {
+        if (!TryNormalizeWorkspace(workspace, out var root))
+            return;
+        List<QueueProjectItem> items;
+        try
+        {
+            items = WorkspaceQueueDatabase.Load(root).Items.ToList();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var groups = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        var changed = false;
+        foreach (var item in items)
+        {
+            if (!string.Equals(item.StatusText, QueueStepStatus.Failed, StringComparison.Ordinal))
+                continue;
+            var marker = XingeAutoPublishMarkerStore.TryRead(item.ProjectDir);
+            if (marker is not { IsActive: true } || marker.LocalFailures <= 0 ||
+                marker.LocalFailures >= XingeAutoPublishRecovery.LocalRetryLimit)
+                continue;
+            if (!item.Enabled)
+            {
+                item.Enabled = true;
+                changed = true;
+            }
+            var accountId = (item.AccountProfileId ?? marker.AccountProfileId ?? "").Trim();
+            if (!groups.TryGetValue(accountId, out var dirs))
+            {
+                dirs = [];
+                groups[accountId] = dirs;
+            }
+            dirs.Add(item.ProjectDir);
+        }
+
+        if (groups.Count == 0)
+            return;
+        if (changed)
+        {
+            try
+            {
+                WorkspaceQueueService.SaveRunOptions(root, items, WorkspaceQueueService.LoadRunOptions(root));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                AppendLog($"保存本地重试勾选失败：{ex.Message}");
+            }
+        }
+
+        var count = groups.Values.Sum(dirs => dirs.Count);
+        foreach (var (accountId, dirs) in groups)
+            NoteAutoPublishDispatch(root, accountId, dirs, null);
+        AppendLog($"本地已分发的 {count} 部执行失败，先在本机重试，不向服务器重新要单。");
+    }
+
+    // 当前勾选队列结束后，如果期间又有派单更新了勾选，再走一次「执行勾选队列」。
+    // 用户手动停止会抬高停止序号并清掉当时的跟进，这一轮结束后不再自动开跑。
+    public void NotifyCheckedQueueRunFinished(string workspace)
+    {
+        _dispatchScheduler.Complete(workspace);
+        ScheduleLocalAutoPublishRetries(workspace);
+        _ = PumpAutoPublishQueuesAsync();
+        if (!TryNormalizeWorkspace(workspace, out var root))
+            return;
+        lock (_checkedQueueFollowUpLock)
+        {
+            if (!_checkedQueueFollowUps.TryGetValue(root, out var pending))
+                return;
+            if (pending.StopEpoch != _manualStopEpoch.GetValueOrDefault(root))
+            {
+                _checkedQueueFollowUps.Remove(root);
+                return;
+            }
+        }
+
+        ArmCheckedQueueFollowUp(root);
+    }
+
+    private async Task<TikTokRemoteCommandResult> ExecuteAutoPublishCheckedQueueAsync(
+        TikTokRemoteCommand command,
+        RemoteAutoPublishContext autoPublish,
+        string workspace,
+        TikTokAccountProfile? account,
+        FinalAction finalAction,
+        IReadOnlyList<string> titles)
+    {
+        ClientSettingsStore.RememberServerDispatchMode(command.DispatchMode);
+        var root = Path.GetFullPath(workspace);
+        var accountId = FirstNonEmptyText(command.AccountProfileId, account?.Id);
+        var ensured = new List<string>();
+        var located = FindAutoPublishProject(autoPublish.Assignment.AssignmentId, CaptureXingeAccountSeeds());
+        if (located.ProjectExists && Directory.Exists(located.ProjectDir))
+        {
+            RefreshAutoPublishMarkerForRetry(located.ProjectDir, autoPublish.Assignment.AssignmentId, accountId);
+            ensured.Add(Path.GetFullPath(located.ProjectDir));
+            AppendLog($"自动上新派单重新执行勾选队列：{located.ProjectDir}");
+        }
+        else
+        {
+            var (rawText, matchMode) = BuildRemoteUploadImportInput(command, titles);
+            var importOutcome = await ImportRemoteUploadTitlesAsync(
+                root,
+                account,
+                rawText,
+                UploadTitleImportService.DefaultEpisodeMin,
+                UploadTitleImportService.DefaultEpisodeMax,
+                matchMode,
+                finalAction,
+                allowAppendToRunningQueue: false,
+                CancellationToken.None,
+                autoPublish: autoPublish,
+                keepExistingSelection: true);
+            var result = importOutcome.ImportResult;
+            if (result.ProjectDirs.Count == 0)
+            {
+                var duplicateSuffix = result.Duplicates.Count > 0 ? $"，重复 {result.Duplicates.Count} 个" : "";
+                var failurePreview = result.Failures.Count > 0
+                    ? UploadTitleImportService.BuildFailurePreview(result.Failures)
+                    : "没有匹配到可执行项目。";
+                if (result.Duplicates.Count > 0 && result.Failures.Count == 0)
+                {
+                    await ReportRecoveredAutoPublishAsync(
+                        autoPublish.Assignment,
+                        XingeAutoPublishStatuses.Success,
+                        "import",
+                        $"管理系统已存在上传记录：{string.Join("、", result.Duplicates)}");
+                    return TikTokRemoteCommandResult.Success(command.Command, $"没有需要上传的新剧（全部已存在）{duplicateSuffix}。");
+                }
+
+                await ReportRemoteAutoPublishFailureAsync(
+                    autoPublish,
+                    "import",
+                    failurePreview,
+                    XingeAutoPublishFailureClassifier.ClassifyImportFailure(result.Failures.FirstOrDefault()?.Reason));
+                return TikTokRemoteCommandResult.Failed(command.Command, $"TikTok 剧集导入失败：{failurePreview}{duplicateSuffix}");
+            }
+
+            ensured.AddRange(BuildOrderedDistinctProjectDirs(result.ProjectDirs));
+            XingeAutoPublishProgressReporter.Shared.Enqueue(XingeAutoPublishProgress.For(
+                autoPublish.Assignment,
+                XingeAutoPublishStatuses.Accepted,
+                "import",
+                $"已导入 {result.QueuedCount} 个项目"));
+        }
+
+        var serverOptions = command.EnabledSteps is { Count: > 0 }
+            ? SystemServices.BuildRemoteUploadRunOptions(command)
+            : null;
+        if (serverOptions is not null)
+            ApplyAutoPublishServerSteps(account, root, serverOptions);
+
+        var dispatchMode = QueueProjectSlotCoordinator.NormalizeServerDispatchMode(command.DispatchMode);
+        if (dispatchMode.Length == 0)
+            dispatchMode = ClientSettingsStore.Load().ServerDispatchMode;
+        var roundRobin = QueueProjectSlotCoordinator.ServerUsesRoundRobin(dispatchMode);
+        var manualQueue = IsLocalCheckedQueueRunning(root);
+        var queueBusy = IsWorkspaceQueueBusy(root) || manualQueue;
+        var joinedRunningQueue = 0;
+        if (!queueBusy)
+            ApplyTodayAutoPublishChecks(root, accountId, ensured);
+        else
+        {
+            var candidates = BuildRemoteAppendCandidates(ensured, account);
+            var executeNow = !roundRobin && !manualQueue;
+            joinedRunningQueue = executeNow
+                ? _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, candidates)
+                : _queueOrchestrator.ShowItemsInRunningWorkspace(root, candidates);
+            if (joinedRunningQueue == 0)
+                RememberDispatchedProjectsOnScreen(root, candidates);
+        }
+
+        NoteAutoPublishDispatch(root, accountId, ensured, serverOptions);
+        if (joinedRunningQueue > 0 && !roundRobin && !manualQueue)
+            _dispatchScheduler.DropPending(root, ensured);
+        var orderText = roundRobin ? "按轮流顺序" : "按账号顺序";
+        var text = !queueBusy
+            ? $"已收下今日派发的 {ensured.Count} 部，将{orderText}执行勾选队列。"
+            : roundRobin || manualQueue
+                ? $"已收下今日派发的 {ensured.Count} 部，已显示在列表里，当前这部结束后{orderText}继续。"
+                : $"已收下今日派发的 {ensured.Count} 部，已加入正在执行的队列。";
+        StatusMessage = text;
+        AppendLog(text);
+        return TikTokRemoteCommandResult.Accepted(command.Command, text);
+    }
+
+    private void OnAutoPublishPollIdle()
+    {
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            _ = PumpAutoPublishQueuesAsync();
+            return;
+        }
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => _ = PumpAutoPublishQueuesAsync());
+    }
+
+    private void NoteAutoPublishDispatch(
+        string workspace,
+        string? accountId,
+        IEnumerable<string> projectDirs,
+        QueueRunOptions? options,
+        XingeAutoPublishProgress? startNotice = null)
+    {
+        if (!TryNormalizeWorkspace(workspace, out var root))
+            return;
+        var dirs = projectDirs
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Select(Path.GetFullPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (dirs.Length == 0)
+            return;
+        if (options is not null)
+            _dispatchOptions[root] = options.Clone();
+        if (startNotice is not null)
+        {
+            foreach (var dir in dirs)
+                _dispatchStartNotices[dir] = startNotice;
+        }
+
+        _dispatchScheduler.Note(root, accountId, AccountListOrder(accountId), dirs);
+    }
+
+    private int AccountListOrder(string? accountId)
+    {
+        var id = (accountId ?? "").Trim();
+        var accounts = _store.Accounts;
+        for (var i = 0; i < accounts.Count; i++)
+        {
+            if (string.Equals(accounts[i].Id, id, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+
+        return int.MaxValue;
+    }
+
+    private async Task PumpAutoPublishQueuesAsync()
+    {
+        if (!await _dispatchPump.WaitAsync(0).ConfigureAwait(true))
+            return;
+        try
+        {
+            var settings = ClientSettingsStore.Load();
+            var roundRobin = QueueProjectSlotCoordinator.ServerUsesRoundRobin(settings.ServerDispatchMode);
+            var global = settings.TiktokGlobalProjectConcurrency;
+            while (true)
+            {
+                var starts = _dispatchScheduler.Take(global, roundRobin, IsWorkspaceQueueBusy);
+                if (starts.Count == 0)
+                    return;
+                var pendingStart = starts.ToList();
+                foreach (var start in starts)
+                {
+                    pendingStart.Remove(start);
+                    try
+                    {
+                        if (await StartAutoPublishSliceAsync(start, settings, roundRobin).ConfigureAwait(true))
+                            continue;
+                        _dispatchScheduler.Restore(start.Workspace, start.ProjectDirs);
+                    }
+                    catch (Exception ex)
+                    {
+                        _dispatchScheduler.Restore(start.Workspace, start.ProjectDirs);
+                        AppendLog($"按顺序执行勾选队列失败：{ex.Message}");
+                    }
+
+                    foreach (var left in pendingStart)
+                        _dispatchScheduler.Restore(left.Workspace, left.ProjectDirs);
+                    return;
+                }
+            }
+        }
+        finally
+        {
+            _dispatchPump.Release();
+        }
+    }
+
+    private async Task<bool> StartAutoPublishSliceAsync(
+        TikTokDispatchStart start,
+        ClientSettings settings,
+        bool roundRobin)
+    {
+        var run = RemoteQueueRunRequested;
+        if (run is null)
+        {
+            AppendLog("队列视图尚未初始化，自动派单仍留在执行顺序里。");
+            return false;
+        }
+
+        if (!IsWorkspaceQueueBusy(start.Workspace) && !IsLocalCheckedQueueRunning(start.Workspace))
+            ApplyTodayAutoPublishChecks(start.Workspace, start.AccountId, start.ProjectDirs);
+        var options = _dispatchOptions.TryGetValue(start.Workspace, out var saved)
+            ? saved.Clone()
+            : CreateCurrentQueueRunOptionsSnapshot();
+        var accountParallel = FindAccountById(start.AccountId)?.Model.TiktokProjectConcurrency ?? options.ProjectConcurrency;
+        if (accountParallel < 1)
+            accountParallel = 4;
+        var machineParallel = Math.Clamp(
+            settings.TiktokGlobalProjectConcurrency <= 0 ? QueueProjectSlotCoordinator.DefaultCapacity : settings.TiktokGlobalProjectConcurrency,
+            1,
+            QueueProjectSlotCoordinator.MaxCapacity);
+        options.ProjectConcurrency = roundRobin ? 1 : Math.Clamp(Math.Min(accountParallel, machineParallel), 1, 20);
+        var account = FindAccountById(start.AccountId)?.Model;
+        var target = new WorkspaceQueueTarget(
+            start.Workspace,
+            $"{account?.DisplayName ?? start.AccountId} · {start.Workspace}",
+            start.AccountId,
+            start.ProjectDirs);
+        AppendLog(roundRobin
+            ? $"按轮流顺序执行勾选队列：{account?.DisplayName ?? start.AccountId}，1 部。"
+            : $"按账号顺序执行勾选队列：{account?.DisplayName ?? start.AccountId}，{start.ProjectDirs.Count} 部。");
+        var started = await run(target, options).ConfigureAwait(true);
+        if (!started)
+            return false;
+        foreach (var dir in start.ProjectDirs)
+        {
+            var full = Path.GetFullPath(dir);
+            if (!_dispatchStartNotices.Remove(full, out var notice))
+                continue;
+            XingeAutoPublishProgressReporter.Shared.Enqueue(notice);
+        }
+
+        return true;
+    }
+
+    private async Task<bool> StartCheckedQueueFromUiAsync()
+    {
+        var run = CheckedQueueRunRequested;
+        if (run is null)
+        {
+            AppendLog("队列视图尚未初始化，无法执行勾选队列。");
+            return false;
+        }
+
+        return await run().ConfigureAwait(true);
+    }
+
+    private int ApplyTodayAutoPublishChecks(
+        string workspaceRoot,
+        string? accountId,
+        IReadOnlyCollection<string> ensureProjectDirs)
+    {
+        var root = Path.GetFullPath(workspaceRoot);
+        var busy = IsWorkspaceQueueBusy(root);
+        var today = DateTime.Today;
+        var ensured = BuildOrderedDistinctProjectDirs(ensureProjectDirs);
+        List<QueueProjectItem> items;
+        if (!busy)
+        {
+            var existing = WorkspaceQueueService.ScanProjects(root)
+                .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
+                .Select(item => Path.GetFullPath(item.ProjectDir))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var missing = ensured.Where(dir => !existing.Contains(dir)).ToArray();
+            if (missing.Length > 0)
+            {
+                var account = FindAccountById(accountId)?.Model;
+                WorkspaceQueueService.AddProjectsToQueue(root, missing, accountId, account?.DisplayName);
+            }
+
+            items = WorkspaceQueueService.ScanProjects(root).ToList();
+        }
+        else if (IsActiveWorkspace(root))
+        {
+            items = _queueItems;
+            var existing = items
+                .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
+                .Select(item => Path.GetFullPath(item.ProjectDir))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var missing = ensured.Where(dir => !existing.Contains(dir)).ToArray();
+            if (missing.Length > 0)
+                items.AddRange(BuildRemoteAppendCandidates(missing, FindAccountById(accountId)?.Model));
+        }
+        else
+        {
+            return 0;
+        }
+
+        var checkedCount = 0;
+        foreach (var item in items)
+        {
+            if (string.IsNullOrWhiteSpace(item.ProjectDir))
+                continue;
+            item.Enabled = XingeAutoPublishMarkerStore.ShouldKeepChecked(
+                XingeAutoPublishMarkerStore.TryRead(item.ProjectDir),
+                accountId,
+                today);
+            if (item.Enabled)
+                checkedCount++;
+        }
+
+        if (!busy)
+        {
+            WorkspaceQueueService.SaveRunOptions(root, items, WorkspaceQueueService.LoadRunOptions(root));
+            if (IsActiveWorkspace(root))
+            {
+                _queueItems = items;
+                RefreshQueueRowViewModels();
+                UpdateQueueSummaryText();
+            }
+        }
+        else
+        {
+            RefreshQueueRowViewModels();
+            UpdateQueueSummaryText();
+        }
+
+        AppendLog($"已按今日派单更新勾选：{checkedCount} 部。");
+        return checkedCount;
+    }
+
+    private int CountCheckedQueueItems(string workspaceRoot)
+    {
+        if (IsActiveWorkspace(workspaceRoot))
+            return _queueItems.Count(item => item.Enabled);
+        try
+        {
+            return WorkspaceQueueService.ScanProjects(workspaceRoot).Count(item => item.Enabled);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+
+    private void RequestCheckedQueueFollowUp(
+        string workspace,
+        string accountId,
+        IReadOnlyCollection<string> projectDirs,
+        QueueRunOptions? serverOptions = null)
+    {
+        var root = Path.GetFullPath(workspace);
+        lock (_checkedQueueFollowUpLock)
+        {
+            if (!_checkedQueueFollowUps.TryGetValue(root, out var pending))
+            {
+                pending = new PendingCheckedQueue();
+                _checkedQueueFollowUps[root] = pending;
+            }
+
+            if (!string.IsNullOrWhiteSpace(accountId))
+                pending.AccountId = accountId;
+            if (serverOptions is not null)
+                pending.ServerOptions = serverOptions.Clone();
+            foreach (var dir in projectDirs)
+            {
+                if (string.IsNullOrWhiteSpace(dir))
+                    continue;
+                var full = Path.GetFullPath(dir);
+                if (!pending.ProjectDirs.Contains(full, StringComparer.OrdinalIgnoreCase))
+                    pending.ProjectDirs.Add(full);
+            }
+
+            pending.StopEpoch = _manualStopEpoch.GetValueOrDefault(root);
+            pending.Generation++;
+        }
+
+        ArmCheckedQueueFollowUp(root);
+    }
+
+    private void ArmCheckedQueueFollowUp(string workspace)
+    {
+        if (!TryNormalizeWorkspace(workspace, out var root))
+            return;
+        lock (_checkedQueueFollowUpLock)
+        {
+            if (!_checkedQueueFollowUpArmed.Add(root))
+                return;
+        }
+
+        void Tick()
+        {
+            lock (_checkedQueueFollowUpLock)
+                _checkedQueueFollowUpArmed.Remove(root);
+            _ = TryStartCheckedQueueFollowUpAsync(root);
+        }
+
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            Avalonia.Threading.DispatcherTimer.RunOnce(Tick, TimeSpan.FromMilliseconds(400));
+        else
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                Avalonia.Threading.DispatcherTimer.RunOnce(Tick, TimeSpan.FromMilliseconds(400)));
+    }
+
+    private async Task TryStartCheckedQueueFollowUpAsync(string workspace)
+    {
+        PendingCheckedQueue pending;
+        int seen;
+        int stopEpoch;
+        lock (_checkedQueueFollowUpLock)
+        {
+            if (!_checkedQueueFollowUps.TryGetValue(workspace, out pending!))
+                return;
+            if (!_checkedQueueFollowUpRunning.Add(workspace))
+                return;
+            seen = pending.Generation;
+            stopEpoch = pending.StopEpoch;
+        }
+
+        var started = false;
+        QueueRunOptions? serverOptions;
+        try
+        {
+            if (IsWorkspaceQueueBusy(workspace))
+                return;
+
+            string accountId;
+            string[] dirs;
+            lock (_checkedQueueFollowUpLock)
+            {
+                accountId = pending.AccountId;
+                dirs = pending.ProjectDirs.ToArray();
+                serverOptions = pending.ServerOptions?.Clone();
+            }
+
+            ApplyTodayAutoPublishChecks(workspace, accountId, dirs);
+            if (!IsActiveWorkspace(workspace))
+                await ShowAutoPublishWorkspaceAsync(workspace).ConfigureAwait(true);
+            if (serverOptions is not null)
+                ApplyAutoPublishServerSteps(FindAccountById(accountId)?.Model, workspace, serverOptions);
+            lock (_checkedQueueFollowUpLock)
+            {
+                if (_manualStopEpoch.GetValueOrDefault(workspace) != stopEpoch)
+                {
+                    if (_checkedQueueFollowUps.TryGetValue(workspace, out var stopped) && stopped.Generation == seen)
+                        _checkedQueueFollowUps.Remove(workspace);
+                    AppendLog("队列已手动停止，不再自动执行这一轮勾选。");
+                    return;
+                }
+            }
+
+            var checkedCount = CountCheckedQueueItems(workspace);
+            if (checkedCount == 0)
+            {
+                lock (_checkedQueueFollowUpLock)
+                {
+                    if (_checkedQueueFollowUps.TryGetValue(workspace, out var current) && current.Generation == seen)
+                        _checkedQueueFollowUps.Remove(workspace);
+                }
+
+                AppendLog("今日派单没有可执行项目，未再启动勾选队列。");
+                return;
+            }
+
+            started = await StartCheckedQueueFromUiAsync().ConfigureAwait(true);
+            lock (_checkedQueueFollowUpLock)
+            {
+                if (_checkedQueueFollowUps.TryGetValue(workspace, out var current) &&
+                    current.Generation == seen &&
+                    (started || !IsWorkspaceQueueBusy(workspace)))
+                {
+                    _checkedQueueFollowUps.Remove(workspace);
+                }
+            }
+
+            if (started)
+                AppendLog($"队列结束后已按「执行勾选队列」执行今日派发的 {checkedCount} 部。");
+            else if (!IsWorkspaceQueueBusy(workspace))
+                AppendLog("今日派单已勾选，但勾选队列未启动。");
+        }
+        finally
+        {
+            var again = false;
+            lock (_checkedQueueFollowUpLock)
+            {
+                _checkedQueueFollowUpRunning.Remove(workspace);
+                again = _checkedQueueFollowUps.ContainsKey(workspace);
+            }
+
+            if (again)
+                ArmCheckedQueueFollowUp(workspace);
+        }
+    }
+
+    private async Task ShowAutoPublishWorkspaceAsync(string workspace)
+    {
+        var full = Path.GetFullPath(workspace);
+        WorkspacePath = full;
+        SystemSettings.UpdateWorkspacePath(full);
+        ArchivedProjects.SetWorkspace(full);
+        await RefreshWorkspaceProjectsNowAsync(full).ConfigureAwait(true);
+    }
+
+    private static bool TryNormalizeWorkspace(string workspace, out string root)
+    {
+        root = "";
+        if (string.IsNullOrWhiteSpace(workspace))
+            return false;
+        try
+        {
+            root = Path.GetFullPath(workspace);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
     private async Task<TikTokRemoteCommandResult> ExecuteRemoteUploadSeriesCoreAsync(
         TikTokRemoteCommand command,
         RemoteAutoPublishContext? autoPublish)
@@ -3084,7 +4172,8 @@ public sealed partial class MainViewModel : ViewModelBase
             return await ExecuteRemoteUploadSeriesMultiAccountAsync(command, titles);
         }
 
-        if (TryPeekRemoteCommandWorkspace(command, out var blockedWorkspace) &&
+        if (autoPublish is null &&
+            TryPeekRemoteCommandWorkspace(command, out var blockedWorkspace) &&
             IsLocalCheckedQueueRunning(blockedWorkspace))
         {
             return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, blockedWorkspace);
@@ -3100,10 +4189,12 @@ public sealed partial class MainViewModel : ViewModelBase
 
         // 后续导入会跨越网络与磁盘 await。必须在 await 前固定目标，不能在完成后再读取可能已被用户切换的 UI 状态。
         var targetWorkspace = Path.GetFullPath(workspace);
-        if (IsLocalCheckedQueueRunning(targetWorkspace))
+        if (autoPublish is null && IsLocalCheckedQueueRunning(targetWorkspace))
             return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, targetWorkspace);
         var targetAccount = SelectedAccount?.Model;
         var finalAction = SelectedFinalAction?.Value ?? FinalAction.None;
+        if (autoPublish is not null)
+            return await ExecuteAutoPublishCheckedQueueAsync(command, autoPublish, targetWorkspace, targetAccount, finalAction, titles);
         var runQueueRequested = RemoteQueueRunRequested;
         ActivateRemoteWorkspace(targetWorkspace);
 
@@ -3791,7 +4882,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void HandleQueueWorkerProgress(QueueWorkerProgress progress)
     {
-        NotifyDailyLimitIfPresent(progress.Message);
+        NotifyDailyLimitIfPresent(progress);
         var executionContext = GetWorkspaceQueueExecutionContext(progress.WorkspaceRoot);
         var isActiveWorkspace = IsActiveWorkspace(progress.WorkspaceRoot);
         if (!isActiveWorkspace)
@@ -3825,7 +4916,12 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         if (progress.Item is not null)
-            RefreshQueueRowFor(progress.Item);
+        {
+            if (progress.Item.Archived)
+                ApplyArchivedQueueProjects([progress.Item.ProjectDir]);
+            else
+                RefreshQueueRowFor(progress.Item);
+        }
 
         UpdateStatusMessageFromQueueProgress(progress);
 
@@ -3882,13 +4978,25 @@ public sealed partial class MainViewModel : ViewModelBase
             StringComparison.OrdinalIgnoreCase);
     }
 
-    private void NotifyDailyLimitIfPresent(string? message)
+    private void NotifyDailyLimitIfPresent(QueueWorkerProgress progress)
     {
-        if (_dailyLimitNotified)
-            return;
-        var text = message ?? "";
+        var text = progress.Message ?? "";
         if (!text.Contains("单日创建剧集上限", StringComparison.Ordinal) ||
             !text.Contains("已停止", StringComparison.Ordinal))
+            return;
+
+        var accountId = progress.Item?.AccountProfileId?.Trim() ?? "";
+        if (accountId.Length > 0)
+        {
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            if (!_dailyLimitReportedAccounts.TryGetValue(accountId, out var reportedDay) || reportedDay != today)
+            {
+                _dailyLimitReportedAccounts[accountId] = today;
+                _xingeRemoteCommandService.ReportDailySeriesLimit(accountId);
+            }
+        }
+
+        if (_dailyLimitNotified)
             return;
 
         _dailyLimitNotified = true;
@@ -3902,7 +5010,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool ShouldAppendProgressLog(QueueWorkerProgress progress)
     {
         var message = progress.Message ?? "";
-        if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey)
+        if (QueueStepLogFilters.RequiresLosslessUiDelivery(progress.StepKey, message)
             || message.Contains("失败", StringComparison.Ordinal)
             || message.Contains("异常", StringComparison.Ordinal)
             || message.Contains("错误", StringComparison.Ordinal)
@@ -4030,13 +5138,36 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = (workspaceRoot ?? "").Trim();
         if (string.IsNullOrEmpty(root)) return;
 
-        CacheWorkspaceQueueSnapshot(root, items);
-        _queueStatePersist.Enqueue(root, items.ToList(), ResolveQueueOptionsForPersistedWorkspace(root));
+        var visible = new List<QueueProjectItem>(items.Count);
+        var droppedArchived = false;
+        var deletedDropped = false;
+        foreach (var item in items)
+        {
+            if (item.Archived)
+            {
+                droppedArchived = true;
+                continue;
+            }
+
+            if (!WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
+                continue;
+            if (WorkspaceQueueService.IsDeletedProjectDir(root, item.ProjectDir))
+            {
+                deletedDropped = true;
+                continue;
+            }
+            visible.Add(item);
+        }
+        if (visible.Count == 0 && items.Count > 0 && !droppedArchived && !deletedDropped)
+            return;
+
+        CacheWorkspaceQueueSnapshot(root, visible);
+        _queueStatePersist.Enqueue(root, visible, ResolveQueueOptionsForPersistedWorkspace(root));
 
         if (!IsActiveWorkspace(root))
             return;
 
-        _queueItems = items.ToList();
+        _queueItems = visible;
         ScheduleQueueRowRefresh();
     }
 
@@ -4086,11 +5217,33 @@ public sealed partial class MainViewModel : ViewModelBase
     private void PersistQueueItems(IReadOnlyList<QueueProjectItem> items, bool refreshRows = true)
     {
         var root = WorkspacePath.Trim();
-        if (string.IsNullOrEmpty(root)) return;
-        _queueItems = items.ToList();
+        if (string.IsNullOrEmpty(root) || !CanWriteDisplayedQueue(root))
+            return;
+        var visible = new List<QueueProjectItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (WorkspaceQueueService.IsProjectInsideWorkspace(root, item.ProjectDir))
+                visible.Add(item);
+        }
+        if (visible.Count == 0 && items.Count > 0)
+            return;
+        _queueItems = visible;
         _queueStatePersist.Enqueue(root, _queueItems, _queueRunOptions);
         if (refreshRows)
             RefreshQueueRowViewModels();
+    }
+
+    /// <summary>
+    /// 工作目录刚切过去、列表还是上一个账号的时候，不能把那份列表写进新的队列库。
+    /// </summary>
+    private bool CanWriteDisplayedQueue(string workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(_displayedWorkspaceRoot))
+            return true;
+        return string.Equals(
+            SafeFullPath(workspaceRoot),
+            SafeFullPath(_displayedWorkspaceRoot),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private void PersistQueueItems() => PersistQueueItems(_queueItems);
@@ -4189,7 +5342,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private void PersistQueueRunOptions()
     {
         var root = WorkspacePath.Trim();
-        if (string.IsNullOrEmpty(root)) return;
+        if (string.IsNullOrEmpty(root) || !CanWriteDisplayedQueue(root))
+            return;
         _queueStatePersist.Enqueue(root, _queueItems, ClonePersistentQueueRunOptions(_queueRunOptions));
     }
 
@@ -4199,6 +5353,7 @@ public sealed partial class MainViewModel : ViewModelBase
         try
         {
             QueueDownloadEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.Download);
+            QueueVideoDedupEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.VideoDedup);
             QueueRewriteEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.RewriteInfo);
             QueueGeneratePosterEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GeneratePoster);
             QueueGenerateEpisodeScriptEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateEpisodeScript);
@@ -4207,7 +5362,6 @@ public sealed partial class MainViewModel : ViewModelBase
             QueueGenerateRoleVectorEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateRoleVector);
             QueueGenerateProofMaterialEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateProofMaterial);
             QueueGenerateTimestampCertificateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.GenerateTimestampCertificate);
-            QueueDeleteSourceVideosEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.DeleteSourceVideos);
             QueueSmallVideoRepairEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.SmallVideoRepair);
             QueueVideoTranslateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.VideoTranslate);
             QueueMaterialValidateEnabled = _queueRunOptions.IsStepEnabled(QueueStepRegistry.MaterialValidate);
@@ -4223,6 +5377,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var steps = new List<string>();
         if (QueueDownloadEnabled) steps.Add(QueueStepRegistry.Download);
+        if (QueueVideoDedupEnabled) steps.Add(QueueStepRegistry.VideoDedup);
         if (QueueRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
         if (QueueGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
         if (QueueGenerateEpisodeScriptEnabled) steps.Add(QueueStepRegistry.GenerateEpisodeScript);
@@ -4231,7 +5386,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (QueueGenerateRoleVectorEnabled) steps.Add(QueueStepRegistry.GenerateRoleVector);
         if (QueueGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
         if (QueueGenerateTimestampCertificateEnabled) steps.Add(QueueStepRegistry.GenerateTimestampCertificate);
-        if (QueueDeleteSourceVideosEnabled) steps.Add(QueueStepRegistry.DeleteSourceVideos);
         if (QueueSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
         if (QueueVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
         if (QueueMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
@@ -4262,6 +5416,28 @@ public sealed partial class MainViewModel : ViewModelBase
 
         local.ProjectConcurrency = Math.Clamp(account?.TiktokProjectConcurrency ?? local.ProjectConcurrency, 1, 20);
         return local;
+    }
+
+    // 自动派单和手点「执行勾选队列」用的是界面勾选。派单到达后先把服务器步骤写到勾选上，再启动。
+    private void ApplyAutoPublishServerSteps(TikTokAccountProfile? account, string workspace, QueueRunOptions options)
+    {
+        ApplyServerConfiguredQueueSteps(account, options);
+        if (!IsActiveWorkspace(workspace))
+            return;
+        var steps = NormalizeQueueEnabledSteps(options.EnabledSteps);
+        if (steps.Count == 0)
+            return;
+        _queueRunOptions.EnabledSteps = steps;
+        _queueRunOptions.AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
+        _queueRunOptions.ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
+        _queueRunOptions.PreferUploadWhenReady = options.PreferUploadWhenReady;
+        _queueRunOptions.SyncManagementAfterUpload = options.SyncManagementAfterUpload;
+        ApplyQueueStepTogglesFromOptions();
+        ForceRerunCompletedSteps = options.ForceRerunCompletedSteps;
+        AutoArchiveAfterUpload = options.AutoArchiveAfterUpload;
+        PreferUploadWhenReady = options.PreferUploadWhenReady;
+        SyncManagementAfterUpload = options.SyncManagementAfterUpload;
+        PersistQueueRunOptions();
     }
 
     private void ApplyServerConfiguredQueueSteps(TikTokAccountProfile? account, QueueRunOptions options)
@@ -5213,7 +6389,8 @@ public sealed partial class MainViewModel : ViewModelBase
         bool allowAppendToRunningQueue,
         CancellationToken ct,
         Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null,
-        RemoteAutoPublishContext? autoPublish = null)
+        RemoteAutoPublishContext? autoPublish = null,
+        bool keepExistingSelection = false)
     {
         var root = Path.GetFullPath(workspaceRoot);
         var settings = ClientSettingsStore.Load();
@@ -5234,7 +6411,8 @@ public sealed partial class MainViewModel : ViewModelBase
         // 标记必须在项目进入运行队列之前写好，队列观察者才能从第一条进度起识别派单。
         if (autoPublish is not null)
         {
-            foreach (var projectDir in BuildOrderedDistinctProjectDirs(result.ProjectDirs))
+            var importedDirs = BuildOrderedDistinctProjectDirs(result.ProjectDirs);
+            foreach (var projectDir in importedDirs)
             {
                 XingeAutoPublishMarkerStore.Write(projectDir, autoPublish.Assignment);
                 autoPublish.ProjectDirs.Add(projectDir);
@@ -5256,15 +6434,17 @@ public sealed partial class MainViewModel : ViewModelBase
                 new UploadTitleImportApplyOutcome(ordered, QueueWasRunning: true, [], 0));
         }
 
-        // 派发只决定剧目和步骤。勾选、搜索和下载与本地「上传短剧」相同，不按剧目 ID 另开播放链路，也不取消本次项目的勾选。
+        // 自动派单的勾选由今天的派单标记决定，这里只把新项目放进队列，不改步骤勾选。
         var applyOutcome = ApplyRemoteUploadTitleImportResult(
             result,
             root,
             account,
             allowAppendToRunningQueue,
-            clearOtherSelection: false,
-            retryFailedBeforeNew: autoPublish is not null);
-        EnsureDisplayedImportedProjectsChecked(root, applyOutcome.OrderedProjectDirs, account);
+            clearOtherSelection: !keepExistingSelection && autoPublish is not null && result.ProjectDirs.Count > 0,
+            retryFailedBeforeNew: !keepExistingSelection && autoPublish is not null,
+            keepExistingSelection: keepExistingSelection);
+        if (!keepExistingSelection)
+            EnsureDisplayedImportedProjectsChecked(root, applyOutcome.OrderedProjectDirs, account);
 
         var authorExcludedCount = result.Failures.Count(UploadTitleImportService.IsAuthorExcludedFailure);
         StatusMessage =
@@ -5286,7 +6466,8 @@ public sealed partial class MainViewModel : ViewModelBase
         TikTokAccountProfile? account,
         bool allowAppendToRunningQueue,
         bool clearOtherSelection = false,
-        bool retryFailedBeforeNew = false)
+        bool retryFailedBeforeNew = false,
+        bool keepExistingSelection = false)
     {
         var root = Path.GetFullPath(workspaceRoot);
         var newProjectDirs = BuildOrderedDistinctProjectDirs(result.ProjectDirs);
@@ -5331,7 +6512,8 @@ public sealed partial class MainViewModel : ViewModelBase
             preserveExistingFailures: failedDirs.Count > 0);
         if (preparation.ClearedSelectionCount > 0)
             AppendLog($"分发前已取消勾选 {preparation.ClearedSelectionCount} 个手动选择的项目。");
-        ApplyRemoteUploadIdlePreparationToDisplayedWorkspace(root, preparation);
+        if (!keepExistingSelection)
+            ApplyRemoteUploadIdlePreparationToDisplayedWorkspace(root, preparation);
         return new UploadTitleImportApplyOutcome(
             orderedProjectDirs,
             QueueWasRunning: false,
@@ -5473,7 +6655,7 @@ public sealed partial class MainViewModel : ViewModelBase
             .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var appendCandidates = new List<QueueProjectItem>();
-        var clearedSelection = clearOtherSelection
+        var clearedSelection = clearOtherSelection && orderedProjectDirs.Count > 0
             ? QueueWorkerRunner.DisableEnabledProjectsExcept(items, orderedProjectDirs)
             : 0;
 
@@ -5854,6 +7036,13 @@ public sealed partial class MainViewModel : ViewModelBase
                 account: deleteAccount);
         }
 
+        if (queuedDirs.Length > 0)
+        {
+            WorkspaceQueueService.RememberDeletedProjects(root, queuedDirs);
+            DropDeletedProjectsFromVisibleQueue(root, queuedDirs);
+            _queueOrchestrator.RemoveRunningProjects(root, queuedDirs);
+        }
+
         await Task.Run(() =>
         {
             var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -5884,17 +7073,60 @@ public sealed partial class MainViewModel : ViewModelBase
                     errors.Add($"{target}: {ex.Message}");
                 }
             }
-        });
 
-        if (queuedDirs.Length > 0)
-            WorkspaceQueueService.RemoveProjectsFromQueue(root, queuedDirs);
-        RefreshWorkspaceProjects(root);
+            if (queuedDirs.Length > 0)
+                WorkspaceQueueService.RemoveProjectsFromQueue(root, queuedDirs);
+        });
         StatusMessage = errors.Count == 0
             ? $"已删除 {deleted} 个项目目录"
             : $"已删除 {deleted} 个项目目录，{errors.Count} 个失败";
         AppendLog(StatusMessage);
         foreach (var error in errors.Take(5))
             AppendLog($"删除失败：{error}");
+    }
+
+    private void DropDeletedProjectsFromVisibleQueue(string workspaceRoot, IReadOnlyCollection<string> projectDirs)
+    {
+        var remove = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in projectDirs)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+                continue;
+            try
+            {
+                remove.Add(Path.GetFullPath(dir));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                remove.Add(dir.Trim());
+            }
+        }
+
+        if (remove.Count == 0)
+            return;
+
+        var active = IsActiveWorkspace(workspaceRoot);
+        var current = active
+            ? _queueItems
+            : TryGetWorkspaceQueueSnapshot(workspaceRoot, out var cached, out _)
+                ? cached
+                : _queueItems;
+        var kept = current
+            .Where(item => !remove.Contains(NormalizeProjectDir(item.ProjectDir)))
+            .ToList();
+        var options = active
+            ? _queueRunOptions
+            : ResolveQueueOptionsForPersistedWorkspace(workspaceRoot);
+        CacheWorkspaceQueueSnapshot(workspaceRoot, kept, options);
+        _queueStatePersist.Enqueue(workspaceRoot, kept, options);
+        if (!active)
+            return;
+
+        _queueItems = kept;
+        ReconcileQueueProjectRows(_queueItems);
+        ApplyQueueProjectFilter();
+        UpdateQueueSummaryText();
+        RefreshLogSnapshot(force: true);
     }
 
     private void ApplyArchivedQueueProjects(IReadOnlyCollection<string> archivedDirs)
@@ -5979,12 +7211,7 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     private static bool IsWithinWorkspace(string path, string workspaceRoot)
-    {
-        var root = Path.GetFullPath(workspaceRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var full = Path.GetFullPath(path);
-        return full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-               || full.StartsWith(root + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-    }
+        => WorkspaceQueueService.IsProjectInsideWorkspace(workspaceRoot, path);
 
     public string ExportQueueExcel()
     {

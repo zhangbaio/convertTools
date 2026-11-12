@@ -26,7 +26,7 @@ public static class TikTokEditFlowService
         "Published",
     };
 
-    public sealed record SubmitVerificationResult(bool Accepted, string Message);
+    public sealed record SubmitVerificationResult(bool Accepted, string Message, string DraftDetailUrl = "");
 
     public readonly record struct EditFlowEntry(bool Entered, bool AlreadyUploaded, string Message)
     {
@@ -572,7 +572,8 @@ public static class TikTokEditFlowService
         Action<string>? log,
         CancellationToken ct,
         int timeoutSeconds = 120,
-        bool allowDetailRecheck = true)
+        bool allowDetailRecheck = true,
+        bool resubmitInPlaceOnDraft = true)
     {
         var normalized = NormalizeTitleCandidates(titleCandidates?.ToArray() ?? Array.Empty<string>());
         if (normalized.Count == 0)
@@ -621,6 +622,9 @@ public static class TikTokEditFlowService
                     log?.Invoke(msg);
                     lastLog = msg;
                 }
+
+                // 已搜到当前剧集就停在这一页。继续换原剧名关键词搜索，页面会停在空结果上。
+                break;
             }
 
             await Task.Delay(5000, ct);
@@ -628,27 +632,36 @@ public static class TikTokEditFlowService
 
         if (LooksDraftStatus(lastSeenRow))
         {
+            var draftDetailUrl = DraftDetailUrlFromRow(lastSeenRow);
             if (allowDetailRecheck)
             {
-                var rechecked = await RecheckDraftOnDetailAsync(page, normalized, lastSeenRow, log, ct);
+                var rechecked = await RecheckDraftOnDetailAsync(
+                    page, normalized, lastSeenRow, resubmitInPlaceOnDraft, log, ct);
+                if (rechecked is null)
+                {
+                    log?.Invoke("详情页没打开，再确认一次提交状态。");
+                    rechecked = await RecheckDraftOnDetailAsync(
+                        page, normalized, lastSeenRow, resubmitInPlaceOnDraft, log, ct);
+                }
                 if (rechecked is not null)
                     return rechecked;
             }
             else
             {
-                var detailText = await ReadMatchingDetailTextAsync(page, normalized, ct);
+                var detailText = await ReadDraftDetailTextAsync(page, normalized, lastSeenRow, ct);
                 if (DetailConfirmsSubmitted(detailText))
                 {
                     return new SubmitVerificationResult(
                         true,
-                        $"TikTok 详情已进入提交状态：{CompactRowForLog(detailText)}");
+                        $"TikTok 详情已进入提交状态：{CompactRowForLog(detailText ?? "")}");
                 }
             }
 
             return new SubmitVerificationResult(
                 false,
                 "TikTok 提交后列表和详情仍显示草稿，未标记为完成。" +
-                $"列表行：{CompactRowForLog(lastSeenRow)}");
+                $"列表行：{CompactRowForLog(lastSeenRow)}",
+                draftDetailUrl);
         }
 
         if (!string.IsNullOrWhiteSpace(lastSeenRow))
@@ -805,15 +818,23 @@ public static class TikTokEditFlowService
     internal static bool DetailConfirmsSubmitted(string? detailText) =>
         !string.IsNullOrWhiteSpace(detailText) && LooksSubmittedStatus(detailText);
 
+    /// <summary>列表行自带剧集 ID（如「ID: 7706505987917911092」），直接拼出草稿详情地址。</summary>
+    internal static string DraftDetailUrlFromRow(string? rowText)
+    {
+        var match = DetailIdPattern.Match(rowText ?? "");
+        return match.Success ? $"{TikTokUrls.DefaultSeriesDraftUrl}/{match.Groups[1].Value}" : "";
+    }
+
     private static async Task<SubmitVerificationResult?> RecheckDraftOnDetailAsync(
         IPage page,
         IReadOnlyList<string> titles,
         string listRow,
+        bool resubmitInPlace,
         Action<string>? log,
         CancellationToken ct)
     {
         log?.Invoke("列表仍显示草稿，打开详情确认提交状态。");
-        var detailText = await ReadMatchingDetailTextAsync(page, titles, ct);
+        var detailText = await ReadDraftDetailTextAsync(page, titles, listRow, ct);
         if (detailText is null)
         {
             log?.Invoke($"详情页未打开，列表行仍为：{CompactRowForLog(listRow)}");
@@ -827,6 +848,16 @@ public static class TikTokEditFlowService
                 $"TikTok 详情已进入提交状态：{CompactRowForLog(detailText)}");
         }
 
+        if (!resubmitInPlace)
+        {
+            log?.Invoke("详情仍是草稿，交给上传流程按草稿编辑重新提交。");
+            return new SubmitVerificationResult(
+                false,
+                "TikTok 提交后列表和详情仍显示草稿，未标记为完成。" +
+                $"列表行：{CompactRowForLog(listRow)}",
+                DraftDetailUrlFromRow(listRow));
+        }
+
         log?.Invoke("详情仍是草稿，再次提交一次。");
         try
         {
@@ -838,24 +869,29 @@ public static class TikTokEditFlowService
             return new SubmitVerificationResult(
                 false,
                 "TikTok 提交后列表和详情仍显示草稿，未标记为完成。" +
-                $"列表行：{CompactRowForLog(listRow)}");
+                $"列表行：{CompactRowForLog(listRow)}",
+                DraftDetailUrlFromRow(listRow));
         }
 
         return await VerifySubmittedFromSeriesListAsync(
             page, titles, log, ct, timeoutSeconds: 90, allowDetailRecheck: false);
     }
 
-    private static async Task<string?> ReadMatchingDetailTextAsync(
+    private static async Task<string?> ReadDraftDetailTextAsync(
         IPage page,
         IReadOnlyList<string> titles,
+        string listRow,
         CancellationToken ct)
     {
-        var detailUrl = "";
-        foreach (var title in ExpandTitleSearchKeywords(titles))
+        var detailUrl = DraftDetailUrlFromRow(listRow);
+        if (string.IsNullOrWhiteSpace(detailUrl))
         {
-            detailUrl = await FindMatchingDetailUrlAsync(page, title);
-            if (!string.IsNullOrWhiteSpace(detailUrl))
-                break;
+            foreach (var title in ExpandTitleSearchKeywords(titles))
+            {
+                detailUrl = await FindMatchingDetailUrlAsync(page, title);
+                if (!string.IsNullOrWhiteSpace(detailUrl))
+                    break;
+            }
         }
 
         if (string.IsNullOrWhiteSpace(detailUrl))
