@@ -180,7 +180,9 @@ public sealed class KuaishouPosterService
                 return candidate;
         }
 
-        throw new FileNotFoundException("未找到可用于生成快手封面的海报图片。");
+        throw new FileNotFoundException(
+            "未找到可用于生成快手封面的海报图片：项目目录和 workflow 里都没有海报原图。" +
+            "海报会在下载剧集的最后一步下载，请先确认下载剧集已完成。");
     }
 
     public static async Task CropLandscapeAsync(string sourcePath, string targetPath, CancellationToken cancellationToken)

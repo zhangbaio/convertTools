@@ -26,6 +26,21 @@ public sealed class KuaishouPublishInfoService
     public const int SynopsisMinLength = 100;
     public const int SynopsisMaxLength = 400;
     public const int MaxAttempts = 3;
+    public const string OriginalSynopsisKey = "原简介";
+
+    /// <summary>
+    /// 写入时「简介」会被改写结果覆盖，原文另存为「原简介」。重新生成时必须拿原文比对，
+    /// 否则 AI 拿到的是已经改好的简介，原样返回就会一直被判为照抄。
+    /// </summary>
+    public static string SourceSynopsis(IReadOnlyDictionary<string, string> info) =>
+        First(info, OriginalSynopsisKey, "简介", "剧情简介", "剧情", "介绍");
+
+    private static Dictionary<string, string> WithOriginalSynopsis(Dictionary<string, string> updates, string sourceSynopsis)
+    {
+        if (sourceSynopsis.Length > 0)
+            updates[OriginalSynopsisKey] = sourceSynopsis;
+        return updates;
+    }
 
     private static readonly JsonSerializerOptions PromptJsonOptions = new()
     {
@@ -65,7 +80,7 @@ public sealed class KuaishouPublishInfoService
 
         var info = ReadInfo(infoPath);
         var originalTitle = First(info, "原剧名", "原剧名称", "剧名");
-        var sourceSynopsis = First(info, "简介", "剧情简介", "剧情", "介绍");
+        var sourceSynopsis = SourceSynopsis(info);
         if (IsMissingSynopsis(sourceSynopsis))
             throw new InvalidOperationException("缺少有效的原始简介，不能只凭剧名生成快手发布信息。");
 
@@ -107,21 +122,21 @@ public sealed class KuaishouPublishInfoService
         if (rewrite)
         {
             var title = ApplyAlias(draft.Title, config);
-            WriteInfo(infoPath, new Dictionary<string, string>(StringComparer.Ordinal)
+            WriteInfo(infoPath, WithOriginalSynopsis(new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["新剧名"] = title,
                 ["短标题"] = draft.ShortTitle,
                 ["简介"] = draft.Description,
                 ["标签"] = string.Join(' ', draft.Tags),
-            }, ["推荐语"]);
+            }, sourceSynopsis), ["推荐语"]);
             progress?.Report($"快手发布信息已写入：新剧名={title}，短标题={draft.ShortTitle}");
         }
         else if (autoFill)
         {
-            WriteInfo(infoPath, new Dictionary<string, string>(StringComparer.Ordinal)
+            WriteInfo(infoPath, WithOriginalSynopsis(new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["简介"] = draft.Description,
-            }, []);
+            }, sourceSynopsis), []);
         }
 
         if (autoFill)

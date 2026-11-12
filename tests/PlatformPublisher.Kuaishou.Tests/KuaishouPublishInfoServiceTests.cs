@@ -123,6 +123,28 @@ public sealed class KuaishouPublishInfoServiceTests
         Assert.Contains("原剧名：旧剧", updated);
     }
 
+    [Fact]
+    public void Regeneration_compares_against_the_saved_original_synopsis()
+    {
+        var firstRun = new Dictionary<string, string> { ["简介"] = "原文简介。" };
+        Assert.Equal("原文简介。", KuaishouPublishInfoService.SourceSynopsis(firstRun));
+
+        var written = KuaishouPublishInfoService.UpsertInfo(
+            "原剧名：旧剧\n简介：原文简介。\n",
+            new Dictionary<string, string>
+            {
+                ["简介"] = "改写后的简介。",
+                [KuaishouPublishInfoService.OriginalSynopsisKey] = "原文简介。",
+            },
+            []);
+        var reread = written.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('：', 2))
+            .ToDictionary(parts => parts[0], parts => parts[1]);
+
+        Assert.Equal("改写后的简介。", reread["简介"]);
+        Assert.Equal("原文简介。", KuaishouPublishInfoService.SourceSynopsis(reread));
+    }
+
     private static string Synopsis()
     {
         var parts = new List<string> { "林晚和哥哥因为一场误会分开，后来在追查旧账时重新理解彼此。" };

@@ -80,6 +80,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private CancellationTokenSource? _operationCts;
     private readonly Dictionary<string, CancellationTokenSource> _kuaishouAccountRuns = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _kuaishouRunGate = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _kuaishouProjectRunLocks =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, PublishJobRowViewModel> _jobRowCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<KuaishouLogProject>> _kuaishouLogsByAccount = new(StringComparer.OrdinalIgnoreCase);
     private int _visibleJobGeneration;
@@ -2385,7 +2387,54 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private static string FirstPosterSetting(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "";
 
+    private static bool KuaishouArtifactDone(KuaishouArtifactColumnStatus? artifacts, string assistantKey)
+    {
+        var status = assistantKey switch
+        {
+            "download" => artifacts?.DownloadStatus,
+            "rewrite_info" => artifacts?.RewriteStatus,
+            "generate_poster" => artifacts?.PosterStatus,
+            "generate_project_images" => artifacts?.ProjectImageStatus,
+            "auto_fill_info" => artifacts?.AutoFillStatus,
+            _ => null,
+        };
+        return status?.StartsWith("已完成", StringComparison.Ordinal) == true;
+    }
+
+    /// <summary>
+    /// 本地勾选队列和星鸽派单都会跑这条流水线。同一部剧同时跑两轮时，一轮在下载、另一轮已经去改写和做海报，
+    /// 会拿到没下载完的海报、把改写后的简介当原文再改一遍。同一目录只能一轮一轮执行。
+    /// </summary>
     private async Task RunKuaishouSettlementPipelineAsync(
+        string projectDirectory,
+        PublishJob? trackedJob,
+        PublishJobRowViewModel? trackedRow,
+        KuaishouPipelineRequest request,
+        KuaishouUploadSlot uploadSlot,
+        CancellationToken cancellationToken)
+    {
+        var runLock = _kuaishouProjectRunLocks.GetOrAdd(Path.GetFullPath(projectDirectory), _ => new SemaphoreSlim(1, 1));
+        if (!await runLock.WaitAsync(0, cancellationToken))
+        {
+            var projectName = string.IsNullOrWhiteSpace(trackedJob?.ProjectName)
+                ? Path.GetFileName(projectDirectory)
+                : trackedJob!.ProjectName;
+            AppendActivityLog("这部剧已有一轮正在执行，等上一轮结束后再继续，已完成的步骤会跳过。", projectName);
+            await runLock.WaitAsync(cancellationToken);
+        }
+
+        try
+        {
+            await RunKuaishouSettlementPipelineCoreAsync(
+                projectDirectory, trackedJob, trackedRow, request, uploadSlot, cancellationToken);
+        }
+        finally
+        {
+            runLock.Release();
+        }
+    }
+
+    private async Task RunKuaishouSettlementPipelineCoreAsync(
         string projectDirectory,
         PublishJob? trackedJob,
         PublishJobRowViewModel? trackedRow,
@@ -2432,16 +2481,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 foreach (var step in enabled)
                 {
-                    var artifactStatus = step.AssistantKey switch
-                    {
-                        "download" => artifacts?.DownloadStatus,
-                        "rewrite_info" => artifacts?.RewriteStatus,
-                        "generate_poster" => artifacts?.PosterStatus,
-                        "generate_project_images" => artifacts?.ProjectImageStatus,
-                        "auto_fill_info" => artifacts?.AutoFillStatus,
-                        _ => null,
-                    };
-                    var artifactDone = artifactStatus?.StartsWith("已完成", StringComparison.Ordinal) == true;
+                    var artifactDone = KuaishouArtifactDone(artifacts, step.AssistantKey);
                     var stepSucceeded = trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var existing) == true
                         && existing.Status == PublishJobStepStatus.Succeeded;
                     // 下载列失败时不能只看步骤曾经成功，否则会接着改写、海报和上传。
@@ -2474,6 +2514,31 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             try
             {
+                async Task SkipIfCompletedMeanwhileAsync(string yunfanKey)
+                {
+                    if (request.Force || preserved.Contains(yunfanKey))
+                        return;
+                    var step = enabled.FirstOrDefault(item => item.YunfanKey == yunfanKey);
+                    if (step.YunfanKey is null)
+                        return;
+                    KuaishouArtifactColumnStatus? current;
+                    try
+                    {
+                        current = KuaishouArtifactColumnStatusReader.Read(
+                            projectDirectory,
+                            request.Platform == PublishPlatform.KuaishouEnterpriseRevenue);
+                    }
+                    catch
+                    {
+                        return;
+                    }
+                    if (!KuaishouArtifactDone(current, step.AssistantKey))
+                        return;
+                    preserved.Add(yunfanKey);
+                    AppendActivityLog($"{step.Label}已经完成，跳过。", projectName);
+                    await UpdateStepStateAsync(trackedJob, trackedRow, step.YunfanKey, step.Label, PublishJobStepStatus.Succeeded, "已完成，跳过");
+                }
+
                 void MarkPrepareStep(string step)
                 {
                     var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
@@ -2551,6 +2616,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Succeeded, "执行完成");
                     MarkPrepareStep("download");
                 }
+                await SkipIfCompletedMeanwhileAsync("rewrite");
+                await SkipIfCompletedMeanwhileAsync("auto-fill-info");
                 if ((request.Rewrite && !preserved.Contains("rewrite")) ||
                     (request.AutoFill && !preserved.Contains("auto-fill-info")))
                 {
@@ -2584,6 +2651,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         MarkPrepareStep("auto_fill_info");
                     }
                 }
+                await SkipIfCompletedMeanwhileAsync("poster-rename");
                 if (request.Poster && !preserved.Contains("poster-rename"))
                 {
                     await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Running, "正在生成快手海报");
