@@ -175,6 +175,28 @@ public sealed class VideoDedupTests
         tail.Should().HaveCount(2);
         tail[1][0].StartSeconds.Should().Be(132);
         tail[1][0].EndSeconds.Should().Be(138);
+
+        var clip = new VideoDedupClip("long.mp4", new VideoDedupProbe(214.321, 1080, 1920, true));
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], split[1], "out.mp4", "libx264", seed: 1));
+        joined.Should().Contain("-ss 132 -t 81.321 -i long.mp4");
+        joined.Should().Contain("trim=start=0:end=80.321");
+        joined.Should().Contain("atrim=start=0:end=80.321");
+        joined.Should().NotContain("trim=start=132");
+    }
+
+    [Fact]
+    public void Two_slices_of_one_file_open_separate_inputs_when_only_the_later_one_seeks()
+    {
+        var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();
+        var clip = new VideoDedupClip("long.mp4", new VideoDedupProbe(200, 1080, 1920, true));
+        VideoDedupSlice[] slices = [new(0, 0, 50), new(0, 130, 180)];
+
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], slices, "out.mp4", "libx264", seed: 1));
+
+        joined.Should().Contain("-i long.mp4 -ss 130 -t 51 -i long.mp4");
+        joined.Should().Contain("[0:v]");
+        joined.Should().Contain("[1:v]");
+        joined.Should().NotContain("trim=start=130");
     }
 
     [Fact]
@@ -375,7 +397,8 @@ public sealed class VideoDedupTests
 
         var nvenc = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "h264_nvenc", seed: 1));
         nvenc.Should().Contain("-c:v h264_nvenc");
-        nvenc.Should().Contain("-preset p4");
+        nvenc.Should().Contain("-preset p2");
+        nvenc.Should().Contain("-rc-lookahead 0");
         nvenc.Should().Contain("-gpu any");
         nvenc.Should().Contain("-rc vbr");
         nvenc.Should().Contain("-profile:v main");
@@ -383,7 +406,7 @@ public sealed class VideoDedupTests
         var amf = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "h264_amf", seed: 1));
         amf.Should().Contain("-c:v h264_amf");
         amf.Should().Contain("-usage transcoding");
-        amf.Should().Contain("-quality balanced");
+        amf.Should().Contain("-quality speed");
         amf.Should().Contain("-rc vbr_peak");
         amf.Should().NotContain("-preset");
 
@@ -682,6 +705,60 @@ public sealed class VideoDedupTests
             (await File.ReadAllBytesAsync(source)).Should().Equal([4, 5, 6]);
             (await File.ReadAllBytesAsync(staleCopy)).Should().Equal([7]);
             item.EpisodeCount.Should().Be(1);
+        }
+        finally
+        {
+            VideoDedupService.ProbeForTests = null;
+            VideoDedupService.EncoderForTests = null;
+            VideoDedupService.RunProcessForTests = null;
+            try { Directory.Delete(root, recursive: true); } catch { /* temp cleanup */ }
+        }
+    }
+
+    [Fact]
+    public async Task Interrupted_dedup_resumes_from_the_finished_episode()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "video-dedup-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await File.WriteAllBytesAsync(Path.Combine(root, "01.mp4"), [1, 1, 1]);
+        await File.WriteAllBytesAsync(Path.Combine(root, "02.mp4"), [2, 2, 2]);
+        VideoDedupService.ProbeForTests = (_, _) =>
+            Task.FromResult(new VideoDedupProbe(8, 1080, 1920, true));
+        VideoDedupService.EncoderForTests = "libx264";
+        VideoDedupService.RunProcessForTests = (args, _) =>
+        {
+            if (Path.GetFileName(args[^1]).StartsWith("02", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("第二集中断");
+            File.WriteAllBytes(args[^1], [9, 9, 9]);
+            return Task.CompletedTask;
+        };
+        try
+        {
+            var preset = VideoDedupPreset.CreateDefault();
+            preset.Parallel = 1;
+            var item = new QueueProjectItem { ProjectDir = root, EpisodeCount = 2 };
+            var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
+
+            var interrupted = () => VideoDedupService.RunAsync(item, account, force: false, _ => { }, CancellationToken.None);
+            await interrupted.Should().ThrowAsync<InvalidOperationException>();
+            (await File.ReadAllBytesAsync(Path.Combine(root, "01.mp4"))).Should().Equal([1, 1, 1]);
+
+            var encoded = 0;
+            VideoDedupService.RunProcessForTests = (args, _) =>
+            {
+                encoded++;
+                Path.GetFileName(args[^1]).Should().Be("02.mp4");
+                File.WriteAllBytes(args[^1], [8, 8, 8]);
+                return Task.CompletedTask;
+            };
+            var logs = new List<string>();
+            await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
+
+            encoded.Should().Be(1);
+            logs.Should().Contain(line => line.Contains("第 1/2 集已完成，跳过编码", StringComparison.Ordinal));
+            (await File.ReadAllBytesAsync(Path.Combine(root, "01.mp4"))).Should().Equal([9, 9, 9]);
+            (await File.ReadAllBytesAsync(Path.Combine(root, "02.mp4"))).Should().Equal([8, 8, 8]);
+            (await File.ReadAllBytesAsync(Path.Combine(root, "source-originals", "01.mp4"))).Should().Equal([1, 1, 1]);
         }
         finally
         {

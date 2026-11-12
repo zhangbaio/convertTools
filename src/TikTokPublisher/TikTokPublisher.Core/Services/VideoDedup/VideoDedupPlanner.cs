@@ -182,21 +182,16 @@ internal static class VideoDedupPlanner
             throw new InvalidOperationException("没有可编码的视频。");
 
         VideoDedupEffectFilters.Validate(preset);
-        var inputs = new List<int>();
-        foreach (var slice in slices)
-        {
-            if (!inputs.Contains(slice.ClipIndex))
-                inputs.Add(slice.ClipIndex);
-        }
-
-        var localInput = new Dictionary<int, int>();
-        for (var i = 0; i < inputs.Count; i++)
-            localInput[inputs[i]] = i;
-
+        var opened = OpenInputs(slices);
         var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error" };
         AppendThreadLimits(args, videoEncoder);
-        foreach (var index in inputs)
-            args.AddRange(["-i", clips[index].Path]);
+        foreach (var input in opened.Inputs)
+        {
+            if (input.SeekSeconds > 0.001)
+                args.AddRange(["-ss", Num(input.SeekSeconds), "-t", Num(input.ReadSeconds)]);
+            args.AddRange(["-i", clips[input.ClipIndex].Path]);
+        }
+
         foreach (var image in VideoDedupEffectFilters.ImageInputs(preset))
             args.AddRange(["-i", image]);
 
@@ -205,8 +200,8 @@ internal static class VideoDedupPlanner
         var transitions = useComplex && CanTransition(preset, slices);
         if (useComplex)
         {
-            var graph = new StringBuilder(BuildFilterComplex(preset, clips, slices, localInput, transitions, seed));
-            var label = VideoDedupEffectFilters.Finish(graph, "vout", preset, inputs.Count);
+            var graph = new StringBuilder(BuildFilterComplex(preset, clips, slices, opened, transitions, seed));
+            var label = VideoDedupEffectFilters.Finish(graph, "vout", preset, opened.Inputs.Count);
             args.AddRange(["-filter_complex", graph.ToString()]);
             args.AddRange(["-map", $"[{label}]"]);
             if (hasAudio)
@@ -218,23 +213,23 @@ internal static class VideoDedupPlanner
         {
             var slice = slices[0];
             var video = CombineFilters(
-                BuildVideoFilter(clips[slice.ClipIndex], slice, preset, seed),
+                BuildVideoFilter(clips[slice.ClipIndex], slice, preset, seed, opened.Origin[0]),
                 VideoDedupEffectFilters.LinearFilters(preset));
             if (video.Length > 0)
                 args.AddRange(["-vf", video]);
-            AppendSingleAudio(args, clips[slice.ClipIndex], slice, preset);
+            AppendSingleAudio(args, clips[slice.ClipIndex], slice, preset, opened.Origin[0]);
         }
         else
         {
             var slice = slices[0];
             var graph = new StringBuilder();
-            graph.Append("[0:v]").Append(BuildVideoFilter(clips[slice.ClipIndex], slice, preset, seed)).Append("[vgeo]");
-            var label = VideoDedupEffectFilters.Finish(graph, "vgeo", preset, 1);
+            graph.Append("[0:v]").Append(BuildVideoFilter(clips[slice.ClipIndex], slice, preset, seed, opened.Origin[0])).Append("[vgeo]");
+            var label = VideoDedupEffectFilters.Finish(graph, "vgeo", preset, opened.Inputs.Count);
             args.AddRange(["-filter_complex", graph.ToString(), "-map", $"[{label}]"]);
             if (clips[slice.ClipIndex].Probe.HasAudio)
             {
                 args.AddRange(["-map", "0:a"]);
-                var audio = BuildAudioFilter(clips[slice.ClipIndex], slice, preset);
+                var audio = BuildAudioFilter(clips[slice.ClipIndex], slice, preset, opened.Origin[0]);
                 if (audio.Length > 0)
                     args.AddRange(["-af", audio]);
             }
@@ -350,7 +345,7 @@ internal static class VideoDedupPlanner
     {
         var bitrate = BitrateToken(preset);
         var buffer = BufferToken(preset);
-        args.AddRange(["-preset", "p4", "-gpu", "any", "-profile:v", "main", "-rc-lookahead", "8", "-bf", "3", "-b_ref_mode", "middle"]);
+        args.AddRange(["-preset", "p2", "-gpu", "any", "-profile:v", "main", "-rc-lookahead", "0", "-bf", "3", "-b_ref_mode", "middle"]);
         if (IsCrf(preset))
             args.AddRange(["-rc", "vbr", "-cq", preset.Crf.ToString(CultureInfo.InvariantCulture), "-b:v", "0"]);
         else if (IsCbr(preset))
@@ -363,7 +358,7 @@ internal static class VideoDedupPlanner
     {
         var bitrate = BitrateToken(preset);
         var buffer = BufferToken(preset);
-        args.AddRange(["-usage", "transcoding", "-quality", "balanced", "-profile:v", "main"]);
+        args.AddRange(["-usage", "transcoding", "-quality", "speed", "-profile:v", "main"]);
         if (IsCrf(preset))
         {
             // AMF 的固定 QP 比 x264 同数值的 CRF 码率高约一倍，I 帧 +2、P/B 帧 +4 后接近同等体积。
@@ -405,7 +400,7 @@ internal static class VideoDedupPlanner
     private static void AppendSoftwareVideo(List<string> args, VideoDedupPreset preset, string videoEncoder)
     {
         var hevc = IsHevcEncoder(videoEncoder);
-        args.AddRange(["-profile:v", "main", "-preset", hevc ? "fast" : "veryfast"]);
+        args.AddRange(["-profile:v", "main", "-preset", "veryfast"]);
         var bitrate = BitrateToken(preset);
         if (IsCrf(preset))
             args.AddRange(["-crf", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
@@ -462,7 +457,7 @@ internal static class VideoDedupPlanner
         VideoDedupPreset preset,
         IReadOnlyList<VideoDedupClip> clips,
         IReadOnlyList<VideoDedupSlice> slices,
-        IReadOnlyDictionary<int, int> localInput,
+        OpenedInputs opened,
         bool transitions,
         int seed)
     {
@@ -471,15 +466,15 @@ internal static class VideoDedupPlanner
         {
             var slice = slices[i];
             var clip = clips[slice.ClipIndex];
-            var input = localInput[slice.ClipIndex].ToString(CultureInfo.InvariantCulture);
+            var input = opened.SliceInput[i].ToString(CultureInfo.InvariantCulture);
             var label = i.ToString(CultureInfo.InvariantCulture);
-            var video = BuildVideoFilter(clip, slice, preset, seed + i * 17);
+            var video = BuildVideoFilter(clip, slice, preset, seed + i * 17, opened.Origin[i]);
             if (video.Length == 0)
                 video = "setpts=PTS-STARTPTS";
             graph.Append($"[{input}:v]{video},format=yuv420p,settb=AVTB[v{label}];");
             if (clip.Probe.HasAudio)
             {
-                var audio = BuildAudioFilter(clip, slice, preset);
+                var audio = BuildAudioFilter(clip, slice, preset, opened.Origin[i]);
                 if (audio.Length == 0)
                     audio = "asetpts=PTS-STARTPTS";
                 graph.Append($"[{input}:a]{audio}[a{label}];");
@@ -579,12 +574,19 @@ internal static class VideoDedupPlanner
 
     private static int Even(int value) => value <= 0 ? 0 : value - (value % 2);
 
-    private static string BuildVideoFilter(VideoDedupClip clip, VideoDedupSlice slice, VideoDedupPreset preset, int seed)
+    private static string BuildVideoFilter(
+        VideoDedupClip clip,
+        VideoDedupSlice slice,
+        VideoDedupPreset preset,
+        int seed,
+        double originSeconds)
     {
         var filters = new List<string>();
-        var duration = Math.Max(0, clip.Probe.DurationSeconds);
-        if (slice.StartSeconds > 0.001 || slice.EndSeconds < duration - 0.001)
-            filters.Add($"trim=start={Num(slice.StartSeconds)}:end={Num(slice.EndSeconds)},setpts=PTS-STARTPTS");
+        var start = slice.StartSeconds - originSeconds;
+        var end = slice.EndSeconds - originSeconds;
+        var limit = Math.Max(0, clip.Probe.DurationSeconds - originSeconds);
+        if (start > 0.001 || end < limit - 0.001)
+            filters.Add($"trim=start={Num(start)}:end={Num(end)},setpts=PTS-STARTPTS");
 
         if (preset.CropTopPercent + preset.CropBottomPercent + preset.CropLeftPercent + preset.CropRightPercent > 0)
         {
@@ -626,7 +628,12 @@ internal static class VideoDedupPlanner
         return $"select='not(eq(mod(n\\,{interval})\\,mod(floor(abs(sin((floor(n/{interval})+{salt})*12.9898))*43758.5453)\\,{interval})))',setpts=N/FRAME_RATE/TB";
     }
 
-    private static void AppendSingleAudio(List<string> args, VideoDedupClip clip, VideoDedupSlice slice, VideoDedupPreset preset)
+    private static void AppendSingleAudio(
+        List<string> args,
+        VideoDedupClip clip,
+        VideoDedupSlice slice,
+        VideoDedupPreset preset,
+        double originSeconds)
     {
         if (!clip.Probe.HasAudio)
         {
@@ -634,7 +641,7 @@ internal static class VideoDedupPlanner
             return;
         }
 
-        var audio = BuildAudioFilter(clip, slice, preset);
+        var audio = BuildAudioFilter(clip, slice, preset, originSeconds);
         if (audio.Length > 0)
             args.AddRange(["-af", audio]);
     }
@@ -648,12 +655,14 @@ internal static class VideoDedupPlanner
         return left + "," + right;
     }
 
-    private static string BuildAudioFilter(VideoDedupClip clip, VideoDedupSlice slice, VideoDedupPreset preset)
+    private static string BuildAudioFilter(VideoDedupClip clip, VideoDedupSlice slice, VideoDedupPreset preset, double originSeconds)
     {
         var filters = new List<string>();
-        var duration = Math.Max(0, clip.Probe.DurationSeconds);
-        if (slice.StartSeconds > 0.001 || slice.EndSeconds < duration - 0.001)
-            filters.Add($"atrim=start={Num(slice.StartSeconds)}:end={Num(slice.EndSeconds)},asetpts=PTS-STARTPTS");
+        var start = slice.StartSeconds - originSeconds;
+        var end = slice.EndSeconds - originSeconds;
+        var limit = Math.Max(0, clip.Probe.DurationSeconds - originSeconds);
+        if (start > 0.001 || end < limit - 0.001)
+            filters.Add($"atrim=start={Num(start)}:end={Num(end)},asetpts=PTS-STARTPTS");
         filters.Add("aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo");
 
         var tempo = preset.SpeedFactor <= 0 ? 1 : preset.SpeedFactor;
@@ -707,5 +716,51 @@ internal static class VideoDedupPlanner
         }
     }
 
+    /// <summary>
+    /// 切点离开片头超过 1 秒时，先快进到切点再按相对时间裁切。
+    /// 同一原片的两个切点各开一路输入，避免共用一个跳转位置。
+    /// </summary>
+    private static OpenedInputs OpenInputs(IReadOnlyList<VideoDedupSlice> slices)
+    {
+        var inputs = new List<OpenedInput>();
+        var sliceInput = new int[slices.Count];
+        var origin = new double[slices.Count];
+        for (var i = 0; i < slices.Count; i++)
+        {
+            var slice = slices[i];
+            var seek = slice.StartSeconds >= 1d ? slice.StartSeconds : 0d;
+            var index = -1;
+            for (var slot = 0; slot < inputs.Count; slot++)
+            {
+                if (inputs[slot].ClipIndex == slice.ClipIndex && Math.Abs(inputs[slot].SeekSeconds - seek) < 0.001)
+                {
+                    index = slot;
+                    break;
+                }
+            }
+
+            if (index < 0)
+            {
+                index = inputs.Count;
+                var read = seek > 0 ? slice.Length + 1d : 0d;
+                inputs.Add(new OpenedInput(slice.ClipIndex, seek, read));
+            }
+            else if (seek > 0)
+            {
+                var read = Math.Max(inputs[index].ReadSeconds, slice.EndSeconds - seek + 1d);
+                inputs[index] = inputs[index] with { ReadSeconds = read };
+            }
+
+            sliceInput[i] = index;
+            origin[i] = seek;
+        }
+
+        return new OpenedInputs(inputs, sliceInput, origin);
+    }
+
     private static string Num(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+
+    private readonly record struct OpenedInput(int ClipIndex, double SeekSeconds, double ReadSeconds);
+
+    private readonly record struct OpenedInputs(List<OpenedInput> Inputs, int[] SliceInput, double[] Origin);
 }

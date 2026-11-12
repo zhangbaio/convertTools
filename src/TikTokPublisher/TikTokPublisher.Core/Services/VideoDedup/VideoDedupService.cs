@@ -11,6 +11,7 @@ namespace TikTokPublisher.Core.Services.VideoDedup;
 public static class VideoDedupService
 {
     private const string FingerprintFileName = "dedup-fingerprint.json";
+    private const string ResumeFileName = "dedup-resume.json";
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
 
     internal static Func<string, CancellationToken, Task<VideoDedupProbe>>? ProbeForTests { get; set; }
@@ -126,7 +127,19 @@ public static class VideoDedupService
 
         var workRoot = Path.Combine(originalsRoot, ".work");
         Directory.CreateDirectory(workRoot);
-        ClearDirectory(workRoot);
+        var resumePath = Path.Combine(workRoot, ResumeFileName);
+        var resumeIdentity = ResumeIdentity(preset, clips, originalsRoot);
+        var resume = force ? null : ReadResume(resumePath);
+        if (resume is null || !string.Equals(resume.Identity, resumeIdentity, StringComparison.Ordinal))
+        {
+            ClearDirectory(workRoot);
+            resume = new DedupResume(resumeIdentity, []);
+        }
+
+        var completed = new System.Collections.Concurrent.ConcurrentDictionary<int, ResumeEpisode>();
+        foreach (var episode in resume.Episodes)
+            completed[episode.Index] = episode;
+        var resumeLock = new object();
         var choice = await ResolveEncoderAsync(preset, ct).ConfigureAwait(false);
         var encoder = choice.Encoder;
         var softwareEncoder = VideoDedupPlanner.IsHevcEncoder(encoder) ? "libx265" : "libx264";
@@ -161,6 +174,16 @@ public static class VideoDedupService
                         $"{(entry.index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4");
                     var seed = Math.Abs(clips[entry.job.Slices[0].ClipIndex].Path.GetHashCode(StringComparison.Ordinal));
                     var episode = (entry.index + 1).ToString(CultureInfo.InvariantCulture);
+                    if (completed.TryGetValue(entry.index, out var saved) &&
+                        saved.Length > 0 &&
+                        File.Exists(temp) &&
+                        new FileInfo(temp).Length == saved.Length)
+                    {
+                        entry.job.TempPath = temp;
+                        Write($"第 {episode}/{totalEpisodes} 集已完成，跳过编码。");
+                        return;
+                    }
+
                     var jobEncoder = Volatile.Read(ref hardwareFailed) == 1 ? softwareEncoder : encoder;
                     var arguments = VideoDedupPlanner.BuildArguments(
                         preset,
@@ -188,8 +211,18 @@ public static class VideoDedupService
                         }
                         if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
                             throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
+                        var length = new FileInfo(temp).Length;
+                        lock (resumeLock)
+                        {
+                            completed[entry.index] = new ResumeEpisode(entry.index, length);
+                            WriteResume(
+                                resumePath,
+                                resumeIdentity,
+                                completed.Values.OrderBy(item => item.Index).ToArray());
+                        }
+
                         entry.job.TempPath = temp;
-                        Write($"第 {episode}/{totalEpisodes} 集去重完成，输出 {Path.GetFileName(entry.job.Destination)}，{FormatSize(new FileInfo(temp).Length)}。");
+                        Write($"第 {episode}/{totalEpisodes} 集去重完成，输出 {Path.GetFileName(entry.job.Destination)}，{FormatSize(length)}。");
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -202,17 +235,11 @@ public static class VideoDedupService
         catch (OperationCanceledException) when (encodeFailure is not null || ct.IsCancellationRequested)
         {
             if (encodeFailure is null)
-            {
-                ClearDirectory(workRoot);
                 throw;
-            }
         }
 
         if (encodeFailure is not null)
-        {
-            ClearDirectory(workRoot);
             throw encodeFailure;
-        }
 
         PublishOutputs(project, visible, fingerprint, jobs);
         if (TikTokUploadStagingService.DiscardCopies(project))
@@ -883,6 +910,46 @@ public static class VideoDedupService
         return reset;
     }
 
+    private static string ResumeIdentity(VideoDedupPreset preset, IReadOnlyList<VideoDedupClip> clips, string originalsRoot)
+    {
+        var files = string.Join(
+            "\n",
+            clips.Select(clip =>
+            {
+                var relative = Path.GetRelativePath(originalsRoot, clip.Path);
+                var length = new FileInfo(clip.Path).Length;
+                return string.Join(
+                    "\t",
+                    relative,
+                    length.ToString(CultureInfo.InvariantCulture),
+                    clip.Probe.DurationSeconds.ToString("0.####", CultureInfo.InvariantCulture));
+            }));
+        return preset.Fingerprint() + "\n" + files;
+    }
+
+    private static DedupResume? ReadResume(string path)
+    {
+        if (!File.Exists(path))
+            return null;
+        try
+        {
+            var resume = JsonSerializer.Deserialize<DedupResume>(File.ReadAllText(path));
+            if (resume is null || string.IsNullOrWhiteSpace(resume.Identity))
+                return null;
+            return resume with { Episodes = resume.Episodes ?? [] };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static void WriteResume(string path, string identity, IReadOnlyList<ResumeEpisode> episodes)
+    {
+        var payload = new DedupResume(identity, episodes.ToList());
+        File.WriteAllText(path, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
     private static string FingerprintPath(string project) =>
         Path.Combine(project, ProjectVideoResolver.SourceOriginalsDirectoryName, FingerprintFileName);
 
@@ -951,4 +1018,8 @@ public static class VideoDedupService
     private sealed record DedupFingerprint(string Preset, List<FingerprintOutput> Outputs);
 
     private sealed record FingerprintOutput(string Path, long Length);
+
+    private sealed record DedupResume(string Identity, List<ResumeEpisode> Episodes);
+
+    private sealed record ResumeEpisode(int Index, long Length);
 }
