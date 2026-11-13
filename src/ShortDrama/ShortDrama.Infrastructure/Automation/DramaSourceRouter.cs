@@ -232,7 +232,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             progress?.Report("正在读取 DramaBox New…");
             var items = await _dramaBoxApiService.GetNewChannelAsync(settings, cancellationToken);
             partialResults?.Report(items);
-            return FilterByRecentDays(items, days);
+            return items;
         }
 
         if (string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
@@ -269,6 +269,27 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             Items = page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray()
         };
     }
+
+    public readonly record struct DramaBoxNewPage(
+        IReadOnlyList<DramaSearchItem> Items,
+        bool HasMore,
+        int NextPage);
+
+    public async Task<DramaBoxNewPage> GetDramaBoxNewPageAsync(int page, CancellationToken cancellationToken)
+    {
+        if (!IsDramaBoxSourceSelected())
+            return new DramaBoxNewPage([], false, Math.Max(1, page));
+
+        var pageResult = await _dramaBoxApiService.GetNewChannelPageAsync(
+            _settingsProvider.Get(),
+            Math.Max(1, page),
+            enrich: true,
+            cancellationToken);
+        return new DramaBoxNewPage(pageResult.Items, pageResult.HasMore, pageResult.NextPage);
+    }
+
+    public bool IsDramaBoxSourceSelected() =>
+        string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "dramabox", StringComparison.OrdinalIgnoreCase);
 
     public bool IsHongguoAppSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase);

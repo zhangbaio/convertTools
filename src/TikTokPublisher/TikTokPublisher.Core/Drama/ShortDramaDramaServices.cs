@@ -168,6 +168,24 @@ public static class ShortDramaDramaServices
             page.SessionId);
     }
 
+    public readonly record struct DramaBoxNewPage(
+        IReadOnlyList<DramaSearchItem> Items,
+        bool HasMore,
+        int NextPage);
+
+    public static async Task<DramaBoxNewPage> GetDramaBoxNewPageAsync(int page, CancellationToken cancellationToken)
+    {
+        RefreshSettings();
+        var result = await Router.Value.GetDramaBoxNewPageAsync(page, cancellationToken);
+        return new DramaBoxNewPage(result.Items.Select(FromCore).ToArray(), result.HasMore, result.NextPage);
+    }
+
+    public static bool IsDramaBoxSourceSelected()
+    {
+        RefreshSettings();
+        return Router.Value.IsDramaBoxSourceSelected();
+    }
+
     public static bool IsHongguoAppSourceSelected()
     {
         RefreshSettings();

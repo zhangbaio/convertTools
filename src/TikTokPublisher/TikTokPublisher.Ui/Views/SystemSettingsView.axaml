@@ -286,8 +286,8 @@
 
                         <Separator Margin="0,4" />
 
-                        <TextBlock Text="DramaBox 下载器（v1.5.7）" FontWeight="Bold" />
-                        <TextBlock Text="搜索、New 上新和下载都使用 DramaBox 下载器的设备授权。画质优先 1080P，分集按 01、02 这样的顺序保存。"
+                        <TextBlock Text="DramaBox 下载器（v1.5.9）" FontWeight="Bold" />
+                        <TextBlock Text="搜索、英语 New 上新和下载都使用 DramaBox 下载器的设备授权。AI短剧上新读取 New 列表。画质优先 1080P，分集按 01、02 这样的顺序保存。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">

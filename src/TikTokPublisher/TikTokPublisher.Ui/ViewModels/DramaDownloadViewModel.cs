@@ -313,6 +313,9 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private int _rankNextOffset;
     private int _rankGeneration;
     private bool _newReleaseActive;
+    private bool _dramaBoxNewActive;
+    private bool _dramaBoxNewHasMore;
+    private int _dramaBoxNewPage = 1;
     private bool _newReleaseIsAi;
     private bool _newReleaseHasMore;
     private int _newReleaseOffset;
@@ -574,6 +577,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             return;
         }
 
+        if (ShortDramaDramaServices.IsDramaBoxSourceSelected())
+        {
+            await LoadDramaBoxNewAsync(append: false);
+            return;
+        }
+
         if (ShortDramaDramaServices.IsHighSourceSelected())
         {
             await LoadProgressiveHighNewReleaseAsync(
@@ -633,6 +642,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     public void NotifyHongguoNewReleaseScroll(double offsetY, double viewportY, double extentY)
     {
+        if (_dramaBoxNewActive && _dramaBoxNewHasMore && !IsSearching && extentY > viewportY + 4 && offsetY + viewportY >= extentY - 80)
+        {
+            _ = LoadDramaBoxNewAsync(append: true);
+            return;
+        }
+
         if (!_newReleaseActive || !_newReleaseHasMore || IsSearching)
             return;
         if (extentY <= viewportY + 4)
@@ -656,6 +671,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (!append)
         {
             _newReleaseActive = true;
+            _dramaBoxNewActive = false;
             _newReleaseIsAi = isAi;
             _newReleaseHasMore = true;
             _newReleaseOffset = 0;
@@ -699,6 +715,69 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 ? $"{label} · 已加载 {SearchResults.Count} 条，继续下滑加载"
                 : $"{label} · 已到最后 · {SearchResults.Count} 条";
             LogRequested?.Invoke($"{label}：本批 {page.Items.Count} 条，累计 {SearchResults.Count} 条");
+        }
+        catch (Exception ex)
+        {
+            if (generation != _newReleaseGeneration)
+                return;
+            SearchPageText = append ? $"{label} · 下一批加载失败" : $"{label} · 加载失败";
+            LogRequested?.Invoke($"{label}失败：{ex.Message}");
+        }
+        finally
+        {
+            if (generation == _newReleaseGeneration)
+                IsSearching = false;
+        }
+    }
+
+    private async Task LoadDramaBoxNewAsync(bool append)
+    {
+        if (IsSearching)
+            return;
+        if (append && (!_dramaBoxNewActive || !_dramaBoxNewHasMore))
+            return;
+
+        IsSearching = true;
+        const string label = "AI短剧上新 · DramaBox New · 英语";
+        var generation = append ? _newReleaseGeneration : ++_newReleaseGeneration;
+        if (!append)
+        {
+            _dramaBoxNewActive = true;
+            _newReleaseActive = false;
+            _dramaBoxNewHasMore = true;
+            _dramaBoxNewPage = 1;
+            _allSearchResults.Clear();
+            ApplyFilteredSearchResults(label, updateSearchPageText: false);
+        }
+
+        var pageNo = append ? _dramaBoxNewPage : 1;
+        SearchPageText = append ? $"{label} · 正在加载下一批" : $"{label} · 加载中...";
+        try
+        {
+            var page = await ShortDramaDramaServices.GetDramaBoxNewPageAsync(pageNo, CancellationToken.None);
+            if (generation != _newReleaseGeneration)
+                return;
+
+            var added = 0;
+            foreach (var item in page.Items)
+            {
+                if (_allSearchResults.Any(existing =>
+                        string.Equals(existing.BookId, item.BookId, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                item.Selected = false;
+                item.SourceMode = "aiju_today";
+                _allSearchResults.Add(item);
+                added++;
+            }
+
+            _dramaBoxNewHasMore = page.HasMore && added > 0 && page.NextPage > pageNo;
+            _dramaBoxNewPage = page.NextPage > pageNo ? page.NextPage : pageNo + 1;
+            ApplyFilteredSearchResults(label, updateSearchPageText: false);
+            SearchPageText = _dramaBoxNewHasMore
+                ? $"{label} · 已加载 {SearchResults.Count} 条，继续下滑加载"
+                : $"{label} · 已到最后 · {SearchResults.Count} 条";
+            LogRequested?.Invoke($"{label}：本批 {page.Items.Count} 条，累计 {SearchResults.Count} 条");
+            RequestPosterLoads();
         }
         catch (Exception ex)
         {
@@ -1284,6 +1363,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (IsSearching) return;
         CancelBackgroundNewRelease();
         _newReleaseActive = false;
+        _dramaBoxNewActive = false;
         IsSearching = true;
         SetPageText($"{label} · 加载中...");
         try

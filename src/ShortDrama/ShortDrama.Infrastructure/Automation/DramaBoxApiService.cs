@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using ShortDrama.Core.Models;
@@ -14,6 +13,8 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
     public const string EpisodePrefix = "dramabox_ep:";
     public const string DefaultDeviceId = "d001277c5c31829ceba9d49c";
     public const string DefaultBaseUrl = "http://127.0.0.1:17865";
+    public const string DefaultLanguage = "en";
+    public const int FallbackNewChannelId = 41;
 
     private const string GatewayOrigin = "https://api.iusc.cc/api/dr";
     private const string AppId = "dr_downloader_cpp";
@@ -21,57 +22,65 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
     private static string? _token;
     private static DateTimeOffset _tokenExpiresAt = DateTimeOffset.MinValue;
     private static string _tokenDeviceId = "";
+    private static int? _resolvedNewChannelId;
 
     public sealed record ConnectivityResult(
         bool LicenseOk,
-        bool SearchOk,
+        bool NewOk,
         bool DownloadOk,
         string LicenseMessage,
-        string SearchMessage,
+        string NewMessage,
         string DownloadMessage);
+
+    public sealed record NewChannelPage(
+        IReadOnlyList<DramaSearchItem> Items,
+        bool HasMore,
+        int NextPage,
+        int ChannelId);
 
     public async Task<ConnectivityResult> TestConnectivityAsync(string? deviceId, CancellationToken cancellationToken)
     {
         var settings = new DramaSourceSettings { DramaBoxDeviceId = deviceId ?? "" };
         await GetAccessTokenAsync(NormalizeDeviceId(settings.DramaBoxDeviceId), cancellationToken);
-        var search = await SearchAsync(settings, "love", 1, cancellationToken);
-        if (search.Count == 0)
+        var page = await GetNewChannelPageAsync(settings, 1, enrich: false, cancellationToken);
+        if (page.Items.Count == 0)
         {
-            return new ConnectivityResult(true, false, false, "设备已授权", "搜索没有返回结果", "未测试下载");
+            return new ConnectivityResult(true, false, false, "设备已授权", "New 没有返回剧目", "未测试下载");
         }
 
         using var document = await PostSignedAsync(
             settings,
             "/drama-box/chapterv2/batch/load",
-            new { bookId = search[0].BookId[BookPrefix.Length..], boundaryIndex = 0, loadDirection = 0, preLoad = false },
+            new { bookId = page.Items[0].BookId[BookPrefix.Length..], boundaryIndex = 0, loadDirection = 0, preLoad = false },
             cancellationToken);
         var chapter = ReadChapters(DataObject(document.RootElement)).FirstOrDefault();
         var url = chapter is null ? null : PickUrl(chapter.Urls, "1080P");
+        var newMessage = $"New 频道 {page.ChannelId} 拉到 {page.Items.Count} 部，例如 {page.Items[0].Title}";
         if (string.IsNullOrWhiteSpace(url))
         {
-            return new ConnectivityResult(
-                true,
-                true,
-                false,
-                "设备已授权",
-                $"搜索到 {search.Count} 部，例如 {search[0].Title}",
-                "没有拿到分集播放地址");
+            return new ConnectivityResult(true, true, false, "设备已授权", newMessage, "没有拿到分集播放地址");
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.Range = new RangeHeaderValue(0, 15);
-        request.Headers.TryAddWithoutValidation("User-Agent", "okhttp/4.10.0");
-        using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        var downloadOk = response.IsSuccessStatusCode;
+        var response = await SendTextAsync(
+            HttpMethod.Get,
+            url,
+            null,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Range"] = "bytes=0-15",
+                ["User-Agent"] = "okhttp/4.10.0",
+            },
+            cancellationToken);
+        var downloadOk = response.Status is >= 200 and < 300;
         return new ConnectivityResult(
             true,
             true,
             downloadOk,
             "设备已授权",
-            $"搜索到 {search.Count} 部，例如 {search[0].Title}",
+            newMessage,
             downloadOk
                 ? $"第 {chapter!.EpisodeNumber} 集 1080P 可以下载"
-                : $"播放地址 HTTP {(int)response.StatusCode}");
+                : $"播放地址 HTTP {response.Status}");
     }
 
     public async Task<IReadOnlyList<DramaSearchItem>> SearchAsync(
@@ -99,33 +108,54 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
     public async Task<IReadOnlyList<DramaSearchItem>> GetNewChannelAsync(
         DramaSourceSettings settings, CancellationToken cancellationToken)
     {
-        var books = new List<DramaBook>();
+        var items = new List<DramaSearchItem>();
         for (var page = 1; page <= 8; page++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var document = await PostSignedAsync(
-                settings,
-                "/drama-box/he001/theater",
-                new
-                {
-                    newChannelStyle = 1,
-                    isNeedRank = 1,
-                    pageNo = page,
-                    index = 1,
-                    channelId = 41,
-                },
-                cancellationToken);
-            var before = books.Count;
-            books.AddRange(ReadNewTheater(document.RootElement));
-            books = books
-                .GroupBy(item => item.BookId, StringComparer.Ordinal)
-                .Select(group => group.First())
-                .ToList();
-            if (books.Count == before)
+            var batch = await GetNewChannelPageAsync(settings, page, enrich: true, cancellationToken);
+            var before = items.Count;
+            foreach (var item in batch.Items)
+            {
+                if (items.Any(existing => string.Equals(existing.BookId, item.BookId, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                items.Add(item);
+            }
+
+            if (!batch.HasMore || items.Count == before)
                 break;
         }
 
-        return await FillEpisodeCountsAsync(settings, books.Select(ToSearchItem).ToArray(), cancellationToken);
+        return items;
+    }
+
+    public async Task<NewChannelPage> GetNewChannelPageAsync(
+        DramaSourceSettings settings,
+        int page,
+        bool enrich,
+        CancellationToken cancellationToken)
+    {
+        var pageNo = Math.Max(1, page);
+        var channelId = await ResolveNewChannelIdAsync(settings, cancellationToken);
+        using var document = await PostSignedAsync(
+            settings,
+            "/drama-box/he001/theater",
+            new
+            {
+                newChannelStyle = 1,
+                isNeedRank = 1,
+                pageNo,
+                index = 1,
+                channelId,
+                language = DefaultLanguage,
+                currentLanguage = DefaultLanguage,
+            },
+            cancellationToken);
+        var parsed = ParseNewChannel(document.RootElement, pageNo);
+        var items = parsed.Books.Select(ToSearchItem).ToArray();
+        if (enrich)
+            items = (await FillEpisodeCountsAsync(settings, items, cancellationToken)).ToArray();
+        var hasMore = parsed.HasMore && items.Length > 0;
+        return new NewChannelPage(items, hasMore, hasMore ? pageNo + 1 : pageNo, channelId);
     }
 
     private async Task<IReadOnlyList<DramaSearchItem>> FillEpisodeCountsAsync(
@@ -232,22 +262,28 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
     private async Task<DramaBoxPrivateMp4Decryptor.KeyPackage> RequestPrivateKeyAsync(
         string deviceId, string token, string privateKeyUri, int episodeNumber, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{GatewayOrigin}/key");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
         var episode = Math.Max(1, episodeNumber);
-        request.Content = new StringContent(JsonSerializer.Serialize(new
-        {
-            app_id = AppId,
-            device = deviceId,
-            private_key_uri = privateKeyUri,
-            episode_number = episode,
-            video_id = "",
-        }), Encoding.UTF8, "application/json");
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        var text = await response.Content.ReadAsStringAsync(cancellationToken);
+        var response = await SendTextAsync(
+            HttpMethod.Post,
+            $"{GatewayOrigin}/key",
+            Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+            {
+                app_id = AppId,
+                device = deviceId,
+                private_key_uri = privateKeyUri,
+                episode_number = episode,
+                video_id = "",
+            })),
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Authorization"] = "Bearer " + token,
+                ["Content-Type"] = "application/json; charset=utf-8",
+                ["User-Agent"] = "Mozilla/5.0",
+            },
+            cancellationToken);
+        var text = response.Body;
         using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
-        if (!response.IsSuccessStatusCode || !IsSuccess(document.RootElement))
+        if (response.Status is < 200 or >= 300 || !IsSuccess(document.RootElement))
             throw new InvalidOperationException("DramaBox 密钥请求失败：" + ReadMessage(document.RootElement));
         var data = DataObject(document.RootElement);
         var nonceText = ReadString(data, "nonce") ?? "";
@@ -340,18 +376,24 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             method = "POST",
             path,
             body = payload,
-            language = "en",
-            currentLanguage = "en",
-            content_language = "en",
+            language = DefaultLanguage,
+            currentLanguage = DefaultLanguage,
+            content_language = DefaultLanguage,
         });
-        using var signRequest = new HttpRequestMessage(HttpMethod.Post, signUrl);
-        signRequest.Content = new StringContent(signPayload, Encoding.UTF8, "application/json");
-        signRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        signRequest.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-        using var signResponse = await httpClient.SendAsync(signRequest, cancellationToken);
-        var signText = await signResponse.Content.ReadAsStringAsync(cancellationToken);
+        var signResponse = await SendTextAsync(
+            HttpMethod.Post,
+            signUrl,
+            Encoding.UTF8.GetBytes(signPayload),
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Authorization"] = "Bearer " + token,
+                ["Content-Type"] = "application/json; charset=utf-8",
+                ["User-Agent"] = "Mozilla/5.0",
+            },
+            cancellationToken);
+        var signText = signResponse.Body;
         using var signed = JsonDocument.Parse(string.IsNullOrWhiteSpace(signText) ? "{}" : signText);
-        if (!signResponse.IsSuccessStatusCode || !IsSuccess(signed.RootElement))
+        if (signResponse.Status is < 200 or >= 300 || !IsSuccess(signed.RootElement))
             throw new InvalidOperationException("DramaBox 签名失败：" + ReadMessage(signed.RootElement));
         if (!signed.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException("DramaBox 签名没有返回请求。");
@@ -369,7 +411,10 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             }
         }
 
-        var text = await PostDramaBoxAsync(url, bodyBytes, upstreamHeaders, cancellationToken);
+        var upstream = await SendTextAsync(HttpMethod.Post, url, bodyBytes, upstreamHeaders, cancellationToken);
+        var text = upstream.Body;
+        if (upstream.Status is < 200 or >= 300 && !IsCdnDenied(text))
+            throw new InvalidOperationException($"DramaBox 接口 HTTP {upstream.Status}：{Trim(text)}");
         var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
         if (document.RootElement.TryGetProperty("success", out var success) &&
             success.ValueKind == JsonValueKind.False)
@@ -382,47 +427,206 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         return document;
     }
 
-    private async Task<string> PostDramaBoxAsync(
+    internal readonly record struct HttpText(int Status, string Body);
+
+    private async Task<HttpText> SendTextAsync(
+        HttpMethod method,
         string url,
-        byte[] body,
+        byte[]? body,
         IReadOnlyDictionary<string, string> headers,
         CancellationToken cancellationToken)
     {
-        var httpText = await PostDramaBoxWithHttpClientAsync(url, body, headers, cancellationToken);
-        if (!IsCdnDenied(httpText))
-            return httpText;
+        try
+        {
+            var direct = await SendTextWithHttpClientAsync(method, url, body, headers, cancellationToken);
+            if (!IsCdnDenied(direct.Body))
+                return direct;
+        }
+        catch (Exception ex) when (IsTransportFailure(ex))
+        {
+            // sapi.dramaboxdb.com 会拒绝 .NET 的 TLS 指纹，表现为握手失败或 HTML Access Denied。
+        }
 
-        // sapi.dramaboxdb.com 拒绝 .NET 的 TLS 指纹，返回 HTML Access Denied。
-        // 同一份签名请求用 Python 的 TLS 栈可以拿到 JSON。
-        return await PostDramaBoxWithPythonAsync(url, body, headers, cancellationToken);
+        return await SendTextWithImpersonationAsync(method, url, body, headers, cancellationToken);
     }
 
-    private async Task<string> PostDramaBoxWithHttpClientAsync(
+    private async Task<HttpText> SendTextWithHttpClientAsync(
+        HttpMethod method,
         string url,
-        byte[] body,
+        byte[]? body,
         IReadOnlyDictionary<string, string> headers,
         CancellationToken cancellationToken)
     {
-        using var upstream = new HttpRequestMessage(HttpMethod.Post, url);
+        using var upstream = new HttpRequestMessage(method, url);
         upstream.Version = HttpVersion.Version11;
         upstream.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
-        upstream.Content = new ByteArrayContent(body);
+        if (body is not null)
+            upstream.Content = new ByteArrayContent(body);
         foreach (var header in headers)
         {
-            if (!upstream.Headers.TryAddWithoutValidation(header.Key, header.Value))
+            if (!upstream.Headers.TryAddWithoutValidation(header.Key, header.Value) && upstream.Content is not null)
                 upstream.Content.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }
 
         using var response = await httpClient.SendAsync(upstream, cancellationToken);
         var text = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode && !IsCdnDenied(text))
-            throw new InvalidOperationException($"DramaBox 接口 HTTP {(int)response.StatusCode}：{Trim(text)}");
-        return text;
+        return new HttpText((int)response.StatusCode, text);
     }
 
-    private static async Task<string> PostDramaBoxWithPythonAsync(
+    private static async Task<HttpText> SendTextWithImpersonationAsync(
+        HttpMethod method,
         string url,
-        byte[] body,
+        byte[]? body,
+        IReadOnlyDictionary<string, string> headers,
+        CancellationToken cancellationToken)
+    {
+        var curl = FindCurlImpersonate();
+        if (!string.IsNullOrWhiteSpace(curl))
+            return await SendTextWithCurlAsync(curl, method, url, body, headers, cancellationToken);
+        return await SendTextWithPythonAsync(method, url, body, headers, cancellationToken);
+    }
+
+    private static string? FindCurlImpersonate()
+    {
+        var names = new[]
+        {
+            "curl-impersonate-chrome.exe",
+            "curl-impersonate.exe",
+            "curl_chrome131.exe",
+            "curl_chrome124.exe",
+            "curl_chrome116.exe",
+        };
+        var candidates = new List<string>();
+        var configured = Environment.GetEnvironmentVariable("DRAMABOX_CURL");
+        if (!string.IsNullOrWhiteSpace(configured))
+            candidates.Add(configured.Trim());
+        candidates.Add(AppContext.BaseDirectory);
+        candidates.Add(Path.Combine(AppContext.BaseDirectory, "tools"));
+        foreach (var candidate in candidates)
+        {
+            if (File.Exists(candidate))
+                return candidate;
+            foreach (var name in names)
+            {
+                var path = Path.Combine(candidate, name);
+                if (File.Exists(path))
+                    return path;
+            }
+        }
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var directory in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            foreach (var name in names)
+            {
+                var path = Path.Combine(directory.Trim(), name);
+                if (File.Exists(path))
+                    return path;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task<HttpText> SendTextWithCurlAsync(
+        string curl,
+        HttpMethod method,
+        string url,
+        byte[]? body,
+        IReadOnlyDictionary<string, string> headers,
+        CancellationToken cancellationToken)
+    {
+        var bodyPath = body is null ? null : Path.Combine(Path.GetTempPath(), $"dramabox-{Guid.NewGuid():N}.bin");
+        var headerPath = Path.Combine(Path.GetTempPath(), $"dramabox-{Guid.NewGuid():N}.hdr");
+        if (bodyPath is not null && body is not null)
+            await File.WriteAllBytesAsync(bodyPath, body, cancellationToken);
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = curl,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+            };
+            startInfo.ArgumentList.Add("-sS");
+            startInfo.ArgumentList.Add("--http1.1");
+            startInfo.ArgumentList.Add("--compressed");
+            startInfo.ArgumentList.Add("--path-as-is");
+            startInfo.ArgumentList.Add("--max-time");
+            startInfo.ArgumentList.Add("40");
+            startInfo.ArgumentList.Add("-X");
+            startInfo.ArgumentList.Add(method.Method);
+            startInfo.ArgumentList.Add("-D");
+            startInfo.ArgumentList.Add(headerPath);
+            startInfo.ArgumentList.Add("-o");
+            startInfo.ArgumentList.Add("-");
+            foreach (var header in headers)
+            {
+                startInfo.ArgumentList.Add("-H");
+                startInfo.ArgumentList.Add($"{header.Key}: {header.Value}");
+            }
+
+            if (bodyPath is not null)
+            {
+                startInfo.ArgumentList.Add("--data-binary");
+                startInfo.ArgumentList.Add("@" + bodyPath);
+            }
+
+            startInfo.ArgumentList.Add(url);
+            using var process = global::System.Diagnostics.Process.Start(startInfo)
+                               ?? throw new InvalidOperationException("无法启动 curl-impersonate。");
+            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            var output = await outputTask;
+            var error = await errorTask;
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException("DramaBox 接口被 CDN 拒绝：" + Trim(error));
+            var headerText = File.Exists(headerPath) ? await File.ReadAllTextAsync(headerPath, cancellationToken) : "";
+            var status = SplitCurlDump(headerText + "\r\n\r\n").Status;
+            return new HttpText(status, output);
+        }
+        finally
+        {
+            foreach (var path in new[] { bodyPath, headerPath })
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                    continue;
+                try { File.Delete(path); } catch { /* 临时文件可以留到下次清理 */ }
+            }
+        }
+    }
+
+    internal static HttpText SplitCurlDump(string output)
+    {
+        var text = output ?? "";
+        var separator = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        var width = 4;
+        if (separator < 0)
+        {
+            separator = text.IndexOf("\n\n", StringComparison.Ordinal);
+            width = 2;
+        }
+
+        if (separator < 0)
+            return new HttpText(200, text);
+        var header = text[..separator];
+        var body = text[(separator + width)..];
+        var status = 200;
+        var first = header.Split('\n', 2)[0].Trim();
+        var parts = first.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2 && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            status = parsed;
+        return new HttpText(status, body);
+    }
+
+    private static async Task<HttpText> SendTextWithPythonAsync(
+        HttpMethod method,
+        string url,
+        byte[]? body,
         IReadOnlyDictionary<string, string> headers,
         CancellationToken cancellationToken)
     {
@@ -430,21 +634,28 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         await File.WriteAllTextAsync(
             scriptPath,
             """
-            import json, sys, base64, urllib.request
+            import json, sys, base64, urllib.request, urllib.error
             req = json.load(sys.stdin)
+            payload = base64.b64decode(req["body"]) if req.get("body") else None
             request = urllib.request.Request(
                 req["url"],
-                data=base64.b64decode(req["body"]),
+                data=payload,
                 headers={key: str(value) for key, value in req["headers"].items()},
-                method="POST")
-            with urllib.request.urlopen(request, timeout=40) as response:
-                sys.stdout.buffer.write(response.read())
+                method=req.get("method") or "POST")
+            try:
+                with urllib.request.urlopen(request, timeout=40) as response:
+                    sys.stdout.buffer.write(str(response.status).encode("ascii") + b"\n")
+                    sys.stdout.buffer.write(response.read())
+            except urllib.error.HTTPError as error:
+                sys.stdout.buffer.write(str(error.code).encode("ascii") + b"\n")
+                sys.stdout.buffer.write(error.read())
             """,
             cancellationToken);
         var payload = JsonSerializer.Serialize(new
         {
             url,
-            body = Convert.ToBase64String(body),
+            method = method.Method,
+            body = body is null ? null : Convert.ToBase64String(body),
             headers,
         });
         var startInfo = new ProcessStartInfo
@@ -469,7 +680,23 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         var error = await errorTask;
         if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(output))
             throw new InvalidOperationException("DramaBox 接口被 CDN 拒绝：" + Trim(error));
-        return output;
+        var newline = output.IndexOf('\n');
+        if (newline <= 0 || !int.TryParse(output[..newline].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var status))
+            return new HttpText(200, output);
+        return new HttpText(status, output[(newline + 1)..]);
+    }
+
+    private static bool IsTransportFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is OperationCanceledException)
+                return false;
+            if (current is HttpRequestException or IOException or System.Security.Authentication.AuthenticationException)
+                return true;
+        }
+
+        return false;
     }
 
     private static bool IsCdnDenied(string? text) =>
@@ -503,12 +730,18 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             }
 
             var url = $"{GatewayOrigin}/license_verify.php?action=device_status&app_id={AppId}&device={Uri.EscapeDataString(deviceId)}";
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            var text = await response.Content.ReadAsStringAsync(cancellationToken);
+            var response = await SendTextAsync(
+                HttpMethod.Get,
+                url,
+                null,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["User-Agent"] = "Mozilla/5.0",
+                },
+                cancellationToken);
+            var text = response.Body;
             using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
-            if (!response.IsSuccessStatusCode || !IsSuccess(document.RootElement))
+            if (response.Status is < 200 or >= 300 || !IsSuccess(document.RootElement))
                 throw new InvalidOperationException("DramaBox 设备授权失败：" + ReadMessage(document.RootElement));
             var data = DataObject(document.RootElement);
             var token = ReadString(data, "access_token")
@@ -558,6 +791,153 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         }
     }
 
+    private async Task<int> ResolveNewChannelIdAsync(DramaSourceSettings settings, CancellationToken cancellationToken)
+    {
+        if (_resolvedNewChannelId is int cached && cached > 0)
+            return cached;
+
+        foreach (var path in new[] { "/drama-box/ap001/confload", "/drama-box/he001/recommendChannel" })
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                using var document = await PostSignedAsync(
+                    settings,
+                    path,
+                    new { homePageStyle = 1, newChannelStyle = 1, language = DefaultLanguage },
+                    cancellationToken);
+                var id = FindNewChannelId(document.RootElement);
+                if (id is > 0)
+                {
+                    _resolvedNewChannelId = id;
+                    return id.Value;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                // 配置接口失败时继续用 New 频道的已知编号。
+            }
+        }
+
+        return FallbackNewChannelId;
+    }
+
+    internal static int? FindNewChannelId(JsonElement root)
+    {
+        int? named = null;
+        int? theater = null;
+        Walk(root);
+        return named ?? theater;
+
+        void Walk(JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    var channelId = ReadInt(element, "channelId");
+                    if (channelId is > 0)
+                    {
+                        if (IsExplicitNewTab(element))
+                            named ??= channelId;
+                        else if (PointsAtTheater(element))
+                            theater ??= channelId;
+                    }
+
+                    foreach (var property in element.EnumerateObject())
+                        Walk(property.Value);
+                    break;
+                case JsonValueKind.Array:
+                    foreach (var item in element.EnumerateArray())
+                        Walk(item);
+                    break;
+            }
+        }
+    }
+
+    private static bool IsExplicitNewTab(JsonElement element)
+    {
+        foreach (var name in new[] { "tabKey", "key", "contentKind", "channelType", "type" })
+        {
+            var value = ReadString(element, name);
+            if (string.Equals(value, "new_drama", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(value, "new", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        foreach (var name in new[] { "tabName", "channelName", "name", "title", "channelTypeName" })
+        {
+            var value = ReadString(element, name);
+            if (value is "New" or "新剧" or "新劇" or "Nuevo" or "Novo" or "Terbaru" or "신작" or "新作")
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool PointsAtTheater(JsonElement element)
+    {
+        foreach (var name in new[] { "contentEndpoint", "path", "url", "requestPath" })
+        {
+            var value = ReadString(element, name);
+            if (!string.IsNullOrWhiteSpace(value) &&
+                value.Contains("/drama-box/he001/theater", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    internal readonly record struct NewChannelSnapshot(
+        int Count,
+        bool HasMore,
+        string Title,
+        int EpisodeCount,
+        int PlayCount,
+        string Category);
+
+    internal static NewChannelSnapshot DescribeNewChannel(JsonElement root, int page)
+    {
+        var books = ReadNewTheater(root).ToArray();
+        var first = books.FirstOrDefault();
+        return new NewChannelSnapshot(
+            books.Length,
+            ReadHasMore(root, page, books.Length),
+            first?.Title ?? "",
+            first?.EpisodeCount ?? 0,
+            first?.PlayCount ?? 0,
+            first?.Category ?? "");
+    }
+
+    private readonly record struct NewChannelParse(IReadOnlyList<DramaBook> Books, bool HasMore);
+
+    private static NewChannelParse ParseNewChannel(JsonElement root, int page)
+    {
+        var books = ReadNewTheater(root).ToArray();
+        return new NewChannelParse(books, ReadHasMore(root, page, books.Length) && books.Length > 0);
+    }
+
+    private static bool ReadHasMore(JsonElement root, int page, int recordCount)
+    {
+        if (recordCount <= 0)
+            return false;
+        var data = DataObject(root);
+        if (!data.TryGetProperty("newTheaterList", out var theater) || theater.ValueKind != JsonValueKind.Object)
+            return true;
+        if (ReadBool(theater, "isMore") is bool isMore)
+            return isMore;
+        if (ReadBool(theater, "hasMore") is bool hasMore)
+            return hasMore;
+        var pages = ReadInt(theater, "pages") ?? ReadInt(theater, "totalPages") ?? ReadInt(data, "pages");
+        var current = ReadInt(theater, "current") ?? ReadInt(theater, "pageNo") ?? page;
+        if (pages is > 0)
+            return current < pages;
+        return true;
+    }
+
     private static IEnumerable<DramaBook> ReadNewTheater(JsonElement root)
     {
         var data = DataObject(root);
@@ -586,7 +966,7 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             ReadCoverUrl(item),
             ReadEpisodeCount(item),
             JoinTags(item),
-            ReadString(item, "bookShelfTime") ?? ReadString(item, "shelfTime") ?? "",
+            ReadPublishTime(item),
             ReadPlayCount(item));
     }
 
@@ -671,11 +1051,38 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         "totalChapter", "total_chapter", "totalChapterNum", "total_chapter_num",
         "totalEpisode", "total_episode", "episodeTotal", "episode_total",
         "chapterSize", "chapter_size", "sectionCount", "section_count",
+        "updateChapterNum", "videoCount", "video_count", "epCount", "ep_count",
     ];
+
+    private static string ReadPublishTime(JsonElement item)
+    {
+        foreach (var name in new[]
+        {
+            "bookShelfTime", "shelfTime", "publishTime", "firstShelfTime", "onlineTime", "utime", "ctime",
+        })
+        {
+            if (!item.TryGetProperty(name, out var value))
+                continue;
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                var text = value.GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text;
+            }
+
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var timestamp) && timestamp > 1_000_000_000)
+            {
+                var milliseconds = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
+                return DateTimeOffset.FromUnixTimeMilliseconds(milliseconds).LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+            }
+        }
+
+        return "";
+    }
 
     private static int ReadPlayCount(JsonElement item)
     {
-        foreach (var name in new[] { "playCount", "play_count", "viewCount", "view_count" })
+        foreach (var name in new[] { "playCount", "play_count", "viewCount", "view_count", "playNum", "inLibraryCount" })
         {
             if (!item.TryGetProperty(name, out var value))
                 continue;
@@ -744,11 +1151,49 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
 
     private static string JoinTags(JsonElement item)
     {
-        if (!item.TryGetProperty("tags", out var tags) || tags.ValueKind != JsonValueKind.Array)
-            return "";
-        return string.Join(" / ", tags.EnumerateArray()
-            .Select(tag => tag.ValueKind == JsonValueKind.String ? tag.GetString() : null)
-            .Where(tag => !string.IsNullOrWhiteSpace(tag)));
+        var tags = new List<string>();
+        AddTags(item, tags);
+        foreach (var nestedName in new[] { "book", "bookInfo" })
+        {
+            if (item.TryGetProperty(nestedName, out var nested) && nested.ValueKind == JsonValueKind.Object)
+                AddTags(nested, tags);
+        }
+
+        return string.Join(" / ", tags.Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static void AddTags(JsonElement item, List<string> tags)
+    {
+        foreach (var name in new[] { "tags", "tagV3s", "tagNames", "labels", "markNames" })
+        {
+            if (!item.TryGetProperty(name, out var value))
+                continue;
+            if (value.ValueKind == JsonValueKind.String)
+            {
+                foreach (var part in (value.GetString() ?? "").Split(['/', ',', '|', '，'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    tags.Add(part);
+                continue;
+            }
+
+            if (value.ValueKind != JsonValueKind.Array)
+                continue;
+            foreach (var tag in value.EnumerateArray())
+            {
+                if (tag.ValueKind == JsonValueKind.String)
+                {
+                    var text = tag.GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(text))
+                        tags.Add(text);
+                    continue;
+                }
+
+                if (tag.ValueKind != JsonValueKind.Object)
+                    continue;
+                var nameText = ReadString(tag, "tagName") ?? ReadString(tag, "name") ?? ReadString(tag, "tagEnName");
+                if (!string.IsNullOrWhiteSpace(nameText))
+                    tags.Add(nameText);
+            }
+        }
     }
 
     private static JsonElement DataObject(JsonElement root) =>

@@ -648,10 +648,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             DramaBoxProbeStatus = string.Join(Environment.NewLine, new[]
             {
                 $"授权：{result.LicenseMessage}",
-                $"搜索：{result.SearchMessage}",
+                $"New：{result.NewMessage}",
                 $"下载：{result.DownloadMessage}",
             });
-            StatusRequested?.Invoke(result.LicenseOk && result.SearchOk && result.DownloadOk
+            StatusRequested?.Invoke(result.LicenseOk && result.NewOk && result.DownloadOk
                 ? "DramaBox 测试成功"
                 : "DramaBox 测试完成（部分失败）");
         }
