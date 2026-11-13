@@ -217,6 +217,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
     [ObservableProperty] private int _tiktokGlobalProjectConcurrency = 4;
     [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
+    [ObservableProperty] private int _tiktokVideoDedupCpuPercent = 90;
 
     public decimal VideoDedupConcurrencyMaximum => Math.Max(1, Environment.ProcessorCount);
     [ObservableProperty] private int _tiktokUploadConcurrency = 2;
@@ -462,6 +463,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
         settings.TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency;
         settings.TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency;
+        settings.TiktokVideoDedupCpuPercent = TiktokVideoDedupCpuPercent;
         settings.TiktokUploadConcurrency = TiktokUploadConcurrency;
         settings.KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency;
         settings.TiktokAsrLanguage = TiktokAsrLanguage.Trim();
@@ -1468,6 +1470,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
         TiktokGlobalProjectConcurrency = settings.TiktokGlobalProjectConcurrency;
         TiktokVideoDedupConcurrency = settings.TiktokVideoDedupConcurrency;
+        TiktokVideoDedupCpuPercent = settings.TiktokVideoDedupCpuPercent;
         TiktokUploadConcurrency = settings.TiktokUploadConcurrency;
         KuaishouProjectImageConcurrency = settings.KuaishouProjectImageConcurrency;
         TiktokAsrLanguage = settings.TiktokAsrLanguage;

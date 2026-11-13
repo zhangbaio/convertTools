@@ -1000,14 +1000,53 @@ public sealed class VideoDedupTests
         bool hardware)
     {
         var lanes = VideoDedupCpuBudget.Normalize(concurrency, logicalProcessors);
-        var threads = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, lanes, hardware);
-        var perProcess = hardware
-            ? threads.FilterThreads
-            : threads.EncoderThreads + threads.FilterThreads;
-        perProcess.Should().Be(Math.Max(1, logicalProcessors / lanes));
-        if (hardware)
-            threads.EncoderThreads.Should().Be(1);
-        (lanes * perProcess).Should().BeLessThanOrEqualTo(logicalProcessors);
+        var total = 0;
+        for (var lane = 0; lane < lanes; lane++)
+        {
+            var threads = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, lanes, 100, lane, hardware);
+            var perProcess = hardware
+                ? threads.FilterThreads
+                : threads.EncoderThreads + threads.FilterThreads;
+            perProcess.Should().BeGreaterThan(0);
+            if (hardware)
+                threads.EncoderThreads.Should().Be(1);
+            total += perProcess;
+        }
+
+        total.Should().Be(logicalProcessors);
+    }
+
+    [Theory]
+    [InlineData(16, 90, 14)]
+    [InlineData(8, 90, 7)]
+    [InlineData(4, 90, 4)]
+    [InlineData(32, 90, 29)]
+    [InlineData(2, 90, 2)]
+    [InlineData(16, 100, 16)]
+    [InlineData(16, 50, 8)]
+    [InlineData(16, 0, 14)]
+    [InlineData(6, 49, 3)]
+    public void Cpu_percent_uses_each_machines_processor_count(int logicalProcessors, int percent, int expected) =>
+        VideoDedupCpuBudget.ProcessorBudget(logicalProcessors, percent).Should().Be(expected);
+
+    [Fact]
+    public void Cpu_percent_remainder_is_spread_across_lanes()
+    {
+        VideoDedupCpuBudget.ShareForLane(8, 2, 90, 0).Should().Be(4);
+        VideoDedupCpuBudget.ShareForLane(8, 2, 90, 1).Should().Be(3);
+        VideoDedupCpuBudget.ShareForLane(16, 2, 90, 0).Should().Be(7);
+        VideoDedupCpuBudget.ShareForLane(16, 2, 90, 1).Should().Be(7);
+        VideoDedupCpuBudget.ShareForLane(32, 4, 90, 0).Should().Be(8);
+        VideoDedupCpuBudget.ShareForLane(32, 4, 90, 1).Should().Be(7);
+        VideoDedupCpuBudget.ShareForLane(32, 4, 90, 3).Should().Be(7);
+        VideoDedupCpuBudget.ShareForLane(4, 2, 90, 0).Should().Be(2);
+        VideoDedupCpuBudget.ShareForLane(4, 2, 90, 1).Should().Be(2);
+
+        var hardware = VideoDedupCpuBudget.ThreadsFor(16, 2, 90, 0, hardwareEncoder: true);
+        hardware.EncoderThreads.Should().Be(1);
+        hardware.FilterThreads.Should().Be(7);
+        var software = VideoDedupCpuBudget.ThreadsFor(8, 2, 90, 1, hardwareEncoder: false);
+        (software.EncoderThreads + software.FilterThreads).Should().Be(3);
     }
 
     [Fact]

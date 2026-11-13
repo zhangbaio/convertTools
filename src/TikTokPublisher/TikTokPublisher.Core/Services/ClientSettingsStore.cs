@@ -435,6 +435,7 @@ public static class ClientSettingsStore
         settings.TiktokVideoDedupConcurrency = VideoDedupCpuBudget.Normalize(
             settings.TiktokVideoDedupConcurrency,
             Math.Max(1, Environment.ProcessorCount));
+        settings.TiktokVideoDedupCpuPercent = VideoDedupCpuBudget.NormalizePercent(settings.TiktokVideoDedupCpuPercent);
         settings.TiktokUploadConcurrency = Math.Clamp(
             settings.TiktokUploadConcurrency <= 0 ? 2 : settings.TiktokUploadConcurrency,
             1,

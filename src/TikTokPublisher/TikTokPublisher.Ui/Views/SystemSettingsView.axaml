@@ -820,18 +820,21 @@
                                    Foreground="#666" TextWrapping="Wrap" />
 
                         <TextBlock Text="全局步骤配置" FontWeight="Bold" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="视频去重并发" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU 占用 %" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupCpuPercent}" Minimum="50" Maximum="100" Increment="5" FormatString="0" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding KuaishouProjectImageConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="视频去重并发" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding KuaishouProjectImageConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
                         </Grid>
                         <TextBlock IsVisible="{Binding ShowsTikTokPublishPrompt}"
-                                   Text="视频去重并发是全机同时编码的路数。只有一部剧在去重时可以占满这些路；多部剧同时去重时加起来仍是这个数，不会按剧数相乘。每路线程数按逻辑处理器平分。下一集按新的数量执行，不用重启。超过 1 部时，同一个账号的剧共用一个浏览器、多开标签页；不同账号不会共用浏览器。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
+                                   Text="CPU 占用是全机去重编码使用的处理器比例，默认 90%，每台电脑按自己的逻辑处理器数计算。视频去重并发是全机同时编码的路数。只有一部剧在去重时可以占满这些路；多部剧同时去重时加起来仍是这个数，不会按剧数相乘。可用处理器按这个比例算出后再平分给每一路，余数逐路补上。正在编码的那一集不变，下一集按新的数量和比例执行，不用重启。超过 1 部时，同一个账号的剧共用一个浏览器、多开标签页；不同账号不会共用浏览器。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
                                    Foreground="#666" TextWrapping="Wrap" />
                         <TextBlock IsVisible="{Binding ShowsKuaishouPublishPrompt}"
                                    Text="超过 1 部时，同一个账号的同一版本共用一个浏览器、多开标签页；个人版和企业版、不同账号不会共用。本机同时上传不超过「同时上传剧集」，同时生成工程图不超过「同时生成工程图」。"

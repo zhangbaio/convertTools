@@ -147,11 +147,13 @@ public static class VideoDedupService
         var hardwareFailed = 0;
         var logicalProcessors = Environment.ProcessorCount;
         var encodeParallel = ApplyGlobalConcurrency();
+        var cpuPercent = VideoDedupCpuBudget.CurrentCpuPercent;
+        var processorBudget = VideoDedupCpuBudget.ProcessorBudget(logicalProcessors, cpuPercent);
         var threadSplit = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, VideoDedupPlanner.IsHardwareEncoder(encoder));
         Write(string.IsNullOrWhiteSpace(choice.Note)
             ? $"视频编码器：{encoder}（{choice.Device}），全机并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。"
             : $"视频编码器：{encoder}（{choice.Device}），全机并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
-        Write($"本机 {logicalProcessors.ToString(CultureInfo.InvariantCulture)} 个逻辑处理器，全机同时 {encodeParallel.ToString(CultureInfo.InvariantCulture)} 路，每路编码 {threadSplit.EncoderThreads.ToString(CultureInfo.InvariantCulture)} 线程、滤镜 {threadSplit.FilterThreads.ToString(CultureInfo.InvariantCulture)} 线程。");
+        Write($"本机 {logicalProcessors.ToString(CultureInfo.InvariantCulture)} 个逻辑处理器，CPU 占用 {cpuPercent.ToString(CultureInfo.InvariantCulture)}%，可用 {processorBudget.ToString(CultureInfo.InvariantCulture)} 个，全机同时 {encodeParallel.ToString(CultureInfo.InvariantCulture)} 路，每路编码 {threadSplit.EncoderThreads.ToString(CultureInfo.InvariantCulture)} 线程、滤镜 {threadSplit.FilterThreads.ToString(CultureInfo.InvariantCulture)} 线程。");
         if (renumber && preset.TransitionsEnabled && plan.Any(group => group.Count > 1))
             Write("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
         var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
@@ -185,12 +187,14 @@ public static class VideoDedupService
                     }
 
                     var holdGate = RunProcessForTests is null;
+                    var lane = 0;
                     if (holdGate)
                     {
                         ApplyGlobalConcurrency();
-                        await VideoDedupEncodeGate.WaitAsync(token).ConfigureAwait(false);
+                        lane = await VideoDedupEncodeGate.WaitAsync(token).ConfigureAwait(false);
                     }
 
+                    VideoDedupCpuBudget.UseLane(lane);
                     try
                     {
                         var jobEncoder = Volatile.Read(ref hardwareFailed) == 1 ? softwareEncoder : encoder;
@@ -242,8 +246,9 @@ public static class VideoDedupService
                     }
                     finally
                     {
+                        VideoDedupCpuBudget.UseLane(0);
                         if (holdGate)
-                            VideoDedupEncodeGate.Release();
+                            VideoDedupEncodeGate.Release(lane);
                     }
                 }).ConfigureAwait(false);
         }
@@ -729,24 +734,31 @@ public static class VideoDedupService
     private static int ApplyGlobalConcurrency()
     {
         var logical = Math.Max(1, Environment.ProcessorCount);
-        var configured = RunProcessForTests is not null
-            ? VideoDedupCpuBudget.ConcurrencyForTests ?? VideoDedupCpuBudget.DefaultConcurrency
-            : LoadConfiguredConcurrency();
+        var (configured, cpuPercent) = LoadDedupRuntimeSettings();
         VideoDedupCpuBudget.Configure(configured, logical);
+        VideoDedupCpuBudget.ConfigurePercent(cpuPercent);
         if (RunProcessForTests is null)
             VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.CurrentConcurrency);
         return VideoDedupCpuBudget.CurrentConcurrency;
     }
 
-    private static int LoadConfiguredConcurrency()
+    private static (int Concurrency, int CpuPercent) LoadDedupRuntimeSettings()
     {
+        if (RunProcessForTests is not null)
+        {
+            return (
+                VideoDedupCpuBudget.ConcurrencyForTests ?? VideoDedupCpuBudget.DefaultConcurrency,
+                VideoDedupCpuBudget.CpuPercentForTests ?? VideoDedupCpuBudget.DefaultCpuPercent);
+        }
+
         try
         {
-            return ClientSettingsStore.Load().TiktokVideoDedupConcurrency;
+            var settings = ClientSettingsStore.Load();
+            return (settings.TiktokVideoDedupConcurrency, settings.TiktokVideoDedupCpuPercent);
         }
         catch
         {
-            return VideoDedupCpuBudget.DefaultConcurrency;
+            return (VideoDedupCpuBudget.DefaultConcurrency, VideoDedupCpuBudget.DefaultCpuPercent);
         }
     }
 
