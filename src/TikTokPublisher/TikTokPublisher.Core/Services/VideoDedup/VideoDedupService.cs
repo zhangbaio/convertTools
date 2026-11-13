@@ -5,12 +5,14 @@ using System.Text.RegularExpressions;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Services.VideoDedup;
 
 public static class VideoDedupService
 {
     private const string FingerprintFileName = "dedup-fingerprint.json";
+    private const string ResumeFileName = "dedup-resume.json";
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
 
     internal static Func<string, CancellationToken, Task<VideoDedupProbe>>? ProbeForTests { get; set; }
@@ -126,19 +128,32 @@ public static class VideoDedupService
 
         var workRoot = Path.Combine(originalsRoot, ".work");
         Directory.CreateDirectory(workRoot);
-        ClearDirectory(workRoot);
+        var resumePath = Path.Combine(workRoot, ResumeFileName);
+        var resumeIdentity = ResumeIdentity(preset, clips, originalsRoot);
+        var resume = force ? null : ReadResume(resumePath);
+        if (resume is null || !string.Equals(resume.Identity, resumeIdentity, StringComparison.Ordinal))
+        {
+            ClearDirectory(workRoot);
+            resume = new DedupResume(resumeIdentity, []);
+        }
+
+        var completed = new System.Collections.Concurrent.ConcurrentDictionary<int, ResumeEpisode>();
+        foreach (var episode in resume.Episodes)
+            completed[episode.Index] = episode;
+        var resumeLock = new object();
         var choice = await ResolveEncoderAsync(preset, ct).ConfigureAwait(false);
         var encoder = choice.Encoder;
         var softwareEncoder = VideoDedupPlanner.IsHevcEncoder(encoder) ? "libx265" : "libx264";
         var hardwareFailed = 0;
         var logicalProcessors = Environment.ProcessorCount;
-        var encodeCap = VideoDedupCpuBudget.MaxConcurrentEncodes(logicalProcessors);
-        var encodeParallel = Math.Min(Math.Max(1, preset.Parallel), encodeCap);
+        var encodeParallel = ApplyGlobalConcurrency();
+        var cpuPercent = VideoDedupCpuBudget.CurrentCpuPercent;
+        var processorBudget = VideoDedupCpuBudget.ProcessorBudget(logicalProcessors, cpuPercent);
         var threadSplit = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, VideoDedupPlanner.IsHardwareEncoder(encoder));
         Write(string.IsNullOrWhiteSpace(choice.Note)
-            ? $"视频编码器：{encoder}（{choice.Device}），并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。"
-            : $"视频编码器：{encoder}（{choice.Device}），并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
-        Write($"本机 {logicalProcessors.ToString(CultureInfo.InvariantCulture)} 个逻辑处理器，去重同时最多 {encodeCap.ToString(CultureInfo.InvariantCulture)} 路，每路编码 {threadSplit.EncoderThreads.ToString(CultureInfo.InvariantCulture)} 线程、滤镜 {threadSplit.FilterThreads.ToString(CultureInfo.InvariantCulture)} 线程。");
+            ? $"视频编码器：{encoder}（{choice.Device}），全机并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。"
+            : $"视频编码器：{encoder}（{choice.Device}），全机并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
+        Write($"本机 {logicalProcessors.ToString(CultureInfo.InvariantCulture)} 个逻辑处理器，CPU 占用 {cpuPercent.ToString(CultureInfo.InvariantCulture)}%，可用 {processorBudget.ToString(CultureInfo.InvariantCulture)} 个，全机同时 {encodeParallel.ToString(CultureInfo.InvariantCulture)} 路，每路编码 {threadSplit.EncoderThreads.ToString(CultureInfo.InvariantCulture)} 线程、滤镜 {threadSplit.FilterThreads.ToString(CultureInfo.InvariantCulture)} 线程。");
         if (renumber && preset.TransitionsEnabled && plan.Any(group => group.Count > 1))
             Write("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
         var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
@@ -151,7 +166,7 @@ public static class VideoDedupService
                 jobs.Select((job, index) => (job, index)),
                 new ParallelOptions
                 {
-                    MaxDegreeOfParallelism = encodeParallel,
+                    MaxDegreeOfParallelism = RunProcessForTests is null ? logicalProcessors : encodeParallel,
                     CancellationToken = renderCancellation.Token,
                 },
                 async (entry, token) =>
@@ -161,58 +176,90 @@ public static class VideoDedupService
                         $"{(entry.index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4");
                     var seed = Math.Abs(clips[entry.job.Slices[0].ClipIndex].Path.GetHashCode(StringComparison.Ordinal));
                     var episode = (entry.index + 1).ToString(CultureInfo.InvariantCulture);
-                    var jobEncoder = Volatile.Read(ref hardwareFailed) == 1 ? softwareEncoder : encoder;
-                    var arguments = VideoDedupPlanner.BuildArguments(
-                        preset,
-                        clips,
-                        entry.job.Slices,
-                        temp,
-                        jobEncoder,
-                        seed);
-                    Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(clips, entry.job.Slices, entry.job.Destination, preset)}");
+                    if (completed.TryGetValue(entry.index, out var saved) &&
+                        saved.Length > 0 &&
+                        File.Exists(temp) &&
+                        new FileInfo(temp).Length == saved.Length)
+                    {
+                        entry.job.TempPath = temp;
+                        Write($"第 {episode}/{totalEpisodes} 集已完成，跳过编码。");
+                        return;
+                    }
+
+                    var holdGate = RunProcessForTests is null;
+                    var lane = 0;
+                    if (holdGate)
+                    {
+                        ApplyGlobalConcurrency();
+                        lane = await VideoDedupEncodeGate.WaitAsync(token).ConfigureAwait(false);
+                    }
+
+                    VideoDedupCpuBudget.UseLane(lane);
                     try
                     {
+                        var jobEncoder = Volatile.Read(ref hardwareFailed) == 1 ? softwareEncoder : encoder;
+                        var arguments = VideoDedupPlanner.BuildArguments(
+                            preset,
+                            clips,
+                            entry.job.Slices,
+                            temp,
+                            jobEncoder,
+                            seed);
+                        Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(clips, entry.job.Slices, entry.job.Destination, preset)}");
                         try
                         {
-                            await RunFfmpegAsync(arguments, token).ConfigureAwait(false);
+                            try
+                            {
+                                await RunFfmpegAsync(arguments, token).ConfigureAwait(false);
+                            }
+                            catch (InvalidOperationException ex) when (
+                                AllowsCpuFallback(preset) && UsesHardwareEncoder(arguments))
+                            {
+                                if (Interlocked.Exchange(ref hardwareFailed, 1) == 0)
+                                    Write($"{encoder} 编码失败（{FirstLine(ex.Message)}），本次剩余剧集改用 {softwareEncoder}。");
+                                Write($"第 {episode}/{totalEpisodes} 集改用 {softwareEncoder} 重新去重。");
+                                await RunFfmpegAsync(
+                                    VideoDedupPlanner.BuildArguments(preset, clips, entry.job.Slices, temp, softwareEncoder, seed),
+                                    token).ConfigureAwait(false);
+                            }
+                            if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
+                                throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
+                            var length = new FileInfo(temp).Length;
+                            lock (resumeLock)
+                            {
+                                completed[entry.index] = new ResumeEpisode(entry.index, length);
+                                WriteResume(
+                                    resumePath,
+                                    resumeIdentity,
+                                    completed.Values.OrderBy(item => item.Index).ToArray());
+                            }
+
+                            entry.job.TempPath = temp;
+                            Write($"第 {episode}/{totalEpisodes} 集去重完成，输出 {Path.GetFileName(entry.job.Destination)}，{FormatSize(length)}。");
                         }
-                        catch (InvalidOperationException ex) when (
-                            AllowsCpuFallback(preset) && UsesHardwareEncoder(arguments))
+                        catch (Exception ex) when (ex is not OperationCanceledException)
                         {
-                            if (Interlocked.Exchange(ref hardwareFailed, 1) == 0)
-                                Write($"{encoder} 编码失败（{FirstLine(ex.Message)}），本次剩余剧集改用 {softwareEncoder}。");
-                            Write($"第 {episode}/{totalEpisodes} 集改用 {softwareEncoder} 重新去重。");
-                            await RunFfmpegAsync(
-                                VideoDedupPlanner.BuildArguments(preset, clips, entry.job.Slices, temp, softwareEncoder, seed),
-                                token).ConfigureAwait(false);
+                            Write($"第 {episode}/{totalEpisodes} 集去重失败：{ex.Message}");
+                            Interlocked.CompareExchange(ref encodeFailure, ex, null);
+                            renderCancellation.Cancel();
                         }
-                        if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
-                            throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
-                        entry.job.TempPath = temp;
-                        Write($"第 {episode}/{totalEpisodes} 集去重完成，输出 {Path.GetFileName(entry.job.Destination)}，{FormatSize(new FileInfo(temp).Length)}。");
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    finally
                     {
-                        Write($"第 {episode}/{totalEpisodes} 集去重失败：{ex.Message}");
-                        Interlocked.CompareExchange(ref encodeFailure, ex, null);
-                        renderCancellation.Cancel();
+                        VideoDedupCpuBudget.UseLane(0);
+                        if (holdGate)
+                            VideoDedupEncodeGate.Release(lane);
                     }
                 }).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (encodeFailure is not null || ct.IsCancellationRequested)
         {
             if (encodeFailure is null)
-            {
-                ClearDirectory(workRoot);
                 throw;
-            }
         }
 
         if (encodeFailure is not null)
-        {
-            ClearDirectory(workRoot);
             throw encodeFailure;
-        }
 
         PublishOutputs(project, visible, fingerprint, jobs);
         if (TikTokUploadStagingService.DiscardCopies(project))
@@ -251,7 +298,7 @@ public static class VideoDedupService
         if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
             parts.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
         parts.Add(preset.HasDurationLimit
-            ? $"按原片时长分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒，然后再做整集裁剪和变速"
+            ? $"按原片时长分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒，然后再做整集裁剪和变速。成片短于 15 秒时并入相邻集"
             : "不按单集时长重新分集");
         if (!preset.TransitionsEnabled || !preset.HasAnyTransition)
             parts.Add("转场关");
@@ -286,13 +333,16 @@ public static class VideoDedupService
         var join = slices.Count > 1
             ? VideoDedupPlanner.CanTransition(preset, slices) ? "，接缝使用转场" : "，直接拼接"
             : "";
-        var frames = slices
-            .Select(slice => clips[slice.ClipIndex].Probe)
-            .Select(probe => VideoDedupPlanner.ResolveUploadFrame(probe.Width, probe.Height, preset))
-            .Where(frame => frame.Width > 0 && frame.Height > 0)
-            .Distinct()
-            .Select(frame => $"{frame.Width.ToString(CultureInfo.InvariantCulture)}×{frame.Height.ToString(CultureInfo.InvariantCulture)}")
-            .ToArray();
+        var shared = VideoDedupPlanner.SharedEpisodeFrame(clips, slices, preset);
+        var frames = shared is { } forced
+            ? [$"{forced.Width.ToString(CultureInfo.InvariantCulture)}×{forced.Height.ToString(CultureInfo.InvariantCulture)}"]
+            : slices
+                .Select(slice => clips[slice.ClipIndex].Probe)
+                .Select(probe => VideoDedupPlanner.ResolveUploadFrame(probe.Width, probe.Height, preset))
+                .Where(frame => frame.Width > 0 && frame.Height > 0)
+                .Distinct()
+                .Select(frame => $"{frame.Width.ToString(CultureInfo.InvariantCulture)}×{frame.Height.ToString(CultureInfo.InvariantCulture)}")
+                .ToArray();
         var outputSize = frames.Length == 0 ? "" : $"，成片 {string.Join("、", frames)}";
         return $"{ranges} → {output}{join}{outputSize}。";
     }
@@ -677,15 +727,38 @@ public static class VideoDedupService
             return;
         }
 
-        await VideoDedupEncodeGate.WaitAsync(ct).ConfigureAwait(false);
+        await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), arguments, ct, belowNormal: true)
+            .ConfigureAwait(false);
+    }
+
+    private static int ApplyGlobalConcurrency()
+    {
+        var logical = Math.Max(1, Environment.ProcessorCount);
+        var (configured, cpuPercent) = LoadDedupRuntimeSettings();
+        VideoDedupCpuBudget.Configure(configured, logical);
+        VideoDedupCpuBudget.ConfigurePercent(cpuPercent);
+        if (RunProcessForTests is null)
+            VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.CurrentConcurrency);
+        return VideoDedupCpuBudget.CurrentConcurrency;
+    }
+
+    private static (int Concurrency, int CpuPercent) LoadDedupRuntimeSettings()
+    {
+        if (RunProcessForTests is not null)
+        {
+            return (
+                VideoDedupCpuBudget.ConcurrencyForTests ?? VideoDedupCpuBudget.DefaultConcurrency,
+                VideoDedupCpuBudget.CpuPercentForTests ?? VideoDedupCpuBudget.DefaultCpuPercent);
+        }
+
         try
         {
-            await FfmpegRunner.RunAsync(FfmpegLocator.ResolveFfmpeg(), arguments, ct, belowNormal: true)
-                .ConfigureAwait(false);
+            var settings = ClientSettingsStore.Load();
+            return (settings.TiktokVideoDedupConcurrency, settings.TiktokVideoDedupCpuPercent);
         }
-        finally
+        catch
         {
-            VideoDedupEncodeGate.Release();
+            return (VideoDedupCpuBudget.DefaultConcurrency, VideoDedupCpuBudget.DefaultCpuPercent);
         }
     }
 
@@ -883,6 +956,46 @@ public static class VideoDedupService
         return reset;
     }
 
+    private static string ResumeIdentity(VideoDedupPreset preset, IReadOnlyList<VideoDedupClip> clips, string originalsRoot)
+    {
+        var files = string.Join(
+            "\n",
+            clips.Select(clip =>
+            {
+                var relative = Path.GetRelativePath(originalsRoot, clip.Path);
+                var length = new FileInfo(clip.Path).Length;
+                return string.Join(
+                    "\t",
+                    relative,
+                    length.ToString(CultureInfo.InvariantCulture),
+                    clip.Probe.DurationSeconds.ToString("0.####", CultureInfo.InvariantCulture));
+            }));
+        return preset.Fingerprint() + "\n" + files;
+    }
+
+    private static DedupResume? ReadResume(string path)
+    {
+        if (!File.Exists(path))
+            return null;
+        try
+        {
+            var resume = JsonSerializer.Deserialize<DedupResume>(File.ReadAllText(path));
+            if (resume is null || string.IsNullOrWhiteSpace(resume.Identity))
+                return null;
+            return resume with { Episodes = resume.Episodes ?? [] };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static void WriteResume(string path, string identity, IReadOnlyList<ResumeEpisode> episodes)
+    {
+        var payload = new DedupResume(identity, episodes.ToList());
+        File.WriteAllText(path, JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
     private static string FingerprintPath(string project) =>
         Path.Combine(project, ProjectVideoResolver.SourceOriginalsDirectoryName, FingerprintFileName);
 
@@ -951,4 +1064,8 @@ public static class VideoDedupService
     private sealed record DedupFingerprint(string Preset, List<FingerprintOutput> Outputs);
 
     private sealed record FingerprintOutput(string Path, long Length);
+
+    private sealed record DedupResume(string Identity, List<ResumeEpisode> Episodes);
+
+    private sealed record ResumeEpisode(int Index, long Length);
 }

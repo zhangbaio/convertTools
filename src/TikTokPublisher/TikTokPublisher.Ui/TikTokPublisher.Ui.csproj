@@ -20,6 +20,8 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="TikTokPublisher.Core.Tests" />
+    <InternalsVisibleTo Include="TikTokPublisher.Desktop" />
+    <InternalsVisibleTo Include="YunfanDramaStudio" />
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="Themes\**" />

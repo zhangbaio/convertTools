@@ -26,14 +26,9 @@
                         Click="OnApplyToAllAccountsClick" />
             </StackPanel>
 
-            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-                <TextBlock Classes="dedupLabel" Text="并发数量" />
+            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
+                <TextBlock Classes="dedupLabel" Text="编码器" />
                 <StackPanel Grid.Column="1" Spacing="4">
-                    <NumericUpDown x:Name="ParallelBox" Minimum="1" Maximum="4" Increment="1" FormatString="0" Width="120" HorizontalAlignment="Left" />
-                    <TextBlock Classes="dedupHint" Text="这是一部剧想同时处理的集数。实际路数按每台电脑的处理器数量封顶，多部剧合在一起也不会把 CPU 占满。" />
-                </StackPanel>
-                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="编码器" />
-                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
                     <WrapPanel Orientation="Horizontal">
                         <RadioButton x:Name="EncoderAutoBox" GroupName="DedupEncoder" Content="自动选择" IsChecked="True" Margin="0,0,16,4" />
                         <RadioButton x:Name="EncoderSoftwareBox" GroupName="DedupEncoder" Content="CPU" Margin="0,0,16,4" />
@@ -46,7 +41,7 @@
             </Grid>
 
             <TextBlock Text="单集时长" FontWeight="SemiBold" />
-            <TextBlock Classes="dedupHint" Text="两个都留 0 表示不重新分集。都大于 0 时按原片时长切开再拼接，每一集再做开头、结尾裁剪和变速。过短的尾集在不超过最大时长时并入上一集。" />
+            <TextBlock Classes="dedupHint" Text="两个都留 0 表示不重新分集。都大于 0 时按原片时长切开再拼接，每一集再做开头、结尾裁剪和变速。过短的尾集在不超过最大时长时并入上一集。成片仍短于 15 秒时并入相邻集，这时可以超过最大时长。" />
             <Grid ColumnDefinitions="140,*,140,*" ColumnSpacing="10">
                 <TextBlock Classes="dedupLabel" Text="单集最小时长" />
                 <NumericUpDown x:Name="MinDurationBox" Grid.Column="1" Minimum="0" Maximum="3600" Increment="1" FormatString="0" />

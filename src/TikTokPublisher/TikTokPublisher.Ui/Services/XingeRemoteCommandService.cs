@@ -39,8 +39,7 @@ public sealed class XingeRemoteCommandService
     private readonly object _quotaFullLock = new();
     private readonly DispatchConfirmCoordinator _confirm = new();
     private readonly Dictionary<long, XingeRemoteMessage> _heldConfirmMessages = new();
-    private readonly Dictionary<long, TikTokRemoteCommand> _storedCommands = new();
-    private bool _storedDispatchOffered;
+    private bool _stoppedReclaimDone;
     private Dictionary<string, DateTimeOffset> _quotaFullUntil = new(StringComparer.OrdinalIgnoreCase);
     private string _dispatchPauseDate = "";
     private CancellationTokenSource? _cts;
@@ -50,6 +49,8 @@ public sealed class XingeRemoteCommandService
 
     // 这部剧的本地项目还在时，轮询到的命令直接续跑，不再弹出新派单确认。
     public Func<long, bool>? AssignmentAlreadyLocal { get; set; }
+
+    public Func<IReadOnlyList<long>>? LocalStoppedAssignmentIds { get; set; }
 
     public void Restart(
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
@@ -183,9 +184,17 @@ public sealed class XingeRemoteCommandService
                     await FlushAutoPublishProgressAsync(log, ct).ConfigureAwait(false);
                     if (recoverAsync is not null)
                     {
-                        var open = await ListOpenAutoPublishAsync(http, config, ct).ConfigureAwait(false);
-                        await recoverAsync(open).ConfigureAwait(false);
-                        OfferStoredDispatches(open, log);
+                        if (!_stoppedReclaimDone)
+                        {
+                            var stoppedIds = LocalStoppedAssignmentIds?.Invoke();
+                            _stoppedReclaimDone = stoppedIds is not { Count: > 0 }
+                                || await ResumeStoppedAsync(http, config, stoppedIds, log, ct).ConfigureAwait(false);
+                        }
+                        if (_stoppedReclaimDone)
+                        {
+                            var open = await ListOpenAutoPublishAsync(http, config, ct).ConfigureAwait(false);
+                            await recoverAsync(open).ConfigureAwait(false);
+                        }
                     }
                 }
 
@@ -473,32 +482,20 @@ public sealed class XingeRemoteCommandService
             case DispatchConfirmDecision.RejectOnce:
                 await DeclineOnceAsync(http, config, items, log, ct).ConfigureAwait(false);
                 foreach (var item in items)
-                {
                     _heldConfirmMessages.Remove(item.MessageId);
-                    _storedCommands.Remove(item.AssignmentId);
-                }
                 break;
             case DispatchConfirmDecision.RejectToday:
                 await PauseDayAsync(http, config, log, ct).ConfigureAwait(false);
                 _heldConfirmMessages.Clear();
-                _storedCommands.Clear();
                 break;
             case DispatchConfirmDecision.Dismissed:
                 foreach (var item in items)
-                {
                     _heldConfirmMessages.Remove(item.MessageId);
-                    _storedCommands.Remove(item.AssignmentId);
-                }
                 log?.Invoke("已关闭派单确认。这批剧仍保留，重启后会再提示，不会另派新剧。");
                 break;
             default:
                 foreach (var item in items)
                 {
-                    if (_storedCommands.Remove(item.AssignmentId, out var stored))
-                    {
-                        await executeAsync(stored).ConfigureAwait(false);
-                        continue;
-                    }
                     if (!_heldConfirmMessages.Remove(item.MessageId, out var message))
                         continue;
                     await HandleCommandAsync(http, config, message, executeAsync, log, ct).ConfigureAwait(false);
@@ -594,50 +591,29 @@ public sealed class XingeRemoteCommandService
         }
     }
 
-    // 命令已经送达、客户端还没开始时，重启后继续确认同一批。关窗不算拒绝，也不向服务器另要新剧。
-    private void OfferStoredDispatches(IReadOnlyList<XingeOpenAutoPublishAssignment> open, Action<string>? log)
+    private async Task<bool> ResumeStoppedAsync(
+        HttpClient http,
+        XingeRemoteConfig config,
+        IReadOnlyList<long> assignmentIds,
+        Action<string>? log,
+        CancellationToken ct)
     {
-        if (_storedDispatchOffered || open.Count == 0)
-            return;
-        var pending = new List<(DispatchConfirmItem Item, TikTokRemoteCommand Command)>();
-        foreach (var assignment in open)
+        var ids = assignmentIds.Where(id => id > 0).Distinct().ToArray();
+        if (ids.Length == 0)
+            return true;
+        try
         {
-            if (!string.Equals(assignment.Status, "dispatched", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (!string.Equals(assignment.MessageStatus, "sent", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (AssignmentAlreadyLocal?.Invoke(assignment.Id) == true)
-                continue;
-            var command = assignment.ReadCommand();
-            if (command is null || !command.IsAutoPublishAssignment)
-                continue;
-            var title = command.Titles?.FirstOrDefault(item => !string.IsNullOrWhiteSpace(item)) ?? assignment.Title;
-            pending.Add((new DispatchConfirmItem
-            {
-                MessageId = assignment.Id,
-                AssignmentId = assignment.Id,
-                AccountName = command.AccountProfileName ?? "",
-                Title = title ?? "",
-                ConfirmSeconds = DispatchConfirmSession.DefaultCountdownSeconds,
-            }, command));
+            await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+                "/client-api/tiktok/auto-publish/resume-stopped",
+                new { client_id = config.ClientId, client_token = config.ClientToken, assignment_ids = ids }, ct).ConfigureAwait(false);
+            log?.Invoke($"已把 {ids.Length} 部手动停止的剧占回，重启后继续执行，不会另派新剧。");
+            return true;
         }
-        if (pending.Count == 0)
-            return;
-
-        DispatchConfirmSession? session = null;
-        foreach (var entry in pending)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var offer = _confirm.Offer(entry.Item, DateTimeOffset.Now, out var opened);
-            if (offer == DispatchConfirmOffer.PendingDecision)
-                return;
-            _storedCommands[entry.Item.AssignmentId] = entry.Command;
-            if (offer == DispatchConfirmOffer.Opened)
-                session = opened;
+            log?.Invoke($"占回手动停止的剧失败：{ex.Message}");
+            return false;
         }
-        _storedDispatchOffered = true;
-        if (session is not null)
-            XingeDispatchConfirmPrompt.Show(session);
-        log?.Invoke($"还有 {pending.Count} 部已分发未开始的剧，继续确认这一批，不会另派新剧。");
     }
 
     private static async Task<IReadOnlyList<XingeOpenAutoPublishAssignment>> ListOpenAutoPublishAsync(
@@ -844,6 +820,9 @@ public sealed class XingeRemoteCommandService
 
         [JsonPropertyName("account_profile_id")]
         public string AccountProfileId { get; set; } = "";
+
+        [JsonPropertyName("account_profile_name")]
+        public string AccountProfileName { get; set; } = "";
 
         [JsonPropertyName("enabled_steps")]
         public List<string> EnabledSteps { get; set; } = [];
