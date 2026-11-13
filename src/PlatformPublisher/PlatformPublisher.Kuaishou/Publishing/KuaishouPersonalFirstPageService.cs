@@ -673,7 +673,8 @@ public sealed class KuaishouPersonalFirstPageService
               setValue(nameInput, name);
               setValue(roleInput, role);
               const genderItem = field('演员性别');
-              const trigger = genderItem?.querySelector('.select-trigger, [role=combobox], .ks-select');
+              const trigger = genderItem?.querySelector('.select-trigger, [role=combobox]')
+                || genderItem?.querySelector('.ks-select');
               document.querySelectorAll('[data-kuaishou-actor-gender]').forEach(element => element.removeAttribute('data-kuaishou-actor-gender'));
               trigger?.setAttribute('data-kuaishou-actor-gender', String(number));
               return true;
@@ -684,13 +685,155 @@ public sealed class KuaishouPersonalFirstPageService
 
         var gender = page.Locator($"[data-kuaishou-actor-gender='{number}']").First;
         if (await gender.CountAsync() == 0) throw new InvalidOperationException($"第 {number} 位演员没有性别下拉。");
-        await gender.ScrollIntoViewIfNeededAsync();
-        await gender.ClickAsync();
-        await page.WaitForTimeoutAsync(300);
-        if (!await ClickDropdownOptionAsync(page, actor.Gender))
-            throw new InvalidOperationException($"第 {number} 位演员性别未找到“{actor.Gender}”。");
-        try { await page.Keyboard.PressAsync("Escape"); } catch (PlaywrightException) { /* 下拉已经关上。 */ }
+        await SelectActorGenderAsync(page, number, actor.Gender);
     }
+
+    private static async Task SelectActorGenderAsync(IPage page, int number, string gender)
+    {
+        var target = Compact(gender);
+        var seen = "无";
+        var opened = false;
+        var clicked = false;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            try { await page.Keyboard.PressAsync("Escape"); }
+            catch (PlaywrightException) { /* 页面上没有残留下拉。 */ }
+            if (attempt > 1) await page.WaitForTimeoutAsync(500);
+            if (await ReadActorGenderAsync(page, number) == target)
+                return;
+
+            var openIds = await VisiblePopupIdsAsync(page);
+            var trigger = page.Locator($"[data-kuaishou-actor-gender='{number}']").First;
+            await trigger.ScrollIntoViewIfNeededAsync();
+            await trigger.ClickAsync();
+            await page.WaitForTimeoutAsync(500);
+
+            var outcome = await ClickActorGenderOptionAsync(page, number, target, openIds);
+            opened |= outcome.PopupOpened;
+            if (!string.IsNullOrWhiteSpace(outcome.Options)) seen = outcome.Options;
+            if (!outcome.Clicked) continue;
+            clicked = true;
+            if (outcome.X >= 0 && outcome.Y >= 0)
+            {
+                try { await page.Mouse.ClickAsync((float)outcome.X, (float)outcome.Y); }
+                catch (PlaywrightException) { /* 选项自身的 click 已经发出。 */ }
+            }
+
+            await page.WaitForTimeoutAsync(200);
+            if (await ReadActorGenderAsync(page, number) == target)
+            {
+                try { await page.Keyboard.PressAsync("Escape"); }
+                catch (PlaywrightException) { /* 下拉已经关上。 */ }
+                return;
+            }
+        }
+
+        var action = clicked ? "没有选成" : "未找到";
+        throw new InvalidOperationException(
+            $"第 {number} 位演员性别{action}“{gender}”。下拉{(opened ? "已打开" : "没有打开")}，看到的选项：{seen}。");
+    }
+
+    private static Task<string[]> VisiblePopupIdsAsync(IPage page) =>
+        page.EvaluateAsync<string[]>(
+            """
+            () => {
+              const shown = element => {
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+              };
+              return Array.from(document.querySelectorAll(
+                '.ks-select__popper,.ks-popper,.ant-select-dropdown,.el-select-dropdown,[role="listbox"]'
+              )).filter(shown).map(popup => popup.id).filter(Boolean);
+            }
+            """);
+
+    private static async Task<ActorGenderClick> ClickActorGenderOptionAsync(
+        IPage page,
+        int number,
+        string target,
+        IReadOnlyList<string> openIds)
+    {
+        var json = await page.EvaluateAsync<string>(
+            """
+            ({ number, target, openIds }) => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const shown = element => {
+                if (!element) return false;
+                const style = getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+              };
+              const optionNodes = popup => Array.from(popup.querySelectorAll(
+                'li.ks-select-dropdown__item,.ks-select-dropdown__item,[role="option"],.ant-select-item-option,.el-select-dropdown__item,li'
+              ));
+              const optionText = option => compact(option.innerText || option.textContent || '');
+              const trigger = document.querySelector(`[data-kuaishou-actor-gender='${number}']`);
+              const described = trigger?.getAttribute('aria-describedby')
+                || trigger?.querySelector('[aria-describedby]')?.getAttribute('aria-describedby')
+                || '';
+              const linked = described ? document.getElementById(described) : null;
+              let popup = shown(linked) ? linked : null;
+              if (!popup) {
+                const openedBefore = new Set(openIds || []);
+                const fresh = Array.from(document.querySelectorAll(
+                  '.ks-select__popper,.ks-popper,.ant-select-dropdown,.el-select-dropdown,[role="listbox"]'
+                )).filter(element => shown(element) && !openedBefore.has(element.id));
+                popup = fresh.find(element => optionNodes(element).some(option => optionText(option) === target))
+                  || (fresh.length === 1 ? fresh[0] : null);
+              }
+              const options = popup ? optionNodes(popup) : [];
+              const texts = options.map(optionText).filter(Boolean);
+              const option = options.find(element => optionText(element) === target) || null;
+              if (!option) {
+                return JSON.stringify({ clicked: false, popupOpened: Boolean(popup), options: texts.join('、'), x: -1, y: -1 });
+              }
+              option.scrollIntoView({ block: 'center', inline: 'nearest' });
+              option.click();
+              const rect = option.getBoundingClientRect();
+              const inView = rect.width > 0 && rect.height > 0
+                && rect.top >= 0 && rect.left >= 0
+                && rect.bottom <= window.innerHeight && rect.right <= window.innerWidth;
+              return JSON.stringify({
+                clicked: true,
+                popupOpened: true,
+                options: texts.join('、'),
+                x: inView ? rect.left + rect.width / 2 : -1,
+                y: inView ? rect.top + rect.height / 2 : -1,
+              });
+            }
+            """,
+            new { number, target, openIds });
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var root = document.RootElement;
+        return new ActorGenderClick(
+            root.GetProperty("clicked").GetBoolean(),
+            root.GetProperty("popupOpened").GetBoolean(),
+            root.GetProperty("options").GetString() ?? string.Empty,
+            root.GetProperty("x").GetDouble(),
+            root.GetProperty("y").GetDouble());
+    }
+
+    private static Task<string> ReadActorGenderAsync(IPage page, int number) =>
+        page.EvaluateAsync<string>(
+            """
+            (number) => {
+              const compact = value => String(value || '').replace(/\s+/g, '');
+              const trigger = document.querySelector(`[data-kuaishou-actor-gender='${number}']`);
+              if (!trigger) return '';
+              const described = trigger.getAttribute('aria-describedby')
+                || trigger.querySelector('[aria-describedby]')?.getAttribute('aria-describedby')
+                || '';
+              const linked = described ? document.getElementById(described) : null;
+              const selected = linked?.querySelector('.ks-select-dropdown__item.selected, [role="option"][aria-selected="true"]');
+              const fromPopup = compact(selected?.innerText || selected?.textContent || '');
+              const fromInput = compact(trigger.querySelector('input')?.value || '');
+              return fromInput || fromPopup;
+            }
+            """,
+            number);
+
+    private readonly record struct ActorGenderClick(bool Clicked, bool PopupOpened, string Options, double X, double Y);
 
     private static IReadOnlyList<string> ReadAutoFillLabels(string workflowDirectory, string property, bool enterprise = false) =>
         ReadAutoFillArray(workflowDirectory, property, enterprise).Take(3).ToArray();
