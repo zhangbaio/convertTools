@@ -76,6 +76,22 @@ public class DramaBoxNewChannelTests
     }
 
     [Fact]
+    public void Reads_search_books_from_book_list()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "data": {
+                "bookList": [
+                  {"bookId":"9","bookName":"Empire","chapterCount":50}
+                ]
+              }
+            }
+            """);
+
+        DramaBoxApiService.CountSearchBooks(document.RootElement).Should().Be(1);
+    }
+
+    [Fact]
     public void Splits_curl_status_from_body()
     {
         var text = DramaBoxApiService.SplitCurlDump("HTTP/1.1 206 Partial Content\r\nContent-Length: 16\r\n\r\n{\"ok\":true}");

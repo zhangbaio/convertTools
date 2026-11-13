@@ -96,6 +96,8 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
                 pageSize = 20,
                 from = "search_home",
                 searchSource = "his",
+                language = DefaultLanguage,
+                currentLanguage = DefaultLanguage,
             },
             cancellationToken);
         var books = ReadSearchList(document.RootElement);
@@ -244,6 +246,142 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         return new GatewayPlayback(url, string.Empty, false);
     }
 
+    public async Task DownloadFileAsync(string url, string targetPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Version = HttpVersion.Version11;
+            request.VersionPolicy = HttpVersionPolicy.RequestVersionExact;
+            request.Headers.TryAddWithoutValidation("User-Agent", "okhttp/4.10.0");
+            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (response.IsSuccessStatusCode && !IsHtmlMedia(response))
+            {
+                await WriteResponseFileAsync(response, targetPath, cancellationToken);
+                if (!IsDeniedFile(targetPath))
+                    return;
+            }
+        }
+        catch (Exception ex) when (IsTransportFailure(ex))
+        {
+        }
+
+        if (File.Exists(targetPath))
+            File.Delete(targetPath);
+        await DownloadFileWithImpersonationAsync(url, targetPath, cancellationToken);
+        if (IsDeniedFile(targetPath))
+            throw new InvalidOperationException("DramaBox 视频下载被 CDN 拒绝。");
+    }
+
+    private static bool IsHtmlMedia(HttpResponseMessage response)
+    {
+        var mediaType = response.Content.Headers.ContentType?.MediaType ?? "";
+        return mediaType.Contains("html", StringComparison.OrdinalIgnoreCase) ||
+               mediaType.Contains("text", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task WriteResponseFileAsync(
+        HttpResponseMessage response, string targetPath, CancellationToken cancellationToken)
+    {
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var file = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+        await source.CopyToAsync(file, cancellationToken);
+    }
+
+    private static async Task DownloadFileWithImpersonationAsync(
+        string url, string targetPath, CancellationToken cancellationToken)
+    {
+        var curl = FindCurlImpersonate();
+        if (!string.IsNullOrWhiteSpace(curl))
+        {
+            await DownloadFileWithCurlAsync(curl, url, targetPath, cancellationToken);
+            return;
+        }
+
+        await DownloadFileWithPythonAsync(url, targetPath, cancellationToken);
+    }
+
+    private static async Task DownloadFileWithCurlAsync(
+        string curl, string url, string targetPath, CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = curl,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.ArgumentList.Add("-sS");
+        startInfo.ArgumentList.Add("-L");
+        startInfo.ArgumentList.Add("--http1.1");
+        startInfo.ArgumentList.Add("--max-time");
+        startInfo.ArgumentList.Add("600");
+        startInfo.ArgumentList.Add("-H");
+        startInfo.ArgumentList.Add("User-Agent: okhttp/4.10.0");
+        startInfo.ArgumentList.Add("-o");
+        startInfo.ArgumentList.Add(targetPath);
+        startInfo.ArgumentList.Add(url);
+        using var process = global::System.Diagnostics.Process.Start(startInfo)
+                           ?? throw new InvalidOperationException("无法启动 curl-impersonate。");
+        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        var error = await errorTask;
+        if (process.ExitCode != 0 || !File.Exists(targetPath))
+            throw new InvalidOperationException("DramaBox 视频下载失败：" + Trim(error));
+    }
+
+    private static async Task DownloadFileWithPythonAsync(
+        string url, string targetPath, CancellationToken cancellationToken)
+    {
+        var scriptPath = Path.Combine(Path.GetTempPath(), "dramabox-download.py");
+        await File.WriteAllTextAsync(
+            scriptPath,
+            """
+            import json, sys, urllib.request, urllib.error
+            req = json.load(sys.stdin)
+            request = urllib.request.Request(req["url"], headers={"User-Agent": "okhttp/4.10.0"}, method="GET")
+            try:
+                with urllib.request.urlopen(request, timeout=600) as response:
+                    open(req["path"], "wb").write(response.read())
+            except urllib.error.HTTPError as error:
+                open(req["path"], "wb").write(error.read())
+                if error.code >= 400:
+                    sys.exit(1)
+            """,
+            cancellationToken);
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "python",
+            Arguments = $"\"{scriptPath}\"",
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        using var process = global::System.Diagnostics.Process.Start(startInfo)
+                           ?? throw new InvalidOperationException("无法启动 Python，DramaBox 视频下载失败。");
+        await process.StandardInput.WriteAsync(JsonSerializer.Serialize(new { url, path = targetPath }));
+        process.StandardInput.Close();
+        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        var error = await errorTask;
+        if (process.ExitCode != 0 || !File.Exists(targetPath))
+            throw new InvalidOperationException("DramaBox 视频下载失败：" + Trim(error));
+    }
+
+    private static bool IsDeniedFile(string path)
+    {
+        if (!File.Exists(path))
+            return true;
+        var info = new FileInfo(path);
+        if (info.Length == 0 || info.Length > 8192)
+            return false;
+        var text = File.ReadAllText(path);
+        return IsCdnDenied(text);
+    }
+
     public async Task DecryptPrivateMp4Async(
         string path, DramaSourceSettings settings, int episodeNumber, CancellationToken cancellationToken)
     {
@@ -326,7 +464,16 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             using var document = await PostSignedAsync(
                 settings,
                 "/drama-box/chapterv2/batch/load",
-                new { boundaryIndex = 0, index, preLoad = false, bookId },
+                new
+            {
+                boundaryIndex = 0,
+                index,
+                loadDirection = 0,
+                preLoad = false,
+                bookId,
+                language = DefaultLanguage,
+                currentLanguage = DefaultLanguage,
+            },
                 cancellationToken);
             var data = DataObject(document.RootElement);
             if (coverUrl.Length == 0)
@@ -778,16 +925,27 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         item.PublishTime,
         PlayCount: item.PlayCount);
 
+    internal static int CountSearchBooks(JsonElement root) => ReadSearchList(root).Count();
+
     private static IEnumerable<DramaBook> ReadSearchList(JsonElement root)
     {
         var data = DataObject(root);
-        if (!data.TryGetProperty("searchList", out var list) || list.ValueKind != JsonValueKind.Array)
-            yield break;
-        foreach (var item in list.EnumerateArray())
+        foreach (var name in new[] { "searchList", "bookList", "records", "list" })
         {
-            var book = ReadBook(item);
-            if (book is not null)
+            if (!data.TryGetProperty(name, out var list) || list.ValueKind != JsonValueKind.Array)
+                continue;
+            var found = false;
+            foreach (var item in list.EnumerateArray())
+            {
+                var book = ReadBook(item);
+                if (book is null)
+                    continue;
+                found = true;
                 yield return book;
+            }
+
+            if (found)
+                yield break;
         }
     }
 

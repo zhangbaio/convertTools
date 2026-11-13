@@ -515,8 +515,11 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             return;
         }
 
+        var dramaBoxSearch = ShortDramaDramaServices.IsDramaBoxSourceSelected() && !string.IsNullOrWhiteSpace(keyword);
         await LoadSearchResultsAsync(
-            string.IsNullOrWhiteSpace(keyword) ? "分类筛选上新" : $"第 {SearchPage} 页",
+            dramaBoxSearch
+                ? $"DramaBox 搜索 · 英语 · 第 {SearchPage} 页"
+                : string.IsNullOrWhiteSpace(keyword) ? "分类筛选上新" : $"第 {SearchPage} 页",
             async ct =>
             {
                 if (string.IsNullOrWhiteSpace(keyword))

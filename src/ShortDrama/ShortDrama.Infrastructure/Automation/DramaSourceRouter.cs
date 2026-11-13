@@ -938,7 +938,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
-                prepareDownloadedFile: (path, episode, ct) => _dramaBoxApiService.DecryptPrivateMp4Async(path, settings, episode, ct));
+                prepareDownloadedFile: (path, episode, ct) => _dramaBoxApiService.DecryptPrivateMp4Async(path, settings, episode, ct),
+                dramaBoxMedia: true);
         }
 
         if (bookId.StartsWith(ForeignPlayletClient.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -1134,7 +1135,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int pieceSize = 0,
         int pieceWorkers = 0,
         Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null,
-        Func<IReadOnlyList<EpisodeTask>, string, IProgress<string>?, CancellationToken, Task<string>>? adjustQuality = null)
+        Func<IReadOnlyList<EpisodeTask>, string, IProgress<string>?, CancellationToken, Task<string>>? adjustQuality = null,
+        bool dramaBoxMedia = false)
     {
         Directory.CreateDirectory(request.OutputDir);
         progress?.Report($"开始下载《{request.DisplayName}》...");
@@ -1228,7 +1230,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             pieceSize,
             pieceWorkers,
             prepareDownloadedFile,
-            accountFailureStop));
+            accountFailureStop,
+            dramaBoxMedia));
         try
         {
             await Task.WhenAll(downloads);
@@ -1299,7 +1302,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         int pieceSize = 0,
         int pieceWorkers = 0,
         Func<string, int, CancellationToken, Task>? prepareDownloadedFile = null,
-        CancellationTokenSource? accountFailureStop = null)
+        CancellationTokenSource? accountFailureStop = null,
+        bool dramaBoxMedia = false)
     {
         var lifecycleSlotHeld = false;
         if (resolveSemaphore is null)
@@ -1391,7 +1395,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         pieceWorkers,
                         prepareDownloadedFile is null
                             ? null
-                            : (path, ct) => prepareDownloadedFile(path, task.SourceEpisodeNumber, ct));
+                            : (path, ct) => prepareDownloadedFile(path, task.SourceEpisodeNumber, ct),
+                        dramaBoxMedia);
                 }
                 finally
                 {
@@ -1494,7 +1499,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         Action<string>? report,
         int pieceSize = 0,
         int pieceWorkers = 0,
-        Func<string, CancellationToken, Task>? prepareDownloadedFile = null)
+        Func<string, CancellationToken, Task>? prepareDownloadedFile = null,
+        bool dramaBoxMedia = false)
     {
         var hasPikachuDecryptKey = !string.IsNullOrWhiteSpace(pikachuDecryptKey);
         var encryptedTempPath = hasPikachuDecryptKey ? BuildEncryptedTempPath(tempPath) : null;
@@ -1556,7 +1562,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     message => report?.Invoke(message),
                     token,
                     pieceSize,
-                    pieceWorkers);
+                    pieceWorkers,
+                    dramaBoxMedia);
             }
 
             if (!usedHongguoCdn && hasPikachuDecryptKey)
@@ -1743,8 +1750,39 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         Action<string>? report,
         CancellationToken cancellationToken,
         int pieceSize = 0,
-        int pieceWorkers = 0)
+        int pieceWorkers = 0,
+        bool dramaBoxMedia = false)
     {
+        if (dramaBoxMedia)
+        {
+            try
+            {
+                await DownloadHttpContentAsync(
+                    url,
+                    targetPath,
+                    requestedSegments,
+                    report,
+                    cancellationToken,
+                    pieceSize,
+                    pieceWorkers);
+                if (!IsDramaBoxDeniedFile(targetPath))
+                    return;
+                report?.Invoke("CDN 拒绝了 .NET 下载，改用备用通道");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                report?.Invoke($"直连下载失败，改用备用通道：{ex.Message}");
+            }
+
+            DeleteIfExists(targetPath);
+            await _dramaBoxApiService.DownloadFileAsync(url, targetPath, cancellationToken);
+            return;
+        }
+
         var segments = Math.Clamp(
             requestedSegments <= 0 ? DefaultDownloadFileSegments : requestedSegments,
             1,
@@ -2032,6 +2070,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         await file.FlushAsync(cancellationToken);
+    }
+
+    private static bool IsDramaBoxDeniedFile(string path)
+    {
+        if (!File.Exists(path))
+            return true;
+        var info = new FileInfo(path);
+        if (info.Length == 0 || info.Length > 8192)
+            return false;
+        var text = File.ReadAllText(path);
+        return text.Contains("Access Denied", StringComparison.OrdinalIgnoreCase) &&
+               text.Contains("<HTML", StringComparison.OrdinalIgnoreCase);
     }
 
     private static HttpRequestMessage CreateDownloadRequest(string url)
