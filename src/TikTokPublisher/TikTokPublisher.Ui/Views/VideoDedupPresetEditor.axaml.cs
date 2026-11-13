@@ -15,6 +15,7 @@ public partial class VideoDedupPresetEditor : UserControl
     ];
 
     private string _presetName = "";
+    private int _parallel = 2;
     private double _brightness;
     private double _contrast = 1;
     private double _saturation = 1;
@@ -85,44 +86,44 @@ public partial class VideoDedupPresetEditor : UserControl
     {
         var value = (preset ?? VideoDedupPreset.CreateDefault()).NormalizedCopy();
         _presetName = value.Name;
-        ParallelBox.Value = value.Parallel;
-            EncoderAutoBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingHardwareFirst;
-            EncoderSoftwareBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingSoftwareOnly;
-            EncoderNvencBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingNvenc;
-            EncoderAmfBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingAmf;
-            EncoderQsvBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingQsv;
-            MinDurationBox.Value = (decimal)value.MinimumDurationSeconds;
-            MaxDurationBox.Value = (decimal)value.MaximumDurationSeconds;
-            TransitionsEnabledBox.IsChecked = value.TransitionsEnabled;
-            FadeBlackBox.IsChecked = value.TransitionFadeBlack;
-            DissolveBox.IsChecked = value.TransitionDissolve;
-            PushBox.IsChecked = value.TransitionPush;
-            SlideBox.IsChecked = value.TransitionSlide;
-            ZoomBox.IsChecked = value.TransitionZoom;
-            TrimStartBox.Value = (decimal)value.TrimStartSeconds;
-            TrimEndBox.Value = (decimal)value.TrimEndSeconds;
-            CropVerticalBox.Value = (decimal)Math.Max(value.CropTopPercent, value.CropBottomPercent);
-            CropHorizontalBox.Value = (decimal)Math.Max(value.CropLeftPercent, value.CropRightPercent);
-            SelectResolution(value.PortraitWidth, value.PortraitHeight);
-            SpeedBox.Value = (decimal)value.SpeedFactor;
-            FrameDropBox.Value = (decimal)value.FrameDropPercent;
-            StoreFilters(value);
-            CodecDefaultBox.IsChecked = value.VideoCodec == VideoDedupPreset.CodecDefault;
-            CodecH264Box.IsChecked = value.VideoCodec == VideoDedupPreset.CodecH264;
-            CodecHevcBox.IsChecked = value.VideoCodec == VideoDedupPreset.CodecHevc;
-            CodecH265Box.IsChecked = value.VideoCodec == VideoDedupPreset.CodecH265;
-            FpsBox.Value = value.Fps;
-            RateCbrBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateCbr;
-            RateVbrBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateVbr;
-            RateCrfBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateCrf;
-            VideoBitrateBox.Value = (decimal)value.VideoBitrateMbps;
-            CrfBox.Value = value.Crf;
-            AudioDefaultBox.IsChecked = value.AudioCodec == VideoDedupPreset.AudioDefault;
-            AudioAacBox.IsChecked = value.AudioCodec != VideoDedupPreset.AudioDefault;
-            AudioBitrateBox.Value = value.AudioBitrateKbps;
-            LowGainBox.Value = (decimal)value.AudioLowGainDb;
-            MidGainBox.Value = (decimal)value.AudioMidGainDb;
-            HighGainBox.Value = (decimal)value.AudioHighGainDb;
+        _parallel = value.Parallel;
+        EncoderAutoBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingHardwareFirst;
+        EncoderSoftwareBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingSoftwareOnly;
+        EncoderNvencBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingNvenc;
+        EncoderAmfBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingAmf;
+        EncoderQsvBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingQsv;
+        MinDurationBox.Value = (decimal)value.MinimumDurationSeconds;
+        MaxDurationBox.Value = (decimal)value.MaximumDurationSeconds;
+        TransitionsEnabledBox.IsChecked = value.TransitionsEnabled;
+        FadeBlackBox.IsChecked = value.TransitionFadeBlack;
+        DissolveBox.IsChecked = value.TransitionDissolve;
+        PushBox.IsChecked = value.TransitionPush;
+        SlideBox.IsChecked = value.TransitionSlide;
+        ZoomBox.IsChecked = value.TransitionZoom;
+        TrimStartBox.Value = (decimal)value.TrimStartSeconds;
+        TrimEndBox.Value = (decimal)value.TrimEndSeconds;
+        CropVerticalBox.Value = (decimal)Math.Max(value.CropTopPercent, value.CropBottomPercent);
+        CropHorizontalBox.Value = (decimal)Math.Max(value.CropLeftPercent, value.CropRightPercent);
+        SelectResolution(value.PortraitWidth, value.PortraitHeight);
+        SpeedBox.Value = (decimal)value.SpeedFactor;
+        FrameDropBox.Value = (decimal)value.FrameDropPercent;
+        StoreFilters(value);
+        CodecDefaultBox.IsChecked = value.VideoCodec == VideoDedupPreset.CodecDefault;
+        CodecH264Box.IsChecked = value.VideoCodec == VideoDedupPreset.CodecH264;
+        CodecHevcBox.IsChecked = value.VideoCodec == VideoDedupPreset.CodecHevc;
+        CodecH265Box.IsChecked = value.VideoCodec == VideoDedupPreset.CodecH265;
+        FpsBox.Value = value.Fps;
+        RateCbrBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateCbr;
+        RateVbrBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateVbr;
+        RateCrfBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateCrf;
+        VideoBitrateBox.Value = (decimal)value.VideoBitrateMbps;
+        CrfBox.Value = value.Crf;
+        AudioDefaultBox.IsChecked = value.AudioCodec == VideoDedupPreset.AudioDefault;
+        AudioAacBox.IsChecked = value.AudioCodec != VideoDedupPreset.AudioDefault;
+        AudioBitrateBox.Value = value.AudioBitrateKbps;
+        LowGainBox.Value = (decimal)value.AudioLowGainDb;
+        MidGainBox.Value = (decimal)value.AudioMidGainDb;
+        HighGainBox.Value = (decimal)value.AudioHighGainDb;
     }
 
     public VideoDedupPreset Read()
@@ -130,7 +131,7 @@ public partial class VideoDedupPresetEditor : UserControl
         var preset = new VideoDedupPreset
         {
             Name = _presetName,
-            Parallel = (int)(ParallelBox.Value ?? 2),
+            Parallel = _parallel,
             EncodingPreference = EncoderSoftwareBox.IsChecked == true
                 ? VideoDedupPreset.EncodingSoftwareOnly
                 : EncoderNvencBox.IsChecked == true

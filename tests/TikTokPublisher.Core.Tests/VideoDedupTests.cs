@@ -331,6 +331,73 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Mixed_frame_sizes_in_one_episode_scale_to_one_upload_frame()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.PortraitWidth = 0;
+        preset.PortraitHeight = 0;
+        preset.CropTopPercent = 3;
+        preset.CropBottomPercent = 3;
+        preset.CropLeftPercent = 3;
+        preset.CropRightPercent = 3;
+        preset.TransitionsEnabled = true;
+        preset.TransitionDissolve = true;
+        preset.Normalize();
+
+        var small = new VideoDedupClip("small.mp4", new VideoDedupProbe(12, 720, 1282, true));
+        var tall = new VideoDedupClip("tall.mp4", new VideoDedupProbe(12, 1080, 1922, true));
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [small, tall], "out.mp4", "libx264", seed: 1));
+        joined.Split("scale=1080:1920:").Length.Should().Be(3);
+        joined.Should().NotContain("scale=1080:1922:");
+        joined.Should().Contain("xfade=");
+
+        preset.TransitionsEnabled = false;
+        var concat = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [small, tall], "out.mp4", "libx264", seed: 1));
+        concat.Split("scale=1080:1920:").Length.Should().Be(3);
+        concat.Should().Contain("concat=n=2");
+        concat.Should().NotContain("xfade=");
+
+        var uniform = string.Join(" ", VideoDedupPlanner.BuildArguments(
+            preset,
+            [
+                new VideoDedupClip("a.mp4", new VideoDedupProbe(12, 1080, 1922, true)),
+                new VideoDedupClip("b.mp4", new VideoDedupProbe(12, 1080, 1922, true)),
+            ],
+            "out.mp4",
+            "libx264",
+            seed: 1));
+        uniform.Should().Contain("scale=1080:1922:");
+        uniform.Should().NotContain("scale=1080:1920:");
+
+        var wide = string.Join(" ", VideoDedupPlanner.BuildArguments(
+            preset,
+            [
+                new VideoDedupClip("wide-small.mp4", new VideoDedupProbe(12, 1280, 720, true)),
+                new VideoDedupClip("wide.mp4", new VideoDedupProbe(12, 1922, 1080, true)),
+            ],
+            "out.mp4",
+            "libx264",
+            seed: 1));
+        wide.Split("scale=1920:1080:").Length.Should().Be(3);
+        wide.Should().NotContain("scale=1922:1080:");
+
+        VideoDedupClip[] clips =
+        [
+            new("p1.mp4", new VideoDedupProbe(12, 720, 1282, true)),
+            new("p2.mp4", new VideoDedupProbe(12, 720, 1282, true)),
+            new("wide.mp4", new VideoDedupProbe(12, 1922, 1080, true)),
+        ];
+        VideoDedupPlanner.SharedEpisodeFrame(
+            clips,
+            [new VideoDedupSlice(0, 0, 12), new VideoDedupSlice(1, 0, 12), new VideoDedupSlice(2, 0, 12)],
+            preset).Should().Be(new VideoDedupPlanner.UploadFrame(1080, 1920, true));
+        VideoDedupPlanner.SharedEpisodeFrame(
+            clips,
+            [new VideoDedupSlice(2, 0, 12), new VideoDedupSlice(0, 0, 12)],
+            preset).Should().Be(new VideoDedupPlanner.UploadFrame(1920, 1080, true));
+    }
+
+    [Fact]
     public void Source_below_1080_scales_to_the_upload_frame()
     {
         var preset = VideoDedupPreset.CreateDefault();
@@ -762,6 +829,7 @@ public sealed class VideoDedupTests
         };
         try
         {
+            VideoDedupCpuBudget.ConcurrencyForTests = 1;
             var preset = VideoDedupPreset.CreateDefault();
             preset.Parallel = 1;
             var item = new QueueProjectItem { ProjectDir = root, EpisodeCount = 2 };
@@ -790,6 +858,8 @@ public sealed class VideoDedupTests
         }
         finally
         {
+            VideoDedupCpuBudget.ConcurrencyForTests = null;
+            VideoDedupCpuBudget.Configure(VideoDedupCpuBudget.DefaultConcurrency, Environment.ProcessorCount);
             VideoDedupService.ProbeForTests = null;
             VideoDedupService.EncoderForTests = null;
             VideoDedupService.RunProcessForTests = null;
@@ -907,29 +977,82 @@ public sealed class VideoDedupTests
     }
 
     [Theory]
-    [InlineData(2, 1)]
-    [InlineData(4, 1)]
-    [InlineData(8, 1)]
-    [InlineData(12, 2)]
-    [InlineData(16, 2)]
-    [InlineData(24, 2)]
-    [InlineData(32, 3)]
-    [InlineData(64, 3)]
-    public void Encode_slots_follow_the_processor_count(int logicalProcessors, int expected) =>
-        VideoDedupCpuBudget.MaxConcurrentEncodes(logicalProcessors).Should().Be(expected);
+    [InlineData(0, 16, 2)]
+    [InlineData(-3, 16, 2)]
+    [InlineData(2, 16, 2)]
+    [InlineData(8, 16, 8)]
+    [InlineData(99, 16, 16)]
+    [InlineData(4, 1, 1)]
+    public void Concurrency_uses_the_configured_value_up_to_the_processor_count(
+        int configured,
+        int logicalProcessors,
+        int expected) =>
+        VideoDedupCpuBudget.Normalize(configured, logicalProcessors).Should().Be(expected);
 
     [Theory]
-    [InlineData(4, false)]
-    [InlineData(8, false)]
-    [InlineData(16, true)]
-    [InlineData(32, true)]
-    public void Full_encode_load_stays_inside_the_thread_budget(int logicalProcessors, bool hardware)
+    [InlineData(16, 2, true)]
+    [InlineData(16, 2, false)]
+    [InlineData(16, 3, true)]
+    [InlineData(8, 1, false)]
+    public void Full_encode_load_splits_every_processor_across_the_configured_lanes(
+        int logicalProcessors,
+        int concurrency,
+        bool hardware)
     {
-        var concurrent = VideoDedupCpuBudget.MaxConcurrentEncodes(logicalProcessors);
-        var threads = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, hardware);
-        var used = concurrent * (threads.EncoderThreads + threads.FilterThreads);
-        used.Should().BeLessThanOrEqualTo(VideoDedupCpuBudget.ThreadBudget(logicalProcessors));
-        used.Should().BeLessThan(logicalProcessors);
+        var lanes = VideoDedupCpuBudget.Normalize(concurrency, logicalProcessors);
+        var threads = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, lanes, hardware);
+        var perProcess = hardware
+            ? threads.FilterThreads
+            : threads.EncoderThreads + threads.FilterThreads;
+        perProcess.Should().Be(Math.Max(1, logicalProcessors / lanes));
+        if (hardware)
+            threads.EncoderThreads.Should().Be(1);
+        (lanes * perProcess).Should().BeLessThanOrEqualTo(logicalProcessors);
+    }
+
+    [Fact]
+    public async Task Encode_gate_admits_the_next_episode_when_concurrency_rises()
+    {
+        VideoDedupEncodeGate.Configure(1);
+        try
+        {
+            await VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+            var waiting = VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+            waiting.IsCompleted.Should().BeFalse();
+            VideoDedupEncodeGate.Configure(2);
+            await waiting.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            VideoDedupEncodeGate.Release();
+            VideoDedupEncodeGate.Release();
+            VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
+        }
+    }
+
+    [Fact]
+    public async Task Cancelled_encode_wait_does_not_keep_a_slot()
+    {
+        VideoDedupEncodeGate.Configure(1);
+        try
+        {
+            await VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+            using var cts = new CancellationTokenSource();
+            var waiting = VideoDedupEncodeGate.WaitAsync(cts.Token);
+            cts.Cancel();
+            var act = async () => await waiting;
+            await act.Should().ThrowAsync<OperationCanceledException>();
+            VideoDedupEncodeGate.Release();
+
+            var entered = VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+            await entered.WaitAsync(TimeSpan.FromSeconds(2));
+            VideoDedupEncodeGate.Release();
+        }
+        finally
+        {
+            VideoDedupEncodeGate.Release();
+            VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
+        }
     }
 
     [Fact]

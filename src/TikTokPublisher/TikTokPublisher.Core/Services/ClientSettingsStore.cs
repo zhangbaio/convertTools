@@ -6,6 +6,7 @@ using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Remote;
+using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -431,10 +432,9 @@ public static class ClientSettingsStore
             QueueProjectSlotCoordinator.MaxCapacity);
         settings.TiktokAccountScheduleMode = QueueProjectSlotCoordinator.NormalizeMode(settings.TiktokAccountScheduleMode);
         settings.ServerDispatchMode = QueueProjectSlotCoordinator.NormalizeServerDispatchMode(settings.ServerDispatchMode);
-        settings.TiktokVideoDedupConcurrency = Math.Clamp(
-            settings.TiktokVideoDedupConcurrency <= 0 ? 2 : settings.TiktokVideoDedupConcurrency,
-            1,
-            4);
+        settings.TiktokVideoDedupConcurrency = VideoDedupCpuBudget.Normalize(
+            settings.TiktokVideoDedupConcurrency,
+            Math.Max(1, Environment.ProcessorCount));
         settings.TiktokUploadConcurrency = Math.Clamp(
             settings.TiktokUploadConcurrency <= 0 ? 2 : settings.TiktokUploadConcurrency,
             1,

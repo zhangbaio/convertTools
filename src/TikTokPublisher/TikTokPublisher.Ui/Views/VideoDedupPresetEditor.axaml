@@ -26,14 +26,9 @@
                         Click="OnApplyToAllAccountsClick" />
             </StackPanel>
 
-            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-                <TextBlock Classes="dedupLabel" Text="并发数量" />
+            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
+                <TextBlock Classes="dedupLabel" Text="编码器" />
                 <StackPanel Grid.Column="1" Spacing="4">
-                    <NumericUpDown x:Name="ParallelBox" Minimum="1" Maximum="4" Increment="1" FormatString="0" Width="120" HorizontalAlignment="Left" />
-                    <TextBlock Classes="dedupHint" Text="这是一部剧想同时处理的集数。实际路数按每台电脑的处理器数量封顶，多部剧合在一起也不会把 CPU 占满。" />
-                </StackPanel>
-                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="编码器" />
-                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
                     <WrapPanel Orientation="Horizontal">
                         <RadioButton x:Name="EncoderAutoBox" GroupName="DedupEncoder" Content="自动选择" IsChecked="True" Margin="0,0,16,4" />
                         <RadioButton x:Name="EncoderSoftwareBox" GroupName="DedupEncoder" Content="CPU" Margin="0,0,16,4" />

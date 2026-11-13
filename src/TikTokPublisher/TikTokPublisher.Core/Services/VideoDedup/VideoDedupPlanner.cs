@@ -510,13 +510,14 @@ internal static class VideoDedupPlanner
         int seed)
     {
         var graph = new StringBuilder();
+        var sharedFrame = SharedEpisodeFrame(clips, slices, preset);
         for (var i = 0; i < slices.Count; i++)
         {
             var slice = slices[i];
             var clip = clips[slice.ClipIndex];
             var input = opened.SliceInput[i].ToString(CultureInfo.InvariantCulture);
             var label = i.ToString(CultureInfo.InvariantCulture);
-            var video = BuildVideoFilter(clip, slice, preset, seed + i * 17, opened.Origin[i]);
+            var video = BuildVideoFilter(clip, slice, preset, seed + i * 17, opened.Origin[i], sharedFrame);
             if (video.Length == 0)
                 video = "setpts=PTS-STARTPTS";
             graph.Append($"[{input}:v]{video},format=yuv420p,settb=AVTB[v{label}];");
@@ -613,6 +614,55 @@ internal static class VideoDedupPlanner
             : new UploadFrame(TikTokVideoConstraints.UploadPortraitHeight, TikTokVideoConstraints.UploadPortraitWidth, true);
     }
 
+    /// <summary>
+    /// 同一集里各段成片尺寸不一致时，转场和拼接都要求宽高相同。
+    /// 返回这一集统一使用的标准画面；尺寸已经一致时返回空，单段保持各自的尺寸。
+    /// </summary>
+    internal static UploadFrame? SharedEpisodeFrame(
+        IReadOnlyList<VideoDedupClip> clips,
+        IReadOnlyList<VideoDedupSlice> slices,
+        VideoDedupPreset preset)
+    {
+        if (slices.Count < 2)
+            return null;
+
+        UploadFrame first = default;
+        var haveFrame = false;
+        var distinct = false;
+        var portraitVotes = 0;
+        var landscapeVotes = 0;
+        foreach (var slice in slices)
+        {
+            var probe = clips[slice.ClipIndex].Probe;
+            var frame = ResolveUploadFrame(probe.Width, probe.Height, preset);
+            if (frame.Width <= 0 || frame.Height <= 0)
+                continue;
+            if (!haveFrame)
+            {
+                first = frame;
+                haveFrame = true;
+            }
+            else if (first.Width != frame.Width || first.Height != frame.Height)
+            {
+                distinct = true;
+            }
+
+            if (frame.Height >= frame.Width)
+                portraitVotes++;
+            else
+                landscapeVotes++;
+        }
+
+        if (!distinct)
+            return null;
+
+        var portrait = portraitVotes > landscapeVotes ||
+                       (portraitVotes == landscapeVotes && first.Height >= first.Width);
+        return portrait
+            ? new UploadFrame(TikTokVideoConstraints.UploadPortraitWidth, TikTokVideoConstraints.UploadPortraitHeight, true)
+            : new UploadFrame(TikTokVideoConstraints.UploadPortraitHeight, TikTokVideoConstraints.UploadPortraitWidth, true);
+    }
+
     private static int CroppedEven(int source, double ratio)
     {
         if (source <= 0 || ratio <= 0)
@@ -627,7 +677,8 @@ internal static class VideoDedupPlanner
         VideoDedupSlice slice,
         VideoDedupPreset preset,
         int seed,
-        double originSeconds)
+        double originSeconds,
+        UploadFrame? sharedFrame = null)
     {
         var filters = new List<string>();
         var start = slice.StartSeconds - originSeconds;
@@ -644,8 +695,8 @@ internal static class VideoDedupPlanner
                 $"crop=trunc(iw*{Num(width)}/2)*2:trunc(ih*{Num(height)}/2)*2:trunc(iw*{Num(preset.CropLeftPercent / 100d)}/2)*2:trunc(ih*{Num(preset.CropTopPercent / 100d)}/2)*2");
         }
 
-        var frame = ResolveUploadFrame(clip.Probe.Width, clip.Probe.Height, preset);
-        if (frame.Scaled)
+        var frame = sharedFrame ?? ResolveUploadFrame(clip.Probe.Width, clip.Probe.Height, preset);
+        if (sharedFrame is not null || frame.Scaled)
         {
             filters.Add(
                 $"scale={frame.Width.ToString(CultureInfo.InvariantCulture)}:{frame.Height.ToString(CultureInfo.InvariantCulture)}:flags=bicubic");

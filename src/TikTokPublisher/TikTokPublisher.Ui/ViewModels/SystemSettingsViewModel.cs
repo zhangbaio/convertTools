@@ -217,6 +217,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
     [ObservableProperty] private int _tiktokGlobalProjectConcurrency = 4;
     [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
+
+    public decimal VideoDedupConcurrencyMaximum => Math.Max(1, Environment.ProcessorCount);
     [ObservableProperty] private int _tiktokUploadConcurrency = 2;
     [ObservableProperty] private int _kuaishouProjectImageConcurrency = 3;
     [ObservableProperty] private string _tiktokAsrLanguage = "zh-CN";

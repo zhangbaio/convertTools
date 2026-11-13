@@ -30,6 +30,7 @@ public sealed class VideoDedupPreset
     public int SchemaVersion { get; set; } = 1;
     public string Name { get; set; } = "默认方案";
     public string EncodingPreference { get; set; } = EncodingHardwareFirst;
+    /// <summary>旧的单剧并发。运行时不再使用，仍参与指纹，避免已去重的剧被重做。</summary>
     public int Parallel { get; set; } = 2;
     public double MinimumDurationSeconds { get; set; }
     public double MaximumDurationSeconds { get; set; }
