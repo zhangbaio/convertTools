@@ -102,7 +102,7 @@ public sealed class XingeAutoPublishMarker
     [JsonPropertyName("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 
-    // 已回传终态（success/failed/user_stopped）后不再自动续跑。新的派单会覆写这份标记。
+    // success/failed 后不再自动续跑。user_stopped 仍占名额，重启后可以继续执行。新的派单会覆写这份标记。
     [JsonPropertyName("final_status")]
     public string FinalStatus { get; set; } = "";
 
@@ -190,6 +190,18 @@ public static class XingeAutoPublishMarkerStore
         if (marker is null || marker.AssignmentId != assignmentId || !marker.IsActive)
             return;
         marker.FinalStatus = finalStatus;
+        Save(projectDir, marker);
+    }
+
+    // 重启后续跑手动停止的项目时，清掉终态，后面的失败和成功才能继续写这份标记。
+    public static void MarkResumable(string projectDir, long assignmentId)
+    {
+        var marker = TryRead(projectDir);
+        if (marker is null || marker.AssignmentId != assignmentId)
+            return;
+        if (!string.Equals(marker.FinalStatus, XingeAutoPublishStatuses.UserStopped, StringComparison.OrdinalIgnoreCase))
+            return;
+        marker.FinalStatus = "";
         Save(projectDir, marker);
     }
 
@@ -282,7 +294,13 @@ public static class XingeAutoPublishRecovery
                 or XingeAutoPublishFailureKinds.Interrupted;
     }
 
-    // 命令还停在 dispatched 时由服务端重投，客户端不用另报。已接收但本地没有项目才回报中断。
+    // 今天手动停止、服务端又已经释放的派单，重启时先占回名额再续跑。
+    public static bool ShouldReclaimOnRestart(XingeAutoPublishMarker? marker) =>
+        marker is { AssignmentId: > 0 }
+        && string.Equals(marker.FinalStatus, XingeAutoPublishStatuses.UserStopped, StringComparison.OrdinalIgnoreCase);
+
+    // 命令还停在 dispatched 时由服务端保留，客户端不用另报。已接收但本地没有项目才回报中断。
+    // 手动停止和进程退出都继续占名额，本地项目还在就续跑，不向服务器另要新剧。
     public static XingeAutoPublishRecoveryAction Decide(string? serverStatus, XingeAutoPublishMarker? marker, bool projectExists)
     {
         var status = (serverStatus ?? "").Trim().ToLowerInvariant();
@@ -290,9 +308,8 @@ public static class XingeAutoPublishRecovery
             return XingeAutoPublishRecoveryAction.None;
         if (string.Equals(marker?.FinalStatus, XingeAutoPublishStatuses.Success, StringComparison.OrdinalIgnoreCase))
             return XingeAutoPublishRecoveryAction.ReportSuccess;
-        // 用户手动停止后派单标记已结束。这里不能再 Resume，也不能报「项目丢失」触发服务端立刻重投。
         if (string.Equals(marker?.FinalStatus, XingeAutoPublishStatuses.UserStopped, StringComparison.OrdinalIgnoreCase))
-            return XingeAutoPublishRecoveryAction.None;
+            return projectExists ? XingeAutoPublishRecoveryAction.Resume : XingeAutoPublishRecoveryAction.None;
         if (marker?.IsActive == true && projectExists)
             return XingeAutoPublishRecoveryAction.Resume;
         if (status is "accepted" or "running")

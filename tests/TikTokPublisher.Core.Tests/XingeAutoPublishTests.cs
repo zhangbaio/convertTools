@@ -86,7 +86,7 @@ public sealed class XingeAutoPublishTests : IDisposable
     }
 
     [Fact]
-    public void Recovery_DoesNotResumeAfterManualStop()
+    public void Recovery_ResumesManualStopWhenTheProjectRemains()
     {
         var marker = new XingeAutoPublishMarker
         {
@@ -94,8 +94,13 @@ public sealed class XingeAutoPublishTests : IDisposable
             FinalStatus = XingeAutoPublishStatuses.UserStopped,
         };
 
-        XingeAutoPublishRecovery.Decide("accepted", marker, true).Should().Be(XingeAutoPublishRecoveryAction.None);
-        XingeAutoPublishRecovery.Decide("running", marker, true).Should().Be(XingeAutoPublishRecoveryAction.None);
+        XingeAutoPublishRecovery.ShouldReclaimOnRestart(marker).Should().BeTrue();
+        XingeAutoPublishRecovery.Decide("user_stopped", marker, true).Should().Be(XingeAutoPublishRecoveryAction.Resume);
+        XingeAutoPublishRecovery.Decide("accepted", marker, true).Should().Be(XingeAutoPublishRecoveryAction.Resume);
+        XingeAutoPublishRecovery.Decide("running", marker, true).Should().Be(XingeAutoPublishRecoveryAction.Resume);
+        XingeAutoPublishRecovery.Decide("user_stopped", marker, false).Should().Be(XingeAutoPublishRecoveryAction.None);
+        XingeAutoPublishRecovery.Decide("released", marker, true).Should().Be(XingeAutoPublishRecoveryAction.None);
+        XingeAutoPublishRecovery.ShouldReclaimOnRestart(new XingeAutoPublishMarker { AssignmentId = 7 }).Should().BeFalse();
     }
 
     [Fact]
@@ -358,6 +363,36 @@ public sealed class XingeAutoPublishTests : IDisposable
             .Should().BeFalse();
         calls.Should().Be(0);
         reporter.PendingCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Reporter_ReplacesPendingManualStopWhenRestartResumes()
+    {
+        var settings = new ClientSettings { XingeRemoteEnabled = false };
+        var requests = new List<string>();
+        using var http = new HttpClient(new StubHandler(async request =>
+        {
+            var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync()).RootElement;
+            requests.Add(body.GetProperty("status").GetString() ?? "");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"ok":true}""", Encoding.UTF8, "application/json"),
+            };
+        }));
+        var reporter = new XingeAutoPublishProgressReporter(http, Path.Combine(_root, "stop-outbox.json"), () => settings);
+        await reporter.ReportAsync(
+            new XingeAutoPublishProgress(4, "", XingeAutoPublishStatuses.UserStopped, "upload_series", "用户手动停止", XingeAutoPublishFailureKinds.UserStopped),
+            CancellationToken.None);
+        reporter.PendingCount.Should().Be(1);
+
+        settings.XingeRemoteEnabled = true;
+        settings.XingeServerUrl = "https://xinge.example/";
+        settings.XingeClientId = "rc_1";
+        settings.XingeClientToken = "token-1";
+        (await reporter.ReportAsync(new XingeAutoPublishProgress(4, "", XingeAutoPublishStatuses.Running, "upload_series", "客户端重启后继续执行"), CancellationToken.None))
+            .Should().BeTrue();
+        requests.Should().Equal(XingeAutoPublishStatuses.Running);
+        reporter.PendingCount.Should().Be(0);
     }
 
     [Theory]

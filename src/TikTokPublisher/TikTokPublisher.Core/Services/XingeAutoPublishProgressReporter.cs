@@ -139,15 +139,19 @@ public sealed class XingeAutoPublishProgressReporter
             var pending = LoadPending();
             var sameAssignment = pending.Where(item => item.AssignmentId == progress.AssignmentId).ToList();
             if (!XingeAutoPublishStatuses.IsTerminal(progress.Status) &&
-                sameAssignment.Any(item => XingeAutoPublishStatuses.IsTerminal(item.Status)))
+                sameAssignment.Any(item => XingeAutoPublishStatuses.IsTerminal(item.Status) &&
+                    !string.Equals(item.Status, XingeAutoPublishStatuses.UserStopped, StringComparison.OrdinalIgnoreCase)))
             {
                 return;
             }
 
             // 未发出的中间进度被新状态取代，只保留最新一条，避免断网恢复后补发大量过期步骤。
+            // 手动停止还没发出时，重启后续跑的 running 要盖掉它。
             pending.RemoveAll(item =>
                 item.AssignmentId == progress.AssignmentId &&
-                (!XingeAutoPublishStatuses.IsTerminal(item.Status) || XingeAutoPublishStatuses.IsTerminal(progress.Status)));
+                (!XingeAutoPublishStatuses.IsTerminal(item.Status)
+                    || string.Equals(item.Status, XingeAutoPublishStatuses.UserStopped, StringComparison.OrdinalIgnoreCase)
+                    || XingeAutoPublishStatuses.IsTerminal(progress.Status)));
             pending.Add(progress);
             SavePending();
         }

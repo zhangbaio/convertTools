@@ -140,6 +140,9 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool _dailyLimitNotified;
     private readonly Dictionary<string, DateOnly> _dailyLimitReportedAccounts = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<long> _autoPublishResumeAbandoned = new();
+    private readonly HashSet<long> _restartStoredStarted = new();
+    private readonly HashSet<long> _stoppedThisSession = new();
+    private bool _restartResumeChecked;
     private bool _restartResumeConfirmed;
     private bool _restartResumeDismissed;
 
@@ -334,6 +337,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         SystemServices.SettingsSaved += RestartXingeRemoteCommandService;
         _xingeRemoteCommandService.AssignmentAlreadyLocal = AssignmentAlreadyLocal;
+        _xingeRemoteCommandService.LocalStoppedAssignmentIds = LocalStoppedAssignmentIds;
         _xingeRemoteCommandService.StatusChanged += OnXingeRemoteStatusChanged;
         XingeAutoPublishProgressReporter.Shared.Log += AppendLog;
         XingeUploadTaskReporter.Shared.Log += AppendLog;
@@ -373,8 +377,13 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private async Task RecoverOpenAutoPublishAsync(IReadOnlyList<XingeRemoteCommandService.XingeOpenAutoPublishAssignment> open)
     {
-        if (open.Count == 0)
+        if (_restartResumeChecked && !_restartResumeConfirmed)
             return;
+        if (open.Count == 0)
+        {
+            _restartResumeChecked = true;
+            return;
+        }
 
         var accounts = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(CaptureXingeAccountSeeds);
         var located = await Task.Run(() =>
@@ -387,7 +396,14 @@ public sealed partial class MainViewModel : ViewModelBase
 
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
         {
-            await ConfirmRestartResumeAsync(open, located);
+            if (!_restartResumeChecked)
+            {
+                _restartResumeChecked = true;
+                await ConfirmRestartResumeAsync(open, located);
+            }
+            if (!_restartResumeConfirmed)
+                return;
+
             foreach (var assignment in open)
             {
                 located.TryGetValue(assignment.Id, out var place);
@@ -410,21 +426,23 @@ public sealed partial class MainViewModel : ViewModelBase
         var anyReady = false;
         foreach (var assignment in open)
         {
-            if (!located.TryGetValue(assignment.Id, out var place))
+            located.TryGetValue(assignment.Id, out var place);
+            var resume = XingeAutoPublishRecovery.Decide(assignment.Status, place.Marker, place.ProjectExists) == XingeAutoPublishRecoveryAction.Resume;
+            var stored = IsUnstartedStoredDispatch(assignment, place);
+            if (!resume && !stored)
                 continue;
-            if (XingeAutoPublishRecovery.Decide(assignment.Status, place.Marker, place.ProjectExists) != XingeAutoPublishRecoveryAction.Resume)
+            if (_autoPublishResumeAbandoned.Contains(assignment.Id) || _stoppedThisSession.Contains(assignment.Id))
                 continue;
-            if (_autoPublishResumeAbandoned.Contains(assignment.Id))
-                continue;
+            var command = stored ? assignment.ReadCommand() : null;
             pending.Add(new DispatchConfirmItem
             {
                 MessageId = assignment.Id,
                 AssignmentId = assignment.Id,
-                AccountName = place.AccountName,
-                Title = FirstNonEmptyText(place.Marker?.Title, assignment.Title),
+                AccountName = FirstNonEmptyText(place.AccountName, command?.AccountProfileName, assignment.AccountProfileName),
+                Title = FirstNonEmptyText(place.Marker?.Title, command?.Titles?.FirstOrDefault(title => !string.IsNullOrWhiteSpace(title)), assignment.Title),
                 ConfirmSeconds = DispatchConfirmSession.DefaultCountdownSeconds,
             });
-            if (CanResumeAutoPublishNow(place))
+            if (stored || CanResumeAutoPublishNow(place))
                 anyReady = true;
         }
 
@@ -457,6 +475,22 @@ public sealed partial class MainViewModel : ViewModelBase
         XingeRemoteCommandService.XingeOpenAutoPublishAssignment assignment,
         AutoPublishProjectLocation located)
     {
+        if (_stoppedThisSession.Contains(assignment.Id))
+            return;
+        if (IsUnstartedStoredDispatch(assignment, located))
+        {
+            if (_restartResumeDismissed || !_restartResumeConfirmed)
+                return;
+            if (!_restartStoredStarted.Add(assignment.Id))
+                return;
+            var command = assignment.ReadCommand();
+            if (command is null)
+                return;
+            AppendLog($"已分发未开始的剧继续执行：{FirstNonEmptyText(assignment.Title, command.Titles?.FirstOrDefault())}");
+            await ExecuteRemoteCommandAsync(command);
+            return;
+        }
+
         var action = XingeAutoPublishRecovery.Decide(assignment.Status, located.Marker, located.ProjectExists);
         var model = new XingeAutoPublishAssignment(
             assignment.Id,
@@ -484,6 +518,8 @@ public sealed partial class MainViewModel : ViewModelBase
                     break;
                 if (_autoPublishResumeAbandoned.Contains(assignment.Id))
                     break;
+                if (!string.IsNullOrWhiteSpace(located.ProjectDir))
+                    XingeAutoPublishMarkerStore.MarkResumable(located.ProjectDir, assignment.Id);
                 if (IsLocalCheckedQueueRunning(located.Workspace))
                 {
                     AppendLog($"本地正在执行勾选队列，自动上新恢复等到该队列结束后再继续：{located.Workspace}");
@@ -736,7 +772,65 @@ public sealed partial class MainViewModel : ViewModelBase
         else
             seeds = Avalonia.Threading.Dispatcher.UIThread.Invoke(CaptureXingeAccountSeeds);
         var located = FindAutoPublishProject(assignmentId, seeds);
-        return located.ProjectExists && located.Marker?.IsActive == true;
+        return located.ProjectExists
+            && (located.Marker?.IsActive == true || XingeAutoPublishRecovery.ShouldReclaimOnRestart(located.Marker));
+    }
+
+    private IReadOnlyList<long> LocalStoppedAssignmentIds()
+    {
+        IReadOnlyList<XingeRemoteAccountSeed> seeds;
+        if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            seeds = CaptureXingeAccountSeeds();
+        else
+            seeds = Avalonia.Threading.Dispatcher.UIThread.Invoke(CaptureXingeAccountSeeds);
+        var ids = new HashSet<long>();
+        var seenWorkspaces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var account in seeds)
+        {
+            string workspace;
+            try
+            {
+                workspace = account.ResolveWorkspacePath();
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(workspace) || !seenWorkspaces.Add(workspace))
+                continue;
+            IEnumerable<string> children;
+            try
+            {
+                children = Directory.EnumerateDirectories(workspace);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            foreach (var dir in children)
+            {
+                var marker = XingeAutoPublishMarkerStore.TryRead(dir);
+                if (XingeAutoPublishRecovery.ShouldReclaimOnRestart(marker))
+                    ids.Add(marker!.AssignmentId);
+            }
+        }
+
+        return ids.ToArray();
+    }
+
+    private static bool IsUnstartedStoredDispatch(
+        XingeRemoteCommandService.XingeOpenAutoPublishAssignment assignment,
+        AutoPublishProjectLocation located)
+    {
+        if (!string.Equals(assignment.Status, "dispatched", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!string.Equals(assignment.MessageStatus, "sent", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (located.ProjectExists && located.Marker?.AssignmentId == assignment.Id)
+            return false;
+        return assignment.ReadCommand() is { IsAutoPublishAssignment: true };
     }
 
     private IReadOnlyList<XingeRemoteAccountSeed> CaptureXingeAccountSeeds()
@@ -3347,7 +3441,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private readonly HashSet<string> _checkedQueueFollowUpRunning = new(StringComparer.OrdinalIgnoreCase);
 
-    // 手动停止：这一轮服务器派单交还 XINGE，本地不再续跑。下次分发写入新标记后可以再执行。
+    // 手动停止：停掉本机队列，名额继续占用。重启后提示继续执行，不另派新剧。
     private void ReleaseUserStoppedAutoPublish(string? workspaceRoot)
     {
         var roots = new List<string>();
@@ -3384,7 +3478,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (released == 0)
             return;
 
-        var text = $"已手动停止，{released} 部服务器派单已交还。勾选保留，重启后不会自动续跑，需要继续时再执行勾选队列。";
+        var text = $"已手动停止，{released} 部服务器派单仍保留。勾选保留，重启后会提示继续执行，60 秒后自动开始。";
         StatusMessage = text;
         AppendLog(text);
     }
@@ -3459,6 +3553,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 "upload_series",
                 "用户手动停止",
                 XingeAutoPublishFailureKinds.UserStopped));
+            _stoppedThisSession.Add(marker.AssignmentId);
             releasedDirs.Add(dir);
         }
 

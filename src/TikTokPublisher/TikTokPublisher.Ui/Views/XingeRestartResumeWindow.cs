@@ -95,7 +95,7 @@ public sealed class XingeRestartResumeWindow : Window
 
     private void Refresh()
     {
-        _body.Text = "客户端已重启，即将继续执行 XINGE 已下发的剧集。"
+        _body.Text = "客户端已重启。手动停止或上次退出时没跑完的剧，将在本机继续执行。"
             + Environment.NewLine
             + Environment.NewLine
             + _session.BodyText();
