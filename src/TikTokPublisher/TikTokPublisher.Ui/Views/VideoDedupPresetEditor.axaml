@@ -41,7 +41,7 @@
             </Grid>
 
             <TextBlock Text="单集时长" FontWeight="SemiBold" />
-            <TextBlock Classes="dedupHint" Text="两个都留 0 表示不重新分集。都大于 0 时按原片时长切开再拼接，每一集再做开头、结尾裁剪和变速。过短的尾集在不超过最大时长时并入上一集。成片仍短于 15 秒时并入相邻集。算出有集不在最短和最长之内时，去重直接失败，不会开始编码。" />
+            <TextBlock Classes="dedupHint" Text="两个都留 0 表示不重新分集。都大于 0 时把全部原片接成一条，按总时长平均切开，每集长度靠近最短和最长的中间。相邻原片可以合进同一集。每一集再做开头、结尾裁剪和变速。转场让某一集超出范围时，向相邻集借一点时长。没有任何分法能落在最短和最长之内时，去重直接失败，不会开始编码。" />
             <Grid ColumnDefinitions="140,*,140,*" ColumnSpacing="10">
                 <TextBlock Classes="dedupLabel" Text="单集最小时长" />
                 <NumericUpDown x:Name="MinDurationBox" Grid.Column="1" Minimum="0" Maximum="3600" Increment="1" FormatString="0" />

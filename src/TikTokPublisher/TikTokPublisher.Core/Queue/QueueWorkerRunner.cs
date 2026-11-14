@@ -1187,20 +1187,29 @@ public sealed class QueueWorkerRunner
                         MarkFailed(preItem, failedStep, failureMessage);
                         failed++;
                     });
-                    Report(
-                        onProgress,
-                        workspace,
-                        preItem,
-                        $"{QueueStepRegistry.LabelOf(failedStep)} 失败：{failureMessage}",
-                        failedStep);
-                    if (!IsPosterSensitiveContent(ex))
+                    var stepLabel = QueueStepRegistry.LabelOf(failedStep);
+                    if (TrySplitDurationGuidance(failureMessage, out var durationHint, out var durationDetail))
+                    {
+                        Report(onProgress, workspace, preItem, $"{stepLabel} 失败：{durationHint}", failedStep);
+                        Report(onProgress, workspace, preItem, $"{stepLabel} 失败：{durationDetail}", failedStep);
+                    }
+                    else
                     {
                         Report(
                             onProgress,
                             workspace,
                             preItem,
-                            BuildExceptionDiagnostics(ex, ct, failedStep),
+                            $"{stepLabel} 失败：{failureMessage}",
                             failedStep);
+                        if (!IsPosterSensitiveContent(ex))
+                        {
+                            Report(
+                                onProgress,
+                                workspace,
+                                preItem,
+                                BuildExceptionDiagnostics(ex, ct, failedStep),
+                                failedStep);
+                        }
                     }
                 }
 
@@ -2449,6 +2458,21 @@ public sealed class QueueWorkerRunner
                 return true;
         }
 
+        return false;
+    }
+
+    private static bool TrySplitDurationGuidance(string message, out string hint, out string detail)
+    {
+        hint = VideoDedupPlanner.DurationAdjustmentHint;
+        var marker = hint + Environment.NewLine;
+        if (message.StartsWith(marker, StringComparison.Ordinal))
+        {
+            detail = message[marker.Length..];
+            return detail.Length > 0;
+        }
+
+        hint = "";
+        detail = "";
         return false;
     }
 

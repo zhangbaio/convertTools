@@ -16,7 +16,10 @@ internal readonly record struct VideoDedupSlice(int ClipIndex, double StartSecon
 
 internal static class VideoDedupPlanner
 {
-    public static IReadOnlyList<IReadOnlyList<VideoDedupSlice>> Plan(IReadOnlyList<double> rawDurations, VideoDedupPreset preset)
+    public static IReadOnlyList<IReadOnlyList<VideoDedupSlice>> Plan(
+        IReadOnlyList<double> rawDurations,
+        VideoDedupPreset preset,
+        IReadOnlyList<string>? clipPaths = null)
     {
         var count = rawDurations.Count;
         if (count == 0)
@@ -30,48 +33,7 @@ internal static class VideoDedupPlanner
             return single;
         }
 
-        var slices = new List<VideoDedupSlice>();
-        for (var i = 0; i < count; i++)
-            slices.AddRange(SplitRawClip(i, Math.Max(0, rawDurations[i]), preset));
-
-        var minimum = preset.MinimumDurationSeconds;
-        var maximum = preset.MaximumDurationSeconds;
-        var groups = new List<List<VideoDedupSlice>>();
-        var current = new List<VideoDedupSlice>();
-        double sum = 0;
-        foreach (var slice in slices)
-        {
-            var alreadyEnough = sum >= minimum;
-            var wouldExceed = current.Count > 0 && sum + slice.Length > maximum;
-            if (alreadyEnough && wouldExceed)
-            {
-                groups.Add(current);
-                current = [];
-                sum = 0;
-            }
-
-            current.Add(slice);
-            sum += slice.Length;
-        }
-
-        if (current.Count > 0)
-            groups.Add(current);
-
-        if (groups.Count > 1)
-        {
-            var lastLength = groups[^1].Sum(slice => slice.Length);
-            var previousLength = groups[^2].Sum(slice => slice.Length);
-            if (lastLength < minimum && previousLength + lastLength <= maximum)
-            {
-                AppendSlices(groups[^2], groups[^1]);
-                groups.RemoveAt(groups.Count - 1);
-            }
-        }
-
-        AbsorbOutputsShorterThanUploadMinimum(groups, preset);
-        foreach (var group in groups)
-            TrimArrangedEpisode(group, preset);
-        return groups;
+        return ArrangeAverage(rawDurations, preset, clipPaths);
     }
 
     /// <summary>
@@ -114,6 +76,11 @@ internal static class VideoDedupPlanner
     internal static double RoundDuration(double seconds) =>
         Math.Round(seconds, 1, MidpointRounding.AwayFromZero);
 
+    internal const string DurationAdjustmentHint = "请调整单集时长，或改原片后再重跑。";
+
+    internal static string FormatDurationStop(string mismatch) =>
+        DurationAdjustmentHint + Environment.NewLine + mismatch;
+
     /// <summary>每一集按 0.1 秒取整后都落在最短和最长之内时返回 null。</summary>
     internal static string? DescribeDurationMismatch(
         IReadOnlyList<IReadOnlyList<VideoDedupSlice>> plan,
@@ -142,7 +109,7 @@ internal static class VideoDedupPlanner
         var listed = problems.Count <= 12
             ? string.Join("；", problems)
             : string.Join("；", problems.Take(12)) + $" 等 {problems.Count.ToString(CultureInfo.InvariantCulture)} 集";
-        return $"视频去重已停止，不会开始编码。按单集 {Seconds(minimum)}–{Seconds(maximum)} 秒计算，{listed}。请调整单集时长，或改原片后再重跑。";
+        return $"视频去重已停止，不会开始编码。按 {Seconds(minimum)}–{Seconds(maximum)} 秒平均分集，{listed}。";
     }
 
     internal static string DescribeDurationCheckPassed(
@@ -159,7 +126,8 @@ internal static class VideoDedupPlanner
         var span = Math.Abs(low - high) < 0.001
             ? $"每集 {Seconds(low)} 秒"
             : $"每集 {Seconds(low)}–{Seconds(high)} 秒";
-        return $"分集计算通过：{sourceCount.ToString(CultureInfo.InvariantCulture)} 个原片将生成 {plan.Count.ToString(CultureInfo.InvariantCulture)} 集，{span}，在 {Seconds(preset.MinimumDurationSeconds)}–{Seconds(preset.MaximumDurationSeconds)} 秒内。";
+        var minutes = (durations.Sum() / 60d).ToString("0.#", CultureInfo.InvariantCulture);
+        return $"分集计算通过：{sourceCount.ToString(CultureInfo.InvariantCulture)} 个原片共 {minutes} 分钟，平均分成 {plan.Count.ToString(CultureInfo.InvariantCulture)} 集，{span}，在 {Seconds(preset.MinimumDurationSeconds)}–{Seconds(preset.MaximumDurationSeconds)} 秒内。";
     }
 
     private static string Seconds(double value) => value.ToString("0.#", CultureInfo.InvariantCulture);
@@ -173,81 +141,211 @@ internal static class VideoDedupPlanner
         return [new VideoDedupSlice(index, start, end)];
     }
 
-    /// <summary>按裁剪前的原片时长切开。裁剪秒数留到整集排好后再减。</summary>
-    private static List<VideoDedupSlice> SplitRawClip(int index, double duration, VideoDedupPreset preset)
+    private static List<List<VideoDedupSlice>> ArrangeAverage(
+        IReadOnlyList<double> durations,
+        VideoDedupPreset preset,
+        IReadOnlyList<string>? clipPaths)
     {
-        var maximum = preset.MaximumDurationSeconds;
-        if (duration <= maximum)
-            return [new VideoDedupSlice(index, 0, duration)];
+        var total = 0d;
+        foreach (var duration in durations)
+            total += Math.Max(0, duration);
+        if (total <= 0)
+            return [];
 
-        var slices = new List<VideoDedupSlice>();
-        var cursor = 0d;
-        while (duration - cursor > maximum)
+        var minimum = preset.MinimumDurationSeconds;
+        var maximum = preset.MaximumDurationSeconds;
+        var trim = Math.Max(0, preset.TrimStartSeconds) + Math.Max(0, preset.TrimEndSeconds);
+        var scale = OutputScale(preset);
+        var count = ChooseEpisodeCount(total, minimum, maximum, trim, scale);
+        var cuts = new double[count + 1];
+        for (var index = 1; index < count; index++)
+            cuts[index] = total * index / count;
+        cuts[count] = total;
+
+        var groups = Realize(durations, cuts, preset);
+        if (count < 2 || !CanTransition(preset, groups.SelectMany(group => group).ToArray()))
+            return groups;
+
+        var minimumGap = trim + 0.25;
+        for (var pass = 0; pass < 8; pass++)
         {
-            slices.Add(new VideoDedupSlice(index, cursor, cursor + maximum));
-            cursor += maximum;
+            var predicted = Measure(groups, preset, clipPaths);
+            if (AllInside(predicted, minimum, maximum))
+                return groups;
+
+            var moved = false;
+            for (var index = 0; index < predicted.Length; index++)
+            {
+                if (predicted[index] >= minimum && predicted[index] <= maximum)
+                    continue;
+
+                var neighbor = index + 1 < predicted.Length ? index + 1 : index - 1;
+                if (neighbor < 0)
+                    continue;
+
+                var grow = predicted[index] < minimum;
+                var raw = grow
+                    ? Math.Min(minimum - predicted[index], Math.Max(0, predicted[neighbor] - minimum)) / scale
+                    : Math.Min(predicted[index] - maximum, Math.Max(0, maximum - predicted[neighbor])) / scale;
+                if (raw < 0.02)
+                    continue;
+
+                var boundary = Math.Max(index, neighbor);
+                var direction = neighbor > index ? 1d : -1d;
+                if (!grow)
+                    direction = -direction;
+
+                var saved = cuts[boundary];
+                var accepted = false;
+                var step = raw;
+                for (var attempt = 0; attempt < 2 && step >= 0.02; attempt++)
+                {
+                    var next = saved + direction * step;
+                    if (next < cuts[boundary - 1] + minimumGap || next > cuts[boundary + 1] - minimumGap)
+                    {
+                        step /= 2;
+                        continue;
+                    }
+
+                    cuts[boundary] = next;
+                    var candidate = Realize(durations, cuts, preset);
+                    var after = Measure(candidate, preset, clipPaths);
+                    var targetImproved = RangeDistance(after[index], minimum, maximum) <
+                                         RangeDistance(predicted[index], minimum, maximum) - 0.001;
+                    var neighborOk = RangeDistance(after[neighbor], minimum, maximum) <=
+                                     RangeDistance(predicted[neighbor], minimum, maximum) + 0.001;
+                    if (targetImproved && neighborOk)
+                    {
+                        groups = candidate;
+                        accepted = true;
+                        break;
+                    }
+
+                    cuts[boundary] = saved;
+                    step /= 2;
+                }
+
+                if (!accepted)
+                    continue;
+
+                moved = true;
+                break;
+            }
+
+            if (!moved)
+                return groups;
         }
 
-        if (cursor < duration)
-            slices.Add(new VideoDedupSlice(index, cursor, duration));
+        return groups;
+    }
 
-        if (slices.Count > 1 && slices[^1].Length < preset.MinimumDurationSeconds)
+    private static int ChooseEpisodeCount(double total, double minimum, double maximum, double trim, double scale)
+    {
+        var midpoint = (minimum + maximum) / 2d;
+        var bestFit = 0;
+        var bestFitDistance = double.MaxValue;
+        var nearest = 1;
+        var nearestDistance = double.MaxValue;
+        var limit = Math.Max(1, (int)Math.Floor(total / 0.2));
+        for (var count = 1; count <= limit; count++)
         {
-            var previous = slices[^2];
-            if (previous.Length + slices[^1].Length <= maximum)
+            var raw = total / count;
+            if (raw <= trim + 0.05)
+                break;
+
+            var output = RoundDuration(Math.Max(0.2, raw - trim) * scale);
+            var outside = RangeDistance(output, minimum, maximum);
+            if (outside == 0)
             {
-                slices[^2] = previous with { EndSeconds = slices[^1].EndSeconds };
-                slices.RemoveAt(slices.Count - 1);
+                var distance = Math.Abs(output - midpoint);
+                if (bestFit == 0 || distance < bestFitDistance - 0.001)
+                {
+                    bestFit = count;
+                    bestFitDistance = distance;
+                }
             }
+            else if (bestFit == 0 && outside < nearestDistance - 0.001)
+            {
+                nearest = count;
+                nearestDistance = outside;
+            }
+
+            if (output < minimum)
+                break;
+        }
+
+        return bestFit != 0 ? bestFit : nearest;
+    }
+
+    private static List<List<VideoDedupSlice>> Realize(
+        IReadOnlyList<double> durations,
+        IReadOnlyList<double> cuts,
+        VideoDedupPreset preset)
+    {
+        var groups = new List<List<VideoDedupSlice>>(cuts.Count - 1);
+        for (var index = 0; index < cuts.Count - 1; index++)
+        {
+            var group = SliceRange(durations, cuts[index], cuts[index + 1]);
+            if (group.Count == 0)
+                continue;
+            TrimArrangedEpisode(group, preset);
+            if (group.Count > 0)
+                groups.Add(group);
+        }
+
+        return groups;
+    }
+
+    private static List<VideoDedupSlice> SliceRange(IReadOnlyList<double> durations, double start, double end)
+    {
+        var slices = new List<VideoDedupSlice>();
+        var cursor = 0d;
+        for (var index = 0; index < durations.Count && cursor < end - 0.0001; index++)
+        {
+            var length = Math.Max(0, durations[index]);
+            var clipEnd = cursor + length;
+            var lower = Math.Max(start, cursor);
+            var upper = Math.Min(end, clipEnd);
+            if (upper - lower > 0.0005)
+                slices.Add(new VideoDedupSlice(index, lower - cursor, upper - cursor));
+            cursor = clipEnd;
         }
 
         return slices;
     }
 
-    /// <summary>
-    /// 裁剪和变速之后仍短于 TikTok 最短 15 秒的成片并入相邻集。
-    /// 这一步可以超过设定的最大时长，避免尾段变成几秒后校验失败。
-    /// </summary>
-    private static void AbsorbOutputsShorterThanUploadMinimum(List<List<VideoDedupSlice>> groups, VideoDedupPreset preset)
+    private static double[] Measure(
+        IReadOnlyList<IReadOnlyList<VideoDedupSlice>> groups,
+        VideoDedupPreset preset,
+        IReadOnlyList<string>? clipPaths)
     {
-        var index = 0;
-        while (index < groups.Count && groups.Count > 1)
-        {
-            var raw = groups[index].Sum(slice => slice.Length);
-            if (ProcessedDuration(raw, preset) >= TikTokVideoConstraints.MinDurationSeconds)
-            {
-                index++;
-                continue;
-            }
-
-            if (index > 0)
-            {
-                AppendSlices(groups[index - 1], groups[index]);
-                groups.RemoveAt(index);
-                index--;
-            }
-            else
-            {
-                AppendSlices(groups[0], groups[1]);
-                groups.RemoveAt(1);
-            }
-        }
+        var predicted = new double[groups.Count];
+        for (var index = 0; index < groups.Count; index++)
+            predicted[index] = RoundDuration(PredictedOutputSeconds(groups[index], preset, clipPaths));
+        return predicted;
     }
 
-    private static void AppendSlices(List<VideoDedupSlice> target, IReadOnlyList<VideoDedupSlice> extra)
+    private static bool AllInside(IReadOnlyList<double> seconds, double minimum, double maximum)
     {
-        foreach (var slice in extra)
+        foreach (var value in seconds)
         {
-            if (target.Count > 0 &&
-                target[^1].ClipIndex == slice.ClipIndex &&
-                Math.Abs(target[^1].EndSeconds - slice.StartSeconds) < 0.001)
-            {
-                target[^1] = target[^1] with { EndSeconds = slice.EndSeconds };
-                continue;
-            }
-
-            target.Add(slice);
+            if (value < minimum || value > maximum)
+                return false;
         }
+
+        return true;
+    }
+
+    private static double RangeDistance(double seconds, double minimum, double maximum) =>
+        seconds < minimum ? minimum - seconds : seconds > maximum ? seconds - maximum : 0;
+
+    private static double OutputScale(VideoDedupPreset preset)
+    {
+        var speed = preset.SpeedFactor <= 0 ? 1 : preset.SpeedFactor;
+        var keep = preset.FrameDropPercent <= 0
+            ? 1
+            : 1 - 1d / FrameDropInterval(preset.FrameDropPercent);
+        return keep / speed;
     }
 
     /// <summary>对已经排好的一集做开头和结尾裁剪。裁掉的是原片秒数，变速还在这之后。</summary>

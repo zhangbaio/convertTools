@@ -140,7 +140,7 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
-    public void Duration_limit_merges_a_short_tail_and_keeps_whole_episodes()
+    public void Duration_limit_averages_the_whole_timeline_across_source_episodes()
     {
         var preset = VideoDedupPreset.CreateDefault();
         preset.MinimumDurationSeconds = 60;
@@ -150,7 +150,9 @@ public sealed class VideoDedupTests
         var groups = VideoDedupPlanner.Plan([80, 80, 20], preset);
 
         groups.Should().HaveCount(2);
-        groups[0].Select(slice => slice.ClipIndex).Should().Equal(0);
+        groups[0].Sum(slice => slice.Length).Should().Be(90);
+        groups[1].Sum(slice => slice.Length).Should().Be(90);
+        groups[0].Select(slice => slice.ClipIndex).Should().Equal(0, 1);
         groups[1].Select(slice => slice.ClipIndex).Should().Equal(1, 2);
     }
 
@@ -167,22 +169,23 @@ public sealed class VideoDedupTests
         var split = VideoDedupPlanner.Plan([214.321], preset);
         split.Should().HaveCount(2);
         split[0][0].StartSeconds.Should().Be(2);
-        split[0][0].EndSeconds.Should().Be(128);
-        split[1][0].StartSeconds.Should().Be(132);
+        split[0][0].EndSeconds.Should().BeApproximately(105.1605, 0.001);
+        split[1][0].StartSeconds.Should().BeApproximately(109.1605, 0.001);
         split[1][0].EndSeconds.Should().BeApproximately(212.321, 0.001);
 
-        var tail = VideoDedupPlanner.Plan([140], preset);
-        tail.Should().HaveCount(1);
-        tail[0].Should().ContainSingle();
-        tail[0][0].StartSeconds.Should().Be(2);
-        tail[0][0].EndSeconds.Should().Be(138);
+        var even = VideoDedupPlanner.Plan([140], preset);
+        even.Should().HaveCount(2);
+        even[0][0].StartSeconds.Should().Be(2);
+        even[0][0].EndSeconds.Should().Be(68);
+        even[1][0].StartSeconds.Should().Be(72);
+        even[1][0].EndSeconds.Should().Be(138);
 
         var clip = new VideoDedupClip("long.mp4", new VideoDedupProbe(214.321, 1080, 1920, true));
         var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], split[1], "out.mp4", "libx264", seed: 1));
-        joined.Should().Contain("-ss 132 -t 81.321 -i long.mp4");
-        joined.Should().Contain("trim=start=0:end=80.321");
-        joined.Should().Contain("atrim=start=0:end=80.321");
-        joined.Should().NotContain("trim=start=132");
+        joined.Should().Contain("-ss 109.1605 -t 104.1605 -i long.mp4");
+        joined.Should().Contain("trim=start=0:end=103.1605");
+        joined.Should().Contain("atrim=start=0:end=103.1605");
+        joined.Should().NotContain("trim=start=109.1605");
     }
 
     [Fact]
@@ -218,13 +221,8 @@ public sealed class VideoDedupTests
         shortTail[0][0].EndSeconds.Should().BeApproximately(47.9, 0.001);
         (shortTail[0].Sum(slice => slice.Length) / preset.SpeedFactor).Should().BeGreaterThanOrEqualTo(15);
 
-        var longEnough = VideoDedupPlanner.Plan([64.7], preset);
-        longEnough.Should().HaveCount(2);
-        longEnough[0][0].StartSeconds.Should().Be(2);
-        longEnough[0][0].EndSeconds.Should().Be(38);
-        longEnough[1][0].StartSeconds.Should().Be(42);
-        longEnough[1][0].EndSeconds.Should().BeApproximately(62.7, 0.001);
-        (longEnough[1].Sum(slice => slice.Length) / preset.SpeedFactor).Should().BeGreaterThanOrEqualTo(15);
+        VideoDedupPlanner.DescribeDurationMismatch(VideoDedupPlanner.Plan([64.7], preset), preset)
+            .Should().Contain("第 1 集预计 46.7 秒，超过最大 40 秒");
     }
 
     [Fact]
@@ -267,8 +265,10 @@ public sealed class VideoDedupTests
         var plan = VideoDedupPlanner.Plan([40, 50, 60], preset);
 
         VideoDedupPlanner.DescribeDurationMismatch(plan, preset).Should().BeNull();
+        plan.Should().HaveCount(3);
+        plan.Select(group => group.Sum(slice => slice.Length)).Should().AllBeEquivalentTo(50d);
         VideoDedupPlanner.DescribeDurationCheckPassed(3, plan, preset)
-            .Should().Be("分集计算通过：3 个原片将生成 3 集，每集 40–60 秒，在 35–65 秒内。");
+            .Should().Be("分集计算通过：3 个原片共 2.5 分钟，平均分成 3 集，每集 50 秒，在 35–65 秒内。");
     }
 
     [Fact]
@@ -285,15 +285,23 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
-    public void Duration_check_fails_a_short_tail_and_a_merge_that_exceeds_the_maximum()
+    public void Duration_check_averages_a_short_source_and_stops_when_no_split_fits()
     {
-        var shortTail = LimitedPreset(35, 65);
-        VideoDedupPlanner.DescribeDurationMismatch(VideoDedupPlanner.Plan([60, 20], shortTail), shortTail)
-            .Should().Be("视频去重已停止，不会开始编码。按单集 35–65 秒计算，第 2 集预计 20 秒，短于最小 35 秒。请调整单集时长，或改原片后再重跑。");
+        var merged = LimitedPreset(35, 65);
+        var plan = VideoDedupPlanner.Plan([60, 20], merged);
+        VideoDedupPlanner.DescribeDurationMismatch(plan, merged).Should().BeNull();
+        plan.Should().HaveCount(2);
+        plan.Select(group => group.Sum(slice => slice.Length)).Should().AllBeEquivalentTo(40d);
 
-        var absorbed = LimitedPreset(35, 50);
-        VideoDedupPlanner.DescribeDurationMismatch(VideoDedupPlanner.Plan([50, 10], absorbed), absorbed)
-            .Should().Be("视频去重已停止，不会开始编码。按单集 35–50 秒计算，第 1 集预计 60 秒，超过最大 50 秒。请调整单集时长，或改原片后再重跑。");
+        var impossible = LimitedPreset(35, 50);
+        VideoDedupPlanner.DescribeDurationMismatch(VideoDedupPlanner.Plan([50, 10], impossible), impossible)
+            .Should().Be("视频去重已停止，不会开始编码。按 35–50 秒平均分集，第 1 集预计 30 秒，短于最小 35 秒；第 2 集预计 30 秒，短于最小 35 秒。");
+
+        VideoDedupPlanner.DescribeDurationMismatch(VideoDedupPlanner.Plan([66.5], merged), merged)
+            .Should().Contain("第 1 集预计 66.5 秒，超过最大 65 秒");
+        var rescued = VideoDedupPlanner.Plan([66.5, 72.8], merged);
+        VideoDedupPlanner.DescribeDurationMismatch(rescued, merged).Should().BeNull();
+        rescued.Should().HaveCount(3);
     }
 
     [Fact]
@@ -321,19 +329,42 @@ public sealed class VideoDedupTests
     }
 
     [Fact]
+    public void Transition_overlap_borrows_from_the_neighbor_to_stay_inside_the_range()
+    {
+        var preset = LimitedPreset(54.8, 70);
+        preset.TransitionsEnabled = true;
+        preset.TransitionFadeBlack = true;
+        preset.Normalize();
+
+        var plan = VideoDedupPlanner.Plan([50, 60], preset);
+
+        VideoDedupPlanner.DescribeDurationMismatch(plan, preset).Should().BeNull();
+        plan.Should().HaveCount(2);
+        plan[0].Sum(slice => slice.Length).Should().BeGreaterThan(55);
+        plan[1].Sum(slice => slice.Length).Should().BeLessThan(55);
+    }
+
+    [Fact]
     public void Duration_check_lists_the_first_twelve_episodes_when_more_fail()
     {
-        var preset = LimitedPreset(35, 50);
-        preset.SpeedFactor = 1.3;
-        preset.Normalize();
-        var durations = Enumerable.Repeat(40d, 13).ToArray();
+        var preset = LimitedPreset(60, 64);
+        var durations = Enumerable.Repeat(59.6, 13).ToArray();
 
         var message = VideoDedupPlanner.DescribeDurationMismatch(VideoDedupPlanner.Plan(durations, preset), preset);
 
-        message.Should().Contain("第 1 集预计 30.8 秒，短于最小 35 秒");
-        message.Should().Contain("第 12 集预计 30.8 秒，短于最小 35 秒");
+        message.Should().Contain("第 1 集预计 59.6 秒，短于最小 60 秒");
+        message.Should().Contain("第 12 集预计 59.6 秒，短于最小 60 秒");
         message.Should().Contain("等 13 集");
         message.Should().NotContain("第 13 集预计");
+        VideoDedupPlanner.FormatDurationStop(message!).Should().StartWith(
+            "请调整单集时长，或改原片后再重跑。" + Environment.NewLine);
+
+        var averaged = LimitedPreset(35, 50);
+        averaged.SpeedFactor = 1.3;
+        averaged.Normalize();
+        var merged = VideoDedupPlanner.Plan(Enumerable.Repeat(40d, 13).ToArray(), averaged);
+        VideoDedupPlanner.DescribeDurationMismatch(merged, averaged).Should().BeNull();
+        merged.Should().HaveCount(9);
     }
 
     [Fact]
@@ -760,7 +791,7 @@ public sealed class VideoDedupTests
 
             await VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
 
-            logs.Should().Contain(line => line.Contains("分集计算通过：2 个原片将生成 1 集，每集 30 秒，在 20–40 秒内。", StringComparison.Ordinal));
+            logs.Should().Contain(line => line.Contains("分集计算通过：2 个原片共 0.5 分钟，平均分成 1 集，每集 30 秒，在 20–40 秒内。", StringComparison.Ordinal));
 
             item.EpisodeCount.Should().Be(1);
             item.SourceEpisodeCount.Should().Be(2);
@@ -794,7 +825,7 @@ public sealed class VideoDedupTests
         var encoded = 0;
         VideoDedupService.ProbeForTests = (path, _) =>
             Task.FromResult(new VideoDedupProbe(
-                Path.GetFileName(path).StartsWith("b", StringComparison.OrdinalIgnoreCase) ? 20 : 60,
+                Path.GetFileName(path).StartsWith("b", StringComparison.OrdinalIgnoreCase) ? 10 : 50,
                 1080,
                 1920,
                 true));
@@ -808,7 +839,7 @@ public sealed class VideoDedupTests
         {
             var preset = VideoDedupPreset.CreateDefault();
             preset.MinimumDurationSeconds = 35;
-            preset.MaximumDurationSeconds = 65;
+            preset.MaximumDurationSeconds = 50;
             var item = new QueueProjectItem { ProjectDir = root, EpisodeCount = 2 };
             var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
             var logs = new List<string>();
@@ -816,7 +847,7 @@ public sealed class VideoDedupTests
             var act = () => VideoDedupService.RunAsync(item, account, force: false, logs.Add, CancellationToken.None);
 
             await act.Should().ThrowAsync<InvalidOperationException>()
-                .WithMessage("*第 2 集预计 20 秒，短于最小 35 秒*");
+                .WithMessage("*第 1 集预计 30 秒，短于最小 35 秒*");
             encoded.Should().Be(0);
             item.EpisodeCount.Should().Be(2);
             (await File.ReadAllBytesAsync(first)).Should().Equal([1, 1]);

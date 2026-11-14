@@ -113,14 +113,17 @@ public static class VideoDedupService
             Write($"读取第 {(inputIndex + 1).ToString(CultureInfo.InvariantCulture)}/{inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片：{DescribeClip(clips[^1])}。");
         }
 
-        var plan = VideoDedupPlanner.Plan(clips.Select(clip => clip.Probe.DurationSeconds).ToArray(), preset);
+        var clipPaths = clips.Select(clip => clip.Path).ToArray();
+        var plan = VideoDedupPlanner.Plan(
+            clips.Select(clip => clip.Probe.DurationSeconds).ToArray(),
+            preset,
+            clipPaths);
         if (preset.HasDurationLimit)
         {
-            var clipPaths = clips.Select(clip => clip.Path).ToArray();
             if (plan.Count == 0)
                 throw new InvalidOperationException("视频去重已停止，不会开始编码。没有算出可输出的集。");
             if (VideoDedupPlanner.DescribeDurationMismatch(plan, preset, clipPaths) is { } mismatch)
-                throw new InvalidOperationException(mismatch);
+                throw new InvalidOperationException(VideoDedupPlanner.FormatDurationStop(mismatch));
             Write(VideoDedupPlanner.DescribeDurationCheckPassed(clips.Count, plan, preset, clipPaths));
         }
 
@@ -308,7 +311,7 @@ public static class VideoDedupService
         if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
             parts.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
         parts.Add(preset.HasDurationLimit
-            ? $"按原片时长分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒，然后再做整集裁剪和变速。成片短于 15 秒时并入相邻集。算出有集不在最短和最长之内就停止，不开始编码"
+            ? $"按总时长平均分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒。全部原片先接成一条，再切成接近区间中间的等长集，相邻原片可以合在同一集。每一集再做开头、结尾裁剪和变速。转场把某一集拉出范围时向相邻集借时长。无法落在最短和最长之内就停止，不开始编码"
             : "不按单集时长重新分集");
         if (!preset.TransitionsEnabled || !preset.HasAnyTransition)
             parts.Add("转场关");
