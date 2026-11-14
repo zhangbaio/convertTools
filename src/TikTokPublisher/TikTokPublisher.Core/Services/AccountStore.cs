@@ -248,7 +248,7 @@ public sealed class AccountStore
             TiktokStorageStatePath = AppPaths.DefaultStorageStatePath(id),
             TiktokLoginBrowserMode = "embedded",
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
-            TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable,
+            TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual,
             TiktokUploadBrowserMode = "playwright",
             TiktokPlaywrightUploadHeadless = true,
             TiktokUploadStrategy = "api",
@@ -283,6 +283,7 @@ public sealed class AccountStore
         var upload = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery);
         account.TiktokUploadStrategy = upload.Channel;
         account.TiktokPlaywrightVideoDelivery = upload.Delivery;
+        account.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
         account.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket);
         account.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
             account.TiktokSourceLanguage,

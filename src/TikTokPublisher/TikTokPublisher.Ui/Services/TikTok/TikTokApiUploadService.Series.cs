@@ -451,7 +451,7 @@ public static partial class TikTokApiUploadService
         if (licenseId.Length == 0 && !TikTokApiSeriesDocument.IsPlatformContractId(contractedId))
         {
             throw new InvalidOperationException(
-                "接口上传：没有可用的合同，已停止。请在「账号管理 → 发布配置」填写带 CT 的合同 ID，或改为使用第一个可用合同。");
+                "接口上传：没有可用的合同，已停止。请在「账号管理 → 发布配置」填写带 CT 的合同 ID。");
         }
 
         log?.Invoke(licenseId.Length > 0
@@ -496,8 +496,6 @@ public static partial class TikTokApiUploadService
         CancellationToken ct)
     {
         var configured = options?.ContractId?.Trim() ?? "";
-        var useFirst = options is null ||
-            string.Equals(options.ContractIdMode, TikTokPublishConstants.ContractIdModeFirstAvailable, StringComparison.OrdinalIgnoreCase);
         if (TikTokApiSeriesDocument.IsPlatformContractId(configured))
             return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(configured, null);
 
@@ -523,31 +521,6 @@ public static partial class TikTokApiUploadService
 
             throw new InvalidOperationException(
                 $"接口上传：合同编号「{configured}」没有出现在授权合同列表里，已停止。请保留 CT 前缀，并核对「账号管理 → 发布配置」里的合同 ID。");
-        }
-
-        if (!useFirst)
-            return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(null, null);
-
-        using (var listed = await PageFetchAsync(
-            page,
-            "POST",
-            "/api/content-partner/institution/contract/list",
-            "{}",
-            ct))
-        {
-            var first = TikTokApiSeriesDocument.ReadFirstBusinessContract(listed.RootElement);
-            if (first is { } named)
-            {
-                log?.Invoke($"接口上传：合同列表使用「{(named.Title.Length > 0 ? named.Title : named.Id)}」。");
-                return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(named.Id, null);
-            }
-        }
-
-        var onlyLicense = await ReadMatchedLicenseAsync(page, "", ct);
-        if (onlyLicense is not null)
-        {
-            log?.Invoke($"接口上传：使用授权合同 {onlyLicense}。");
-            return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(null, onlyLicense);
         }
 
         return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(null, null);

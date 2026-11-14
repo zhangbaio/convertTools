@@ -142,7 +142,6 @@ public partial class AccountProfileEditor : UserControl
         CdpEndpointBox.Text = profile.TiktokExternalBrowserCdpEndpoint;
 
         ContractIdBox.Text = profile.TiktokContractId;
-        SelectByTag(ContractModeCombo, profile.TiktokContractIdMode, "manual");
         var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
@@ -287,7 +286,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
 
             profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
-            profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
+            profile.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
             profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
             profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
             profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "playwright");

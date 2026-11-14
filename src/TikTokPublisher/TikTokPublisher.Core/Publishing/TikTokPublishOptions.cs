@@ -561,9 +561,7 @@ public sealed class TikTokPublishOptions
     public static TikTokPublishOptions FromAccount(TikTokAccountProfile account) => new()
     {
         ContractId = account.TiktokContractId,
-        ContractIdMode = string.IsNullOrWhiteSpace(account.TiktokContractIdMode)
-            ? TikTokPublishConstants.ContractIdModeManual
-            : account.TiktokContractIdMode,
+        ContractIdMode = TikTokPublishConstants.ContractIdModeManual,
         AnchorPromotionEnabled = account.TiktokAnchorPromotionEnabled,
         TargetAudienceMode = string.IsNullOrWhiteSpace(account.TiktokTargetAudienceMode) ? "ai_recommend" : account.TiktokTargetAudienceMode,
         GenreCount = NormalizeGenreCount(account.TiktokGenreCount),

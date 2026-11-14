@@ -751,26 +751,8 @@ public static partial class TikTokBrowserActions
         var combo = page.Locator(".semi-select").First;
         await combo.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
 
-        if (options.ContractIdMode == TikTokPublishConstants.ContractIdModeFirstAvailable)
-        {
-            await OpenContractDropdownAsync(page, combo, ct);
-            var option = await WaitForFirstContractOptionAsync(page, ct);
-            if (option is null)
-            {
-                var visible = await CollectContractOptionTextsAsync(page);
-                throw new InvalidOperationException($"未找到可用合同选项，当前可见选项: {string.Join(" | ", visible)}");
-            }
-            var text = await SafeInnerTextAsync(option);
-            await option.ClickAsync(new() { Timeout = 10000 });
-            Log(log, $"TikTok 合同模式：已使用默认第一个合同{(string.IsNullOrEmpty(text) ? "" : $"：{text}")}");
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(options.ContractId))
-        {
-            Log(log, "TikTok 合同 ID 未配置，保留页面默认合同选择。");
-            return;
-        }
+            throw new InvalidOperationException("TikTok 合同 ID 未配置。请在「账号管理 → 发布配置」填写合同 ID。");
 
         await OpenContractDropdownAsync(page, combo, ct);
         var matched = await FindContractOptionAsync(page, options.ContractId);

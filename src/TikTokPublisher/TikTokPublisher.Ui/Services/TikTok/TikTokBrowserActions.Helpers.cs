@@ -325,51 +325,6 @@ public static partial class TikTokBrowserActions
         return null;
     }
 
-    private static async Task<ILocator?> FindFirstContractOptionAsync(IPage page) =>
-        await WaitForFirstContractOptionAsync(page, CancellationToken.None);
-
-    private static async Task<ILocator?> WaitForFirstContractOptionAsync(IPage page, CancellationToken ct)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(20);
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            var option = await FindFirstContractOptionOnceAsync(page);
-            if (option is not null) return option;
-            await page.WaitForTimeoutAsync(500);
-        }
-        return null;
-    }
-
-    private static async Task<ILocator?> FindFirstContractOptionOnceAsync(IPage page)
-    {
-        var selectors = new[]
-        {
-            ".semi-select-option",
-            "[role='option']",
-            ".semi-select-option-list > div",
-            ".semi-select-option-list-wrapper > div",
-            "[class*='contractInfo']",
-            ".Select__item",
-        };
-        foreach (var selector in selectors)
-        {
-            var locator = page.Locator(selector);
-            int count;
-            try { count = await locator.CountAsync(); }
-            catch { continue; }
-
-            for (var i = 0; i < count; i++)
-            {
-                var clickable = await ResolveClickableContractOptionAsync(locator.Nth(i));
-                if (clickable is null) continue;
-                var text = await SafeInnerTextAsync(clickable);
-                if (!string.IsNullOrWhiteSpace(text)) return clickable;
-            }
-        }
-        return null;
-    }
-
     private static async Task<ILocator?> ResolveClickableContractOptionAsync(ILocator locator)
     {
         var candidates = new[]

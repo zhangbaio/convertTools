@@ -10,8 +10,6 @@ public static class TikTokUploadPrerequisiteService
     {
         if (!TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
             return;
-        if (!IsManualContractMode(account))
-            return;
         if (!string.IsNullOrWhiteSpace(account.TiktokContractId))
             return;
 
@@ -25,7 +23,6 @@ public static class TikTokUploadPrerequisiteService
 
         var missing = new List<string>();
         if (!TikTokUploadChannels.IsApi(account.TiktokUploadStrategy)
-            && IsManualContractMode(account)
             && string.IsNullOrWhiteSpace(account.TiktokContractId))
         {
             missing.Add("关联合同 ID（发布配置）");
@@ -54,14 +51,6 @@ public static class TikTokUploadPrerequisiteService
             "上传前请先配置预期价格。请在「账号管理 → 发布配置」填写美元价格，例如 0.3。";
         log?.Invoke(hint);
         throw new InvalidOperationException(hint);
-    }
-
-    private static bool IsManualContractMode(TikTokAccountProfile account)
-    {
-        var contractMode = string.IsNullOrWhiteSpace(account.TiktokContractIdMode)
-            ? TikTokPublishConstants.ContractIdModeManual
-            : account.TiktokContractIdMode.Trim();
-        return string.Equals(contractMode, TikTokPublishConstants.ContractIdModeManual, StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool PaidUploadPossible(TikTokAccountProfile account)

@@ -57,7 +57,6 @@ public partial class AccountSettingsDialog : Window
         RemoteDispatchBox.IsChecked = xingeEnabled && p.ParticipatesInXingeRemoteDispatch;
 
         ContractIdBox.Text = p.TiktokContractId;
-        SelectByTag(ContractModeCombo, p.TiktokContractIdMode, "manual");
         var submitAction = NormalizeSubmitAction(p.TiktokSubmitAction, p.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
@@ -166,7 +165,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokDeleteVideosOnArchiveConfigured = true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
-        p.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
+        p.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
         p.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
         p.TiktokSubmitEnabled = string.Equals(p.TiktokSubmitAction, "submit", StringComparison.Ordinal);
         p.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "playwright");

@@ -261,7 +261,7 @@ public sealed class TikTokUploadPrerequisiteServiceTests
     }
 
     [Fact]
-    public void Api_upload_allows_an_empty_contract_id_when_the_first_available_contract_is_used()
+    public void Api_upload_still_asks_for_a_contract_when_an_old_first_available_mode_is_stored()
     {
         var account = CompleteAccount();
         account.TiktokUploadStrategy = "api";
@@ -272,7 +272,7 @@ public sealed class TikTokUploadPrerequisiteServiceTests
 
         var act = () => TikTokUploadPrerequisiteService.EnsureUploadPrerequisites(account);
 
-        act.Should().NotThrow();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*请先配置合同*");
     }
 
     [Fact]
