@@ -285,11 +285,11 @@ public sealed class TikTokUploadPrerequisiteServiceTests
         account.TiktokExpectedFullPriceValue = "";
 
         var act = () => TikTokUploadPrerequisiteService.EnsureCommercialConfigValid(account);
-        act.Should().Throw<InvalidOperationException>().WithMessage("*预期全集价格设置*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*请先配置预期价格*");
     }
 
     [Fact]
-    public void EnsureCommercialConfigValid_allows_free_mode_without_price()
+    public void EnsureCommercialConfigValid_blocks_free_mode_without_price()
     {
         var account = CompleteAccount();
         account.TiktokPaidEnabled = false;
@@ -297,7 +297,7 @@ public sealed class TikTokUploadPrerequisiteServiceTests
         account.TiktokExpectedFullPriceValue = "";
 
         var act = () => TikTokUploadPrerequisiteService.EnsureCommercialConfigValid(account);
-        act.Should().NotThrow();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*请先配置预期价格*");
     }
 
     [Fact]

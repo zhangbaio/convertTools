@@ -47,21 +47,11 @@ public static class TikTokUploadPrerequisiteService
 
     public static void EnsureCommercialConfigValid(TikTokAccountProfile account, Action<string>? log = null)
     {
-        if (!PaidUploadPossible(account))
-            return;
-
-        var mode = string.IsNullOrWhiteSpace(account.TiktokExpectedFullPriceMode)
-            ? "manual"
-            : account.TiktokExpectedFullPriceMode.Trim();
-        if (!string.Equals(mode, "manual", StringComparison.OrdinalIgnoreCase))
-            return;
-        if (!string.IsNullOrWhiteSpace(account.TiktokExpectedFullPriceValue))
+        if (TikTokApiSeriesDocument.ReadPrice(account.TiktokExpectedFullPriceValue) is not null)
             return;
 
         var hint =
-            "TikTok 发布配置不完整，已跳过本次剧集上传："
-            + "「是否付费=是」或已启用「按比例收费」时，必须在「账号管理 → 发布配置」中"
-            + "配置“预期全集价格设置”。";
+            "上传前请先配置预期价格。请在「账号管理 → 发布配置」填写美元价格，例如 0.3。";
         log?.Invoke(hint);
         throw new InvalidOperationException(hint);
     }

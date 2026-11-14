@@ -180,7 +180,8 @@ public sealed class TikTokAccountProfile
     public int TiktokFreePreviewEpisodes { get; set; } = 3;
     public string TiktokExpectedFullPriceMode { get; set; } = "manual";
     public int TiktokExpectedFullPriceOptionIndex { get; set; } = 1;
-    public string TiktokExpectedFullPriceValue { get; set; } = "";
+    public const string DefaultExpectedPriceUsd = "0.3";
+    public string TiktokExpectedFullPriceValue { get; set; } = DefaultExpectedPriceUsd;
     public string TiktokExpectedFullPriceLabel { get; set; } = "";
     public string TiktokExpectedFullPriceOptionsJson { get; set; } = "";
     public int TiktokUploadStallSeconds { get; set; } = 180;

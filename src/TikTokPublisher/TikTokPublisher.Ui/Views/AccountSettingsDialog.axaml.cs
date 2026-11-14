@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -133,11 +132,7 @@ public partial class AccountSettingsDialog : Window
         UploadBatchStallBox.Value = p.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = p.TiktokUploadBatchMaxRetries;
         UploadApiConcurrencyBox.Value = p.TiktokUploadApiConcurrency;
-        SelectByTag(ExpectedPriceModeCombo, p.TiktokExpectedFullPriceMode, "manual");
-        ExpectedPriceOptionIndexBox.Value = p.TiktokExpectedFullPriceOptionIndex;
-        ExpectedPriceValueBox.Text = !string.IsNullOrWhiteSpace(p.TiktokExpectedFullPriceLabel)
-            ? p.TiktokExpectedFullPriceLabel
-            : p.TiktokExpectedFullPriceValue;
+        ExpectedPriceValueBox.Text = TikTokApiSeriesDocument.ReadPrice(p.TiktokExpectedFullPriceValue) ?? "";
         ProxyEnabledBox.IsChecked = p.TiktokProxyEnabled;
         SelectByTag(ProxyTypeCombo, p.TiktokProxyType, "http");
         ProxyHostBox.Text = p.TiktokProxyHost;
@@ -235,11 +230,9 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
         p.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
         p.TiktokUploadApiFallbackToBatch = false;
-        p.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
-        p.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
-        var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
-        p.TiktokExpectedFullPriceValue = priceValue;
-        p.TiktokExpectedFullPriceLabel = priceLabel;
+        p.TiktokExpectedFullPriceMode = "manual";
+        p.TiktokExpectedFullPriceValue = TikTokApiSeriesDocument.ReadPrice(ExpectedPriceValueBox.Text) ?? "";
+        p.TiktokExpectedFullPriceLabel = "";
         p.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
         p.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
         p.TiktokProxyHost = ProxyHostBox.Text?.Trim() ?? "";
@@ -403,19 +396,6 @@ public partial class AccountSettingsDialog : Window
         };
     }
 
-    private static (string Value, string Label) NormalizeExpectedPriceInput(string? text)
-    {
-        var raw = (text ?? "").Trim();
-        if (string.IsNullOrEmpty(raw)) return ("", "");
-
-        var totalMatch = Regex.Match(raw, @"\$?(\d+(?:\.\d+)?)");
-        var value = totalMatch.Success ? totalMatch.Groups[1].Value : raw;
-        var label = raw.Contains("每集", StringComparison.Ordinal) || raw.Contains("/EP", StringComparison.OrdinalIgnoreCase)
-            ? raw
-            : (raw.StartsWith('$') ? raw : $"${value}");
-        return (value, label);
-    }
-
     private static void SelectNewTitleRandomness(ComboBox combo, string? value)
     {
         var key = ClientSettingsDefaults.NormalizeAiNewTitleRandomness(value);
@@ -440,7 +420,7 @@ public partial class AccountSettingsDialog : Window
 
     private void UpdateUploadChannelVisibility()
     {
-        if (UploadChannelHint is null || PlaywrightDeliveryPanel is null)
+        if (PlaywrightDeliveryPanel is null)
             return;
 
         var api = string.Equals(TagOf(UploadStrategyCombo, "api"), TikTokUploadChannels.Api, StringComparison.OrdinalIgnoreCase);
@@ -453,8 +433,5 @@ public partial class AccountSettingsDialog : Window
         UploadBatchRetriesBox.IsVisible = !api;
         ApiConcurrencyLabel.IsVisible = api;
         UploadApiConcurrencyBox.IsVisible = api;
-        UploadChannelHint.Text = api
-            ? "整剧走接口：用已保存的登录状态建壳、传封面、正片和版权材料，不打开浏览器。失败后停止，不改走网页上传。"
-            : "在剧集中心网页上填表、传正片并提交。正片投递只影响这一套。";
     }
 }

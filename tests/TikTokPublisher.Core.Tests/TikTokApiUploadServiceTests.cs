@@ -528,6 +528,22 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
+    public void User_price_matches_the_per_episode_option_closest_to_the_episode_count()
+    {
+        var options = new[]
+        {
+            "$13.63 | 每集$0.30",
+            "$13.64 | 每集$0.30",
+            "$15.00 | 每集$0.30",
+            "$22.33 | 每集$0.49",
+        };
+
+        TikTokApiSeriesDocument.MatchPriceOption(options, "0.3", 50).Should().Be(2);
+        TikTokApiSeriesDocument.MatchPriceOption(options, "$13.64", 50).Should().Be(1);
+        TikTokApiSeriesDocument.ReadPrice("$0.30").Should().Be("0.3");
+    }
+
+    [Fact]
     public void Tos_part_retry_waits_longer_and_stops_at_thirty_seconds()
     {
         TikTokApiUploadService.TosPartAttempts.Should().Be(7);

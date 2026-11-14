@@ -97,16 +97,7 @@ public static class TikTokUploadManifestService
         if (options.PaidEnabled)
         {
             snapshot["free_preview_episodes"] = options.FreePreviewEpisodes;
-            snapshot["expected_full_price_mode"] = options.ExpectedFullPriceMode;
-            if (string.Equals(options.ExpectedFullPriceMode, "option_index", StringComparison.Ordinal))
-            {
-                snapshot["expected_full_price_option_index"] = options.ExpectedFullPriceOptionIndex;
-            }
-            else
-            {
-                snapshot["expected_full_price_value"] = options.ExpectedFullPriceValue;
-                snapshot["expected_full_price_label"] = options.ExpectedFullPriceLabel;
-            }
+            snapshot["expected_full_price_value"] = options.ExpectedFullPriceValue;
         }
 
         return snapshot;

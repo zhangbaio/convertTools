@@ -329,41 +329,27 @@
 
                         </Grid>
 
-                        <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
-                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ExpectedPriceModeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="manual">手动价格</ComboBoxItem>
-                                <ComboBoxItem Tag="option_index">按选项序号</ComboBoxItem>
-                            </ComboBox>
-                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="预期全集价格" VerticalAlignment="Center" />
-                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                <TextBox x:Name="ExpectedPriceValueBox" Watermark="例如：22.33 或 $22.33 | $0.29/EP" MinWidth="280" />
-                                <Button Content="同步价格选项" Click="OnSyncExpectedPriceClick" />
-                            </StackPanel>
-                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
-                            <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="已同步选项" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ExpectedPriceOptionsCombo" HorizontalAlignment="Stretch" />
-                            <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
-                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
-                            <TextBlock Classes="formLabel" x:Name="ApiConcurrencyLabel" Grid.Row="6" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
-                            <TextBlock Classes="formLabel" x:Name="UploadChannelHintLabel" Grid.Row="7" Grid.Column="0" Text="说明" VerticalAlignment="Center" />
-                            <TextBlock x:Name="UploadChannelHint" Grid.Row="7" Grid.Column="1" TextWrapping="Wrap" VerticalAlignment="Center" />
-                            <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
-                            <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
-                            <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="10" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
-                            <TextBlock Classes="formLabel" x:Name="BatchSizeLabel" Grid.Row="11" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="11" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
-                            <TextBlock Classes="formLabel" x:Name="BatchStallLabel" Grid.Row="12" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="12" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
-                            <TextBlock Classes="formLabel" x:Name="BatchRetriesLabel" Grid.Row="13" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="13" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
+                        <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
+                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="预期价格" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="ExpectedPriceValueBox" Watermark="0.3" MinWidth="160" />
+                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                            <TextBlock Classes="formLabel" x:Name="ApiConcurrencyLabel" Grid.Row="3" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="3" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
+                            <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
+                            <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="7" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
+                            <TextBlock Classes="formLabel" x:Name="BatchSizeLabel" Grid.Row="8" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
+                            <TextBlock Classes="formLabel" x:Name="BatchStallLabel" Grid.Row="9" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
+                            <TextBlock Classes="formLabel" x:Name="BatchRetriesLabel" Grid.Row="10" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="10" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
                         </Grid>
                         <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="10">
                         </Grid>

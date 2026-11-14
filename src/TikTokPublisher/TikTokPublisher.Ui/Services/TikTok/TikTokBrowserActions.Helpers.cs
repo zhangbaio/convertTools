@@ -191,7 +191,8 @@ public static partial class TikTokBrowserActions
             candidates = await CollectPriceOptionCandidatesAsync(page);
         }
 
-        var selected = ChooseExpectedFullPriceOption(candidates, options);
+        var episodeCount = await ReadTotalEpisodeCountAsync(page);
+        var selected = ChooseExpectedFullPriceOption(candidates, options, episodeCount);
         if (selected is not null)
         {
             await ClickWithFallbackAsync(selected, ct);
@@ -214,27 +215,34 @@ public static partial class TikTokBrowserActions
         await page.Locator("body").PressAsync("Escape");
         var visible = candidates.Select(c => c.Text).Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
         if (visible.Count == 0) visible = await CollectVisiblePopupTextsAsync(page);
+        var price = TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue) ?? options.ExpectedFullPriceValue;
         throw new InvalidOperationException(
-            options.ExpectedFullPriceMode == "option_index"
-                ? $"未找到预期全集价格第 {options.ExpectedFullPriceOptionIndex} 个选项；当前可见: {string.Join(" | ", visible.Take(20))}"
-                : $"未找到预期全集价格设置选项：{options.ExpectedFullPriceLabel ?? options.ExpectedFullPriceValue}；当前可见: {string.Join(" | ", visible.Take(20))}");
+            $"未找到预期价格 {price} 美元对应的选项；当前可见: {string.Join(" | ", visible.Take(20))}");
     }
 
-    private static ILocator? ChooseExpectedFullPriceOption(IReadOnlyList<(ILocator Locator, string Text, string Value)> options, TikTokPublishOptions settings)
+    private static async Task<int> ReadTotalEpisodeCountAsync(IPage page)
     {
-        if (settings.ExpectedFullPriceMode == "option_index")
+        try
         {
-            var index = Math.Max(1, settings.ExpectedFullPriceOptionIndex) - 1;
-            return index >= 0 && index < options.Count ? options[index].Locator : null;
+            var value = await page.Locator("#totalVideoNum").First.InputValueAsync();
+            return int.TryParse(value, out var count) ? count : 0;
         }
+        catch
+        {
+            return 0;
+        }
+    }
 
-        foreach (var option in options)
-        {
-            if (option.Value == settings.ExpectedFullPriceValue ||
-                (!string.IsNullOrWhiteSpace(settings.ExpectedFullPriceLabel) && option.Text == settings.ExpectedFullPriceLabel))
-                return option.Locator;
-        }
-        return null;
+    private static ILocator? ChooseExpectedFullPriceOption(
+        IReadOnlyList<(ILocator Locator, string Text, string Value)> options,
+        TikTokPublishOptions settings,
+        int episodeCount)
+    {
+        var index = TikTokApiSeriesDocument.MatchPriceOption(
+            options.Select(option => option.Text).ToArray(),
+            settings.ExpectedFullPriceValue,
+            episodeCount);
+        return index >= 0 && index < options.Count ? options[index].Locator : null;
     }
 
     private static async Task OpenComboboxAsync(IPage page, ILocator combo, CancellationToken ct)

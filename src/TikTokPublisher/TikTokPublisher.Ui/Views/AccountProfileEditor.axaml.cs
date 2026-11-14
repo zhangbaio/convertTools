@@ -35,7 +35,6 @@ public partial class AccountProfileEditor : UserControl
     public AccountProfileEditor()
     {
         InitializeComponent();
-        ExpectedPriceModeCombo.SelectionChanged += (_, _) => UpdateExpectedPriceModeVisibility();
         PublishAccounts.FetchRequested += (_, _) => _ = FetchPublishAccountsAsync();
         VideoDedupEditor.ApplyToAllAccountsRequested += (_, _) => _ = ApplyDedupPresetToAllAccountsAsync();
         DataContextChanged += (_, _) => ReloadFromSelectedAccount();
@@ -219,11 +218,7 @@ public partial class AccountProfileEditor : UserControl
         UploadBatchRetriesBox.Value = profile.TiktokUploadBatchMaxRetries;
         UploadApiConcurrencyBox.Value = profile.TiktokUploadApiConcurrency;
 
-        SelectByTag(ExpectedPriceModeCombo, profile.TiktokExpectedFullPriceMode, "manual");
-        ExpectedPriceOptionIndexBox.Value = profile.TiktokExpectedFullPriceOptionIndex;
-        ExpectedPriceValueBox.Text = BuildExpectedPriceInputText(profile);
-        ReloadExpectedPriceOptionsCombo(profile);
-        UpdateExpectedPriceModeVisibility();
+        ExpectedPriceValueBox.Text = TikTokApiSeriesDocument.ReadPrice(profile.TiktokExpectedFullPriceValue) ?? "";
 
         ProxyEnabledBox.IsChecked = profile.TiktokProxyEnabled;
         SelectByTag(ProxyTypeCombo, profile.TiktokProxyType, "http");
@@ -356,11 +351,9 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
             profile.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
             profile.TiktokUploadApiFallbackToBatch = false;
-            profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
-            profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
-            var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
-            profile.TiktokExpectedFullPriceValue = priceValue;
-            profile.TiktokExpectedFullPriceLabel = priceLabel;
+            profile.TiktokExpectedFullPriceMode = "manual";
+            profile.TiktokExpectedFullPriceValue = TikTokApiSeriesDocument.ReadPrice(ExpectedPriceValueBox.Text) ?? "";
+            profile.TiktokExpectedFullPriceLabel = "";
 
             profile.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
             profile.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
@@ -993,7 +986,6 @@ public partial class AccountProfileEditor : UserControl
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;
         ExpectedPriceValueBox.Text = "";
-        ExpectedPriceOptionsCombo.Items.Clear();
         VideoDedupEditor.Load(null);
         ProxyHostBox.Text = "";
         ProxyUsernameBox.Text = "";
@@ -1041,89 +1033,6 @@ public partial class AccountProfileEditor : UserControl
         {
             PublishAccounts.SetFetchEnabled(true);
         }
-    }
-
-    private async void OnSyncExpectedPriceClick(object? sender, RoutedEventArgs e)
-    {
-        if (_vm?.SelectedAccount?.Model is not { } profile) return;
-        SaveToProfile();
-        try
-        {
-            await _vm.SyncExpectedPriceOptionsAsync(profile);
-            ReloadFromSelectedAccount();
-        }
-        catch
-        {
-            // 状态已在 ViewModel 中更新
-        }
-    }
-
-    private void ReloadExpectedPriceOptionsCombo(TikTokAccountProfile profile)
-    {
-        ExpectedPriceOptionsCombo.Items.Clear();
-        foreach (var option in ExpectedFullPriceOptionsJson.Parse(profile.TiktokExpectedFullPriceOptionsJson))
-        {
-            ExpectedPriceOptionsCombo.Items.Add(new ComboBoxItem
-            {
-                Content = option.Label,
-                Tag = option.Value,
-            });
-        }
-
-        if (!string.IsNullOrWhiteSpace(profile.TiktokExpectedFullPriceValue))
-        {
-            foreach (var item in ExpectedPriceOptionsCombo.Items.OfType<ComboBoxItem>())
-            {
-                if (string.Equals(item.Tag as string, profile.TiktokExpectedFullPriceValue, StringComparison.Ordinal))
-                {
-                    ExpectedPriceOptionsCombo.SelectedItem = item;
-                    break;
-                }
-            }
-        }
-
-        ExpectedPriceOptionsCombo.SelectionChanged -= OnExpectedPriceOptionSelected;
-        ExpectedPriceOptionsCombo.SelectionChanged += OnExpectedPriceOptionSelected;
-    }
-
-    private void OnExpectedPriceOptionSelected(object? sender, SelectionChangedEventArgs e)
-    {
-        if (ExpectedPriceOptionsCombo.SelectedItem is not ComboBoxItem item) return;
-        var value = item.Tag as string ?? "";
-        var label = item.Content?.ToString() ?? "";
-        ExpectedPriceValueBox.Text = BuildExpectedPriceInputText(value, label);
-    }
-
-    private void UpdateExpectedPriceModeVisibility()
-    {
-        var mode = TagOf(ExpectedPriceModeCombo, "manual");
-        ExpectedPriceValueBox.IsVisible = mode == "manual";
-        ExpectedPriceOptionsCombo.IsVisible = mode == "manual";
-        ExpectedPriceOptionIndexBox.IsVisible = mode == "option_index";
-    }
-
-    private static string BuildExpectedPriceInputText(TikTokAccountProfile profile) =>
-        BuildExpectedPriceInputText(profile.TiktokExpectedFullPriceValue, profile.TiktokExpectedFullPriceLabel);
-
-    private static string BuildExpectedPriceInputText(string value, string label)
-    {
-        value = (value ?? "").Trim();
-        label = (label ?? "").Trim();
-        if (!string.IsNullOrEmpty(label)) return label;
-        return value;
-    }
-
-    private static (string Value, string Label) NormalizeExpectedPriceInput(string? text)
-    {
-        var raw = (text ?? "").Trim();
-        if (string.IsNullOrEmpty(raw)) return ("", "");
-
-        var totalMatch = Regex.Match(raw, @"\$?(\d+(?:\.\d+)?)");
-        var value = totalMatch.Success ? totalMatch.Groups[1].Value : raw;
-        var label = raw.Contains("每集", StringComparison.Ordinal) || raw.Contains("/EP", StringComparison.OrdinalIgnoreCase)
-            ? raw
-            : (raw.StartsWith('$') ? raw : $"${value}");
-        return (value, label);
     }
 
     private async Task PickFolderAsync(TextBox target, string title)
@@ -1308,7 +1217,7 @@ public partial class AccountProfileEditor : UserControl
 
     private void UpdateUploadChannelVisibility()
     {
-        if (UploadChannelHint is null || PlaywrightDeliveryPanel is null)
+        if (PlaywrightDeliveryPanel is null)
             return;
 
         var api = string.Equals(TagOf(UploadStrategyCombo, "api"), TikTokUploadChannels.Api, StringComparison.OrdinalIgnoreCase);
@@ -1321,8 +1230,5 @@ public partial class AccountProfileEditor : UserControl
         UploadBatchRetriesBox.IsVisible = !api;
         ApiConcurrencyLabel.IsVisible = api;
         UploadApiConcurrencyBox.IsVisible = api;
-        UploadChannelHint.Text = api
-            ? "整剧走接口：用已保存的登录状态建壳、传封面、正片和版权材料，不打开浏览器。失败后停止，不改走网页上传。"
-            : "在剧集中心网页上填表、传正片并提交。正片投递只影响这一套。";
     }
 }

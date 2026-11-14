@@ -885,6 +885,7 @@ public sealed class TikTokPublishDefaultsTests
         account.TiktokFreePreviewEpisodes.Should().Be(3);
         account.TiktokExpectedFullPriceMode.Should().Be("manual");
         account.TiktokExpectedFullPriceOptionIndex.Should().Be(1);
+        account.TiktokExpectedFullPriceValue.Should().Be("0.3");
         account.TiktokUploadStrategy.Should().Be("api");
         account.TiktokUploadBatchSize.Should().Be(3);
         account.TiktokUploadBatchStallSeconds.Should().Be(75);

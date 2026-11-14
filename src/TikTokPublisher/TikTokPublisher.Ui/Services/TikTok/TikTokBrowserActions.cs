@@ -1021,22 +1021,20 @@ public static partial class TikTokBrowserActions
         await VerifyNumericFieldAsync(page, "#previewVideoNum", options.FreePreviewEpisodes, "免费预览集数", log, ct);
         await PauseBetweenFieldsAsync(page);
 
-        if (options.PaidEnabled
-            && options.ExpectedFullPriceMode == "manual"
-            && string.IsNullOrWhiteSpace(options.ExpectedFullPriceValue))
+        if (options.PaidEnabled &&
+            TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue) is null)
         {
-            throw new InvalidOperationException("是否付费=是 时，必须配置“预期全集价格设置”。");
+            throw new InvalidOperationException(
+                "上传前请先配置预期价格。请在「账号管理 → 发布配置」填写美元价格，例如 0.3。");
         }
 
         await SelectExpectedFullPriceAsync(page, options, log, ct);
         await VerifyExpectedFullPriceAsync(page, options, log, ct);
 
-        var label = options.ExpectedFullPriceMode == "option_index"
-            ? $"第 {options.ExpectedFullPriceOptionIndex} 个价格选项"
-            : options.ExpectedFullPriceLabel ?? options.ExpectedFullPriceValue;
+        var label = TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue) ?? options.ExpectedFullPriceValue;
         Log(log, options.PaidEnabled
-            ? $"商业模式已按付费=是填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}"
-            : $"商业模式已按付费=否预填个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}");
+            ? $"商业模式已按付费=是填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期价格：{label} 美元"
+            : $"商业模式已按付费=否预填个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期价格：{label} 美元");
     }
 
     private static async Task ApplyZeroCostAdsAsync(

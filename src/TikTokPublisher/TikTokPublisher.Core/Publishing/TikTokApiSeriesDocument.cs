@@ -645,14 +645,80 @@ public static class TikTokApiSeriesDocument
 
     public static string? ReadPrice(string? text)
     {
+        if (TryReadPrice(text, out var price))
+            return price.ToString("0.##", CultureInfo.InvariantCulture);
+        return null;
+    }
+
+    /// <summary>
+    /// 用用户填写的美元价格选下拉项。先对全集价，再对「每集」单价；
+    /// 同一单价有多项时，选最接近「集数 × 单价」的全集价。
+    /// </summary>
+    public static int MatchPriceOption(IReadOnlyList<string> optionTexts, string? configuredPrice, int episodeCount)
+    {
+        if (!TryReadPrice(configuredPrice, out var wanted))
+            return -1;
+
+        var options = optionTexts
+            .Select((text, index) => (index, text, numbers: ReadPriceNumbers(text)))
+            .ToList();
+        var exact = options.Where(item => item.numbers.Count > 0 && SamePrice(item.numbers[0], wanted)).ToList();
+        if (exact.Count > 0)
+            return exact[0].index;
+
+        var unitHits = options
+            .Select(item => (item.index, item.numbers, unit: ReadMarkedUnitPrice(item.text)))
+            .Where(item => item.unit is { } unit && SamePrice(unit, wanted))
+            .ToList();
+        if (unitHits.Count == 0)
+            return -1;
+        if (episodeCount <= 0 || unitHits.Count == 1)
+            return unitHits[0].index;
+
+        var target = wanted * episodeCount;
+        return unitHits
+            .OrderBy(item => item.numbers.Count == 0 ? decimal.MaxValue : Math.Abs(item.numbers[0] - target))
+            .ThenBy(item => item.index)
+            .First()
+            .index;
+    }
+
+    private static bool TryReadPrice(string? text, out decimal price)
+    {
+        price = 0;
         if (string.IsNullOrWhiteSpace(text))
-            return null;
+            return false;
         var filtered = new string(text.Where(ch => char.IsDigit(ch) || ch is '.' or ',').ToArray())
             .Replace(',', '.');
-        return decimal.TryParse(filtered, NumberStyles.Number, CultureInfo.InvariantCulture, out var price) && price > 0
-            ? price.ToString("0.##", CultureInfo.InvariantCulture)
-            : null;
+        return decimal.TryParse(filtered, NumberStyles.Number, CultureInfo.InvariantCulture, out price) && price > 0;
     }
+
+    private static List<decimal> ReadPriceNumbers(string text)
+    {
+        var numbers = new List<decimal>();
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                     text ?? "", @"\d+(?:\.\d+)?"))
+        {
+            if (decimal.TryParse(match.Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number))
+                numbers.Add(number);
+        }
+
+        return numbers;
+    }
+
+    private static decimal? ReadMarkedUnitPrice(string text)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            text ?? "",
+            @"每集\s*\$?\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*/\s*EP",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!match.Success)
+            return null;
+        var raw = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+        return decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var price) ? price : null;
+    }
+
+    private static bool SamePrice(decimal left, decimal right) => Math.Abs(left - right) < 0.001m;
 
     private static JsonArray BuildMaterials(IReadOnlyList<TikTokApiCopyrightFile> files)
     {
