@@ -1,8 +1,8 @@
 namespace TikTokPublisher.Core.Queue;
 
 /// <summary>
-/// 本机同时上传的剧数。同一个账号可以同时占多个名额，这些剧共用一个浏览器的多个标签页。
-/// 已经在上传的账号还有下一部可以传时，别的账号先不开新浏览器。
+/// 本机同时上传的剧数。同一个账号可以同时占多个名额，每部剧各自打开一个浏览器。
+/// 已经在上传的账号还有下一部可以传时，别的账号先不占名额。
 /// </summary>
 public sealed class UploadSlotCoordinator
 {

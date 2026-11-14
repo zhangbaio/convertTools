@@ -526,7 +526,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (sharedPage is not null)
             {
                 try { await sharedPage.DisposeAsync().ConfigureAwait(false); }
-                catch { /* 标签页已经关闭 */ }
+                catch { /* 浏览器已经关闭 */ }
             }
             else
             {
