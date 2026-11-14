@@ -66,7 +66,10 @@ public partial class AccountSettingsDialog : Window
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(p.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
-        SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
+        SelectByTag(
+            SourceLanguageCombo,
+            TikTokAccountProfile.NormalizeStoredSourceLanguage(p.TiktokSourceLanguage, p.TiktokDramaMarket),
+            "zh");
         var upload = TikTokUploadChannels.Resolve(p.TiktokUploadStrategy, p.TiktokPlaywrightVideoDelivery);
         SelectByTag(UploadStrategyCombo, upload.Channel, "api");
         SelectByTag(PlaywrightDeliveryCombo, upload.Delivery, "classic");
@@ -116,7 +119,6 @@ public partial class AccountSettingsDialog : Window
             2,
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
-        RewriteFollowsSourceLanguageBox.IsChecked = p.TiktokRewriteFollowsSourceLanguage;
         SelectNewTitleRandomness(AiNewTitleRandomnessCombo, p.TiktokAiNewTitleRandomness);
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
@@ -172,7 +174,9 @@ public partial class AccountSettingsDialog : Window
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
         p.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
-        p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
+        p.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            TagOf(SourceLanguageCombo, "zh"),
+            p.TiktokDramaMarket);
         var upload = TikTokUploadChannels.Resolve(TagOf(UploadStrategyCombo, "api"), TagOf(PlaywrightDeliveryCombo, "classic"));
         p.TiktokUploadStrategy = upload.Channel;
         p.TiktokPlaywrightVideoDelivery = upload.Delivery;
@@ -212,7 +216,8 @@ public partial class AccountSettingsDialog : Window
             p.TiktokRoleVectorCharacterCount);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
-        p.TiktokRewriteFollowsSourceLanguage = RewriteFollowsSourceLanguageBox.IsChecked == true;
+        p.TiktokRewriteFollowsSourceLanguage =
+            TikTokAccountProfile.RewriteFollowsImportedLanguage(p.TiktokDramaMarket);
         p.TiktokAiNewTitleRandomness = ReadNewTitleRandomness(AiNewTitleRandomnessCombo);
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
@@ -345,18 +350,20 @@ public partial class AccountSettingsDialog : Window
                 TikTokAccountProfile.DramaMarketOverseas,
                 StringComparison.OrdinalIgnoreCase))
             return;
+        if (!string.Equals(TagOf(SourceLanguageCombo, "zh"), "zh", StringComparison.OrdinalIgnoreCase))
+            return;
 
         var confirmed = await ConfirmDialog.ShowAsync(
             this,
             "海外剧",
-            "是否同步把源语言改为「AI识别语言」，并勾选「改写信息跟随源语言」？",
-            520,
-            200);
+            "当前源语言是中文。海外剧一般使用非中文，是否改为英语？",
+            480,
+            180,
+            confirmText: "改为英语");
         if (!confirmed)
             return;
 
-        SelectByTag(SourceLanguageCombo, "auto", "auto");
-        RewriteFollowsSourceLanguageBox.IsChecked = true;
+        SelectByTag(SourceLanguageCombo, "en", "zh");
     }
 
     private void OnSave(object? sender, RoutedEventArgs e)

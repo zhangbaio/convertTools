@@ -214,9 +214,9 @@ public static class TikTokPublishConstants
     {
         ArgumentNullException.ThrowIfNull(account);
 
-        var sourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage)
-            ? "zh"
-            : account.TiktokSourceLanguage.Trim();
+        var sourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            account.TiktokSourceLanguage,
+            account.TiktokDramaMarket);
         var contentCreationType = NormalizeContentCreationType(account.TiktokContentCreationType);
         if (account.TiktokIsAiDrama &&
             string.Equals(sourceLanguage, "zh", StringComparison.OrdinalIgnoreCase) &&
@@ -547,7 +547,9 @@ public sealed class TikTokPublishOptions
         AnchorPromotionEnabled = account.TiktokAnchorPromotionEnabled,
         TargetAudienceMode = string.IsNullOrWhiteSpace(account.TiktokTargetAudienceMode) ? "ai_recommend" : account.TiktokTargetAudienceMode,
         GenreCount = NormalizeGenreCount(account.TiktokGenreCount),
-        SourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage) ? "zh" : account.TiktokSourceLanguage,
+        SourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            account.TiktokSourceLanguage,
+            account.TiktokDramaMarket),
         IsAiDrama = account.TiktokIsAiDrama,
         ContentCreationType = TikTokPublishConstants.NormalizeContentCreationType(
             account.TiktokContentCreationType),

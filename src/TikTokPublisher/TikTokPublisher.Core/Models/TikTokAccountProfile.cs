@@ -108,6 +108,19 @@ public sealed class TikTokAccountProfile
             ? DramaMarketOverseas
             : DramaMarketLocal;
 
+    /// <summary>海外剧的标题和简介按导入短剧的语言改写。本土剧保持中文。</summary>
+    public static bool RewriteFollowsImportedLanguage(string? dramaMarket) =>
+        NormalizeDramaMarket(dramaMarket) == DramaMarketOverseas;
+
+    /// <summary>已取消的「AI识别语言」按剧集类型落到具体语种：海外剧英语，本土剧中文。手选的语种保持不变。</summary>
+    public static string NormalizeStoredSourceLanguage(string? language, string? dramaMarket)
+    {
+        var text = (language ?? "").Trim();
+        if (text.Length == 0 || text.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            return RewriteFollowsImportedLanguage(dramaMarket) ? "en" : "zh";
+        return text;
+    }
+
     public string TiktokSourceLanguage { get; set; } = "zh";
     public bool TiktokIsAiDrama { get; set; } = true;
     public string TiktokContentCreationType { get; set; } = "original";

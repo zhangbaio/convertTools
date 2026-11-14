@@ -31,7 +31,7 @@ public static class ClientSettingsWorkflowConfigWriter
             ["ChatModelApiKey"] = settings.AiTextApiKey,
             ["ChatModelId"] = settings.AiTextModel,
             ["AiRewriteSynopsis"] = account?.TiktokAiRewriteSynopsis == true,
-            ["AiRewriteFollowsSourceLanguage"] = account?.TiktokRewriteFollowsSourceLanguage == true,
+            ["AiRewriteFollowsSourceLanguage"] = TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket),
             ["AiTextTimeoutSeconds"] = settings.AiTextTimeoutSeconds,
             ["AiNewTitleTemperature"] = ClientSettingsDefaults.AiNewTitleTemperature(account?.TiktokAiNewTitleRandomness),
             ["TiktokRoleReferenceSelectionMode"] = settings.TiktokRoleReferenceSelectionMode,

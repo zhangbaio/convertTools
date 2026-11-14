@@ -75,27 +75,34 @@ public sealed class TikTokNewTitleLanguageServiceTests
         }
     }
 
-    [Fact]
-    public void ApplyKnown_reuses_the_title_rewrite_language()
+    [Theory]
+    [InlineData("local", "zh")]
+    [InlineData("overseas", "en")]
+    public void ApplyKnown_replaces_removed_auto_language_with_the_market_default(string market, string expected)
     {
-        var dir = CreateProjectDir("""{ "rewriteSourceLanguage": "es" }""");
-        try
-        {
-            File.WriteAllText(
-                Path.Combine(dir, "短剧信息.txt"),
-                "新剧名：No provoques a este mendigo" + Environment.NewLine);
-            var options = new TikTokPublishOptions();
-            TikTokNewTitleLanguageService.ApplyKnown(
-                options,
-                new TikTokAccountProfile { TiktokSourceLanguage = TikTokNewTitleLanguageService.Auto },
-                dir);
+        var options = new TikTokPublishOptions();
+        TikTokNewTitleLanguageService.ApplyKnown(
+            options,
+            new TikTokAccountProfile
+            {
+                TiktokSourceLanguage = TikTokNewTitleLanguageService.Auto,
+                TiktokDramaMarket = market,
+            },
+            projectDir: null);
 
-            options.SourceLanguage.Should().Be("es");
-        }
-        finally
-        {
-            Directory.Delete(dir, recursive: true);
-        }
+        options.SourceLanguage.Should().Be(expected);
+    }
+
+    [Fact]
+    public void Stored_source_language_keeps_a_chosen_language_and_maps_auto_by_market()
+    {
+        TikTokAccountProfile.NormalizeStoredSourceLanguage("auto", "overseas").Should().Be("en");
+        TikTokAccountProfile.NormalizeStoredSourceLanguage("auto", "local").Should().Be("zh");
+        TikTokAccountProfile.NormalizeStoredSourceLanguage("", "overseas").Should().Be("en");
+        TikTokAccountProfile.NormalizeStoredSourceLanguage("zh", "overseas").Should().Be("zh");
+        TikTokAccountProfile.NormalizeStoredSourceLanguage("id", "local").Should().Be("id");
+        TikTokAccountProfile.RewriteFollowsImportedLanguage("overseas").Should().BeTrue();
+        TikTokAccountProfile.RewriteFollowsImportedLanguage("local").Should().BeFalse();
     }
 
     private static string CreateProjectDir(string projectJson)

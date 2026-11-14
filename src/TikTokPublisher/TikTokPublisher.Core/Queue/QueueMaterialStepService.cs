@@ -1679,9 +1679,9 @@ public static class QueueMaterialStepService
         }
 
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
-        if (account?.TiktokRewriteFollowsSourceLanguage == true)
+        if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
         {
-            log("改写信息跟随源语言：将用 AI 判断原剧名和原简介的语言。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。");
+            log("海外剧：标题和简介按原剧语言改写。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。");
         }
 
         var rewriteVariantKey = BuildRewriteVariantKey(context, account);
@@ -1817,11 +1817,11 @@ public static class QueueMaterialStepService
         PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis, rewriteVariantKey);
         if (generatedResult is not null)
         {
-            if (account?.TiktokRewriteFollowsSourceLanguage == true)
+            if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
             {
                 var detected = RewriteSourceLanguage.ReadCached(workflowDir);
                 if (detected is not null)
-                    log($"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题和简介使用该语言。");
+                    log($"海外剧：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题和简介使用该语言。");
             }
             log($"改写完成：{generatedResult.Title}");
         }
@@ -2606,7 +2606,9 @@ public static class QueueMaterialStepService
     {
         var accountKey = FirstNonEmpty(account?.Id, account?.DisplayName, "default");
         var synopsisMode = account?.TiktokAiRewriteSynopsis == true ? "1" : "0";
-        var followSource = account?.TiktokRewriteFollowsSourceLanguage == true ? "#follow=source" : "";
+        var followSource = TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket)
+            ? "#follow=source"
+            : "";
         return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}{followSource}#synopsis={synopsisMode}";
     }
 

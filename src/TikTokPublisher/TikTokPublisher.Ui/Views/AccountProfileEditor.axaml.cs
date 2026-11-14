@@ -151,7 +151,10 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
-        SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
+        SelectByTag(
+            SourceLanguageCombo,
+            TikTokAccountProfile.NormalizeStoredSourceLanguage(profile.TiktokSourceLanguage, profile.TiktokDramaMarket),
+            "zh");
         var upload = TikTokUploadChannels.Resolve(profile.TiktokUploadStrategy, profile.TiktokPlaywrightVideoDelivery);
         SelectByTag(UploadStrategyCombo, upload.Channel, "api");
         SelectByTag(PlaywrightDeliveryCombo, upload.Delivery, "classic");
@@ -201,7 +204,6 @@ public partial class AccountProfileEditor : UserControl
             2,
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
-        RewriteFollowsSourceLanguageBox.IsChecked = profile.TiktokRewriteFollowsSourceLanguage;
         SelectByTag(AiNewTitleRandomnessCombo, profile.TiktokAiNewTitleRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
@@ -293,7 +295,9 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
-            profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
+            profile.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+                TagOf(SourceLanguageCombo, "zh"),
+                profile.TiktokDramaMarket);
             var upload = TikTokUploadChannels.Resolve(TagOf(UploadStrategyCombo, "api"), TagOf(PlaywrightDeliveryCombo, "classic"));
             profile.TiktokUploadStrategy = upload.Channel;
             profile.TiktokPlaywrightVideoDelivery = upload.Delivery;
@@ -333,7 +337,8 @@ public partial class AccountProfileEditor : UserControl
                 profile.TiktokRoleVectorCharacterCount);
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
-            profile.TiktokRewriteFollowsSourceLanguage = RewriteFollowsSourceLanguageBox.IsChecked == true;
+            profile.TiktokRewriteFollowsSourceLanguage =
+                TikTokAccountProfile.RewriteFollowsImportedLanguage(profile.TiktokDramaMarket);
             profile.TiktokAiNewTitleRandomness = TagOf(AiNewTitleRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
@@ -429,19 +434,21 @@ public partial class AccountProfileEditor : UserControl
                 TikTokAccountProfile.DramaMarketOverseas,
                 StringComparison.OrdinalIgnoreCase))
             return;
+        if (!string.Equals(TagOf(SourceLanguageCombo, "zh"), "zh", StringComparison.OrdinalIgnoreCase))
+            return;
 
         var owner = TopLevel.GetTopLevel(this) as Window;
         var confirmed = await ConfirmDialog.ShowAsync(
             owner,
             "海外剧",
-            "是否同步把源语言改为「AI识别语言」，并勾选「改写信息跟随源语言」？",
-            520,
-            200);
+            "当前源语言是中文。海外剧一般使用非中文，是否改为英语？",
+            480,
+            180,
+            confirmText: "改为英语");
         if (!confirmed)
             return;
 
-        SelectByTag(SourceLanguageCombo, "auto", "auto");
-        RewriteFollowsSourceLanguageBox.IsChecked = true;
+        SelectByTag(SourceLanguageCombo, "en", "zh");
     }
 
     private async void OnSyncAccountsClick(object? sender, RoutedEventArgs e)

@@ -284,6 +284,11 @@ public sealed class AccountStore
         account.TiktokUploadStrategy = upload.Channel;
         account.TiktokPlaywrightVideoDelivery = upload.Delivery;
         account.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket);
+        account.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            account.TiktokSourceLanguage,
+            account.TiktokDramaMarket);
+        account.TiktokRewriteFollowsSourceLanguage =
+            TikTokAccountProfile.RewriteFollowsImportedLanguage(account.TiktokDramaMarket);
         if (!account.TiktokDeleteVideosOnArchiveConfigured)
             account.TiktokDeleteVideosOnArchive = true;
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;

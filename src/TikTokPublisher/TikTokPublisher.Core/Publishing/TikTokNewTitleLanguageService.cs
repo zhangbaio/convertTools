@@ -9,8 +9,7 @@ using TikTokPublisher.Core.Services;
 namespace TikTokPublisher.Core.Publishing;
 
 /// <summary>
-/// 源语言选「AI识别语言」时，优先复用标题和简介改写时已经判定的语言。
-/// 没有这份结果时，再按新剧名的文字判断，结果必须是发布配置里已有的语种。
+/// 旧账号里的「AI识别语言」不再探测新剧名。海外剧落到英语，本土剧落到中文。
 /// </summary>
 public static class TikTokNewTitleLanguageService
 {
@@ -30,25 +29,12 @@ public static class TikTokNewTitleLanguageService
         if (!IsAuto(account.TiktokSourceLanguage))
             return;
 
-        var title = ReadNewTitle(projectDir, fallbackTitle: null);
-        if (TryReadRewriteLanguage(projectDir, title, out var rewriteLanguage))
-        {
-            options.SourceLanguage = rewriteLanguage;
-            return;
-        }
-
-        if (TryReadCache(projectDir, title, out var cached))
-        {
-            options.SourceLanguage = cached;
-            return;
-        }
-
-        var script = ClassifyScript(title);
-        if (script is not null)
-            options.SourceLanguage = script;
+        options.SourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            account.TiktokSourceLanguage,
+            account.TiktokDramaMarket);
     }
 
-    public static async Task ApplyAsync(
+    public static Task ApplyAsync(
         TikTokPublishOptions options,
         TikTokAccountProfile account,
         string? projectDir,
@@ -56,23 +42,15 @@ public static class TikTokNewTitleLanguageService
         Action<string>? log,
         CancellationToken ct)
     {
-        if (!IsAuto(account.TiktokSourceLanguage))
-            return;
-
-        var title = ReadNewTitle(projectDir, fallbackTitle);
-        var language = await ResolveAsync(title, projectDir, ClientSettingsStore.Load(), log, ct);
-        options.SourceLanguage = language;
-        if (account.TiktokIsAiDrama &&
-            string.Equals(language, "zh", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(
-                TikTokPublishConstants.NormalizeContentCreationType(account.TiktokContentCreationType),
-                "remake",
-                StringComparison.OrdinalIgnoreCase))
+        ApplyKnown(options, account, projectDir);
+        if (IsAuto(account.TiktokSourceLanguage))
         {
-            throw new InvalidOperationException(
-                "TikTok 发布配置不合理：新剧名识别为中文，不能选择「成片重制」。" +
-                "请将内容创作类型改为「原创/小说改编」，或把源语言改为非中文。");
+            log?.Invoke(string.Equals(options.SourceLanguage, "en", StringComparison.OrdinalIgnoreCase)
+                ? "源语言已不再自动识别，海外剧按英语上传。"
+                : "源语言已不再自动识别，本土剧按中文上传。");
         }
+
+        return Task.CompletedTask;
     }
 
     public static async Task<string> ResolveAsync(
