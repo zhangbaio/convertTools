@@ -76,7 +76,7 @@ public sealed class KuaishouPersonalFirstPageService
         else
             await SelectAsync(page, "播出平台", form.BroadcastPlatform, required: false);
         await SelectAsync(page, "播出途径", form.BroadcastChannel, required: false);
-        await FillTextAsync(page, "播出时间", form.BroadcastDate, required: false);
+        await FillBroadcastDateAsync(page, form.BroadcastDate);
         if (!form.HasRecordNumber)
             await FillActorsAsync(page, KuaishouPersonalFormResolver.ResolveUploadActors(data.WorkflowDirectory, config, enterprise), cancellationToken);
         await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", "否", required: false);
@@ -1039,6 +1039,185 @@ public sealed class KuaishouPersonalFirstPageService
         await FillEnterprisePersonAsync(page, "directorInfoList.0.name", "导演", director.Name, director.Gender, required: true, cancellationToken);
         await FillEnterprisePersonAsync(page, "screenwriterInfoList.0.name", "编剧", screenwriter.Name, screenwriter.Gender, required: false, cancellationToken);
         await FillEnterprisePersonAsync(page, "producerInfo.name", "制片人", producer.Name, producer.Gender, required: false, cancellationToken);
+    }
+
+    private static async Task FillBroadcastDateAsync(IPage page, string date)
+    {
+        if (!DateTime.TryParse(date, out var parsed))
+            throw new InvalidOperationException($"播出时间“{date}”无法识别。");
+        var marked = await page.EvaluateAsync<bool>(
+            """
+            () => {
+              const compact = value => String(value || '').replace(/\s+/g, '').replace(/[*＊]/g, '');
+              document.querySelectorAll('[data-kuaishou-broadcast-date]').forEach(element => element.removeAttribute('data-kuaishou-broadcast-date'));
+              const items = Array.from(document.querySelectorAll('.ks-form-item, .ant-form-item, .el-form-item'))
+                .filter(element => compact(element.querySelector('label, .ks-form-item__label, .ant-form-item-label, .el-form-item__label')?.innerText || '').startsWith('播出时间'))
+                .sort((left, right) => {
+                  const leftBox = left.getBoundingClientRect();
+                  const rightBox = right.getBoundingClientRect();
+                  return leftBox.width * leftBox.height - rightBox.width * rightBox.height;
+                });
+              const input = items[0]?.querySelector('input:not([type=hidden]):not([type=file])');
+              if (!input) return false;
+              input.setAttribute('data-kuaishou-broadcast-date', '1');
+              return true;
+            }
+            """);
+        if (!marked) throw new InvalidOperationException("未找到播出时间。");
+
+        var input = page.Locator("[data-kuaishou-broadcast-date]").First;
+        await input.ScrollIntoViewIfNeededAsync();
+        await input.ClickAsync();
+        await page.WaitForTimeoutAsync(300);
+        var picked = false;
+        for (var pass = 0; pass < 24 && !picked; pass++)
+        {
+            var header = await ReadOpenDatePanelAsync(page);
+            if (header is null) break;
+            if (header.Value.Year == parsed.Year && header.Value.Month == parsed.Month)
+            {
+                picked = await ClickOpenDateDayAsync(page, parsed.Day);
+                break;
+            }
+
+            if (!await ShiftOpenDatePanelAsync(page, parsed.Year, parsed.Month)) break;
+            await page.WaitForTimeoutAsync(200);
+        }
+
+        if (!picked)
+        {
+            try { await input.FillAsync(parsed.ToString("yyyy-MM-dd")); }
+            catch (PlaywrightException)
+            {
+                await input.EvaluateAsync(
+                    """
+                    (element, value) => {
+                      element.removeAttribute('readonly');
+                      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+                      if (descriptor?.set) descriptor.set.call(element, value);
+                      else element.value = value;
+                      element.dispatchEvent(new Event('input', { bubbles: true }));
+                      element.dispatchEvent(new Event('change', { bubbles: true }));
+                      element.dispatchEvent(new Event('blur', { bubbles: true }));
+                    }
+                    """,
+                    parsed.ToString("yyyy-MM-dd"));
+            }
+            try { await page.Keyboard.PressAsync("Enter"); } catch (PlaywrightException) { /* 日期面板已经关上。 */ }
+        }
+
+        try { await page.Keyboard.PressAsync("Escape"); } catch (PlaywrightException) { /* 日期面板已经关上。 */ }
+        await page.WaitForTimeoutAsync(200);
+        var actual = string.Empty;
+        try { actual = await input.InputValueAsync(); } catch (PlaywrightException) { /* 输入框已经重绘。 */ }
+        if (!BroadcastDateMatches(actual, parsed))
+            throw new InvalidOperationException($"播出时间没有选上“{parsed:yyyy-MM-dd}”。");
+    }
+
+    private static async Task<(int Year, int Month)?> ReadOpenDatePanelAsync(IPage page)
+    {
+        var parts = await page.EvaluateAsync<int[]?>(
+            """
+            () => {
+              const visible = element => {
+                if (!element) return false;
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+              };
+              const panel = Array.from(document.querySelectorAll('.ks-picker-panel, .ks-date-picker, .el-picker-panel, .el-date-picker'))
+                .filter(element => visible(element) && element.querySelectorAll('td').length >= 28)[0];
+              if (!panel) return null;
+              const header = Array.from(panel.querySelectorAll('.ks-date-picker__header-label, .el-date-picker__header-label'))
+                .filter(visible)
+                .map(element => (element.innerText || '').replace(/\s+/g, ''))
+                .join('');
+              const year = header.match(/(\d{4})/);
+              const month = header.match(/(\d{1,2})月/);
+              if (!year || !month) return null;
+              return [Number(year[1]), Number(month[1])];
+            }
+            """);
+        return parts is { Length: 2 } ? (parts[0], parts[1]) : null;
+    }
+
+    private static Task<bool> ShiftOpenDatePanelAsync(IPage page, int year, int month) =>
+        page.EvaluateAsync<bool>(
+            """
+            ({ year, month }) => {
+              const visible = element => {
+                if (!element) return false;
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+              };
+              const panel = Array.from(document.querySelectorAll('.ks-picker-panel, .ks-date-picker, .el-picker-panel, .el-date-picker'))
+                .filter(element => visible(element) && element.querySelectorAll('td').length >= 28)[0];
+              if (!panel) return false;
+              const header = Array.from(panel.querySelectorAll('.ks-date-picker__header-label, .el-date-picker__header-label'))
+                .filter(visible)
+                .map(element => (element.innerText || '').replace(/\s+/g, ''))
+                .join('');
+              const currentYear = header.match(/(\d{4})/);
+              const currentMonth = header.match(/(\d{1,2})月/);
+              if (!currentYear || !currentMonth) return false;
+              const targetIndex = year * 12 + (month - 1);
+              const currentIndex = Number(currentYear[1]) * 12 + (Number(currentMonth[1]) - 1);
+              if (targetIndex === currentIndex) return false;
+              const forward = targetIndex > currentIndex;
+              const yearStep = Math.abs(targetIndex - currentIndex) >= 12;
+              const buttons = Array.from(panel.querySelectorAll('button')).filter(visible);
+              const describe = button => `${button.className} ${button.getAttribute('aria-label') || ''}`;
+              const button = yearStep
+                ? buttons.find(item => forward ? /d-arrow-right/.test(describe(item)) : /d-arrow-left/.test(describe(item)))
+                : buttons.find(item => {
+                    const text = describe(item);
+                    return forward ? /arrow-right/.test(text) && !/d-arrow/.test(text) : /arrow-left/.test(text) && !/d-arrow/.test(text);
+                  });
+              if (!button) return false;
+              button.click();
+              return true;
+            }
+            """,
+            new { year, month });
+
+    private static Task<bool> ClickOpenDateDayAsync(IPage page, int day) =>
+        page.EvaluateAsync<bool>(
+            """
+            (day) => {
+              const visible = element => {
+                if (!element) return false;
+                const rect = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
+                return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+              };
+              const panel = Array.from(document.querySelectorAll('.ks-picker-panel, .ks-date-picker, .el-picker-panel, .el-date-picker'))
+                .filter(element => visible(element) && element.querySelectorAll('td').length >= 28)[0];
+              if (!panel) return false;
+              const cell = Array.from(panel.querySelectorAll('td')).find(item => {
+                const text = (item.innerText || '').replace(/\s+/g, '');
+                const cls = String(item.className || '');
+                return text === String(day) && visible(item) && !/prev-month|next-month|disabled|is-disabled/.test(cls);
+              });
+              if (!cell) return false;
+              (cell.querySelector('span, a') || cell).click();
+              return true;
+            }
+            """,
+            day);
+
+    private static bool BroadcastDateMatches(string? actual, DateTime date)
+    {
+        var text = string.Concat((actual ?? string.Empty).Where(character => !char.IsWhiteSpace(character)));
+        if (text.Length == 0) return false;
+        var forms = new[]
+        {
+            date.ToString("yyyy-MM-dd"),
+            date.ToString("yyyy/MM/dd"),
+            $"{date.Year}年{date.Month}月{date.Day}日",
+            $"{date.Year}年{date.Month:00}月{date.Day:00}日",
+        };
+        return forms.Any(form => text.Contains(form, StringComparison.Ordinal));
     }
 
     private static async Task FillEnterpriseBroadcastPlatformAsync(IPage page, string platform)
