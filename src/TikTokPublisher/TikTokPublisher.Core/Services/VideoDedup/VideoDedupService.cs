@@ -114,6 +114,16 @@ public static class VideoDedupService
         }
 
         var plan = VideoDedupPlanner.Plan(clips.Select(clip => clip.Probe.DurationSeconds).ToArray(), preset);
+        if (preset.HasDurationLimit)
+        {
+            var clipPaths = clips.Select(clip => clip.Path).ToArray();
+            if (plan.Count == 0)
+                throw new InvalidOperationException("视频去重已停止，不会开始编码。没有算出可输出的集。");
+            if (VideoDedupPlanner.DescribeDurationMismatch(plan, preset, clipPaths) is { } mismatch)
+                throw new InvalidOperationException(mismatch);
+            Write(VideoDedupPlanner.DescribeDurationCheckPassed(clips.Count, plan, preset, clipPaths));
+        }
+
         var renumber = plan.Count != clips.Count || plan.Any(group => group.Count > 1);
         var outputDirectory = Path.GetDirectoryName(VisiblePathFor(project, originalsRoot, inputs[0])) ?? project;
         var jobs = new List<RenderJob>();
@@ -298,7 +308,7 @@ public static class VideoDedupService
         if (Math.Abs(preset.AudioLowGainDb) > 0.01 || Math.Abs(preset.AudioMidGainDb) > 0.01 || Math.Abs(preset.AudioHighGainDb) > 0.01)
             parts.Add($"均衡器 低频 {Num(preset.AudioLowGainDb)} dB、中频 {Num(preset.AudioMidGainDb)} dB、高频 {Num(preset.AudioHighGainDb)} dB");
         parts.Add(preset.HasDurationLimit
-            ? $"按原片时长分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒，然后再做整集裁剪和变速。成片短于 15 秒时并入相邻集"
+            ? $"按原片时长分集，最短 {Num(preset.MinimumDurationSeconds)} 秒，最长 {Num(preset.MaximumDurationSeconds)} 秒，然后再做整集裁剪和变速。成片短于 15 秒时并入相邻集。算出有集不在最短和最长之内就停止，不开始编码"
             : "不按单集时长重新分集");
         if (!preset.TransitionsEnabled || !preset.HasAnyTransition)
             parts.Add("转场关");

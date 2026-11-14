@@ -74,6 +74,96 @@ internal static class VideoDedupPlanner
         return groups;
     }
 
+    /// <summary>
+    /// 用排好的切片估算成片秒数。切片已经裁过开头和结尾，这里只再算变速、抽帧，
+    /// 以及不同片段接缝上的转场重叠。
+    /// </summary>
+    internal static double PredictedOutputSeconds(
+        IReadOnlyList<VideoDedupSlice> slices,
+        VideoDedupPreset preset,
+        IReadOnlyList<string>? clipPaths = null)
+    {
+        if (slices.Count == 0)
+            return 0;
+
+        var elapsed = OutputDuration(slices[0].Length, preset);
+        if (!CanTransition(preset, slices))
+        {
+            for (var index = 1; index < slices.Count; index++)
+                elapsed += OutputDuration(slices[index].Length, preset);
+            return elapsed;
+        }
+
+        var seed = 0;
+        if (clipPaths is { Count: > 0 })
+            seed = Math.Abs(clipPaths[slices[0].ClipIndex].GetHashCode(StringComparison.Ordinal));
+        for (var index = 1; index < slices.Count; index++)
+        {
+            var overlap = clipPaths is { Count: > 0 }
+                ? TransitionSeconds(Hash(
+                    clipPaths[slices[index - 1].ClipIndex],
+                    clipPaths[slices[index].ClipIndex],
+                    seed + index))
+                : TransitionSeconds(index);
+            elapsed += OutputDuration(slices[index].Length, preset) - overlap;
+        }
+
+        return elapsed;
+    }
+
+    internal static double RoundDuration(double seconds) =>
+        Math.Round(seconds, 1, MidpointRounding.AwayFromZero);
+
+    /// <summary>每一集按 0.1 秒取整后都落在最短和最长之内时返回 null。</summary>
+    internal static string? DescribeDurationMismatch(
+        IReadOnlyList<IReadOnlyList<VideoDedupSlice>> plan,
+        VideoDedupPreset preset,
+        IReadOnlyList<string>? clipPaths = null)
+    {
+        if (!preset.HasDurationLimit || plan.Count == 0)
+            return null;
+
+        var minimum = preset.MinimumDurationSeconds;
+        var maximum = preset.MaximumDurationSeconds;
+        var problems = new List<string>();
+        for (var index = 0; index < plan.Count; index++)
+        {
+            var seconds = RoundDuration(PredictedOutputSeconds(plan[index], preset, clipPaths));
+            var episode = (index + 1).ToString(CultureInfo.InvariantCulture);
+            if (seconds < minimum)
+                problems.Add($"第 {episode} 集预计 {Seconds(seconds)} 秒，短于最小 {Seconds(minimum)} 秒");
+            else if (seconds > maximum)
+                problems.Add($"第 {episode} 集预计 {Seconds(seconds)} 秒，超过最大 {Seconds(maximum)} 秒");
+        }
+
+        if (problems.Count == 0)
+            return null;
+
+        var listed = problems.Count <= 12
+            ? string.Join("；", problems)
+            : string.Join("；", problems.Take(12)) + $" 等 {problems.Count.ToString(CultureInfo.InvariantCulture)} 集";
+        return $"视频去重已停止，不会开始编码。按单集 {Seconds(minimum)}–{Seconds(maximum)} 秒计算，{listed}。请调整单集时长，或改原片后再重跑。";
+    }
+
+    internal static string DescribeDurationCheckPassed(
+        int sourceCount,
+        IReadOnlyList<IReadOnlyList<VideoDedupSlice>> plan,
+        VideoDedupPreset preset,
+        IReadOnlyList<string>? clipPaths = null)
+    {
+        var durations = plan
+            .Select(group => RoundDuration(PredictedOutputSeconds(group, preset, clipPaths)))
+            .ToList();
+        var low = durations.Min();
+        var high = durations.Max();
+        var span = Math.Abs(low - high) < 0.001
+            ? $"每集 {Seconds(low)} 秒"
+            : $"每集 {Seconds(low)}–{Seconds(high)} 秒";
+        return $"分集计算通过：{sourceCount.ToString(CultureInfo.InvariantCulture)} 个原片将生成 {plan.Count.ToString(CultureInfo.InvariantCulture)} 集，{span}，在 {Seconds(preset.MinimumDurationSeconds)}–{Seconds(preset.MaximumDurationSeconds)} 秒内。";
+    }
+
+    private static string Seconds(double value) => value.ToString("0.#", CultureInfo.InvariantCulture);
+
     private static List<VideoDedupSlice> TrimWholeClip(int index, double duration, VideoDedupPreset preset)
     {
         var start = Math.Clamp(preset.TrimStartSeconds, 0, duration);
