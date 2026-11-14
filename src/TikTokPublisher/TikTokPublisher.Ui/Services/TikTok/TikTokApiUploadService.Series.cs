@@ -65,8 +65,17 @@ public static partial class TikTokApiUploadService
         if (ResolveLocalEpisodes(uploadPaths) is null)
             throw new InvalidOperationException("接口上传：本地视频文件名里有读不出集号或重复的集，已停止。");
 
-        var contractBinding = await ResolveSeriesContractAsync(page, options, log, ct);
+        var replacingDraft = !string.IsNullOrWhiteSpace(item.ReplaceDraftTarget);
+        var contractBinding = replacingDraft
+            ? new TikTokApiSeriesDocument.TikTokSeriesContractBinding(null, null)
+            : await ResolveSeriesContractAsync(page, options, log, ct);
         var seriesId = await ResolveSeriesIdAsync(page, item, payload.Title, contractBinding, log, ct);
+        if (replacingDraft)
+        {
+            log?.Invoke(
+                $"新剧替换草稿：使用接口替换「{item.ReplaceDraftTarget.Trim()}」，剧集 ID {seriesId}。合同保持草稿原值。");
+            await ClearDraftVideosAsync(page, seriesId, options, log, ct);
+        }
         if (!string.IsNullOrWhiteSpace(workflowDir))
         {
             var draftUrl = $"https://www.tiktokdramacenter.com/series/draft/{seriesId}";
@@ -91,7 +100,8 @@ public static partial class TikTokApiUploadService
             contractBinding,
             coverPath,
             episodeCount,
-            publishers);
+            publishers,
+            replacingDraft ? ReadDraftContractLabel(collection) : null);
         await WriteSeriesAsync(
             page,
             seriesId,
@@ -181,6 +191,22 @@ public static partial class TikTokApiUploadService
         };
     }
 
+    private static string ReadDraftContractLabel(JsonObject? collection)
+    {
+        var licenseId = ReadNodeString(collection, "licenseId");
+        if (!string.IsNullOrWhiteSpace(licenseId))
+            return licenseId;
+        var contractedId = ReadNodeString(collection, "contractedId");
+        return string.IsNullOrWhiteSpace(contractedId) ? "保持草稿原值" : contractedId;
+    }
+
+    private static string? ReadNodeString(JsonObject? node, string name)
+    {
+        if (node?[name] is JsonValue value && value.TryGetValue<string>(out var text))
+            return text?.Trim();
+        return null;
+    }
+
     private static async Task<JsonObject?> ReadCollectionAsync(IPage? page, string seriesId, CancellationToken ct)
     {
         using var detail = await PageFetchAsync(page, "GET", $"/api/content-partner/series/{seriesId}", null, ct);
@@ -229,7 +255,8 @@ public static partial class TikTokApiUploadService
         TikTokApiSeriesDocument.TikTokSeriesContractBinding contractBinding,
         string coverPath,
         int episodeCount,
-        IReadOnlyList<ChosenPublisher> publishers)
+        IReadOnlyList<ChosenPublisher> publishers,
+        string? contractLabel = null)
     {
         void Field(string name, string? value)
         {
@@ -237,10 +264,14 @@ public static partial class TikTokApiUploadService
             log?.Invoke($"接口上传：表单「{name}」{(text.Length == 0 ? "空" : text)}");
         }
 
-        var contractId = contractBinding.LicenseId?.Trim();
-        if (string.IsNullOrEmpty(contractId))
-            contractId = contractBinding.ContractedId?.Trim();
-        Field("合同", contractId);
+        if (contractLabel is null)
+        {
+            contractLabel = contractBinding.LicenseId?.Trim();
+            if (string.IsNullOrEmpty(contractLabel))
+                contractLabel = contractBinding.ContractedId?.Trim();
+        }
+
+        Field("合同", contractLabel);
         Field("剧名", payload.Title);
         Field("简介", payload.Description);
         Field("封面", Path.GetFileName(coverPath));

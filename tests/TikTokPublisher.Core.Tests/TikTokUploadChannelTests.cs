@@ -190,6 +190,23 @@ public sealed class TikTokUploadChannelTests
     }
 
     [Fact]
+    public void Overlay_keeps_the_draft_license_when_replacement_does_not_send_one()
+    {
+        var collection = System.Text.Json.Nodes.JsonNode.Parse(
+            """{"licenseId":"CT20260626700362","contractedId":"7600123456789012345","title":"旧草稿"}""")!.AsObject();
+        var updated = TikTokApiSeriesDocument.Overlay(collection, new TikTokApiSeriesShell
+        {
+            Title = "请倾听孩子的心声",
+            Description = "新简介",
+        });
+
+        updated["licenseId"]!.GetValue<string>().Should().Be("CT20260626700362");
+        updated["contractedId"]!.GetValue<string>().Should().Be("7600123456789012345");
+        updated["title"]!.GetValue<string>().Should().Be("请倾听孩子的心声");
+        updated["description"]!.GetValue<string>().Should().Be("新简介");
+    }
+
+    [Fact]
     public void Contract_list_skips_the_placeholder_and_reads_contracted_id()
     {
         using var document = JsonDocument.Parse(

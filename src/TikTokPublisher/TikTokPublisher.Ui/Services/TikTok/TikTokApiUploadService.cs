@@ -357,28 +357,7 @@ public static partial class TikTokApiUploadService
         var extras = PlanDeleteExtras(existing);
         if (extras.Count > 0)
         {
-            await DeleteExtraVideosAsync(page, seriesId, extras, options, log, ct);
-            var afterDelete = existing;
-            var stillThere = extras.ToList();
-            for (var attempt = 1; attempt <= 3 && stillThere.Count > 0; attempt++)
-            {
-                if (attempt > 1)
-                    await Task.Delay(TimeSpan.FromSeconds(2), ct);
-                afterDelete = await ReadSeriesVideosAsync(page, seriesId, ct, log);
-                stillThere = extras
-                    .Where(id => afterDelete.Any(video => string.Equals(video.VideoId, id, StringComparison.Ordinal)))
-                    .ToList();
-            }
-
-            if (stillThere.Count > 0)
-            {
-                var preview = string.Join(", ", stillThere.Take(5));
-                if (stillThere.Count > 5)
-                    preview += $" 等 {stillThere.Count} 条";
-                throw new InvalidOperationException(
-                    $"接口直传：删除后这些视频仍在草稿里（{preview}），已停止，不再补传。");
-            }
-
+            var afterDelete = await DeleteExtraVideosAsync(page, seriesId, extras, options, log, ct);
             log?.Invoke($"接口直传：已删除 {extras.Count} 条多余正片，草稿还剩 {afterDelete.Count} 条。");
             existing = afterDelete;
             changed = true;
@@ -962,7 +941,7 @@ public static partial class TikTokApiUploadService
     /// 剧集中心批量删除：POST /api/content-partner/series/videos/batch-delete，
     /// 请求体是 contractId 和 videoIds。失败就停，不再往上面叠传。
     /// </summary>
-    private static async Task DeleteExtraVideosAsync(
+    private static async Task<IReadOnlyList<SeriesVideo>> DeleteExtraVideosAsync(
         IPage? page,
         string seriesId,
         IReadOnlyList<string> videoIds,
@@ -971,12 +950,71 @@ public static partial class TikTokApiUploadService
         CancellationToken ct)
     {
         log?.Invoke($"接口直传：草稿有 {videoIds.Count} 条重复或读不出集号的正片，先用接口删除。");
+        return await DeleteVideosAndConfirmAsync(
+            page,
+            seriesId,
+            videoIds,
+            options,
+            log,
+            ct,
+            "删除多余正片",
+            "接口直传：删除多余正片失败，已停止，不再补传。",
+            "接口直传：删除后这些视频仍在草稿里",
+            "，已停止，不再补传。");
+    }
+
+    /// <summary>新剧替换草稿先删掉草稿上的全部正片，再从第 1 集重传。</summary>
+    private static async Task ClearDraftVideosAsync(
+        IPage? page,
+        string seriesId,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        var ids = existing
+            .Select(video => video.VideoId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToList();
+        if (ids.Count == 0)
+        {
+            log?.Invoke("新剧替换草稿：草稿里没有正片。");
+            return;
+        }
+
+        log?.Invoke($"新剧替换草稿：开始清理已上传正片，共 {ids.Count} 条。");
+        await DeleteVideosAndConfirmAsync(
+            page,
+            seriesId,
+            ids,
+            options,
+            log,
+            ct,
+            "清理正片",
+            "新剧替换草稿：删除正片失败，已停止，不再上传。",
+            "新剧替换草稿：清理后这些正片仍在草稿里",
+            "，已停止，不再上传。");
+        log?.Invoke($"新剧替换草稿：已删除 {ids.Count} 条正片。");
+    }
+
+    private static async Task<IReadOnlyList<SeriesVideo>> DeleteVideosAndConfirmAsync(
+        IPage? page,
+        string seriesId,
+        IReadOnlyList<string> videoIds,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct,
+        string step,
+        string deleteFailedPrefix,
+        string stillPresentIntro,
+        string stillPresentEnding)
+    {
         var body = BuildBatchDeleteBody(seriesId, videoIds);
         try
         {
             using var response = await ExecuteWithRetryAsync(
                 options.UploadBatchMaxRetries,
-                "删除多余正片",
+                step,
                 log,
                 token => PageFetchAsync(page, "POST", DeleteVideosPath, body, token),
                 ct);
@@ -987,8 +1025,30 @@ public static partial class TikTokApiUploadService
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"接口直传：删除多余正片失败，已停止，不再补传。{ex.Message}", ex);
+            throw new InvalidOperationException(deleteFailedPrefix + ex.Message, ex);
         }
+
+        IReadOnlyList<SeriesVideo> afterDelete = Array.Empty<SeriesVideo>();
+        var stillThere = videoIds.ToList();
+        for (var attempt = 1; attempt <= 3 && stillThere.Count > 0; attempt++)
+        {
+            if (attempt > 1)
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            afterDelete = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+            stillThere = videoIds
+                .Where(id => afterDelete.Any(video => string.Equals(video.VideoId, id, StringComparison.Ordinal)))
+                .ToList();
+        }
+
+        if (stillThere.Count > 0)
+        {
+            var preview = string.Join(", ", stillThere.Take(5));
+            if (stillThere.Count > 5)
+                preview += $" 等 {stillThere.Count} 条";
+            throw new InvalidOperationException($"{stillPresentIntro}（{preview}）{stillPresentEnding}");
+        }
+
+        return afterDelete;
     }
 
     private sealed class PageFetchException(string message, int status) : InvalidOperationException(message)
