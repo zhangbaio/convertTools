@@ -185,6 +185,8 @@ public sealed class TikTokAccountProfile
     public string TiktokExpectedFullPriceOptionsJson { get; set; } = "";
     public int TiktokUploadStallSeconds { get; set; } = 180;
     public string TiktokUploadStrategy { get; set; } = "api";
+    /// <summary>网页上传时的正片投递：classic 一次传完，batch 按批重传。接口上传不使用。</summary>
+    public string TiktokPlaywrightVideoDelivery { get; set; } = "classic";
     public int TiktokUploadBatchSize { get; set; } = 3;
     public int TiktokUploadBatchStallSeconds { get; set; } = 75;
     public int TiktokUploadBatchMaxRetries { get; set; } = 3;

@@ -16,9 +16,10 @@ namespace TikTokPublisher.Ui.Services.TikTok;
 /// 接口直传：与剧集中心网页同一条链路（上传授权 → 点播 ApplyUploadInner → TOS 分片 → CommitUploadInner → 挂到剧集）。
 /// 剧集中心接口带反爬签名，只能在已登录页面里 <c>fetch</c>；点播和 TOS 只认 STS 签名，由 HttpClient 并发上传。
 /// </summary>
-public static class TikTokApiUploadService
+public static partial class TikTokApiUploadService
 {
     internal const string SpaceName = "tiktok-copyright-platform";
+    internal const string ImageServiceId = "xbj99bix8q";
     internal const int PartSize = 3 * 1024 * 1024;
     internal const int PartsInFlightPerFile = 3;
     private const int MaxPartsInFlight = 12;
@@ -72,6 +73,25 @@ public static class TikTokApiUploadService
         if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
             host = host[4..];
         return $"https://{prefix}.{host}";
+    }
+
+    private static string ResolveObjectHost(JsonElement node, string? preferred, string fallback)
+    {
+        var uploadHost = ReadString(node, "UploadHost");
+        if (uploadHost.Length == 0 && node.TryGetProperty("StoreInfos", out var stores) &&
+            stores.ValueKind == JsonValueKind.Array && stores.GetArrayLength() > 0)
+        {
+            uploadHost = ReadString(stores[0], "UploadHost");
+        }
+
+        if (uploadHost.Length > 0)
+        {
+            return uploadHost.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? uploadHost.TrimEnd('/')
+                : "https://" + uploadHost.TrimEnd('/');
+        }
+
+        return string.IsNullOrWhiteSpace(preferred) ? fallback : preferred.TrimEnd('/');
     }
 
     internal static int? ParseEpisode(string? title)
@@ -1159,16 +1179,22 @@ public static class TikTokApiUploadService
         Action<string>? log,
         int episode,
         int retries,
-        CancellationToken ct)
+        CancellationToken ct,
+        string applyAction = "ApplyUploadInner",
+        string fileType = "video",
+        string? objectBase = null,
+        string? itemLabel = null)
     {
+        var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
         var credentials = await sts.GetAsync(ct);
-
-        var applyUri = new Uri(
-            $"{vodBase}/?Action=ApplyUploadInner&Version={ApiVersion}&SpaceName={SpaceName}" +
-            $"&FileType=video&IsInner=1&FileSize={fileSize}&s={RandomToken()}&device_platform=web");
+        var applyUri = new Uri(string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase)
+            ? $"{vodBase}/?Action=ApplyUploadInner&Version={ApiVersion}&SpaceName={SpaceName}" +
+              $"&FileType=video&IsInner=1&FileSize={fileSize}&s={RandomToken()}&device_platform=web"
+            : $"{vodBase}/?Action={Uri.EscapeDataString(applyAction)}&Version={ApiVersion}&ServiceId={ImageServiceId}" +
+              $"&FileSize={fileSize}&s={RandomToken()}&device_platform=web");
         using var applyDocument = await ExecuteWithRetryAsync(
             retries,
-            $"第 {episode} 集初始化上传",
+            $"{label}初始化上传",
             log,
             token => SendVodAsync(http, HttpMethod.Get, applyUri, credentials, null, token),
             ct);
@@ -1179,13 +1205,16 @@ public static class TikTokApiUploadService
         var auth = ReadString(store, "Auth");
         var sessionKey = ReadString(node, "SessionKey");
         if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
-            throw new InvalidOperationException("ApplyUploadInner 没有返回上传地址。");
+            throw new InvalidOperationException($"{applyAction} 没有返回上传地址。");
 
-        var objectUrl = $"{tosBase}/upload/v1/{storeUri}";
+        var uploadHost = string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase)
+            ? tosBase
+            : ResolveObjectHost(node, objectBase, tosBase);
+        var objectUrl = $"{uploadHost}/upload/v1/{storeUri}";
         var boundary = "----WebKitFormBoundary" + RandomToken(16);
         using var initDocument = await ExecuteWithRetryAsync(
             retries,
-            $"第 {episode} 集分片初始化",
+            $"{label}分片初始化",
             log,
             async token =>
             {
@@ -1201,11 +1230,11 @@ public static class TikTokApiUploadService
             throw new InvalidOperationException("TOS 初始化没有返回 uploadid。");
 
         var crcs = await SendPartsAsync(
-            http, gates, objectUrl, uploadId, auth, path, fileSize, log, episode, retries, ct);
+            http, gates, objectUrl, uploadId, auth, path, fileSize, log, episode, retries, ct, label);
 
         using (await ExecuteWithRetryAsync(
             retries,
-            $"第 {episode} 集分片提交",
+            $"{label}分片提交",
             log,
             async token =>
             {
@@ -1233,8 +1262,10 @@ public static class TikTokApiUploadService
         Action<string>? log,
         int episode,
         int retries,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? itemLabel = null)
     {
+        var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
         var partCount = (int)((fileSize + PartSize - 1) / PartSize);
         var crcs = new string[partCount];
         using var partsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -1283,7 +1314,7 @@ public static class TikTokApiUploadService
                         var crc = TikTokCrc32.Hex(buffer.AsSpan(0, length));
                         await ExecuteWithRetryAsync(
                             retries,
-                            $"第 {episode} 集分片 {partIndex + 1}",
+                            $"{label}分片 {partIndex + 1}",
                             log,
                             async token =>
                             {

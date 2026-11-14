@@ -220,6 +220,31 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 return PublishResult.FailAndStopQueue(loginMessage);
             }
 
+            if (options.UseApiUpload)
+            {
+                L("上传方式：接口上传。");
+                RecordUploadStepStarted();
+                var apiResult = await TikTokApiUploadService.PublishSeriesAsync(
+                        page,
+                        item,
+                        payload,
+                        options,
+                        recommendation,
+                        coverPath,
+                        hasWorkflow ? workflowDir : null,
+                        finalAction,
+                        L,
+                        ct)
+                    .ConfigureAwait(false);
+                if (apiResult.Ok && hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
+                return apiResult;
+            }
+
+            L(options.UseBatchUpload
+                ? "上传方式：网页上传，正片分批。"
+                : "上传方式：网页上传，正片一次传完。");
+
             // 注意：此处不检测单日上限。刚连接时页面可能停留在上一个项目的残留页
             // （含旧的“已达上限”提示），会误判停队列。上限检测仅在导航到新建/编辑页后进行。
 

@@ -102,11 +102,19 @@
                             </ComboBox>
 
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="上传方式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="6" Grid.Column="1" x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="classic">经典（一次性上传全部视频）</ComboBoxItem>
-                                <ComboBoxItem Tag="batch">分批（每批 N 个，卡死整批重传）</ComboBoxItem>
-                                <ComboBoxItem Tag="api">接口直传（并发上传，按集号挂载排序）</ComboBoxItem>
-                            </ComboBox>
+                            <StackPanel Grid.Row="6" Grid.Column="1" Spacing="8">
+                                <ComboBox x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch" SelectionChanged="UploadStrategyCombo_SelectionChanged">
+                                    <ComboBoxItem Tag="playwright">网页上传</ComboBoxItem>
+                                    <ComboBoxItem Tag="api">接口上传</ComboBoxItem>
+                                </ComboBox>
+                                <StackPanel x:Name="PlaywrightDeliveryPanel" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="正片投递" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="PlaywrightDeliveryCombo" MinWidth="280">
+                                        <ComboBoxItem Tag="classic">经典（一次传完全部）</ComboBoxItem>
+                                        <ComboBoxItem Tag="batch">分批（卡死就整批重传）</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                            </StackPanel>
 
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="付费模式" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="7" Grid.Column="1" x:Name="PaidEnabledBox" Content="启用" />
@@ -158,13 +166,13 @@
                             <TextBlock Grid.Row="21" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="21" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
 
-                            <TextBlock Grid.Row="22" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
+                            <TextBlock x:Name="BatchSizeLabel" Grid.Row="22" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="22" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
 
-                            <TextBlock Grid.Row="23" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
+                            <TextBlock x:Name="BatchStallLabel" Grid.Row="23" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="23" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
 
-                            <TextBlock Grid.Row="24" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
+                            <TextBlock x:Name="BatchRetriesLabel" Grid.Row="24" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="24" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
 
                             <TextBlock Grid.Row="25" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
@@ -179,11 +187,11 @@
                             <TextBlock Grid.Row="27" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="27" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="28" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
+                            <TextBlock x:Name="ApiConcurrencyLabel" Grid.Row="28" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="28" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
 
-                            <TextBlock Grid.Row="29" Grid.Column="0" Text="接口直传" VerticalAlignment="Center" />
-                            <TextBlock Grid.Row="29" Grid.Column="1" Text="只走接口。失败后停止，下次只补剧集详情里还没挂上的集。" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <TextBlock x:Name="UploadChannelHintLabel" Grid.Row="29" Grid.Column="0" Text="说明" VerticalAlignment="Center" />
+                            <TextBlock x:Name="UploadChannelHint" Grid.Row="29" Grid.Column="1" TextWrapping="Wrap" VerticalAlignment="Center" />
 
 
                             <TextBlock Grid.Row="30" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />

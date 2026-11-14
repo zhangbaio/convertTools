@@ -141,35 +141,13 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
+        if (options.UseApiUpload)
+            throw new InvalidOperationException("接口上传不会填写网页表单。");
+
         ct.ThrowIfCancellationRequested();
         var uploadPaths = payload.UploadVideoPaths.Count > 0
             ? payload.UploadVideoPaths.ToList()
             : payload.VideoPaths.ToList();
-        if (options.UseApiUpload)
-        {
-            if (TikTokApiUploadService.ResolveLocalEpisodes(uploadPaths) is null)
-                throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
-
-            if (TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url) is null)
-            {
-                if (!coverAlreadyUploaded)
-                    await UploadCoverAsync(page, coverPath, log, ct);
-                await TikTokApiUploadService.ContinueCreateAsDraftAsync(
-                    page, payload, options, recommendation, coverPath, uploadPaths, log, ct);
-                return;
-            }
-
-            await TikTokApiUploadService.SyncEpisodesAsync(
-                page,
-                TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url)!,
-                uploadPaths,
-                options,
-                log,
-                ct);
-            await FillSharedPublishFieldsAsync(page, payload, options, recommendation, log, ct);
-            Log(log, "接口直传完成，其余表单已填写。");
-            return;
-        }
 
         if (TikTokBatchUploadService.ShouldUseBatchedUpload(options, uploadPaths.Count))
         {

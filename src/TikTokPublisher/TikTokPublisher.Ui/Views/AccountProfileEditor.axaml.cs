@@ -153,7 +153,10 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
-        SelectByTag(UploadStrategyCombo, profile.TiktokUploadStrategy, "api");
+        var upload = TikTokUploadChannels.Resolve(profile.TiktokUploadStrategy, profile.TiktokPlaywrightVideoDelivery);
+        SelectByTag(UploadStrategyCombo, upload.Channel, "api");
+        SelectByTag(PlaywrightDeliveryCombo, upload.Delivery, "classic");
+        UpdateUploadChannelVisibility();
 
         PaidEnabledBox.IsChecked = profile.TiktokPaidEnabled;
         PaidRatioEnabledBox.IsChecked = profile.TiktokPaidRatioEnabled;
@@ -296,7 +299,9 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
             profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
-            profile.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "api");
+            var upload = TikTokUploadChannels.Resolve(TagOf(UploadStrategyCombo, "api"), TagOf(PlaywrightDeliveryCombo, "classic"));
+            profile.TiktokUploadStrategy = upload.Channel;
+            profile.TiktokPlaywrightVideoDelivery = upload.Delivery;
             profile.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
@@ -1296,5 +1301,28 @@ public partial class AccountProfileEditor : UserControl
         UploadedSeriesStatusText.IsVisible = true;
         if (!hasRows)
             UploadedSeriesList.ItemsSource = null;
+    }
+
+    private void UploadStrategyCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        UpdateUploadChannelVisibility();
+
+    private void UpdateUploadChannelVisibility()
+    {
+        if (UploadChannelHint is null || PlaywrightDeliveryPanel is null)
+            return;
+
+        var api = string.Equals(TagOf(UploadStrategyCombo, "api"), TikTokUploadChannels.Api, StringComparison.OrdinalIgnoreCase);
+        PlaywrightDeliveryPanel.IsVisible = !api;
+        BatchSizeLabel.IsVisible = !api;
+        UploadBatchSizeBox.IsVisible = !api;
+        BatchStallLabel.IsVisible = !api;
+        UploadBatchStallBox.IsVisible = !api;
+        BatchRetriesLabel.IsVisible = !api;
+        UploadBatchRetriesBox.IsVisible = !api;
+        ApiConcurrencyLabel.IsVisible = api;
+        UploadApiConcurrencyBox.IsVisible = api;
+        UploadChannelHint.Text = api
+            ? "整剧走接口：建壳、封面、正片、版权材料和提交都不点网页。失败后停止，不改走网页上传。"
+            : "在剧集中心网页上填表、传正片并提交。正片投递只影响这一套。";
     }
 }

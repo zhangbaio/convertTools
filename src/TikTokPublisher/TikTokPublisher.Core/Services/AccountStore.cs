@@ -279,6 +279,9 @@ public sealed class AccountStore
         account.TiktokTargetAudienceMode = NormalizeTargetAudience(account.TiktokTargetAudienceMode);
         account.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount(account.TiktokGenreCount);
         account.TiktokUploadBrowserMode = NormalizeUploadBrowserMode(account.TiktokUploadBrowserMode);
+        var upload = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery);
+        account.TiktokUploadStrategy = upload.Channel;
+        account.TiktokPlaywrightVideoDelivery = upload.Delivery;
         account.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket);
         if (!account.TiktokDeleteVideosOnArchiveConfigured)
             account.TiktokDeleteVideosOnArchive = true;

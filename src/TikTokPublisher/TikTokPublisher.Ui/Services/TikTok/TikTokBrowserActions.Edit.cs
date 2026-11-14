@@ -37,6 +37,9 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
+        if (options.UseApiUpload)
+            throw new InvalidOperationException("接口上传不会填写网页表单。");
+
         ct.ThrowIfCancellationRequested();
         Log(log, "TikTok 已切换到草稿编辑流程，保留已有合同和剧名；简介为空时自动补全。");
         await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
@@ -75,6 +78,9 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
+        if (options.UseApiUpload)
+            throw new InvalidOperationException("接口上传不会填写网页表单。");
+
         await RunReplaceStageAsync("清理正片", async () =>
         {
             Log(log, "新剧替换草稿：开始清理已上传正片。");
@@ -435,15 +441,10 @@ public static partial class TikTokBrowserActions
             : payload.VideoPaths.ToList();
         var expectedCount = Math.Max(payload.EpisodeCount, uploadPaths.Count);
         if (expectedCount <= 0) return;
+        if (options.UseApiUpload)
+            throw new InvalidOperationException("接口上传不会在网页上补传正片。");
 
         await EnsureEditContentUploadTabAsync(page, ct);
-        if (options.UseApiUpload)
-        {
-            var seriesId = TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url)
-                ?? throw new InvalidOperationException("接口直传：当前页面地址里没有剧集 ID，已停止，不会改用网页上传。");
-            await TikTokApiUploadService.SyncEpisodesAsync(page, seriesId, uploadPaths, options, log, ct);
-            return;
-        }
 
         List<EditVideoRow> rows;
         try

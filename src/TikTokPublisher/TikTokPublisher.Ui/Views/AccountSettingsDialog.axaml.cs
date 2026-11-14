@@ -68,7 +68,10 @@ public partial class AccountSettingsDialog : Window
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(p.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
-        SelectByTag(UploadStrategyCombo, p.TiktokUploadStrategy, "api");
+        var upload = TikTokUploadChannels.Resolve(p.TiktokUploadStrategy, p.TiktokPlaywrightVideoDelivery);
+        SelectByTag(UploadStrategyCombo, upload.Channel, "api");
+        SelectByTag(PlaywrightDeliveryCombo, upload.Delivery, "classic");
+        UpdateUploadChannelVisibility();
 
         PaidEnabledBox.IsChecked = p.TiktokPaidEnabled;
         PaidRatioEnabledBox.IsChecked = p.TiktokPaidRatioEnabled;
@@ -175,7 +178,9 @@ public partial class AccountSettingsDialog : Window
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
         p.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
         p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
-        p.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "api");
+        var upload = TikTokUploadChannels.Resolve(TagOf(UploadStrategyCombo, "api"), TagOf(PlaywrightDeliveryCombo, "classic"));
+        p.TiktokUploadStrategy = upload.Channel;
+        p.TiktokPlaywrightVideoDelivery = upload.Delivery;
         p.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
         p.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
         p.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
@@ -429,4 +434,27 @@ public partial class AccountSettingsDialog : Window
 
     private static string ReadNewTitleRandomness(ComboBox combo) =>
         ClientSettingsDefaults.NormalizeAiNewTitleRandomness((combo.SelectedItem as ComboBoxItem)?.Tag as string);
+
+    private void UploadStrategyCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        UpdateUploadChannelVisibility();
+
+    private void UpdateUploadChannelVisibility()
+    {
+        if (UploadChannelHint is null || PlaywrightDeliveryPanel is null)
+            return;
+
+        var api = string.Equals(TagOf(UploadStrategyCombo, "api"), TikTokUploadChannels.Api, StringComparison.OrdinalIgnoreCase);
+        PlaywrightDeliveryPanel.IsVisible = !api;
+        BatchSizeLabel.IsVisible = !api;
+        UploadBatchSizeBox.IsVisible = !api;
+        BatchStallLabel.IsVisible = !api;
+        UploadBatchStallBox.IsVisible = !api;
+        BatchRetriesLabel.IsVisible = !api;
+        UploadBatchRetriesBox.IsVisible = !api;
+        ApiConcurrencyLabel.IsVisible = api;
+        UploadApiConcurrencyBox.IsVisible = api;
+        UploadChannelHint.Text = api
+            ? "整剧走接口：建壳、封面、正片、版权材料和提交都不点网页。失败后停止，不改走网页上传。"
+            : "在剧集中心网页上填表、传正片并提交。正片投递只影响这一套。";
+    }
 }

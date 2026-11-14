@@ -453,6 +453,8 @@ public sealed class TikTokPublishOptions
     public string ExpectedFullPriceLabel { get; set; } = "";
     public int UploadStallSeconds { get; set; } = 180;
     public string UploadStrategy { get; set; } = "api";
+    /// <summary>网页上传的正片投递。classic 一次传完，batch 分批。</summary>
+    public string PlaywrightVideoDelivery { get; set; } = TikTokUploadChannels.Classic;
     public int UploadBatchSize { get; set; } = 3;
     public int UploadBatchStallSeconds { get; set; } = 75;
     public int UploadBatchMaxRetries { get; set; } = 3;
@@ -466,11 +468,12 @@ public sealed class TikTokPublishOptions
     public bool CustomPublishAccountsEnabled { get; set; }
     public IReadOnlyList<string> SelectedPublishAccountKeys { get; set; } = [];
 
-    public bool UseBatchUpload =>
-        string.Equals(UploadStrategy?.Trim(), "batch", StringComparison.OrdinalIgnoreCase);
+    public bool UsePlaywrightUpload => !UseApiUpload;
 
-    public bool UseApiUpload =>
-        string.Equals(UploadStrategy?.Trim(), "api", StringComparison.OrdinalIgnoreCase);
+    public bool UseBatchUpload =>
+        TikTokUploadChannels.IsBatchDelivery(UploadStrategy, PlaywrightVideoDelivery);
+
+    public bool UseApiUpload => TikTokUploadChannels.IsApi(UploadStrategy);
 
     public string ResolveCopyrightMaterialFilePath(string? materialType)
     {
@@ -580,7 +583,8 @@ public sealed class TikTokPublishOptions
         ExpectedFullPriceValue = account.TiktokExpectedFullPriceValue,
         ExpectedFullPriceLabel = account.TiktokExpectedFullPriceLabel,
         UploadStallSeconds = account.TiktokUploadStallSeconds > 0 ? account.TiktokUploadStallSeconds : 180,
-        UploadStrategy = string.IsNullOrWhiteSpace(account.TiktokUploadStrategy) ? "api" : account.TiktokUploadStrategy.Trim(),
+        UploadStrategy = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery).Channel,
+        PlaywrightVideoDelivery = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery).Delivery,
         UploadBatchSize = account.TiktokUploadBatchSize > 0 ? Math.Clamp(account.TiktokUploadBatchSize, 1, 20) : 3,
         UploadBatchStallSeconds = account.TiktokUploadBatchStallSeconds > 0 ? Math.Clamp(account.TiktokUploadBatchStallSeconds, 20, 600) : 75,
         UploadBatchMaxRetries = account.TiktokUploadBatchMaxRetries > 0 ? Math.Clamp(account.TiktokUploadBatchMaxRetries, 1, 10) : 3,
