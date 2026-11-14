@@ -56,13 +56,9 @@ public sealed class KuaishouSeriesDraftClient
         var tagIds = tags.Take(3).Select(catalog.RequireTag).ToArray();
         var plots = ReadLabels(data.WorkflowDirectory, "plot_label_list", enterprise);
         var plotIds = plots.Take(3).Select(catalog.RequirePlot).ToArray();
-        int? audience = null;
-        if (enterprise)
-        {
-            var channel = NormalizeChannel(ReadLabel(data.WorkflowDirectory, "audience_gender_label", enterprise: true));
-            if (channel.Length == 0) throw new InvalidOperationException("请选择男女频道。");
-            audience = KuaishouSeriesDraft.AudienceGenderCode(channel);
-        }
+        var audience = ReadAudienceGender(data.WorkflowDirectory, enterprise);
+        if (audience is null && (enterprise || plotIds.Length > 0))
+            throw new InvalidOperationException("请选择男女频道。");
 
         var coverKey = await UploadFileAsync(page, data.HorizontalCoverPath, "短剧封面", ImageByteLimit, cancellationToken);
         var episodeCoverKey = await UploadFileAsync(page, data.VerticalCoverPath, "单集封面", ImageByteLimit, cancellationToken);
@@ -299,12 +295,16 @@ public sealed class KuaishouSeriesDraftClient
         _ => "image/jpeg",
     };
 
-    private static string NormalizeChannel(string value) => value.Trim() switch
+    private static int? ReadAudienceGender(string workflowDirectory, bool enterprise)
     {
-        "女" => "女频",
-        "男" => "男频",
-        _ => value.Trim(),
-    };
+        if (!TryRead(workflowDirectory, enterprise, out var root)) return null;
+        if (root.TryGetProperty("audience_gender", out var code) && code.TryGetInt32(out var value) && value is >= 1 and <= 3)
+            return value;
+        if (!root.TryGetProperty("audience_gender_label", out var label) || label.ValueKind != JsonValueKind.String)
+            return null;
+        var text = label.GetString()?.Trim() ?? string.Empty;
+        return text.Length == 0 ? null : KuaishouSeriesDraft.AudienceGenderCode(text);
+    }
 
     private static IReadOnlyList<string> ReadLabels(string workflowDirectory, string property, bool enterprise)
     {

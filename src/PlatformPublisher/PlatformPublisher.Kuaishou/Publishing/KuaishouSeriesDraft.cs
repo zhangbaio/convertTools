@@ -260,10 +260,11 @@ public static class KuaishouSeriesDraft
         AddPeople(payload, input);
         if (input.Enterprise || input.PlotIds.Count > 0)
         {
+            if (input.AudienceGender is not int gender)
+                throw new InvalidOperationException("请选择男女频道。");
             payload["checkNewSdpaFieldsFlag"] = true;
             payload["plotList"] = Ints(input.PlotIds);
-            if (input.AudienceGender is int gender)
-                payload["audienceGender"] = gender;
+            payload["audienceGender"] = gender;
         }
 
         return payload.ToJsonString();

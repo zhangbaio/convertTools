@@ -49,6 +49,22 @@ public sealed class KuaishouSeriesDraftTests
     }
 
     [Fact]
+    public void Personal_plot_list_includes_the_saved_audience_channel()
+    {
+        using var document = JsonDocument.Parse(KuaishouSeriesDraft.Build(Sample(creating: true) with
+        {
+            Enterprise = false,
+            PlotIds = [8, 22, 28],
+            AudienceGender = 1,
+        }));
+        Assert.Equal(1, document.RootElement.GetProperty("audienceGender").GetInt32());
+
+        var missing = Sample(creating: true) with { Enterprise = false, PlotIds = [8], AudienceGender = null };
+        var error = Assert.Throws<InvalidOperationException>(() => KuaishouSeriesDraft.Build(missing));
+        Assert.Contains("男女频道", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Update_payload_keeps_the_existing_episode_ids()
     {
         using var document = JsonDocument.Parse(KuaishouSeriesDraft.Build(Sample(creating: false)));
