@@ -245,9 +245,9 @@ public sealed class KuaishouTodayUploadCounterTests
         var uploads = KuaishouTodayUploadCounter.ListToday(
             PublishPlatform.KuaishouPersonalRevenue, "acct-a", today.Date, store);
         Assert.Equal(3, uploads.Count);
-        Assert.Contains(uploads, upload => upload.Title == "程野的护心抉择");
-        Assert.Contains(uploads, upload => upload.Title == "陈茶为证赴旧约");
-        Assert.Contains(uploads, upload => upload.Title == "杏林仁心行");
+        Assert.Contains(uploads, upload => upload.Title == "加薪还是加糖" && upload.Alias == "程野的护心抉择");
+        Assert.Contains(uploads, upload => upload.Title == "一罐陈茶赴三十年旧约" && upload.Alias == "陈茶为证赴旧约");
+        Assert.Contains(uploads, upload => upload.Title == "医魂觉醒：从乡镇医院到京都三甲第九季" && upload.Alias == "杏林仁心行");
     }
 
     [Fact]

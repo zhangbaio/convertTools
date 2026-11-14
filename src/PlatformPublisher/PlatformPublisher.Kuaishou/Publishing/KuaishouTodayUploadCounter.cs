@@ -155,7 +155,7 @@ public static class KuaishouTodayUploadCounter
         return counted.Count;
     }
 
-    public sealed record TodayUpload(string Title, string CompletedAt);
+    public sealed record TodayUpload(string Title, string CompletedAt, string Alias = "");
 
     // 今日上传成功的剧，供 XINGE 把用户自己传完的也算进每日上限。同一项目只报一次。
     public static IReadOnlyList<TodayUpload> ListToday(
@@ -186,10 +186,13 @@ public static class KuaishouTodayUploadCounter
 
             foreach (var identity in identities)
                 seen.Add(identity);
-            var title = FirstText(record.NewTitle, record.OriginalTitle, record.ProjectName, identities[0]);
+            var title = FirstText(record.OriginalTitle, identities.FirstOrDefault(), record.ProjectName, record.NewTitle);
             if (string.IsNullOrWhiteSpace(title))
                 continue;
-            uploads.Add(new TodayUpload(title, record.RecordedAt.ToLocalTime().ToString("o")));
+            var alias = FirstText(record.NewTitle, record.ProjectName);
+            if (SameDramaName(alias, title))
+                alias = "";
+            uploads.Add(new TodayUpload(title, record.RecordedAt.ToLocalTime().ToString("o"), alias));
         }
 
         return uploads;
@@ -350,6 +353,9 @@ public static class KuaishouTodayUploadCounter
 
     // 原目录「红果_剧名」、工程目录「_剧名」、以及归档后改成新剧名的目录，用原剧名并成同一部。
     // 新剧名不参与归并，避免两部不同的剧因为标题碰巧相同被算成一部。
+    private static bool SameDramaName(string? left, string? right) =>
+        string.Equals(ProjectName(left ?? ""), ProjectName(right ?? ""), StringComparison.OrdinalIgnoreCase);
+
     private static string DramaIdentity(string? originalTitle, string? projectName) =>
         string.IsNullOrWhiteSpace(originalTitle) ? projectName ?? "" : originalTitle;
 
