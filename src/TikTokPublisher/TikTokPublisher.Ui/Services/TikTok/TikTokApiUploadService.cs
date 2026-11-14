@@ -25,6 +25,7 @@ public static partial class TikTokApiUploadService
     internal const int PartsInFlightPerFile = 3;
     private const int MaxPartsInFlight = 12;
     private const string ApiVersion = "2020-11-19";
+    private const string ImageApiVersion = "2018-08-01";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
     private const string DeleteVideosPath = "/api/content-partner/series/videos/batch-delete";
     internal const string DramaCenterOrigin = "https://www.tiktokdramacenter.com";
@@ -66,7 +67,10 @@ public static partial class TikTokApiUploadService
         return match.Success ? match.Groups[1].Value : null;
     }
 
-    /// <summary>页面在 www.tiktokdramacenter.com 时，点播与 TOS 走同域代理 vod./tos.。</summary>
+    /// <summary>
+    /// 页面在 www.tiktokdramacenter.com 时，点播、图片和 TOS 走同域代理。
+    /// 图片申请也会改写到 vod.，版本是 2018-08-01。
+    /// </summary>
     internal static string ResolveServiceBaseUrl(string pageUrl, string prefix)
     {
         var host = Uri.TryCreate(pageUrl, UriKind.Absolute, out var uri)
@@ -75,6 +79,47 @@ public static partial class TikTokApiUploadService
         if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
             host = host[4..];
         return $"https://{prefix}.{host}";
+    }
+
+    /// <summary>剧集中心把 imagex-upload-sg 改写到 vod 域名，图片版本固定 2018-08-01。</summary>
+    internal static Uri BuildImageApplyUri(string serviceBase, long fileSize, string token) =>
+        new($"{serviceBase.TrimEnd('/')}/?Action=ApplyImageUpload&Version={ImageApiVersion}&ServiceId={ImageServiceId}" +
+            $"&FileSize={fileSize}&s={token}&device_platform=web");
+
+    internal static Uri BuildImageCommitUri(string serviceBase) =>
+        new($"{serviceBase.TrimEnd('/')}/?Action=CommitImageUpload&Version={ImageApiVersion}&ServiceId={ImageServiceId}");
+
+    internal readonly record struct ImageUploadTicket(string SessionKey, string StoreUri, string Auth, string UploadHost);
+
+    internal static ImageUploadTicket ReadImageUploadTicket(JsonElement root, string fallbackHost)
+    {
+        var address = root.GetProperty("Result").GetProperty("UploadAddress");
+        var store = address.GetProperty("StoreInfos")[0];
+        var storeUri = ReadString(store, "StoreUri");
+        var auth = ReadString(store, "Auth");
+        var sessionKey = ReadString(address, "SessionKey");
+        if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
+            throw new InvalidOperationException("ApplyImageUpload 没有返回上传地址。");
+        return new ImageUploadTicket(sessionKey, storeUri, auth, ResolveImageUploadHost(address, fallbackHost));
+    }
+
+    private static string ResolveImageUploadHost(JsonElement address, string fallbackHost)
+    {
+        if (address.TryGetProperty("UploadHosts", out var hosts) &&
+            hosts.ValueKind == JsonValueKind.Array &&
+            hosts.GetArrayLength() > 0 &&
+            hosts[0].ValueKind == JsonValueKind.String)
+        {
+            var host = hosts[0].GetString()?.Trim() ?? "";
+            if (host.Length > 0)
+            {
+                return host.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                    ? host.TrimEnd('/')
+                    : "https://" + host.TrimEnd('/');
+            }
+        }
+
+        return ResolveObjectHost(address, null, fallbackHost);
     }
 
     private static string ResolveObjectHost(JsonElement node, string? preferred, string fallback)
@@ -1275,30 +1320,42 @@ public static partial class TikTokApiUploadService
         string? itemLabel = null)
     {
         var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
+        var isVideo = string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase);
         var credentials = await sts.GetAsync(ct);
-        var applyUri = new Uri(string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase)
-            ? $"{vodBase}/?Action=ApplyUploadInner&Version={ApiVersion}&SpaceName={SpaceName}" +
-              $"&FileType=video&IsInner=1&FileSize={fileSize}&s={RandomToken()}&device_platform=web"
-            : $"{vodBase}/?Action={Uri.EscapeDataString(applyAction)}&Version={ApiVersion}&ServiceId={ImageServiceId}" +
-              $"&FileSize={fileSize}&s={RandomToken()}&device_platform=web");
+        var applyUri = isVideo
+            ? new Uri($"{vodBase}/?Action=ApplyUploadInner&Version={ApiVersion}&SpaceName={SpaceName}" +
+              $"&FileType=video&IsInner=1&FileSize={fileSize}&s={RandomToken()}&device_platform=web")
+            : BuildImageApplyUri(vodBase, fileSize, RandomToken());
         using var applyDocument = await ExecuteWithRetryAsync(
             retries,
             $"{label}初始化上传",
             log,
             token => SendVodAsync(http, HttpMethod.Get, applyUri, credentials, null, token),
             ct);
-        var node = applyDocument.RootElement
-            .GetProperty("Result").GetProperty("InnerUploadAddress").GetProperty("UploadNodes")[0];
-        var store = node.GetProperty("StoreInfos")[0];
-        var storeUri = ReadString(store, "StoreUri");
-        var auth = ReadString(store, "Auth");
-        var sessionKey = ReadString(node, "SessionKey");
-        if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
-            throw new InvalidOperationException($"{applyAction} 没有返回上传地址。");
-
-        var uploadHost = string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase)
-            ? tosBase
-            : ResolveObjectHost(node, objectBase, tosBase);
+        string storeUri;
+        string auth;
+        string sessionKey;
+        string uploadHost;
+        if (isVideo)
+        {
+            var node = applyDocument.RootElement
+                .GetProperty("Result").GetProperty("InnerUploadAddress").GetProperty("UploadNodes")[0];
+            var store = node.GetProperty("StoreInfos")[0];
+            storeUri = ReadString(store, "StoreUri");
+            auth = ReadString(store, "Auth");
+            sessionKey = ReadString(node, "SessionKey");
+            uploadHost = tosBase;
+            if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
+                throw new InvalidOperationException($"{applyAction} 没有返回上传地址。");
+        }
+        else
+        {
+            var ticket = ReadImageUploadTicket(applyDocument.RootElement, objectBase ?? tosBase);
+            storeUri = ticket.StoreUri;
+            auth = ticket.Auth;
+            sessionKey = ticket.SessionKey;
+            uploadHost = ticket.UploadHost;
+        }
         var objectUrl = $"{uploadHost}/upload/v1/{storeUri}";
         var boundary = "----WebKitFormBoundary" + RandomToken(16);
         using var initDocument = await ExecuteWithRetryAsync(
@@ -1506,6 +1563,18 @@ public static partial class TikTokApiUploadService
         return total;
     }
 
+    private static string ReadVodAction(Uri uri)
+    {
+        var query = uri.Query.TrimStart('?');
+        foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part.StartsWith("Action=", StringComparison.OrdinalIgnoreCase))
+                return Uri.UnescapeDataString(part["Action=".Length..]);
+        }
+
+        return "Vod";
+    }
+
     private static async Task<JsonDocument> SendVodAsync(
         HttpClient http,
         HttpMethod method,
@@ -1521,10 +1590,11 @@ public static partial class TikTokApiUploadService
             request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain;charset=UTF-8");
         }
 
-        TikTokVodSigner.Sign(request, credentials, body, DateTime.UtcNow);
+        var action = ReadVodAction(uri);
+        var service = action is "ApplyImageUpload" or "CommitImageUpload" ? "imagex" : TikTokVodSigner.Service;
+        TikTokVodSigner.Sign(request, credentials, body, DateTime.UtcNow, service);
         using var response = await http.SendAsync(request, ct);
         var text = await response.Content.ReadAsStringAsync(ct);
-        var action = uri.Query.Contains("CommitUploadInner", StringComparison.Ordinal) ? "CommitUploadInner" : "ApplyUploadInner";
         JsonDocument document;
         try
         {

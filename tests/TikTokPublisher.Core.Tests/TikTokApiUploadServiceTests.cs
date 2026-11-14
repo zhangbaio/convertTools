@@ -67,6 +67,53 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
+    public void Image_signature_uses_the_imagex_service()
+    {
+        var uri = TikTokApiUploadService.BuildImageApplyUri("https://vod.tiktokdramacenter.com", 123, "abc");
+        var authorization = TikTokVodSigner.BuildAuthorization(
+            "GET", uri, "20261114T113000Z", FakeCredentials, null, "imagex");
+
+        authorization.Should().Contain("Credential=AKFAKE/20261114/ap-singapore-1/imagex/aws4_request");
+    }
+
+    [Fact]
+    public void Image_upload_uses_the_imagex_version_on_the_vod_host()
+    {
+        var apply = TikTokApiUploadService.BuildImageApplyUri("https://vod.tiktokdramacenter.com", 123, "abc");
+        apply.Host.Should().Be("vod.tiktokdramacenter.com");
+        apply.Query.Should().Contain("Action=ApplyImageUpload");
+        apply.Query.Should().Contain("Version=2018-08-01");
+        apply.Query.Should().Contain("ServiceId=xbj99bix8q");
+        apply.Query.Should().NotContain("2020-11-19");
+
+        var commit = TikTokApiUploadService.BuildImageCommitUri("https://vod.tiktokdramacenter.com");
+        commit.Query.Should().Contain("Action=CommitImageUpload");
+        commit.Query.Should().Contain("Version=2018-08-01");
+    }
+
+    [Fact]
+    public void Image_apply_reads_the_upload_address()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"Result":{"UploadAddress":{
+              "SessionKey":"session-1",
+              "UploadHosts":["tos-imagex.example.com"],
+              "StoreInfos":[{"StoreUri":"tos-alisg-i-xbj99bix8q-sg/cover","Auth":"auth-1"}]
+            }}}
+            """);
+
+        var ticket = TikTokApiUploadService.ReadImageUploadTicket(
+            document.RootElement,
+            "https://tos.tiktokdramacenter.com");
+
+        ticket.SessionKey.Should().Be("session-1");
+        ticket.StoreUri.Should().Be("tos-alisg-i-xbj99bix8q-sg/cover");
+        ticket.Auth.Should().Be("auth-1");
+        ticket.UploadHost.Should().Be("https://tos-imagex.example.com");
+    }
+
+    [Fact]
     public void Service_hosts_follow_the_page_domain()
     {
         TikTokApiUploadService.ResolveServiceBaseUrl("https://www.tiktokdramacenter.com/series/draft/1", "vod")
@@ -426,6 +473,20 @@ public sealed class TikTokApiUploadServiceTests
 
         TikTokApiUploadService.FindDraftSeries(json, "  重生赶海的温柔守护  ").SelectIds()
             .Should().Equal("7707915752204129212");
+    }
+
+    [Fact]
+    public void New_shell_with_collection_status_is_still_a_draft()
+    {
+        var json = """
+            {"data":{"list":[{
+              "info":{"contractId":"7707984308811699206","title":"大婚日仙尊母亲归来","status":1},
+              "presentationStatus":{"status":31}
+            }]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, "大婚日仙尊母亲归来").SelectIds()
+            .Should().Equal("7707984308811699206");
     }
 
     [Fact]

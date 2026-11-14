@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Publishing;
 
@@ -19,20 +20,48 @@ public sealed class TikTokApiSeriesShell
     public string? AudienceTagId { get; init; }
     public bool ConsignmentEnabled { get; init; }
     public string? BusinessContractId { get; init; }
+    public string? LicenseId { get; init; }
     public string? PriceInUsd { get; init; }
     public bool IsOriginalRightsHolder { get; init; } = true;
     public bool IsAdaptation { get; init; }
     public IReadOnlyList<TikTokApiCopyrightFile>? CopyrightFiles { get; init; }
+    public IReadOnlyList<string> PublisherIds { get; init; } = [];
+    public bool Signed { get; init; }
+    public int PublishMode { get; init; }
 }
 
 public readonly record struct TikTokApiCopyrightFile(int MaterialType, string Uri, string FileName);
 
 public static class TikTokApiSeriesDocument
 {
-    public static string BuildCreateBody(string title, string? businessContractId)
+    public readonly record struct TikTokSeriesContractBinding(string? ContractedId, string? LicenseId);
+
+    /// <summary>发布账号。表单提交用的是 accountInfo.uid，creatorType 12 不出现在可选列表里。</summary>
+    public readonly record struct TikTokPublisherAccount(string UserId, string RegionCode, string Nickname, int CreatorType);
+
+    public const int HostedCreatorType = 12;
+
+    public static string BuildCreateBody(string title, string? businessContractId) =>
+        BuildCreateBody(title, new TikTokSeriesContractBinding(businessContractId, null));
+
+    /// <summary>
+    /// 授权合同账号新建时只带剧名和 licenseId。CT 编号放进 contract.contractId 会被当成 0。
+    /// 机构合同才把数字 contractedId 放进 contract.contractId。
+    /// </summary>
+    public static string BuildCreateBody(string title, TikTokSeriesContractBinding binding)
     {
         var contract = new JsonObject { ["title"] = title?.Trim() ?? "" };
-        var contractId = businessContractId?.Trim() ?? "";
+        var licenseId = binding.LicenseId?.Trim() ?? "";
+        if (licenseId.Length > 0)
+        {
+            return new JsonObject
+            {
+                ["contract"] = contract,
+                ["licenseId"] = licenseId,
+            }.ToJsonString();
+        }
+
+        var contractId = binding.ContractedId?.Trim() ?? "";
         if (contractId.Length > 0)
             contract["contractId"] = contractId;
         return new JsonObject { ["contract"] = contract }.ToJsonString();
@@ -46,15 +75,60 @@ public static class TikTokApiSeriesDocument
 
     public static string? FindTagId(JsonElement root, string groupName, IReadOnlyCollection<string> labels)
     {
-        if (!TryFindProperty(root, groupName, out var group))
-            return null;
-        return MatchTag(group, labels);
+        if (TryFindProperty(root, groupName, out var group))
+        {
+            var nested = MatchTag(group, labels);
+            if (nested is not null)
+                return nested;
+        }
+
+        return MatchGroupedTags(root, groupName, labels);
     }
 
+    private static string? MatchGroupedTags(JsonElement element, string groupName, IReadOnlyCollection<string> labels)
+    {
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var id = MatchGroupedTag(item, groupName, labels);
+                if (id is not null)
+                    return id;
+            }
+
+            return null;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+            return null;
+        foreach (var property in element.EnumerateObject())
+        {
+            var id = MatchGroupedTags(property.Value, groupName, labels);
+            if (id is not null)
+                return id;
+        }
+
+        return null;
+    }
+
+    private static string? MatchGroupedTag(JsonElement item, string groupName, IReadOnlyCollection<string> labels)
+    {
+        if (item.ValueKind != JsonValueKind.Object ||
+            !item.TryGetProperty("tag_group", out var group) ||
+            group.ValueKind != JsonValueKind.String ||
+            !string.Equals(group.GetString(), groupName, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return MatchOne(item, labels);
+    }
+
+    /// <summary>机构合同的 contractedId，和剧集 ID 一样是 16 到 20 位数字。</summary>
     public static bool IsPlatformContractId(string? value)
     {
         var id = value?.Trim() ?? "";
-        return id.Length is >= 8 and <= 24 && id.All(char.IsDigit);
+        return id.Length is >= 16 and <= 20 && id.All(char.IsDigit);
     }
 
     public readonly record struct TikTokBusinessContract(string Id, string Title);
@@ -115,7 +189,65 @@ public static class TikTokApiSeriesDocument
     }
 
     /// <summary>
-    /// 账号里填的可能是 CT 开头的合同编号。建剧只认 contractList 里的数字 contractedId。
+    /// 授权合同列表在 data.list[].licenseId，值带 CT 前缀。
+    /// 账号里可以填完整编号，也可以只填 CT 后面的数字。多份里对不上时不猜。
+    /// </summary>
+    public static string? MatchLicenseId(JsonElement root, string configured)
+    {
+        var licenses = ReadLicenseIds(root)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var wanted = configured.Trim();
+        if (wanted.Length == 0)
+            return licenses.Count == 1 ? licenses[0] : null;
+
+        var withPrefix = wanted.StartsWith("CT", StringComparison.OrdinalIgnoreCase)
+            ? wanted
+            : "CT" + wanted;
+        var matches = licenses
+            .Where(id => id.Equals(wanted, StringComparison.OrdinalIgnoreCase) ||
+                         id.Equals(withPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        return matches.Count == 1 ? matches[0] : null;
+    }
+
+    private static IEnumerable<string> ReadLicenseIds(JsonElement root)
+    {
+        foreach (var list in LicenseLists(root))
+        {
+            foreach (var item in list.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object ||
+                    !item.TryGetProperty("licenseId", out var idElement) ||
+                    idElement.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var id = idElement.GetString()?.Trim() ?? "";
+                if (id.Length > 0)
+                    yield return id;
+            }
+        }
+    }
+
+    private static IEnumerable<JsonElement> LicenseLists(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            yield break;
+        if (root.TryGetProperty("list", out var list) && list.ValueKind == JsonValueKind.Array)
+            yield return list;
+        if (root.TryGetProperty("data", out var data) &&
+            data.ValueKind == JsonValueKind.Object &&
+            data.TryGetProperty("list", out var nested) &&
+            nested.ValueKind == JsonValueKind.Array)
+        {
+            yield return nested;
+        }
+    }
+
+    /// <summary>
+    /// 机构合同列表里，CT 编号可能写在别的字符串字段上，要对到数字 contractedId。
     /// 关键字搜索只剩一份合同时用那一份；多份里没有对上的编号时不猜。
     /// </summary>
     public static TikTokBusinessContract? MatchBusinessContract(JsonElement root, string configured)
@@ -179,7 +311,11 @@ public static class TikTokApiSeriesDocument
         contract["anchorPromotionStatus"] = shell.AnchorPromotionEnabled ? 1 : 0;
         if (!string.IsNullOrWhiteSpace(shell.CoverUri))
             contract["coverUri"] = shell.CoverUri.Trim();
-        if (!string.IsNullOrWhiteSpace(shell.BusinessContractId))
+        if (!string.IsNullOrWhiteSpace(shell.LicenseId))
+        {
+            contract["licenseId"] = shell.LicenseId.Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(shell.BusinessContractId))
         {
             var businessContractId = shell.BusinessContractId.Trim();
             contract["contractedId"] = businessContractId;
@@ -254,7 +390,246 @@ public static class TikTokApiSeriesDocument
             proof["materials"] = BuildMaterials(shell.CopyrightFiles);
         }
 
+        if (shell.PublisherIds.Count > 0)
+        {
+            var publishers = new JsonArray();
+            foreach (var id in shell.PublisherIds)
+            {
+                if (!string.IsNullOrWhiteSpace(id))
+                    publishers.Add(id.Trim());
+            }
+
+            if (publishers.Count > 0)
+                contract["publishers"] = publishers;
+        }
+
+        if (shell.Signed)
+            contract["signed"] = true;
+        if (shell.PublishMode > 0)
+        {
+            config["publishMode"] = shell.PublishMode;
+            if (shell.PublishMode != 3)
+                config["publishScheduleTime"] = "0";
+        }
+
+        contract["paidExpireTime"] = "4102444800";
+        if (shell.ConsignmentEnabled && string.IsNullOrWhiteSpace(shell.PriceInUsd))
+            config["price"] = new JsonObject();
+
         return contract;
+    }
+
+    /// <summary>1 过审后自动发布，2 手动发布，3 定时发布。</summary>
+    public static int ResolvePublishMode(string? mode) =>
+        mode?.Trim() switch
+        {
+            "manual" => 2,
+            "scheduled" => 3,
+            _ => 1,
+        };
+
+    public static IReadOnlyList<TikTokPublisherAccount> ReadPublisherAccounts(JsonElement root)
+    {
+        foreach (var list in FindNamedArrays(root, "creatorList"))
+        {
+            var accounts = new List<TikTokPublisherAccount>();
+            foreach (var item in list.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object ||
+                    !TryFindDirectProperty(item, "accountInfo", out var info) ||
+                    info.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var userId = ReadText(info, "uid");
+                if (userId.Length == 0)
+                    continue;
+
+                accounts.Add(new TikTokPublisherAccount(
+                    userId,
+                    ReadText(info, "store_region").ToUpperInvariant(),
+                    ReadText(info, "nickname"),
+                    ReadInt(item, "creatorType")));
+            }
+
+            if (accounts.Count > 0)
+                return accounts;
+        }
+
+        return [];
+    }
+
+    /// <summary>
+    /// 指定发布账号时按国家名和昵称对应 uid。未指定时每个国家取一个可勾选账号，和页面全选同一国家只留一个账号一致。
+    /// </summary>
+    public static IReadOnlyList<string> SelectPublisherIds(
+        IReadOnlyList<TikTokPublisherAccount> accounts,
+        bool customSelection,
+        IReadOnlyList<string> selectedKeys)
+    {
+        var selectable = accounts
+            .Where(account => account.CreatorType != HostedCreatorType && account.UserId.Length > 0)
+            .ToList();
+        if (!customSelection)
+        {
+            var ids = new List<string>();
+            var seenRegions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var account in selectable)
+            {
+                var region = account.RegionCode.Length == 0 ? account.UserId : account.RegionCode;
+                if (seenRegions.Add(region))
+                    ids.Add(account.UserId);
+            }
+
+            if (ids.Count == 0)
+                throw new InvalidOperationException("接口上传：机构下没有可勾选的发布账号。");
+            return ids;
+        }
+
+        var wanted = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in selectedKeys)
+        {
+            var key = NormalizeAccountKey(raw);
+            if (key.Length > 0 && seen.Add(key))
+                wanted.Add(key);
+        }
+
+        if (wanted.Count == 0)
+            throw new InvalidOperationException("接口上传：已启用指定发布账号，但没有勾选任何账号。");
+
+        var chosen = new List<string>();
+        var missing = new List<string>();
+        var ambiguous = new List<string>();
+        foreach (var key in wanted)
+        {
+            var parts = key.Split(TikTokPublishAccountCatalog.KeySeparator, 2);
+            var country = parts[0];
+            var nickname = parts[1];
+            var matches = selectable
+                .Where(account =>
+                    AccountLabel(account.Nickname) == nickname &&
+                    RegionMatches(account.RegionCode, country))
+                .Select(account => account.UserId)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (matches.Count == 1)
+                chosen.Add(matches[0]);
+            else if (matches.Count == 0)
+                missing.Add(TikTokPublishAccountCatalog.DescribeKey(key));
+            else
+                ambiguous.Add(TikTokPublishAccountCatalog.DescribeKey(key));
+        }
+
+        if (missing.Count > 0 || ambiguous.Count > 0)
+        {
+            var detail = new List<string>();
+            if (missing.Count > 0)
+                detail.Add("没有找到 " + string.Join("、", missing));
+            if (ambiguous.Count > 0)
+                detail.Add("对应到多个账号 " + string.Join("、", ambiguous));
+            throw new InvalidOperationException("接口上传：发布账号无法写入。" + string.Join("；", detail) + "。");
+        }
+
+        return chosen;
+    }
+
+    private static bool RegionMatches(string regionCode, string country)
+    {
+        if (regionCode.Length == 0 || country.Length == 0)
+            return false;
+        if (regionCode.Equals(country, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (RegionDisplayName(regionCode).Equals(country, StringComparison.Ordinal))
+            return true;
+        return RegionEnglishName(regionCode).Equals(country, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string RegionDisplayName(string regionCode) =>
+        TikTokRegionNames.Chinese.TryGetValue(regionCode, out var name) ? name : regionCode;
+
+    private static string RegionEnglishName(string regionCode)
+    {
+        try
+        {
+            return new RegionInfo(regionCode).EnglishName;
+        }
+        catch (ArgumentException)
+        {
+            return regionCode;
+        }
+    }
+
+    private static string NormalizeAccountKey(string? key)
+    {
+        var parts = (key ?? "").Split(TikTokPublishAccountCatalog.KeySeparator, 2);
+        return parts.Length == 2 ? TikTokPublishAccountCatalog.BuildKey(parts[0], parts[1]) : "";
+    }
+
+    private static string AccountLabel(string? value) =>
+        string.Join(' ', (value ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private static IEnumerable<JsonElement> FindNamedArrays(JsonElement element, string name)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Name.Equals(name, StringComparison.OrdinalIgnoreCase) &&
+                    property.Value.ValueKind == JsonValueKind.Array)
+                {
+                    yield return property.Value;
+                }
+
+                foreach (var nested in FindNamedArrays(property.Value, name))
+                    yield return nested;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                foreach (var nested in FindNamedArrays(item, name))
+                    yield return nested;
+            }
+        }
+    }
+
+    private static bool TryFindDirectProperty(JsonElement element, string name, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = property.Value;
+                    return true;
+                }
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string ReadText(JsonElement element, string name)
+    {
+        if (!TryFindDirectProperty(element, name, out var value))
+            return "";
+        return value.ValueKind == JsonValueKind.String
+            ? value.GetString()?.Trim() ?? ""
+            : value.ToString().Trim();
+    }
+
+    private static int ReadInt(JsonElement element, string name)
+    {
+        if (!TryFindDirectProperty(element, name, out var value))
+            return 0;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+            return number;
+        return int.TryParse(value.ToString(), out var parsed) ? parsed : 0;
     }
 
     public static string? ReadPrice(string? text)
@@ -360,7 +735,7 @@ public static class TikTokApiSeriesDocument
         if (item.ValueKind != JsonValueKind.Object)
             return null;
         string? label = null;
-        foreach (var name in new[] { "name", "tagName", "label", "text" })
+        foreach (var name in new[] { "name", "tagName", "tag_val", "label", "text" })
         {
             if (item.TryGetProperty(name, out var labelElement) && labelElement.ValueKind == JsonValueKind.String)
             {

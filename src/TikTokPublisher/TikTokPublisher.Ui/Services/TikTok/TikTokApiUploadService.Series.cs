@@ -65,8 +65,8 @@ public static partial class TikTokApiUploadService
         if (ResolveLocalEpisodes(uploadPaths) is null)
             throw new InvalidOperationException("接口上传：本地视频文件名里有读不出集号或重复的集，已停止。");
 
-        var businessContractId = await ResolveBusinessContractIdAsync(page, options, log, ct);
-        var seriesId = await ResolveSeriesIdAsync(page, item, payload.Title, businessContractId, log, ct);
+        var contractBinding = await ResolveSeriesContractAsync(page, options, log, ct);
+        var seriesId = await ResolveSeriesIdAsync(page, item, payload.Title, contractBinding, log, ct);
         if (!string.IsNullOrWhiteSpace(workflowDir))
         {
             var draftUrl = $"https://www.tiktokdramacenter.com/series/draft/{seriesId}";
@@ -90,6 +90,7 @@ public static partial class TikTokApiUploadService
             }
         }
 
+        var publisherIds = await ResolvePublisherIdsAsync(page, collection, options, log, ct);
         var contract = TikTokApiSeriesDocument.Overlay(collection, new TikTokApiSeriesShell
         {
             Title = payload.Title,
@@ -104,11 +105,15 @@ public static partial class TikTokApiUploadService
             ThemeTagIds = themeIds,
             AudienceTagId = audienceId,
             ConsignmentEnabled = options.ConsignmentEnabled,
-            BusinessContractId = businessContractId,
+            BusinessContractId = contractBinding.ContractedId,
+            LicenseId = contractBinding.LicenseId,
             PriceInUsd = options.PaidEnabled ? TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue) : null,
             IsOriginalRightsHolder = options.IsOriginalRightsHolder,
             IsAdaptation = string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase),
             CopyrightFiles = copyrightFiles.Count == 0 ? null : copyrightFiles,
+            PublisherIds = publisherIds,
+            Signed = true,
+            PublishMode = TikTokApiSeriesDocument.ResolvePublishMode(options.PublishMode),
         });
         var update = new JsonObject { ["contract"] = contract };
         if (contract["licenseId"] is JsonValue license &&
@@ -152,6 +157,40 @@ public static partial class TikTokApiUploadService
 
         log?.Invoke($"接口上传完成：剧集 ID {seriesId} 已提交。");
         return PublishResult.Success("接口上传已提交");
+    }
+
+    private static async Task<IReadOnlyList<string>> ResolvePublisherIdsAsync(
+        IPage? page,
+        JsonObject? collection,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var institutionId = collection?["institutionId"] is JsonValue institution &&
+            institution.TryGetValue<string>(out var institutionText)
+            ? institutionText.Trim()
+            : "";
+        if (institutionId.Length == 0)
+            throw new InvalidOperationException("接口上传：剧集里没有机构 ID，无法读取发布账号。");
+
+        using var detail = await PageFetchAsync(
+            page,
+            "POST",
+            "/api/content-partner/institution/detail",
+            new JsonObject
+            {
+                ["institutionID"] = institutionId,
+                ["withCreatorList"] = true,
+                ["withAccountList"] = false,
+                ["withRegisterTaskStatus"] = false,
+            }.ToJsonString(),
+            ct);
+        var ids = TikTokApiSeriesDocument.SelectPublisherIds(
+            TikTokApiSeriesDocument.ReadPublisherAccounts(detail.RootElement),
+            options.CustomPublishAccountsEnabled,
+            options.SelectedPublishAccountKeys);
+        log?.Invoke($"接口上传：写入 {ids.Count} 个发布账号。");
+        return ids;
     }
 
     internal static async Task<string> UploadImageAsync(
@@ -205,7 +244,7 @@ public static partial class TikTokApiUploadService
         IPage? page,
         PublishItem item,
         string title,
-        string? businessContractId,
+        TikTokApiSeriesDocument.TikTokSeriesContractBinding contractBinding,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -231,7 +270,7 @@ public static partial class TikTokApiUploadService
         return await CreateSeriesAsync(
             page,
             title,
-            businessContractId,
+            contractBinding,
             log,
             ct);
     }
@@ -239,24 +278,28 @@ public static partial class TikTokApiUploadService
     private static async Task<string> CreateSeriesAsync(
         IPage? page,
         string title,
-        string? businessContractId,
+        TikTokApiSeriesDocument.TikTokSeriesContractBinding contractBinding,
         Action<string>? log,
         CancellationToken ct)
     {
-        if (!TikTokApiSeriesDocument.IsPlatformContractId(businessContractId))
+        var licenseId = contractBinding.LicenseId?.Trim() ?? "";
+        var contractedId = contractBinding.ContractedId?.Trim() ?? "";
+        if (licenseId.Length == 0 && !TikTokApiSeriesDocument.IsPlatformContractId(contractedId))
         {
             throw new InvalidOperationException(
-                "接口上传：没有可用的数字合同 ID，已停止。请在「账号管理 → 发布配置」填写平台合同 ID，或改为使用第一个可用合同。");
+                "接口上传：没有可用的合同，已停止。请在「账号管理 → 发布配置」填写带 CT 的合同 ID，或改为使用第一个可用合同。");
         }
 
-        log?.Invoke($"接口上传：使用平台合同 {businessContractId} 新建剧集。");
+        log?.Invoke(licenseId.Length > 0
+            ? $"接口上传：使用授权合同 {licenseId} 新建剧集。"
+            : $"接口上传：使用平台合同 {contractedId} 新建剧集。");
         try
         {
             using var created = await PageFetchAsync(
                 page,
                 "POST",
                 "/api/content-partner/series",
-                TikTokApiSeriesDocument.BuildCreateBody(title, businessContractId),
+                TikTokApiSeriesDocument.BuildCreateBody(title, contractBinding),
                 ct);
             var seriesId = ReadCreatedSeriesId(created.RootElement);
             log?.Invoke($"接口上传：已新建剧集 {seriesId}。");
@@ -279,48 +322,85 @@ public static partial class TikTokApiUploadService
         }
     }
 
-    private static async Task<string?> ResolveBusinessContractIdAsync(
+    private const string LicenseListBody =
+        """{"statusList":[2,4],"pageIndex":0,"pageSize":1000,"categoryList":[10]}""";
+
+    private static async Task<TikTokApiSeriesDocument.TikTokSeriesContractBinding> ResolveSeriesContractAsync(
         IPage? page,
         TikTokPublishOptions? options,
         Action<string>? log,
         CancellationToken ct)
     {
         var configured = options?.ContractId?.Trim() ?? "";
-        if (TikTokApiSeriesDocument.IsPlatformContractId(configured))
-            return configured;
-
         var useFirst = options is null ||
             string.Equals(options.ContractIdMode, TikTokPublishConstants.ContractIdModeFirstAvailable, StringComparison.OrdinalIgnoreCase);
-        if (configured.Length == 0 && !useFirst)
-            return null;
+        if (TikTokApiSeriesDocument.IsPlatformContractId(configured))
+            return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(configured, null);
 
-        if (configured.Length == 0)
+        if (configured.Length > 0)
         {
-            using var listed = await PageFetchAsync(
-                page,
-                "POST",
-                "/api/content-partner/institution/contract/list",
-                "{}",
-                ct);
+            var licenseId = await ReadMatchedLicenseAsync(page, configured, ct);
+            if (licenseId is not null)
+            {
+                log?.Invoke($"接口上传：合同编号「{configured}」使用授权合同 {licenseId}。");
+                return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(null, licenseId);
+            }
+
+            var keywordBody = JsonSerializer.Serialize(new { contractKeyWord = configured });
+            var match = await ReadMatchedContractAsync(page, keywordBody, configured, ct)
+                        ?? await ReadMatchedContractAsync(page, "{}", configured, ct);
+            if (match is { } found)
+            {
+                log?.Invoke(found.Title.Length > 0
+                    ? $"接口上传：合同编号「{configured}」对应「{found.Title}」。"
+                    : $"接口上传：合同编号「{configured}」对应平台合同 {found.Id}。");
+                return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(found.Id, null);
+            }
+
+            throw new InvalidOperationException(
+                $"接口上传：合同编号「{configured}」没有出现在授权合同列表里，已停止。请保留 CT 前缀，并核对「账号管理 → 发布配置」里的合同 ID。");
+        }
+
+        if (!useFirst)
+            return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(null, null);
+
+        using (var listed = await PageFetchAsync(
+            page,
+            "POST",
+            "/api/content-partner/institution/contract/list",
+            "{}",
+            ct))
+        {
             var first = TikTokApiSeriesDocument.ReadFirstBusinessContract(listed.RootElement);
             if (first is { } named)
+            {
                 log?.Invoke($"接口上传：合同列表使用「{(named.Title.Length > 0 ? named.Title : named.Id)}」。");
-            return first?.Id;
+                return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(named.Id, null);
+            }
         }
 
-        var keywordBody = JsonSerializer.Serialize(new { contractKeyWord = configured });
-        var match = await ReadMatchedContractAsync(page, keywordBody, configured, ct)
-                    ?? await ReadMatchedContractAsync(page, "{}", configured, ct);
-        if (match is { } found)
+        var onlyLicense = await ReadMatchedLicenseAsync(page, "", ct);
+        if (onlyLicense is not null)
         {
-            log?.Invoke(found.Title.Length > 0
-                ? $"接口上传：合同编号「{configured}」对应「{found.Title}」。"
-                : $"接口上传：合同编号「{configured}」对应平台合同 {found.Id}。");
-            return found.Id;
+            log?.Invoke($"接口上传：使用授权合同 {onlyLicense}。");
+            return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(null, onlyLicense);
         }
 
-        throw new InvalidOperationException(
-            $"接口上传：合同编号「{configured}」对不上平台合同。建剧要的是一串数字 ID，这个编号会变成 0，已停止。请改成合同列表里的数字 ID，或改为使用第一个可用合同。");
+        return new TikTokApiSeriesDocument.TikTokSeriesContractBinding(null, null);
+    }
+
+    private static async Task<string?> ReadMatchedLicenseAsync(
+        IPage? page,
+        string configured,
+        CancellationToken ct)
+    {
+        using var listed = await PageFetchAsync(
+            page,
+            "POST",
+            "/api/content-partner/enterprise/license-contract/list",
+            LicenseListBody,
+            ct);
+        return TikTokApiSeriesDocument.MatchLicenseId(listed.RootElement, configured);
     }
 
     private static async Task<TikTokApiSeriesDocument.TikTokBusinessContract?> ReadMatchedContractAsync(
@@ -442,8 +522,7 @@ public static partial class TikTokApiUploadService
         CancellationToken ct)
     {
         var commitBody = JsonSerializer.Serialize(new { SessionKey = sessionKey });
-        var commitUri = new Uri(
-            $"{vodBase}/?Action=CommitImageUpload&Version={ApiVersion}&ServiceId={ImageServiceId}");
+        var commitUri = BuildImageCommitUri(vodBase);
         using var commitDocument = await ExecuteWithRetryAsync(
             retries,
             $"{label}提交图片",

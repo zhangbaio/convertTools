@@ -1470,7 +1470,7 @@ internal static class TikTokSeriesListLookupService
         var title = ReadDirectText(element, "title", "seriesTitle", "dramaTitle");
         var seriesId = ReadDirectSeriesId(element);
         var status = ReadDirectStatus(element);
-        foreach (var name in new[] { "seriesInfo", "series", "drama", "baseInfo" })
+        foreach (var name in new[] { "seriesInfo", "series", "drama", "baseInfo", "info" })
         {
             if (!element.TryGetProperty(name, out var child) || child.ValueKind != JsonValueKind.Object)
                 continue;
@@ -1537,6 +1537,14 @@ internal static class TikTokSeriesListLookupService
                 continue;
             if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
                 return DescribePresentationStatus(number);
+            if (value.ValueKind == JsonValueKind.Object)
+            {
+                var nested = ReadDirectStatus(value);
+                if (!string.IsNullOrWhiteSpace(nested))
+                    return nested;
+                continue;
+            }
+
             if (value.ValueKind != JsonValueKind.String)
                 continue;
             var text = value.GetString()?.Trim() ?? "";
