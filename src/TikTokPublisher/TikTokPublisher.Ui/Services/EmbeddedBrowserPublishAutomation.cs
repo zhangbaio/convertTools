@@ -366,6 +366,18 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (hasWorkflow)
                 RecordUploadStepStarted();
 
+            async Task EnsureApiSeriesReadyToSubmitAsync()
+            {
+                if (!options.UseApiUpload)
+                    return;
+
+                var uploadPaths = payload.UploadVideoPaths.Count > 0
+                    ? payload.UploadVideoPaths
+                    : payload.VideoPaths;
+                await TikTokApiUploadService.EnsureReadyToSubmitAsync(page, uploadPaths, L, ct)
+                    .ConfigureAwait(false);
+            }
+
             PublishResult result;
             if (finalAction == FinalAction.Publish)
             {
@@ -373,6 +385,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 var reopenDraftUrl = "";
                 try
                 {
+                    await EnsureApiSeriesReadyToSubmitAsync().ConfigureAwait(false);
                     await TikTokBrowserActions.SubmitAsync(
                             page,
                             L,
@@ -395,6 +408,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                             ct)
                         .ConfigureAwait(false);
                     ThrowIfLoginRedirect(page, sharedPage);
+                    await EnsureApiSeriesReadyToSubmitAsync().ConfigureAwait(false);
                     await TikTokBrowserActions.SubmitAsync(
                             page,
                             L,
@@ -420,6 +434,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                             ct)
                         .ConfigureAwait(false);
                     ThrowIfLoginRedirect(page, sharedPage);
+                    await EnsureApiSeriesReadyToSubmitAsync().ConfigureAwait(false);
                     await TikTokBrowserActions.SubmitAsync(
                             page,
                             L,

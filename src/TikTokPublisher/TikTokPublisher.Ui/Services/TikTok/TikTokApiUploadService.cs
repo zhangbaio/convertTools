@@ -24,6 +24,7 @@ public static class TikTokApiUploadService
     private const int MaxPartsInFlight = 12;
     private const string ApiVersion = "2020-11-19";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
+    private const string DeleteVideosPath = "/api/content-partner/series/videos/batch-delete";
 
     private static readonly Regex SeriesIdPattern =
         new(@"/series/(?:draft/)?(\d{16,20})/?(?=[?#]|$)", RegexOptions.Compiled);
@@ -97,12 +98,12 @@ public static class TikTokApiUploadService
             : null;
     }
 
-    /// <summary>每一集都能读出且不重复。读不出或重复的行不参与补传，也不再交给网页删除。</summary>
+    /// <summary>每一集都能读出且不重复。读不出或重复的行要先用删除接口去掉。</summary>
     internal static bool ExistingVideosUsable(IReadOnlyList<SeriesVideo> videos) =>
         videos.All(video => video.Episode is not null) &&
         videos.Select(video => video.Episode).Distinct().Count() == videos.Count;
 
-    /// <summary>按出现顺序保留每个集号的第一行。读不出集号和重复行不参与接口直传。</summary>
+    /// <summary>按出现顺序保留每个集号的第一行。后面的重复行和读不出集号的行要删除。</summary>
     internal static IReadOnlyList<SeriesVideo> SelectUsableExisting(IReadOnlyList<SeriesVideo> videos)
     {
         var seen = new HashSet<int>();
@@ -166,6 +167,78 @@ public static class TikTokApiUploadService
         }
     }
 
+    /// <summary>每个集号只保留第一条。后面的重复条，以及读不出集号的条，返回它们的视频 ID。</summary>
+    internal static IReadOnlyList<string> PlanDeleteExtras(IReadOnlyList<SeriesVideo> videos)
+    {
+        var keep = SelectUsableExisting(videos).Select(video => video.VideoId).ToHashSet(StringComparer.Ordinal);
+        return videos
+            .OrderBy(video => video.OrderNum)
+            .Where(video => !keep.Contains(video.VideoId))
+            .Select(video => video.VideoId)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 正片条数等于总集数，且 1 到总集数每个集号恰好一条时返回 null。
+    /// 否则返回要写进失败原因的说明，点名缺少、重复、超出总集数或读不出集号的行。
+    /// </summary>
+    internal static string? DescribeEpisodeMismatch(IReadOnlyList<SeriesVideo> videos, int expectedCount)
+    {
+        if (expectedCount <= 0)
+            return "接口直传：本地总集数无效，已停止，不会提交。";
+
+        var counts = new Dictionary<int, int>();
+        var unreadable = 0;
+        foreach (var video in videos)
+        {
+            if (video.Episode is int episode)
+                counts[episode] = counts.GetValueOrDefault(episode) + 1;
+            else
+                unreadable++;
+        }
+
+        var missing = new List<int>();
+        var duplicated = new List<int>();
+        for (var episode = 1; episode <= expectedCount; episode++)
+        {
+            var count = counts.GetValueOrDefault(episode);
+            if (count == 0)
+                missing.Add(episode);
+            else if (count > 1)
+                duplicated.Add(episode);
+        }
+
+        var outside = counts.Keys
+            .Where(episode => episode < 1 || episode > expectedCount)
+            .OrderBy(episode => episode)
+            .ToList();
+        if (videos.Count == expectedCount &&
+            missing.Count == 0 &&
+            duplicated.Count == 0 &&
+            outside.Count == 0 &&
+            unreadable == 0)
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+        if (missing.Count > 0)
+            parts.Add($"缺少第 {FormatEpisodes(missing)} 集");
+        if (duplicated.Count > 0)
+            parts.Add($"第 {FormatEpisodes(duplicated)} 集重复");
+        if (outside.Count > 0)
+            parts.Add($"集号超出总集数：第 {FormatEpisodes(outside)} 集");
+        if (unreadable > 0)
+            parts.Add($"{unreadable} 行读不出集号");
+        if (parts.Count == 0)
+            parts.Add($"正片 {videos.Count} 条，总集数 {expectedCount}");
+
+        return $"接口直传：正片和总集数不一致（正片 {videos.Count} 条，总集数 {expectedCount}），已停止，不会提交。{string.Join("；", parts)}。";
+    }
+
+    internal static string BuildBatchDeleteBody(string seriesId, IReadOnlyList<string> videoIds) =>
+        JsonSerializer.Serialize(new { contractId = seriesId, videoIds });
+
     /// <summary>按集号排好的 videoId；已经是升序时返回 null。</summary>
     internal static IReadOnlyList<string>? PlanReorder(IReadOnlyList<SeriesVideo> videos)
     {
@@ -195,8 +268,8 @@ public static class TikTokApiUploadService
         string.Join(",", partCrcs.Select((crc, index) => $"{index + 1}:{crc}"));
 
     /// <summary>
-    /// 按剧集详情里已经挂上的集号，只直传缺少的集，最后按集号排序并刷新页面。
-    /// 文件名读不出集号、草稿集号全部无法识别，或某一集用完重试，都直接失败，不改走网页。
+    /// 按剧集详情里已经挂上的集号，先删掉重复和读不出集号的正片，再只直传缺少的集，最后按集号排序。
+    /// 删除失败、删完仍在、或正片不是 1 到总集数各一条，都直接失败，不改走网页，也不提交。
     /// </summary>
     public static async Task<bool> SyncEpisodesAsync(
         IPage page,
@@ -211,22 +284,41 @@ public static class TikTokApiUploadService
                     ?? throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
 
         var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
-        var usable = SelectUsableExisting(existing);
-        if (existing.Count > 0 && usable.Count == 0)
+        var changed = false;
+        var extras = PlanDeleteExtras(existing);
+        if (extras.Count > 0)
         {
-            throw new InvalidOperationException(
-                $"接口直传：草稿已有 {existing.Count} 集，集号都读不出来或全部重复，已停止。请在草稿里整理正片后再重试。");
+            await DeleteExtraVideosAsync(page, seriesId, extras, options, log, ct);
+            var afterDelete = existing;
+            var stillThere = extras.ToList();
+            for (var attempt = 1; attempt <= 3 && stillThere.Count > 0; attempt++)
+            {
+                if (attempt > 1)
+                    await Task.Delay(TimeSpan.FromSeconds(2), ct);
+                afterDelete = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+                stillThere = extras
+                    .Where(id => afterDelete.Any(video => string.Equals(video.VideoId, id, StringComparison.Ordinal)))
+                    .ToList();
+            }
+
+            if (stillThere.Count > 0)
+            {
+                var preview = string.Join(", ", stillThere.Take(5));
+                if (stillThere.Count > 5)
+                    preview += $" 等 {stillThere.Count} 条";
+                throw new InvalidOperationException(
+                    $"接口直传：删除后这些视频仍在草稿里（{preview}），已停止，不再补传。");
+            }
+
+            log?.Invoke($"接口直传：已删除 {extras.Count} 条多余正片，草稿还剩 {afterDelete.Count} 条。");
+            existing = afterDelete;
+            changed = true;
         }
 
-        if (usable.Count < existing.Count)
-        {
-            log?.Invoke(
-                $"接口直传：草稿 {existing.Count} 行里有 {existing.Count - usable.Count} 行读不出集号或重复，这些行保留，只补缺失集号。");
-        }
+        var usable = SelectUsableExisting(existing);
 
         var present = usable.Select(video => video.Episode!.Value).ToHashSet();
         var missing = local.Where(item => !present.Contains(item.Episode)).ToList();
-        var changed = false;
         var failures = new List<string>();
         if (missing.Count == 0)
         {
@@ -364,8 +456,29 @@ public static class TikTokApiUploadService
         if (failures.Count > 0)
             throw new InvalidOperationException($"接口直传有 {failures.Count} 集未完成：{string.Join("；", failures)}");
 
+        if (DescribeEpisodeMismatch(after, local.Count) is { } mismatch)
+            throw new InvalidOperationException(mismatch);
+
         log?.Invoke($"接口直传完成：草稿正片 {after.Count} 集。");
         return true;
+    }
+
+    /// <summary>提交前再读一次剧集详情。对不上就失败，调用方不要点提交。</summary>
+    public static async Task EnsureReadyToSubmitAsync(
+        IPage page,
+        IReadOnlyList<string> uploadPaths,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var local = ResolveLocalEpisodes(uploadPaths)
+                    ?? throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集，已停止，不会提交。");
+        var seriesId = TryReadSeriesIdFromUrl(page.Url)
+                       ?? throw new InvalidOperationException("接口直传：当前页面地址里没有剧集 ID，已停止，不会提交。");
+        var videos = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        if (DescribeEpisodeMismatch(videos, local.Count) is { } mismatch)
+            throw new InvalidOperationException(mismatch);
+
+        log?.Invoke($"接口直传：提交前核对通过，正片 {videos.Count} 集与总集数一致。");
     }
 
     /// <summary>
@@ -541,7 +654,7 @@ public static class TikTokApiUploadService
 
         foreach (var video in videos.EnumerateArray())
         {
-            var videoId = ReadString(video, "videoId");
+            var videoId = ReadId(video, "videoId");
             if (string.IsNullOrWhiteSpace(videoId))
                 continue;
             var orderNum = video.TryGetProperty("orderNum", out var order) && order.TryGetInt32(out var number)
@@ -577,6 +690,39 @@ public static class TikTokApiUploadService
                 log?.Invoke($"接口直传：读取剧集详情暂时失败（HTTP {ex.Status}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
                 await Task.Delay(delay, ct);
             }
+        }
+    }
+
+    /// <summary>
+    /// 剧集中心批量删除：POST /api/content-partner/series/videos/batch-delete，
+    /// 请求体是 contractId 和 videoIds。失败就停，不再往上面叠传。
+    /// </summary>
+    private static async Task DeleteExtraVideosAsync(
+        IPage page,
+        string seriesId,
+        IReadOnlyList<string> videoIds,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        log?.Invoke($"接口直传：草稿有 {videoIds.Count} 条重复或读不出集号的正片，先用接口删除。");
+        var body = BuildBatchDeleteBody(seriesId, videoIds);
+        try
+        {
+            using var response = await ExecuteWithRetryAsync(
+                options.UploadBatchMaxRetries,
+                "删除多余正片",
+                log,
+                token => PageFetchAsync(page, "POST", DeleteVideosPath, body, token),
+                ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"接口直传：删除多余正片失败，已停止，不再补传。{ex.Message}", ex);
         }
     }
 
@@ -1303,6 +1449,18 @@ public static class TikTokApiUploadService
         value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? ""
             : "";
+
+    private static string ReadId(JsonElement element, string name)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value))
+            return "";
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? "",
+            JsonValueKind.Number => value.GetRawText(),
+            _ => "",
+        };
+    }
 
     private static string RandomToken(int length = 11)
     {

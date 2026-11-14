@@ -167,6 +167,107 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
+    public void Delete_plan_keeps_the_first_copy_of_each_episode()
+    {
+        var videos = new TikTokApiUploadService.SeriesVideo[]
+        {
+            new("ep1", 1, "剧-第1集", 1),
+            new("ep2a", 2, "剧-第2集", 2),
+            new("ep2b", 3, "剧-第3集-第2集", 2),
+            new("ep3a", 4, "剧-第3集", 3),
+            new("ep3b", 5, "剧-第3集", 3),
+            new("ep4a", 6, "剧-第4集", 4),
+            new("ep4b", 7, "剧-第4集", 4),
+            new("ep8", 8, "剧-第8集", 8),
+            new("blank", 9, "花絮", null),
+        };
+
+        TikTokApiUploadService.PlanDeleteExtras(videos).Should().Equal("ep2b", "ep3b", "ep4b", "blank");
+        TikTokApiUploadService.PlanDeleteExtras(videos.Take(2).ToArray()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Hidden_husband_draft_deletes_duplicate_copies_and_names_the_gap()
+    {
+        var videos = new List<TikTokApiUploadService.SeriesVideo>
+        {
+            new("1", 1, "第1集", 1),
+            new("2a", 2, "第2集", 2),
+            new("2b", 3, "第2集", 2),
+            new("3a", 4, "第3集", 3),
+            new("3b", 5, "第3集", 3),
+            new("4a", 6, "第4集", 4),
+            new("4b", 7, "第4集", 4),
+        };
+        for (var episode = 8; episode <= 50; episode++)
+            videos.Add(new TikTokApiUploadService.SeriesVideo(episode.ToString(), videos.Count + 1, $"第{episode}集", episode));
+
+        TikTokApiUploadService.PlanDeleteExtras(videos).Should().Equal("2b", "3b", "4b");
+        TikTokApiUploadService.DescribeEpisodeMismatch(videos, 50)
+            .Should().Contain("缺少第 5, 6, 7 集")
+            .And.Contain("第 2, 3, 4 集重复");
+
+        var repaired = TikTokApiUploadService.SelectUsableExisting(videos).ToList();
+        for (var episode = 5; episode <= 7; episode++)
+            repaired.Add(new TikTokApiUploadService.SeriesVideo(episode.ToString(), repaired.Count + 1, $"第{episode}集", episode));
+        TikTokApiUploadService.DescribeEpisodeMismatch(repaired, 50).Should().BeNull();
+    }
+
+    [Fact]
+    public void Submit_check_names_missing_duplicate_and_unreadable_rows()
+    {
+        TikTokApiUploadService.DescribeEpisodeMismatch(
+        [
+            new("a", 1, "", 1),
+            new("b", 2, "", 2),
+            new("b2", 3, "", 2),
+            new("c", 4, "", 4),
+            new("blank", 5, "花絮", null),
+        ], 4).Should().Be(
+            "接口直传：正片和总集数不一致（正片 5 条，总集数 4），已停止，不会提交。缺少第 3 集；第 2 集重复；1 行读不出集号。");
+
+        TikTokApiUploadService.DescribeEpisodeMismatch(
+        [
+            new("a", 1, "", 1),
+            new("z", 2, "", 9),
+        ], 1).Should().Contain("集号超出总集数：第 9 集");
+
+        TikTokApiUploadService.DescribeEpisodeMismatch(
+        [
+            new("a", 1, "", 1),
+            new("b", 2, "", 2),
+            new("c", 3, "", 3),
+        ], 3).Should().BeNull();
+    }
+
+    [Fact]
+    public void Batch_delete_body_sends_contract_and_video_ids()
+    {
+        using var document = JsonDocument.Parse(
+            TikTokApiUploadService.BuildBatchDeleteBody("7707846602790065160", ["v2", "v3"]));
+
+        var root = document.RootElement;
+        root.GetProperty("contractId").GetString().Should().Be("7707846602790065160");
+        root.GetProperty("videoIds").EnumerateArray().Select(item => item.GetString()).Should().Equal("v2", "v3");
+    }
+
+    [Fact]
+    public void Series_detail_reads_numeric_video_ids()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"videos":[{"videoId":7707846602790065161,"orderNum":2,"title":"The Hidden Husband-第3集-第2集"}]}
+            """);
+
+        var videos = TikTokApiUploadService.ParseSeriesVideos(document.RootElement);
+
+        videos.Should().ContainSingle();
+        videos[0].VideoId.Should().Be("7707846602790065161");
+        videos[0].Episode.Should().Be(2);
+        TikTokApiUploadService.PlanDeleteExtras(videos).Should().BeEmpty();
+    }
+
+    [Fact]
     public void Add_video_body_matches_the_web_request()
     {
         var body = TikTokApiUploadService.BuildAddVideoBody(
