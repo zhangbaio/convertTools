@@ -397,4 +397,72 @@ public sealed class TikTokApiUploadServiceTests
     {
         TikTokApiUploadService.ReadSeriesIdFromJson(json).Should().Be(expected);
     }
+
+    [Fact]
+    public void Existing_draft_id_comes_from_the_series_list()
+    {
+        const string title = "重生赶海的温柔守护";
+        var json = """
+            {"code":0,"data":{"list":[
+              {"title":"鱼塘边的诚信路","seriesId":"7707000000000000001","presentationStatus":31},
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129212","presentationStatus":31},
+              {"title":"重生赶海的温柔守护","id":"7708000000000000001","orderNum":3,"videoId":"v"}
+            ]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, title).SelectIds()
+            .Should().Equal("7707915752204129212");
+    }
+
+    [Fact]
+    public void Existing_draft_id_is_read_from_a_nested_series()
+    {
+        var json = """
+            {"data":{"records":[{
+              "presentationStatus":"草稿",
+              "seriesInfo":{"title":"重生赶海的温柔守护","id":"7707915752204129212"}
+            }]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, "  重生赶海的温柔守护  ").SelectIds()
+            .Should().Equal("7707915752204129212");
+    }
+
+    [Fact]
+    public void Published_series_is_not_reused_as_a_draft()
+    {
+        var json = """
+            {"data":{"list":[
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129212","presentationStatus":1005}
+            ]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, "重生赶海的温柔守护").SelectIds()
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Several_same_title_drafts_stay_unresolved()
+    {
+        var json = """
+            {"data":{"list":[
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129212","presentationStatus":31},
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129999","status":"InDraft"}
+            ]}}
+            """;
+
+        var ids = TikTokApiUploadService.FindDraftSeries(json, "重生赶海的温柔守护").SelectIds();
+        ids.Should().Equal("7707915752204129212", "7707915752204129999");
+    }
+
+    [Fact]
+    public void Untagged_list_row_is_used_when_the_response_has_no_status()
+    {
+        var json = """
+            {"data":{"list":[{"seriesTitle":"重生赶海的温柔守护","contractId":"7707915752204129212"}]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, "重生赶海的温柔守护").SelectIds()
+            .Should().Equal("7707915752204129212");
+    }
 }

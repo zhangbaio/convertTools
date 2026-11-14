@@ -25,6 +25,8 @@ public static class TikTokApiUploadService
     private const string ApiVersion = "2020-11-19";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
     private const string DeleteVideosPath = "/api/content-partner/series/videos/batch-delete";
+    private const string ListSeriesPath = "/api/content-partner/series/v2/list";
+    private const int DraftPresentationStatus = 31;
 
     private static readonly Regex SeriesIdPattern =
         new(@"/series/(?:draft/)?(\d{16,20})/?(?=[?#]|$)", RegexOptions.Compiled);
@@ -482,7 +484,8 @@ public static class TikTokApiUploadService
     }
 
     /// <summary>
-    /// 新建页还没有剧集 ID：保存已经填好的剧壳，从创建接口或页面地址取得剧集 ID，
+    /// 新建页还没有剧集 ID：先按剧名查已有草稿。查到就用那条剧集 ID 继续上传；
+    /// 没有再保存剧壳，从创建接口、页面地址或保存后的列表取得剧集 ID，
     /// 再转到草稿编辑页，全部正片都由接口直传。
     /// </summary>
     public static async Task ContinueCreateAsDraftAsync(
@@ -498,20 +501,32 @@ public static class TikTokApiUploadService
         if (ResolveLocalEpisodes(uploadPaths) is null)
             throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
 
-        log?.Invoke("接口直传：新建页先保存剧壳，取得剧集 ID 后再上传全部正片。");
-        var seriesId = await SaveShellForSeriesIdAsync(page, log, ct);
+        log?.Invoke("接口直传：先按剧名查找已有草稿，拿到剧集 ID 后再上传全部正片。");
+        var seriesId = await SaveShellForSeriesIdAsync(page, payload.Title, log, ct);
         var draftUrl = $"https://{new Uri(page.Url).Host}/series/draft/{seriesId}";
         log?.Invoke($"接口直传：已取得剧集 ID {seriesId}，转到草稿编辑页继续上传：{draftUrl}");
         await TikTokEditFlowService.OpenEditPublishFlowAsync(
             page, draftUrl, payload, options, recommendation, coverPath, log, ct);
     }
 
-    private static async Task<string> SaveShellForSeriesIdAsync(IPage page, Action<string>? log, CancellationToken ct)
+    private static async Task<string> SaveShellForSeriesIdAsync(
+        IPage page,
+        string? title,
+        Action<string>? log,
+        CancellationToken ct)
     {
         var existing = TryReadSeriesIdFromUrl(page.Url);
         if (existing is not null)
             return existing;
 
+        var listed = await TryReadExistingDraftIdAsync(page, title, log, ct);
+        if (listed is not null)
+        {
+            log?.Invoke($"接口直传：平台已有同名草稿，直接使用剧集 ID {listed}。");
+            return listed;
+        }
+
+        log?.Invoke("接口直传：新建页先保存剧壳，取得剧集 ID 后再上传全部正片。");
         IResponse? response = null;
         try
         {
@@ -540,8 +555,97 @@ public static class TikTokApiUploadService
         }
 
         seriesId ??= await WaitForSeriesIdInUrlAsync(page, ct);
+        if (seriesId is null)
+        {
+            seriesId = await TryReadExistingDraftIdAsync(page, title, log, ct);
+            if (seriesId is not null)
+                log?.Invoke($"接口直传：保存剧壳后从剧集列表取得剧集 ID {seriesId}。");
+        }
+
         return seriesId ?? throw new InvalidOperationException(
             "接口直传：保存剧壳后没有拿到剧集 ID，已停止，不会改用网页上传。");
+    }
+
+    private static async Task<string?> TryReadExistingDraftIdAsync(
+        IPage page,
+        string? title,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var normalized = title?.Trim() ?? "";
+        if (normalized.Length == 0)
+            return null;
+
+        DraftSeriesLookup lookup = DraftSeriesLookup.Empty;
+        Exception? failure = null;
+        try
+        {
+            lookup = await QueryDraftSeriesAsync(page, normalized, draftsOnly: true, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+        }
+
+        if (lookup.SelectIds().Count == 0)
+        {
+            try
+            {
+                lookup = await QueryDraftSeriesAsync(page, normalized, draftsOnly: false, ct);
+                failure = null;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                failure ??= ex;
+            }
+        }
+
+        if (lookup.SelectIds().Count == 0 && failure is not null)
+        {
+            log?.Invoke($"接口直传：按剧名查询已有草稿失败（{failure.Message}）。");
+            return null;
+        }
+
+        var ids = lookup.SelectIds();
+        if (ids.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"接口直传：同名草稿有 {ids.Count} 个（{string.Join("、", ids)}），已停止，不会改用网页上传。");
+        }
+
+        return ids.Count == 1 ? ids[0] : null;
+    }
+
+    private static async Task<DraftSeriesLookup> QueryDraftSeriesAsync(
+        IPage page,
+        string title,
+        bool draftsOnly,
+        CancellationToken ct)
+    {
+        using var document = await PageFetchAsync(page, "POST", ListSeriesPath, BuildSeriesListBody(title, draftsOnly), ct);
+        return FindDraftSeries(document.RootElement, title);
+    }
+
+    private static string BuildSeriesListBody(string title, bool draftsOnly)
+    {
+        if (!draftsOnly)
+            return JsonSerializer.Serialize(new { title, pageIndex = 1, pageSize = 50 });
+
+        return JsonSerializer.Serialize(new
+        {
+            title,
+            pageIndex = 1,
+            pageSize = 50,
+            presentationStatusList = new[] { DraftPresentationStatus },
+        });
     }
 
     private static bool IsSeriesShellResponse(IResponse candidate)
@@ -626,6 +730,195 @@ public static class TikTokApiUploadService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 剧集列表里同名行的归类。草稿状态优先；只有明确的非草稿时不拿来继续上传；
+    /// 列表没带状态时，按调用方的筛选结果使用。
+    /// </summary>
+    internal sealed record DraftSeriesLookup(
+        IReadOnlyList<string> DraftIds,
+        IReadOnlyList<string> OtherIds,
+        IReadOnlyList<string> UntaggedIds)
+    {
+        public static DraftSeriesLookup Empty { get; } = new([], [], []);
+
+        public IReadOnlyList<string> SelectIds()
+        {
+            if (DraftIds.Count > 0)
+                return DraftIds;
+            if (OtherIds.Count > 0)
+                return [];
+            return UntaggedIds;
+        }
+    }
+
+    internal static DraftSeriesLookup FindDraftSeries(string? json, string? title)
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(title))
+            return DraftSeriesLookup.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return FindDraftSeries(document.RootElement, title);
+        }
+        catch (JsonException)
+        {
+            return DraftSeriesLookup.Empty;
+        }
+    }
+
+    internal static DraftSeriesLookup FindDraftSeries(JsonElement root, string title)
+    {
+        var wanted = title.Trim();
+        if (wanted.Length == 0)
+            return DraftSeriesLookup.Empty;
+
+        var drafts = new List<string>();
+        var others = new List<string>();
+        var untagged = new List<string>();
+        CollectDraftSeries(root, wanted, drafts, others, untagged, 0);
+        return new DraftSeriesLookup(DistinctIds(drafts), DistinctIds(others), DistinctIds(untagged));
+    }
+
+    private static void CollectDraftSeries(
+        JsonElement element,
+        string wanted,
+        List<string> drafts,
+        List<string> others,
+        List<string> untagged,
+        int depth)
+    {
+        if (depth > 8)
+            return;
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                CollectDraftSeries(item, wanted, drafts, others, untagged, depth + 1);
+            return;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+            return;
+
+        ConsiderSeriesRow(element, wanted, drafts, others, untagged);
+        foreach (var property in element.EnumerateObject())
+            CollectDraftSeries(property.Value, wanted, drafts, others, untagged, depth + 1);
+    }
+
+    private static void ConsiderSeriesRow(
+        JsonElement element,
+        string wanted,
+        List<string> drafts,
+        List<string> others,
+        List<string> untagged)
+    {
+        if (element.TryGetProperty("orderNum", out _) || element.TryGetProperty("videoId", out _))
+            return;
+
+        var rowTitle = ReadDirectTitle(element);
+        var rowId = ReadDirectSeriesId(element);
+        var kind = ReadRowKind(element);
+        foreach (var name in new[] { "seriesInfo", "series", "drama", "baseInfo" })
+        {
+            if (!element.TryGetProperty(name, out var child) || child.ValueKind != JsonValueKind.Object)
+                continue;
+            rowTitle ??= ReadDirectTitle(child);
+            rowId ??= ReadDirectSeriesId(child);
+            if (kind == SeriesRowKind.Untagged)
+                kind = ReadRowKind(child);
+        }
+
+        if (rowTitle is null || rowId is null)
+            return;
+        if (!string.Equals(rowTitle.Trim(), wanted, StringComparison.Ordinal))
+            return;
+
+        var target = kind switch
+        {
+            SeriesRowKind.Draft => drafts,
+            SeriesRowKind.Other => others,
+            _ => untagged,
+        };
+        target.Add(rowId);
+    }
+
+    private static string? ReadDirectTitle(JsonElement element)
+    {
+        foreach (var name in new[] { "title", "seriesTitle", "dramaTitle" })
+        {
+            if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
+                continue;
+            var text = value.GetString()?.Trim();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+
+        return null;
+    }
+
+    private static string? ReadDirectSeriesId(JsonElement element)
+    {
+        foreach (var name in new[] { "seriesId", "id", "dramaId", "contractId" })
+        {
+            if (!element.TryGetProperty(name, out var value))
+                continue;
+            var raw = value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString(),
+                JsonValueKind.Number => value.GetRawText(),
+                _ => null,
+            };
+            if (raw is not null && SeriesIdValuePattern.IsMatch(raw.Trim()))
+                return raw.Trim();
+        }
+
+        return null;
+    }
+
+    private static SeriesRowKind ReadRowKind(JsonElement element)
+    {
+        foreach (var name in new[] { "presentationStatus", "status", "seriesStatus" })
+        {
+            if (!element.TryGetProperty(name, out var value))
+                continue;
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+                return number == DraftPresentationStatus ? SeriesRowKind.Draft : SeriesRowKind.Other;
+            if (value.ValueKind != JsonValueKind.String)
+                continue;
+            var text = value.GetString()?.Trim() ?? "";
+            if (text.Length == 0)
+                continue;
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                return parsed == DraftPresentationStatus ? SeriesRowKind.Draft : SeriesRowKind.Other;
+            if (text.Contains("草稿", StringComparison.Ordinal) ||
+                text.Equals("InDraft", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("Draft", StringComparison.OrdinalIgnoreCase))
+                return SeriesRowKind.Draft;
+            return SeriesRowKind.Other;
+        }
+
+        return SeriesRowKind.Untagged;
+    }
+
+    private static IReadOnlyList<string> DistinctIds(List<string> ids)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>();
+        foreach (var id in ids)
+        {
+            if (seen.Add(id))
+                result.Add(id);
+        }
+
+        return result;
+    }
+
+    private enum SeriesRowKind
+    {
+        Untagged,
+        Draft,
+        Other,
     }
 
     internal static string? ReadContractId(string? postData)
