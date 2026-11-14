@@ -486,9 +486,6 @@ public static partial class TikTokApiUploadService
         }
     }
 
-    private const string LicenseListBody =
-        """{"statusList":[2,4],"pageIndex":0,"pageSize":1000,"categoryList":[10]}""";
-
     private static async Task<TikTokApiSeriesDocument.TikTokSeriesContractBinding> ResolveSeriesContractAsync(
         IPage? page,
         TikTokPublishOptions? options,
@@ -535,7 +532,7 @@ public static partial class TikTokApiUploadService
             page,
             "POST",
             "/api/content-partner/enterprise/license-contract/list",
-            LicenseListBody,
+            TikTokApiSeriesDocument.LicenseListRequestBody,
             ct);
         return TikTokApiSeriesDocument.MatchLicenseId(listed.RootElement, configured);
     }

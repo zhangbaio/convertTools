@@ -91,6 +91,7 @@ public partial class TikTokQueueView : UserControl
         _vm = vm;
         _browserHost = browserHost;
         _ensureBrowserMounted = ensureBrowserMounted;
+        _automation.PersistAccount = SaveUploadedAccountAsync;
         DataContext = vm;
         _queueProgressSink = new QueueUiProgressSink(vm.HandleQueueWorkerProgress);
         vm.NavigateRequested += OnNavigateRequested;
@@ -4675,6 +4676,34 @@ public partial class TikTokQueueView : UserControl
         return QueueBrowserReadyResult.Ready();
     }
 
+    private Task SaveUploadedAccountAsync(TikTokAccountProfile account)
+    {
+        var vm = _vm;
+        if (vm is null)
+            return Task.CompletedTask;
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            vm.SaveAccountProfile(account);
+            return Task.CompletedTask;
+        }
+
+        return Dispatcher.UIThread.InvokeAsync(() => vm.SaveAccountProfile(account)).GetTask();
+    }
+
+    private async Task<string?> EnsureLicenseContractAsync(
+        TikTokAccountProfile account,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var result = await TikTokLicenseContractAutofill
+            .EnsureAsync(account, log, SaveUploadedAccountAsync, ct)
+            .ConfigureAwait(false);
+        return result.Status is TikTokLicenseContractLookupStatus.AlreadyConfigured
+            or TikTokLicenseContractLookupStatus.Single
+            ? null
+            : result.Message;
+    }
+
     private async Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
         TikTokAccountProfile account,
         Action<string>? log,
@@ -4682,6 +4711,10 @@ public partial class TikTokQueueView : UserControl
     {
         if (TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
         {
+            var contractError = await EnsureLicenseContractAsync(account, log, ct).ConfigureAwait(false);
+            if (contractError is not null)
+                return QueueBrowserReadyResult.NotReady(contractError);
+
             try
             {
                 TikTokUploadPrerequisiteService.EnsureApiContractConfigured(account);
@@ -4755,6 +4788,10 @@ public partial class TikTokQueueView : UserControl
         var usingEmbeddedBrowser = false;
         if (TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
         {
+            var contractError = await EnsureLicenseContractAsync(account, log, ct).ConfigureAwait(false);
+            if (contractError is not null)
+                return PublishResult.FailAndSkipManualIntervention(contractError);
+
             try
             {
                 TikTokUploadPrerequisiteService.EnsureApiContractConfigured(account);

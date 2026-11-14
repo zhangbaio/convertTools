@@ -188,15 +188,30 @@ public static class TikTokApiSeriesDocument
         return null;
     }
 
+    public const string LicenseListRequestBody =
+        """{"statusList":[2,4],"pageIndex":0,"pageSize":1000,"categoryList":[10]}""";
+
+    /// <summary>授权合同列表里的 licenseId，保留接口返回的写法，重复编号只留一份。</summary>
+    public static IReadOnlyList<string> ListLicenseIds(JsonElement root)
+    {
+        var licenses = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var id in ReadLicenseIds(root))
+        {
+            if (seen.Add(id))
+                licenses.Add(id);
+        }
+
+        return licenses;
+    }
+
     /// <summary>
     /// 授权合同列表在 data.list[].licenseId，值带 CT 前缀。
     /// 账号里可以填完整编号，也可以只填 CT 后面的数字。多份里对不上时不猜。
     /// </summary>
     public static string? MatchLicenseId(JsonElement root, string configured)
     {
-        var licenses = ReadLicenseIds(root)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var licenses = ListLicenseIds(root);
         var wanted = configured.Trim();
         if (wanted.Length == 0)
             return licenses.Count == 1 ? licenses[0] : null;

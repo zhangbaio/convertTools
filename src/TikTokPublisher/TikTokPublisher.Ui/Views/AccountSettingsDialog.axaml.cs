@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
@@ -13,6 +14,7 @@ public partial class AccountSettingsDialog : Window
     private readonly TikTokAccountProfile _profile;
     private readonly Func<TikTokAccountProfile, Task>? _persist;
     private bool _suppressDramaMarketPrompt;
+    private int _contractLookupGeneration;
 
     public AccountSettingsDialog(
         TikTokAccountProfile profile,
@@ -57,6 +59,7 @@ public partial class AccountSettingsDialog : Window
         RemoteDispatchBox.IsChecked = xingeEnabled && p.ParticipatesInXingeRemoteDispatch;
 
         ContractIdBox.Text = p.TiktokContractId;
+        RequestContractAutofill();
         var submitAction = NormalizeSubmitAction(p.TiktokSubmitAction, p.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
@@ -140,6 +143,59 @@ public partial class AccountSettingsDialog : Window
         ProxyPortBox.Value = p.TiktokProxyPort;
         ProxyUsernameBox.Text = p.TiktokProxyUsername;
         ProxyPasswordBox.Text = p.TiktokProxyPassword;
+    }
+
+    private void RequestContractAutofill()
+    {
+        var generation = ++_contractLookupGeneration;
+        if (!string.IsNullOrWhiteSpace(_profile.TiktokContractId))
+            return;
+        _ = FillEmptyContractAsync(generation);
+    }
+
+    private async Task FillEmptyContractAsync(int generation)
+    {
+        TikTokLicenseContractLookupResult result;
+        try
+        {
+            result = await TikTokLicenseContractLookup.TryReadAsync(_profile, null, CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyContractLookup(generation, result));
+    }
+
+    private async Task ApplyContractLookup(int generation, TikTokLicenseContractLookupResult result)
+    {
+        if (generation != _contractLookupGeneration)
+            return;
+        if (!string.IsNullOrWhiteSpace(ContractIdBox.Text) ||
+            !string.IsNullOrWhiteSpace(_profile.TiktokContractId))
+            return;
+        if (result.Status != TikTokLicenseContractLookupStatus.Single)
+        {
+            if (result.Status is TikTokLicenseContractLookupStatus.NotLoggedIn
+                or TikTokLicenseContractLookupStatus.AlreadyConfigured)
+                return;
+            if (!string.IsNullOrWhiteSpace(result.Message))
+                await InfoDialog.ShowAsync(this, result.Message, "授权合同", 520, 200);
+            return;
+        }
+
+        if (!TikTokLicenseContractLookup.TryApply(_profile, result.LicenseId))
+            return;
+        ContractIdBox.Text = _profile.TiktokContractId;
+        if (_persist is not null)
+            await _persist(_profile);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _contractLookupGeneration++;
+        base.OnClosed(e);
     }
 
     private void SaveFromUi()

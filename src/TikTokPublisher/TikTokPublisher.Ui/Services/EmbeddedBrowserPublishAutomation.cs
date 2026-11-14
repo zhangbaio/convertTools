@@ -12,6 +12,8 @@ namespace TikTokPublisher.Ui.Services;
 /// </summary>
 public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyncDisposable
 {
+    public Func<TikTokAccountProfile, Task>? PersistAccount { get; set; }
+
     public Task<PublishResult> PublishAsync(
         TikTokAccountProfile account,
         PublishItem item,
@@ -58,6 +60,16 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
 
         if (!File.Exists(item.VideoPath))
             return PublishResult.Fail($"视频不存在：{item.VideoPath}");
+
+        var contractError = await TikTokLicenseContractAutofill
+            .EnsureAsync(account, L, PersistAccount, ct)
+            .ConfigureAwait(false);
+        if (contractError.Status is not (
+            TikTokLicenseContractLookupStatus.AlreadyConfigured
+            or TikTokLicenseContractLookupStatus.Single))
+        {
+            return PublishResult.FailAndSkipManualIntervention(contractError.Message);
+        }
 
         try
         {

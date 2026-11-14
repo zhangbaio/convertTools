@@ -2,6 +2,7 @@ using System.Text.Json;
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
@@ -306,5 +307,58 @@ public sealed class TikTokUploadChannelTests
     {
         TikTokApiSeriesDocument.BuildSubmitBody("7707915752204129298")
             .Should().Contain("\"contractId\":\"7707915752204129298\"");
+    }
+
+    [Fact]
+    public void Empty_contract_id_keeps_a_single_license_and_lists_several()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"code":0,"data":{"list":[
+              {"licenseId":"CT20260627700005"},
+              {"licenseId":"ct20260627700005"},
+              {"licenseId":"CT2024000000001"}
+            ]}}
+            """);
+
+        var ids = TikTokApiSeriesDocument.ListLicenseIds(document.RootElement);
+        ids.Should().Equal("CT20260627700005", "CT2024000000001");
+        var several = TikTokLicenseContractLookup.FromLicenseIds(ids);
+        several.Status.Should().Be(TikTokLicenseContractLookupStatus.Multiple);
+        several.Message.Should().Contain("CT20260627700005").And.Contain("CT2024000000001");
+
+        var single = TikTokLicenseContractLookup.FromLicenseIds(new[] { "CT20260627700005" });
+        single.Status.Should().Be(TikTokLicenseContractLookupStatus.Single);
+        single.LicenseId.Should().Be("CT20260627700005");
+        TikTokLicenseContractLookup.FromLicenseIds(Array.Empty<string>()).Status
+            .Should().Be(TikTokLicenseContractLookupStatus.None);
+    }
+
+    [Fact]
+    public void Saving_a_discovered_license_does_not_replace_a_contract_id()
+    {
+        var account = new TikTokAccountProfile { TiktokContractId = "CT20260626700362" };
+        TikTokLicenseContractLookup.TryApply(account, "CT20260627700005").Should().BeFalse();
+        account.TiktokContractId.Should().Be("CT20260626700362");
+
+        account.TiktokContractId = "  ";
+        TikTokLicenseContractLookup.TryApply(account, "CT20260627700005").Should().BeTrue();
+        account.TiktokContractId.Should().Be("CT20260627700005");
+        account.TiktokContractIdMode.Should().Be(TikTokPublishConstants.ContractIdModeManual);
+    }
+
+    [Fact]
+    public async Task Missing_login_state_does_not_read_license_contracts()
+    {
+        var account = new TikTokAccountProfile
+        {
+            Id = "acct-missing",
+            TiktokStorageStatePath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "tiktok_auth_state.json"),
+        };
+
+        var result = await TikTokLicenseContractLookup.TryReadAsync(account, null, CancellationToken.None);
+
+        result.Status.Should().Be(TikTokLicenseContractLookupStatus.NotLoggedIn);
+        result.Message.Should().Contain("登录");
     }
 }

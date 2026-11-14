@@ -26,6 +26,8 @@ public partial class AccountProfileEditor : UserControl
     private bool _persistedRemoteDispatch;
     private bool _suppressUploadedSeriesSearch;
     private int _uploadedSeriesGeneration;
+    private int _contractLookupGeneration;
+    private int _profileReloadSuppressions;
     private IReadOnlyList<AccountUploadedSeriesRow> _uploadedSeriesRows = Array.Empty<AccountUploadedSeriesRow>();
 
     public event EventHandler? LoginRequested;
@@ -89,8 +91,78 @@ public partial class AccountProfileEditor : UserControl
         RemoteDispatchBox.IsChecked = xingeEnabled && _persistedRemoteDispatch;
     }
 
+    private void RequestContractAutofill(TikTokAccountProfile profile)
+    {
+        var generation = ++_contractLookupGeneration;
+        if (!string.IsNullOrWhiteSpace(profile.TiktokContractId))
+            return;
+        _ = FillEmptyContractAsync(profile, generation);
+    }
+
+    private async Task FillEmptyContractAsync(TikTokAccountProfile profile, int generation)
+    {
+        TikTokLicenseContractLookupResult result;
+        try
+        {
+            result = await TikTokLicenseContractLookup.TryReadAsync(
+                profile,
+                message => _vm?.AppendLog(message),
+                CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyContractLookup(profile, generation, result));
+    }
+
+    private void ApplyContractLookup(
+        TikTokAccountProfile profile,
+        int generation,
+        TikTokLicenseContractLookupResult result)
+    {
+        if (generation != _contractLookupGeneration)
+            return;
+        if (_vm?.SelectedAccount?.Id != profile.Id)
+            return;
+        if (!string.IsNullOrWhiteSpace(ContractIdBox.Text) ||
+            !string.IsNullOrWhiteSpace(profile.TiktokContractId))
+            return;
+        if (result.Status != TikTokLicenseContractLookupStatus.Single)
+        {
+            if (result.Status is TikTokLicenseContractLookupStatus.NotLoggedIn
+                or TikTokLicenseContractLookupStatus.AlreadyConfigured)
+                return;
+            if (!string.IsNullOrWhiteSpace(result.Message))
+                _ = InfoDialog.ShowAsync(TopLevel.GetTopLevel(this) as Window, result.Message, "授权合同", 520, 200);
+            return;
+        }
+
+        if (!TikTokLicenseContractLookup.TryApply(profile, result.LicenseId))
+            return;
+        ContractIdBox.Text = profile.TiktokContractId;
+        if (_vm is null)
+            return;
+        _profileReloadSuppressions++;
+        try
+        {
+            _vm.SaveAccountProfile(profile);
+        }
+        finally
+        {
+            _profileReloadSuppressions--;
+        }
+
+        var saved = TikTokLicenseContractLookup.SavedLog(profile.TiktokContractId);
+        _vm.AppendLog(saved);
+        _vm.StatusMessage = saved;
+    }
+
     private void OnAccountProfileChanged(TikTokAccountProfile profile)
     {
+        if (_profileReloadSuppressions > 0)
+            return;
         if (_vm?.SelectedAccount?.Id == profile.Id)
             ReloadFromSelectedAccount();
     }
@@ -142,6 +214,7 @@ public partial class AccountProfileEditor : UserControl
         CdpEndpointBox.Text = profile.TiktokExternalBrowserCdpEndpoint;
 
         ContractIdBox.Text = profile.TiktokContractId;
+        RequestContractAutofill(profile);
         var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
