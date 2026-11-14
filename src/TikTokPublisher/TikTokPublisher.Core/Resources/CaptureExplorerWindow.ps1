@@ -44,6 +44,29 @@ public static class ExplorerCaptureNative {
     [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool GetScrollInfo(IntPtr hWnd, int bar, ref SCROLLINFO scrollInfo);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumChildProc callback, IntPtr parameter);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    private static EnumChildProc _enumWindowsCallback;
+    public static IntPtr[] FindCabinetWindows() {
+        var found = new System.Collections.Generic.List<IntPtr>();
+        _enumWindowsCallback = delegate(IntPtr window, IntPtr parameter) {
+            if (!IsWindowVisible(window)) return true;
+            var className = new System.Text.StringBuilder(128);
+            GetClassName(window, className, className.Capacity);
+            var name = className.ToString();
+            if (name == "CabinetWClass" || name == "ExploreWClass") found.Add(window);
+            return true;
+        };
+        EnumWindows(_enumWindowsCallback, IntPtr.Zero);
+        return found.ToArray();
+    }
+
+    public static void RequestClose(IntPtr window) {
+        if (window == IntPtr.Zero) return;
+        PostMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero);
+    }
 
     public static IntPtr FindNavigationTree(IntPtr parent) {
         IntPtr found = IntPtr.Zero;
@@ -254,30 +277,158 @@ function Convert-ExplorerLocationUrlToPath {
     }
 }
 
+function Open-ExplorerAtPath {
+    param([string]$Arguments)
+
+    # Pass one already-quoted argument string. Start-Process -ArgumentList joins
+    # array items with spaces and lets Explorer split the path on the next comma.
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = Join-Path $env:SystemRoot 'explorer.exe'
+    $startInfo.UseShellExecute = $false
+    $startInfo.Arguments = $Arguments
+    [void][System.Diagnostics.Process]::Start($startInfo)
+}
+
+function Get-FreshExplorerShell {
+    return (New-Object -ComObject Shell.Application)
+}
+
+function Test-WindowPathMatches {
+    param([IntPtr]$WindowHandle, [string]$ExpectedPath)
+
+    # Used only when Shell.Windows() is stale. A full UI Automation walk is slower
+    # than the COM location check, so the caller invokes it a few times, not per poll.
+    try {
+        $root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
+        if ($null -eq $root) { return $false }
+        $elements = $root.FindAll(
+            [System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.Condition]::TrueCondition)
+        foreach ($element in $elements) {
+            try {
+                $patternObject = $null
+                if (-not $element.TryGetCurrentPattern(
+                        [System.Windows.Automation.ValuePattern]::Pattern,
+                        [ref]$patternObject)) {
+                    continue
+                }
+                $value = ([System.Windows.Automation.ValuePattern]$patternObject).Current.Value
+                if ([string]::IsNullOrWhiteSpace($value)) { continue }
+                if ($value -notmatch '^(file:|[A-Za-z]:\\|\\\\)') { continue }
+                $location = Convert-ExplorerLocationUrlToPath $value
+                if ([string]::IsNullOrWhiteSpace($location)) {
+                    try {
+                        $location = [IO.Path]::GetFullPath($value.Trim().Trim('"')).TrimEnd('\')
+                    } catch {
+                        continue
+                    }
+                }
+                if ($location -ieq $ExpectedPath) { return $true }
+            } catch {}
+        }
+    } catch {}
+    return $false
+}
+
+function Close-ExplorerWindowsOpenedByCapture {
+    param($KeepHwnd, $KnownWindows, $KnownCabinets)
+
+    $keep = if ($null -eq $KeepHwnd) { [int64]0 } else { [int64]$KeepHwnd }
+    try {
+        $cleanupShell = Get-FreshExplorerShell
+        foreach ($candidate in @($cleanupShell.Windows())) {
+            try {
+                $candidateHwnd = [int64]$candidate.HWND
+                if ($KnownWindows.ContainsKey($candidateHwnd)) { continue }
+                if ($candidateHwnd -eq $keep) { continue }
+                $candidate.Quit()
+            } catch {}
+        }
+    } catch {}
+
+    foreach ($cabinet in @([ExplorerCaptureNative]::FindCabinetWindows())) {
+        $cabinetHwnd = [int64]$cabinet
+        if ($KnownCabinets.ContainsKey($cabinetHwnd)) { continue }
+        if ($cabinetHwnd -eq $keep) { continue }
+        [ExplorerCaptureNative]::RequestClose([IntPtr]$cabinetHwnd)
+    }
+}
+
 $resolved = [IO.Path]::GetFullPath($TargetPath).TrimEnd('\')
+# Explorer splits its own command line on commas. A title such as
+# "My CEO, My All-consuming Love" must stay inside one quoted argument.
+# The old unquoted "/separate, /e, <path>" form opens Documents instead, and the
+# retries leave those extra Explorer processes behind until a reboot.
+$quotedTarget = $resolved.Replace('"', '')
+# Parentheses are required. The comma operator binds tighter than +, so an
+# ungrouped array here collapses into one string and Explorer opens Documents.
+$separateArguments = ('/separate,/e,"' + $quotedTarget + '"')
+$pathArguments = ('"' + $quotedTarget + '"')
+
 $before = @{}
-$shell = New-Object -ComObject Shell.Application
-foreach ($item in @($shell.Windows())) { $before[[int64]$item.HWND] = $true }
-# /separate prevents an existing minimized Explorer window or tab from being reused.
-# The old window remains a last-resort fallback for Windows builds that ignore it.
-Start-Process explorer.exe -ArgumentList @('/separate,', '/e,', $resolved)
+$shell = Get-FreshExplorerShell
+foreach ($item in @($shell.Windows())) {
+    try { $before[[int64]$item.HWND] = $true } catch {}
+}
+$beforeCabinets = @{}
+foreach ($cabinet in @([ExplorerCaptureNative]::FindCabinetWindows())) {
+    $beforeCabinets[[int64]$cabinet] = $true
+}
+
+Open-ExplorerAtPath $separateArguments
 $window = $null
 $ownsWindow = $false
-$existingWindow = $null
+$usedFallbackLaunch = $false
+$seenLocations = @{}
 for ($attempt = 0; $attempt -lt 60 -and $null -eq $window; $attempt++) {
     Start-Sleep -Milliseconds 200
+    if (($attempt % 5) -eq 4) {
+        $shell = Get-FreshExplorerShell
+    }
+
+    $existingWindow = $null
     foreach ($candidate in @($shell.Windows())) {
         try {
-            $location = Convert-ExplorerLocationUrlToPath ([string]$candidate.LocationURL)
-            if ($location -ieq $resolved) {
-                if (-not $before.ContainsKey([int64]$candidate.HWND)) {
-                    $window = $candidate
-                    $ownsWindow = $true
-                    break
-                }
-                if ($null -eq $existingWindow) { $existingWindow = $candidate }
+            $candidateHwnd = [int64]$candidate.HWND
+            $rawLocation = [string]$candidate.LocationURL
+            $location = Convert-ExplorerLocationUrlToPath $rawLocation
+            $isNewWindow = -not $before.ContainsKey($candidateHwnd)
+            if ($isNewWindow -and -not [string]::IsNullOrWhiteSpace($rawLocation)) {
+                $seenLocations[$rawLocation] = $true
             }
+            if ($location -ine $resolved) { continue }
+            if ($isNewWindow) {
+                $window = $candidate
+                $ownsWindow = $true
+                break
+            }
+            if ($null -eq $existingWindow) { $existingWindow = $candidate }
         } catch {}
+    }
+
+    # Shell.Windows() can stop listing new Explorer windows until Explorer itself
+    # is restarted. The folder window is still on screen; read its address directly.
+    if ($null -eq $window -and ($attempt -eq 15 -or $attempt -eq 35 -or $attempt -eq 55)) {
+        foreach ($cabinet in @([ExplorerCaptureNative]::FindCabinetWindows())) {
+            $cabinetHwnd = [int64]$cabinet
+            if ($beforeCabinets.ContainsKey($cabinetHwnd)) { continue }
+            if (-not (Test-WindowPathMatches -WindowHandle ([IntPtr]$cabinetHwnd) -ExpectedPath $resolved)) {
+                continue
+            }
+            $matchedCom = $null
+            foreach ($candidate in @($shell.Windows())) {
+                try {
+                    if ([int64]$candidate.HWND -eq $cabinetHwnd) { $matchedCom = $candidate; break }
+                } catch {}
+            }
+            if ($null -ne $matchedCom) {
+                $window = $matchedCom
+            } else {
+                $window = [pscustomobject]@{ HWND = $cabinetHwnd }
+            }
+            $ownsWindow = $true
+            break
+        }
     }
 
     # Some Windows 11 configurations always reuse a tab. Give the dedicated-window
@@ -286,8 +437,29 @@ for ($attempt = 0; $attempt -lt 60 -and $null -eq $window; $attempt++) {
         $window = $existingWindow
         $ownsWindow = $false
     }
+
+    # /separate is ignored on some builds and never creates a window. Open the
+    # folder once more, but only when the first launch produced no new window.
+    if ($null -eq $window -and -not $usedFallbackLaunch -and $attempt -ge 30) {
+        $newCabinetCount = 0
+        foreach ($cabinet in @([ExplorerCaptureNative]::FindCabinetWindows())) {
+            if (-not $beforeCabinets.ContainsKey([int64]$cabinet)) { $newCabinetCount++ }
+        }
+        if ($newCabinetCount -eq 0) {
+            $usedFallbackLaunch = $true
+            Open-ExplorerAtPath $pathArguments
+        }
+    }
 }
-if ($null -eq $window) { throw "Explorer window not found: $resolved" }
+if ($null -eq $window) {
+    Close-ExplorerWindowsOpenedByCapture -KeepHwnd $null -KnownWindows $before -KnownCabinets $beforeCabinets
+    $detail = if ($seenLocations.Count -eq 0) {
+        'no new Explorer window registered'
+    } else {
+        ($seenLocations.Keys -join '; ')
+    }
+    throw "Explorer window not found: $resolved ($detail)"
+}
 
 try {
     $hwnd = [IntPtr][int64]$window.HWND
@@ -388,7 +560,9 @@ try {
 } finally {
     # Windows 11 may open the target in an existing Explorer window/tab. Do not
     # close a window that belonged to the user before this capture started.
-    if ($ownsWindow) {
-        try { $window.Quit() } catch {}
-    }
+    # Do close every other window this run opened, including a wrong folder
+    # such as Documents, so failed retries cannot pile up Explorer processes.
+    $keep = $null
+    if (-not $ownsWindow -and $null -ne $window) { $keep = [int64]$window.HWND }
+    Close-ExplorerWindowsOpenedByCapture -KeepHwnd $keep -KnownWindows $before -KnownCabinets $beforeCabinets
 }
