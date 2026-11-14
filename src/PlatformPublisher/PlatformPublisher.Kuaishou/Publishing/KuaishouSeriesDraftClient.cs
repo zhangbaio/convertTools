@@ -25,6 +25,27 @@ public sealed class KuaishouSeriesDraftClient
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        if (!page.Url.Contains("kdj.kuaishou.com", StringComparison.OrdinalIgnoreCase))
+        {
+            await page.GotoAsync(Origin + "/home/content/content-management", new PageGotoOptions
+            {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = 60_000,
+            });
+        }
+
+        return await SaveAsync(new KuaishouPageGateway(page), data, config, form, existingMiniSeriesId, progress, cancellationToken);
+    }
+
+    public async Task<string> SaveAsync(
+        IKuaishouKdjGateway gateway,
+        KuaishouPersonalProjectData data,
+        KuaishouPersonalConfig config,
+        KuaishouPersonalFormResolver.Resolved form,
+        string? existingMiniSeriesId,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
         var label = config.StoragePlatform.DisplayName();
         var description = data.Intro.Trim();
         if (description.Length < KuaishouSeriesDraft.DescriptionMinLength || description.Length > KuaishouSeriesDraft.DescriptionMaxLength)
@@ -38,19 +59,10 @@ public sealed class KuaishouSeriesDraftClient
             throw new InvalidOperationException($"短剧工程图需要 4 张 PNG，当前 {data.ProjectImagePaths.Count} 张。");
         foreach (var path in data.ProjectImagePaths)
             RequireFile(path, "工程图");
-        if (!page.Url.Contains("kdj.kuaishou.com", StringComparison.OrdinalIgnoreCase))
-        {
-            await page.GotoAsync(Origin + "/home/content/content-management", new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = 60_000,
-            });
-        }
-
         cancellationToken.ThrowIfCancellationRequested();
         var enterprise = config.StoragePlatform == PublishPlatform.KuaishouEnterpriseRevenue;
         progress?.Report($"{label}：正在通过接口读取分类并上传封面、工程图和承诺函。");
-        var catalog = KuaishouSeriesCatalog.Parse(await PostAsync(page, TagListUrl, "{}", cancellationToken));
+        var catalog = KuaishouSeriesCatalog.Parse(await gateway.PostJsonAsync(TagListUrl, "{}", cancellationToken));
         var tags = ReadLabels(data.WorkflowDirectory, "tag_label_list", enterprise);
         if (tags.Count == 0) throw new InvalidOperationException("项目没有可用的短剧分类。");
         var tagIds = tags.Take(3).Select(catalog.RequireTag).ToArray();
@@ -60,20 +72,20 @@ public sealed class KuaishouSeriesDraftClient
         if (audience is null && (enterprise || plotIds.Length > 0))
             throw new InvalidOperationException("请选择男女频道。");
 
-        var coverKey = await UploadFileAsync(page, data.HorizontalCoverPath, "短剧封面", ImageByteLimit, cancellationToken);
-        var episodeCoverKey = await UploadFileAsync(page, data.VerticalCoverPath, "单集封面", ImageByteLimit, cancellationToken);
+        var coverKey = await UploadFileAsync(gateway, data.HorizontalCoverPath, "短剧封面", ImageByteLimit, cancellationToken);
+        var episodeCoverKey = await UploadFileAsync(gateway, data.VerticalCoverPath, "单集封面", ImageByteLimit, cancellationToken);
         var projectKeys = new List<string>();
         foreach (var path in data.ProjectImagePaths)
-            projectKeys.Add(await UploadFileAsync(page, path, "工程图", ImageByteLimit, cancellationToken));
-        var commitmentKey = await UploadFileAsync(page, data.CommitmentPdfPath, "承诺函", PdfByteLimit, cancellationToken);
+            projectKeys.Add(await UploadFileAsync(gateway, path, "工程图", ImageByteLimit, cancellationToken));
+        var commitmentKey = await UploadFileAsync(gateway, data.CommitmentPdfPath, "承诺函", PdfByteLimit, cancellationToken);
 
-        var seriesId = await ResolveSeriesIdAsync(page, data.Title, existingMiniSeriesId, cancellationToken);
+        var seriesId = await ResolveSeriesIdAsync(gateway, data.Title, existingMiniSeriesId, cancellationToken);
         var creating = string.IsNullOrWhiteSpace(seriesId);
         IReadOnlyList<string> episodeIds = [];
         if (!creating)
         {
             progress?.Report($"{label}：内容管理已有《{data.Title}》，改为更新短剧 {seriesId}。");
-            var detail = await PostAsync(page, EpisodeDetailUrl, "{\"miniSeriesId\":" + seriesId + "}", cancellationToken);
+            var detail = await gateway.PostJsonAsync(EpisodeDetailUrl, "{\"miniSeriesId\":" + seriesId + "}", cancellationToken);
             episodeIds = KuaishouSeriesDraft.ReadEpisodeIds(JsonDocument.Parse(detail).RootElement);
             if (episodeIds.Count == 0)
                 throw new InvalidOperationException($"短剧 {seriesId} 没有单集，已停止更新。");
@@ -164,38 +176,38 @@ public sealed class KuaishouSeriesDraftClient
         {
             try
             {
-                var response = await PostAsync(page, CreateUrl, body, cancellationToken);
+                var response = await gateway.PostJsonAsync(CreateUrl, body, cancellationToken);
                 var created = KuaishouSeriesDraft.ReadCreatedId(JsonDocument.Parse(response).RootElement);
                 if (created.Length > 0) return created;
             }
             catch (Exception ex) when (ex is not OperationCanceledException && ex is not KuaishouDailyUploadLimitException && ex is not InvalidOperationException)
             {
-                var recovered = await FindSingleSeriesIdAsync(page, data.Title, cancellationToken);
+                var recovered = await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
                 if (recovered.Length > 0) return recovered;
                 throw new InvalidOperationException("快手创建结果无法确认，已停止再次创建。请先在内容管理核对是否已有同名短剧。", ex);
             }
 
-            var existing = await FindSingleSeriesIdAsync(page, data.Title, cancellationToken);
+            var existing = await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
             if (existing.Length > 0) return existing;
             throw new InvalidOperationException("快手创建结果无法确认，已停止再次创建。请先在内容管理核对是否已有同名短剧。");
         }
 
-        await PostAsync(page, UpdateUrl, body, cancellationToken);
+        await gateway.PostJsonAsync(UpdateUrl, body, cancellationToken);
         return seriesId;
     }
 
     private static async Task<string> ResolveSeriesIdAsync(
-        IPage page,
+        IKuaishouKdjGateway gateway,
         string title,
         string? existingMiniSeriesId,
         CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(existingMiniSeriesId))
             return existingMiniSeriesId.Trim();
-        return await FindSingleSeriesIdAsync(page, title, cancellationToken);
+        return await FindSingleSeriesIdAsync(gateway, title, cancellationToken);
     }
 
-    private static async Task<string> FindSingleSeriesIdAsync(IPage page, string title, CancellationToken cancellationToken)
+    private static async Task<string> FindSingleSeriesIdAsync(IKuaishouKdjGateway gateway, string title, CancellationToken cancellationToken)
     {
         var body = JsonSerializer.Serialize(new
         {
@@ -213,7 +225,7 @@ public sealed class KuaishouSeriesDraftClient
             createDateTo = "",
             sourceType4Filter = (int?)null,
         });
-        var response = await PostAsync(page, QueryListUrl, body, cancellationToken);
+        var response = await gateway.PostJsonAsync(QueryListUrl, body, cancellationToken);
         var matches = KuaishouSeriesDraft.ReadMatchingSeries(JsonDocument.Parse(response).RootElement, title);
         if (matches.Count > 1)
             throw new InvalidOperationException($"内容管理里有 {matches.Count} 部同名短剧《{title}》，已停止创建。");
@@ -223,65 +235,20 @@ public sealed class KuaishouSeriesDraftClient
         return matches[0].Id;
     }
 
-    private async Task<string> UploadFileAsync(
-        IPage page,
+    private static async Task<string> UploadFileAsync(
+        IKuaishouKdjGateway gateway,
         string path,
         string label,
         int byteLimit,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            throw new FileNotFoundException($"缺少{label}。", path);
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        if (bytes.Length > byteLimit)
-            throw new InvalidOperationException($"{label}超过 {byteLimit / 1024 / 1024} MB。");
-        var payload = JsonSerializer.Serialize(new
-        {
-            name = Path.GetFileName(path),
-            type = Mime(path),
-            base64 = Convert.ToBase64String(bytes),
-        });
-        var raw = await page.EvaluateAsync<string>(
-            """
-            async ({ url, payload }) => {
-              const file = JSON.parse(payload);
-              const binary = atob(file.base64);
-              const bytes = new Uint8Array(binary.length);
-              for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-              const form = new FormData();
-              form.append('file', new Blob([bytes], { type: file.type }), file.name);
-              const response = await fetch(url, { method: 'POST', credentials: 'include', body: form });
-              const text = await response.text();
-              return JSON.stringify({ status: response.status, text: text.slice(0, 4000) });
-            }
-            """,
-            new { url = UploadImgUrl, payload });
-        var response = Unwrap(raw, label);
+        var response = await gateway.UploadFileAsync(UploadImgUrl, path, label, byteLimit, cancellationToken);
         var key = KuaishouSeriesDraft.ReadImageKey(JsonDocument.Parse(response).RootElement);
         if (key.Length == 0) throw new InvalidOperationException($"{label}上传没有返回 imgKey。");
         return key;
     }
 
-    private static async Task<string> PostAsync(IPage page, string url, string body, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        var raw = await page.EvaluateAsync<string>(
-            """
-            async ({ url, body }) => {
-              const response = await fetch(url, {
-                method: 'POST', credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body,
-              });
-              const text = await response.text();
-              return JSON.stringify({ status: response.status, text: text.slice(0, 200000) });
-            }
-            """,
-            new { url, body });
-        return Unwrap(raw, "快手接口");
-    }
-
-    private static string Unwrap(string? raw, string label)
+    internal static string Unwrap(string? raw, string label)
     {
         if (string.IsNullOrWhiteSpace(raw))
             throw new InvalidOperationException($"{label}没有返回内容。");
@@ -304,15 +271,6 @@ public sealed class KuaishouSeriesDraftClient
         KuaishouSeriesDraft.EnsureSuccess(body.RootElement);
         return text;
     }
-
-    private static string Mime(string path) => Path.GetExtension(path).ToLowerInvariant() switch
-    {
-        ".png" => "image/png",
-        ".webp" => "image/webp",
-        ".gif" => "image/gif",
-        ".pdf" => "application/pdf",
-        _ => "image/jpeg",
-    };
 
     private static int? ReadAudienceGender(string workflowDirectory, bool enterprise)
     {

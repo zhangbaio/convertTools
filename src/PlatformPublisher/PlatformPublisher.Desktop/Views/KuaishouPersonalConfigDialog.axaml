@@ -375,21 +375,23 @@
                         <Border BorderBrush="#AEBFD2" BorderThickness="1" CornerRadius="8" Background="#F7FBFF" Padding="12">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="上传与提交" FontWeight="SemiBold" />
-                                <TextBlock Text="上传浏览器模式、全场景展示、登录等待、出错保留浏览器、第一页和最终提交动作。"
+                                <TextBlock Text="上传方式可一键切换。页面上传打开浏览器；接口上传使用已保存的登录 Cookie，不打开浏览器。浏览器模式只在页面上传时生效。"
                                            TextWrapping="Wrap" Foreground="#536171" />
-                                <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                                    <TextBlock Text="登录超时(秒)" VerticalAlignment="Center" />
-                                    <TextBox x:Name="LoginTimeoutBox" Grid.Column="1" Watermark="登录等待秒数，默认 300" />
-                                    <TextBlock Grid.Row="1" Text="上传浏览器模式" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="RevenueShareBrowserModeBox" Grid.Row="1" Grid.Column="1" />
-                                    <TextBlock Grid.Row="2" Text="全场景展示" VerticalAlignment="Center" />
-                                    <CheckBox x:Name="RevenueShareFullSceneBox" Grid.Row="2" Grid.Column="1" Content="是" />
-                                    <TextBlock Grid.Row="3" Text="出错时手工介入" VerticalAlignment="Center" />
-                                    <CheckBox x:Name="KeepBrowserBox" Grid.Row="3" Grid.Column="1" Content="启用" />
-                                    <TextBlock Grid.Row="4" Text="第一页提交动作" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="FirstPageActionBox" Grid.Row="4" Grid.Column="1" />
-                                    <TextBlock Grid.Row="5" Text="最终提交动作" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="FinalActionBox" Grid.Row="5" Grid.Column="1" />
+                                <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                                    <TextBlock Text="上传方式" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="UploadTransportBox" Grid.Column="1" />
+                                    <TextBlock Grid.Row="1" Text="登录超时(秒)" VerticalAlignment="Center" />
+                                    <TextBox x:Name="LoginTimeoutBox" Grid.Row="1" Grid.Column="1" Watermark="登录等待秒数，默认 300" />
+                                    <TextBlock Grid.Row="2" Text="上传浏览器模式" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="RevenueShareBrowserModeBox" Grid.Row="2" Grid.Column="1" />
+                                    <TextBlock Grid.Row="3" Text="全场景展示" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="RevenueShareFullSceneBox" Grid.Row="3" Grid.Column="1" Content="是" />
+                                    <TextBlock Grid.Row="4" Text="出错时手工介入" VerticalAlignment="Center" />
+                                    <CheckBox x:Name="KeepBrowserBox" Grid.Row="4" Grid.Column="1" Content="启用" />
+                                    <TextBlock Grid.Row="5" Text="第一页提交动作" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="FirstPageActionBox" Grid.Row="5" Grid.Column="1" />
+                                    <TextBlock Grid.Row="6" Text="最终提交动作" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="FinalActionBox" Grid.Row="6" Grid.Column="1" />
                                 </Grid>
                             </StackPanel>
                         </Border>

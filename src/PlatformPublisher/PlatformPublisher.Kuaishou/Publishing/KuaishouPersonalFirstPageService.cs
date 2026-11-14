@@ -495,7 +495,7 @@ public sealed class KuaishouPersonalFirstPageService
         }
     }
 
-    private static async Task<(int Width, int Height)> ProbeVideoSizeAsync(string? path)
+    internal static async Task<(int Width, int Height)> ProbeVideoSizeAsync(string? path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return (0, 0);
         try

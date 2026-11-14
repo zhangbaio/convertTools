@@ -96,6 +96,7 @@ public sealed class KuaishouPersonalConfig
     public bool FullSceneDisplay { get; set; }
     public bool RevenueShareFullSceneDisplay { get; set; } = true;
     public bool RevenueShareHeadless { get; set; }
+    public string UploadTransport { get; set; } = "playwright";
     public string BroadcastTimeMode { get; set; } = "today";
     public string SpecialTheme { get; set; } = string.Empty;
     public bool SmallAmountUnlock { get; set; }

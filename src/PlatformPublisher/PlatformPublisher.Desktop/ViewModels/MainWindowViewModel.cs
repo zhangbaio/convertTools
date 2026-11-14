@@ -2865,7 +2865,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         IDisposable? machineUploadLease = null;
         var announcedUploadWait = false;
-        if (!uploadAlreadyDone)
+        var browserUpload = !uploadAlreadyDone
+            && !KuaishouUploadTransport.IsApi(KuaishouPersonalConfig.Load(trackedJob).UploadTransport);
+        if (browserUpload)
         {
             async Task AnnounceUploadWaitAsync(string message)
             {

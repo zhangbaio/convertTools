@@ -41,6 +41,14 @@ public sealed class KuaishouPersonalUploadService
         CancellationToken cancellationToken)
     {
         var config = KuaishouPersonalConfig.Load(job);
+        if (KuaishouUploadTransport.IsApi(config.UploadTransport))
+        {
+            await new KuaishouApiUploadService(
+                    _projectDataService, _stateStore, _commitmentService, _distributionService, _onlineQueueStore)
+                .RunAsync(job, progress, cancellationToken);
+            return;
+        }
+
         var configurationIssues = KuaishouConfigurationValidator.Validate(config);
         if (configurationIssues.Count > 0)
             throw new InvalidOperationException("快手配置校验失败：" + string.Join("；", configurationIssues));
