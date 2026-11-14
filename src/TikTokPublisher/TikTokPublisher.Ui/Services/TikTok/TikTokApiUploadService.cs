@@ -23,6 +23,8 @@ public static partial class TikTokApiUploadService
     internal const string ImageServiceId = "xbj99bix8q";
     internal const int PartSize = 3 * 1024 * 1024;
     internal const int PartsInFlightPerFile = 3;
+    /// <summary>对象存储分片的尝试次数：第一次加上 6 次重试。网关 504 不跟账号里的 3 次重试绑在一起。</summary>
+    internal const int TosPartAttempts = 7;
     private const int MaxPartsInFlight = 12;
     private const string ApiVersion = "2020-11-19";
     private const string ImageApiVersion = "2018-08-01";
@@ -437,11 +439,7 @@ public static partial class TikTokApiUploadService
                         var item = missing[index];
                         try
                         {
-                            var committed = await UploadWithRetryAsync(
-                                http, sts, gates, CurrentPageUrl(page), item, options, missing.Count,
-                                () => Interlocked.Increment(ref uploaded),
-                                bytes => Interlocked.Add(ref uploadedBytes, bytes),
-                                log, uploadCts.Token);
+                            var committed = await UploadEpisodeOnceAsync();
                             uploadedVideos[index] = committed;
                             ready.Writer.TryWrite(index);
                         }
@@ -450,12 +448,40 @@ public static partial class TikTokApiUploadService
                         {
                             return;
                         }
+                        catch (Exception ex) when (ShouldRetryEpisode(ex) && !uploadCts.IsCancellationRequested)
+                        {
+                            log?.Invoke($"接口直传：第 {item.Episode} 集上传失败，重新申请上传地址后再传一次。");
+                            try
+                            {
+                                var committed = await UploadEpisodeOnceAsync();
+                                uploadedVideos[index] = committed;
+                                ready.Writer.TryWrite(index);
+                            }
+                            catch (Exception retryEx) when (retryEx is OperationCanceledException &&
+                                                             (ct.IsCancellationRequested || uploadCts.IsCancellationRequested))
+                            {
+                                return;
+                            }
+                            catch (Exception retryEx)
+                            {
+                                log?.Invoke($"接口直传：第 {item.Episode} 集上传失败：{retryEx.Message}");
+                                lock (failureLock)
+                                    failures.Add($"第 {item.Episode} 集（{retryEx.Message}）");
+                            }
+                        }
                         catch (Exception ex)
                         {
                             log?.Invoke($"接口直传：第 {item.Episode} 集上传失败：{ex.Message}");
                             lock (failureLock)
                                 failures.Add($"第 {item.Episode} 集（{ex.Message}）");
                         }
+
+                        Task<CommittedVideo> UploadEpisodeOnceAsync() =>
+                            UploadWithRetryAsync(
+                                http, sts, gates, CurrentPageUrl(page), item, options, missing.Count,
+                                () => Interlocked.Increment(ref uploaded),
+                                bytes => Interlocked.Add(ref uploadedBytes, bytes),
+                                log, uploadCts.Token);
 
                         MarkUploadSettled();
                     }
@@ -984,12 +1010,37 @@ public static partial class TikTokApiUploadService
     private static bool ShouldRetry(Exception ex, CancellationToken ct) =>
         !ct.IsCancellationRequested && (IsTransientFailure(ex) || ex is TaskCanceledException);
 
+    private static bool ShouldRetryEpisode(Exception ex) =>
+        IsTransientFailure(ex) || ex is TaskCanceledException or TimeoutException;
+
+    /// <summary>分片重试间隔：3 秒、6 秒、12 秒、24 秒，最长 30 秒。</summary>
+    internal static TimeSpan TosPartRetryDelay(int attempt)
+    {
+        var seconds = 3d * Math.Pow(2, Math.Max(0, attempt - 1));
+        return TimeSpan.FromSeconds(Math.Min(30, seconds));
+    }
+
+    internal static string DescribeHttpFailure(string source, int statusCode, string? body)
+    {
+        if (statusCode == 504)
+            return $"{source} HTTP 504 Gateway Time-out";
+        var text = body ?? "";
+        if (text.Contains("<html", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("<!DOCTYPE", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{source} HTTP {statusCode}";
+        }
+
+        return $"{source} 返回无法解析（HTTP {statusCode}）：{Truncate(text)}";
+    }
+
     private static async Task<T> ExecuteWithRetryAsync<T>(
         int retries,
         string step,
         Action<string>? log,
         Func<CancellationToken, Task<T>> action,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<int, TimeSpan>? delayForAttempt = null)
     {
         var attempts = Math.Clamp(retries, 1, 10);
         for (var attempt = 1; ; attempt++)
@@ -1000,7 +1051,7 @@ public static partial class TikTokApiUploadService
             }
             catch (Exception ex) when (ShouldRetry(ex, ct) && attempt < attempts)
             {
-                var delay = TimeSpan.FromSeconds(attempt * 3);
+                var delay = delayForAttempt?.Invoke(attempt) ?? TimeSpan.FromSeconds(attempt * 3);
                 log?.Invoke($"接口直传：{step}暂时失败（{ex.Message}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
                 await Task.Delay(delay, ct);
             }
@@ -1459,7 +1510,7 @@ public static partial class TikTokApiUploadService
                     {
                         var crc = TikTokCrc32.Hex(buffer.AsSpan(0, length));
                         await ExecuteWithRetryAsync(
-                            retries,
+                            TosPartAttempts,
                             $"{label}分片 {partIndex + 1}",
                             log,
                             async token =>
@@ -1475,7 +1526,8 @@ public static partial class TikTokApiUploadService
                                 using (await SendTosAsync(http, part, token)) { }
                                 return 0;
                             },
-                            partsCts.Token);
+                            partsCts.Token,
+                            TosPartRetryDelay);
                         crcs[partIndex] = crc;
                     }
                     catch
@@ -1603,7 +1655,7 @@ public static partial class TikTokApiUploadService
         catch (JsonException)
         {
             var statusCode = (int)response.StatusCode;
-            var message = $"{action} 返回无法解析（HTTP {statusCode}）：{Truncate(text)}";
+            var message = DescribeHttpFailure(action, statusCode, text);
             if (IsTransientHttpStatus(statusCode))
                 throw new TransientUploadException(message);
             throw new InvalidOperationException(message);
@@ -1646,7 +1698,7 @@ public static partial class TikTokApiUploadService
         catch (JsonException)
         {
             var statusCode = (int)response.StatusCode;
-            var message = $"TOS 返回无法解析（HTTP {statusCode}）：{Truncate(text)}";
+            var message = DescribeHttpFailure("TOS", statusCode, text);
             if (IsTransientHttpStatus(statusCode))
                 throw new TransientUploadException(message);
             throw new InvalidOperationException(message);

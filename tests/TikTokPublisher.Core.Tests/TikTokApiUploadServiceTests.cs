@@ -526,4 +526,26 @@ public sealed class TikTokApiUploadServiceTests
         TikTokApiUploadService.FindDraftSeries(json, "重生赶海的温柔守护").SelectIds()
             .Should().Equal("7707915752204129212");
     }
+
+    [Fact]
+    public void Tos_part_retry_waits_longer_and_stops_at_thirty_seconds()
+    {
+        TikTokApiUploadService.TosPartAttempts.Should().Be(7);
+        TikTokApiUploadService.TosPartRetryDelay(1).TotalSeconds.Should().Be(3);
+        TikTokApiUploadService.TosPartRetryDelay(2).TotalSeconds.Should().Be(6);
+        TikTokApiUploadService.TosPartRetryDelay(3).TotalSeconds.Should().Be(12);
+        TikTokApiUploadService.TosPartRetryDelay(4).TotalSeconds.Should().Be(24);
+        TikTokApiUploadService.TosPartRetryDelay(5).TotalSeconds.Should().Be(30);
+        TikTokApiUploadService.TosPartRetryDelay(6).TotalSeconds.Should().Be(30);
+    }
+
+    [Fact]
+    public void Gateway_timeout_log_omits_the_html_error_page()
+    {
+        var html = "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><html><head><title>504 Gateway Time-out</title></head><body></body></html>";
+        TikTokApiUploadService.DescribeHttpFailure("TOS", 504, html)
+            .Should().Be("TOS HTTP 504 Gateway Time-out");
+        TikTokApiUploadService.DescribeHttpFailure("TOS", 502, html)
+            .Should().Be("TOS HTTP 502");
+    }
 }
