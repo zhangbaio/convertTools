@@ -294,7 +294,7 @@ public static partial class TikTokApiUploadService
             var key = TikTokBrowserActions.CopyrightMaterialTypeByApiValue.GetValueOrDefault(group.Key, "");
             var label = key.Length == 0
                 ? group.Key.ToString()
-                : TikTokPublishConstants.CopyrightMaterialLabels.GetValueOrDefault(key, key);
+                : TikTokPublishConstants.CopyrightMaterialFormTitle(key);
             Field(label, string.Join("、", group.Select(file => file.FileName)));
         }
     }
@@ -635,17 +635,18 @@ public static partial class TikTokApiUploadService
             if (apiType == 0)
                 throw new InvalidOperationException($"接口上传：不认识的版权材料类型「{materialType}」，已停止。");
 
+            var formTitle = TikTokPublishConstants.CopyrightMaterialFormTitle(materialType);
             var paths = options.ResolveCopyrightMaterialFilePaths(materialType);
             if (paths.Count == 0)
             {
-                log?.Invoke($"接口上传：{TikTokPublishConstants.CopyrightMaterialLabels.GetValueOrDefault(materialType, materialType)} 没有本地文件，跳过。");
+                log?.Invoke($"接口上传：表单「{formTitle}」没有本地文件，跳过。");
                 continue;
             }
 
             foreach (var path in paths)
             {
                 var name = Path.GetFileName(path);
-                log?.Invoke($"接口上传：上传版权材料 {name}。");
+                log?.Invoke($"接口上传：表单「{formTitle}」上传 {name}。");
                 var uri = await UploadImageAsync(page, path, options, name, log, ct);
                 files.Add(new TikTokApiCopyrightFile(apiType, uri, name));
             }

@@ -1305,6 +1305,12 @@ public sealed class TikTokPublishDefaultsTests
             .Should().Equal(
                 "网络剧片备案、发行许可、监管审批文件、可信时间戳认证证书",
                 "网络剧片备案、发行许可、监管审批文件");
+        TikTokPublishConstants.CopyrightMaterialFormTitle(
+                TikTokPublishConstants.ProductionAgreementMaterialType)
+            .Should().Be("合作协议");
+        TikTokPublishConstants.CopyrightMaterialFormTitle(
+                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType)
+            .Should().Be("网络剧片备案、发行许可、监管审批文件");
     }
 
     [Fact]

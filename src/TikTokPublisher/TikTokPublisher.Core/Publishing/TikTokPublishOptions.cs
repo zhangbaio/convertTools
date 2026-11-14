@@ -24,6 +24,26 @@ public static class TikTokPublishConstants
         [SourceFileInformationMaterialType] = "原始文件或素材文件信息",
     };
 
+    /// <summary>账号「上传材料」里的表单标题，运行日志按这个名称对应每个文件。</summary>
+    public static readonly IReadOnlyDictionary<string, string> CopyrightMaterialFormTitles = new Dictionary<string, string>
+    {
+        ["production_agreement"] = "合作协议",
+        ["work_registration_certificate"] = "作品登记证书",
+        [FilingOrDistributionLicenseMaterialType] = "网络剧片备案、发行许可、监管审批文件",
+        ["opening_ending_rights_notice"] = "片头片尾及权利标识",
+        [AiGenerationScreenshotsMaterialType] = "AI 生成过程截图",
+        [EditingProjectFilesMaterialType] = "剪辑工程文件",
+        [SourceFileInformationMaterialType] = "原始文件或素材文件信息",
+    };
+
+    public static string CopyrightMaterialFormTitle(string? materialType)
+    {
+        if (!string.IsNullOrWhiteSpace(materialType) &&
+            CopyrightMaterialFormTitles.TryGetValue(materialType, out var title))
+            return title;
+        return CopyrightMaterialLabels.GetValueOrDefault(materialType ?? "", materialType ?? "");
+    }
+
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> CopyrightMaterialLabelAliases =
         new Dictionary<string, IReadOnlyList<string>>
         {
