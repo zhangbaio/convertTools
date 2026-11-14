@@ -39,13 +39,14 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     [ObservableProperty] private string _saveMessage = "";
     [ObservableProperty] private string _loginSettingsHint =
-        "短剧搜索、下载和数据链路参数为全局共享配置；TikTok 登录信息请到账号管理的登录设置中维护。";
+        "本土剧和海外剧数据链路是全局配置，账号按剧集类型选用；TikTok 登录信息请到账号管理的登录设置中维护。";
     [ObservableProperty] private string _hgnewProbeStatus = "";
     [ObservableProperty] private string _databaseStatsText = "";
     [ObservableProperty] private string _mainDatabasePath = ClientSettingsStore.MainDatabasePath;
     [ObservableProperty] private string _workspaceDatabasePath = "";
 
     [ObservableProperty] private string _dramaSourceChain = VisibleDramaSource.DefaultChain;
+    [ObservableProperty] private string _overseasDramaSourceChain = VisibleDramaSource.DefaultOverseasChain;
     [ObservableProperty] private string _dramaDownloadDefaultQuality = "1080P";
     [ObservableProperty] private int _dramaDownloadConcurrent = 5;
     [ObservableProperty] private int _dramaDownloadMaxParallelProjects = 1;
@@ -397,6 +398,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private ClientSettings ApplySystemSettingsForm(ClientSettings settings)
     {
         settings.DramaSourceChain = DramaSourceChain;
+        settings.OverseasDramaSourceChain = OverseasDramaSourceChain;
         settings.DramaDownloadDefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(DramaDownloadDefaultQuality);
         settings.DramaDownloadConcurrent = DramaDownloadConcurrent;
         settings.DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects;
@@ -1387,6 +1389,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     private void ApplyFromSettings(ClientSettings settings)
     {
         DramaSourceChain = settings.DramaSourceChain;
+        OverseasDramaSourceChain = settings.OverseasDramaSourceChain;
         DramaDownloadDefaultQuality = ClientSettingsStore.NormalizeDramaDownloadQuality(settings.DramaDownloadDefaultQuality);
         DramaDownloadConcurrent = settings.DramaDownloadConcurrent;
         DramaDownloadMaxParallelProjects = settings.DramaDownloadMaxParallelProjects;

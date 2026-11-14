@@ -749,9 +749,9 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var captured = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(CaptureXingeRegistration);
         ct.ThrowIfCancellationRequested();
-        var dramaSource = ClientSettingsStore.Load().DramaSourceChain ?? "";
+        var settings = ClientSettingsStore.Load();
         var uploaded = await Task.Run(() => ScanUploadedToday(captured.Accounts), ct).ConfigureAwait(false);
-        return ComposeXingeRegistrationSnapshot(captured, dramaSource, uploaded);
+        return ComposeXingeRegistrationSnapshot(captured, settings, uploaded);
     }
 
     private readonly record struct XingeRegistrationCapture(
@@ -896,7 +896,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private static XingeRemoteRegistrationSnapshot ComposeXingeRegistrationSnapshot(
         XingeRegistrationCapture captured,
-        string dramaSource,
+        ClientSettings settings,
         IReadOnlyDictionary<string, IReadOnlyList<TikTokUploadedDrama>?>? uploadedToday)
     {
         var accounts = captured.Accounts
@@ -910,6 +910,7 @@ public sealed partial class MainViewModel : ViewModelBase
                         .ToArray();
                 }
 
+                var market = TikTokAccountProfile.NormalizeDramaMarket(account.DramaMarket);
                 return new XingeRemoteAccountSnapshot(
                     account.Id,
                     account.Name,
@@ -917,14 +918,15 @@ public sealed partial class MainViewModel : ViewModelBase
                     account.IsCurrent,
                     account.RemoteDispatchEnabled,
                     uploaded,
-                    DramaMarket: TikTokAccountProfile.NormalizeDramaMarket(account.DramaMarket));
+                    DramaMarket: market,
+                    DramaSource: VisibleDramaSource.ChainFor(settings, market));
             })
             .ToArray();
 
         return new XingeRemoteRegistrationSnapshot(
             captured.WorkspacePath,
             captured.ActiveAccountId,
-            dramaSource,
+            VisibleDramaSource.ChainFor(settings, TikTokAccountProfile.DramaMarketLocal),
             accounts);
     }
 
@@ -1058,6 +1060,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedAccountChanged(AccountItemViewModel? value)
     {
+        DramaDownload.UseAccountMarket(value?.Model.TiktokDramaMarket);
         UpdateDramaDownloadQueueTarget();
         if (value is null)
         {
@@ -3751,6 +3754,10 @@ public sealed partial class MainViewModel : ViewModelBase
         else
         {
             var (rawText, matchMode) = BuildRemoteUploadImportInput(command, titles);
+            var importMarket = string.Equals(command.DownloadSource, "dramabox", StringComparison.OrdinalIgnoreCase)
+                ? TikTokAccountProfile.DramaMarketOverseas
+                : account?.TiktokDramaMarket;
+            var importChain = VisibleDramaSource.ChainFor(ClientSettingsStore.Load(), importMarket);
             var importOutcome = await ImportRemoteUploadTitlesAsync(
                 root,
                 account,
@@ -3764,7 +3771,8 @@ public sealed partial class MainViewModel : ViewModelBase
                 autoPublish: autoPublish,
                 keepExistingSelection: true,
                 downloadSource: command.DownloadSource,
-                forcedSeriesId: command.DownloadSource == "dramabox" && command.Series is { Count: > 0 }
+                forcedSeriesId: string.Equals(importChain, "dramabox", StringComparison.OrdinalIgnoreCase)
+                    && command.Series is { Count: > 0 }
                     ? command.Series[0].SeriesId
                     : "");
             var result = importOutcome.ImportResult;
@@ -6493,12 +6501,13 @@ public sealed partial class MainViewModel : ViewModelBase
         string forcedSeriesId = "")
     {
         var root = Path.GetFullPath(workspaceRoot);
-        var settings = ClientSettingsStore.Load();
-        if (string.Equals(downloadSource, "dramabox", StringComparison.OrdinalIgnoreCase))
-        {
-            settings = settings.Clone();
-            settings.DramaSourceChain = "dramabox";
-        }
+        var market = string.Equals(downloadSource, "dramabox", StringComparison.OrdinalIgnoreCase)
+            ? TikTokAccountProfile.DramaMarketOverseas
+            : account?.TiktokDramaMarket;
+        var loaded = ClientSettingsStore.Load();
+        var settings = VisibleDramaSource.SettingsFor(loaded, market);
+        using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
+        AppendLog($"使用{VisibleDramaSource.Describe(loaded, market)}导入。");
         var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
         var result = await UploadTitleImportService.ImportAsync(
             root,

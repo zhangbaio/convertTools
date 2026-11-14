@@ -51,7 +51,7 @@ public static class QueueMaterialStepService
             settings.DramaSourceChain = "dramabox";
             log("这部剧来自 DramaBox，按 DramaBox 下载，不改本机默认数据链路。");
         }
-        ShortDramaDramaServices.RefreshSettings(settings);
+        using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
 
         var concurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
         var maxParallelProjects = Math.Clamp(

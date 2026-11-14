@@ -321,6 +321,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private int _newReleaseOffset;
     private int _newReleaseGeneration;
     private string _newReleaseSession = "";
+    private string _accountMarket = TikTokAccountProfile.DramaMarketLocal;
 
     public DramaDownloadViewModel(string? stateDatabasePath = null)
     {
@@ -337,6 +338,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public IReadOnlyList<string> EpisodeRangeOptions { get; } = ["全部", "前1集", "前3集", "前5集", "自定义"];
 
     [ObservableProperty] private string _downloadWorkspace = "";
+    [ObservableProperty] private string _activeChainText = "当前链路：本土剧";
     [ObservableProperty] private string _searchKeyword = "";
     [ObservableProperty] private string _searchCategory = "漫剧";
     [ObservableProperty] private int _searchPage = 1;
@@ -468,7 +470,27 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             DownloadWorkspace = settings.LastDownloadWorkspace;
         }
 
-        ShortDramaDramaServices.RefreshSettings(settings);
+        RefreshActiveChain(settings);
+    }
+
+    public void UseAccountMarket(string? market)
+    {
+        _accountMarket = TikTokAccountProfile.NormalizeDramaMarket(market);
+        RefreshActiveChain();
+    }
+
+    private void RefreshActiveChain(ClientSettings? settings = null)
+    {
+        settings ??= ClientSettingsStore.Load(_stateDatabasePath);
+        ActiveChainText = VisibleDramaSource.Describe(settings, _accountMarket);
+        ShortDramaDramaServices.RefreshSettings(VisibleDramaSource.SettingsFor(settings, _accountMarket));
+    }
+
+    private IDisposable HoldActiveChain()
+    {
+        var settings = ClientSettingsStore.Load(_stateDatabasePath);
+        ActiveChainText = VisibleDramaSource.Describe(settings, _accountMarket);
+        return ShortDramaDramaServices.HoldSettings(VisibleDramaSource.SettingsFor(settings, _accountMarket));
     }
 
     public void SaveState()
@@ -508,6 +530,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private async Task SearchAsync()
     {
         if (IsSearching) return;
+        using var chainHold = HoldActiveChain();
         var keyword = SearchKeyword.Trim();
         if (string.IsNullOrWhiteSpace(keyword) && !HasSearchFilter())
         {
@@ -539,6 +562,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     [RelayCommand]
     private async Task LoadMangaTodayAsync()
     {
+        using var chainHold = HoldActiveChain();
         SearchPage = 1;
         if (ShortDramaDramaServices.IsHongguoAppSourceSelected())
         {
@@ -573,6 +597,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     [RelayCommand]
     private async Task LoadAiTodayAsync()
     {
+        using var chainHold = HoldActiveChain();
         SearchPage = 1;
         if (ShortDramaDramaServices.IsHongguoAppSourceSelected())
         {
@@ -662,6 +687,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private async Task LoadHongguoAppNewReleaseAsync(bool isAi, bool append)
     {
+        using var chainHold = HoldActiveChain();
         if (IsSearching)
             return;
         if (append && (!_newReleaseActive || !_newReleaseHasMore))
@@ -735,6 +761,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private async Task LoadDramaBoxNewAsync(bool append)
     {
+        using var chainHold = HoldActiveChain();
         if (IsSearching)
             return;
         if (append && (!_dramaBoxNewActive || !_dramaBoxNewHasMore))
@@ -798,6 +825,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private async Task LoadRankCoreAsync(bool append)
     {
+        using var chainHold = HoldActiveChain();
         if (IsSearching)
         {
             if (!append)
@@ -1248,6 +1276,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private async Task StartDownloadQueueAsync()
     {
         if (IsDownloading) return;
+        using var chainHold = HoldActiveChain();
         if (QueueRows.Count == 0)
         {
             LogRequested?.Invoke("下载队列为空");
@@ -1364,6 +1393,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         Action<string>? setPageText = null)
     {
         if (IsSearching) return;
+        using var chainHold = HoldActiveChain();
         CancelBackgroundNewRelease();
         _newReleaseActive = false;
         _dramaBoxNewActive = false;
@@ -1672,6 +1702,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
     private async Task LoadProgressiveHighNewReleaseAsync(string label, bool isAi, string sourceMode)
     {
+        using var chainHold = HoldActiveChain();
         if (IsSearching) return;
         CancelBackgroundNewRelease();
         var generation = _searchGeneration;

@@ -396,6 +396,7 @@ public static class ClientSettingsStore
     private static ClientSettings Normalize(ClientSettings settings)
     {
         settings.DramaSourceChain = VisibleDramaSource.Normalize(settings.DramaSourceChain);
+        settings.OverseasDramaSourceChain = VisibleDramaSource.NormalizeOverseas(settings.OverseasDramaSourceChain);
 
         settings.DramaDownloadDefaultQuality = NormalizeDramaDownloadQuality(settings.DramaDownloadDefaultQuality);
         settings.DramaDownloadConcurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);

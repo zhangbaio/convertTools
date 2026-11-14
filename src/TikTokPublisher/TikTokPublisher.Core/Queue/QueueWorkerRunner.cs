@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Archive;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Remote;
@@ -1998,7 +1999,7 @@ public sealed class QueueWorkerRunner
         Action<string> log,
         CancellationToken ct)
     {
-        var settings = ClientSettingsStore.Load();
+        var settings = VisibleDramaSource.SettingsFor(ClientSettingsStore.Load(), account?.TiktokDramaMarket);
         QueueWorkloadResourceScheduler.Configure(settings);
         var materialOptions = TikTokMaterialValidationService.Options.FromAccount(
             account,
