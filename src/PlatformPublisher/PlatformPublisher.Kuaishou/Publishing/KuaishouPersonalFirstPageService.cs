@@ -5,10 +5,11 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 
 public sealed class KuaishouPersonalFirstPageService
 {
-    public async Task FillAndSaveDraftAsync(
+    public async Task<string> FillAndSaveDraftAsync(
         IPage page,
         KuaishouPersonalProjectData data,
         KuaishouPersonalConfig config,
+        string? existingMiniSeriesId,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
@@ -33,78 +34,12 @@ public sealed class KuaishouPersonalFirstPageService
             throw new InvalidOperationException("请先在快手分账配置的“登录授权”中填写快手昵称和用户快手号 ID。");
         }
 
-        var dismissed = await KuaishouPageNotice.DismissAsync(page, cancellationToken);
-        if (dismissed > 0)
-            progress?.Report($"{config.StoragePlatform.DisplayName()}：已关闭首页短剧下架通知，继续进入内容上传。 ");
-        await NavigateToUploadAsync(page, cancellationToken);
-        await FillTextAsync(page, "短剧标题", data.Title, required: true);
-        await FillTextAsync(page, "短剧简介", data.Intro, required: true);
-        if (enterprise)
-            await SetRadioAsync(page, "内容类型", form.ContentTypeLabel, required: false);
-        else
-            await SelectAsync(page, "内容类型", form.ContentTypeLabel, required: false);
-        if (!enterprise || form.ContentTypeLabel == "漫剧")
-            await SelectAsync(page, "漫剧制作方式", form.ComicMethodLabel, required: false);
-        if (enterprise)
-            await SelectOptionalDropdownAsync(page, "请选择男女频道", NormalizeGenderChannel(ReadAutoFillLabel(data.WorkflowDirectory, "audience_gender_label", enterprise: true)));
-        await SelectLabeledOptionsAsync(page, ReadAutoFillLabels(data.WorkflowDirectory, "tag_label_list", enterprise), "请选择分类", "短剧分类", required: true);
-        await SelectLabeledOptionsAsync(page, ReadAutoFillLabels(data.WorkflowDirectory, "plot_label_list", enterprise), "请选择短剧情节", "短剧情节", required: false);
-        await SelectAsync(page, "作者声明", form.AuthorDeclarationLabel, required: true);
-        await FillTextAsync(page, "短标题", data.ShortTitle, required: false);
-        await FillTextAsync(page, "标签", string.Join(' ', data.Tags), required: false);
-        await SelectAsync(page, "版权证明类型", form.CopyrightProofTypeLabel, required: false);
-        await FillTextAsync(page, "短剧标题", data.Title, required: true);
-        await SetRadioAsync(page, "是否完结", form.Finished ? "是" : "否", required: true);
-        await SetRadioAsync(page, "是否全场景展示", form.FullSceneDisplay ? "是" : "否", required: false);
-        await SetRadioAsync(page, "是否有备案号", form.HasRecordNumber ? "是" : "否", required: true);
-        await page.WaitForTimeoutAsync(600);
-        await SetRadioAsync(page, "制作形式", form.ProductionForm, required: false);
-        if (!await SelectYearAsync(page, form.ProductionYear))
-            await FillTextAsync(page, "出品年份", form.ProductionYear.ToString(), required: false);
-        await FillTextAsync(page, "制作成本", form.ProductionCost, required: false);
-        await FillTextAsync(page, "单集平均时长", form.AverageDurationMinutes.ToString(), required: false);
-        var productionOrg = enterprise
-            ? FirstNonEmpty(config.CommitmentRecipientCompanyName, config.ProductionOrganization)
-            : form.ProductionOrg;
-        await FillTextAsync(page, "制作机构", productionOrg, required: false);
-        if (enterprise)
-            await FillEnterprisePeopleAsync(page, data.WorkflowDirectory, cancellationToken);
-        else
-            await FillPeopleAsync(page, form.CreditName, form.Gender, cancellationToken);
-        if (enterprise)
-            await FillEnterpriseBroadcastPlatformAsync(page, form.BroadcastPlatform);
-        else
-            await SelectAsync(page, "播出平台", form.BroadcastPlatform, required: false);
-        await SelectAsync(page, "播出途径", form.BroadcastChannel, required: false);
-        await FillBroadcastDateAsync(page, form.BroadcastDate);
-        if (!form.HasRecordNumber)
-            await FillActorsAsync(page, KuaishouPersonalFormResolver.ResolveUploadActors(data.WorkflowDirectory, config, enterprise), cancellationToken);
-        await SetRadioAsync(page, "是否涉及重大革命和历史或特殊题材", "否", required: false);
-        await ReassertRadioAsync(page, "是否完结", form.Finished ? "是" : "否");
-        await ReassertRadioAsync(page, "是否有备案号", form.HasRecordNumber ? "是" : "否");
-        await UploadScopedAsync(page, ["短剧封面", "横屏封面"], data.HorizontalCoverPath, required: true);
-        progress?.Report($"{config.StoragePlatform.DisplayName()}：短剧封面已上传，正在确认图片裁剪。 ");
-        await HandleCropDialogAsync(page, 15, cancellationToken);
-        progress?.Report($"{config.StoragePlatform.DisplayName()}：短剧封面裁剪已确认。 ");
-        await UploadProofMaterialsAsync(page, data, config, cancellationToken);
-        await SetRadioAsync(page, "售卖方式", form.SaleTypeLabel, required: false);
-        await SetRadioAsync(page, "售卖类型", form.SaleTypeLabel, required: false);
-        await FillTextAsync(page, "免费集数", form.FreeEpisodeCount.ToString(), required: false);
-        await FillTextAsync(page, "广告解锁集数", form.UnlockCount.ToString(), required: false);
-        await FillTextAsync(page, "全剧价格", form.EpisodePrice, required: false);
-        if (form.SmallAmountUnlock) await SetRadioAsync(page, "小额解锁", "是", required: false);
-        progress?.Report($"{config.StoragePlatform.DisplayName()}：正在批量设置单集标题和封面。 ");
-        await new KuaishouPersonalEpisodeUploadService().ConfigureEpisodeInfoAsync(page, data, config, cancellationToken);
-        await SetCheckboxAsync(page, ["付费短剧经营者服务协议", "我已阅读并同意"]);
-        await EnsureSingleProofMaterialAsync(page, "承诺函+现场拍摄图/短剧工程文件");
-
-        progress?.Report($"{config.StoragePlatform.DisplayName()}：第一页已按当前配置填写。制作形式 {form.ProductionForm}，播出 {form.BroadcastDate}，售卖 {form.SaleTypeLabel}。 ");
-        if (string.Equals(config.FirstPageAction, "draft", StringComparison.OrdinalIgnoreCase))
-        {
-            var saved = await ClickVisibleTextAsync(page, ["保存草稿", "存草稿"], 8_000);
-            if (!saved) throw new InvalidOperationException("未找到“保存草稿”按钮。");
-            progress?.Report($"{config.StoragePlatform.DisplayName()}：第一页草稿已保存。 ");
-        }
+        if (await KuaishouDailyUploadLimit.IsVisibleAsync(page))
+            throw new KuaishouDailyUploadLimitException();
+        var seriesId = await new KuaishouSeriesDraftClient().SaveAsync(
+            page, data, config, form, existingMiniSeriesId, progress, cancellationToken);
+        progress?.Report($"{config.StoragePlatform.DisplayName()}：基础信息和单集封面已通过接口保存。制作形式 {form.ProductionForm}，播出 {form.BroadcastDate}，售卖 {form.SaleTypeLabel}，短剧 ID：{seriesId}。");
+        return seriesId;
     }
 
     private static async Task NavigateToUploadAsync(IPage page, CancellationToken cancellationToken)
