@@ -2232,6 +2232,7 @@ public static partial class TikTokReferenceSourcePackageService
 face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才为 true。胸口、脖子、手脚、服装局部、背影、脸被遮挡、脸太小或严重模糊必须为 false；此时 person_id 使用空字符串，clarity 不得超过 20。
 同时判断服装参考价值。framing 只能为 close_up、upper_body、half_body、full_body、unknown；clothing_visible 只有在至少能清楚看到肩部、领口和上身主要服装时才为 true；clothing_clarity 为 0 到 100，服装覆盖面积越大、款式颜色纹理越清楚则越高。只有脸部特写、看不到领口和上身服装时，clothing_visible 必须为 false。
 性别只能输出 male、female、unknown。clarity 为 0 到 100，脸越清晰、无遮挡、主体越明确则越高。
+主角、主角1、主角2 表示画面里任意反复出现的人物，不要求指定演员。优先选择出镜清楚的人；只有一个人时，可以用这个人的不同画面。
 待匹配角色：
 {{roles}}
 只返回 JSON，不要解释：
@@ -2260,11 +2261,11 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                 .FirstOrDefault(candidate => candidate is not null);
             var pool = analyses
                 .Where(candidate => !usedIndices.Contains(candidate.Index))
-                .Where(candidate => !usedPeople.Contains(candidate.PersonId))
+                .Where(candidate => IsUnusedPerson(candidate, usedPeople))
                 .Where(candidate => candidate.FaceVisible && candidate.Single)
                 .Where(candidate => expectedGender == "unknown" || candidate.Gender == expectedGender)
                 .OrderByDescending(candidate => candidate.Single)
-                .ThenByDescending(candidate => IsGenericPrimaryRole(profiles[roleIndex]) &&
+                .ThenByDescending(candidate => IsPlaceholderLead(profiles[roleIndex]) &&
                     previousPrimary is not null &&
                     candidate.Gender is "male" or "female" &&
                     previousPrimary.Gender is "male" or "female" &&
@@ -2275,14 +2276,24 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                 .ThenBy(candidate => candidate.Index)
                 .ToArray();
             var selected = pool.FirstOrDefault();
+            if (selected is null && IsPlaceholderLead(profiles[roleIndex]))
+            {
+                selected = analyses
+                    .Where(candidate => !usedIndices.Contains(candidate.Index))
+                    .OrderByDescending(candidate => IsUnusedPerson(candidate, usedPeople))
+                    .ThenByDescending(candidate => candidate.FaceVisible && candidate.Single)
+                    .ThenByDescending(candidate => candidate.Clarity)
+                    .ThenBy(candidate => candidate.Index)
+                    .FirstOrDefault();
+            }
             if (selected is null)
             {
                 var requirement = expectedGender switch
                 {
                     "male" => "清晰露脸的男性单人画面",
                     "female" => "清晰露脸的女性单人画面",
-                    _ => IsGenericPrimaryRole(profiles[roleIndex])
-                        ? "与另一位主角不同且清晰露脸的单人画面"
+                    _ => IsPlaceholderLead(profiles[roleIndex])
+                        ? "另一张未使用的人物画面"
                         : "与两位主角不同且清晰露脸的第三个人物画面",
                 };
                 throw new InvalidOperationException(
@@ -2290,13 +2301,20 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             }
             assigned[roleIndex] = selected.Index;
             usedIndices.Add(selected.Index);
-            usedPeople.Add(selected.PersonId);
+            if (!string.IsNullOrWhiteSpace(selected.PersonId))
+                usedPeople.Add(selected.PersonId);
         }
         return assigned;
     }
 
+    private static bool IsUnusedPerson(ReferenceCandidateAnalysis candidate, HashSet<string> usedPeople) =>
+        string.IsNullOrWhiteSpace(candidate.PersonId) || !usedPeople.Contains(candidate.PersonId);
+
+    private static bool IsPlaceholderLead(CharacterProfile profile) =>
+        Regex.IsMatch(profile.Name, @"^[男女]?主角\d*$", RegexOptions.CultureInvariant);
+
     private static bool IsGenericPrimaryRole(CharacterProfile profile) =>
-        Regex.IsMatch(profile.Name, @"^[男女]?主角\d+$", RegexOptions.CultureInvariant);
+        IsPlaceholderLead(profile);
 
     private static string RoleGenderRequirement(CharacterProfile profile)
     {
