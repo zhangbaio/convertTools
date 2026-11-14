@@ -21,9 +21,6 @@ public static partial class TikTokBrowserActions
         @"第\s*(\d+)\s*集.*?-第\s*(\d+)\s*集",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
-    /// <summary>接口直传失败并回退后，本次流程里的递归补传不再重试接口。</summary>
-    private static readonly AsyncLocal<bool> ApiUploadSuspended = new();
-
     public sealed record EditVideoRow(int Slot, int Real);
 
     public sealed record EditFlowVideoState(
@@ -44,14 +41,17 @@ public static partial class TikTokBrowserActions
         Log(log, "TikTok 已切换到草稿编辑流程，保留已有合同和剧名；简介为空时自动补全。");
         await EnsureEditFlowVideosCompleteAsync(page, payload, options, log, ct);
         var uploadPaths = payload.UploadVideoPaths.Count > 0 ? payload.UploadVideoPaths : payload.VideoPaths;
-        await TikTokBatchUploadService.WaitAllEpisodesReadyAsync(
-            page,
-            Math.Max(payload.EpisodeCount, uploadPaths.Count),
-            uploadPaths,
-            PayloadTitleCandidates(payload),
-            options,
-            log,
-            ct);
+        if (!options.UseApiUpload)
+        {
+            await TikTokBatchUploadService.WaitAllEpisodesReadyAsync(
+                page,
+                Math.Max(payload.EpisodeCount, uploadPaths.Count),
+                uploadPaths,
+                PayloadTitleCandidates(payload),
+                options,
+                log,
+                ct);
+        }
         await EnsureEditCoverUploadedAsync(page, coverPath, log, ct);
         await EnsureEditTitleFilledAsync(page, payload.Title, log, ct);
         await EnsureEditDescriptionFilledAsync(page, payload.Description, log, ct);
@@ -437,25 +437,12 @@ public static partial class TikTokBrowserActions
         if (expectedCount <= 0) return;
 
         await EnsureEditContentUploadTabAsync(page, ct);
-        if (options.UseApiUpload && !ApiUploadSuspended.Value)
+        if (options.UseApiUpload)
         {
-            var seriesId = TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url);
-            if (seriesId is null)
-            {
-                Log(log, "接口直传：当前页面地址里没有剧集 ID，改用网页分批上传。");
-            }
-            else
-            {
-                try
-                {
-                    await TikTokApiUploadService.SyncEpisodesAsync(page, seriesId, uploadPaths, options, log, ct);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException && options.UploadApiFallbackToBatch)
-                {
-                    ApiUploadSuspended.Value = true;
-                    Log(log, $"接口直传未完成：{ex.Message}。本次改用网页分批上传补齐。");
-                }
-            }
+            var seriesId = TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url)
+                ?? throw new InvalidOperationException("接口直传：当前页面地址里没有剧集 ID，已停止，不会改用网页上传。");
+            await TikTokApiUploadService.SyncEpisodesAsync(page, seriesId, uploadPaths, options, log, ct);
+            return;
         }
 
         List<EditVideoRow> rows;

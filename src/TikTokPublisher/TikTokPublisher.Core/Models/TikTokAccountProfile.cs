@@ -189,7 +189,8 @@ public sealed class TikTokAccountProfile
     public int TiktokUploadBatchStallSeconds { get; set; } = 75;
     public int TiktokUploadBatchMaxRetries { get; set; } = 3;
     public int TiktokUploadApiConcurrency { get; set; } = 3;
-    public bool TiktokUploadApiFallbackToBatch { get; set; } = true;
+    /// <summary>已停用。旧账号里的值保留，发布时不再使用。</summary>
+    public bool TiktokUploadApiFallbackToBatch { get; set; }
     public string TiktokExcelReportPath { get; set; } = "";
     public List<string>? TiktokQueueEnabledSteps { get; set; }
     public bool? TiktokQueueAutoArchiveAfterUpload { get; set; }

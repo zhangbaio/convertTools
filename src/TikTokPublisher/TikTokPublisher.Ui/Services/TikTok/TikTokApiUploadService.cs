@@ -24,10 +24,10 @@ public static class TikTokApiUploadService
     private const int MaxPartsInFlight = 12;
     private const string ApiVersion = "2020-11-19";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
-    private const int MountRetryCount = 2;
 
     private static readonly Regex SeriesIdPattern =
         new(@"/series/(?:draft/)?(\d{16,20})/?(?=[?#]|$)", RegexOptions.Compiled);
+    private static readonly Regex SeriesIdValuePattern = new(@"^\d{16,20}$", RegexOptions.Compiled);
     private static readonly Regex EpisodePattern = new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
 
     internal sealed record SeriesVideo(string VideoId, int OrderNum, string Title, int? Episode);
@@ -97,7 +97,7 @@ public static class TikTokApiUploadService
             : null;
     }
 
-    /// <summary>每一集都能读出且不重复。有多余行时仍可先删掉再接口直传，见 <see cref="SelectUsableExisting"/>。</summary>
+    /// <summary>每一集都能读出且不重复。读不出或重复的行不参与补传，也不再交给网页删除。</summary>
     internal static bool ExistingVideosUsable(IReadOnlyList<SeriesVideo> videos) =>
         videos.All(video => video.Episode is not null) &&
         videos.Select(video => video.Episode).Distinct().Count() == videos.Count;
@@ -195,8 +195,8 @@ public static class TikTokApiUploadService
         string.Join(",", partCrcs.Select((crc, index) => $"{index + 1}:{crc}"));
 
     /// <summary>
-    /// 把本地缺的集直传并挂到剧集上，最后按集号排序并刷新页面。
-    /// 返回 false 表示平台已有正片状态不适合接口处理（未做任何改动）；上传或挂集失败时抛出异常。
+    /// 按剧集详情里已经挂上的集号，只直传缺少的集，最后按集号排序并刷新页面。
+    /// 文件名读不出集号、草稿集号全部无法识别，或某一集用完重试，都直接失败，不改走网页。
     /// </summary>
     public static async Task<bool> SyncEpisodesAsync(
         IPage page,
@@ -207,45 +207,21 @@ public static class TikTokApiUploadService
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var local = ResolveLocalEpisodes(uploadPaths);
-        if (local is null)
-        {
-            log?.Invoke("接口直传：本地视频文件名里有读不出集号或重复的集，改用网页上传。");
-            return false;
-        }
+        var local = ResolveLocalEpisodes(uploadPaths)
+                    ?? throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
 
         var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
         var usable = SelectUsableExisting(existing);
         if (existing.Count > 0 && usable.Count == 0)
         {
-            log?.Invoke($"接口直传：草稿已有 {existing.Count} 集里有重复或读不出集号的视频，改用网页流程处理。");
-            return false;
+            throw new InvalidOperationException(
+                $"接口直传：草稿已有 {existing.Count} 集，集号都读不出来或全部重复，已停止。请在草稿里整理正片后再重试。");
         }
 
         if (usable.Count < existing.Count)
         {
-            var rejected = existing.Count - usable.Count;
             log?.Invoke(
-                $"接口直传：草稿已有 {existing.Count} 行，其中 {rejected} 行读不出集号或与已有集重复。先删掉这 {rejected} 行，其余继续接口直传。");
-            if (PlanDropRejected(existing) is { } order)
-            {
-                await PageFetchAsync(
-                    page,
-                    "POST",
-                    "/api/content-partner/series/videos/reorder",
-                    JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = order }),
-                    ct);
-                await ReloadEditPageAsync(page, ct);
-            }
-
-            await TikTokBrowserActions.DeleteEditVideoRowsFromSlotAsync(page, usable.Count, log, ct);
-            existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
-            usable = SelectUsableExisting(existing);
-            if (usable.Count != existing.Count)
-            {
-                log?.Invoke($"接口直传：删完后仍有 {existing.Count - usable.Count} 行无法识别，改用网页流程处理。");
-                return false;
-            }
+                $"接口直传：草稿 {existing.Count} 行里有 {existing.Count - usable.Count} 行读不出集号或重复，这些行保留，只补缺失集号。");
         }
 
         var present = usable.Select(video => video.Episode!.Value).ToHashSet();
@@ -264,7 +240,7 @@ public static class TikTokApiUploadService
                 $"（第 {FormatEpisodes(missing.Select(item => item.Episode))} 集），并发 {concurrency}。");
 
             using var http = await CreateHttpClientAsync(page, options);
-            var sts = new StsCache(page);
+            var sts = new StsCache(page, Math.Clamp(options.UploadBatchMaxRetries, 1, 10), log);
             using var gates = new UploadGates(concurrency);
             using var uploadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var uploaded = 0;
@@ -342,14 +318,14 @@ public static class TikTokApiUploadService
                     batch.Clear();
                     await MountBatchAsync(
                         page, seriesId, missing, orderNums, uploadedVideos, indexes,
-                        () => ++mounted, () => changed = true, failures, failureLock, log, ct);
+                        () => ++mounted, () => changed = true, failures, failureLock, options, log, ct);
                 }
 
                 if (batch.Count > 0)
                 {
                     await MountBatchAsync(
                         page, seriesId, missing, orderNums, uploadedVideos, batch,
-                        () => ++mounted, () => changed = true, failures, failureLock, log, ct);
+                        () => ++mounted, () => changed = true, failures, failureLock, options, log, ct);
                 }
             }
             catch
@@ -370,23 +346,16 @@ public static class TikTokApiUploadService
         }
 
         var after = await ReadSeriesVideosAsync(page, seriesId, ct, log);
-        if (ExistingVideosUsable(after) && (changed || PlanReorder(after) is not null))
+        if (PlanReorder(after) is { Count: > 0 } ordered)
         {
-            var ordered = after
-                .OrderBy(video => video.Episode ?? int.MaxValue)
-                .Select(video => video.VideoId)
-                .ToList();
-            if (ordered.Count > 0)
-            {
-                await PageFetchAsync(
-                    page,
-                    "POST",
-                    "/api/content-partner/series/videos/reorder",
-                    JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = ordered }),
-                    ct);
-                changed = true;
-                log?.Invoke($"接口直传：已按集号重新排序 {ordered.Count} 集。");
-            }
+            await PageFetchAsync(
+                page,
+                "POST",
+                "/api/content-partner/series/videos/reorder",
+                JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = ordered }),
+                ct);
+            changed = true;
+            log?.Invoke($"接口直传：已按集号重新排序 {ordered.Count} 集。");
         }
 
         if (changed)
@@ -400,8 +369,8 @@ public static class TikTokApiUploadService
     }
 
     /// <summary>
-    /// 新建页还没有剧集 ID：先用网页传第 1 个文件，从网页自己的挂集请求里取剧集 ID，再转到草稿编辑页，
-    /// 剩下的集由编辑流程接口直传。
+    /// 新建页还没有剧集 ID：保存已经填好的剧壳，从创建接口或页面地址取得剧集 ID，
+    /// 再转到草稿编辑页，全部正片都由接口直传。
     /// </summary>
     public static async Task ContinueCreateAsDraftAsync(
         IPage page,
@@ -413,33 +382,137 @@ public static class TikTokApiUploadService
         Action<string>? log,
         CancellationToken ct)
     {
-        var local = ResolveLocalEpisodes(uploadPaths)
-                    ?? throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
-        var first = local[0];
-        log?.Invoke($"接口直传：新建页先用网页上传第 {first.Episode} 集，用来取得剧集 ID。");
+        if (ResolveLocalEpisodes(uploadPaths) is null)
+            throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
 
-        var timeoutMs = Math.Max(180, options.UploadStallSeconds) * 1000f;
-        var response = await page.RunAndWaitForResponseAsync(
-            () => TikTokBrowserActions.UploadLocalVideosAsync(
-                page, new[] { first.Path }, waitForFinish: false, log, ct, confirmStartup: false),
-            candidate => candidate.Url.Contains(AddVideoPath, StringComparison.OrdinalIgnoreCase) &&
-                         string.Equals(candidate.Request.Method, "POST", StringComparison.OrdinalIgnoreCase),
-            new PageRunAndWaitForResponseOptions { Timeout = timeoutMs });
-
-        var responseText = "";
-        try { responseText = await response.TextAsync(); }
-        catch { /* 只看请求体里的剧集 ID */ }
-        if (!response.Ok || TikTokBrowserActions.ReorderResponseRejected(responseText))
-            throw new InvalidOperationException($"接口直传：网页挂第 {first.Episode} 集失败（HTTP {response.Status}）。");
-
-        var seriesId = ReadContractId(response.Request.PostData)
-                       ?? throw new InvalidOperationException("接口直传：网页挂集请求里没有剧集 ID。");
-        await ReadSeriesVideosAsync(page, seriesId, ct, log);
-
+        log?.Invoke("接口直传：新建页先保存剧壳，取得剧集 ID 后再上传全部正片。");
+        var seriesId = await SaveShellForSeriesIdAsync(page, log, ct);
         var draftUrl = $"https://{new Uri(page.Url).Host}/series/draft/{seriesId}";
         log?.Invoke($"接口直传：已取得剧集 ID {seriesId}，转到草稿编辑页继续上传：{draftUrl}");
         await TikTokEditFlowService.OpenEditPublishFlowAsync(
             page, draftUrl, payload, options, recommendation, coverPath, log, ct);
+    }
+
+    private static async Task<string> SaveShellForSeriesIdAsync(IPage page, Action<string>? log, CancellationToken ct)
+    {
+        var existing = TryReadSeriesIdFromUrl(page.Url);
+        if (existing is not null)
+            return existing;
+
+        IResponse? response = null;
+        try
+        {
+            response = await page.RunAndWaitForResponseAsync(
+                async () =>
+                {
+                    var button = page.Locator("button").Filter(new() { HasText = "保存" }).First;
+                    await button.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+                    await button.ClickAsync(new() { Timeout = 15000 });
+                },
+                IsSeriesShellResponse,
+                new PageRunAndWaitForResponseOptions { Timeout = 20000 });
+        }
+        catch (TimeoutException)
+        {
+            log?.Invoke("接口直传：保存剧壳没有等到创建接口，改为看页面地址。");
+        }
+
+        string? seriesId = null;
+        if (response is not null)
+        {
+            var text = "";
+            try { text = await response.TextAsync(); }
+            catch { /* 下面再从地址里找 */ }
+            seriesId = ReadSeriesIdFromJson(text) ?? TryReadSeriesIdFromUrl(response.Url);
+        }
+
+        seriesId ??= await WaitForSeriesIdInUrlAsync(page, ct);
+        return seriesId ?? throw new InvalidOperationException(
+            "接口直传：保存剧壳后没有拿到剧集 ID，已停止，不会改用网页上传。");
+    }
+
+    private static bool IsSeriesShellResponse(IResponse candidate)
+    {
+        if (!string.Equals(candidate.Request.Method, "POST", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(candidate.Request.Method, "PUT", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var url = candidate.Url;
+        return url.Contains("/api/content-partner/series", StringComparison.OrdinalIgnoreCase) &&
+               !url.Contains("/videos/", StringComparison.OrdinalIgnoreCase) &&
+               !url.Contains("/list", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string?> WaitForSeriesIdInUrlAsync(IPage page, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var seriesId = TryReadSeriesIdFromUrl(page.Url);
+            if (seriesId is not null)
+                return seriesId;
+            await page.WaitForTimeoutAsync(500);
+        }
+
+        return TryReadSeriesIdFromUrl(page.Url);
+    }
+
+    internal static string? ReadSeriesIdFromJson(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            return FindSeriesId(document.RootElement, 0);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? FindSeriesId(JsonElement element, int depth)
+    {
+        if (depth > 8)
+            return null;
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var found = FindSeriesId(item, depth + 1);
+                if (found is not null)
+                    return found;
+            }
+
+            return null;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+            return null;
+
+        foreach (var name in new[] { "contractId", "seriesId", "dramaId", "id" })
+        {
+            if (!element.TryGetProperty(name, out var value))
+                continue;
+            var raw = value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString(),
+                JsonValueKind.Number => value.GetRawText(),
+                _ => null,
+            };
+            if (raw is not null && SeriesIdValuePattern.IsMatch(raw.Trim()))
+                return raw.Trim();
+        }
+
+        foreach (var property in element.EnumerateObject())
+        {
+            var found = FindSeriesId(property.Value, depth + 1);
+            if (found is not null)
+                return found;
+        }
+
+        return null;
     }
 
     internal static string? ReadContractId(string? postData)
@@ -510,6 +583,43 @@ public static class TikTokApiUploadService
     private sealed class PageFetchException(string message, int status) : InvalidOperationException(message)
     {
         public int Status { get; } = status;
+
+        public bool IsTransient => IsTransientHttpStatus(Status);
+    }
+
+    private sealed class TransientUploadException(string message) : InvalidOperationException(message);
+
+    internal static bool IsTransientHttpStatus(int status) =>
+        status is 0 or 408 or 429 || status >= 500;
+
+    private static bool IsTransientFailure(Exception ex) =>
+        ex is TransientUploadException or HttpRequestException ||
+        (ex is PageFetchException fetch && fetch.IsTransient);
+
+    private static bool ShouldRetry(Exception ex, CancellationToken ct) =>
+        !ct.IsCancellationRequested && (IsTransientFailure(ex) || ex is TaskCanceledException);
+
+    private static async Task<T> ExecuteWithRetryAsync<T>(
+        int retries,
+        string step,
+        Action<string>? log,
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken ct)
+    {
+        var attempts = Math.Clamp(retries, 1, 10);
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await action(ct);
+            }
+            catch (Exception ex) when (ShouldRetry(ex, ct) && attempt < attempts)
+            {
+                var delay = TimeSpan.FromSeconds(attempt * 3);
+                log?.Invoke($"接口直传：{step}暂时失败（{ex.Message}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
+                await Task.Delay(delay, ct);
+            }
+        }
     }
 
     private static async Task<JsonDocument> PageFetchAsync(
@@ -542,7 +652,7 @@ public static class TikTokApiUploadService
         }
         catch (JsonException)
         {
-            throw new InvalidOperationException($"{path} 返回无法解析（HTTP {status}）：{Truncate(text)}");
+            throw new PageFetchException($"{path} 返回无法解析（HTTP {status}）：{Truncate(text)}", status);
         }
 
         var root = document.RootElement;
@@ -570,9 +680,11 @@ public static class TikTokApiUploadService
         Action markChanged,
         List<string> failures,
         object failureLock,
+        TikTokPublishOptions options,
         Action<string>? log,
         CancellationToken ct)
     {
+        var maxAttempts = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
         var pending = indexes.ToList();
         for (var attempt = 1; pending.Count > 0; attempt++)
         {
@@ -594,11 +706,11 @@ public static class TikTokApiUploadService
                     continue;
                 }
 
-                if (result.Retryable && attempt <= MountRetryCount)
+                if (result.Retryable && attempt < maxAttempts)
                 {
                     var delaySeconds = attempt * 2;
                     log?.Invoke(
-                        $"接口直传：第 {episode} 集挂载暂时失败（{result.Error}），{delaySeconds} 秒后重试（{attempt}/{MountRetryCount}）。");
+                        $"接口直传：第 {episode} 集挂载暂时失败（{result.Error}），{delaySeconds} 秒后重试（{attempt}/{maxAttempts - 1}）。");
                     retry.Add(index);
                     continue;
                 }
@@ -687,22 +799,12 @@ public static class TikTokApiUploadService
         CancellationToken ct)
     {
         var started = Stopwatch.StartNew();
-        var attempts = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                var (committed, timing) = await UploadFileAsync(http, sts, gates, pageUrl, item.Path, ct);
-                addUploadedBytes(timing.Bytes);
-                log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, timing, markUploaded(), total));
-                return committed;
-            }
-            catch (Exception ex) when (attempt < attempts && !ct.IsCancellationRequested)
-            {
-                log?.Invoke($"接口直传：第 {item.Episode} 集第 {attempt} 次上传失败（{ex.Message}），{attempt * 3} 秒后重试。");
-                await Task.Delay(TimeSpan.FromSeconds(attempt * 3), ct);
-            }
-        }
+        var retries = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
+        var (committed, timing) = await UploadFileAsync(
+            http, sts, gates, pageUrl, item.Path, log, item.Episode, retries, ct);
+        addUploadedBytes(timing.Bytes);
+        log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, timing, markUploaded(), total));
+        return committed;
     }
 
     internal static string FormatUploadedLog(int episode, TimeSpan elapsed, UploadTiming timing, int uploaded, int total) =>
@@ -744,6 +846,9 @@ public static class TikTokApiUploadService
         UploadGates gates,
         string pageUrl,
         string path,
+        Action<string>? log,
+        int episode,
+        int retries,
         CancellationToken ct)
     {
         var fileSize = new FileInfo(path).Length;
@@ -758,7 +863,8 @@ public static class TikTokApiUploadService
         try
         {
             var transferClock = Stopwatch.StartNew();
-            sessionKey = await TransferFileAsync(http, sts, gates, vodBase, tosBase, path, fileSize, ct);
+            sessionKey = await TransferFileAsync(
+                http, sts, gates, vodBase, tosBase, path, fileSize, log, episode, retries, ct);
             transferElapsed = transferClock.Elapsed;
         }
         finally
@@ -767,7 +873,7 @@ public static class TikTokApiUploadService
         }
 
         var commitClock = Stopwatch.StartNew();
-        var video = await CommitFileAsync(http, sts, vodBase, sessionKey, ct);
+        var video = await CommitFileAsync(http, sts, vodBase, sessionKey, log, episode, retries, ct);
         return (video, new UploadTiming(fileSize, transferElapsed, commitClock.Elapsed));
     }
 
@@ -780,6 +886,9 @@ public static class TikTokApiUploadService
         string tosBase,
         string path,
         long fileSize,
+        Action<string>? log,
+        int episode,
+        int retries,
         CancellationToken ct)
     {
         var credentials = await sts.GetAsync(ct);
@@ -787,7 +896,12 @@ public static class TikTokApiUploadService
         var applyUri = new Uri(
             $"{vodBase}/?Action=ApplyUploadInner&Version={ApiVersion}&SpaceName={SpaceName}" +
             $"&FileType=video&IsInner=1&FileSize={fileSize}&s={RandomToken()}&device_platform=web");
-        using var applyDocument = await SendVodAsync(http, HttpMethod.Get, applyUri, credentials, null, ct);
+        using var applyDocument = await ExecuteWithRetryAsync(
+            retries,
+            $"第 {episode} 集初始化上传",
+            log,
+            token => SendVodAsync(http, HttpMethod.Get, applyUri, credentials, null, token),
+            ct);
         var node = applyDocument.RootElement
             .GetProperty("Result").GetProperty("InnerUploadAddress").GetProperty("UploadNodes")[0];
         var store = node.GetProperty("StoreInfos")[0];
@@ -799,26 +913,41 @@ public static class TikTokApiUploadService
 
         var objectUrl = $"{tosBase}/upload/v1/{storeUri}";
         var boundary = "----WebKitFormBoundary" + RandomToken(16);
-        using (var init = new HttpRequestMessage(HttpMethod.Post, $"{objectUrl}?uploadmode=part&phase=init"))
-        {
-            init.Headers.TryAddWithoutValidation("Authorization", auth);
-            init.Content = new StringContent($"--{boundary}--\r\n", Encoding.ASCII);
-            init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
-            using var initDocument = await SendTosAsync(http, init, ct);
-            var uploadId = ReadString(initDocument.RootElement.GetProperty("data"), "uploadid");
-            if (uploadId.Length == 0)
-                throw new InvalidOperationException("TOS 初始化没有返回 uploadid。");
+        using var initDocument = await ExecuteWithRetryAsync(
+            retries,
+            $"第 {episode} 集分片初始化",
+            log,
+            async token =>
+            {
+                using var init = new HttpRequestMessage(HttpMethod.Post, $"{objectUrl}?uploadmode=part&phase=init");
+                init.Headers.TryAddWithoutValidation("Authorization", auth);
+                init.Content = new StringContent($"--{boundary}--\r\n", Encoding.ASCII);
+                init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
+                return await SendTosAsync(http, init, token);
+            },
+            ct);
+        var uploadId = ReadString(initDocument.RootElement.GetProperty("data"), "uploadid");
+        if (uploadId.Length == 0)
+            throw new InvalidOperationException("TOS 初始化没有返回 uploadid。");
 
-            var crcs = await SendPartsAsync(http, gates, objectUrl, uploadId, auth, path, fileSize, ct);
+        var crcs = await SendPartsAsync(
+            http, gates, objectUrl, uploadId, auth, path, fileSize, log, episode, retries, ct);
 
-            using var finish = new HttpRequestMessage(
-                HttpMethod.Post,
-                $"{objectUrl}?uploadmode=part&phase=finish&uploadid={uploadId}&size={fileSize}");
-            finish.Headers.TryAddWithoutValidation("Authorization", auth);
-            finish.Content = new StringContent(BuildFinishBody(crcs), Encoding.UTF8);
-            finish.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain;charset=UTF-8");
-            using (await SendTosAsync(http, finish, ct)) { }
-        }
+        using (await ExecuteWithRetryAsync(
+            retries,
+            $"第 {episode} 集分片提交",
+            log,
+            async token =>
+            {
+                using var finish = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{objectUrl}?uploadmode=part&phase=finish&uploadid={uploadId}&size={fileSize}");
+                finish.Headers.TryAddWithoutValidation("Authorization", auth);
+                finish.Content = new StringContent(BuildFinishBody(crcs), Encoding.UTF8);
+                finish.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain;charset=UTF-8");
+                return await SendTosAsync(http, finish, token);
+            },
+            ct)) { }
 
         return sessionKey;
     }
@@ -831,6 +960,9 @@ public static class TikTokApiUploadService
         string auth,
         string path,
         long fileSize,
+        Action<string>? log,
+        int episode,
+        int retries,
         CancellationToken ct)
     {
         var partCount = (int)((fileSize + PartSize - 1) / PartSize);
@@ -879,15 +1011,24 @@ public static class TikTokApiUploadService
                     try
                     {
                         var crc = TikTokCrc32.Hex(buffer.AsSpan(0, length));
-                        using var part = new HttpRequestMessage(
-                            HttpMethod.Post,
-                            $"{objectUrl}?uploadid={uploadId}&part_number={partIndex + 1}&phase=transfer&part_offset={partOffset}");
-                        part.Headers.TryAddWithoutValidation("Authorization", auth);
-                        part.Content = new ByteArrayContent(buffer, 0, length);
-                        part.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                        part.Content.Headers.TryAddWithoutValidation("Content-Disposition", "attachment; filename=\"undefined\"");
-                        part.Content.Headers.TryAddWithoutValidation("Content-CRC32", crc);
-                        using (await SendTosAsync(http, part, partsCts.Token)) { }
+                        await ExecuteWithRetryAsync(
+                            retries,
+                            $"第 {episode} 集分片 {partIndex + 1}",
+                            log,
+                            async token =>
+                            {
+                                using var part = new HttpRequestMessage(
+                                    HttpMethod.Post,
+                                    $"{objectUrl}?uploadid={uploadId}&part_number={partIndex + 1}&phase=transfer&part_offset={partOffset}");
+                                part.Headers.TryAddWithoutValidation("Authorization", auth);
+                                part.Content = new ByteArrayContent(buffer, 0, length);
+                                part.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                                part.Content.Headers.TryAddWithoutValidation("Content-Disposition", "attachment; filename=\"undefined\"");
+                                part.Content.Headers.TryAddWithoutValidation("Content-CRC32", crc);
+                                using (await SendTosAsync(http, part, token)) { }
+                                return 0;
+                            },
+                            partsCts.Token);
                         crcs[partIndex] = crc;
                     }
                     catch
@@ -930,6 +1071,9 @@ public static class TikTokApiUploadService
         StsCache sts,
         string vodBase,
         string sessionKey,
+        Action<string>? log,
+        int episode,
+        int retries,
         CancellationToken ct)
     {
         var commitBody = JsonSerializer.Serialize(new
@@ -938,8 +1082,13 @@ public static class TikTokApiUploadService
             Functions = new object[] { new { name = "Snapshot", input = new { SnapshotTime = 0 } } },
         });
         var commitUri = new Uri($"{vodBase}/?Action=CommitUploadInner&Version={ApiVersion}&SpaceName={SpaceName}");
-        using var commitDocument = await SendVodAsync(
-            http, HttpMethod.Post, commitUri, await sts.GetAsync(ct), commitBody, ct);
+        using var commitDocument = await ExecuteWithRetryAsync(
+            retries,
+            $"第 {episode} 集提交视频",
+            log,
+            async token => await SendVodAsync(
+                http, HttpMethod.Post, commitUri, await sts.GetAsync(token), commitBody, token),
+            ct);
         var committed = commitDocument.RootElement.GetProperty("Result").GetProperty("Results")[0];
         var vid = ReadString(committed, "Vid");
         var poster = ReadString(committed, "PosterUri");
@@ -993,7 +1142,18 @@ public static class TikTokApiUploadService
         }
         catch (JsonException)
         {
-            throw new InvalidOperationException($"{action} 返回无法解析（HTTP {(int)response.StatusCode}）：{Truncate(text)}");
+            var statusCode = (int)response.StatusCode;
+            var message = $"{action} 返回无法解析（HTTP {statusCode}）：{Truncate(text)}";
+            if (IsTransientHttpStatus(statusCode))
+                throw new TransientUploadException(message);
+            throw new InvalidOperationException(message);
+        }
+
+        var status = (int)response.StatusCode;
+        if (IsTransientHttpStatus(status))
+        {
+            document.Dispose();
+            throw new TransientUploadException($"{action} 失败（HTTP {status}）：{Truncate(text)}");
         }
 
         if (document.RootElement.TryGetProperty("ResponseMetadata", out var metadata) &&
@@ -1008,7 +1168,7 @@ public static class TikTokApiUploadService
         if (!response.IsSuccessStatusCode || !document.RootElement.TryGetProperty("Result", out _))
         {
             document.Dispose();
-            throw new InvalidOperationException($"{action} 失败（HTTP {(int)response.StatusCode}）：{Truncate(text)}");
+            throw new InvalidOperationException($"{action} 失败（HTTP {status}）：{Truncate(text)}");
         }
 
         return document;
@@ -1025,17 +1185,29 @@ public static class TikTokApiUploadService
         }
         catch (JsonException)
         {
-            throw new InvalidOperationException($"TOS 返回无法解析（HTTP {(int)response.StatusCode}）：{Truncate(text)}");
+            var statusCode = (int)response.StatusCode;
+            var message = $"TOS 返回无法解析（HTTP {statusCode}）：{Truncate(text)}";
+            if (IsTransientHttpStatus(statusCode))
+                throw new TransientUploadException(message);
+            throw new InvalidOperationException(message);
         }
 
+        var status = (int)response.StatusCode;
         var code = document.RootElement.TryGetProperty("code", out var codeElement) && codeElement.TryGetInt32(out var value)
             ? value
             : -1;
+        if (IsTransientHttpStatus(status))
+        {
+            var message = ReadString(document.RootElement, "message");
+            document.Dispose();
+            throw new TransientUploadException($"TOS 上传失败（HTTP {status}，code {code}）：{Truncate(message)}");
+        }
+
         if (!response.IsSuccessStatusCode || code != 2000)
         {
             var message = ReadString(document.RootElement, "message");
             document.Dispose();
-            throw new InvalidOperationException($"TOS 上传失败（HTTP {(int)response.StatusCode}，code {code}）：{Truncate(message)}");
+            throw new InvalidOperationException($"TOS 上传失败（HTTP {status}，code {code}）：{Truncate(message)}");
         }
 
         return document;
@@ -1077,7 +1249,7 @@ public static class TikTokApiUploadService
         return http;
     }
 
-    private sealed class StsCache(IPage page)
+    private sealed class StsCache(IPage page, int retries, Action<string>? log)
     {
         private readonly SemaphoreSlim _lock = new(1, 1);
         private TikTokVodSigner.Credentials? _credentials;
@@ -1091,19 +1263,32 @@ public static class TikTokApiUploadService
                 if (_credentials is not null && DateTimeOffset.UtcNow < _expiresAt.AddMinutes(-5))
                     return _credentials;
 
-                using var document = await PageFetchAsync(page, "POST", "/api/content-partner/tool/upload/auth/", "{}", ct);
-                var ogc = document.RootElement.GetProperty("data").GetProperty("ogc");
-                _credentials = new TikTokVodSigner.Credentials(
-                    ReadString(ogc, "AccessKeyId"),
-                    ReadString(ogc, "SecretAccessKey"),
-                    ReadString(ogc, "SessionToken"));
-                if (_credentials.AccessKeyId.Length == 0 || _credentials.SecretAccessKey.Length == 0)
-                    throw new InvalidOperationException("上传授权没有返回 STS 密钥。");
-                _expiresAt = DateTimeOffset.TryParse(
-                    ReadString(ogc, "ExpiredTime"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var expires)
-                    ? expires
-                    : DateTimeOffset.UtcNow.AddMinutes(30);
-                return _credentials;
+                var attempts = Math.Clamp(retries, 1, 10);
+                for (var attempt = 1; ; attempt++)
+                {
+                    try
+                    {
+                        using var document = await PageFetchAsync(page, "POST", "/api/content-partner/tool/upload/auth/", "{}", ct);
+                        var ogc = document.RootElement.GetProperty("data").GetProperty("ogc");
+                        _credentials = new TikTokVodSigner.Credentials(
+                            ReadString(ogc, "AccessKeyId"),
+                            ReadString(ogc, "SecretAccessKey"),
+                            ReadString(ogc, "SessionToken"));
+                        if (_credentials.AccessKeyId.Length == 0 || _credentials.SecretAccessKey.Length == 0)
+                            throw new InvalidOperationException("上传授权没有返回 STS 密钥。");
+                        _expiresAt = DateTimeOffset.TryParse(
+                            ReadString(ogc, "ExpiredTime"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var expires)
+                            ? expires
+                            : DateTimeOffset.UtcNow.AddMinutes(30);
+                        return _credentials;
+                    }
+                    catch (Exception ex) when (ShouldRetry(ex, ct) && attempt < attempts)
+                    {
+                        var delay = TimeSpan.FromSeconds(attempt * 3);
+                        log?.Invoke($"接口直传：上传授权暂时失败（{ex.Message}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
+                        await Task.Delay(delay, ct);
+                    }
+                }
             }
             finally
             {

@@ -266,7 +266,34 @@ public sealed class TikTokApiUploadServiceTests
         var account = new TikTokAccountProfile();
 
         account.TiktokUploadApiConcurrency.Should().Be(3);
-        account.TiktokUploadApiFallbackToBatch.Should().BeTrue();
-        TikTokPublishOptions.FromAccount(account).UseApiUpload.Should().BeTrue();
+        account.TiktokUploadApiFallbackToBatch.Should().BeFalse();
+        var options = TikTokPublishOptions.FromAccount(account);
+        options.UseApiUpload.Should().BeTrue();
+        options.UploadApiFallbackToBatch.Should().BeFalse();
+
+        var savedFallback = new TikTokAccountProfile { TiktokUploadApiFallbackToBatch = true };
+        TikTokPublishOptions.FromAccount(savedFallback).UploadApiFallbackToBatch.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(408, true)]
+    [InlineData(429, true)]
+    [InlineData(500, true)]
+    [InlineData(200, false)]
+    [InlineData(400, false)]
+    public void Transport_status_retries_only_network_and_server_errors(int status, bool retryable)
+    {
+        TikTokApiUploadService.IsTransientHttpStatus(status).Should().Be(retryable);
+    }
+
+    [Theory]
+    [InlineData("{\"data\":{\"contractId\":\"7707846602790065160\"}}", "7707846602790065160")]
+    [InlineData("{\"id\":7707843447088124935}", "7707843447088124935")]
+    [InlineData("{\"data\":{\"videos\":[{\"id\":\"1\"}]}}", null)]
+    [InlineData("not json", null)]
+    public void Series_id_is_read_from_the_create_response(string json, string? expected)
+    {
+        TikTokApiUploadService.ReadSeriesIdFromJson(json).Should().Be(expected);
     }
 }

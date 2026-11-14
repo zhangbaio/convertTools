@@ -457,7 +457,8 @@ public sealed class TikTokPublishOptions
     public int UploadBatchStallSeconds { get; set; } = 75;
     public int UploadBatchMaxRetries { get; set; } = 3;
     public int UploadApiConcurrency { get; set; } = 3;
-    public bool UploadApiFallbackToBatch { get; set; } = true;
+    /// <summary>已停用。接口直传失败后不再改走网页分批上传。</summary>
+    public bool UploadApiFallbackToBatch { get; set; }
     /// <summary>接口直传时 HttpClient 使用的代理，与账号浏览器代理一致；为空走系统代理。</summary>
     public string NetworkProxyServer { get; set; } = "";
     public string NetworkProxyUsername { get; set; } = "";
@@ -584,7 +585,7 @@ public sealed class TikTokPublishOptions
         UploadBatchStallSeconds = account.TiktokUploadBatchStallSeconds > 0 ? Math.Clamp(account.TiktokUploadBatchStallSeconds, 20, 600) : 75,
         UploadBatchMaxRetries = account.TiktokUploadBatchMaxRetries > 0 ? Math.Clamp(account.TiktokUploadBatchMaxRetries, 1, 10) : 3,
         UploadApiConcurrency = account.TiktokUploadApiConcurrency > 0 ? Math.Clamp(account.TiktokUploadApiConcurrency, 1, 6) : 3,
-        UploadApiFallbackToBatch = account.TiktokUploadApiFallbackToBatch,
+        UploadApiFallbackToBatch = false,
         NetworkProxyServer = TikTokProxyHelper.BuildFromAccount(account)?.Server ?? "",
         NetworkProxyUsername = TikTokProxyHelper.BuildFromAccount(account)?.Username ?? "",
         NetworkProxyPassword = TikTokProxyHelper.BuildFromAccount(account)?.Password ?? "",

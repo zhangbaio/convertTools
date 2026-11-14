@@ -130,7 +130,6 @@ public partial class AccountSettingsDialog : Window
         UploadBatchStallBox.Value = p.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = p.TiktokUploadBatchMaxRetries;
         UploadApiConcurrencyBox.Value = p.TiktokUploadApiConcurrency;
-        UploadApiFallbackBox.IsChecked = p.TiktokUploadApiFallbackToBatch;
         SelectByTag(ExpectedPriceModeCombo, p.TiktokExpectedFullPriceMode, "manual");
         ExpectedPriceOptionIndexBox.Value = p.TiktokExpectedFullPriceOptionIndex;
         ExpectedPriceValueBox.Text = !string.IsNullOrWhiteSpace(p.TiktokExpectedFullPriceLabel)
@@ -230,7 +229,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
         p.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
         p.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
-        p.TiktokUploadApiFallbackToBatch = UploadApiFallbackBox.IsChecked != false;
+        p.TiktokUploadApiFallbackToBatch = false;
         p.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
         p.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
         var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);

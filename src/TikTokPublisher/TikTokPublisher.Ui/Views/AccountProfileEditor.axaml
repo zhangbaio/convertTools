@@ -342,8 +342,8 @@
                             <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
                             <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
-                            <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="接口·失败回退" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="7" Grid.Column="1" x:Name="UploadApiFallbackBox" Content="接口直传失败时改用网页分批上传" IsChecked="True" />
+                            <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="接口直传" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="7" Grid.Column="1" Text="只走接口。失败后停止，下次只补剧集详情里还没挂上的集。" TextWrapping="Wrap" VerticalAlignment="Center" />
                             <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
                             <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
