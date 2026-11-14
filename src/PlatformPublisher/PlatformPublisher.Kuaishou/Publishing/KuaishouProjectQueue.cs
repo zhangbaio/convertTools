@@ -1,7 +1,8 @@
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 /// <summary>
-/// 快手分账勾选队列：多个项目按配置同时执行。上传名额由本机闸门按账号分配，同一个账号的剧可以同时上传。
+/// 快手分账勾选队列：按剧集列表从上往下领取下一部，同时执行的数量不超过配置。
+/// 上传名额由本机闸门按账号分配，同一个账号的剧可以同时上传。
 /// </summary>
 public static class KuaishouProjectQueue
 {
@@ -32,38 +33,30 @@ public static class KuaishouProjectQueue
             return;
         }
 
-        using var gate = new SemaphoreSlim(normalized);
-        var tasks = new Task[projectCount];
-        for (var index = 0; index < projectCount; index++)
+        var next = -1;
+        var workers = new Task[Math.Min(normalized, projectCount)];
+        for (var worker = 0; worker < workers.Length; worker++)
         {
-            var projectIndex = index;
-            tasks[index] = Task.Run(async () =>
+            workers[worker] = Task.Run(async () =>
             {
-                try
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    return;
-                }
-
-                try
-                {
-                    await execute(projectIndex, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    // 停止时让已开始的项目各自收尾，不把单个取消扩散成整批失败。
-                }
-                finally
-                {
-                    gate.Release();
+                    var index = Interlocked.Increment(ref next);
+                    if (index >= projectCount)
+                        return;
+                    try
+                    {
+                        await execute(index, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
                 }
             });
         }
 
-        await Task.WhenAll(tasks).ConfigureAwait(false);
+        await Task.WhenAll(workers).ConfigureAwait(false);
     }
 }
 

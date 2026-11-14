@@ -50,6 +50,24 @@ public sealed record KuaishouSeriesDraftInput
     public required string CommitmentKey { get; init; }
 }
 
+public sealed record KuaishouSeriesFieldLog(
+    string ContentTypeLabel,
+    string ProductMethodLabel,
+    string AuthorDeclarationLabel,
+    string CopyrightProofTypeLabel,
+    string SaleTypeLabel,
+    string SeriesPriceYuan,
+    string EpisodePriceYuan,
+    string BroadcastDate,
+    int ProductionYear,
+    IReadOnlyList<string> TagLabels,
+    IReadOnlyList<string> PlotLabels,
+    string CoverFile,
+    string EpisodeCoverFile,
+    IReadOnlyList<string> ProjectImageFiles,
+    string CommitmentFile,
+    int EpisodeCount);
+
 public sealed class KuaishouSeriesCatalog
 {
     private readonly Dictionary<string, int> _tags;
@@ -177,6 +195,55 @@ public static class KuaishouSeriesDraft
     {
         var day = new DateTime(date.Year, date.Month, date.Day, 0, 0, 0, DateTimeKind.Unspecified);
         return new DateTimeOffset(day, TimeSpan.FromHours(8)).ToUnixTimeMilliseconds();
+    }
+
+    public static IReadOnlyList<string> FieldLines(KuaishouSeriesDraftInput input, KuaishouSeriesFieldLog fields)
+    {
+        var (director, screenwriter, producer) = CrewOf(input);
+        var lines = new List<string>
+        {
+            Line("短剧名称", input.Title.Trim()),
+            Line("短剧简介", SingleLine(input.Description)),
+            Line("内容类型", fields.ContentTypeLabel),
+        };
+        if (input.ProductMethod is not null)
+            lines.Add(Line("漫剧制作方式", fields.ProductMethodLabel));
+        lines.Add(Line("短剧分类", Join(fields.TagLabels)));
+        lines.Add(Line("情节", Join(fields.PlotLabels)));
+        lines.Add(Line("男女频道", AudienceLabel(input.AudienceGender)));
+        lines.Add(Line("作者声明", fields.AuthorDeclarationLabel));
+        lines.Add(Line("版权证明类型", fields.CopyrightProofTypeLabel));
+        lines.Add(Line("制作形式", input.ProductionForm));
+        lines.Add(Line("出品年份", fields.ProductionYear.ToString(CultureInfo.InvariantCulture)));
+        lines.Add(Line("单集平均时长", $"{input.EpisodeAvgTime.ToString(CultureInfo.InvariantCulture)} 分钟"));
+        lines.Add(Line("制作成本", $"{input.ProductionCost.ToString(CultureInfo.InvariantCulture)} 万元"));
+        lines.Add(Line("售卖类型", fields.SaleTypeLabel));
+        lines.Add(Line("免费集数", input.FreeEpisodeCount.ToString(CultureInfo.InvariantCulture)));
+        if (input.SaleType == 3)
+            lines.Add(Line("广告解锁集数", (input.UnlockCount ?? 0).ToString(CultureInfo.InvariantCulture)));
+        lines.Add(Line("小额解锁", YesNo(input.SmallAmountUnlock)));
+        lines.Add(Line("单集价格", $"{fields.EpisodePriceYuan} 元"));
+        lines.Add(Line("整剧价格", $"{fields.SeriesPriceYuan} 元"));
+        lines.Add(Line("完结", YesNo(input.UpdateEnd)));
+        lines.Add(Line("备案号", "无"));
+        lines.Add(Line("播出平台", input.BroadcastPlatform));
+        lines.Add(Line("播出途径", input.BroadcastChannel));
+        lines.Add(Line("播出时间", fields.BroadcastDate));
+        lines.Add(Line("制作机构", input.ProductionOrg));
+        lines.Add(Line("导演", PersonText(director)));
+        lines.Add(Line("编剧", PersonText(screenwriter)));
+        lines.Add(Line("制片人", PersonText(producer)));
+        for (var index = 0; index < input.Actors.Count; index++)
+        {
+            var actor = input.Actors[index];
+            lines.Add(Line($"演员{index + 1}", $"{actor.Name} / {actor.Gender} / {actor.Role}"));
+        }
+        lines.Add(Line("集数", fields.EpisodeCount.ToString(CultureInfo.InvariantCulture)));
+        lines.Add(Line("短剧封面", FileName(fields.CoverFile)));
+        lines.Add(Line("单集封面", FileName(fields.EpisodeCoverFile)));
+        lines.Add(Line("工程图", Join(fields.ProjectImageFiles.Select(FileName))));
+        lines.Add(Line("承诺函", FileName(fields.CommitmentFile)));
+        return lines;
     }
 
     public static string Build(KuaishouSeriesDraftInput input)
@@ -379,14 +446,57 @@ public static class KuaishouSeriesDraft
             .ToArray();
     }
 
+    private readonly record struct CrewMember(string Name, string Gender);
+
+    private static (CrewMember Director, CrewMember Screenwriter, CrewMember Producer) CrewOf(KuaishouSeriesDraftInput input)
+    {
+        if (!input.Enterprise)
+        {
+            var credit = new CrewMember(input.CreditName, input.CreditGender);
+            return (credit, credit, credit);
+        }
+
+        return (
+            new CrewMember(input.DirectorName, input.DirectorGender),
+            new CrewMember(input.ScreenwriterName, input.ScreenwriterGender),
+            new CrewMember(input.ProducerName, input.ProducerGender));
+    }
+
+    private static string Line(string name, string value) => $"{name}：{value}";
+
+    private static string YesNo(bool value) => value ? "是" : "否";
+
+    private static string AudienceLabel(int? gender) => gender switch
+    {
+        1 => "男频",
+        2 => "女频",
+        3 => "不限",
+        _ => "未选择",
+    };
+
+    private static string PersonText(CrewMember person) => $"{person.Name.Trim()} / {person.Gender.Trim()}";
+
+    private static string Join(IEnumerable<string> values)
+    {
+        var text = string.Join("、", values.Select(value => value.Trim()).Where(value => value.Length > 0));
+        return text.Length == 0 ? "未选择" : text;
+    }
+
+    private static string SingleLine(string value) =>
+        string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private static string FileName(string path) =>
+        string.IsNullOrWhiteSpace(path) ? "未选择" : Path.GetFileName(path.Trim());
+
     private static void AddPeople(JsonObject payload, KuaishouSeriesDraftInput input)
     {
-        var directorName = input.Enterprise ? input.DirectorName : input.CreditName;
-        var directorGender = input.Enterprise ? input.DirectorGender : input.CreditGender;
-        var screenwriterName = input.Enterprise ? input.ScreenwriterName : input.CreditName;
-        var screenwriterGender = input.Enterprise ? input.ScreenwriterGender : input.CreditGender;
-        var producerName = input.Enterprise ? input.ProducerName : input.CreditName;
-        var producerGender = input.Enterprise ? input.ProducerGender : input.CreditGender;
+        var crew = CrewOf(input);
+        var directorName = crew.Director.Name;
+        var directorGender = crew.Director.Gender;
+        var screenwriterName = crew.Screenwriter.Name;
+        var screenwriterGender = crew.Screenwriter.Gender;
+        var producerName = crew.Producer.Name;
+        var producerGender = crew.Producer.Gender;
         if (input.Enterprise && string.IsNullOrWhiteSpace(directorName))
             throw new InvalidOperationException("请填写导演姓名。");
         if (input.Actors.Count < 2)

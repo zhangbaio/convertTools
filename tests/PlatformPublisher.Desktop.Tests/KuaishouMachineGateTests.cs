@@ -23,6 +23,47 @@ public class KuaishouMachineGateTests
     }
 
     [Fact]
+    public async Task UploadSlotPrefersTheEarlierRowInTheList()
+    {
+        var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, 1, 3));
+        using var held = await gate.AcquireUploadAsync(CancellationToken.None, "占用");
+        var laterWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var earlierWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var later = gate.AcquireUploadAsync(
+            CancellationToken.None,
+            "后面的剧",
+            _ =>
+            {
+                laterWaiting.TrySetResult();
+                return Task.CompletedTask;
+            },
+            "acct",
+            listOrder: 5);
+        var earlier = gate.AcquireUploadAsync(
+            CancellationToken.None,
+            "前面的剧",
+            _ =>
+            {
+                earlierWaiting.TrySetResult();
+                return Task.CompletedTask;
+            },
+            "acct",
+            listOrder: 1);
+
+        await Task.WhenAll(
+            laterWaiting.Task.WaitAsync(TimeSpan.FromSeconds(2)),
+            earlierWaiting.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+        held.Dispose();
+
+        var winner = await Task.WhenAny(earlier, later).WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Same(earlier, winner);
+        using var acquired = await earlier;
+        Assert.False(later.IsCompleted);
+        acquired.Dispose();
+        using var second = await later.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
     public async Task UploadSlotLimitsTheMachine()
     {
         var gate = new KuaishouMachineGate(() => (4, QueueProjectSlotCoordinator.AccountOrderMode, 1, 3));

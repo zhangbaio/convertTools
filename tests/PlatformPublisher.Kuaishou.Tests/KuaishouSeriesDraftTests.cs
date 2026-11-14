@@ -49,6 +49,59 @@ public sealed class KuaishouSeriesDraftTests
     }
 
     [Fact]
+    public void Field_lines_print_each_submitted_form_value()
+    {
+        var lines = KuaishouSeriesDraft.FieldLines(Sample(creating: true), new KuaishouSeriesFieldLog(
+            "漫剧",
+            "AIGC剧",
+            "含AI生成内容",
+            "自有版权",
+            "观看广告解锁",
+            "1",
+            "0.11",
+            "2026-11-14",
+            2026,
+            ["年代", "都市"],
+            ["豪门赘婿"],
+            @"E:\covers\横屏封面.jpg",
+            @"E:\covers\竖屏海报.jpg",
+            [@"E:\img\工程图_1.png", @"E:\img\工程图_2.png", @"E:\img\工程图_3.png", @"E:\img\工程图_4.png"],
+            @"E:\pdf\承诺函.pdf",
+            2));
+
+        Assert.Contains("短剧名称：双生江湖行", lines);
+        Assert.Contains("内容类型：漫剧", lines);
+        Assert.Contains("漫剧制作方式：AIGC剧", lines);
+        Assert.Contains("短剧分类：年代、都市", lines);
+        Assert.Contains("情节：豪门赘婿", lines);
+        Assert.Contains("男女频道：女频", lines);
+        Assert.Contains("制作形式：横屏", lines);
+        Assert.Contains("播出时间：2026-11-14", lines);
+        Assert.Contains("售卖类型：观看广告解锁", lines);
+        Assert.Contains("广告解锁集数：1", lines);
+        Assert.Contains("单集价格：0.11 元", lines);
+        Assert.Contains("整剧价格：1 元", lines);
+        Assert.Contains("演员2：沈清禾 / 女 / 女主", lines);
+        Assert.Contains("短剧封面：横屏封面.jpg", lines);
+        Assert.Contains("承诺函：承诺函.pdf", lines);
+
+        var personal = KuaishouSeriesDraft.FieldLines(Sample(creating: true) with
+        {
+            Enterprise = false,
+            CreditName = "星燃",
+            CreditGender = "男",
+            AudienceGender = null,
+            PlotIds = [],
+        }, new KuaishouSeriesFieldLog(
+            "漫剧", "AIGC剧", "含AI生成内容", "自有版权", "观看广告解锁",
+            "1", "0.11", "2026-11-14", 2026, ["都市"], [],
+            "cover.jpg", "episode.jpg", ["1.png", "2.png", "3.png", "4.png"], "承诺函.pdf", 2));
+        Assert.Contains("导演：星燃 / 男", personal);
+        Assert.Contains("男女频道：未选择", personal);
+        Assert.Contains("情节：未选择", personal);
+    }
+
+    [Fact]
     public void Personal_plot_list_includes_the_saved_audience_channel()
     {
         using var document = JsonDocument.Parse(KuaishouSeriesDraft.Build(Sample(creating: true) with

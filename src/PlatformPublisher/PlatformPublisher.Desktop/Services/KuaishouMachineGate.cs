@@ -21,6 +21,8 @@ public sealed class KuaishouMachineGate
     private readonly object _uploadLock = new();
     private readonly object _projectImageLock = new();
     private readonly List<UploadHolder> _uploadHolders = new();
+    private readonly Dictionary<string, List<UploadWait>> _uploadWaits = new(StringComparer.OrdinalIgnoreCase);
+    private long _uploadSequence;
     private int _projectImagesInUse;
 
     public KuaishouMachineGate(Func<(int Projects, string Mode, int Uploads, int ProjectImages)>? settings = null)
@@ -104,13 +106,28 @@ public sealed class KuaishouMachineGate
         CancellationToken cancellationToken,
         string? holder = null,
         Func<string, Task>? onWait = null,
-        string? accountKey = null)
+        string? accountKey = null,
+        int listOrder = int.MaxValue)
     {
         var key = string.IsNullOrWhiteSpace(accountKey) ? "default" : accountKey.Trim();
         var readyOwner = new object();
         var readyPending = true;
         _uploads.SetReady(readyOwner, [new UploadReadyDemand(key, 1)]);
+        UploadWait mine;
+        lock (_uploadLock)
+        {
+            if (!_uploadWaits.TryGetValue(key, out var waiting))
+            {
+                waiting = new List<UploadWait>();
+                _uploadWaits[key] = waiting;
+            }
+
+            mine = new UploadWait(listOrder, ++_uploadSequence);
+            waiting.Add(mine);
+        }
+
         var announced = false;
+        var granted = false;
         try
         {
             while (true)
@@ -122,8 +139,10 @@ public sealed class KuaishouMachineGate
                 IDisposable? acquired = null;
                 lock (_uploadLock)
                 {
-                    if (_uploads.TryAcquire(key))
+                    if (IsNextUpload(key, mine) && _uploads.TryAcquire(key))
                     {
+                        RemoveUploadWait(key, mine);
+                        granted = true;
                         _uploads.ClearReady(readyOwner);
                         readyPending = false;
                         var hold = new UploadHolder(holder?.Trim() ?? "");
@@ -162,9 +181,38 @@ public sealed class KuaishouMachineGate
         }
         finally
         {
+            if (!granted)
+            {
+                lock (_uploadLock)
+                    RemoveUploadWait(key, mine);
+            }
+
             if (readyPending)
                 _uploads.ClearReady(readyOwner);
         }
+    }
+
+    private bool IsNextUpload(string key, UploadWait mine)
+    {
+        if (!_uploadWaits.TryGetValue(key, out var waiting) || waiting.Count == 0)
+            return false;
+        UploadWait? next = null;
+        foreach (var item in waiting)
+        {
+            if (next is null || item.Order < next.Order || (item.Order == next.Order && item.Sequence < next.Sequence))
+                next = item;
+        }
+
+        return ReferenceEquals(next, mine);
+    }
+
+    private void RemoveUploadWait(string key, UploadWait mine)
+    {
+        if (!_uploadWaits.TryGetValue(key, out var waiting))
+            return;
+        waiting.Remove(mine);
+        if (waiting.Count == 0)
+            _uploadWaits.Remove(key);
     }
 
     private static (int Projects, string Mode, int Uploads, int ProjectImages) ReadSettings()
@@ -176,6 +224,12 @@ public sealed class KuaishouMachineGate
     private sealed class UploadHolder(string label)
     {
         public string Label { get; } = label;
+    }
+
+    private sealed class UploadWait(int order, long sequence)
+    {
+        public int Order { get; } = order;
+        public long Sequence { get; } = sequence;
     }
 
     private sealed class Release(Action release) : IDisposable

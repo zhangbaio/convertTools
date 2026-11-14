@@ -140,6 +140,25 @@ public sealed class KuaishouSeriesDraftClient
             ProjectImageKeys = projectKeys,
             CommitmentKey = commitmentKey,
         };
+        var fieldLog = new KuaishouSeriesFieldLog(
+            form.ContentTypeLabel,
+            form.ComicMethodLabel,
+            form.AuthorDeclarationLabel,
+            form.CopyrightProofTypeLabel,
+            form.SaleTypeLabel,
+            seriesYuan,
+            episodeYuan,
+            form.BroadcastDate,
+            form.ProductionYear,
+            tags.Take(3).ToArray(),
+            plots.Take(3).ToArray(),
+            data.HorizontalCoverPath,
+            data.VerticalCoverPath,
+            data.ProjectImagePaths,
+            data.CommitmentPdfPath,
+            data.VideoPaths.Count);
+        foreach (var line in KuaishouSeriesDraft.FieldLines(input, fieldLog))
+            progress?.Report($"{label}：{line}");
         var body = KuaishouSeriesDraft.Build(input);
         if (creating)
         {

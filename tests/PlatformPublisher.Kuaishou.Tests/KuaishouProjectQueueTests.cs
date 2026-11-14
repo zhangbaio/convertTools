@@ -47,6 +47,21 @@ public sealed class KuaishouProjectQueueTests
     }
 
     [Fact]
+    public async Task RunAsync_StartsFromTheTopOfTheList()
+    {
+        var started = new int[6];
+        var count = 0;
+        await KuaishouProjectQueue.RunAsync(6, 3, async (index, _) =>
+        {
+            started[index] = Interlocked.Increment(ref count);
+            await Task.Delay(40);
+        }, CancellationToken.None);
+
+        Assert.All(started, value => Assert.NotEqual(0, value));
+        Assert.True(started.Take(3).Max() < started.Skip(3).Min());
+    }
+
+    [Fact]
     public async Task RunAsync_ParallelismOneRunsProjectsOneAfterAnother()
     {
         var active = 0;

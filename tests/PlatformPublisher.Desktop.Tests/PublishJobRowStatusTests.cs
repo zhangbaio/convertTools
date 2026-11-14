@@ -24,6 +24,63 @@ public sealed class PublishJobRowStatusTests
     }
 
     [Fact]
+    public void Queued_retry_hides_the_previous_upload_failure()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ks-retry-status-" + Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(root, "黑道往事");
+        var workflow = Path.Combine(root, "workflow", "_旧巷风起于飞");
+        try
+        {
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(workflow);
+            File.WriteAllText(Path.Combine(source, "shortdrama-project.json"),
+                $$"""
+                { "workflowProjectDir": {{Json(workflow)}}, "sourceProjectDir": {{Json(source)}} }
+                """);
+            File.WriteAllText(Path.Combine(workflow, ".kuaishou-personal-upload-state.json"),
+                """
+                { "Status": "failed", "CurrentStage": "first_page", "LastError": "未知的男女频类型" }
+                """);
+
+            var waiting = KuaishouJob();
+            waiting.ProjectDirectory = source;
+            waiting.Status = PublishJobStatus.Pending;
+            waiting.StepStates["weixin-upload"] = new PublishJobStepState
+            {
+                Key = "weixin-upload",
+                Label = "上传剧集",
+                Status = PublishJobStepStatus.Pending,
+                Message = "未执行",
+            };
+            var waitingRow = new PublishJobRowViewModel(waiting, loadArtifacts: true, loadTableInfo: false);
+
+            var failed = KuaishouJob();
+            failed.ProjectDirectory = source;
+            failed.Status = PublishJobStatus.Failed;
+            failed.StepStates["weixin-upload"] = new PublishJobStepState
+            {
+                Key = "weixin-upload",
+                Label = "上传剧集",
+                Status = PublishJobStepStatus.Failed,
+                Message = "未知的男女频类型",
+            };
+            var failedRow = new PublishJobRowViewModel(failed, loadArtifacts: true, loadTableInfo: false);
+
+            Assert.Equal("未执行", waitingRow.UploadStepStatus);
+            Assert.Equal("未执行", waitingRow.StatusText);
+            Assert.Equal("失败", failedRow.UploadStepStatus);
+            Assert.NotSame(failedRow.DramaTitleBrush, waitingRow.DramaTitleBrush);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static string Json(string path) => System.Text.Json.JsonSerializer.Serialize(path);
+
+    [Fact]
     public void Succeeded_rewrite_shows_completed_status()
     {
         var job = KuaishouJob();

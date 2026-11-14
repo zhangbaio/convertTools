@@ -66,6 +66,8 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
                     return "失败";
                 return "执行中";
             }
+            if (kuaishou && HasQueuedRetry() && !HasRemainingFailure())
+                return "未执行";
             if (Model.Status == PublishJobStatus.Failed) return "失败";
             if (kuaishou && Model.Status != PublishJobStatus.Succeeded && HasFailedPrepareStep())
                 return "失败";
@@ -157,6 +159,16 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     private bool StepFailed(string key) =>
         Model.StepStates.TryGetValue(key, out var state) && state.Status == PublishJobStepStatus.Failed;
 
+    private bool HasQueuedRetry() =>
+        Model.StepStates.Values.Any(IsQueuedRetry);
+
+    private bool HasRemainingFailure() =>
+        Model.StepStates.Values.Any(state => state.Status == PublishJobStepStatus.Failed);
+
+    private static bool IsQueuedRetry(PublishJobStepState state) =>
+        state.Status == PublishJobStepStatus.Pending &&
+        string.Equals(state.Message, "未执行", StringComparison.Ordinal);
+
     private string ModelStatusText() => Model.Status switch
     {
         PublishJobStatus.Pending => "等待执行",
@@ -194,6 +206,8 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         if (_kuaishou is null) return StepStatus(key);
         if (Model.StepStates.TryGetValue(key, out var running) && running.Status == PublishJobStepStatus.Running)
             return string.Equals(running.Message, "等待槽位", StringComparison.Ordinal) ? "等待槽位" : "进行中";
+        if (Model.StepStates.TryGetValue(key, out var queued) && IsQueuedRetry(queued))
+            return "未执行";
         if (!string.IsNullOrWhiteSpace(artifactStatus) && artifactStatus != "未执行")
             return artifactStatus;
         if (!Model.StepStates.TryGetValue(key, out var state)) return artifactStatus ?? "未执行";
@@ -275,6 +289,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     private string StepStatus(string key)
     {
         if (!Model.StepStates.TryGetValue(key, out var state)) return "待执行";
+        if (IsQueuedRetry(state)) return "未执行";
         return state.Status switch
         {
             PublishJobStepStatus.Running => "执行中",
