@@ -329,26 +329,12 @@ public static class TikTokMaterialValidationService
             yield break;
         }
 
-        if (Math.Min(width, height) < TikTokVideoConstraints.MinShortSide)
-            yield return $"{width.ToString(CultureInfo.InvariantCulture)}×{height.ToString(CultureInfo.InvariantCulture)}，短边小于 {TikTokVideoConstraints.MinShortSide.ToString(CultureInfo.InvariantCulture)}";
-
-        if (IsAspectOutOfRange(width, height))
-            yield return $"{width.ToString(CultureInfo.InvariantCulture)}×{height.ToString(CultureInfo.InvariantCulture)}，比例不是{(height >= width ? "9:16" : "16:9")}";
-
         if (!IsUploadVideoCodec(videoCodec))
             yield return $"编码 {DescribeUploadCodec(videoCodec)} 不可上传，需要 H.264 或 HEVC";
     }
 
-    /// <summary>竖屏和 9:16、横屏和 16:9 相差超过 2% 时，TikTok 会拒收。</summary>
-    public static bool IsAspectOutOfRange(int width, int height)
-    {
-        if (width <= 0 || height <= 0)
-            return false;
-        var portrait = height >= width;
-        var aspect = portrait ? width / (double)height : height / (double)width;
-        const double expected = 9d / 16d;
-        return Math.Abs(aspect - expected) / expected > 0.02;
-    }
+    /// <summary>上传不再按分辨率或 9:16 比例拦截。平台最低 720p，建议 1080p。</summary>
+    public static bool IsAspectOutOfRange(int width, int height) => false;
 
     private static bool IsUploadVideoCodec(string? videoCodec)
     {

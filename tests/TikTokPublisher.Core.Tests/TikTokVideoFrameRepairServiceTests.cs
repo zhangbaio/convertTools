@@ -8,12 +8,14 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokVideoFrameRepairServiceTests
 {
     [Theory]
-    [InlineData(1080, 1872, 1080, 1920)]
-    [InlineData(1080, 1964, 1080, 1920)]
-    [InlineData(2000, 1080, 1920, 1080)]
-    public void Off_ratio_frames_target_the_standard_size(int width, int height, int targetWidth, int targetHeight)
+    [InlineData(1080, 1872)]
+    [InlineData(1080, 1882)]
+    [InlineData(1080, 1964)]
+    [InlineData(496, 864)]
+    [InlineData(2000, 1080)]
+    public void Resolution_and_aspect_do_not_select_a_repair_target(int width, int height)
     {
-        TikTokVideoFrameRepairService.ResolveTargetFrame(width, height).Should().Be((targetWidth, targetHeight));
+        TikTokVideoFrameRepairService.ResolveTargetFrame(width, height).Should().BeNull();
     }
 
     [Theory]
@@ -41,7 +43,7 @@ public sealed class TikTokVideoFrameRepairServiceTests
     }
 
     [Fact]
-    public async Task Repair_rewrites_the_episode_backs_up_the_original_and_refreshes_dedup_record()
+    public async Task Repair_leaves_an_off_ratio_episode_unchanged()
     {
         var project = Path.Combine(Path.GetTempPath(), "frame-repair-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(project);
@@ -61,18 +63,16 @@ public sealed class TikTokVideoFrameRepairServiceTests
             File.WriteAllText(fingerprintPath,
                 JsonSerializer.Serialize(new { Preset = "p", Outputs = new[] { new { Path = "10.mp4", Length = originalLength } } }));
 
-            TikTokSmallVideoRepairService.NeedsRepair(project).Should().BeTrue();
+            TikTokVideoFrameRepairService.NeedsRepair(video).Should().BeFalse();
             var logs = new List<string>();
             var before = await TikTokVideoFrameRepairService.RepairInPlaceAsync(video, project, logs.Add, CancellationToken.None);
 
             before.Should().Be("1080×1872");
             var probe = await MediaProbe.ProbeAsync(MediaBinaryResolver.ResolveFfprobe(), video, CancellationToken.None);
-            (probe.Width, probe.Height).Should().Be((1080, 1920));
+            (probe.Width, probe.Height).Should().Be((1080, 1872));
             probe.AudioCodec.Should().NotBeEmpty();
-            File.Exists(Path.Combine(project, TikTokVideoFrameRepairService.BackupDirectoryName, "10.mp4")).Should().BeTrue();
-            ProjectVideoResolver.ResolveSourceVideos(project).Should().ContainSingle();
-            TikTokVideoFrameRepairService.NeedsRepair(video).Should().BeFalse();
-            logs.Should().ContainSingle(line => line.Contains("1080×1872 → 1080×1920"));
+            Directory.Exists(Path.Combine(project, TikTokVideoFrameRepairService.BackupDirectoryName)).Should().BeFalse();
+            logs.Should().BeEmpty();
 
             using var fingerprint = JsonDocument.Parse(File.ReadAllText(fingerprintPath));
             fingerprint.RootElement.GetProperty("Outputs")[0].GetProperty("Length").GetInt64()
