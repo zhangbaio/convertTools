@@ -11,6 +11,7 @@ public sealed record XingeRemoteAccountSeed(
     string UploadProfilePath,
     string LastWorkspace,
     string ArchiveRootDir,
+    string DramaMarket = "",
     bool QueueRunning = false)
 {
     public string ResolveWorkspacePath()

@@ -39,12 +39,19 @@ public static class QueueMaterialStepService
         Action<string> log,
         CancellationToken ct)
     {
-        ShortDramaDramaServices.RefreshSettings(settings);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         var bookId = FirstNonEmpty(metadata.BookId);
         if (string.IsNullOrWhiteSpace(bookId))
             throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
+        if (bookId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(settings.DramaSourceChain, "dramabox", StringComparison.OrdinalIgnoreCase))
+        {
+            settings = settings.Clone();
+            settings.DramaSourceChain = "dramabox";
+            log("这部剧来自 DramaBox，按 DramaBox 下载，不改本机默认数据链路。");
+        }
+        ShortDramaDramaServices.RefreshSettings(settings);
 
         var concurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
         var maxParallelProjects = Math.Clamp(

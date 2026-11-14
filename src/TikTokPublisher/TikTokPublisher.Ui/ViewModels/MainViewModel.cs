@@ -858,7 +858,8 @@ public sealed partial class MainViewModel : ViewModelBase
                 model.ParticipatesInXingeRemoteDispatch,
                 model.TiktokUploadProfilePath ?? "",
                 model.LastWorkspace ?? "",
-                model.TiktokArchiveRootDir ?? ""));
+                model.TiktokArchiveRootDir ?? "",
+                TikTokAccountProfile.NormalizeDramaMarket(model.TiktokDramaMarket)));
         }
 
         return seeds;
@@ -915,7 +916,8 @@ public sealed partial class MainViewModel : ViewModelBase
                     HasAccountAuthFile(account.AuthPath),
                     account.IsCurrent,
                     account.RemoteDispatchEnabled,
-                    uploaded);
+                    uploaded,
+                    DramaMarket: TikTokAccountProfile.NormalizeDramaMarket(account.DramaMarket));
             })
             .ToArray();
 
@@ -3760,7 +3762,11 @@ public sealed partial class MainViewModel : ViewModelBase
                 allowAppendToRunningQueue: false,
                 CancellationToken.None,
                 autoPublish: autoPublish,
-                keepExistingSelection: true);
+                keepExistingSelection: true,
+                downloadSource: command.DownloadSource,
+                forcedSeriesId: command.DownloadSource == "dramabox" && command.Series is { Count: > 0 }
+                    ? command.Series[0].SeriesId
+                    : "");
             var result = importOutcome.ImportResult;
             if (result.ProjectDirs.Count == 0)
             {
@@ -6482,10 +6488,17 @@ public sealed partial class MainViewModel : ViewModelBase
         CancellationToken ct,
         Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null,
         RemoteAutoPublishContext? autoPublish = null,
-        bool keepExistingSelection = false)
+        bool keepExistingSelection = false,
+        string downloadSource = "",
+        string forcedSeriesId = "")
     {
         var root = Path.GetFullPath(workspaceRoot);
         var settings = ClientSettingsStore.Load();
+        if (string.Equals(downloadSource, "dramabox", StringComparison.OrdinalIgnoreCase))
+        {
+            settings = settings.Clone();
+            settings.DramaSourceChain = "dramabox";
+        }
         var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
         var result = await UploadTitleImportService.ImportAsync(
             root,
@@ -6498,7 +6511,8 @@ public sealed partial class MainViewModel : ViewModelBase
             AppendLog,
             ct,
             addProjectsToQueue: false,
-            confirmUnknownAuthor: confirmUnknownAuthor);
+            confirmUnknownAuthor: confirmUnknownAuthor,
+            seriesId: forcedSeriesId);
 
         // 标记必须在项目进入运行队列之前写好，队列观察者才能从第一条进度起识别派单。
         if (autoPublish is not null)
