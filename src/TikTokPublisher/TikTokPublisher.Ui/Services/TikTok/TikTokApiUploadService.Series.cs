@@ -90,7 +90,7 @@ public static partial class TikTokApiUploadService
             }
         }
 
-        var publisherIds = await ResolvePublisherIdsAsync(page, collection, options, log, ct);
+        var publishers = await ResolvePublisherIdsAsync(page, collection, options, ct);
         var contract = TikTokApiSeriesDocument.Overlay(collection, new TikTokApiSeriesShell
         {
             Title = payload.Title,
@@ -111,7 +111,7 @@ public static partial class TikTokApiUploadService
             IsOriginalRightsHolder = options.IsOriginalRightsHolder,
             IsAdaptation = string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase),
             CopyrightFiles = copyrightFiles.Count == 0 ? null : copyrightFiles,
-            PublisherIds = publisherIds,
+            PublisherIds = publishers.Select(publisher => publisher.UserId).ToArray(),
             Signed = true,
             PublishMode = TikTokApiSeriesDocument.ResolvePublishMode(options.PublishMode),
         });
@@ -123,6 +123,16 @@ public static partial class TikTokApiUploadService
             update["licenseId"] = licenseId;
         }
 
+        LogSeriesForm(
+            log,
+            payload,
+            options,
+            recommendation,
+            contractBinding,
+            coverPath,
+            Math.Max(payload.EpisodeCount, uploadPaths.Count),
+            publishers,
+            copyrightFiles);
         log?.Invoke($"接口上传：写入剧集资料，剧集 ID {seriesId}。");
         using (var _ = await PageFetchAsync(
             page,
@@ -159,11 +169,99 @@ public static partial class TikTokApiUploadService
         return PublishResult.Success("接口上传已提交");
     }
 
-    private static async Task<IReadOnlyList<string>> ResolvePublisherIdsAsync(
+    private readonly record struct ChosenPublisher(string UserId, string Label);
+
+    private static void LogSeriesForm(
+        Action<string>? log,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        TikTokPublishRecommendation recommendation,
+        TikTokApiSeriesDocument.TikTokSeriesContractBinding contractBinding,
+        string coverPath,
+        int episodeCount,
+        IReadOnlyList<ChosenPublisher> publishers,
+        IReadOnlyList<TikTokApiCopyrightFile> copyrightFiles)
+    {
+        void Field(string name, string? value)
+        {
+            var text = string.Join(' ', (value ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            log?.Invoke($"接口上传：表单「{name}」{(text.Length == 0 ? "空" : text)}");
+        }
+
+        var contractId = contractBinding.LicenseId?.Trim();
+        if (string.IsNullOrEmpty(contractId))
+            contractId = contractBinding.ContractedId?.Trim();
+        Field("合同", contractId);
+        Field("剧名", payload.Title);
+        Field("简介", payload.Description);
+        Field("封面", Path.GetFileName(coverPath));
+        Field("自动挂载锚点", options.AnchorPromotionEnabled ? "已开启" : "未开启");
+        Field("目标观众", AudienceLabel(recommendation.TargetAudience));
+        Field("题材类型", string.Join("、", recommendation.Genres.Where(genre => !string.IsNullOrWhiteSpace(genre))));
+        Field("源语言", options.SourceLanguageLabels.FirstOrDefault() ?? options.SourceLanguage);
+        Field("总集数", Math.Max(1, episodeCount).ToString());
+        if (publishers.Count == 0)
+            Field("发布账号", "");
+        else
+        {
+            foreach (var publisher in publishers)
+                Field("发布账号", publisher.Label);
+        }
+
+        Field("是否 AI 短剧", options.IsAiDrama ? "是" : "否");
+        Field("内容创作类型", CreationLabel(options.ContentOriginalityType));
+        Field("本人承诺", "已勾选");
+        if (copyrightFiles.Count == 0)
+        {
+            Field("版权材料", "");
+        }
+        else
+        {
+            foreach (var group in copyrightFiles.GroupBy(file => file.MaterialType))
+            {
+                var key = TikTokBrowserActions.CopyrightMaterialTypeByApiValue.GetValueOrDefault(group.Key, "");
+                var label = key.Length == 0
+                    ? group.Key.ToString()
+                    : TikTokPublishConstants.CopyrightMaterialLabels.GetValueOrDefault(key, key);
+                Field(label, string.Join("、", group.Select(file => file.FileName)));
+            }
+        }
+
+        Field("发布方式", options.PublishModeLabel);
+        Field("托管模式", options.ConsignmentEnabled ? "已开启" : "未开启");
+        var profilePreview = Math.Max(1, options.ProfilePreviewEpisodes);
+        if (!options.PaidEnabled)
+        {
+            Field("商业模式", $"免费，个人页展示 {profilePreview} 集");
+            return;
+        }
+
+        var price = TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue);
+        Field(
+            "商业模式",
+            $"付费，个人页展示 {profilePreview} 集，免费预览 {Math.Max(1, options.FreePreviewEpisodes)} 集，全集价格 {(string.IsNullOrEmpty(price) ? "未填" : price)}");
+    }
+
+    private static string AudienceLabel(string? audience)
+    {
+        var key = string.IsNullOrWhiteSpace(audience) ? "female" : audience.Trim();
+        return TikTokPublishConstants.TargetAudienceAliases.TryGetValue(key, out var labels) && labels.Count > 0
+            ? labels[0]
+            : key;
+    }
+
+    private static string CreationLabel(string? type)
+    {
+        var key = TikTokPublishConstants.NormalizeContentCreationType(type);
+        return TikTokPublishConstants.ContentCreationTypeLabels.TryGetValue(key, out var labels) && labels.Count > 0
+            ? labels[0]
+            : key;
+    }
+
+    private static async Task<IReadOnlyList<ChosenPublisher>> ResolvePublisherIdsAsync(
         IPage? page,
         JsonObject? collection,
         TikTokPublishOptions options,
-        Action<string>? log,
         CancellationToken ct)
     {
         var institutionId = collection?["institutionId"] is JsonValue institution &&
@@ -185,12 +283,21 @@ public static partial class TikTokApiUploadService
                 ["withRegisterTaskStatus"] = false,
             }.ToJsonString(),
             ct);
+        var accounts = TikTokApiSeriesDocument.ReadPublisherAccounts(detail.RootElement);
         var ids = TikTokApiSeriesDocument.SelectPublisherIds(
-            TikTokApiSeriesDocument.ReadPublisherAccounts(detail.RootElement),
+            accounts,
             options.CustomPublishAccountsEnabled,
             options.SelectedPublishAccountKeys);
-        log?.Invoke($"接口上传：写入 {ids.Count} 个发布账号。");
-        return ids;
+        return ids
+            .Select(id =>
+            {
+                var account = accounts.FirstOrDefault(item => item.UserId == id);
+                var label = account.UserId.Length == 0
+                    ? id
+                    : TikTokApiSeriesDocument.DescribePublisher(account);
+                return new ChosenPublisher(id, label);
+            })
+            .ToArray();
     }
 
     internal static async Task<string> UploadImageAsync(

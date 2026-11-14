@@ -419,6 +419,17 @@ public static class TikTokApiSeriesDocument
         return contract;
     }
 
+    public static string DescribePublisher(TikTokPublisherAccount account)
+    {
+        var country = RegionDisplayName(account.RegionCode);
+        var nickname = AccountLabel(account.Nickname);
+        if (country.Length == 0)
+            return nickname;
+        if (nickname.Length == 0)
+            return country;
+        return country + " / " + nickname;
+    }
+
     /// <summary>1 过审后自动发布，2 手动发布，3 定时发布。</summary>
     public static int ResolvePublishMode(string? mode) =>
         mode?.Trim() switch

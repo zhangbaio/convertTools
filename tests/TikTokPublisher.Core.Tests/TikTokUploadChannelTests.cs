@@ -262,6 +262,8 @@ public sealed class TikTokUploadChannelTests
             ]);
 
         ids.Should().Equal("7658121498233717767", "7658121615015986190", "7670064863986598933");
+        TikTokApiSeriesDocument.DescribePublisher(accounts[1])
+            .Should().Be("埃及 / DramaReel");
     }
 
     [Fact]
