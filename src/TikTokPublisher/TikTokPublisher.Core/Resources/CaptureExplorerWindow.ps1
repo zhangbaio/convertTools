@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$TargetPath,
     [Parameter(Mandatory=$true)][string]$OutputPath,
     [ValidateSet('Details','LargeIcons')][string]$View = 'Details'
@@ -258,20 +258,138 @@ function Wait-ExplorerNavigationPaneAtTop {
     return $false
 }
 
+function Normalize-ExplorerDirectoryPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    try {
+        $full = [IO.Path]::GetFullPath($Path)
+        # Keep a drive root intact. TrimEnd would turn "D:\" into "D:".
+        if ($full.Length -gt 3) { $full = $full.TrimEnd('\') }
+        return $full.Normalize([Text.NormalizationForm]::FormC)
+    } catch {
+        return $null
+    }
+}
+
+function Test-SameExplorerDirectory {
+    param([string]$Left, [string]$Right)
+
+    if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+    return [string]::Equals($Left, $Right, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Convert-PercentEncodedExplorerText {
+    param([string]$Text)
+
+    # Shell.Application mixes three encodings in one LocationURL:
+    #   %20 / %26                         ASCII bytes
+    #   %E3 for ã, %E9 for é, %A1 for ¡   a single Windows-1252 byte
+    #   %E6%B5%B7 for 海                   UTF-8 on other Windows installs
+    #   假面 / ไทย                         raw Unicode, not percent-encoded
+    # Uri.LocalPath decodes every percent sequence as UTF-8, so %E3 stays
+    # literal and a Portuguese or Spanish folder never matches.
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    $utf8 = New-Object System.Text.UTF8Encoding $false, $true
+    $ansi = [Text.Encoding]::GetEncoding(0)
+    $latin1 = [Text.Encoding]::GetEncoding(1252)
+    $builder = New-Object System.Text.StringBuilder
+    $bytes = New-Object System.Collections.Generic.List[byte]
+
+    function Append-DecodedPercentBytes {
+        param($Pending, $Target, $Utf8Encoding, $AnsiEncoding, $Latin1Encoding)
+        if ($Pending.Count -eq 0) { return }
+        $raw = $Pending.ToArray()
+        $decoded = $null
+        try { $decoded = $Utf8Encoding.GetString($raw) } catch { $decoded = $null }
+        if ($null -eq $decoded) {
+            $ansiText = $AnsiEncoding.GetString($raw)
+            $roundTrip = $AnsiEncoding.GetBytes($ansiText)
+            $same = ($roundTrip.Length -eq $raw.Length)
+            if ($same) {
+                for ($byteIndex = 0; $byteIndex -lt $raw.Length; $byteIndex++) {
+                    if ($roundTrip[$byteIndex] -ne $raw[$byteIndex]) { $same = $false; break }
+                }
+            }
+            # A lone 0xE3 is not a complete GBK character. Rejecting the
+            # round-trip keeps ã/é/¡ on Windows-1252 instead of "?".
+            if ($same) { $decoded = $ansiText }
+        }
+        if ($null -eq $decoded) { $decoded = $Latin1Encoding.GetString($raw) }
+        [void]$Target.Append($decoded)
+        $Pending.Clear()
+    }
+
+    $index = 0
+    while ($index -lt $Text.Length) {
+        $encoded = $false
+        if ($Text[$index] -eq '%' -and ($index + 2) -lt $Text.Length) {
+            $hex = $Text.Substring($index + 1, 2)
+            if ($hex -match '^[0-9A-Fa-f]{2}$') {
+                $bytes.Add([Convert]::ToByte($hex, 16))
+                $index += 3
+                $encoded = $true
+            }
+        }
+        if ($encoded) { continue }
+        Append-DecodedPercentBytes $bytes $builder $utf8 $ansi $latin1
+        [void]$builder.Append($Text[$index])
+        $index++
+    }
+    Append-DecodedPercentBytes $bytes $builder $utf8 $ansi $latin1
+    return $builder.ToString()
+}
+
+function Get-ExplorerPathFromFileUrl {
+    param([string]$LocationUrl)
+
+    # file:///C:/folder      -> C:\folder
+    # file://server/share    -> \\server\share
+    # file://localhost/C:/folder stays a local path. Treating every file://
+    # host as UNC would turn the local form into "\\localhost\C:\folder".
+    $rest = $LocationUrl.Trim().Substring(5)
+    if ($rest.StartsWith('///')) {
+        $raw = $rest.Substring(3)
+    } elseif ($rest.StartsWith('//')) {
+        $afterSlashes = $rest.Substring(2)
+        $slash = $afterSlashes.IndexOf('/')
+        if ($slash -lt 0) {
+            $authority = $afterSlashes
+            $pathPart = ''
+        } else {
+            $authority = $afterSlashes.Substring(0, $slash)
+            $pathPart = $afterSlashes.Substring($slash + 1)
+        }
+        if ([string]::IsNullOrWhiteSpace($authority) -or
+            $authority.Equals('localhost', [StringComparison]::OrdinalIgnoreCase)) {
+            $raw = $pathPart
+        } else {
+            $raw = '\\' + $authority + '/' + $pathPart
+        }
+    } else {
+        return $null
+    }
+
+    $decoded = Convert-PercentEncodedExplorerText $raw
+    $decoded = $decoded.Replace('/', '\')
+    if ($decoded -match '^\\[A-Za-z]:') { $decoded = $decoded.Substring(1) }
+    return $decoded
+}
+
 function Convert-ExplorerLocationUrlToPath {
     param([string]$LocationUrl)
 
     if ([string]::IsNullOrWhiteSpace($LocationUrl)) { return $null }
     try {
-        $locationUri = [Uri]$LocationUrl
-        if (-not $locationUri.IsFile) { return $null }
-
-        # Uri.LocalPath handles both forms emitted by Shell.Application:
-        #   file:///C:/folder      -> C:\folder
-        #   file://server/share   -> \\server\share
-        # Stripping only "file:///" turns a UNC URL into the relative path
-        # "file:\\server\share", which can never match the requested directory.
-        return [IO.Path]::GetFullPath($locationUri.LocalPath).TrimEnd('\')
+        $trimmed = $LocationUrl.Trim().Trim('"')
+        $path = $trimmed
+        if ($trimmed.StartsWith('file:', [StringComparison]::OrdinalIgnoreCase)) {
+            $path = Get-ExplorerPathFromFileUrl $trimmed
+        }
+        if ([string]::IsNullOrWhiteSpace($path)) { return $null }
+        return Normalize-ExplorerDirectoryPath $path
     } catch {
         return $null
     }
@@ -316,14 +434,7 @@ function Test-WindowPathMatches {
                 if ([string]::IsNullOrWhiteSpace($value)) { continue }
                 if ($value -notmatch '^(file:|[A-Za-z]:\\|\\\\)') { continue }
                 $location = Convert-ExplorerLocationUrlToPath $value
-                if ([string]::IsNullOrWhiteSpace($location)) {
-                    try {
-                        $location = [IO.Path]::GetFullPath($value.Trim().Trim('"')).TrimEnd('\')
-                    } catch {
-                        continue
-                    }
-                }
-                if ($location -ieq $ExpectedPath) { return $true }
+                if (Test-SameExplorerDirectory $location $ExpectedPath) { return $true }
             } catch {}
         }
     } catch {}
@@ -354,12 +465,14 @@ function Close-ExplorerWindowsOpenedByCapture {
     }
 }
 
-$resolved = [IO.Path]::GetFullPath($TargetPath).TrimEnd('\')
+$resolvedPath = [IO.Path]::GetFullPath($TargetPath).TrimEnd('\')
+$resolved = Normalize-ExplorerDirectoryPath $resolvedPath
+if ([string]::IsNullOrWhiteSpace($resolved)) { $resolved = $resolvedPath }
 # Explorer splits its own command line on commas. A title such as
 # "My CEO, My All-consuming Love" must stay inside one quoted argument.
 # The old unquoted "/separate, /e, <path>" form opens Documents instead, and the
 # retries leave those extra Explorer processes behind until a reboot.
-$quotedTarget = $resolved.Replace('"', '')
+$quotedTarget = $resolvedPath.Replace('"', '')
 # Parentheses are required. The comma operator binds tighter than +, so an
 # ungrouped array here collapses into one string and Explorer opens Documents.
 $separateArguments = ('/separate,/e,"' + $quotedTarget + '"')
@@ -396,7 +509,7 @@ for ($attempt = 0; $attempt -lt 60 -and $null -eq $window; $attempt++) {
             if ($isNewWindow -and -not [string]::IsNullOrWhiteSpace($rawLocation)) {
                 $seenLocations[$rawLocation] = $true
             }
-            if ($location -ine $resolved) { continue }
+            if (-not (Test-SameExplorerDirectory $location $resolved)) { continue }
             if ($isNewWindow) {
                 $window = $candidate
                 $ownsWindow = $true

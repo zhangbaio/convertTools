@@ -25,8 +25,10 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         using var reader = new StreamReader(stream!);
         var script = reader.ReadToEnd();
 
-        script.Should().Contain("$locationUri.LocalPath");
         script.Should().Contain("file://server/share");
+        script.Should().Contain("GetEncoding(1252)");
+        script.Should().Contain("UTF8Encoding");
+        script.Should().NotContain("$locationUri.LocalPath");
         script.Should().NotContain("-replace '^file:///', ''");
     }
 
