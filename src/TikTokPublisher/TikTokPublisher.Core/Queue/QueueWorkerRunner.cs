@@ -1806,6 +1806,7 @@ public sealed class QueueWorkerRunner
             if (!browserReady.Ok)
             {
                 failureMessage = browserReady.Message;
+                skipManualIntervention = failureMessage.Contains("请先配置合同", StringComparison.Ordinal);
                 Report(onProgress, workspace, item, $"上传失败：{failureMessage}", QueueStepRegistry.UploadSeries);
             }
             else

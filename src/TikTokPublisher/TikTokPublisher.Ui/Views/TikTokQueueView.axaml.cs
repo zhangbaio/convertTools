@@ -4680,6 +4680,28 @@ public partial class TikTokQueueView : UserControl
         Action<string>? log,
         CancellationToken ct)
     {
+        if (TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
+        {
+            try
+            {
+                TikTokUploadPrerequisiteService.EnsureApiContractConfigured(account);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return QueueBrowserReadyResult.NotReady(ex.Message);
+            }
+
+            var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+            if (!File.Exists(authPath))
+            {
+                return QueueBrowserReadyResult.NotReady(
+                    "接口上传：没有保存的登录状态，请先在浏览器页登录该账号。");
+            }
+
+            log?.Invoke("上传方式：接口上传，不打开浏览器。");
+            return QueueBrowserReadyResult.Ready();
+        }
+
         // 程序自动打开的外部浏览器：只需存在授权文件（发布时 launch 浏览器并复用登录态）。
         if (UsesPlaywrightUploadBrowser(account))
         {
@@ -4728,10 +4750,27 @@ public partial class TikTokQueueView : UserControl
         Action<string> log,
         CancellationToken ct)
     {
-        // 与 EnsureAccountBrowserReadyAsync 保持一致：程序自动打开的外部浏览器 > 外部浏览器(CDP 可达) > 内置浏览器。
+        // 与 EnsureAccountBrowserReadyAsync 保持一致：接口上传不占浏览器；其余为外部浏览器 > 外部浏览器(CDP 可达) > 内置浏览器。
         IEmbeddedBrowser? browser;
         var usingEmbeddedBrowser = false;
-        if (UsesPlaywrightUploadBrowser(account))
+        if (TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
+        {
+            try
+            {
+                TikTokUploadPrerequisiteService.EnsureApiContractConfigured(account);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return PublishResult.FailAndSkipManualIntervention(ex.Message);
+            }
+
+            var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+            if (!File.Exists(authPath))
+                return PublishResult.Fail("接口上传：没有保存的登录状态，请先在浏览器页登录该账号。");
+
+            browser = new PlaywrightLaunchBrowser(account);
+        }
+        else if (UsesPlaywrightUploadBrowser(account))
         {
             var ready = await EnsureAutoLoginStateAsync(
                 account,

@@ -6,14 +6,26 @@ namespace TikTokPublisher.Core.Services;
 /// <summary>剧集上传前置校验（对齐 Python <c>publish_service._ensure_tiktok_upload_prerequisites</c>）。</summary>
 public static class TikTokUploadPrerequisiteService
 {
+    public static void EnsureApiContractConfigured(TikTokAccountProfile account)
+    {
+        if (!TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
+            return;
+        if (!IsManualContractMode(account))
+            return;
+        if (!string.IsNullOrWhiteSpace(account.TiktokContractId))
+            return;
+
+        throw new InvalidOperationException(
+            "接口上传前请先配置合同。请在「账号管理 → 发布配置」填写合同 ID 后再上传。");
+    }
+
     public static void EnsureUploadPrerequisites(TikTokAccountProfile account, Action<string>? log = null)
     {
-        var missing = new List<string>();
-        var contractMode = string.IsNullOrWhiteSpace(account.TiktokContractIdMode)
-            ? TikTokPublishConstants.ContractIdModeManual
-            : account.TiktokContractIdMode.Trim();
+        EnsureApiContractConfigured(account);
 
-        if (string.Equals(contractMode, TikTokPublishConstants.ContractIdModeManual, StringComparison.OrdinalIgnoreCase)
+        var missing = new List<string>();
+        if (!TikTokUploadChannels.IsApi(account.TiktokUploadStrategy)
+            && IsManualContractMode(account)
             && string.IsNullOrWhiteSpace(account.TiktokContractId))
         {
             missing.Add("关联合同 ID（发布配置）");
@@ -52,6 +64,14 @@ public static class TikTokUploadPrerequisiteService
             + "配置“预期全集价格设置”。";
         log?.Invoke(hint);
         throw new InvalidOperationException(hint);
+    }
+
+    private static bool IsManualContractMode(TikTokAccountProfile account)
+    {
+        var contractMode = string.IsNullOrWhiteSpace(account.TiktokContractIdMode)
+            ? TikTokPublishConstants.ContractIdModeManual
+            : account.TiktokContractIdMode.Trim();
+        return string.Equals(contractMode, TikTokPublishConstants.ContractIdModeManual, StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool PaidUploadPossible(TikTokAccountProfile account)

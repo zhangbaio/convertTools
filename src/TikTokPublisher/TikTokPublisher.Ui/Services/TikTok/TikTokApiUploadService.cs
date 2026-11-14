@@ -9,12 +9,13 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
 
 /// <summary>
 /// 接口直传：与剧集中心网页同一条链路（上传授权 → 点播 ApplyUploadInner → TOS 分片 → CommitUploadInner → 挂到剧集）。
-/// 剧集中心接口带反爬签名，只能在已登录页面里 <c>fetch</c>；点播和 TOS 只认 STS 签名，由 HttpClient 并发上传。
+/// 接口上传用账号保存的登录 Cookie 直接请求，不打开浏览器。网页上传仍在已登录页面里 fetch。点播和 TOS 只认 STS 签名，由 HttpClient 并发上传。
 /// </summary>
 public static partial class TikTokApiUploadService
 {
@@ -26,6 +27,7 @@ public static partial class TikTokApiUploadService
     private const string ApiVersion = "2020-11-19";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
     private const string DeleteVideosPath = "/api/content-partner/series/videos/batch-delete";
+    internal const string DramaCenterOrigin = "https://www.tiktokdramacenter.com";
 
     private static readonly Regex SeriesIdPattern =
         new(@"/series/(?:draft/)?(\d{16,20})/?(?=[?#]|$)", RegexOptions.Compiled);
@@ -292,7 +294,7 @@ public static partial class TikTokApiUploadService
     /// 删除失败、删完仍在、或正片不是 1 到总集数各一条，都直接失败，不改走网页，也不提交。
     /// </summary>
     public static async Task<bool> SyncEpisodesAsync(
-        IPage page,
+        IPage? page,
         string seriesId,
         IReadOnlyList<string> uploadPaths,
         TikTokPublishOptions options,
@@ -391,7 +393,7 @@ public static partial class TikTokApiUploadService
                         try
                         {
                             var committed = await UploadWithRetryAsync(
-                                http, sts, gates, page.Url, item, options, missing.Count,
+                                http, sts, gates, CurrentPageUrl(page), item, options, missing.Count,
                                 () => Interlocked.Increment(ref uploaded),
                                 bytes => Interlocked.Add(ref uploadedBytes, bytes),
                                 log, uploadCts.Token);
@@ -443,7 +445,7 @@ public static partial class TikTokApiUploadService
             catch
             {
                 uploadCts.Cancel();
-                if (changed)
+                if (changed && page is not null)
                     await ReloadEditPageAsync(page, ct);
                 throw;
             }
@@ -470,7 +472,7 @@ public static partial class TikTokApiUploadService
             log?.Invoke($"接口直传：已按集号重新排序 {ordered.Count} 集。");
         }
 
-        if (changed)
+        if (changed && page is not null)
             await ReloadEditPageAsync(page, ct);
 
         if (failures.Count > 0)
@@ -585,7 +587,7 @@ public static partial class TikTokApiUploadService
     }
 
     private static async Task<string?> TryReadExistingDraftIdAsync(
-        IPage page,
+        IPage? page,
         string? title,
         Action<string>? log,
         CancellationToken ct)
@@ -594,8 +596,56 @@ public static partial class TikTokApiUploadService
         if (normalized.Length == 0)
             return null;
 
+        if (PartnerSession.Current.Value is not null)
+            return await TryReadExistingDraftFromListAsync(normalized, log, ct);
+
+        if (page is null)
+            throw new InvalidOperationException("接口上传：没有登录页面，无法查找同名草稿。");
+
         var rows = await TikTokSeriesListLookupService.SearchExactAsync(page, normalized, ct, log);
-        var lookup = FindDraftSeries(rows);
+        return SelectSingleDraftId(FindDraftSeries(rows));
+    }
+
+    private static async Task<string?> TryReadExistingDraftFromListAsync(
+        string title,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var matched = new List<TikTokSeriesListRow>();
+        int? total = null;
+        var pagesRead = 0;
+        for (var pageIndex = 1; pageIndex <= 10; pageIndex++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var body = JsonSerializer.Serialize(new { title, pageIndex, pageSize = 50 });
+            using var document = await PageFetchAsync(
+                null,
+                "POST",
+                "/api/content-partner/series/v2/list",
+                body,
+                ct);
+            var parsed = TikTokSeriesListLookupService.ParseSeriesList(document.RootElement);
+            total ??= parsed.Total;
+            pagesRead = pageIndex;
+            foreach (var row in parsed.Rows)
+            {
+                if (string.Equals(row.Title.Trim(), title, StringComparison.Ordinal))
+                    matched.Add(row);
+            }
+
+            if (parsed.Rows.Count < 50)
+                break;
+            if (total is int known && pageIndex * 50 >= known)
+                break;
+        }
+
+        if (pagesRead == 10 && total is int remaining && remaining > pagesRead * 50)
+            log?.Invoke("原剧管理接口仍有后续结果，本次只核对了前 500 条。");
+        return SelectSingleDraftId(FindDraftSeries(matched));
+    }
+
+    private static string? SelectSingleDraftId(DraftSeriesLookup lookup)
+    {
         var ids = lookup.SelectIds();
         if (ids.Count > 1)
         {
@@ -813,7 +863,7 @@ public static partial class TikTokApiUploadService
 
     /// <summary>刚由挂集请求建出来的剧集，详情接口会先返回一阵 HTTP 500，要等后台落库。</summary>
     private static async Task<IReadOnlyList<SeriesVideo>> ReadSeriesVideosAsync(
-        IPage page,
+        IPage? page,
         string seriesId,
         CancellationToken ct,
         Action<string>? log = null)
@@ -842,7 +892,7 @@ public static partial class TikTokApiUploadService
     /// 请求体是 contractId 和 videoIds。失败就停，不再往上面叠传。
     /// </summary>
     private static async Task DeleteExtraVideosAsync(
-        IPage page,
+        IPage? page,
         string seriesId,
         IReadOnlyList<string> videoIds,
         TikTokPublishOptions options,
@@ -912,29 +962,47 @@ public static partial class TikTokApiUploadService
         }
     }
 
+    private static string CurrentPageUrl(IPage? page)
+    {
+        var url = page?.Url;
+        return string.IsNullOrWhiteSpace(url) ? DramaCenterOrigin + "/" : url;
+    }
+
     private static async Task<JsonDocument> PageFetchAsync(
-        IPage page,
+        IPage? page,
         string method,
         string path,
         string? body,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var result = await page.EvaluateAsync<JsonElement>(
-            """
-            async ([method, path, body]) => {
-              const init = { method, credentials: 'include' };
-              if (body !== null) {
-                init.headers = { 'content-type': 'application/json' };
-                init.body = body;
-              }
-              const res = await fetch(path, init);
-              return { status: res.status, text: await res.text() };
-            }
-            """,
-            new object?[] { method, path, body });
-        var status = result.GetProperty("status").GetInt32();
-        var text = result.GetProperty("text").GetString() ?? "";
+        int status;
+        string text;
+        if (PartnerSession.Current.Value is { } session)
+        {
+            (status, text) = await session.SendAsync(method, path, body, ct);
+        }
+        else
+        {
+            if (page is null)
+                throw new InvalidOperationException("接口上传：没有登录页面，也没有保存的登录状态。");
+            var result = await page.EvaluateAsync<JsonElement>(
+                """
+                async ([method, path, body]) => {
+                  const init = { method, credentials: 'include' };
+                  if (body !== null) {
+                    init.headers = { 'content-type': 'application/json' };
+                    init.body = body;
+                  }
+                  const res = await fetch(path, init);
+                  return { status: res.status, text: await res.text() };
+                }
+                """,
+                new object?[] { method, path, body });
+            status = result.GetProperty("status").GetInt32();
+            text = result.GetProperty("text").GetString() ?? "";
+        }
+
         JsonDocument document;
         try
         {
@@ -952,15 +1020,18 @@ public static partial class TikTokApiUploadService
         if (status is < 200 or >= 300 || code != 0)
         {
             var message = ReadString(root, "message");
+            if (string.IsNullOrWhiteSpace(message))
+                message = ReadString(root, "msg");
             document.Dispose();
-            throw new PageFetchException($"{path} 失败（HTTP {status}，code {code}）：{Truncate(message)}", status);
+            var detail = string.IsNullOrWhiteSpace(message) ? Truncate(text) : Truncate(message);
+            throw new PageFetchException($"{path} 失败（HTTP {status}，code {code}）：{detail}", status);
         }
 
         return document;
     }
 
     private static async Task MountBatchAsync(
-        IPage page,
+        IPage? page,
         string seriesId,
         IReadOnlyList<LocalEpisode> missing,
         IReadOnlyList<int> orderNums,
@@ -1019,12 +1090,30 @@ public static partial class TikTokApiUploadService
     private readonly record struct FetchReply(int Status, string Text);
 
     private static async Task<IReadOnlyList<FetchReply>> PostJsonManyAsync(
-        IPage page,
+        IPage? page,
         string path,
         IReadOnlyList<string> bodies,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        if (PartnerSession.Current.Value is { } session)
+        {
+            var sent = await Task.WhenAll(bodies.Select(async body =>
+            {
+                try
+                {
+                    return await session.SendAsync("POST", path, body, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    return (Status: 0, Text: ex.Message);
+                }
+            }));
+            return sent.Select(reply => new FetchReply(reply.Status, reply.Text)).ToArray();
+        }
+
+        if (page is null)
+            throw new InvalidOperationException("接口上传：没有登录页面，也没有保存的登录状态。");
         var results = await page.EvaluateAsync<JsonElement>(
             """
             async ([path, bodies]) => {
@@ -1514,7 +1603,7 @@ public static partial class TikTokApiUploadService
         return document;
     }
 
-    private static async Task<HttpClient> CreateHttpClientAsync(IPage page, TikTokPublishOptions options)
+    private static async Task<HttpClient> CreateHttpClientAsync(IPage? page, TikTokPublishOptions options)
     {
         var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All };
         if (!string.IsNullOrWhiteSpace(options.NetworkProxyServer))
@@ -1529,6 +1618,14 @@ public static partial class TikTokApiUploadService
         }
 
         var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(5) };
+        if (page is null)
+        {
+            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+            http.DefaultRequestHeaders.TryAddWithoutValidation("Origin", DramaCenterOrigin);
+            http.DefaultRequestHeaders.TryAddWithoutValidation("Referer", DramaCenterOrigin + "/");
+            return http;
+        }
+
         try
         {
             var userAgent = await page.EvaluateAsync<string>("() => navigator.userAgent");
@@ -1550,7 +1647,7 @@ public static partial class TikTokApiUploadService
         return http;
     }
 
-    private sealed class StsCache(IPage page, int retries, Action<string>? log)
+    private sealed class StsCache(IPage? page, int retries, Action<string>? log)
     {
         private readonly SemaphoreSlim _lock = new(1, 1);
         private TikTokVodSigner.Credentials? _credentials;
@@ -1639,5 +1736,69 @@ public static partial class TikTokApiUploadService
     {
         var value = (text ?? "").Replace('\n', ' ').Trim();
         return value.Length <= max ? value : value[..max] + "…";
+    }
+
+    private sealed class PartnerSession : IDisposable
+    {
+        internal static readonly AsyncLocal<PartnerSession?> Current = new();
+
+        private readonly HttpClient _http;
+        private readonly string _cookie;
+
+        private PartnerSession(string cookie, TikTokPublishOptions options)
+        {
+            _cookie = cookie;
+            var handler = new HttpClientHandler
+            {
+                UseCookies = false,
+                AutomaticDecompression = DecompressionMethods.All,
+                UseProxy = false,
+            };
+            if (!string.IsNullOrWhiteSpace(options.NetworkProxyServer))
+            {
+                handler.Proxy = new WebProxy(new Uri(options.NetworkProxyServer))
+                {
+                    Credentials = string.IsNullOrWhiteSpace(options.NetworkProxyUsername)
+                        ? null
+                        : new NetworkCredential(options.NetworkProxyUsername, options.NetworkProxyPassword),
+                };
+                handler.UseProxy = true;
+            }
+
+            _http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(2) };
+        }
+
+        public static PartnerSession Open(string storageStatePath, TikTokPublishOptions options)
+        {
+            var cookie = TikTokAccountAnalyticsClient.ReadCookieHeader(storageStatePath);
+            if (string.IsNullOrWhiteSpace(cookie))
+                throw new InvalidOperationException("接口上传：保存的登录状态里没有剧集中心 Cookie，请先在浏览器页重新登录该账号。");
+            return new PartnerSession(cookie, options);
+        }
+
+        public async Task<(int Status, string Text)> SendAsync(
+            string method,
+            string path,
+            string? body,
+            CancellationToken ct)
+        {
+            var url = path.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? path
+                : DramaCenterOrigin + (path.StartsWith('/') ? path : "/" + path);
+            using var request = new HttpRequestMessage(new HttpMethod(method), url);
+            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+            request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
+            request.Headers.TryAddWithoutValidation("Origin", DramaCenterOrigin);
+            request.Headers.TryAddWithoutValidation("Referer", DramaCenterOrigin + "/series/draft");
+            request.Headers.TryAddWithoutValidation("Cookie", _cookie);
+            if (body is not null)
+                request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return ((int)response.StatusCode, text);
+        }
+
+        public void Dispose() => _http.Dispose();
     }
 }

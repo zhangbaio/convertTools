@@ -65,6 +65,8 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         }
         catch (InvalidOperationException ex)
         {
+            if (ex.Message.Contains("请先配置合同", StringComparison.Ordinal))
+                return PublishResult.FailAndSkipManualIntervention(ex.Message);
             return PublishResult.Fail(ex.Message);
         }
 
@@ -160,6 +162,53 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             return snapshot?.DirectoryPath;
         }
 
+        if (options.UseApiUpload)
+        {
+            L("上传方式：接口上传，不打开浏览器。");
+            RecordUploadStepStarted();
+            try
+            {
+                var apiResult = await TikTokApiUploadService.PublishWithSavedLoginAsync(
+                        EmbeddedBrowserLoginHelper.ResolveAuthPath(account),
+                        item,
+                        payload,
+                        options,
+                        recommendation,
+                        coverPath,
+                        hasWorkflow ? workflowDir : null,
+                        finalAction,
+                        L,
+                        ct)
+                    .ConfigureAwait(false);
+                if (apiResult.Ok && hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
+                return apiResult;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TikTokDailyLimitException ex)
+            {
+                if (hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, ex.Message, payload.Title);
+                return PublishResult.FailAndStopQueue(ex.Message);
+            }
+            catch (TikTokPlatformTemporaryException ex)
+            {
+                if (hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, ex.Message, payload.Title);
+                return PublishResult.Fail(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                var failureText = $"{ex.GetType().Name}: {ex.Message}";
+                if (hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, failureText, payload.Title);
+                return PublishResult.Fail(failureText);
+            }
+        }
+
         var useLaunch = string.Equals(
             (account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
         // 上传和失败处理始终遵守账号设置，不自动切换为可见浏览器。
@@ -218,27 +267,6 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                     return PublishResult.Fail(loginMessage);
                 sharedPage?.StopAccount(loginMessage);
                 return PublishResult.FailAndStopQueue(loginMessage);
-            }
-
-            if (options.UseApiUpload)
-            {
-                L("上传方式：接口上传。");
-                RecordUploadStepStarted();
-                var apiResult = await TikTokApiUploadService.PublishSeriesAsync(
-                        page,
-                        item,
-                        payload,
-                        options,
-                        recommendation,
-                        coverPath,
-                        hasWorkflow ? workflowDir : null,
-                        finalAction,
-                        L,
-                        ct)
-                    .ConfigureAwait(false);
-                if (apiResult.Ok && hasWorkflow)
-                    TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
-                return apiResult;
             }
 
             L(options.UseBatchUpload

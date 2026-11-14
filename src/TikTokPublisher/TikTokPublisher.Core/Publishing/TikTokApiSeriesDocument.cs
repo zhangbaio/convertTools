@@ -35,11 +35,7 @@ public static class TikTokApiSeriesDocument
         var contractId = businessContractId?.Trim() ?? "";
         if (contractId.Length > 0)
             contract["contractId"] = contractId;
-
-        var body = new JsonObject { ["contract"] = contract };
-        if (contractId.Length > 0)
-            body["contractId"] = contractId;
-        return body.ToJsonString();
+        return new JsonObject { ["contract"] = contract }.ToJsonString();
     }
 
     public static string BuildSubmitBody(string seriesId) =>
@@ -55,44 +51,123 @@ public static class TikTokApiSeriesDocument
         return MatchTag(group, labels);
     }
 
-    public static string? ReadFirstContractId(JsonElement root)
+    public static bool IsPlatformContractId(string? value)
     {
-        string? found = null;
-        Walk(root, 0);
-        return found;
+        var id = value?.Trim() ?? "";
+        return id.Length is >= 8 and <= 24 && id.All(char.IsDigit);
+    }
 
-        void Walk(JsonElement element, int depth)
+    public readonly record struct TikTokBusinessContract(string Id, string Title);
+
+    /// <summary>
+    /// 新建页合同下拉来自 contract/list 的 contractList，值是 contractedId。
+    /// contractedId 为 0 或 1 是页面占位，不能拿去建剧。
+    /// </summary>
+    public static TikTokBusinessContract? ReadFirstBusinessContract(JsonElement root)
+    {
+        foreach (var list in ContractLists(root))
         {
-            if (found is not null || depth > 8)
-                return;
-            switch (element.ValueKind)
+            foreach (var item in list.EnumerateArray())
             {
-                case JsonValueKind.Object:
-                    foreach (var name in new[] { "contractId", "id" })
-                    {
-                        if (!element.TryGetProperty(name, out var idElement))
-                            continue;
-                        var id = idElement.ValueKind == JsonValueKind.String
-                            ? idElement.GetString()?.Trim() ?? ""
-                            : idElement.ValueKind == JsonValueKind.Number
-                                ? idElement.GetRawText()
-                                : "";
-                        if (id.Length is >= 8 and <= 24 && id.All(char.IsDigit))
-                        {
-                            found = id;
-                            return;
-                        }
-                    }
-
-                    foreach (var property in element.EnumerateObject())
-                        Walk(property.Value, depth + 1);
-                    break;
-                case JsonValueKind.Array:
-                    foreach (var item in element.EnumerateArray())
-                        Walk(item, depth + 1);
-                    break;
+                var contract = ReadBusinessContract(item);
+                if (contract is not null)
+                    return contract;
             }
         }
+
+        return null;
+    }
+
+    private static IEnumerable<JsonElement> ContractLists(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            yield break;
+        if (root.TryGetProperty("contractList", out var list) && list.ValueKind == JsonValueKind.Array)
+            yield return list;
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object &&
+            data.TryGetProperty("contractList", out var nested) && nested.ValueKind == JsonValueKind.Array)
+            yield return nested;
+    }
+
+    private static TikTokBusinessContract? ReadBusinessContract(JsonElement item)
+    {
+        if (item.ValueKind != JsonValueKind.Object)
+            return null;
+        foreach (var name in new[] { "contractedId", "contractId" })
+        {
+            if (!item.TryGetProperty(name, out var idElement))
+                continue;
+            var id = idElement.ValueKind == JsonValueKind.String
+                ? idElement.GetString()?.Trim() ?? ""
+                : idElement.ValueKind == JsonValueKind.Number
+                    ? idElement.GetRawText()
+                    : "";
+            if (!IsPlatformContractId(id))
+                continue;
+            var title = item.TryGetProperty("contractTitle", out var titleElement) &&
+                        titleElement.ValueKind == JsonValueKind.String
+                ? titleElement.GetString()?.Trim() ?? ""
+                : "";
+            return new TikTokBusinessContract(id, title);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 账号里填的可能是 CT 开头的合同编号。建剧只认 contractList 里的数字 contractedId。
+    /// 关键字搜索只剩一份合同时用那一份；多份里没有对上的编号时不猜。
+    /// </summary>
+    public static TikTokBusinessContract? MatchBusinessContract(JsonElement root, string configured)
+    {
+        var wanted = configured.Trim();
+        TikTokBusinessContract? single = null;
+        TikTokBusinessContract? exact = null;
+        var exactCount = 0;
+        var count = 0;
+        foreach (var item in EnumerateContractItems(root))
+        {
+            var contract = ReadBusinessContract(item);
+            if (contract is null)
+                continue;
+            count++;
+            single = contract;
+            if (string.Equals(contract.Value.Id, wanted, StringComparison.OrdinalIgnoreCase) ||
+                ContainsConfiguredCode(item, wanted))
+            {
+                exactCount++;
+                exact = contract;
+            }
+        }
+
+        if (exactCount == 1)
+            return exact;
+        return count == 1 ? single : null;
+    }
+
+    private static IEnumerable<JsonElement> EnumerateContractItems(JsonElement root)
+    {
+        foreach (var list in ContractLists(root))
+        {
+            foreach (var item in list.EnumerateArray())
+                yield return item;
+        }
+    }
+
+    private static bool ContainsConfiguredCode(JsonElement item, string wanted)
+    {
+        if (wanted.Length < 4 || item.ValueKind != JsonValueKind.Object)
+            return false;
+        foreach (var property in item.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.String)
+                continue;
+            var text = property.Value.GetString()?.Trim() ?? "";
+            if (text.Equals(wanted, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     public static JsonObject Overlay(JsonObject? collection, TikTokApiSeriesShell shell)

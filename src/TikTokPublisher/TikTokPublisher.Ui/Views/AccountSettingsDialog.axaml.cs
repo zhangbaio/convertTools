@@ -454,7 +454,7 @@ public partial class AccountSettingsDialog : Window
         ApiConcurrencyLabel.IsVisible = api;
         UploadApiConcurrencyBox.IsVisible = api;
         UploadChannelHint.Text = api
-            ? "整剧走接口：建壳、封面、正片、版权材料和提交都不点网页。失败后停止，不改走网页上传。"
+            ? "整剧走接口：用已保存的登录状态建壳、传封面、正片和版权材料，不打开浏览器。失败后停止，不改走网页上传。"
             : "在剧集中心网页上填表、传正片并提交。正片投递只影响这一套。";
     }
 }

@@ -106,6 +106,67 @@ public sealed class TikTokUploadChannelTests
     }
 
     [Fact]
+    public void Create_body_puts_the_business_contract_inside_contract()
+    {
+        using var document = JsonDocument.Parse(
+            TikTokApiSeriesDocument.BuildCreateBody("请倾听孩子的心声", "7600123456789012345"));
+        var contract = document.RootElement.GetProperty("contract");
+        contract.GetProperty("title").GetString().Should().Be("请倾听孩子的心声");
+        contract.GetProperty("contractId").GetString().Should().Be("7600123456789012345");
+        document.RootElement.TryGetProperty("contractId", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Contract_list_skips_the_placeholder_and_reads_contracted_id()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"data":{"contractList":[
+              {"contractedId":"1","contractTitle":"占位"},
+              {"contractedId":"7600123456789012345","contractTitle":"短剧合作合同"}
+            ]}}
+            """);
+
+        var contract = TikTokApiSeriesDocument.ReadFirstBusinessContract(document.RootElement);
+        contract.Should().NotBeNull();
+        contract!.Value.Id.Should().Be("7600123456789012345");
+        contract.Value.Title.Should().Be("短剧合作合同");
+    }
+
+    [Fact]
+    public void Contract_code_maps_to_the_numeric_platform_id()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"data":{"contractList":[
+              {"contractedId":"7600123456789012345","contractTitle":"短剧合作","contractNo":"CT2024111100362"},
+              {"contractedId":"7600999999999999999","contractTitle":"另一份","contractNo":"CT2024000000001"}
+            ]}}
+            """);
+
+        TikTokApiSeriesDocument.IsPlatformContractId("CT2024111100362").Should().BeFalse();
+        var match = TikTokApiSeriesDocument.MatchBusinessContract(document.RootElement, "CT2024111100362");
+        match.Should().NotBeNull();
+        match!.Value.Id.Should().Be("7600123456789012345");
+        match.Value.Title.Should().Be("短剧合作");
+    }
+
+    [Fact]
+    public void Unmatched_contract_code_is_not_guessed_from_several_contracts()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"data":{"contractList":[
+              {"contractedId":"7600123456789012345","contractTitle":"短剧合作"},
+              {"contractedId":"7600999999999999999","contractTitle":"另一份"}
+            ]}}
+            """);
+
+        TikTokApiSeriesDocument.MatchBusinessContract(document.RootElement, "CT2024111100362")
+            .Should().BeNull();
+    }
+
+    [Fact]
     public void Submit_body_posts_the_series_id()
     {
         TikTokApiSeriesDocument.BuildSubmitBody("7707915752204129298")

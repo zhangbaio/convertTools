@@ -248,6 +248,34 @@ public sealed class TikTokUploadPrerequisiteServiceTests
     };
 
     [Fact]
+    public void Api_upload_asks_for_a_contract_before_starting_when_the_id_is_empty()
+    {
+        var account = CompleteAccount();
+        account.TiktokUploadStrategy = "api";
+        account.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
+        account.TiktokContractId = "";
+
+        var act = () => TikTokUploadPrerequisiteService.EnsureUploadPrerequisites(account);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*请先配置合同*");
+    }
+
+    [Fact]
+    public void Api_upload_allows_an_empty_contract_id_when_the_first_available_contract_is_used()
+    {
+        var account = CompleteAccount();
+        account.TiktokUploadStrategy = "api";
+        account.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable;
+        account.TiktokContractId = "";
+        account.TiktokPaidEnabled = false;
+        account.TiktokPaidRatioEnabled = false;
+
+        var act = () => TikTokUploadPrerequisiteService.EnsureUploadPrerequisites(account);
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public void EnsureCommercialConfigValid_blocks_paid_ratio_without_price()
     {
         var account = CompleteAccount();

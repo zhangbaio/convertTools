@@ -8,8 +8,46 @@ namespace TikTokPublisher.Ui.Services.TikTok;
 
 public static partial class TikTokApiUploadService
 {
+    public static async Task<PublishResult> PublishWithSavedLoginAsync(
+        string storageStatePath,
+        PublishItem item,
+        TikTokPublishPayload payload,
+        TikTokPublishOptions options,
+        TikTokPublishRecommendation recommendation,
+        string coverPath,
+        string? workflowDir,
+        FinalAction finalAction,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(storageStatePath) || !File.Exists(storageStatePath))
+            throw new InvalidOperationException("接口上传：没有保存的登录状态，请先在浏览器页登录该账号。");
+
+        using var session = PartnerSession.Open(storageStatePath, options);
+        var previous = PartnerSession.Current.Value;
+        PartnerSession.Current.Value = session;
+        try
+        {
+            return await PublishSeriesAsync(
+                null,
+                item,
+                payload,
+                options,
+                recommendation,
+                coverPath,
+                workflowDir,
+                finalAction,
+                log,
+                ct);
+        }
+        finally
+        {
+            PartnerSession.Current.Value = previous;
+        }
+    }
+
     public static async Task<PublishResult> PublishSeriesAsync(
-        IPage page,
+        IPage? page,
         PublishItem item,
         TikTokPublishPayload payload,
         TikTokPublishOptions options,
@@ -27,7 +65,8 @@ public static partial class TikTokApiUploadService
         if (ResolveLocalEpisodes(uploadPaths) is null)
             throw new InvalidOperationException("接口上传：本地视频文件名里有读不出集号或重复的集，已停止。");
 
-        var seriesId = await ResolveSeriesIdAsync(page, item, payload.Title, options, log, ct);
+        var businessContractId = await ResolveBusinessContractIdAsync(page, options, log, ct);
+        var seriesId = await ResolveSeriesIdAsync(page, item, payload.Title, businessContractId, log, ct);
         if (!string.IsNullOrWhiteSpace(workflowDir))
         {
             var draftUrl = $"https://www.tiktokdramacenter.com/series/draft/{seriesId}";
@@ -40,8 +79,6 @@ public static partial class TikTokApiUploadService
         var copyrightFiles = await UploadCopyrightFilesAsync(page, options, log, ct);
         var audienceId = await ResolveAudienceTagIdAsync(page, recommendation.TargetAudience, ct);
         var themeIds = ResolveThemeTagIds(recommendation.Genres);
-        var businessContractId = string.IsNullOrWhiteSpace(options.ContractId) ? null : options.ContractId.Trim();
-
         JsonObject? collection = null;
         using (var detail = await PageFetchAsync(page, "GET", $"/api/content-partner/series/{seriesId}", null, ct))
         {
@@ -118,7 +155,7 @@ public static partial class TikTokApiUploadService
     }
 
     internal static async Task<string> UploadImageAsync(
-        IPage page,
+        IPage? page,
         string path,
         TikTokPublishOptions options,
         string label,
@@ -133,8 +170,8 @@ public static partial class TikTokApiUploadService
         using var http = await CreateHttpClientAsync(page, options);
         var sts = new StsCache(page, retries, log);
         using var gates = new UploadGates(1);
-        var vodBase = ResolveServiceBaseUrl(page.Url, "vod");
-        var imageBase = ResolveServiceBaseUrl(page.Url, "imagex");
+        var vodBase = ResolveServiceBaseUrl(CurrentPageUrl(page), "vod");
+        var imageBase = ResolveServiceBaseUrl(CurrentPageUrl(page), "imagex");
         string sessionKey;
         await gates.Transfer.WaitAsync(ct);
         try
@@ -165,10 +202,10 @@ public static partial class TikTokApiUploadService
     }
 
     private static async Task<string> ResolveSeriesIdAsync(
-        IPage page,
+        IPage? page,
         PublishItem item,
         string title,
-        TikTokPublishOptions options,
+        string? businessContractId,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -194,19 +231,25 @@ public static partial class TikTokApiUploadService
         return await CreateSeriesAsync(
             page,
             title,
-            await ResolveBusinessContractIdAsync(page, options, ct),
+            businessContractId,
             log,
             ct);
     }
 
     private static async Task<string> CreateSeriesAsync(
-        IPage page,
+        IPage? page,
         string title,
         string? businessContractId,
         Action<string>? log,
         CancellationToken ct)
     {
-        log?.Invoke("接口上传：新建剧集。");
+        if (!TikTokApiSeriesDocument.IsPlatformContractId(businessContractId))
+        {
+            throw new InvalidOperationException(
+                "接口上传：没有可用的数字合同 ID，已停止。请在「账号管理 → 发布配置」填写平台合同 ID，或改为使用第一个可用合同。");
+        }
+
+        log?.Invoke($"接口上传：使用平台合同 {businessContractId} 新建剧集。");
         try
         {
             using var created = await PageFetchAsync(
@@ -237,30 +280,66 @@ public static partial class TikTokApiUploadService
     }
 
     private static async Task<string?> ResolveBusinessContractIdAsync(
-        IPage page,
+        IPage? page,
         TikTokPublishOptions? options,
+        Action<string>? log,
         CancellationToken ct)
     {
         var configured = options?.ContractId?.Trim() ?? "";
-        if (configured.Length > 0)
+        if (TikTokApiSeriesDocument.IsPlatformContractId(configured))
             return configured;
-        if (options is not null &&
-            !string.Equals(options.ContractIdMode, TikTokPublishConstants.ContractIdModeFirstAvailable, StringComparison.OrdinalIgnoreCase))
-        {
+
+        var useFirst = options is null ||
+            string.Equals(options.ContractIdMode, TikTokPublishConstants.ContractIdModeFirstAvailable, StringComparison.OrdinalIgnoreCase);
+        if (configured.Length == 0 && !useFirst)
             return null;
+
+        if (configured.Length == 0)
+        {
+            using var listed = await PageFetchAsync(
+                page,
+                "POST",
+                "/api/content-partner/institution/contract/list",
+                "{}",
+                ct);
+            var first = TikTokApiSeriesDocument.ReadFirstBusinessContract(listed.RootElement);
+            if (first is { } named)
+                log?.Invoke($"接口上传：合同列表使用「{(named.Title.Length > 0 ? named.Title : named.Id)}」。");
+            return first?.Id;
         }
 
+        var keywordBody = JsonSerializer.Serialize(new { contractKeyWord = configured });
+        var match = await ReadMatchedContractAsync(page, keywordBody, configured, ct)
+                    ?? await ReadMatchedContractAsync(page, "{}", configured, ct);
+        if (match is { } found)
+        {
+            log?.Invoke(found.Title.Length > 0
+                ? $"接口上传：合同编号「{configured}」对应「{found.Title}」。"
+                : $"接口上传：合同编号「{configured}」对应平台合同 {found.Id}。");
+            return found.Id;
+        }
+
+        throw new InvalidOperationException(
+            $"接口上传：合同编号「{configured}」对不上平台合同。建剧要的是一串数字 ID，这个编号会变成 0，已停止。请改成合同列表里的数字 ID，或改为使用第一个可用合同。");
+    }
+
+    private static async Task<TikTokApiSeriesDocument.TikTokBusinessContract?> ReadMatchedContractAsync(
+        IPage? page,
+        string body,
+        string configured,
+        CancellationToken ct)
+    {
         using var listed = await PageFetchAsync(
             page,
             "POST",
-            "/api/content-partner/institution/contract/list-not-used",
-            """{"pageIndex":1,"pageSize":20}""",
+            "/api/content-partner/institution/contract/list",
+            body,
             ct);
-        return TikTokApiSeriesDocument.ReadFirstContractId(listed.RootElement);
+        return TikTokApiSeriesDocument.MatchBusinessContract(listed.RootElement, configured);
     }
 
     private static async Task<string> ResolveAudienceTagIdAsync(
-        IPage page,
+        IPage? page,
         string targetAudience,
         CancellationToken ct)
     {
@@ -298,7 +377,7 @@ public static partial class TikTokApiUploadService
     }
 
     private static async Task<IReadOnlyList<TikTokApiCopyrightFile>> UploadCopyrightFilesAsync(
-        IPage page,
+        IPage? page,
         TikTokPublishOptions options,
         Action<string>? log,
         CancellationToken ct)
@@ -337,12 +416,12 @@ public static partial class TikTokApiUploadService
         {
             foreach (var name in new[] { "contractId", "seriesId", "id" })
             {
-                var value = ReadString(data, name);
+                var value = ReadId(data, name);
                 if (value.Length > 0)
                     return value;
                 if (data.TryGetProperty("collection", out var collection))
                 {
-                    value = ReadString(collection, name);
+                    value = ReadId(collection, name);
                     if (value.Length > 0)
                         return value;
                 }
