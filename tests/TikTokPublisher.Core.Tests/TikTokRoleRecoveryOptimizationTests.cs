@@ -151,17 +151,64 @@ public sealed class TikTokRoleRecoveryOptimizationTests
     }
 
     [Theory]
-    [InlineData(1, 1, false)]
-    [InlineData(2, 2, true)]
-    [InlineData(3, 1, false)]
-    [InlineData(4, 0, true)]
-    public void Role_recovery_stops_after_two_failures_or_four_batches(
+    [InlineData(1, 1, 2, 3, false)]
+    [InlineData(2, 2, 3, 3, true)]
+    [InlineData(2, 2, 2, 3, false)]
+    [InlineData(3, 1, 2, 3, false)]
+    [InlineData(4, 0, 2, 3, true)]
+    [InlineData(4, 2, 2, 3, true)]
+    public void Role_recovery_keeps_searching_until_four_batches_when_below_minimum(
         int batchesRun,
         int noGrowthBatches,
+        int matched,
+        int minimum,
         bool expected)
     {
-        TikTokReferenceSourcePackageService.ShouldStopRoleRecovery(batchesRun, noGrowthBatches)
+        TikTokReferenceSourcePackageService.ShouldStopRoleRecovery(
+                batchesRun,
+                noGrowthBatches,
+                matched,
+                minimum)
             .Should().Be(expected);
+    }
+
+    [Fact]
+    public void Placeholder_supporting_role_uses_an_unused_frame_after_recovery_stops_short()
+    {
+        var profiles = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("主角1", "第一主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("主角2", "第二主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("主要配角", "关键配角"),
+        };
+
+        TikTokReferenceSourcePackageService.TryFillPlaceholderSupportingRoles(
+                profiles,
+                ["lead-a.jpg", "lead-b.jpg"],
+                ["lead-a.jpg", "lead-b.jpg", "extra.jpg"],
+                minimumCharacterCount: 3)
+            .Should().Equal("lead-a.jpg", "lead-b.jpg", "extra.jpg");
+    }
+
+    [Fact]
+    public void Named_role_is_not_filled_from_an_unused_frame()
+    {
+        var profiles = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("主角1", "第一主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("主角2", "第二主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("林晚", "有名字的配角"),
+        };
+
+        TikTokReferenceSourcePackageService.TryFillPlaceholderSupportingRoles(
+                profiles,
+                ["lead-a.jpg", "lead-b.jpg"],
+                ["lead-a.jpg", "lead-b.jpg", "extra.jpg"],
+                minimumCharacterCount: 3)
+            .Should().BeNull();
+        TikTokReferenceSourcePackageService.IsRoleRecoveryStopMessage(
+                "角色补源已检查第 9–14 集，匹配 2 人，未达到最低 3 人，停止继续补源。连续没有新增人物。")
+            .Should().BeTrue();
     }
 
     [Fact]

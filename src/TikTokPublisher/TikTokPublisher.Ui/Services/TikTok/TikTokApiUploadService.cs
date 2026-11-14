@@ -1073,6 +1073,35 @@ public static partial class TikTokApiUploadService
     private static bool ShouldRetryEpisode(Exception ex) =>
         IsTransientFailure(ex) || ex is TaskCanceledException or TimeoutException;
 
+    /// <summary>封面、证明材料和分镜图的分片初始化与正片分片使用同一套次数和间隔。</summary>
+    internal static int ResolveMultipartInitAttempts(bool isVideo, int configuredRetries) =>
+        isVideo ? Math.Clamp(configuredRetries, 1, 10) : TosPartAttempts;
+
+    /// <summary>把传输异常收成一行，带上最内层原因，不包含堆栈。</summary>
+    internal static string DescribeTransportFailure(Exception exception)
+    {
+        var outer = FlattenTransportMessage(exception.Message);
+        var detail = FlattenTransportMessage(DeepestTransportMessage(exception.InnerException));
+        if (detail.Length == 0 || outer.Contains(detail, StringComparison.Ordinal))
+            return outer;
+        return outer.Length == 0 ? detail : $"{outer} {detail}";
+    }
+
+    private static string? DeepestTransportMessage(Exception? exception)
+    {
+        string? message = null;
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+                message = current.Message;
+        }
+
+        return message;
+    }
+
+    private static string FlattenTransportMessage(string? value) =>
+        (value ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+
     /// <summary>分片重试间隔：3 秒、6 秒、12 秒、24 秒，最长 30 秒。</summary>
     internal static TimeSpan TosPartRetryDelay(int attempt)
     {
@@ -1112,7 +1141,7 @@ public static partial class TikTokApiUploadService
             catch (Exception ex) when (ShouldRetry(ex, ct) && attempt < attempts)
             {
                 var delay = delayForAttempt?.Invoke(attempt) ?? TimeSpan.FromSeconds(attempt * 3);
-                log?.Invoke($"接口直传：{step}暂时失败（{ex.Message}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
+                log?.Invoke($"接口直传：{step}暂时失败（{DescribeTransportFailure(ex)}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
                 await Task.Delay(delay, ct);
             }
         }
@@ -1470,7 +1499,7 @@ public static partial class TikTokApiUploadService
         var objectUrl = $"{uploadHost}/upload/v1/{storeUri}";
         var boundary = "----WebKitFormBoundary" + RandomToken(16);
         using var initDocument = await ExecuteWithRetryAsync(
-            retries,
+            ResolveMultipartInitAttempts(isVideo, retries),
             $"{label}分片初始化",
             log,
             async token =>
@@ -1481,7 +1510,8 @@ public static partial class TikTokApiUploadService
                 init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
                 return await SendTosAsync(http, init, token);
             },
-            ct);
+            ct,
+            isVideo ? null : TosPartRetryDelay);
         var uploadId = ReadString(initDocument.RootElement.GetProperty("data"), "uploadid");
         if (uploadId.Length == 0)
             throw new InvalidOperationException("TOS 初始化没有返回 uploadid。");

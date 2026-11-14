@@ -547,6 +547,10 @@ public sealed class TikTokApiUploadServiceTests
     public void Tos_part_retry_waits_longer_and_stops_at_thirty_seconds()
     {
         TikTokApiUploadService.TosPartAttempts.Should().Be(7);
+        TikTokApiUploadService.ResolveMultipartInitAttempts(isVideo: false, configuredRetries: 3)
+            .Should().Be(TikTokApiUploadService.TosPartAttempts);
+        TikTokApiUploadService.ResolveMultipartInitAttempts(isVideo: true, configuredRetries: 3)
+            .Should().Be(3);
         TikTokApiUploadService.TosPartRetryDelay(1).TotalSeconds.Should().Be(3);
         TikTokApiUploadService.TosPartRetryDelay(2).TotalSeconds.Should().Be(6);
         TikTokApiUploadService.TosPartRetryDelay(3).TotalSeconds.Should().Be(12);
@@ -563,5 +567,18 @@ public sealed class TikTokApiUploadServiceTests
             .Should().Be("TOS HTTP 504 Gateway Time-out");
         TikTokApiUploadService.DescribeHttpFailure("TOS", 502, html)
             .Should().Be("TOS HTTP 502");
+    }
+
+    [Fact]
+    public void Transport_failure_keeps_the_inner_reason_on_one_line()
+    {
+        var failure = new HttpRequestException(
+            "The SSL connection could not be established, see inner exception.",
+            new IOException("The handshake failed because the connection was closed."));
+
+        TikTokApiUploadService.DescribeTransportFailure(failure)
+            .Should().Be(
+                "The SSL connection could not be established, see inner exception. " +
+                "The handshake failed because the connection was closed.");
     }
 }

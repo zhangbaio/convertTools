@@ -1201,7 +1201,8 @@ public sealed class QueueWorkerRunner
                             preItem,
                             $"{stepLabel} 失败：{failureMessage}",
                             failedStep);
-                        if (!IsPosterSensitiveContent(ex))
+                        if (!IsPosterSensitiveContent(ex) &&
+                            !TikTokReferenceSourcePackageService.IsRoleRecoveryStopMessage(failureMessage))
                         {
                             Report(
                                 onProgress,

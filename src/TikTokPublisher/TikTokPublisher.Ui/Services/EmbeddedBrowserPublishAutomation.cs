@@ -214,7 +214,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             }
             catch (Exception ex)
             {
-                var failureText = $"{ex.GetType().Name}: {ex.Message}";
+                var failureText = $"{ex.GetType().Name}: {TikTokApiUploadService.DescribeTransportFailure(ex)}";
                 if (hasWorkflow)
                     TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, failureText, payload.Title);
                 return PublishResult.Fail(failureText);
@@ -574,7 +574,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 return PublishResult.FailAndStopQueue(accountStopReason);
             }
 
-            var failureText = $"{ex.GetType().Name}: {ex.Message}";
+            var failureText = $"{ex.GetType().Name}: {TikTokApiUploadService.DescribeTransportFailure(ex)}";
             if (IsTikTokCrashFailure(failureText) ||
                 (activePage is not null && await TikTokBrowserActions.LooksLikeTikTokCrashPageAsync(activePage).ConfigureAwait(false)))
             {
