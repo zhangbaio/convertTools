@@ -46,6 +46,29 @@ public sealed class QueueProgressBatchBufferTests
     }
 
     [Fact]
+    public void Drain_preserves_every_api_form_field_logged_in_one_burst()
+    {
+        var buffer = new QueueProgressBatchBuffer();
+
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口上传：表单「剧名」大柱与狐仙的奇缘"));
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口上传：表单「简介」忠厚庄稼汉"));
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口上传：表单「题材类型」都市、逆袭、职场"));
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口上传：表单「源语言」中文"));
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口上传：表单「总集数」50"));
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口上传：表单「是否 AI 短剧」否"));
+        buffer.Enqueue(CreateProgress(QueueStepRegistry.UploadSeries, "接口上传：表单「内容创作类型」原创"));
+
+        buffer.Drain().Select(progress => progress.Message).Should().Equal(
+            "接口上传：表单「剧名」大柱与狐仙的奇缘",
+            "接口上传：表单「简介」忠厚庄稼汉",
+            "接口上传：表单「题材类型」都市、逆袭、职场",
+            "接口上传：表单「源语言」中文",
+            "接口上传：表单「总集数」50",
+            "接口上传：表单「是否 AI 短剧」否",
+            "接口上传：表单「内容创作类型」原创");
+    }
+
+    [Fact]
     public void Enqueue_requests_another_flush_after_the_previous_batch_is_drained()
     {
         var buffer = new QueueProgressBatchBuffer();

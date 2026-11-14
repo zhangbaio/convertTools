@@ -76,52 +76,12 @@ public static partial class TikTokApiUploadService
 
         log?.Invoke("接口上传：开始上传封面。");
         var coverUri = await UploadImageAsync(page, coverPath, options, "封面", log, ct);
-        var copyrightFiles = await UploadCopyrightFilesAsync(page, options, log, ct);
         var audienceId = await ResolveAudienceTagIdAsync(page, recommendation.TargetAudience, ct);
         var themeIds = ResolveThemeTagIds(recommendation.Genres);
-        JsonObject? collection = null;
-        using (var detail = await PageFetchAsync(page, "GET", $"/api/content-partner/series/{seriesId}", null, ct))
-        {
-            if (detail.RootElement.TryGetProperty("data", out var data) &&
-                data.TryGetProperty("collection", out var collectionElement) &&
-                collectionElement.ValueKind == JsonValueKind.Object)
-            {
-                collection = JsonNode.Parse(collectionElement.GetRawText()) as JsonObject;
-            }
-        }
-
+        var episodeCount = Math.Max(payload.EpisodeCount, uploadPaths.Count);
+        var collection = await ReadCollectionAsync(page, seriesId, ct);
         var publishers = await ResolvePublisherIdsAsync(page, collection, options, ct);
-        var contract = TikTokApiSeriesDocument.Overlay(collection, new TikTokApiSeriesShell
-        {
-            Title = payload.Title,
-            Description = payload.Description,
-            CoverUri = coverUri,
-            TotalVideoNum = Math.Max(payload.EpisodeCount, uploadPaths.Count),
-            ProfilePreviewEpisodes = Math.Max(1, options.ProfilePreviewEpisodes),
-            FreePreviewEpisodes = Math.Max(1, options.FreePreviewEpisodes),
-            AnchorPromotionEnabled = options.AnchorPromotionEnabled,
-            IsAiSeries = options.IsAiDrama,
-            SourceLanguage = options.SourceLanguage,
-            ThemeTagIds = themeIds,
-            AudienceTagId = audienceId,
-            ConsignmentEnabled = options.ConsignmentEnabled,
-            BusinessContractId = contractBinding.ContractedId,
-            LicenseId = contractBinding.LicenseId,
-            PriceInUsd = options.PaidEnabled ? TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue) : null,
-            IsOriginalRightsHolder = options.IsOriginalRightsHolder,
-            IsAdaptation = string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase),
-            CopyrightFiles = copyrightFiles.Count == 0 ? null : copyrightFiles,
-            PublisherIds = publishers.Select(publisher => publisher.UserId).ToArray(),
-            Signed = true,
-            PublishMode = TikTokApiSeriesDocument.ResolvePublishMode(options.PublishMode),
-        });
-        var update = new JsonObject { ["contract"] = contract };
-        if (contract["licenseId"] is JsonValue license &&
-            license.TryGetValue<string>(out var licenseId) &&
-            !string.IsNullOrWhiteSpace(licenseId))
-        {
-            update["licenseId"] = licenseId;
-        }
+        var publisherIds = publishers.Select(publisher => publisher.UserId).ToArray();
 
         LogSeriesForm(
             log,
@@ -130,20 +90,32 @@ public static partial class TikTokApiUploadService
             recommendation,
             contractBinding,
             coverPath,
-            Math.Max(payload.EpisodeCount, uploadPaths.Count),
-            publishers,
-            copyrightFiles);
-        log?.Invoke($"接口上传：写入剧集资料，剧集 ID {seriesId}。");
-        using (var _ = await PageFetchAsync(
+            episodeCount,
+            publishers);
+        await WriteSeriesAsync(
             page,
-            "PATCH",
-            $"/api/content-partner/series/{seriesId}",
-            update.ToJsonString(),
-            ct))
-        {
-        }
+            seriesId,
+            collection,
+            BuildShell(payload, coverUri, episodeCount, audienceId, themeIds, publisherIds, contractBinding, options, copyrightFiles: null, signed: false),
+            "写入剧名、简介、封面和发布设置",
+            log,
+            ct);
 
         await SyncEpisodesAsync(page, seriesId, uploadPaths, options, log, ct);
+
+        log?.Invoke("接口上传：开始上传证明材料。");
+        var copyrightFiles = await UploadCopyrightFilesAsync(page, options, log, ct);
+        LogCopyrightForm(log, copyrightFiles);
+        collection = await ReadCollectionAsync(page, seriesId, ct);
+        await WriteSeriesAsync(
+            page,
+            seriesId,
+            collection,
+            BuildShell(payload, coverUri, episodeCount, audienceId, themeIds, publisherIds, contractBinding, options, copyrightFiles, signed: true),
+            "写入证明材料和本人承诺",
+            log,
+            ct);
+
         if (finalAction != FinalAction.Publish)
         {
             log?.Invoke("接口上传：剧集已保存，这次不提交。");
@@ -171,6 +143,84 @@ public static partial class TikTokApiUploadService
 
     private readonly record struct ChosenPublisher(string UserId, string Label);
 
+    private static TikTokApiSeriesShell BuildShell(
+        TikTokPublishPayload payload,
+        string coverUri,
+        int episodeCount,
+        string audienceId,
+        IReadOnlyList<string> themeIds,
+        IReadOnlyList<string> publisherIds,
+        TikTokApiSeriesDocument.TikTokSeriesContractBinding contractBinding,
+        TikTokPublishOptions options,
+        IReadOnlyList<TikTokApiCopyrightFile>? copyrightFiles,
+        bool signed)
+    {
+        return new TikTokApiSeriesShell
+        {
+            Title = payload.Title,
+            Description = payload.Description,
+            CoverUri = coverUri,
+            TotalVideoNum = episodeCount,
+            ProfilePreviewEpisodes = Math.Max(1, options.ProfilePreviewEpisodes),
+            FreePreviewEpisodes = Math.Max(1, options.FreePreviewEpisodes),
+            AnchorPromotionEnabled = options.AnchorPromotionEnabled,
+            IsAiSeries = options.IsAiDrama,
+            SourceLanguage = options.SourceLanguage,
+            ThemeTagIds = themeIds,
+            AudienceTagId = audienceId,
+            ConsignmentEnabled = options.ConsignmentEnabled,
+            BusinessContractId = contractBinding.ContractedId,
+            LicenseId = contractBinding.LicenseId,
+            PriceInUsd = options.PaidEnabled ? TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue) : null,
+            IsOriginalRightsHolder = options.IsOriginalRightsHolder,
+            IsAdaptation = string.Equals(options.ContentOriginalityType, "adapted", StringComparison.OrdinalIgnoreCase),
+            CopyrightFiles = copyrightFiles is { Count: > 0 } ? copyrightFiles : null,
+            PublisherIds = publisherIds,
+            Signed = signed,
+            PublishMode = TikTokApiSeriesDocument.ResolvePublishMode(options.PublishMode),
+        };
+    }
+
+    private static async Task<JsonObject?> ReadCollectionAsync(IPage? page, string seriesId, CancellationToken ct)
+    {
+        using var detail = await PageFetchAsync(page, "GET", $"/api/content-partner/series/{seriesId}", null, ct);
+        if (detail.RootElement.TryGetProperty("data", out var data) &&
+            data.TryGetProperty("collection", out var collectionElement) &&
+            collectionElement.ValueKind == JsonValueKind.Object)
+        {
+            return JsonNode.Parse(collectionElement.GetRawText()) as JsonObject;
+        }
+
+        return null;
+    }
+
+    private static async Task WriteSeriesAsync(
+        IPage? page,
+        string seriesId,
+        JsonObject? collection,
+        TikTokApiSeriesShell shell,
+        string step,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var contract = TikTokApiSeriesDocument.Overlay(collection, shell);
+        var update = new JsonObject { ["contract"] = contract };
+        if (contract["licenseId"] is JsonValue license &&
+            license.TryGetValue<string>(out var licenseId) &&
+            !string.IsNullOrWhiteSpace(licenseId))
+        {
+            update["licenseId"] = licenseId;
+        }
+
+        log?.Invoke($"接口上传：{step}，剧集 ID {seriesId}。");
+        using var _ = await PageFetchAsync(
+            page,
+            "PATCH",
+            $"/api/content-partner/series/{seriesId}",
+            update.ToJsonString(),
+            ct);
+    }
+
     private static void LogSeriesForm(
         Action<string>? log,
         TikTokPublishPayload payload,
@@ -179,8 +229,7 @@ public static partial class TikTokApiUploadService
         TikTokApiSeriesDocument.TikTokSeriesContractBinding contractBinding,
         string coverPath,
         int episodeCount,
-        IReadOnlyList<ChosenPublisher> publishers,
-        IReadOnlyList<TikTokApiCopyrightFile> copyrightFiles)
+        IReadOnlyList<ChosenPublisher> publishers)
     {
         void Field(string name, string? value)
         {
@@ -210,23 +259,6 @@ public static partial class TikTokApiUploadService
 
         Field("是否 AI 短剧", options.IsAiDrama ? "是" : "否");
         Field("内容创作类型", CreationLabel(options.ContentOriginalityType));
-        Field("本人承诺", "已勾选");
-        if (copyrightFiles.Count == 0)
-        {
-            Field("版权材料", "");
-        }
-        else
-        {
-            foreach (var group in copyrightFiles.GroupBy(file => file.MaterialType))
-            {
-                var key = TikTokBrowserActions.CopyrightMaterialTypeByApiValue.GetValueOrDefault(group.Key, "");
-                var label = key.Length == 0
-                    ? group.Key.ToString()
-                    : TikTokPublishConstants.CopyrightMaterialLabels.GetValueOrDefault(key, key);
-                Field(label, string.Join("、", group.Select(file => file.FileName)));
-            }
-        }
-
         Field("发布方式", options.PublishModeLabel);
         Field("托管模式", options.ConsignmentEnabled ? "已开启" : "未开启");
         var profilePreview = Math.Max(1, options.ProfilePreviewEpisodes);
@@ -240,6 +272,31 @@ public static partial class TikTokApiUploadService
         Field(
             "商业模式",
             $"付费，个人页展示 {profilePreview} 集，免费预览 {Math.Max(1, options.FreePreviewEpisodes)} 集，全集价格 {(string.IsNullOrEmpty(price) ? "未填" : price)}");
+    }
+
+    private static void LogCopyrightForm(Action<string>? log, IReadOnlyList<TikTokApiCopyrightFile> copyrightFiles)
+    {
+        void Field(string name, string? value)
+        {
+            var text = string.Join(' ', (value ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            log?.Invoke($"接口上传：表单「{name}」{(text.Length == 0 ? "空" : text)}");
+        }
+
+        Field("本人承诺", "已勾选");
+        if (copyrightFiles.Count == 0)
+        {
+            Field("版权材料", "");
+            return;
+        }
+
+        foreach (var group in copyrightFiles.GroupBy(file => file.MaterialType))
+        {
+            var key = TikTokBrowserActions.CopyrightMaterialTypeByApiValue.GetValueOrDefault(group.Key, "");
+            var label = key.Length == 0
+                ? group.Key.ToString()
+                : TikTokPublishConstants.CopyrightMaterialLabels.GetValueOrDefault(key, key);
+            Field(label, string.Join("、", group.Select(file => file.FileName)));
+        }
     }
 
     private static string AudienceLabel(string? audience)
