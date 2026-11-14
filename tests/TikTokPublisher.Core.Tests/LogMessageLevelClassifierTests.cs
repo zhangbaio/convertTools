@@ -104,6 +104,22 @@ public sealed class LogMessageLevelClassifierTests
             .Should().Be("error");
     }
 
+    [Theory]
+    [InlineData("接口直传：第 37 集已上传（9 秒，5.1MB，1.3MB/s；传输 4 秒，提交 1 秒，已上传 36/78）。")]
+    [InlineData("状态记录显示视频已上传。")]
+    public void Uploaded_video_lines_are_success(string message)
+    {
+        LogMessageLevelClassifier.InferLevel(message).Should().Be("success");
+    }
+
+    [Fact]
+    public void Mentioning_an_uploaded_file_without_a_finished_video_stays_info()
+    {
+        LogMessageLevelClassifier.InferLevel("未检测到已上传文件").Should().Be("info");
+        LogMessageLevelClassifier.InferLevel("未能识别 TikTok 草稿当前已上传视频数，跳过补传检查。")
+            .Should().Be("info");
+    }
+
     [Fact]
     public void Poster_verification_that_still_fails_is_error()
     {

@@ -448,13 +448,11 @@ public sealed class LogService
         };
     }
 
-    private static readonly IBrush CompletedStepBrush = new SolidColorBrush(Color.Parse("#0F63C7"));
-
     public static IBrush BrushForLevel(string level) => NormalizeLevel(level) switch
     {
         "error" => Brushes.Firebrick,
         "warn" => Brushes.DarkOrange,
-        "success" => CompletedStepBrush,
+        "success" => Brushes.SeaGreen,
         _ => Brushes.Black,
     };
 
