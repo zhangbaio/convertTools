@@ -25,8 +25,6 @@ public static class TikTokApiUploadService
     private const string ApiVersion = "2020-11-19";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
     private const string DeleteVideosPath = "/api/content-partner/series/videos/batch-delete";
-    private const string ListSeriesPath = "/api/content-partner/series/v2/list";
-    private const int DraftPresentationStatus = 31;
 
     private static readonly Regex SeriesIdPattern =
         new(@"/series/(?:draft/)?(\d{16,20})/?(?=[?#]|$)", RegexOptions.Compiled);
@@ -576,44 +574,8 @@ public static class TikTokApiUploadService
         if (normalized.Length == 0)
             return null;
 
-        DraftSeriesLookup lookup = DraftSeriesLookup.Empty;
-        Exception? failure = null;
-        try
-        {
-            lookup = await QueryDraftSeriesAsync(page, normalized, draftsOnly: true, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            failure = ex;
-        }
-
-        if (lookup.SelectIds().Count == 0)
-        {
-            try
-            {
-                lookup = await QueryDraftSeriesAsync(page, normalized, draftsOnly: false, ct);
-                failure = null;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                failure ??= ex;
-            }
-        }
-
-        if (lookup.SelectIds().Count == 0 && failure is not null)
-        {
-            log?.Invoke($"接口直传：按剧名查询已有草稿失败（{failure.Message}）。");
-            return null;
-        }
-
+        var rows = await TikTokSeriesListLookupService.SearchExactAsync(page, normalized, ct, log);
+        var lookup = FindDraftSeries(rows);
         var ids = lookup.SelectIds();
         if (ids.Count > 1)
         {
@@ -622,30 +584,6 @@ public static class TikTokApiUploadService
         }
 
         return ids.Count == 1 ? ids[0] : null;
-    }
-
-    private static async Task<DraftSeriesLookup> QueryDraftSeriesAsync(
-        IPage page,
-        string title,
-        bool draftsOnly,
-        CancellationToken ct)
-    {
-        using var document = await PageFetchAsync(page, "POST", ListSeriesPath, BuildSeriesListBody(title, draftsOnly), ct);
-        return FindDraftSeries(document.RootElement, title);
-    }
-
-    private static string BuildSeriesListBody(string title, bool draftsOnly)
-    {
-        if (!draftsOnly)
-            return JsonSerializer.Serialize(new { title, pageIndex = 1, pageSize = 50 });
-
-        return JsonSerializer.Serialize(new
-        {
-            title,
-            pageIndex = 1,
-            pageSize = 50,
-            presentationStatusList = new[] { DraftPresentationStatus },
-        });
     }
 
     private static bool IsSeriesShellResponse(IResponse candidate)
@@ -768,138 +706,38 @@ public static class TikTokApiUploadService
         }
     }
 
-    internal static DraftSeriesLookup FindDraftSeries(JsonElement root, string title)
-    {
-        var wanted = title.Trim();
-        if (wanted.Length == 0)
-            return DraftSeriesLookup.Empty;
+    internal static DraftSeriesLookup FindDraftSeries(JsonElement root, string title) =>
+        FindDraftSeries(TikTokSeriesListLookupService.ParseSeriesList(root).Rows, title);
 
+    private static DraftSeriesLookup FindDraftSeries(IReadOnlyList<TikTokSeriesListRow> rows, string? title = null)
+    {
+        var wanted = title?.Trim();
         var drafts = new List<string>();
         var others = new List<string>();
         var untagged = new List<string>();
-        CollectDraftSeries(root, wanted, drafts, others, untagged, 0);
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.SeriesId))
+                continue;
+            if (!string.IsNullOrEmpty(wanted) &&
+                !string.Equals(row.Title.Trim(), wanted, StringComparison.Ordinal))
+                continue;
+            if (IsDraftLabel(row.PlatformStatus))
+                drafts.Add(row.SeriesId);
+            else if (string.IsNullOrWhiteSpace(row.PlatformStatus))
+                untagged.Add(row.SeriesId);
+            else
+                others.Add(row.SeriesId);
+        }
+
         return new DraftSeriesLookup(DistinctIds(drafts), DistinctIds(others), DistinctIds(untagged));
     }
 
-    private static void CollectDraftSeries(
-        JsonElement element,
-        string wanted,
-        List<string> drafts,
-        List<string> others,
-        List<string> untagged,
-        int depth)
-    {
-        if (depth > 8)
-            return;
-        if (element.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in element.EnumerateArray())
-                CollectDraftSeries(item, wanted, drafts, others, untagged, depth + 1);
-            return;
-        }
-
-        if (element.ValueKind != JsonValueKind.Object)
-            return;
-
-        ConsiderSeriesRow(element, wanted, drafts, others, untagged);
-        foreach (var property in element.EnumerateObject())
-            CollectDraftSeries(property.Value, wanted, drafts, others, untagged, depth + 1);
-    }
-
-    private static void ConsiderSeriesRow(
-        JsonElement element,
-        string wanted,
-        List<string> drafts,
-        List<string> others,
-        List<string> untagged)
-    {
-        if (element.TryGetProperty("orderNum", out _) || element.TryGetProperty("videoId", out _))
-            return;
-
-        var rowTitle = ReadDirectTitle(element);
-        var rowId = ReadDirectSeriesId(element);
-        var kind = ReadRowKind(element);
-        foreach (var name in new[] { "seriesInfo", "series", "drama", "baseInfo" })
-        {
-            if (!element.TryGetProperty(name, out var child) || child.ValueKind != JsonValueKind.Object)
-                continue;
-            rowTitle ??= ReadDirectTitle(child);
-            rowId ??= ReadDirectSeriesId(child);
-            if (kind == SeriesRowKind.Untagged)
-                kind = ReadRowKind(child);
-        }
-
-        if (rowTitle is null || rowId is null)
-            return;
-        if (!string.Equals(rowTitle.Trim(), wanted, StringComparison.Ordinal))
-            return;
-
-        var target = kind switch
-        {
-            SeriesRowKind.Draft => drafts,
-            SeriesRowKind.Other => others,
-            _ => untagged,
-        };
-        target.Add(rowId);
-    }
-
-    private static string? ReadDirectTitle(JsonElement element)
-    {
-        foreach (var name in new[] { "title", "seriesTitle", "dramaTitle" })
-        {
-            if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
-                continue;
-            var text = value.GetString()?.Trim();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-
-        return null;
-    }
-
-    private static string? ReadDirectSeriesId(JsonElement element)
-    {
-        foreach (var name in new[] { "seriesId", "id", "dramaId", "contractId" })
-        {
-            if (!element.TryGetProperty(name, out var value))
-                continue;
-            var raw = value.ValueKind switch
-            {
-                JsonValueKind.String => value.GetString(),
-                JsonValueKind.Number => value.GetRawText(),
-                _ => null,
-            };
-            if (raw is not null && SeriesIdValuePattern.IsMatch(raw.Trim()))
-                return raw.Trim();
-        }
-
-        return null;
-    }
-
-    private static SeriesRowKind ReadRowKind(JsonElement element)
-    {
-        foreach (var name in new[] { "presentationStatus", "status", "seriesStatus" })
-        {
-            if (!element.TryGetProperty(name, out var value))
-                continue;
-            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
-                return number == DraftPresentationStatus ? SeriesRowKind.Draft : SeriesRowKind.Other;
-            if (value.ValueKind != JsonValueKind.String)
-                continue;
-            var text = value.GetString()?.Trim() ?? "";
-            if (text.Length == 0)
-                continue;
-            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
-                return parsed == DraftPresentationStatus ? SeriesRowKind.Draft : SeriesRowKind.Other;
-            if (text.Contains("草稿", StringComparison.Ordinal) ||
-                text.Equals("InDraft", StringComparison.OrdinalIgnoreCase) ||
-                text.Equals("Draft", StringComparison.OrdinalIgnoreCase))
-                return SeriesRowKind.Draft;
-            return SeriesRowKind.Other;
-        }
-
-        return SeriesRowKind.Untagged;
-    }
+    private static bool IsDraftLabel(string? status) =>
+        !string.IsNullOrWhiteSpace(status) &&
+        (status.Contains("草稿", StringComparison.Ordinal) ||
+         status.Equals("Draft", StringComparison.OrdinalIgnoreCase) ||
+         status.Equals("InDraft", StringComparison.OrdinalIgnoreCase));
 
     private static IReadOnlyList<string> DistinctIds(List<string> ids)
     {
@@ -912,13 +750,6 @@ public static class TikTokApiUploadService
         }
 
         return result;
-    }
-
-    private enum SeriesRowKind
-    {
-        Untagged,
-        Draft,
-        Other,
     }
 
     internal static string? ReadContractId(string? postData)
