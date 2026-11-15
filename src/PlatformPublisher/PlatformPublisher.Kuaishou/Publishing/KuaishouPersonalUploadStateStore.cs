@@ -15,8 +15,23 @@ public sealed class KuaishouPersonalUploadState
     public bool EpisodeInfoCompleted { get; set; }
     public bool VideosUploaded { get; set; }
     public bool ReviewSubmitted { get; set; }
+    /// <summary>平台上已有同名且不能再编辑的短剧。本地记完成，但不算进今日已上传。</summary>
+    public bool SkipTodayUploadCount { get; set; }
     /// <summary>第一次提交审核的时间。补传或再次保存不改这个时间，今日上传只认这一天。</summary>
     public DateTimeOffset SubmittedAt { get; set; }
+
+    public void MarkAlreadyOnPlatform(string seriesId)
+    {
+        Status = "completed";
+        CurrentStage = "already_on_platform";
+        MiniSeriesId = seriesId?.Trim() ?? "";
+        LastError = "";
+        FirstPageCompleted = true;
+        EpisodeInfoCompleted = true;
+        VideosUploaded = true;
+        ReviewSubmitted = true;
+        SkipTodayUploadCount = true;
+    }
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
 }
 

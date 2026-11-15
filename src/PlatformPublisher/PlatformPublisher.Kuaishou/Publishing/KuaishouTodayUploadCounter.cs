@@ -72,6 +72,8 @@ public static class KuaishouTodayUploadCounter
 
         var stateName = enterprise ? ".kuaishou-enterprise-upload-state.json" : ".kuaishou-personal-upload-state.json";
         var state = ReadObject(FindStateFile(projectDirectory, stateName));
+        if (ReadBool(state, "SkipTodayUploadCount") || ReadBool(state, "skipTodayUploadCount"))
+            return;
         var rawStatus = succeeded
             ? FirstText(ReadString(state, "Status"), ReadString(state, "status"), "completed")
             : "failed";
@@ -410,6 +412,8 @@ public static class KuaishouTodayUploadCounter
         if (!File.Exists(path))
             return false;
         var state = ReadObject(path);
+        if (ReadBool(state, "SkipTodayUploadCount") || ReadBool(state, "skipTodayUploadCount"))
+            return false;
         var status = FirstText(ReadString(state, "Status"), ReadString(state, "status")).ToLowerInvariant();
         if (status is "failed" or "error" or "stopped" or "draft_saved" or "manual_hold" or "final_hold")
             return false;

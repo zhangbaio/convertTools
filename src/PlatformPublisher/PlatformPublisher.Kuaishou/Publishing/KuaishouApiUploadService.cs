@@ -154,6 +154,12 @@ public sealed class KuaishouApiUploadService
             else
                 await _distributionService.ApplyAsync(state.MiniSeriesId, config, progress, cancellationToken);
         }
+        catch (KuaishouExistingSeriesNotEditableException ex)
+        {
+            state.MarkAlreadyOnPlatform(ex.SeriesId);
+            await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
+            progress?.Report($"{label}：{ex.Message}");
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             state.Status = "failed";

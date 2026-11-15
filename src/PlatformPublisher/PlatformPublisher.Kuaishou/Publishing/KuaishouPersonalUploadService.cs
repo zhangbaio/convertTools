@@ -168,6 +168,12 @@ public sealed class KuaishouPersonalUploadService
                     await _distributionService.ApplyAsync(state.MiniSeriesId, effectiveConfig, progress, ct);
             }, cancellationToken, progress, holdUntilClosed: string.Equals(config.FirstPageAction, "keep", StringComparison.OrdinalIgnoreCase));
         }
+        catch (KuaishouExistingSeriesNotEditableException ex)
+        {
+            state.MarkAlreadyOnPlatform(ex.SeriesId);
+            await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
+            progress?.Report($"{label}：{ex.Message}");
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             state.Status = "failed";
