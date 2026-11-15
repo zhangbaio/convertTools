@@ -25,6 +25,8 @@ public static partial class TikTokApiUploadService
     internal const int PartsInFlightPerFile = 3;
     /// <summary>对象存储分片的尝试次数：第一次加上 6 次重试。网关 504 不跟账号里的 3 次重试绑在一起。</summary>
     internal const int TosPartAttempts = 7;
+    /// <summary>图片分片初始化在同一地址上先试两次，仍是传输中断再换下一个地址。</summary>
+    internal const int ImageInitAttemptsPerHost = 2;
     private const int MaxPartsInFlight = 12;
     private const string ApiVersion = "2020-11-19";
     private const string ImageApiVersion = "2018-08-01";
@@ -91,7 +93,12 @@ public static partial class TikTokApiUploadService
     internal static Uri BuildImageCommitUri(string serviceBase) =>
         new($"{serviceBase.TrimEnd('/')}/?Action=CommitImageUpload&Version={ImageApiVersion}&ServiceId={ImageServiceId}");
 
-    internal readonly record struct ImageUploadTicket(string SessionKey, string StoreUri, string Auth, string UploadHost);
+    internal readonly record struct ImageUploadTicket(
+        string SessionKey,
+        string StoreUri,
+        string Auth,
+        string UploadHost,
+        IReadOnlyList<string> UploadHosts);
 
     internal static ImageUploadTicket ReadImageUploadTicket(JsonElement root, string fallbackHost)
     {
@@ -102,7 +109,70 @@ public static partial class TikTokApiUploadService
         var sessionKey = ReadString(address, "SessionKey");
         if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
             throw new InvalidOperationException("ApplyImageUpload 没有返回上传地址。");
-        return new ImageUploadTicket(sessionKey, storeUri, auth, ResolveImageUploadHost(address, fallbackHost));
+        var hosts = ListImageUploadHosts(address, fallbackHost);
+        if (hosts.Count == 0)
+            throw new InvalidOperationException("ApplyImageUpload 没有返回上传地址。");
+        return new ImageUploadTicket(sessionKey, storeUri, auth, hosts[0], hosts);
+    }
+
+    internal static IReadOnlyList<string> ListImageUploadHosts(JsonElement address, string fallbackHost)
+    {
+        var hosts = new List<string>();
+        if (address.TryGetProperty("UploadHosts", out var list) && list.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in list.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String)
+                    continue;
+                var normalized = NormalizeUploadHost(item.GetString());
+                if (normalized.Length == 0 ||
+                    hosts.Exists(existing => string.Equals(existing, normalized, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                hosts.Add(normalized);
+            }
+        }
+
+        if (hosts.Count == 0)
+        {
+            var single = ResolveImageUploadHost(address, fallbackHost);
+            if (!string.IsNullOrWhiteSpace(single))
+                hosts.Add(single);
+        }
+
+        return hosts;
+    }
+
+    internal static string DescribeUploadHost(string host)
+    {
+        if (Uri.TryCreate(host, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+            return uri.Host;
+        return host;
+    }
+
+    internal static bool IsTransportClosedFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is HttpRequestException or System.Security.Authentication.AuthenticationException)
+                return true;
+            if (current is IOException &&
+                (current.Message.Contains("EOF", StringComparison.OrdinalIgnoreCase) ||
+                 current.Message.Contains("transport stream", StringComparison.OrdinalIgnoreCase) ||
+                 current.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeUploadHost(string? value)
+    {
+        var host = value?.Trim() ?? "";
+        if (host.Length == 0)
+            return "";
+        return host.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? host.TrimEnd('/')
+            : "https://" + host.TrimEnd('/');
     }
 
     private static string ResolveImageUploadHost(JsonElement address, string fallbackHost)
@@ -112,13 +182,9 @@ public static partial class TikTokApiUploadService
             hosts.GetArrayLength() > 0 &&
             hosts[0].ValueKind == JsonValueKind.String)
         {
-            var host = hosts[0].GetString()?.Trim() ?? "";
-            if (host.Length > 0)
-            {
-                return host.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-                    ? host.TrimEnd('/')
-                    : "https://" + host.TrimEnd('/');
-            }
+            var normalized = NormalizeUploadHost(hosts[0].GetString());
+            if (normalized.Length > 0)
+                return normalized;
         }
 
         return ResolveObjectHost(address, null, fallbackHost);
@@ -1476,6 +1542,7 @@ public static partial class TikTokApiUploadService
         string auth;
         string sessionKey;
         string uploadHost;
+        JsonDocument initDocument;
         if (isVideo)
         {
             var node = applyDocument.RootElement
@@ -1487,31 +1554,42 @@ public static partial class TikTokApiUploadService
             uploadHost = tosBase;
             if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
                 throw new InvalidOperationException($"{applyAction} 没有返回上传地址。");
+            var boundary = "----WebKitFormBoundary" + RandomToken(16);
+            initDocument = await ExecuteWithRetryAsync(
+                ResolveMultipartInitAttempts(isVideo, retries),
+                $"{label}分片初始化",
+                log,
+                async token =>
+                {
+                    using var init = new HttpRequestMessage(HttpMethod.Post, $"{uploadHost}/upload/v1/{storeUri}?uploadmode=part&phase=init");
+                    init.Headers.TryAddWithoutValidation("Authorization", auth);
+                    init.Content = new StringContent($"--{boundary}--\r\n", Encoding.ASCII);
+                    init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
+                    return await SendTosAsync(http, init, token);
+                },
+                ct);
         }
         else
         {
-            var ticket = ReadImageUploadTicket(applyDocument.RootElement, objectBase ?? tosBase);
-            storeUri = ticket.StoreUri;
-            auth = ticket.Auth;
-            sessionKey = ticket.SessionKey;
-            uploadHost = ticket.UploadHost;
+            var initialized = await InitializeImageUploadAsync(
+                http,
+                sts,
+                vodBase,
+                objectBase ?? tosBase,
+                fileSize,
+                label,
+                retries,
+                ReadImageUploadTicket(applyDocument.RootElement, objectBase ?? tosBase),
+                log,
+                ct);
+            storeUri = initialized.Ticket.StoreUri;
+            auth = initialized.Ticket.Auth;
+            sessionKey = initialized.Ticket.SessionKey;
+            uploadHost = initialized.Ticket.UploadHost;
+            initDocument = initialized.Document;
         }
         var objectUrl = $"{uploadHost}/upload/v1/{storeUri}";
-        var boundary = "----WebKitFormBoundary" + RandomToken(16);
-        using var initDocument = await ExecuteWithRetryAsync(
-            ResolveMultipartInitAttempts(isVideo, retries),
-            $"{label}分片初始化",
-            log,
-            async token =>
-            {
-                using var init = new HttpRequestMessage(HttpMethod.Post, $"{objectUrl}?uploadmode=part&phase=init");
-                init.Headers.TryAddWithoutValidation("Authorization", auth);
-                init.Content = new StringContent($"--{boundary}--\r\n", Encoding.ASCII);
-                init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
-                return await SendTosAsync(http, init, token);
-            },
-            ct,
-            isVideo ? null : TosPartRetryDelay);
+        using var initScope = initDocument;
         var uploadId = ReadString(initDocument.RootElement.GetProperty("data"), "uploadid");
         if (uploadId.Length == 0)
             throw new InvalidOperationException("TOS 初始化没有返回 uploadid。");
@@ -1536,6 +1614,94 @@ public static partial class TikTokApiUploadService
             ct)) { }
 
         return sessionKey;
+    }
+
+    private readonly record struct ImageInitResult(JsonDocument Document, ImageUploadTicket Ticket);
+
+    /// <summary>
+    /// 图片分片初始化：同一地址连续两次传输中断就换下一个地址；地址都失败时重新申请一次票据。
+    /// 每次初始化都要求关闭连接，避免把刚被掐断的连接再拿出来用。
+    /// </summary>
+    private static async Task<ImageInitResult> InitializeImageUploadAsync(
+        HttpClient http,
+        StsCache sts,
+        string vodBase,
+        string fallbackHost,
+        long fileSize,
+        string label,
+        int retries,
+        ImageUploadTicket ticket,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        Exception? last = null;
+        for (var round = 0; round < 2; round++)
+        {
+            if (round == 1)
+            {
+                log?.Invoke($"接口直传：{label}上传地址都不可用，重新申请一次上传票据。");
+                var credentials = await sts.GetAsync(ct);
+                var applyUri = BuildImageApplyUri(vodBase, fileSize, RandomToken());
+                using var applyDocument = await ExecuteWithRetryAsync(
+                    retries,
+                    $"{label}初始化上传",
+                    log,
+                    token => SendVodAsync(http, HttpMethod.Get, applyUri, credentials, null, token),
+                    ct);
+                ticket = ReadImageUploadTicket(applyDocument.RootElement, fallbackHost);
+            }
+
+            for (var hostIndex = 0; hostIndex < ticket.UploadHosts.Count; hostIndex++)
+            {
+                var host = ticket.UploadHosts[hostIndex];
+                log?.Invoke($"接口直传：{label}使用上传地址 {DescribeUploadHost(host)}。");
+                for (var attempt = 1; attempt <= ImageInitAttemptsPerHost; attempt++)
+                {
+                    try
+                    {
+                        var document = await SendImageInitAsync(http, host, ticket.StoreUri, ticket.Auth, ct);
+                        return new ImageInitResult(document, ticket with { UploadHost = host });
+                    }
+                    catch (Exception ex) when (IsTransportClosedFailure(ex) && !ct.IsCancellationRequested)
+                    {
+                        last = ex;
+                        if (attempt < ImageInitAttemptsPerHost)
+                        {
+                            var delay = TosPartRetryDelay(attempt);
+                            log?.Invoke(
+                                $"接口直传：{label}分片初始化暂时失败（{DescribeTransportFailure(ex)}），" +
+                                $"{delay.TotalSeconds:0} 秒后在同一地址重试（{attempt}/{ImageInitAttemptsPerHost - 1}）。");
+                            await Task.Delay(delay, ct);
+                            continue;
+                        }
+
+                        log?.Invoke(hostIndex < ticket.UploadHosts.Count - 1
+                            ? $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} 连续失败，改用下一个上传地址。"
+                            : $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} 连续失败。");
+                    }
+                }
+            }
+        }
+
+        throw last ?? new InvalidOperationException($"{label}分片初始化失败。");
+    }
+
+    private static async Task<JsonDocument> SendImageInitAsync(
+        HttpClient http,
+        string uploadHost,
+        string storeUri,
+        string auth,
+        CancellationToken ct)
+    {
+        var boundary = "----WebKitFormBoundary" + RandomToken(16);
+        using var init = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{uploadHost}/upload/v1/{storeUri}?uploadmode=part&phase=init");
+        init.Headers.ConnectionClose = true;
+        init.Headers.TryAddWithoutValidation("Authorization", auth);
+        init.Content = new StringContent($"--{boundary}--\r\n", Encoding.ASCII);
+        init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
+        return await SendTosAsync(http, init, ct);
     }
 
     private static async Task<IReadOnlyList<string>> SendPartsAsync(

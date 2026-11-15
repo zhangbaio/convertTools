@@ -111,6 +111,42 @@ public sealed class TikTokApiUploadServiceTests
         ticket.StoreUri.Should().Be("tos-alisg-i-xbj99bix8q-sg/cover");
         ticket.Auth.Should().Be("auth-1");
         ticket.UploadHost.Should().Be("https://tos-imagex.example.com");
+        ticket.UploadHosts.Should().Equal("https://tos-imagex.example.com");
+    }
+
+    [Fact]
+    public void Image_apply_keeps_every_distinct_upload_host()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"Result":{"UploadAddress":{
+              "SessionKey":"session-1",
+              "UploadHosts":["tos-a.example.com","https://tos-b.example.com/","tos-a.example.com"],
+              "StoreInfos":[{"StoreUri":"tos-alisg-i-xbj99bix8q-sg/cover","Auth":"auth-1"}]
+            }}}
+            """);
+
+        var ticket = TikTokApiUploadService.ReadImageUploadTicket(
+            document.RootElement,
+            "https://tos.tiktokdramacenter.com");
+
+        ticket.UploadHost.Should().Be("https://tos-a.example.com");
+        ticket.UploadHosts.Should().Equal(
+            "https://tos-a.example.com",
+            "https://tos-b.example.com");
+        TikTokApiUploadService.DescribeUploadHost(ticket.UploadHosts[1]).Should().Be("tos-b.example.com");
+    }
+
+    [Fact]
+    public void Transport_closed_failure_is_recognized_from_the_ssl_eof()
+    {
+        var failure = new HttpRequestException(
+            "The SSL connection could not be established, see inner exception.",
+            new IOException("Received an unexpected EOF or 0 bytes from the transport stream."));
+
+        TikTokApiUploadService.IsTransportClosedFailure(failure).Should().BeTrue();
+        TikTokApiUploadService.IsTransportClosedFailure(new InvalidOperationException("TOS 上传失败"))
+            .Should().BeFalse();
     }
 
     [Fact]
