@@ -52,10 +52,12 @@ public partial class KuaishouQueueLogView : UserControl
         if (_vm is not null)
         {
             _vm.ActivityLogRecords.CollectionChanged -= OnLogsChanged;
+            _vm.VisibleJobs.CollectionChanged -= OnLogsChanged;
             _vm.KuaishouLogProjectsChanged -= OnKuaishouLogProjectsChanged;
         }
         _vm = vm;
         _vm.ActivityLogRecords.CollectionChanged += OnLogsChanged;
+        _vm.VisibleJobs.CollectionChanged += OnLogsChanged;
         _vm.KuaishouLogProjectsChanged += OnKuaishouLogProjectsChanged;
         Refresh();
     }
@@ -103,32 +105,20 @@ public partial class KuaishouQueueLogView : UserControl
     {
         if (_vm is null) return;
         var rows = new List<LogProjectRow> { new("全部项目", "", "none") };
-        var listed = new HashSet<string>(StringComparer.Ordinal);
-        void Add(string title, string name, string tone)
-        {
-            if (string.IsNullOrWhiteSpace(name) || !listed.Add(name))
-                return;
-            rows.Add(new LogProjectRow(title, name, tone));
-        }
-
-        if (_vm.KuaishouLogProjects.Count > 0)
-        {
-            foreach (var project in _vm.KuaishouLogProjects)
-            {
-                var job = FindJob(project.ProjectName, project.ProjectDirectory);
-                Add(
-                    ProjectListTitle(job?.NewTitle, project.ProjectName),
-                    project.ProjectName,
-                    RowTone(project.Tone, job is null ? null : ToneFromJob(job)));
-            }
-        }
-        else
-        {
-            foreach (var job in _vm.VisibleJobs.Where(job => job.IsChecked))
-                Add(ProjectListTitle(job.NewTitle, job.ProjectName), job.ProjectName, ToneFromJob(job));
-        }
-
+        foreach (var job in CheckedJobs())
+            rows.Add(new LogProjectRow(ProjectListTitle(job.NewTitle, job.ProjectName), job.ProjectName, ToneFromJob(job)));
         ApplyProjectRows(rows);
+    }
+
+    private List<PublishJobRowViewModel> CheckedJobs()
+    {
+        if (_vm is null)
+            return [];
+        return WhereChecked(
+            _vm.VisibleJobs,
+            job => job.IsChecked,
+            job => job.ProjectName,
+            job => job.ProjectDirectory);
     }
 
     private void ApplyProjectRows(IReadOnlyList<LogProjectRow> next)
@@ -181,14 +171,51 @@ public partial class KuaishouQueueLogView : UserControl
         _syncingSelection = false;
     }
 
-    private PublishJobRowViewModel? FindJob(string projectName, string projectDirectory)
+    public static List<T> WhereChecked<T>(
+        IEnumerable<T> jobs,
+        Func<T, bool> isChecked,
+        Func<T, string?> projectName,
+        Func<T, string?> directory)
     {
-        if (_vm is null)
-            return null;
-        return _vm.VisibleJobs.FirstOrDefault(job =>
-            string.Equals(job.ProjectName, projectName, StringComparison.Ordinal) ||
-            SameDirectory(job.ProjectDirectory, projectDirectory));
+        var listed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<T>();
+        foreach (var job in jobs)
+        {
+            var name = projectName(job);
+            if (!isChecked(job) || string.IsNullOrWhiteSpace(name))
+                continue;
+            if (!listed.Add(LogIdentity(directory(job), name)))
+                continue;
+            result.Add(job);
+        }
+
+        return result;
     }
+
+    public static string LogIdentity(string? directory, string projectName)
+    {
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            try
+            {
+                return Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+            {
+                return directory.Trim();
+            }
+        }
+
+        return projectName.Trim();
+    }
+
+    public static bool MatchesCheckedJob(
+        string storedName,
+        string storedDirectory,
+        string checkedName,
+        string checkedDirectory) =>
+        string.Equals(storedName, checkedName, StringComparison.Ordinal) ||
+        SameDirectory(storedDirectory, checkedDirectory);
 
     private static bool SameDirectory(string left, string right)
     {
@@ -258,21 +285,32 @@ public partial class KuaishouQueueLogView : UserControl
     {
         if (_vm is null)
             return [];
-        var projects = _vm.KuaishouLogProjects;
+        var jobs = CheckedJobs();
         if (!string.IsNullOrEmpty(_selectedProject))
         {
-            var match = projects.FirstOrDefault(project => project.ProjectName == _selectedProject);
-            if (match is not null && match.CopyLines().Count > 0)
-                return match.CopyLines();
-            return ActivityLines(_selectedProject);
+            var job = jobs.FirstOrDefault(item => item.ProjectName == _selectedProject);
+            if (job is null)
+                return [];
+            return LinesFor(job);
         }
 
-        if (projects.Count > 0 && projects.Any(project => project.CopyLines().Count > 0))
-        {
-            return projects.SelectMany(project => project.CopyLines());
-        }
+        return jobs.SelectMany(LinesFor);
+    }
 
-        return ActivityLines("");
+    private IEnumerable<string> LinesFor(PublishJobRowViewModel job)
+    {
+        var match = FindStored(job);
+        if (match is not null && match.CopyLines().Count > 0)
+            return match.CopyLines();
+        return ActivityLines(job.ProjectName);
+    }
+
+    private KuaishouLogProject? FindStored(PublishJobRowViewModel job)
+    {
+        if (_vm is null)
+            return null;
+        return _vm.KuaishouLogProjects.FirstOrDefault(project =>
+            MatchesCheckedJob(project.ProjectName, project.ProjectDirectory, job.ProjectName, job.ProjectDirectory));
     }
 
     private IEnumerable<string> ActivityLines(string projectName)

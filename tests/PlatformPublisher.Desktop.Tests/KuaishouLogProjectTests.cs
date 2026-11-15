@@ -74,6 +74,40 @@ public sealed class KuaishouLogProjectTests
     }
 
     [Fact]
+    public void Log_list_counts_only_the_dramas_still_checked()
+    {
+        var jobs = new (string Name, string? Title, string Directory, bool IsChecked)[]
+        {
+            ("婚礼当天，我将未婚夫七天无理由退货", null, @"E:\kuaishou3\婚礼当天，我将未婚夫七天无理由退货", true),
+            ("心正则刀正", null, @"E:\kuaishou3\心正则刀正", true),
+            ("打破那道家规", "知夏的家宅新篇", @"E:\kuaishou3\打破那道家规", true),
+            ("前世债今生不还表妹的八十万担保书", null, @"E:\kuaishou3\前世债今生不还表妹的八十万担保书", true),
+            ("说好退婚却动心了", null, @"E:\kuaishou3\说好退婚却动心了", false),
+            ("拒嫁病秧子，我娶王爷当赘婿", null, @"E:\kuaishou3\拒嫁病秧子，我娶王爷当赘婿", false),
+        };
+
+        var listed = KuaishouQueueLogView.WhereChecked(
+            jobs,
+            job => job.IsChecked,
+            job => job.Name,
+            job => job.Directory);
+
+        Assert.Equal(4, listed.Count);
+        Assert.Equal("知夏的家宅新篇", KuaishouQueueLogView.ProjectListTitle(listed[2].Title, listed[2].Name));
+        Assert.DoesNotContain(listed, job => job.Name == "说好退婚却动心了");
+        Assert.False(KuaishouQueueLogView.MatchesCheckedJob(
+            "说好退婚却动心了",
+            @"E:\kuaishou3\workflow\说好退婚却动心了",
+            "打破那道家规",
+            @"E:\kuaishou3\打破那道家规"));
+        Assert.True(KuaishouQueueLogView.MatchesCheckedJob(
+            "打破那道家规",
+            @"E:\kuaishou3\打破那道家规",
+            "打破那道家规",
+            @"E:\kuaishou3\打破那道家规"));
+    }
+
+    [Fact]
     public void A_project_waiting_for_the_upload_slot_stays_on_the_log_list_and_is_not_failed()
     {
         var existing = new List<KuaishouLogProject>
