@@ -12,6 +12,8 @@ namespace TikTokPublisher.Ui.Services;
 /// </summary>
 public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyncDisposable
 {
+    public Func<TikTokAccountProfile, Task>? PersistAccount { get; set; }
+
     public Task<PublishResult> PublishAsync(
         TikTokAccountProfile account,
         PublishItem item,
@@ -59,12 +61,24 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
         if (!File.Exists(item.VideoPath))
             return PublishResult.Fail($"视频不存在：{item.VideoPath}");
 
+        var contractError = await TikTokLicenseContractAutofill
+            .EnsureAsync(account, L, PersistAccount, ct)
+            .ConfigureAwait(false);
+        if (contractError.Status is not (
+            TikTokLicenseContractLookupStatus.AlreadyConfigured
+            or TikTokLicenseContractLookupStatus.Single))
+        {
+            return PublishResult.FailAndSkipManualIntervention(contractError.Message);
+        }
+
         try
         {
             TikTokUploadPrerequisiteService.EnsureUploadPrerequisites(account, L);
         }
         catch (InvalidOperationException ex)
         {
+            if (ex.Message.Contains("请先配置合同", StringComparison.Ordinal))
+                return PublishResult.FailAndSkipManualIntervention(ex.Message);
             return PublishResult.Fail(ex.Message);
         }
 
@@ -160,6 +174,53 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             return snapshot?.DirectoryPath;
         }
 
+        if (options.UseApiUpload)
+        {
+            L("上传方式：接口上传，不打开浏览器。");
+            RecordUploadStepStarted();
+            try
+            {
+                var apiResult = await TikTokApiUploadService.PublishWithSavedLoginAsync(
+                        EmbeddedBrowserLoginHelper.ResolveAuthPath(account),
+                        item,
+                        payload,
+                        options,
+                        recommendation,
+                        coverPath,
+                        hasWorkflow ? workflowDir : null,
+                        finalAction,
+                        L,
+                        ct)
+                    .ConfigureAwait(false);
+                if (apiResult.Ok && hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepCompleted(workflowDir, payload.Title);
+                return apiResult;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TikTokDailyLimitException ex)
+            {
+                if (hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, ex.Message, payload.Title);
+                return PublishResult.FailAndStopQueue(ex.Message);
+            }
+            catch (TikTokPlatformTemporaryException ex)
+            {
+                if (hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, ex.Message, payload.Title);
+                return PublishResult.Fail(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                var failureText = $"{ex.GetType().Name}: {TikTokApiUploadService.DescribeTransportFailure(ex)}";
+                if (hasWorkflow)
+                    TikTokUploadStateStore.MarkUploadStepFailed(workflowDir, failureText, payload.Title);
+                return PublishResult.Fail(failureText);
+            }
+        }
+
         var useLaunch = string.Equals(
             (account.TiktokUploadBrowserMode ?? "").Trim(), "playwright", StringComparison.OrdinalIgnoreCase);
         // 上传和失败处理始终遵守账号设置，不自动切换为可见浏览器。
@@ -219,6 +280,10 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 sharedPage?.StopAccount(loginMessage);
                 return PublishResult.FailAndStopQueue(loginMessage);
             }
+
+            L(options.UseBatchUpload
+                ? "上传方式：网页上传，正片分批。"
+                : "上传方式：网页上传，正片一次传完。");
 
             // 注意：此处不检测单日上限。刚连接时页面可能停留在上一个项目的残留页
             // （含旧的“已达上限”提示），会误判停队列。上限检测仅在导航到新建/编辑页后进行。
@@ -366,6 +431,18 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (hasWorkflow)
                 RecordUploadStepStarted();
 
+            async Task EnsureApiSeriesReadyToSubmitAsync()
+            {
+                if (!options.UseApiUpload)
+                    return;
+
+                var uploadPaths = payload.UploadVideoPaths.Count > 0
+                    ? payload.UploadVideoPaths
+                    : payload.VideoPaths;
+                await TikTokApiUploadService.EnsureReadyToSubmitAsync(page, uploadPaths, L, ct)
+                    .ConfigureAwait(false);
+            }
+
             PublishResult result;
             if (finalAction == FinalAction.Publish)
             {
@@ -373,6 +450,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 var reopenDraftUrl = "";
                 try
                 {
+                    await EnsureApiSeriesReadyToSubmitAsync().ConfigureAwait(false);
                     await TikTokBrowserActions.SubmitAsync(
                             page,
                             L,
@@ -395,6 +473,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                             ct)
                         .ConfigureAwait(false);
                     ThrowIfLoginRedirect(page, sharedPage);
+                    await EnsureApiSeriesReadyToSubmitAsync().ConfigureAwait(false);
                     await TikTokBrowserActions.SubmitAsync(
                             page,
                             L,
@@ -420,6 +499,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                             ct)
                         .ConfigureAwait(false);
                     ThrowIfLoginRedirect(page, sharedPage);
+                    await EnsureApiSeriesReadyToSubmitAsync().ConfigureAwait(false);
                     await TikTokBrowserActions.SubmitAsync(
                             page,
                             L,
@@ -494,7 +574,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
                 return PublishResult.FailAndStopQueue(accountStopReason);
             }
 
-            var failureText = $"{ex.GetType().Name}: {ex.Message}";
+            var failureText = $"{ex.GetType().Name}: {TikTokApiUploadService.DescribeTransportFailure(ex)}";
             if (IsTikTokCrashFailure(failureText) ||
                 (activePage is not null && await TikTokBrowserActions.LooksLikeTikTokCrashPageAsync(activePage).ConfigureAwait(false)))
             {
@@ -526,7 +606,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             if (sharedPage is not null)
             {
                 try { await sharedPage.DisposeAsync().ConfigureAwait(false); }
-                catch { /* 标签页已经关闭 */ }
+                catch { /* 浏览器已经关闭 */ }
             }
             else
             {

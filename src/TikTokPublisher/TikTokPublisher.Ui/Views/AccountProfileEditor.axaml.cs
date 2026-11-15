@@ -26,6 +26,8 @@ public partial class AccountProfileEditor : UserControl
     private bool _persistedRemoteDispatch;
     private bool _suppressUploadedSeriesSearch;
     private int _uploadedSeriesGeneration;
+    private int _contractLookupGeneration;
+    private int _profileReloadSuppressions;
     private IReadOnlyList<AccountUploadedSeriesRow> _uploadedSeriesRows = Array.Empty<AccountUploadedSeriesRow>();
 
     public event EventHandler? LoginRequested;
@@ -35,7 +37,6 @@ public partial class AccountProfileEditor : UserControl
     public AccountProfileEditor()
     {
         InitializeComponent();
-        ExpectedPriceModeCombo.SelectionChanged += (_, _) => UpdateExpectedPriceModeVisibility();
         PublishAccounts.FetchRequested += (_, _) => _ = FetchPublishAccountsAsync();
         VideoDedupEditor.ApplyToAllAccountsRequested += (_, _) => _ = ApplyDedupPresetToAllAccountsAsync();
         DataContextChanged += (_, _) => ReloadFromSelectedAccount();
@@ -90,8 +91,78 @@ public partial class AccountProfileEditor : UserControl
         RemoteDispatchBox.IsChecked = xingeEnabled && _persistedRemoteDispatch;
     }
 
+    private void RequestContractAutofill(TikTokAccountProfile profile)
+    {
+        var generation = ++_contractLookupGeneration;
+        if (!string.IsNullOrWhiteSpace(profile.TiktokContractId))
+            return;
+        _ = FillEmptyContractAsync(profile, generation);
+    }
+
+    private async Task FillEmptyContractAsync(TikTokAccountProfile profile, int generation)
+    {
+        TikTokLicenseContractLookupResult result;
+        try
+        {
+            result = await TikTokLicenseContractLookup.TryReadAsync(
+                profile,
+                message => _vm?.AppendLog(message),
+                CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyContractLookup(profile, generation, result));
+    }
+
+    private void ApplyContractLookup(
+        TikTokAccountProfile profile,
+        int generation,
+        TikTokLicenseContractLookupResult result)
+    {
+        if (generation != _contractLookupGeneration)
+            return;
+        if (_vm?.SelectedAccount?.Id != profile.Id)
+            return;
+        if (!string.IsNullOrWhiteSpace(ContractIdBox.Text) ||
+            !string.IsNullOrWhiteSpace(profile.TiktokContractId))
+            return;
+        if (result.Status != TikTokLicenseContractLookupStatus.Single)
+        {
+            if (result.Status is TikTokLicenseContractLookupStatus.NotLoggedIn
+                or TikTokLicenseContractLookupStatus.AlreadyConfigured)
+                return;
+            if (!string.IsNullOrWhiteSpace(result.Message))
+                _ = InfoDialog.ShowAsync(TopLevel.GetTopLevel(this) as Window, result.Message, "授权合同", 520, 200);
+            return;
+        }
+
+        if (!TikTokLicenseContractLookup.TryApply(profile, result.LicenseId))
+            return;
+        ContractIdBox.Text = profile.TiktokContractId;
+        if (_vm is null)
+            return;
+        _profileReloadSuppressions++;
+        try
+        {
+            _vm.SaveAccountProfile(profile);
+        }
+        finally
+        {
+            _profileReloadSuppressions--;
+        }
+
+        var saved = TikTokLicenseContractLookup.SavedLog(profile.TiktokContractId);
+        _vm.AppendLog(saved);
+        _vm.StatusMessage = saved;
+    }
+
     private void OnAccountProfileChanged(TikTokAccountProfile profile)
     {
+        if (_profileReloadSuppressions > 0)
+            return;
         if (_vm?.SelectedAccount?.Id == profile.Id)
             ReloadFromSelectedAccount();
     }
@@ -143,7 +214,7 @@ public partial class AccountProfileEditor : UserControl
         CdpEndpointBox.Text = profile.TiktokExternalBrowserCdpEndpoint;
 
         ContractIdBox.Text = profile.TiktokContractId;
-        SelectByTag(ContractModeCombo, profile.TiktokContractIdMode, "manual");
+        RequestContractAutofill(profile);
         var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
@@ -152,8 +223,14 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
-        SelectByTag(SourceLanguageCombo, profile.TiktokSourceLanguage, "zh");
-        SelectByTag(UploadStrategyCombo, profile.TiktokUploadStrategy, "api");
+        SelectByTag(
+            SourceLanguageCombo,
+            TikTokAccountProfile.NormalizeStoredSourceLanguage(profile.TiktokSourceLanguage, profile.TiktokDramaMarket),
+            "zh");
+        var upload = TikTokUploadChannels.Resolve(profile.TiktokUploadStrategy, profile.TiktokPlaywrightVideoDelivery);
+        SelectByTag(UploadStrategyCombo, upload.Channel, "api");
+        SelectByTag(PlaywrightDeliveryCombo, upload.Delivery, "classic");
+        UpdateUploadChannelVisibility();
 
         PaidEnabledBox.IsChecked = profile.TiktokPaidEnabled;
         PaidRatioEnabledBox.IsChecked = profile.TiktokPaidRatioEnabled;
@@ -199,7 +276,6 @@ public partial class AccountProfileEditor : UserControl
             2,
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = profile.TiktokAiRewriteSynopsis;
-        RewriteFollowsSourceLanguageBox.IsChecked = profile.TiktokRewriteFollowsSourceLanguage;
         SelectByTag(AiNewTitleRandomnessCombo, profile.TiktokAiNewTitleRandomness, ClientSettingsDefaults.AiNewTitleRandomness);
         ConsignmentBox.IsChecked = profile.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = profile.TiktokZeroCostAdsEnabled;
@@ -215,13 +291,8 @@ public partial class AccountProfileEditor : UserControl
         UploadBatchStallBox.Value = profile.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = profile.TiktokUploadBatchMaxRetries;
         UploadApiConcurrencyBox.Value = profile.TiktokUploadApiConcurrency;
-        UploadApiFallbackBox.IsChecked = profile.TiktokUploadApiFallbackToBatch;
 
-        SelectByTag(ExpectedPriceModeCombo, profile.TiktokExpectedFullPriceMode, "manual");
-        ExpectedPriceOptionIndexBox.Value = profile.TiktokExpectedFullPriceOptionIndex;
-        ExpectedPriceValueBox.Text = BuildExpectedPriceInputText(profile);
-        ReloadExpectedPriceOptionsCombo(profile);
-        UpdateExpectedPriceModeVisibility();
+        ExpectedPriceValueBox.Text = TikTokApiSeriesDocument.ReadPrice(profile.TiktokExpectedFullPriceValue) ?? "";
 
         ProxyEnabledBox.IsChecked = profile.TiktokProxyEnabled;
         SelectByTag(ProxyTypeCombo, profile.TiktokProxyType, "http");
@@ -288,7 +359,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
 
             profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
-            profile.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
+            profile.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
             profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
             profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
             profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "playwright");
@@ -296,8 +367,12 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
-            profile.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
-            profile.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "api");
+            profile.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+                TagOf(SourceLanguageCombo, "zh"),
+                profile.TiktokDramaMarket);
+            var upload = TikTokUploadChannels.Resolve(TagOf(UploadStrategyCombo, "api"), TagOf(PlaywrightDeliveryCombo, "classic"));
+            profile.TiktokUploadStrategy = upload.Channel;
+            profile.TiktokPlaywrightVideoDelivery = upload.Delivery;
             profile.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
             profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
@@ -334,7 +409,8 @@ public partial class AccountProfileEditor : UserControl
                 profile.TiktokRoleVectorCharacterCount);
             profile.TiktokProofAccountConfigMigrated = true;
             profile.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
-            profile.TiktokRewriteFollowsSourceLanguage = RewriteFollowsSourceLanguageBox.IsChecked == true;
+            profile.TiktokRewriteFollowsSourceLanguage =
+                TikTokAccountProfile.RewriteFollowsImportedLanguage(profile.TiktokDramaMarket);
             profile.TiktokAiNewTitleRandomness = TagOf(AiNewTitleRandomnessCombo, ClientSettingsDefaults.AiNewTitleRandomness);
             profile.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
             profile.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
@@ -351,12 +427,10 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
             profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
             profile.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
-            profile.TiktokUploadApiFallbackToBatch = UploadApiFallbackBox.IsChecked != false;
-            profile.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
-            profile.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
-            var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
-            profile.TiktokExpectedFullPriceValue = priceValue;
-            profile.TiktokExpectedFullPriceLabel = priceLabel;
+            profile.TiktokUploadApiFallbackToBatch = false;
+            profile.TiktokExpectedFullPriceMode = "manual";
+            profile.TiktokExpectedFullPriceValue = TikTokApiSeriesDocument.ReadPrice(ExpectedPriceValueBox.Text) ?? "";
+            profile.TiktokExpectedFullPriceLabel = "";
 
             profile.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
             profile.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
@@ -432,19 +506,21 @@ public partial class AccountProfileEditor : UserControl
                 TikTokAccountProfile.DramaMarketOverseas,
                 StringComparison.OrdinalIgnoreCase))
             return;
+        if (!string.Equals(TagOf(SourceLanguageCombo, "zh"), "zh", StringComparison.OrdinalIgnoreCase))
+            return;
 
         var owner = TopLevel.GetTopLevel(this) as Window;
         var confirmed = await ConfirmDialog.ShowAsync(
             owner,
             "海外剧",
-            "是否同步把源语言改为「AI识别语言」，并勾选「改写信息跟随源语言」？",
-            520,
-            200);
+            "当前源语言是中文。海外剧一般使用非中文，是否改为英语？",
+            480,
+            180,
+            confirmText: "改为英语");
         if (!confirmed)
             return;
 
-        SelectByTag(SourceLanguageCombo, "auto", "auto");
-        RewriteFollowsSourceLanguageBox.IsChecked = true;
+        SelectByTag(SourceLanguageCombo, "en", "zh");
     }
 
     private async void OnSyncAccountsClick(object? sender, RoutedEventArgs e)
@@ -989,7 +1065,6 @@ public partial class AccountProfileEditor : UserControl
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SubmitEnabledBox.IsChecked = true;
         ExpectedPriceValueBox.Text = "";
-        ExpectedPriceOptionsCombo.Items.Clear();
         VideoDedupEditor.Load(null);
         ProxyHostBox.Text = "";
         ProxyUsernameBox.Text = "";
@@ -1037,89 +1112,6 @@ public partial class AccountProfileEditor : UserControl
         {
             PublishAccounts.SetFetchEnabled(true);
         }
-    }
-
-    private async void OnSyncExpectedPriceClick(object? sender, RoutedEventArgs e)
-    {
-        if (_vm?.SelectedAccount?.Model is not { } profile) return;
-        SaveToProfile();
-        try
-        {
-            await _vm.SyncExpectedPriceOptionsAsync(profile);
-            ReloadFromSelectedAccount();
-        }
-        catch
-        {
-            // 状态已在 ViewModel 中更新
-        }
-    }
-
-    private void ReloadExpectedPriceOptionsCombo(TikTokAccountProfile profile)
-    {
-        ExpectedPriceOptionsCombo.Items.Clear();
-        foreach (var option in ExpectedFullPriceOptionsJson.Parse(profile.TiktokExpectedFullPriceOptionsJson))
-        {
-            ExpectedPriceOptionsCombo.Items.Add(new ComboBoxItem
-            {
-                Content = option.Label,
-                Tag = option.Value,
-            });
-        }
-
-        if (!string.IsNullOrWhiteSpace(profile.TiktokExpectedFullPriceValue))
-        {
-            foreach (var item in ExpectedPriceOptionsCombo.Items.OfType<ComboBoxItem>())
-            {
-                if (string.Equals(item.Tag as string, profile.TiktokExpectedFullPriceValue, StringComparison.Ordinal))
-                {
-                    ExpectedPriceOptionsCombo.SelectedItem = item;
-                    break;
-                }
-            }
-        }
-
-        ExpectedPriceOptionsCombo.SelectionChanged -= OnExpectedPriceOptionSelected;
-        ExpectedPriceOptionsCombo.SelectionChanged += OnExpectedPriceOptionSelected;
-    }
-
-    private void OnExpectedPriceOptionSelected(object? sender, SelectionChangedEventArgs e)
-    {
-        if (ExpectedPriceOptionsCombo.SelectedItem is not ComboBoxItem item) return;
-        var value = item.Tag as string ?? "";
-        var label = item.Content?.ToString() ?? "";
-        ExpectedPriceValueBox.Text = BuildExpectedPriceInputText(value, label);
-    }
-
-    private void UpdateExpectedPriceModeVisibility()
-    {
-        var mode = TagOf(ExpectedPriceModeCombo, "manual");
-        ExpectedPriceValueBox.IsVisible = mode == "manual";
-        ExpectedPriceOptionsCombo.IsVisible = mode == "manual";
-        ExpectedPriceOptionIndexBox.IsVisible = mode == "option_index";
-    }
-
-    private static string BuildExpectedPriceInputText(TikTokAccountProfile profile) =>
-        BuildExpectedPriceInputText(profile.TiktokExpectedFullPriceValue, profile.TiktokExpectedFullPriceLabel);
-
-    private static string BuildExpectedPriceInputText(string value, string label)
-    {
-        value = (value ?? "").Trim();
-        label = (label ?? "").Trim();
-        if (!string.IsNullOrEmpty(label)) return label;
-        return value;
-    }
-
-    private static (string Value, string Label) NormalizeExpectedPriceInput(string? text)
-    {
-        var raw = (text ?? "").Trim();
-        if (string.IsNullOrEmpty(raw)) return ("", "");
-
-        var totalMatch = Regex.Match(raw, @"\$?(\d+(?:\.\d+)?)");
-        var value = totalMatch.Success ? totalMatch.Groups[1].Value : raw;
-        var label = raw.Contains("每集", StringComparison.Ordinal) || raw.Contains("/EP", StringComparison.OrdinalIgnoreCase)
-            ? raw
-            : (raw.StartsWith('$') ? raw : $"${value}");
-        return (value, label);
     }
 
     private async Task PickFolderAsync(TextBox target, string title)
@@ -1297,5 +1289,25 @@ public partial class AccountProfileEditor : UserControl
         UploadedSeriesStatusText.IsVisible = true;
         if (!hasRows)
             UploadedSeriesList.ItemsSource = null;
+    }
+
+    private void UploadStrategyCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        UpdateUploadChannelVisibility();
+
+    private void UpdateUploadChannelVisibility()
+    {
+        if (PlaywrightDeliveryPanel is null)
+            return;
+
+        var api = string.Equals(TagOf(UploadStrategyCombo, "api"), TikTokUploadChannels.Api, StringComparison.OrdinalIgnoreCase);
+        PlaywrightDeliveryPanel.IsVisible = !api;
+        BatchSizeLabel.IsVisible = !api;
+        UploadBatchSizeBox.IsVisible = !api;
+        BatchStallLabel.IsVisible = !api;
+        UploadBatchStallBox.IsVisible = !api;
+        BatchRetriesLabel.IsVisible = !api;
+        UploadBatchRetriesBox.IsVisible = !api;
+        ApiConcurrencyLabel.IsVisible = api;
+        UploadApiConcurrencyBox.IsVisible = api;
     }
 }

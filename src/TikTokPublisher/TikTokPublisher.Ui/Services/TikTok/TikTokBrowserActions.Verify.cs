@@ -183,14 +183,7 @@ public static partial class TikTokBrowserActions
                 if (string.IsNullOrWhiteSpace(text)) return false;
                 if (text.Contains("输入价格", StringComparison.Ordinal)) return false;
 
-                if (string.Equals(options.ExpectedFullPriceMode, "option_index", StringComparison.OrdinalIgnoreCase))
-                    return text.Contains('$') || text.Any(char.IsDigit);
-
-                if (!string.IsNullOrWhiteSpace(options.ExpectedFullPriceLabel))
-                    return text.Contains(options.ExpectedFullPriceLabel, StringComparison.Ordinal);
-                if (!string.IsNullOrWhiteSpace(options.ExpectedFullPriceValue))
-                    return text.Contains(options.ExpectedFullPriceValue, StringComparison.Ordinal);
-                return true;
+                return TikTokApiSeriesDocument.MatchPriceOption([text], options.ExpectedFullPriceValue, episodeCount: 0) >= 0;
             }
             catch
             {

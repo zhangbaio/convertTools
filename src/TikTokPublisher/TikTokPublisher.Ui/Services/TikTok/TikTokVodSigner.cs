@@ -12,11 +12,16 @@ internal static class TikTokVodSigner
 
     public sealed record Credentials(string AccessKeyId, string SecretAccessKey, string SessionToken);
 
-    public static void Sign(HttpRequestMessage request, Credentials credentials, string? body, DateTime utcNow)
+    public static void Sign(
+        HttpRequestMessage request,
+        Credentials credentials,
+        string? body,
+        DateTime utcNow,
+        string service = Service)
     {
         var amzDate = utcNow.ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture);
         var authorization = BuildAuthorization(
-            request.Method.Method, request.RequestUri!, amzDate, credentials, body);
+            request.Method.Method, request.RequestUri!, amzDate, credentials, body, service);
         request.Headers.TryAddWithoutValidation("x-amz-date", amzDate);
         request.Headers.TryAddWithoutValidation("x-amz-security-token", credentials.SessionToken);
         if (body is not null)
@@ -29,7 +34,8 @@ internal static class TikTokVodSigner
         Uri uri,
         string amzDate,
         Credentials credentials,
-        string? body)
+        string? body,
+        string service = Service)
     {
         var headers = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
@@ -50,12 +56,12 @@ internal static class TikTokVodSigner
             Sha256Hex(body ?? ""));
 
         var date = amzDate[..8];
-        var scope = $"{date}/{Region}/{Service}/aws4_request";
+        var scope = $"{date}/{Region}/{service}/aws4_request";
         var stringToSign = string.Join("\n", "AWS4-HMAC-SHA256", amzDate, scope, Sha256Hex(canonicalRequest));
 
         var key = Hmac(Encoding.UTF8.GetBytes("AWS4" + credentials.SecretAccessKey), date);
         key = Hmac(key, Region);
-        key = Hmac(key, Service);
+        key = Hmac(key, service);
         key = Hmac(key, "aws4_request");
         var signature = Convert.ToHexString(Hmac(key, stringToSign)).ToLowerInvariant();
         return $"AWS4-HMAC-SHA256 Credential={credentials.AccessKeyId}/{scope}, " +

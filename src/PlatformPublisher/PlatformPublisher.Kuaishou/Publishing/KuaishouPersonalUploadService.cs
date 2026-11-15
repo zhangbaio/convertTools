@@ -41,6 +41,14 @@ public sealed class KuaishouPersonalUploadService
         CancellationToken cancellationToken)
     {
         var config = KuaishouPersonalConfig.Load(job);
+        if (KuaishouUploadTransport.IsApi(config.UploadTransport))
+        {
+            await new KuaishouApiUploadService(
+                    _projectDataService, _stateStore, _commitmentService, _distributionService, _onlineQueueStore)
+                .RunAsync(job, progress, cancellationToken);
+            return;
+        }
+
         var configurationIssues = KuaishouConfigurationValidator.Validate(config);
         if (configurationIssues.Count > 0)
             throw new InvalidOperationException("快手配置校验失败：" + string.Join("；", configurationIssues));
@@ -95,12 +103,22 @@ public sealed class KuaishouPersonalUploadService
                 {
                     state.CurrentStage = "first_page";
                     await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
-                    await _firstPageService.FillAndSaveDraftAsync(page, data, effectiveConfig, progress, ct);
+                    var seriesId = await _firstPageService.FillAndSaveDraftAsync(
+                        page, data, effectiveConfig, state.MiniSeriesId, progress, ct);
+                    state.MiniSeriesId = seriesId;
+                    state.EpisodeInfoCompleted = true;
+                    await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                 }
 
                 var firstPageAction = (effectiveConfig.FirstPageAction ?? "next").Trim().ToLowerInvariant();
                 if (firstPageAction is "draft" or "keep")
                 {
+                    if (!string.IsNullOrWhiteSpace(state.MiniSeriesId))
+                        await page.GotoAsync(BuildEditUrl(state.MiniSeriesId, 0), new PageGotoOptions
+                        {
+                            WaitUntil = WaitUntilState.DOMContentLoaded,
+                            Timeout = 60_000,
+                        });
                     CaptureMiniSeriesId(page, state);
                     state.Status = firstPageAction == "keep" ? "manual_hold" : "draft_saved";
                     state.CurrentStage = state.Status;
@@ -113,12 +131,21 @@ public sealed class KuaishouPersonalUploadService
 
                 state.CurrentStage = state.VideosUploaded && state.ReviewSubmitted ? "final_action" : "episode_upload";
                 await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
+                if (!resume && !string.IsNullOrWhiteSpace(state.MiniSeriesId))
+                {
+                    progress?.Report($"{label}：正在打开视频上传。");
+                    await page.GotoAsync(BuildEditUrl(state.MiniSeriesId), new PageGotoOptions
+                    {
+                        WaitUntil = WaitUntilState.DOMContentLoaded,
+                        Timeout = 60_000,
+                    });
+                }
                 await _episodeUploadService.UploadAsync(
                     page,
                     data,
                     effectiveConfig,
                     progress,
-                    resume,
+                    resume || !string.IsNullOrWhiteSpace(state.MiniSeriesId),
                     state.VideosUploaded && state.ReviewSubmitted,
                     stage => RecordStageAsync(page, data.WorkflowDirectory, state, stage, ct, job.Platform),
                     ct);
@@ -285,8 +312,8 @@ public sealed class KuaishouPersonalUploadService
         return true;
     }
 
-    private static string BuildEditUrl(string miniSeriesId) =>
-        $"https://kdj.kuaishou.com/home/content/content-management/edit?miniSeriesId={Uri.EscapeDataString(miniSeriesId)}&step=1";
+    private static string BuildEditUrl(string miniSeriesId, int step = 1) =>
+        $"https://kdj.kuaishou.com/home/content/content-management/edit?miniSeriesId={Uri.EscapeDataString(miniSeriesId)}&step={step}";
 
     private static void CaptureMiniSeriesId(IPage page, KuaishouPersonalUploadState state)
     {

@@ -32,28 +32,31 @@
                         </Grid>
 
                         <TextBlock Text="数据链路与下载参数" FontWeight="Bold" />
-                        <TextBlock Text="选择短剧来源链路，并配置下载任务的通用参数。" Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="数据链路" VerticalAlignment="Center" />
+                        <TextBlock Text="本土剧和海外剧各自选择来源。清晰度、并发和超时两条链路共用。账号按剧集类型使用对应链路。" Classes="pageSummary" TextWrapping="Wrap" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="本土剧数据链路" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" x:Name="DramaSourceCombo" HorizontalAlignment="Stretch" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="默认清晰度" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="DramaQualityCombo" HorizontalAlignment="Stretch" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="海外剧数据链路" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="OverseasDramaSourceCombo" HorizontalAlignment="Stretch" />
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="分集下载并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding DramaDownloadConcurrent}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="默认清晰度" VerticalAlignment="Center" />
+                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="DramaQualityCombo" HorizontalAlignment="Stretch" />
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="同时下载剧数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding DramaDownloadMaxParallelProjects}" Minimum="1" Maximum="4" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="分集下载并发" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding DramaDownloadConcurrent}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="单集分块连接数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding DownloadFileSegments}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="同时下载剧数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding DramaDownloadMaxParallelProjects}" Minimum="1" Maximum="4" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="下载超时(秒)" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding HongguoDownloadTimeoutSeconds}" Minimum="10" Maximum="300" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="单集分块连接数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding DownloadFileSegments}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
 
-                            <TextBlock Grid.Row="6" Grid.Column="0" Text="单集重试次数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding HongguoEpisodeDownloadAttempts}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="下载超时(秒)" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding HongguoDownloadTimeoutSeconds}" Minimum="10" Maximum="300" Width="120" HorizontalAlignment="Left" />
+
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="单集重试次数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="7" Grid.Column="1" Value="{Binding HongguoEpisodeDownloadAttempts}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
                         <Separator Margin="0,4" />
@@ -286,8 +289,8 @@
 
                         <Separator Margin="0,4" />
 
-                        <TextBlock Text="DramaBox 下载器（v1.5.7）" FontWeight="Bold" />
-                        <TextBlock Text="搜索、New 上新和下载都使用 DramaBox 下载器的设备授权。画质优先 1080P，分集按 01、02 这样的顺序保存。"
+                        <TextBlock Text="DramaBox 下载器（v1.5.9）" FontWeight="Bold" />
+                        <TextBlock Text="搜索、英语 New 上新和下载都使用 DramaBox 下载器的设备授权。AI短剧上新读取 New 列表。画质优先 1080P，分集按 01、02 这样的顺序保存。"
                                    Classes="pageSummary"
                                    TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
@@ -810,14 +813,10 @@
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4">
                         <TextBlock Text="剧集名额" FontWeight="Bold" />
-                        <TextBlock Text="本机所有账号队列共享。一部剧从开始执行到上传结束、失败或停止都占 1 个名额，已完成的剧不占。修改后对新开始的剧生效。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="同时运行剧集" VerticalAlignment="Center" />
+                        <Grid ColumnDefinitions="160,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="同时并发项目数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGlobalProjectConcurrency}" Minimum="1" Maximum="12" Width="120" HorizontalAlignment="Left" />
                         </Grid>
-                        <TextBlock Text="谁先跑由服务端监控屏的「分发模式」决定。按账号分发时先做完前面的账号，这个账号里同时几部不超过上面的数量，也不超过该账号自己的并发。轮流分发时多个账号各先跑一部。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
 
                         <TextBlock Text="全局步骤配置" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
@@ -833,12 +832,6 @@
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
                         </Grid>
-                        <TextBlock IsVisible="{Binding ShowsTikTokPublishPrompt}"
-                                   Text="CPU 占用是全机去重编码使用的处理器比例，默认 90%，每台电脑按自己的逻辑处理器数计算。视频去重并发是全机同时编码的路数。只有一部剧在去重时可以占满这些路；多部剧同时去重时加起来仍是这个数，不会按剧数相乘。可用处理器按这个比例算出后再平分给每一路，余数逐路补上。正在编码的那一集不变，下一集按新的数量和比例执行，不用重启。超过 1 部时，同一个账号的剧共用一个浏览器、多开标签页；不同账号不会共用浏览器。下载和 FFmpeg 的并发仍在「登录设置」和「ASR配置」页签里设置。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
-                        <TextBlock IsVisible="{Binding ShowsKuaishouPublishPrompt}"
-                                   Text="超过 1 部时，同一个账号的同一版本共用一个浏览器、多开标签页；个人版和企业版、不同账号不会共用。本机同时上传不超过「同时上传剧集」，同时生成工程图不超过「同时生成工程图」。"
-                                   Classes="pageSummary" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

@@ -25,7 +25,9 @@ public sealed record XingeRemoteAccountSnapshot(
     bool IsCurrent,
     bool RemoteDispatchEnabled,
     IReadOnlyList<XingeRemoteUploadedDrama>? UploadedToday = null,
-    bool QueueRunning = false);
+    bool QueueRunning = false,
+    string DramaMarket = "",
+    string DramaSource = "");
 
 public sealed class XingeRemoteCommandService
 {
@@ -376,6 +378,8 @@ public sealed class XingeRemoteCommandService
                     ["is_current"] = account.IsCurrent,
                     ["remote_dispatch_enabled"] = account.RemoteDispatchEnabled,
                     ["queue_running"] = account.QueueRunning,
+                    ["drama_market"] = TikTokPublisher.Core.Models.TikTokAccountProfile.NormalizeDramaMarket(account.DramaMarket),
+                    ["drama_source"] = string.IsNullOrWhiteSpace(account.DramaSource) ? snapshot.DramaSource : account.DramaSource,
                 };
                 if (account.UploadedToday is not null)
                 {

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
@@ -45,8 +46,9 @@ internal sealed record TikTokSeriesListEnumerationProgress(
 
 internal static class TikTokSeriesListLookupService
 {
-    private static readonly TimeSpan SearchResultTimeout = TimeSpan.FromSeconds(15);
-    private const int SearchPollIntervalMs = 350;
+    private const string ListSeriesPath = "/api/content-partner/series/v2/list";
+    private const int SeriesListPageSize = 50;
+    private const int SeriesListMaxPages = 10;
 
     private static readonly Regex SeriesIdPattern =
         new(@"\b(\d{16,20})\b", RegexOptions.Compiled);
@@ -131,7 +133,7 @@ internal static class TikTokSeriesListLookupService
 
         var search = await FindSearchInputAsync(page).ConfigureAwait(false);
         if (search is null)
-            throw new InvalidOperationException("原创管理页面未找到剧集搜索框。");
+            log?.Invoke("原创管理页面未找到剧集搜索框，按剧名查找改用列表接口。");
     }
 
     public static async Task<IReadOnlyList<TikTokSeriesListRow>> EnumerateAllAsync(
@@ -364,55 +366,43 @@ internal static class TikTokSeriesListLookupService
         Action<string>? log = null)
     {
         ct.ThrowIfCancellationRequested();
-        var search = await FindSearchInputAsync(page).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("原创管理页面未找到剧集搜索框。");
+        var title = (newTitle ?? string.Empty).Trim();
+        if (title.Length == 0)
+            return [];
 
-        await search.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 }).ConfigureAwait(false);
-        await search.FillAsync(string.Empty).ConfigureAwait(false);
-        await page.WaitForTimeoutAsync(150).ConfigureAwait(false);
-        await search.FillAsync(newTitle).ConfigureAwait(false);
-        try
-        {
-            await search.PressAsync("Enter").ConfigureAwait(false);
-        }
-        catch
-        {
-            // 部分版本使用输入防抖，不依赖回车。
-        }
-
-        var stopwatch = Stopwatch.StartNew();
-        var attempt = 0;
-        var maxObservedRows = 0;
-        while (stopwatch.Elapsed < SearchResultTimeout)
+        await EnsureSeriesOriginAsync(page, ct).ConfigureAwait(false);
+        var matched = new List<TikTokSeriesListRow>();
+        int? total = null;
+        var pagesRead = 0;
+        for (var pageIndex = 1; pageIndex <= SeriesListMaxPages; pageIndex++)
         {
             ct.ThrowIfCancellationRequested();
-            if (IsLoginPage(page.Url))
-                throw new InvalidOperationException("TikTok 登录态失效，请先重新登录当前账号。");
-
-            attempt++;
-            var scan = await ScanExactRowsAsync(page, newTitle, ct).ConfigureAwait(false);
-            maxObservedRows = Math.Max(maxObservedRows, scan.ObservedRowCount);
-            if (scan.Matches.Count > 0)
+            var body = JsonSerializer.Serialize(new
             {
-                if (attempt > 1)
-                {
-                    log?.Invoke(
-                        $"TikTok 搜索结果已加载：{newTitle}，等待 {stopwatch.Elapsed:mm\\:ss\\.f}，" +
-                        $"重试 {attempt - 1} 次。");
-                }
-                return scan.Matches;
+                title,
+                pageIndex,
+                pageSize = SeriesListPageSize,
+            });
+            using var document = await PostSeriesListAsync(page, body, ct).ConfigureAwait(false);
+            var parsed = ParseSeriesList(document.RootElement);
+            total ??= parsed.Total;
+            pagesRead = pageIndex;
+            foreach (var row in parsed.Rows)
+            {
+                if (string.Equals(row.Title.Trim(), title, StringComparison.Ordinal))
+                    matched.Add(row);
             }
 
-            if (attempt == 1)
-                log?.Invoke($"TikTok 搜索结果尚未出现，继续等待精确剧名：{newTitle}");
-
-            await page.WaitForTimeoutAsync(SearchPollIntervalMs).ConfigureAwait(false);
+            if (parsed.Rows.Count < SeriesListPageSize)
+                break;
+            if (total is int known && pageIndex * SeriesListPageSize >= known)
+                break;
         }
 
-        log?.Invoke(
-            $"TikTok 搜索等待超时，未读取到完全一致的新剧名：{newTitle}；" +
-            $"等待 {SearchResultTimeout.TotalSeconds:0} 秒，最多观察到 {maxObservedRows} 行。");
-        return [];
+        var distinct = DistinctSeriesRows(matched);
+        if (pagesRead == SeriesListMaxPages && total is int remaining && remaining > pagesRead * SeriesListPageSize)
+            log?.Invoke($"原剧管理接口仍有后续结果，本次只核对了前 {pagesRead * SeriesListPageSize} 条。");
+        return distinct;
     }
 
     private static async Task<TikTokSeriesPageScanResult> ScanCurrentPageRowsAsync(
@@ -1264,95 +1254,6 @@ internal static class TikTokSeriesListLookupService
         return false;
     }
 
-    private static async Task<SeriesRowsScanResult> ScanExactRowsAsync(
-        IPage page,
-        string newTitle,
-        CancellationToken ct)
-    {
-        var matches = new List<TikTokSeriesListRow>();
-        var observedRowCount = 0;
-        foreach (var selector in new[] { "tbody tr", "[role='row']", "tr" })
-        {
-            var rows = page.Locator(selector);
-            var count = Math.Min(await rows.CountAsync().ConfigureAwait(false), 100);
-            observedRowCount = Math.Max(observedRowCount, count);
-            for (var index = 0; index < count; index++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var row = rows.Nth(index);
-                string rawText;
-                try
-                {
-                    rawText = TranslateUntranslatedStatusKeys(
-                        await row.InnerTextAsync(new() { Timeout = 1200 }).ConfigureAwait(false));
-                }
-                catch
-                {
-                    continue;
-                }
-
-                var lines = rawText
-                    .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                if (!await ContainsExactTitleAsync(row, lines, newTitle).ConfigureAwait(false))
-                    continue;
-
-                var urls = await FindSeriesUrlsAsync(page, row).ConfigureAwait(false);
-                var ids = urls
-                    .Select(ExtractSeriesId)
-                    .Concat(SeriesIdPattern.Matches(rawText).Select(match => match.Groups[1].Value))
-                    .Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Distinct(StringComparer.Ordinal)
-                    .ToArray();
-                var detailUrl = urls.FirstOrDefault() ?? BuildFallbackUrl(rawText, ids);
-                matches.Add(new TikTokSeriesListRow(
-                    newTitle,
-                    ExtractStatus(lines, rawText),
-                    ids.Length == 1 ? ids[0] : string.Empty,
-                    detailUrl,
-                    rawText));
-            }
-        }
-
-        return new SeriesRowsScanResult(
-            matches
-                .DistinctBy(match => string.Join(
-                    "\n",
-                    match.Title,
-                    match.SeriesId,
-                    match.DetailUrl,
-                    match.RawText))
-                .ToArray(),
-            observedRowCount);
-    }
-
-    private static async Task<bool> ContainsExactTitleAsync(
-        ILocator row,
-        IReadOnlyList<string> lines,
-        string newTitle)
-    {
-        var normalizedTitle = NormalizeTitle(newTitle);
-        if (lines.Any(line =>
-                string.Equals(
-                    NormalizeTitle(line),
-                    normalizedTitle,
-                    StringComparison.Ordinal)))
-        {
-            return true;
-        }
-
-        try
-        {
-            return await row
-                .GetByText(newTitle, new() { Exact = true })
-                .CountAsync()
-                .ConfigureAwait(false) > 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private static string NormalizeTitle(string value) =>
         Regex.Replace(
                 (value ?? string.Empty)
@@ -1452,7 +1353,294 @@ internal static class TikTokSeriesListLookupService
     private static bool IsLoginPage(string? url) =>
         (url ?? string.Empty).Contains("/login", StringComparison.OrdinalIgnoreCase);
 
-    private sealed record SeriesRowsScanResult(
-        IReadOnlyList<TikTokSeriesListRow> Matches,
-        int ObservedRowCount);
+    internal sealed record SeriesListDocument(IReadOnlyList<TikTokSeriesListRow> Rows, int? Total);
+
+    internal static SeriesListDocument ParseSeriesList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new SeriesListDocument([], null);
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return ParseSeriesList(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return new SeriesListDocument([], null);
+        }
+    }
+
+    internal static SeriesListDocument ParseSeriesList(JsonElement root)
+    {
+        var rows = new List<TikTokSeriesListRow>();
+        CollectSeriesRows(root, rows, 0);
+        return new SeriesListDocument(DistinctSeriesRows(rows), ReadSeriesTotal(root));
+    }
+
+    private static async Task EnsureSeriesOriginAsync(IPage page, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (IsLoginPage(page.Url))
+            throw new InvalidOperationException("TikTok 登录态失效，请先重新登录当前账号。");
+        if (page.Url.Contains("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        await page.GotoAsync(TikTokUrls.DefaultSeriesListUrl, new PageGotoOptions
+        {
+            WaitUntil = WaitUntilState.DOMContentLoaded,
+            Timeout = 90000,
+        }).ConfigureAwait(false);
+        if (IsLoginPage(page.Url))
+            throw new InvalidOperationException("TikTok 登录态失效，请先重新登录当前账号。");
+    }
+
+    private static async Task<JsonDocument> PostSeriesListAsync(IPage page, string body, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var result = await page.EvaluateAsync<JsonElement>(
+            """
+            async ([path, body]) => {
+              const res = await fetch(path, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'content-type': 'application/json' },
+                body,
+              });
+              return { status: res.status, text: await res.text() };
+            }
+            """,
+            new object[] { ListSeriesPath, body }).ConfigureAwait(false);
+        var status = result.TryGetProperty("status", out var statusElement) && statusElement.TryGetInt32(out var statusValue)
+            ? statusValue
+            : 0;
+        var text = result.TryGetProperty("text", out var textElement) ? textElement.GetString() ?? "" : "";
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException($"原剧管理列表接口返回无法解析（HTTP {status}）。");
+        }
+
+        var root = document.RootElement;
+        var code = root.TryGetProperty("code", out var codeElement) && codeElement.TryGetInt64(out var codeValue)
+            ? codeValue
+            : -1;
+        if (status is < 200 or >= 300 || code != 0)
+        {
+            var message = root.TryGetProperty("message", out var messageElement) &&
+                          messageElement.ValueKind == JsonValueKind.String
+                ? messageElement.GetString() ?? ""
+                : "";
+            document.Dispose();
+            if (message.Length > 180)
+                message = message[..180];
+            throw new InvalidOperationException($"原剧管理列表接口失败（HTTP {status}，code {code}）：{message}");
+        }
+
+        return document;
+    }
+
+    private static void CollectSeriesRows(JsonElement element, List<TikTokSeriesListRow> rows, int depth)
+    {
+        if (depth > 8)
+            return;
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                CollectSeriesRows(item, rows, depth + 1);
+            return;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+            return;
+
+        ConsiderSeriesRow(element, rows);
+        foreach (var property in element.EnumerateObject())
+            CollectSeriesRows(property.Value, rows, depth + 1);
+    }
+
+    private static void ConsiderSeriesRow(JsonElement element, List<TikTokSeriesListRow> rows)
+    {
+        if (element.TryGetProperty("orderNum", out _) || element.TryGetProperty("videoId", out _))
+            return;
+
+        var title = ReadDirectText(element, "title", "seriesTitle", "dramaTitle");
+        var seriesId = ReadDirectSeriesId(element);
+        var status = ReadDirectStatus(element);
+        foreach (var name in new[] { "seriesInfo", "series", "drama", "baseInfo", "info" })
+        {
+            if (!element.TryGetProperty(name, out var child) || child.ValueKind != JsonValueKind.Object)
+                continue;
+            title ??= ReadDirectText(child, "title", "seriesTitle", "dramaTitle");
+            seriesId ??= ReadDirectSeriesId(child);
+            if (string.IsNullOrWhiteSpace(status))
+                status = ReadDirectStatus(child);
+        }
+
+        if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(seriesId))
+            return;
+
+        var label = status ?? "";
+        rows.Add(new TikTokSeriesListRow(
+            title.Trim(),
+            label,
+            seriesId,
+            BuildSeriesUrl(label, seriesId),
+            string.IsNullOrWhiteSpace(label)
+                ? $"{title.Trim()} ID: {seriesId}"
+                : $"{title.Trim()} ID: {seriesId} {label}"));
+    }
+
+    private static string? ReadDirectText(JsonElement element, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (!element.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.String)
+                continue;
+            var text = value.GetString()?.Trim();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+
+        return null;
+    }
+
+    private static string? ReadDirectSeriesId(JsonElement element)
+    {
+        foreach (var name in new[] { "seriesId", "id", "dramaId", "contractId" })
+        {
+            if (!element.TryGetProperty(name, out var value))
+                continue;
+            var raw = value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString(),
+                JsonValueKind.Number => value.GetRawText(),
+                _ => null,
+            };
+            var trimmed = raw?.Trim() ?? "";
+            var match = SeriesIdPattern.Match(trimmed);
+            if (match.Success && string.Equals(match.Value, trimmed, StringComparison.Ordinal))
+                return trimmed;
+        }
+
+        return null;
+    }
+
+    private static string? ReadDirectStatus(JsonElement element)
+    {
+        foreach (var name in new[] { "presentationStatus", "status", "seriesStatus" })
+        {
+            if (!element.TryGetProperty(name, out var value))
+                continue;
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+                return DescribePresentationStatus(number);
+            if (value.ValueKind == JsonValueKind.Object)
+            {
+                var nested = ReadDirectStatus(value);
+                if (!string.IsNullOrWhiteSpace(nested))
+                    return nested;
+                continue;
+            }
+
+            if (value.ValueKind != JsonValueKind.String)
+                continue;
+            var text = value.GetString()?.Trim() ?? "";
+            if (text.Length == 0)
+                continue;
+            if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+                return DescribePresentationStatus(parsed);
+            return DescribePresentationStatusName(text);
+        }
+
+        return null;
+    }
+
+    internal static string DescribePresentationStatus(int status) => status switch
+    {
+        11 => "已删除",
+        12 or 21 => "已下架",
+        31 => "草稿",
+        32 => "网盘解析中",
+        33 => "版权审核中",
+        34 => "网盘解析失败",
+        41 => "申诉拒绝",
+        42 or 43 => "审核未通过",
+        44 => "分发受限",
+        45 => "部分集审核未通过",
+        46 => "部分集分发受限",
+        47 => "版权审核未通过",
+        51 => "申诉中",
+        52 => "视频检测中",
+        53 => "处理中",
+        54 => "审核中",
+        61 => "可优化",
+        71 => "发布中",
+        72 => "已发布",
+        _ => status.ToString(CultureInfo.InvariantCulture),
+    };
+
+    private static string DescribePresentationStatusName(string text)
+    {
+        if (text.Contains("草稿", StringComparison.Ordinal) ||
+            text.Equals("InDraft", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("Draft", StringComparison.OrdinalIgnoreCase))
+            return "草稿";
+        if (text.Equals("Published", StringComparison.OrdinalIgnoreCase))
+            return "已发布";
+        if (text.Equals("CopyrightReviewing", StringComparison.OrdinalIgnoreCase))
+            return "版权审核中";
+        if (text.Equals("InReview", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("Reviewing", StringComparison.OrdinalIgnoreCase))
+            return "审核中";
+        return text;
+    }
+
+    private static string BuildSeriesUrl(string status, string seriesId)
+    {
+        var segment = status.Contains("草稿", StringComparison.Ordinal) ? "draft" : "detail";
+        return $"https://www.tiktokdramacenter.com/series/{segment}/{seriesId}";
+    }
+
+    private static int? ReadSeriesTotal(JsonElement root)
+    {
+        int? total = ReadTotal(root);
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("data", out var data) &&
+            data.ValueKind == JsonValueKind.Object)
+            total ??= ReadTotal(data);
+        return total;
+    }
+
+    private static int? ReadTotal(JsonElement element)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+            return null;
+        foreach (var name in new[] { "total", "totalCount", "totalNum" })
+        {
+            if (!element.TryGetProperty(name, out var value) || !value.TryGetInt32(out var number))
+                continue;
+            if (number is >= 0 and < 1_000_000)
+                return number;
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<TikTokSeriesListRow> DistinctSeriesRows(List<TikTokSeriesListRow> rows)
+    {
+        var byId = new Dictionary<string, TikTokSeriesListRow>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.SeriesId))
+                continue;
+            if (!byId.TryGetValue(row.SeriesId, out var existing) ||
+                string.IsNullOrWhiteSpace(existing.PlatformStatus))
+                byId[row.SeriesId] = row;
+        }
+
+        return byId.Values.ToArray();
+    }
 }

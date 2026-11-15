@@ -6,8 +6,7 @@ using TikTokPublisher.Core.Services.VideoDedup;
 namespace TikTokPublisher.Core.Services;
 
 /// <summary>
-/// 画面比例不是 9:16（横屏 16:9）的成片：等比缩放进 1080×1920（横屏 1920×1080）并补黑边。
-/// 直接改项目里的成片，上传副本每次都从成片重建，只改副本会被下次重建还原。
+/// 上传不再因为分辨率或画面比例改写成片。保留等比补边能力，当前不会自动选中目标尺寸。
 /// </summary>
 public static class TikTokVideoFrameRepairService
 {

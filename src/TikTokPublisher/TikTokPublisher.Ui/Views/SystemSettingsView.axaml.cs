@@ -40,6 +40,7 @@ public partial class SystemSettingsView : UserControl
         {
             if (args.PropertyName is nameof(SystemSettingsViewModel.DramaDownloadDefaultQuality)
                 or nameof(SystemSettingsViewModel.DramaSourceChain)
+                or nameof(SystemSettingsViewModel.OverseasDramaSourceChain)
                 or nameof(SystemSettingsViewModel.HghighEdition)
                 or nameof(SystemSettingsViewModel.PikachuDramaType)
                 or nameof(SystemSettingsViewModel.HongguoLocalDownloadMode)
@@ -104,16 +105,10 @@ public partial class SystemSettingsView : UserControl
 
     private void InitializeComboBoxes()
     {
-        DramaSourceCombo.Items.Clear();
-        DramaSourceCombo.Items.Add(CreateItem("红果短剧助手", "hghigh"));
-        DramaSourceCombo.Items.Add(CreateItem("本地直连", "hglocal"));
-        DramaSourceCombo.Items.Add(CreateItem("统一下载器", "downloader"));
-        DramaSourceCombo.Items.Add(CreateItem("皮卡丘", "pikachu"));
-        DramaSourceCombo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
-        DramaSourceCombo.Items.Add(CreateItem("红果APP", "hongguoapp"));
-        DramaSourceCombo.Items.Add(CreateItem("DramaBox", "dramabox"));
-        DramaSourceCombo.Items.Add(CreateItem("海外短剧下载器", "foreign"));
+        FillDramaSourceCombo(DramaSourceCombo);
         DramaSourceCombo.SelectionChanged += OnDramaSourceChanged;
+        FillDramaSourceCombo(OverseasDramaSourceCombo);
+        OverseasDramaSourceCombo.SelectionChanged += OnOverseasDramaSourceChanged;
 
         DramaQualityCombo.Items.Clear();
         DramaQualityCombo.Items.Add(CreateItem("1080p+", "1080P+"));
@@ -227,6 +222,7 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null) return;
         SelectComboItem(DramaSourceCombo, _vm.DramaSourceChain);
+        SelectComboItem(OverseasDramaSourceCombo, _vm.OverseasDramaSourceChain);
         SelectComboItem(DramaQualityCombo, _vm.DramaDownloadDefaultQuality);
         SelectComboItem(ForeignSourceCombo, _vm.ForeignSearchSource);
         SelectComboItem(ForeignLanguageCombo, _vm.ForeignLanguage);
@@ -307,10 +303,28 @@ public partial class SystemSettingsView : UserControl
         _vm.DramaDownloadDefaultQuality = item.Tag as string ?? "1080P";
     }
 
+    private static void FillDramaSourceCombo(ComboBox combo)
+    {
+        combo.Items.Clear();
+        combo.Items.Add(CreateItem("红果短剧助手", "hghigh"));
+        combo.Items.Add(CreateItem("本地直连", "hglocal"));
+        combo.Items.Add(CreateItem("皮卡丘", "pikachu"));
+        combo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
+        combo.Items.Add(CreateItem("红果APP", "hongguoapp"));
+        combo.Items.Add(CreateItem("DramaBox", "dramabox"));
+        combo.Items.Add(CreateItem("海外短剧下载器", "foreign"));
+    }
+
     private void OnDramaSourceChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_vm is null || DramaSourceCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.DramaSourceChain = item.Tag as string ?? VisibleDramaSource.DefaultChain;
+    }
+
+    private void OnOverseasDramaSourceChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_vm is null || OverseasDramaSourceCombo.SelectedItem is not ComboBoxItem item) return;
+        _vm.OverseasDramaSourceChain = item.Tag as string ?? VisibleDramaSource.DefaultOverseasChain;
     }
 
     private void OnForeignSourceChanged(object? sender, SelectionChangedEventArgs e)

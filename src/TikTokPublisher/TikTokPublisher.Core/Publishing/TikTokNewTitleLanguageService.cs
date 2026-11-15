@@ -9,8 +9,7 @@ using TikTokPublisher.Core.Services;
 namespace TikTokPublisher.Core.Publishing;
 
 /// <summary>
-/// 源语言选「AI识别语言」时，优先复用标题和简介改写时已经判定的语言。
-/// 没有这份结果时，再按新剧名的文字判断，结果必须是发布配置里已有的语种。
+/// 源语言选「AI识别语言」时，上传前按新剧名识别成具体语种。手选的语种保持不变。
 /// </summary>
 public static class TikTokNewTitleLanguageService
 {
@@ -30,22 +29,7 @@ public static class TikTokNewTitleLanguageService
         if (!IsAuto(account.TiktokSourceLanguage))
             return;
 
-        var title = ReadNewTitle(projectDir, fallbackTitle: null);
-        if (TryReadRewriteLanguage(projectDir, title, out var rewriteLanguage))
-        {
-            options.SourceLanguage = rewriteLanguage;
-            return;
-        }
-
-        if (TryReadCache(projectDir, title, out var cached))
-        {
-            options.SourceLanguage = cached;
-            return;
-        }
-
-        var script = ClassifyScript(title);
-        if (script is not null)
-            options.SourceLanguage = script;
+        options.SourceLanguage = TikTokNewTitleLanguageService.Auto;
     }
 
     public static async Task ApplyAsync(
@@ -59,26 +43,26 @@ public static class TikTokNewTitleLanguageService
         if (!IsAuto(account.TiktokSourceLanguage))
             return;
 
-        var title = ReadNewTitle(projectDir, fallbackTitle);
-        var language = await ResolveAsync(title, projectDir, ClientSettingsStore.Load(), log, ct);
-        options.SourceLanguage = language;
-        if (account.TiktokIsAiDrama &&
-            string.Equals(language, "zh", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(
-                TikTokPublishConstants.NormalizeContentCreationType(account.TiktokContentCreationType),
-                "remake",
-                StringComparison.OrdinalIgnoreCase))
+        options.SourceLanguage = await ResolveAsync(
+            fallbackTitle,
+            projectDir,
+            settings: null,
+            log,
+            ct).ConfigureAwait(false);
+        if (options.IsAiDrama &&
+            string.Equals(options.SourceLanguage, "zh", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(options.ContentCreationType, "remake", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                "TikTok 发布配置不合理：新剧名识别为中文，不能选择「成片重制」。" +
-                "请将内容创作类型改为「原创/小说改编」，或把源语言改为非中文。");
+                "TikTok 发布配置不合理：仅源语言为非中文的短剧可选择「成片重制」。" +
+                "请将源语言改为非中文，或将内容创作类型改为「原创/小说改编」。");
         }
     }
 
     public static async Task<string> ResolveAsync(
         string? newTitle,
         string? projectDir,
-        ClientSettings settings,
+        ClientSettings? settings,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -112,7 +96,7 @@ public static class TikTokNewTitleLanguageService
 
         try
         {
-            var detected = await AskLatinLanguageAsync(title, settings, ct);
+            var detected = await AskLatinLanguageAsync(title, settings ?? ClientSettingsStore.Load(), ct);
             if (LatinCodes.Contains(detected, StringComparer.OrdinalIgnoreCase))
             {
                 SaveCache(projectDir, title, detected);

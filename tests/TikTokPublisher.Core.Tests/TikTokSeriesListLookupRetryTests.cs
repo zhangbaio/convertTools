@@ -188,6 +188,34 @@ public sealed class TikTokSeriesListLookupRetryTests
         snapshot.RangeText.Should().Contain("51 条-第 93 条");
     }
 
+    [Fact]
+    public void Series_list_api_rows_keep_exact_title_status_and_url()
+    {
+        var json = """
+            {"code":0,"data":{"total":2,"list":[
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129212","presentationStatus":31},
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129999","presentationStatus":33},
+              {"seriesTitle":"已发布的剧","id":"7707915752204128888","presentationStatus":72},
+              {"title":"重生赶海的温柔守护","id":"7708000000000000001","orderNum":3,"videoId":"v"}
+            ]}}
+            """;
+
+        var parsed = TikTokSeriesListLookupService.ParseSeriesList(json);
+        parsed.Total.Should().Be(2);
+        parsed.Rows.Should().HaveCount(3);
+        parsed.Rows.Should().ContainSingle(row =>
+            row.SeriesId == "7707915752204129212" &&
+            row.PlatformStatus == "草稿" &&
+            row.DetailUrl == "https://www.tiktokdramacenter.com/series/draft/7707915752204129212");
+        parsed.Rows.Should().ContainSingle(row =>
+            row.SeriesId == "7707915752204129999" &&
+            row.PlatformStatus == "版权审核中" &&
+            row.DetailUrl == "https://www.tiktokdramacenter.com/series/detail/7707915752204129999");
+        parsed.Rows.Should().ContainSingle(row =>
+            row.Title == "已发布的剧" &&
+            row.PlatformStatus == "已发布");
+    }
+
     private static TikTokSeriesListEnumerationAttempt Attempt(
         int uniqueCount,
         int expectedTotal,

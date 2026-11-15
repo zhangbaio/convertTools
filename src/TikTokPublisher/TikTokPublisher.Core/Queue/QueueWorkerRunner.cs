@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Archive;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Remote;
@@ -1186,20 +1187,30 @@ public sealed class QueueWorkerRunner
                         MarkFailed(preItem, failedStep, failureMessage);
                         failed++;
                     });
-                    Report(
-                        onProgress,
-                        workspace,
-                        preItem,
-                        $"{QueueStepRegistry.LabelOf(failedStep)} 失败：{failureMessage}",
-                        failedStep);
-                    if (!IsPosterSensitiveContent(ex))
+                    var stepLabel = QueueStepRegistry.LabelOf(failedStep);
+                    if (TrySplitDurationGuidance(failureMessage, out var durationHint, out var durationDetail))
+                    {
+                        Report(onProgress, workspace, preItem, $"{stepLabel} 失败：{durationHint}", failedStep);
+                        Report(onProgress, workspace, preItem, $"{stepLabel} 失败：{durationDetail}", failedStep);
+                    }
+                    else
                     {
                         Report(
                             onProgress,
                             workspace,
                             preItem,
-                            BuildExceptionDiagnostics(ex, ct, failedStep),
+                            $"{stepLabel} 失败：{failureMessage}",
                             failedStep);
+                        if (!IsPosterSensitiveContent(ex) &&
+                            !TikTokReferenceSourcePackageService.IsRoleRecoveryStopMessage(failureMessage))
+                        {
+                            Report(
+                                onProgress,
+                                workspace,
+                                preItem,
+                                BuildExceptionDiagnostics(ex, ct, failedStep),
+                                failedStep);
+                        }
                     }
                 }
 
@@ -1805,6 +1816,7 @@ public sealed class QueueWorkerRunner
             if (!browserReady.Ok)
             {
                 failureMessage = browserReady.Message;
+                skipManualIntervention = failureMessage.Contains("请先配置合同", StringComparison.Ordinal);
                 Report(onProgress, workspace, item, $"上传失败：{failureMessage}", QueueStepRegistry.UploadSeries);
             }
             else
@@ -1998,7 +2010,7 @@ public sealed class QueueWorkerRunner
         Action<string> log,
         CancellationToken ct)
     {
-        var settings = ClientSettingsStore.Load();
+        var settings = VisibleDramaSource.SettingsFor(ClientSettingsStore.Load(), account?.TiktokDramaMarket);
         QueueWorkloadResourceScheduler.Configure(settings);
         var materialOptions = TikTokMaterialValidationService.Options.FromAccount(
             account,
@@ -2447,6 +2459,21 @@ public sealed class QueueWorkerRunner
                 return true;
         }
 
+        return false;
+    }
+
+    private static bool TrySplitDurationGuidance(string message, out string hint, out string detail)
+    {
+        hint = VideoDedupPlanner.DurationAdjustmentHint;
+        var marker = hint + Environment.NewLine;
+        if (message.StartsWith(marker, StringComparison.Ordinal))
+        {
+            detail = message[marker.Length..];
+            return detail.Length > 0;
+        }
+
+        hint = "";
+        detail = "";
         return false;
     }
 

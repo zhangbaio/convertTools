@@ -749,9 +749,9 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var captured = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(CaptureXingeRegistration);
         ct.ThrowIfCancellationRequested();
-        var dramaSource = ClientSettingsStore.Load().DramaSourceChain ?? "";
+        var settings = ClientSettingsStore.Load();
         var uploaded = await Task.Run(() => ScanUploadedToday(captured.Accounts), ct).ConfigureAwait(false);
-        return ComposeXingeRegistrationSnapshot(captured, dramaSource, uploaded);
+        return ComposeXingeRegistrationSnapshot(captured, settings, uploaded);
     }
 
     private readonly record struct XingeRegistrationCapture(
@@ -858,7 +858,8 @@ public sealed partial class MainViewModel : ViewModelBase
                 model.ParticipatesInXingeRemoteDispatch,
                 model.TiktokUploadProfilePath ?? "",
                 model.LastWorkspace ?? "",
-                model.TiktokArchiveRootDir ?? ""));
+                model.TiktokArchiveRootDir ?? "",
+                TikTokAccountProfile.NormalizeDramaMarket(model.TiktokDramaMarket)));
         }
 
         return seeds;
@@ -895,7 +896,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private static XingeRemoteRegistrationSnapshot ComposeXingeRegistrationSnapshot(
         XingeRegistrationCapture captured,
-        string dramaSource,
+        ClientSettings settings,
         IReadOnlyDictionary<string, IReadOnlyList<TikTokUploadedDrama>?>? uploadedToday)
     {
         var accounts = captured.Accounts
@@ -909,20 +910,23 @@ public sealed partial class MainViewModel : ViewModelBase
                         .ToArray();
                 }
 
+                var market = TikTokAccountProfile.NormalizeDramaMarket(account.DramaMarket);
                 return new XingeRemoteAccountSnapshot(
                     account.Id,
                     account.Name,
                     HasAccountAuthFile(account.AuthPath),
                     account.IsCurrent,
                     account.RemoteDispatchEnabled,
-                    uploaded);
+                    uploaded,
+                    DramaMarket: market,
+                    DramaSource: VisibleDramaSource.ChainFor(settings, market));
             })
             .ToArray();
 
         return new XingeRemoteRegistrationSnapshot(
             captured.WorkspacePath,
             captured.ActiveAccountId,
-            dramaSource,
+            VisibleDramaSource.ChainFor(settings, TikTokAccountProfile.DramaMarketLocal),
             accounts);
     }
 
@@ -1056,6 +1060,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedAccountChanged(AccountItemViewModel? value)
     {
+        DramaDownload.UseAccountMarket(value?.Model.TiktokDramaMarket);
         UpdateDramaDownloadQueueTarget();
         // Never keep another account's completed count visible while the async refresh runs.
         TodayUploadCount = 0;
@@ -2028,7 +2033,7 @@ public sealed partial class MainViewModel : ViewModelBase
         TiktokProofTemplateDocxPath = account.TiktokProofTemplateDocxPath,
         TiktokProofAccountConfigMigrated = account.TiktokProofAccountConfigMigrated,
         TiktokAiRewriteSynopsis = account.TiktokAiRewriteSynopsis,
-        TiktokRewriteFollowsSourceLanguage = account.TiktokRewriteFollowsSourceLanguage,
+        TiktokRewriteFollowsSourceLanguage = TikTokAccountProfile.RewriteFollowsImportedLanguage(account.TiktokDramaMarket),
         TiktokAiNewTitleRandomness = account.TiktokAiNewTitleRandomness,
         TiktokAiSynopsisRandomness = account.TiktokAiSynopsisRandomness,
     };
@@ -3752,6 +3757,10 @@ public sealed partial class MainViewModel : ViewModelBase
         else
         {
             var (rawText, matchMode) = BuildRemoteUploadImportInput(command, titles);
+            var importMarket = string.Equals(command.DownloadSource, "dramabox", StringComparison.OrdinalIgnoreCase)
+                ? TikTokAccountProfile.DramaMarketOverseas
+                : account?.TiktokDramaMarket;
+            var importChain = VisibleDramaSource.ChainFor(ClientSettingsStore.Load(), importMarket);
             var importOutcome = await ImportRemoteUploadTitlesAsync(
                 root,
                 account,
@@ -3763,7 +3772,12 @@ public sealed partial class MainViewModel : ViewModelBase
                 allowAppendToRunningQueue: false,
                 CancellationToken.None,
                 autoPublish: autoPublish,
-                keepExistingSelection: true);
+                keepExistingSelection: true,
+                downloadSource: command.DownloadSource,
+                forcedSeriesId: string.Equals(importChain, "dramabox", StringComparison.OrdinalIgnoreCase)
+                    && command.Series is { Count: > 0 }
+                    ? command.Series[0].SeriesId
+                    : "");
             var result = importOutcome.ImportResult;
             if (result.ProjectDirs.Count == 0)
             {
@@ -6485,10 +6499,18 @@ public sealed partial class MainViewModel : ViewModelBase
         CancellationToken ct,
         Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null,
         RemoteAutoPublishContext? autoPublish = null,
-        bool keepExistingSelection = false)
+        bool keepExistingSelection = false,
+        string downloadSource = "",
+        string forcedSeriesId = "")
     {
         var root = Path.GetFullPath(workspaceRoot);
-        var settings = ClientSettingsStore.Load();
+        var market = string.Equals(downloadSource, "dramabox", StringComparison.OrdinalIgnoreCase)
+            ? TikTokAccountProfile.DramaMarketOverseas
+            : account?.TiktokDramaMarket;
+        var loaded = ClientSettingsStore.Load();
+        var settings = VisibleDramaSource.SettingsFor(loaded, market);
+        using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
+        AppendLog($"使用{VisibleDramaSource.Describe(loaded, market)}导入。");
         var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
         var result = await UploadTitleImportService.ImportAsync(
             root,
@@ -6501,7 +6523,8 @@ public sealed partial class MainViewModel : ViewModelBase
             AppendLog,
             ct,
             addProjectsToQueue: false,
-            confirmUnknownAuthor: confirmUnknownAuthor);
+            confirmUnknownAuthor: confirmUnknownAuthor,
+            seriesId: forcedSeriesId);
 
         // 标记必须在项目进入运行队列之前写好，队列观察者才能从第一条进度起识别派单。
         if (autoPublish is not null)

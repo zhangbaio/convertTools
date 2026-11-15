@@ -2232,6 +2232,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 : RowForJob(trackedJob);
             return (directory, trackedJob, trackedRow);
         }).ToArray();
+        await MarkQueuedRetriesAsync(work, request);
 
         try
         {
@@ -2260,7 +2261,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         item.trackedJob,
                         item.trackedRow,
                         request,
-                        ct);
+                        ct,
+                        index);
                     SetKuaishouLogTone(item.directory, "ok");
                     RememberKuaishouUploadReport(item.directory, request, succeeded: true, error: "");
                     if (IsViewingKuaishouRun(request))
@@ -2358,6 +2360,53 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AppendActivityLog(summary);
         TryRefreshKuaishouUploadReport(request.Platform, request.AccountId);
         return (counts[0], counts[1], lastError);
+    }
+
+    private async Task MarkQueuedRetriesAsync(
+        IReadOnlyList<(string directory, PublishJob? trackedJob, PublishJobRowViewModel? trackedRow)> work,
+        KuaishouPipelineRequest request)
+    {
+        var steps = new List<(string Key, string Label)>();
+        if (request.Download) steps.Add(("download", "下载剧集"));
+        if (request.Rewrite) steps.Add(("rewrite", "改写信息"));
+        if (request.Poster) steps.Add(("poster-rename", "生成海报"));
+        if (request.ProjectImages) steps.Add(("project-image", "生成工程图"));
+        if (request.AutoFill) steps.Add(("auto-fill-info", "补齐字段"));
+        if (request.Upload) steps.Add(("weixin-upload", "上传剧集"));
+        foreach (var item in work)
+        {
+            var job = item.trackedJob;
+            if (job is null)
+                continue;
+            var failedBefore = job.Status == PublishJobStatus.Failed;
+            if (failedBefore)
+            {
+                job.Status = PublishJobStatus.Pending;
+                job.StatusMessage = "未执行";
+            }
+
+            var cleared = false;
+            foreach (var step in steps)
+            {
+                if (!job.StepStates.TryGetValue(step.Key, out var state) || state.Status != PublishJobStepStatus.Failed)
+                    continue;
+                await UpdateStepStateAsync(job, item.trackedRow, step.Key, step.Label, PublishJobStepStatus.Pending, "未执行");
+                cleared = true;
+            }
+
+            if (request.Upload &&
+                job.StepStates.TryGetValue("weixin-upload", out var upload) &&
+                upload.Status != PublishJobStepStatus.Succeeded &&
+                (failedBefore || upload.Status == PublishJobStepStatus.Failed) &&
+                !string.Equals(upload.Message, "未执行", StringComparison.Ordinal))
+            {
+                await UpdateStepStateAsync(job, item.trackedRow, "weixin-upload", "上传剧集", PublishJobStepStatus.Pending, "未执行");
+                cleared = true;
+            }
+
+            if (failedBefore && !cleared)
+                item.trackedRow?.Refresh(reloadArtifacts: false);
+        }
     }
 
     private void RememberKuaishouUploadReport(
@@ -2500,7 +2549,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishJob? trackedJob,
         PublishJobRowViewModel? trackedRow,
         KuaishouPipelineRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int listOrder = int.MaxValue)
     {
         var runLock = _kuaishouProjectRunLocks.GetOrAdd(Path.GetFullPath(projectDirectory), _ => new SemaphoreSlim(1, 1));
         if (!await runLock.WaitAsync(0, cancellationToken))
@@ -2515,7 +2565,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             await RunKuaishouSettlementPipelineCoreAsync(
-                projectDirectory, trackedJob, trackedRow, request, cancellationToken);
+                projectDirectory, trackedJob, trackedRow, request, cancellationToken, listOrder);
         }
         finally
         {
@@ -2528,7 +2578,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishJob? trackedJob,
         PublishJobRowViewModel? trackedRow,
         KuaishouPipelineRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int listOrder)
     {
         var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
         {
@@ -2814,7 +2865,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         IDisposable? machineUploadLease = null;
         var announcedUploadWait = false;
-        if (!uploadAlreadyDone)
+        var browserUpload = !uploadAlreadyDone
+            && !KuaishouUploadTransport.IsApi(KuaishouPersonalConfig.Load(trackedJob).UploadTransport);
+        if (browserUpload)
         {
             async Task AnnounceUploadWaitAsync(string message)
             {
@@ -2834,7 +2887,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         var who = string.IsNullOrWhiteSpace(holder) ? "其他账号" : holder.Trim();
                         await AnnounceUploadWaitAsync($"等待上传名额：{who}");
                     },
-                    KuaishouUploadAccountKey(request));
+                    KuaishouUploadAccountKey(request),
+                    listOrder);
             }
             catch (OperationCanceledException)
             {

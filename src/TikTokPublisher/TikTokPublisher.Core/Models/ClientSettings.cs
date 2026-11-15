@@ -6,6 +6,8 @@ public sealed class ClientSettings
     public const string DefaultHongguoClientVersion = "1.4.2";
 
     public string DramaSourceChain { get; set; } = "hgnew";
+    /// <summary>海外剧账号使用的数据链路。空值按 DramaBox。</summary>
+    public string OverseasDramaSourceChain { get; set; } = "dramabox";
     public string DramaDownloadDefaultQuality { get; set; } = "1080P";
     public int DramaDownloadConcurrent { get; set; } = 5;
     public int DramaDownloadMaxParallelProjects { get; set; } = 1;
@@ -228,6 +230,7 @@ public sealed class ClientSettings
     public ClientSettings Clone() => new()
     {
         DramaSourceChain = DramaSourceChain,
+        OverseasDramaSourceChain = OverseasDramaSourceChain,
         DramaDownloadDefaultQuality = DramaDownloadDefaultQuality,
         DramaDownloadConcurrent = DramaDownloadConcurrent,
         DramaDownloadMaxParallelProjects = DramaDownloadMaxParallelProjects,

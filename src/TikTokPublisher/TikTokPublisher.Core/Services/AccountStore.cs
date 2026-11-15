@@ -248,12 +248,13 @@ public sealed class AccountStore
             TiktokStorageStatePath = AppPaths.DefaultStorageStatePath(id),
             TiktokLoginBrowserMode = "embedded",
             TiktokSeriesUrl = TikTokUrls.DefaultSeriesDraftUrl,
-            TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable,
+            TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual,
             TiktokUploadBrowserMode = "playwright",
             TiktokPlaywrightUploadHeadless = true,
             TiktokUploadStrategy = "api",
             TiktokPaidRatioEnabled = true,
-            TiktokExpectedFullPriceMode = "option_index",
+            TiktokExpectedFullPriceMode = "manual",
+            TiktokExpectedFullPriceValue = TikTokAccountProfile.DefaultExpectedPriceUsd,
             TiktokDeleteVideosOnArchive = true,
             TiktokDeleteVideosOnArchiveConfigured = true,
             TiktokArchiveRootConfigMigrated = true,
@@ -279,7 +280,16 @@ public sealed class AccountStore
         account.TiktokTargetAudienceMode = NormalizeTargetAudience(account.TiktokTargetAudienceMode);
         account.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount(account.TiktokGenreCount);
         account.TiktokUploadBrowserMode = NormalizeUploadBrowserMode(account.TiktokUploadBrowserMode);
+        var upload = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery);
+        account.TiktokUploadStrategy = upload.Channel;
+        account.TiktokPlaywrightVideoDelivery = upload.Delivery;
+        account.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
         account.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket);
+        account.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            account.TiktokSourceLanguage,
+            account.TiktokDramaMarket);
+        account.TiktokRewriteFollowsSourceLanguage =
+            TikTokAccountProfile.RewriteFollowsImportedLanguage(account.TiktokDramaMarket);
         if (!account.TiktokDeleteVideosOnArchiveConfigured)
             account.TiktokDeleteVideosOnArchive = true;
         if (account.TiktokProfilePreviewEpisodes <= 0) account.TiktokProfilePreviewEpisodes = 3;

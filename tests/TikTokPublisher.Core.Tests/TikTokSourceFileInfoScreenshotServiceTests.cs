@@ -25,8 +25,10 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         using var reader = new StreamReader(stream!);
         var script = reader.ReadToEnd();
 
-        script.Should().Contain("$locationUri.LocalPath");
         script.Should().Contain("file://server/share");
+        script.Should().Contain("GetEncoding(1252)");
+        script.Should().Contain("UTF8Encoding");
+        script.Should().NotContain("$locationUri.LocalPath");
         script.Should().NotContain("-replace '^file:///', ''");
     }
 
@@ -39,10 +41,24 @@ public sealed class TikTokSourceFileInfoScreenshotServiceTests
         using var reader = new StreamReader(stream!);
         var script = reader.ReadToEnd();
 
-        script.Should().Contain("if (-not $before.ContainsKey([int64]$candidate.HWND))");
+        script.Should().Contain("if ($isNewWindow)");
         script.Should().Contain("$ownsWindow = $true");
         script.Should().Contain("$ownsWindow = $false");
-        script.Should().Contain("if ($ownsWindow)");
+        script.Should().Contain("if (-not $ownsWindow -and $null -ne $window)");
+    }
+
+    [Fact]
+    public void Explorer_capture_script_quotes_paths_so_commas_stay_in_one_argument()
+    {
+        using var stream = typeof(TikTokSourceFileInfoScreenshotService).Assembly
+            .GetManifestResourceStream("TikTokPublisher.Core.Resources.CaptureExplorerWindow.ps1");
+        stream.Should().NotBeNull();
+        using var reader = new StreamReader(stream!);
+        var script = reader.ReadToEnd();
+
+        script.Should().Contain("/separate,/e,\"");
+        script.Should().NotContain("'/separate,', '/e,'");
+        script.Should().Contain("no new Explorer window registered");
     }
 
     [Fact]

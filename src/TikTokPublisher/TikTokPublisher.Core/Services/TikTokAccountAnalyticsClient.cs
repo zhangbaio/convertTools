@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -57,6 +58,19 @@ public sealed class TikTokAccountAnalyticsClient
             body,
             ct).ConfigureAwait(false);
     }
+
+    public async Task<string> PostLicenseContractsAsync(
+        string cookieHeader,
+        TikTokProxyHelper.ProxyConfig? proxy,
+        CancellationToken ct) =>
+        await SendAsync(
+            HttpMethod.Post,
+            Origin + "/api/content-partner/enterprise/license-contract/list",
+            Origin + "/series/draft",
+            cookieHeader,
+            proxy,
+            TikTokApiSeriesDocument.LicenseListRequestBody,
+            ct).ConfigureAwait(false);
 
     public async Task<string> GetRevenueAsync(
         string cookieHeader,

@@ -204,6 +204,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         FillChoice(GenderBox, KuaishouFormChoices.Genders, _config.Gender, "");
         CommitmentPdfBox.Text = _config.CommitmentPdfPath;
         LoginTimeoutBox.Text = _config.LoginTimeoutSeconds.ToString();
+        FillChoice(UploadTransportBox, KuaishouFormChoices.UploadTransports, _config.UploadTransport, "playwright");
         FillChoice(RevenueShareBrowserModeBox, KuaishouFormChoices.BrowserModes, _config.RevenueShareHeadless ? "true" : "false", "false");
         RevenueShareFullSceneBox.IsChecked = _config.RevenueShareFullSceneDisplay;
         KeepBrowserBox.IsChecked = _config.KeepBrowserOpenOnFailure;
@@ -507,6 +508,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.Gender = ChoiceValue(GenderBox, "");
         _config.CommitmentPdfPath = CommitmentPdfBox.Text?.Trim() ?? string.Empty;
         _config.LoginTimeoutSeconds = Positive(LoginTimeoutBox.Text, 300);
+        _config.UploadTransport = ChoiceValue(UploadTransportBox, "playwright");
         _config.RevenueShareHeadless = ChoiceValue(RevenueShareBrowserModeBox, "false") == "true";
         _config.Headless = _config.RevenueShareHeadless;
         _config.RevenueShareFullSceneDisplay = RevenueShareFullSceneBox.IsChecked == true;

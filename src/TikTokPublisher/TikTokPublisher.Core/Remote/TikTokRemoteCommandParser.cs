@@ -135,6 +135,9 @@ public static class TikTokRemoteCommandParser
         return text.Trim();
     }
 
+    private static string NormalizeDownloadSource(string? value) =>
+        string.Equals((value ?? "").Trim(), "dramabox", StringComparison.OrdinalIgnoreCase) ? "dramabox" : "";
+
     private static string NormalizeLookupMode(string? value) =>
         string.Equals(value?.Trim(), "series_id", StringComparison.OrdinalIgnoreCase) ? "series_id" : "";
 
@@ -240,7 +243,8 @@ public static class TikTokRemoteCommandParser
                     AutoPublishAssignmentId: GetPositiveLong(root, "auto_publish_assignment_id"),
                     AutoPublishProgressPath: FirstString(root, "auto_publish_progress_path"),
                     LookupMode: NormalizeLookupMode(FirstString(root, "lookup_mode")),
-                    DispatchMode: QueueProjectSlotCoordinator.NormalizeServerDispatchMode(FirstString(root, "dispatch_mode")));
+                    DispatchMode: QueueProjectSlotCoordinator.NormalizeServerDispatchMode(FirstString(root, "dispatch_mode")),
+                    DownloadSource: NormalizeDownloadSource(FirstString(root, "download_source")));
             }
 
             if (commandName is "tiktok_start_queue" or "start_tiktok_queue")

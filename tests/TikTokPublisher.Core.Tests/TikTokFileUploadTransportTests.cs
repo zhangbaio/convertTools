@@ -65,6 +65,18 @@ public sealed class TikTokFileUploadTransportTests
     }
 
     [Fact]
+    public void Api_upload_never_switches_to_batched_page_upload()
+    {
+        var options = new TikTokPublishOptions
+        {
+            UploadStrategy = "api",
+            UploadBatchSize = 3,
+        };
+
+        TikTokBatchUploadService.ShouldUseBatchedUpload(options, 60).Should().BeFalse();
+    }
+
+    [Fact]
     public void Edit_video_alignment_stops_before_the_first_duplicate_episode()
     {
         var rows = new[]

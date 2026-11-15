@@ -36,6 +36,8 @@ public static class TikTokBatchUploadService
 
     internal static bool ShouldUseBatchedUpload(TikTokPublishOptions options, int fileCount)
     {
+        if (options.UseApiUpload)
+            return false;
         var batchSize = Math.Clamp(options.UploadBatchSize, 1, 20);
         return options.UseBatchUpload || fileCount > batchSize;
     }

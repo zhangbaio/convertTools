@@ -1,7 +1,7 @@
-using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
@@ -14,6 +14,7 @@ public partial class AccountSettingsDialog : Window
     private readonly TikTokAccountProfile _profile;
     private readonly Func<TikTokAccountProfile, Task>? _persist;
     private bool _suppressDramaMarketPrompt;
+    private int _contractLookupGeneration;
 
     public AccountSettingsDialog(
         TikTokAccountProfile profile,
@@ -58,7 +59,7 @@ public partial class AccountSettingsDialog : Window
         RemoteDispatchBox.IsChecked = xingeEnabled && p.ParticipatesInXingeRemoteDispatch;
 
         ContractIdBox.Text = p.TiktokContractId;
-        SelectByTag(ContractModeCombo, p.TiktokContractIdMode, "manual");
+        RequestContractAutofill();
         var submitAction = NormalizeSubmitAction(p.TiktokSubmitAction, p.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
         SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
@@ -67,8 +68,14 @@ public partial class AccountSettingsDialog : Window
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(p.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
-        SelectByTag(SourceLanguageCombo, p.TiktokSourceLanguage, "zh");
-        SelectByTag(UploadStrategyCombo, p.TiktokUploadStrategy, "api");
+        SelectByTag(
+            SourceLanguageCombo,
+            TikTokAccountProfile.NormalizeStoredSourceLanguage(p.TiktokSourceLanguage, p.TiktokDramaMarket),
+            "zh");
+        var upload = TikTokUploadChannels.Resolve(p.TiktokUploadStrategy, p.TiktokPlaywrightVideoDelivery);
+        SelectByTag(UploadStrategyCombo, upload.Channel, "api");
+        SelectByTag(PlaywrightDeliveryCombo, upload.Delivery, "classic");
+        UpdateUploadChannelVisibility();
 
         PaidEnabledBox.IsChecked = p.TiktokPaidEnabled;
         PaidRatioEnabledBox.IsChecked = p.TiktokPaidRatioEnabled;
@@ -114,7 +121,6 @@ public partial class AccountSettingsDialog : Window
             2,
             (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
-        RewriteFollowsSourceLanguageBox.IsChecked = p.TiktokRewriteFollowsSourceLanguage;
         SelectNewTitleRandomness(AiNewTitleRandomnessCombo, p.TiktokAiNewTitleRandomness);
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
         ZeroCostAdsBox.IsChecked = p.TiktokZeroCostAdsEnabled;
@@ -130,18 +136,66 @@ public partial class AccountSettingsDialog : Window
         UploadBatchStallBox.Value = p.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = p.TiktokUploadBatchMaxRetries;
         UploadApiConcurrencyBox.Value = p.TiktokUploadApiConcurrency;
-        UploadApiFallbackBox.IsChecked = p.TiktokUploadApiFallbackToBatch;
-        SelectByTag(ExpectedPriceModeCombo, p.TiktokExpectedFullPriceMode, "manual");
-        ExpectedPriceOptionIndexBox.Value = p.TiktokExpectedFullPriceOptionIndex;
-        ExpectedPriceValueBox.Text = !string.IsNullOrWhiteSpace(p.TiktokExpectedFullPriceLabel)
-            ? p.TiktokExpectedFullPriceLabel
-            : p.TiktokExpectedFullPriceValue;
+        ExpectedPriceValueBox.Text = TikTokApiSeriesDocument.ReadPrice(p.TiktokExpectedFullPriceValue) ?? "";
         ProxyEnabledBox.IsChecked = p.TiktokProxyEnabled;
         SelectByTag(ProxyTypeCombo, p.TiktokProxyType, "http");
         ProxyHostBox.Text = p.TiktokProxyHost;
         ProxyPortBox.Value = p.TiktokProxyPort;
         ProxyUsernameBox.Text = p.TiktokProxyUsername;
         ProxyPasswordBox.Text = p.TiktokProxyPassword;
+    }
+
+    private void RequestContractAutofill()
+    {
+        var generation = ++_contractLookupGeneration;
+        if (!string.IsNullOrWhiteSpace(_profile.TiktokContractId))
+            return;
+        _ = FillEmptyContractAsync(generation);
+    }
+
+    private async Task FillEmptyContractAsync(int generation)
+    {
+        TikTokLicenseContractLookupResult result;
+        try
+        {
+            result = await TikTokLicenseContractLookup.TryReadAsync(_profile, null, CancellationToken.None);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyContractLookup(generation, result));
+    }
+
+    private async Task ApplyContractLookup(int generation, TikTokLicenseContractLookupResult result)
+    {
+        if (generation != _contractLookupGeneration)
+            return;
+        if (!string.IsNullOrWhiteSpace(ContractIdBox.Text) ||
+            !string.IsNullOrWhiteSpace(_profile.TiktokContractId))
+            return;
+        if (result.Status != TikTokLicenseContractLookupStatus.Single)
+        {
+            if (result.Status is TikTokLicenseContractLookupStatus.NotLoggedIn
+                or TikTokLicenseContractLookupStatus.AlreadyConfigured)
+                return;
+            if (!string.IsNullOrWhiteSpace(result.Message))
+                await InfoDialog.ShowAsync(this, result.Message, "授权合同", 520, 200);
+            return;
+        }
+
+        if (!TikTokLicenseContractLookup.TryApply(_profile, result.LicenseId))
+            return;
+        ContractIdBox.Text = _profile.TiktokContractId;
+        if (_persist is not null)
+            await _persist(_profile);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _contractLookupGeneration++;
+        base.OnClosed(e);
     }
 
     private void SaveFromUi()
@@ -167,7 +221,7 @@ public partial class AccountSettingsDialog : Window
         p.TiktokDeleteVideosOnArchiveConfigured = true;
 
         p.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
-        p.TiktokContractIdMode = TagOf(ContractModeCombo, "manual");
+        p.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
         p.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
         p.TiktokSubmitEnabled = string.Equals(p.TiktokSubmitAction, "submit", StringComparison.Ordinal);
         p.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "playwright");
@@ -175,8 +229,12 @@ public partial class AccountSettingsDialog : Window
         p.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
         p.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
         p.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
-        p.TiktokSourceLanguage = TagOf(SourceLanguageCombo, "zh");
-        p.TiktokUploadStrategy = TagOf(UploadStrategyCombo, "api");
+        p.TiktokSourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            TagOf(SourceLanguageCombo, "zh"),
+            p.TiktokDramaMarket);
+        var upload = TikTokUploadChannels.Resolve(TagOf(UploadStrategyCombo, "api"), TagOf(PlaywrightDeliveryCombo, "classic"));
+        p.TiktokUploadStrategy = upload.Channel;
+        p.TiktokPlaywrightVideoDelivery = upload.Delivery;
         p.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
         p.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
         p.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
@@ -213,7 +271,8 @@ public partial class AccountSettingsDialog : Window
             p.TiktokRoleVectorCharacterCount);
         p.TiktokProofAccountConfigMigrated = true;
         p.TiktokAiRewriteSynopsis = AiRewriteSynopsisBox.IsChecked == true;
-        p.TiktokRewriteFollowsSourceLanguage = RewriteFollowsSourceLanguageBox.IsChecked == true;
+        p.TiktokRewriteFollowsSourceLanguage =
+            TikTokAccountProfile.RewriteFollowsImportedLanguage(p.TiktokDramaMarket);
         p.TiktokAiNewTitleRandomness = ReadNewTitleRandomness(AiNewTitleRandomnessCombo);
         p.TiktokConsignmentEnabled = ConsignmentBox.IsChecked == true;
         p.TiktokZeroCostAdsEnabled = ZeroCostAdsBox.IsChecked == true;
@@ -230,12 +289,10 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
         p.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
         p.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
-        p.TiktokUploadApiFallbackToBatch = UploadApiFallbackBox.IsChecked != false;
-        p.TiktokExpectedFullPriceMode = TagOf(ExpectedPriceModeCombo, "manual");
-        p.TiktokExpectedFullPriceOptionIndex = (int)(ExpectedPriceOptionIndexBox.Value ?? 1);
-        var (priceValue, priceLabel) = NormalizeExpectedPriceInput(ExpectedPriceValueBox.Text);
-        p.TiktokExpectedFullPriceValue = priceValue;
-        p.TiktokExpectedFullPriceLabel = priceLabel;
+        p.TiktokUploadApiFallbackToBatch = false;
+        p.TiktokExpectedFullPriceMode = "manual";
+        p.TiktokExpectedFullPriceValue = TikTokApiSeriesDocument.ReadPrice(ExpectedPriceValueBox.Text) ?? "";
+        p.TiktokExpectedFullPriceLabel = "";
         p.TiktokProxyEnabled = ProxyEnabledBox.IsChecked == true;
         p.TiktokProxyType = TagOf(ProxyTypeCombo, "http");
         p.TiktokProxyHost = ProxyHostBox.Text?.Trim() ?? "";
@@ -348,18 +405,20 @@ public partial class AccountSettingsDialog : Window
                 TikTokAccountProfile.DramaMarketOverseas,
                 StringComparison.OrdinalIgnoreCase))
             return;
+        if (!string.Equals(TagOf(SourceLanguageCombo, "zh"), "zh", StringComparison.OrdinalIgnoreCase))
+            return;
 
         var confirmed = await ConfirmDialog.ShowAsync(
             this,
             "海外剧",
-            "是否同步把源语言改为「AI识别语言」，并勾选「改写信息跟随源语言」？",
-            520,
-            200);
+            "当前源语言是中文。海外剧一般使用非中文，是否改为英语？",
+            480,
+            180,
+            confirmText: "改为英语");
         if (!confirmed)
             return;
 
-        SelectByTag(SourceLanguageCombo, "auto", "auto");
-        RewriteFollowsSourceLanguageBox.IsChecked = true;
+        SelectByTag(SourceLanguageCombo, "en", "zh");
     }
 
     private void OnSave(object? sender, RoutedEventArgs e)
@@ -399,19 +458,6 @@ public partial class AccountSettingsDialog : Window
         };
     }
 
-    private static (string Value, string Label) NormalizeExpectedPriceInput(string? text)
-    {
-        var raw = (text ?? "").Trim();
-        if (string.IsNullOrEmpty(raw)) return ("", "");
-
-        var totalMatch = Regex.Match(raw, @"\$?(\d+(?:\.\d+)?)");
-        var value = totalMatch.Success ? totalMatch.Groups[1].Value : raw;
-        var label = raw.Contains("每集", StringComparison.Ordinal) || raw.Contains("/EP", StringComparison.OrdinalIgnoreCase)
-            ? raw
-            : (raw.StartsWith('$') ? raw : $"${value}");
-        return (value, label);
-    }
-
     private static void SelectNewTitleRandomness(ComboBox combo, string? value)
     {
         var key = ClientSettingsDefaults.NormalizeAiNewTitleRandomness(value);
@@ -430,4 +476,24 @@ public partial class AccountSettingsDialog : Window
 
     private static string ReadNewTitleRandomness(ComboBox combo) =>
         ClientSettingsDefaults.NormalizeAiNewTitleRandomness((combo.SelectedItem as ComboBoxItem)?.Tag as string);
+
+    private void UploadStrategyCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        UpdateUploadChannelVisibility();
+
+    private void UpdateUploadChannelVisibility()
+    {
+        if (PlaywrightDeliveryPanel is null)
+            return;
+
+        var api = string.Equals(TagOf(UploadStrategyCombo, "api"), TikTokUploadChannels.Api, StringComparison.OrdinalIgnoreCase);
+        PlaywrightDeliveryPanel.IsVisible = !api;
+        BatchSizeLabel.IsVisible = !api;
+        UploadBatchSizeBox.IsVisible = !api;
+        BatchStallLabel.IsVisible = !api;
+        UploadBatchStallBox.IsVisible = !api;
+        BatchRetriesLabel.IsVisible = !api;
+        UploadBatchRetriesBox.IsVisible = !api;
+        ApiConcurrencyLabel.IsVisible = api;
+        UploadApiConcurrencyBox.IsVisible = api;
+    }
 }

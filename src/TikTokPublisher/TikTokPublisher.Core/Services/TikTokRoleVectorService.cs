@@ -11,6 +11,7 @@ public static class TikTokRoleVectorService
 {
     public const string OutputFileName = TikTokReferenceSourcePackageService.CharacterWorkbenchFileName;
     public const string BackupFileName = "角色矢量图_旧版.png";
+    public const string ReferenceFrameDirectoryName = "参考帧";
     public const string StateFileName = ".role-vector-state.json";
     public const string StateVersion = "v10-multi-angle-character-views";
 
@@ -152,6 +153,8 @@ public static class TikTokRoleVectorService
             : sceneSources.Take(usedCharacters.Length).ToArray();
         if (referenceSources.Count == 0)
             throw new InvalidOperationException("生成角色矢量图失败：没有可用的角色参考图、真实场景图或视频抽帧。");
+        referenceSources = CopyReferenceFramesIntoPackage(root, referenceSources);
+        log?.Invoke($"角色矢量图：已把 {referenceSources.Count} 张服装参考帧复制到角色素材包。");
         progressTracker.MarkPhase("multi_angle_views");
         var characterViewSets = await TikTokReferenceSourcePackageService.EnsureCharacterViewSetsAsync(
             usedCharacters,
@@ -345,7 +348,6 @@ public static class TikTokRoleVectorService
             var manifest = ResolveStoredPath(packageRoot, rootElement.GetProperty("characterManifest").GetString());
             if (!MatchesHash(manifest, rootElement.GetProperty("characterManifestSha256").GetString())) return false;
             if (!ValidateFileEntries(packageRoot, rootElement.GetProperty("characters"), characterCount)) return false;
-            if (!ValidateFileEntries(packageRoot, rootElement.GetProperty("references"), minimumCount: 1)) return false;
             if (!rootElement.TryGetProperty("characterViews", out var viewSets) ||
                 !ValidateCharacterViewEntries(viewSets, characterCount)) return false;
             return true;
@@ -385,6 +387,56 @@ public static class TikTokRoleVectorService
             count++;
         }
         return count >= minimumCount;
+    }
+
+    private static string[] CopyReferenceFramesIntoPackage(string packageRoot, IReadOnlyList<string> referenceSources)
+    {
+        var directory = Path.Combine(packageRoot, ReferenceFrameDirectoryName);
+        Directory.CreateDirectory(directory);
+        var copies = new string[referenceSources.Count];
+        var kept = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var index = 0; index < referenceSources.Count; index++)
+        {
+            var source = Path.GetFullPath(referenceSources[index]);
+            if (!File.Exists(source))
+                throw new FileNotFoundException("角色矢量图的服装参考帧不存在。", source);
+            var destination = Path.Combine(
+                directory,
+                $"{index + 1:00}_{SanitizeFileName(Path.GetFileName(source))}");
+            if (!string.Equals(source, Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+            {
+                var temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                File.Copy(source, temporary, overwrite: true);
+                File.Move(temporary, destination, overwrite: true);
+            }
+
+            copies[index] = destination;
+            kept.Add(Path.GetFullPath(destination));
+        }
+
+        foreach (var existing in Directory.EnumerateFiles(directory))
+        {
+            if (!kept.Contains(Path.GetFullPath(existing)))
+            {
+                try { File.Delete(existing); } catch { /* 旧参考帧清不掉时不影响本次生成。 */ }
+            }
+        }
+
+        return copies;
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var buffer = name.ToCharArray();
+        for (var index = 0; index < buffer.Length; index++)
+        {
+            if (Array.IndexOf(invalid, buffer[index]) >= 0)
+                buffer[index] = '_';
+        }
+
+        var sanitized = new string(buffer).Trim();
+        return sanitized.Length == 0 ? "参考帧.jpg" : sanitized;
     }
 
     private static string ResolveStoredPath(string root, string? path)

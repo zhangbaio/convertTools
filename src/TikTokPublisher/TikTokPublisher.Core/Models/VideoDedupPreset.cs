@@ -231,8 +231,7 @@ public sealed class VideoDedupPreset
             preset.Parallel.ToString(CultureInfo.InvariantCulture),
             Num(preset.MinimumDurationSeconds),
             Num(preset.MaximumDurationSeconds) +
-                (preset.MinimumDurationSeconds > 0 || preset.MaximumDurationSeconds > 0 ? "\npretrim-split" : "") +
-                (preset.HasDurationLimit ? "\nupload-min-15" : ""),
+                (preset.HasDurationLimit ? "\naverage-split" : ""),
             preset.TransitionsEnabled ? "1" : "0",
             Flag(preset.TransitionFadeBlack),
             Flag(preset.TransitionDissolve),

@@ -248,6 +248,34 @@ public sealed class TikTokUploadPrerequisiteServiceTests
     };
 
     [Fact]
+    public void Api_upload_asks_for_a_contract_before_starting_when_the_id_is_empty()
+    {
+        var account = CompleteAccount();
+        account.TiktokUploadStrategy = "api";
+        account.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
+        account.TiktokContractId = "";
+
+        var act = () => TikTokUploadPrerequisiteService.EnsureUploadPrerequisites(account);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*请先配置合同*");
+    }
+
+    [Fact]
+    public void Api_upload_still_asks_for_a_contract_when_an_old_first_available_mode_is_stored()
+    {
+        var account = CompleteAccount();
+        account.TiktokUploadStrategy = "api";
+        account.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeFirstAvailable;
+        account.TiktokContractId = "";
+        account.TiktokPaidEnabled = false;
+        account.TiktokPaidRatioEnabled = false;
+
+        var act = () => TikTokUploadPrerequisiteService.EnsureUploadPrerequisites(account);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*请先配置合同*");
+    }
+
+    [Fact]
     public void EnsureCommercialConfigValid_blocks_paid_ratio_without_price()
     {
         var account = CompleteAccount();
@@ -257,11 +285,11 @@ public sealed class TikTokUploadPrerequisiteServiceTests
         account.TiktokExpectedFullPriceValue = "";
 
         var act = () => TikTokUploadPrerequisiteService.EnsureCommercialConfigValid(account);
-        act.Should().Throw<InvalidOperationException>().WithMessage("*预期全集价格设置*");
+        act.Should().Throw<InvalidOperationException>().WithMessage("*请先配置预期价格*");
     }
 
     [Fact]
-    public void EnsureCommercialConfigValid_allows_free_mode_without_price()
+    public void EnsureCommercialConfigValid_blocks_free_mode_without_price()
     {
         var account = CompleteAccount();
         account.TiktokPaidEnabled = false;
@@ -269,7 +297,7 @@ public sealed class TikTokUploadPrerequisiteServiceTests
         account.TiktokExpectedFullPriceValue = "";
 
         var act = () => TikTokUploadPrerequisiteService.EnsureCommercialConfigValid(account);
-        act.Should().NotThrow();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*请先配置预期价格*");
     }
 
     [Fact]

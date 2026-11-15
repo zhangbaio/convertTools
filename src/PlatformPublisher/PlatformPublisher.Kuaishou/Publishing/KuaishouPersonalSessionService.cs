@@ -72,8 +72,7 @@ public sealed class KuaishouPersonalSessionService
     }
 
     /// <summary>
-    /// 上传剧集走共享浏览器。同一账号、同一版本的下一部只新开标签页。
-    /// 登录、统计、上架和补传仍各自打开独立浏览器。
+    /// 每部剧上传各自打开一个浏览器。登录、统计、上架和补传也各自打开独立浏览器。
     /// </summary>
     public async Task ExecuteUploadAsync(
         PublishJob job,
@@ -83,138 +82,22 @@ public sealed class KuaishouPersonalSessionService
         bool holdUntilClosed = false)
     {
         var config = KuaishouPersonalConfig.Load(job);
-        var headless = config.RevenueShareHeadless;
         var label = job.Platform.DisplayName();
-        Action<string>? log = progress is null ? null : message => progress.Report(message);
-        var lease = await KuaishouUploadBrowserPool.Shared.RentAsync(
-            config,
-            headless,
-            token => LaunchHeldBrowserAsync(config, headless, token),
-            log,
-            cancellationToken).ConfigureAwait(false);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.Stopped);
-        try
+        var timeout = Math.Clamp(config.LoginTimeoutSeconds, 30, 900) * 1000;
+        progress?.Report($"{label}：正在打开上传浏览器。");
+        await RunBrowserAsync(config, config.RevenueShareHeadless, async (page, context, ct) =>
         {
-            var page = lease.Page;
-            using var closePageOnCancel = linked.Token.UnsafeRegister(static state =>
+            await page.GotoAsync(config.EntryUrl, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = timeout });
+            await page.WaitForTimeoutAsync(1200);
+            if (!await IsLoggedInAsync(page))
+                throw new InvalidOperationException($"{label}登录态无效，请先扫码登录。");
+            await action(page, config, ct);
+            if (holdUntilClosed)
             {
-                if (state is IPage openPage)
-                    RequestPageClose(openPage);
-            }, page);
-            if (!await IsLoggedInAsync(page).ConfigureAwait(false))
-            {
-                var message = $"{label}登录态无效，请先扫码登录。";
-                lease.StopAccount(message);
-                throw new InvalidOperationException(message);
+                while (!ct.IsCancellationRequested && context.Pages.Count > 0)
+                    await Task.Delay(500, ct);
             }
-
-            try
-            {
-                await action(page, config, linked.Token).ConfigureAwait(false);
-                if (holdUntilClosed && lease.IsOnlyUser)
-                {
-                    while (!cancellationToken.IsCancellationRequested && !page.IsClosed)
-                        await Task.Delay(500, cancellationToken).ConfigureAwait(false);
-                    if (cancellationToken.IsCancellationRequested)
-                        throw new OperationCanceledException(cancellationToken);
-                }
-            }
-            catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex) || IsLoginFailure(ex))
-            {
-                lease.StopAccount(ex.Message);
-                throw;
-            }
-            catch (OperationCanceledException) when (lease.StopReason.Length > 0 && !cancellationToken.IsCancellationRequested)
-            {
-                if (KuaishouDailyUploadLimit.Matches(lease.StopReason))
-                    throw new KuaishouDailyUploadLimitException();
-                throw new InvalidOperationException(lease.StopReason);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException
-                                       && config.KeepBrowserOpenOnFailure
-                                       && !headless
-                                       && lease.IsOnlyUser)
-            {
-                while (!cancellationToken.IsCancellationRequested && !page.IsClosed)
-                    await Task.Delay(500, cancellationToken).ConfigureAwait(false);
-                if (cancellationToken.IsCancellationRequested)
-                    throw new OperationCanceledException(cancellationToken);
-                throw;
-            }
-        }
-        finally
-        {
-            await lease.DisposeAsync().ConfigureAwait(false);
-        }
-    }
-
-    private async Task<(IPlaywright Playwright, IBrowser Browser, IBrowserContext Context)> LaunchHeldBrowserAsync(
-        KuaishouPersonalConfig config,
-        bool headless,
-        CancellationToken cancellationToken)
-    {
-        var runtime = await _runtimeService.InspectAsync(cancellationToken).ConfigureAwait(false);
-        if (!runtime.IsReady)
-            throw new InvalidOperationException(runtime.Message);
-        _runtimeService.ConfigureEnvironment(runtime);
-        var playwright = await _runtimeService.CreatePlaywrightAsync(runtime, cancellationToken).ConfigureAwait(false);
-        IBrowser? browser = null;
-        try
-        {
-            browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-            {
-                ExecutablePath = runtime.BrowserExecutablePath,
-                Headless = headless,
-                Args = headless
-                    ? ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--start-maximized", "--disable-site-isolation-trials", "--disable-gpu"]
-                    : ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--start-maximized", "--disable-site-isolation-trials"],
-            }).ConfigureAwait(false);
-            var options = new BrowserNewContextOptions
-            {
-                ViewportSize = headless ? new ViewportSize { Width = 1920, Height = 1030 } : ViewportSize.NoViewport,
-            };
-            if (File.Exists(config.AuthStatePath))
-                options.StorageStatePath = config.AuthStatePath;
-            var context = await CreateContextAsync(browser, options, allowInvalidStateFallback: false).ConfigureAwait(false);
-            return (playwright, browser, context);
-        }
-        catch
-        {
-            if (browser is not null)
-            {
-                try { await browser.CloseAsync().ConfigureAwait(false); }
-                catch { /* 启动失败时浏览器可能还没起来。 */ }
-            }
-
-            playwright.Dispose();
-            throw;
-        }
-    }
-
-    private static void RequestPageClose(IPage page) => _ = ClosePageQuietlyAsync(page);
-
-    private static async Task ClosePageQuietlyAsync(IPage page)
-    {
-        try
-        {
-            if (!page.IsClosed)
-                await page.CloseAsync().ConfigureAwait(false);
-        }
-        catch
-        {
-            // 标签页已经关掉。
-        }
-    }
-
-    private static bool IsLoginFailure(Exception ex)
-    {
-        for (var current = ex; current is not null; current = current.InnerException)
-        {
-            if (current.Message.Contains("登录态无效", StringComparison.Ordinal))
-                return true;
-        }
-
-        return false;
+        }, cancellationToken);
     }
 
     private async Task RunBrowserAsync(

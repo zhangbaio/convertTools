@@ -321,6 +321,7 @@ public sealed class YunfanXingeDispatchService
                     {
                         series_id = "",
                         title = item.Title,
+                        alias = item.Alias,
                         completed_at = item.CompletedAt,
                     }).ToArray();
                 }

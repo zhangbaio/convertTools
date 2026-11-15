@@ -1294,6 +1294,17 @@ public static partial class TikTokReferenceSourcePackageService
             .Where(File.Exists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var recoveredFrames = new List<string>(best);
+        void RememberFrames(IEnumerable<string> paths)
+        {
+            foreach (var path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path) ||
+                    recoveredFrames.Contains(path, StringComparer.OrdinalIgnoreCase))
+                    continue;
+                recoveredFrames.Add(path);
+            }
+        }
         var selectionMode = ResolveRoleReferenceSelectionMode(settings);
         var useAiFullReview = selectionMode == AiFullReviewRoleReferenceSelectionMode;
         var consecutiveNoGrowthBatches = 0;
@@ -1304,7 +1315,8 @@ public static partial class TikTokReferenceSourcePackageService
             $"角色补源：筛选模式={DescribeRoleReferenceSelectionMode(selectionMode)}；" +
             $"目标 {profiles.Count} 人，最低 {minimumCharacterCount} 人，当前匹配 {best.Length} 人；" +
             $"将从第 {episodes[0]} 集开始按每批 {RoleRecoveryEpisodeBatchSize} 集并行下载、抽帧，" +
-            $"最多 {RoleRecoveryMaxBatches} 批；同一失败连续 {RoleRecoveryNoGrowthBatchLimit} 批即停止。");
+            $"最多检查 {RoleRecoveryMaxBatches} 批；已经达到最低 {minimumCharacterCount} 人后，" +
+            $"连续 {RoleRecoveryNoGrowthBatchLimit} 批没有新增人物就停止。");
         var batches = ResolveRoleReferenceRecoveryBatches(episodes);
         for (var batchIndex = 0; batchIndex < batches.Count && batchesRun < RoleRecoveryMaxBatches; batchIndex++)
         {
@@ -1372,6 +1384,8 @@ public static partial class TikTokReferenceSourcePackageService
                     legacyCandidates,
                     selectionMode)
                 .ToList();
+            RememberFrames(modelCandidates);
+            RememberFrames(allCandidates);
             if (modelCandidates.Count == 0)
             {
                 progressTracker?.MarkVisionBatch(batch, best);
@@ -1389,6 +1403,8 @@ public static partial class TikTokReferenceSourcePackageService
                     profiles.Count,
                     reviewedEpisodes,
                     "没有取得有效候选帧。",
+                    profiles,
+                    recoveredFrames,
                     log);
                 if (stopped is not null)
                     return stopped;
@@ -1457,6 +1473,8 @@ public static partial class TikTokReferenceSourcePackageService
                         profiles.Count,
                         reviewedEpisodes,
                         fallbackEx.Message,
+                        profiles,
+                        recoveredFrames,
                         log);
                     if (stopped is not null)
                         return stopped;
@@ -1481,6 +1499,8 @@ public static partial class TikTokReferenceSourcePackageService
                     profiles.Count,
                     reviewedEpisodes,
                     ex.Message,
+                    profiles,
+                    recoveredFrames,
                     log);
                 if (stopped is not null)
                     return stopped;
@@ -1520,6 +1540,8 @@ public static partial class TikTokReferenceSourcePackageService
                 profiles.Count,
                 reviewedEpisodes,
                 lastFailure ?? "连续没有新增人物。",
+                profiles,
+                recoveredFrames,
                 log);
             if (stalled is not null)
                 return stalled;
@@ -1536,6 +1558,18 @@ public static partial class TikTokReferenceSourcePackageService
                 $"角色补源已检查全部可用剧集：目标 {profiles.Count} 人，最低 {minimumCharacterCount} 人，" +
                 $"实际匹配 {best.Length} 人，按最低人数策略兜底完成。");
             return best;
+        }
+        var filledAfterExhaustion = TryFillPlaceholderSupportingRoles(
+            profiles,
+            best,
+            recoveredFrames,
+            minimumCharacterCount);
+        if (filledAfterExhaustion is not null)
+        {
+            log?.Invoke(
+                $"角色补源已检查全部可用剧集，清晰露脸仍只有 {best.Length} 人。" +
+                $"占位配角改用尚未使用的人物画面，按 {filledAfterExhaustion.Length} 人完成（最低 {minimumCharacterCount} 人）。");
+            return filledAfterExhaustion;
         }
         throw new InvalidOperationException(
             $"角色补源已检查全部可用剧集，仍只有 {best.Length} 人，" +
@@ -1579,9 +1613,55 @@ public static partial class TikTokReferenceSourcePackageService
                (allEpisodesChecked || consecutiveNoGrowthBatches >= RoleRecoveryNoGrowthBatchLimit);
     }
 
-    internal static bool ShouldStopRoleRecovery(int batchesRun, int consecutiveNoGrowthBatches) =>
+    internal static bool ShouldStopRoleRecovery(
+        int batchesRun,
+        int consecutiveNoGrowthBatches,
+        int matchedCount,
+        int minimumCharacterCount) =>
         batchesRun >= RoleRecoveryMaxBatches ||
-        consecutiveNoGrowthBatches >= RoleRecoveryNoGrowthBatchLimit;
+        (matchedCount >= minimumCharacterCount &&
+         consecutiveNoGrowthBatches >= RoleRecoveryNoGrowthBatchLimit);
+
+    internal static bool IsRoleRecoveryStopMessage(string? message) =>
+        message?.Contains("角色补源已检查", StringComparison.Ordinal) == true;
+
+    internal static string[]? TryFillPlaceholderSupportingRoles(
+        IReadOnlyList<CharacterProfile> profiles,
+        IReadOnlyList<string> matched,
+        IReadOnlyList<string> candidateFrames,
+        int minimumCharacterCount)
+    {
+        if (matched.Count >= minimumCharacterCount || matched.Count >= profiles.Count)
+            return null;
+        var used = new HashSet<string>(
+            matched.Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        var filled = matched.ToList();
+        var nextFrame = 0;
+        for (var index = matched.Count; index < profiles.Count && filled.Count < minimumCharacterCount; index++)
+        {
+            if (!IsPlaceholderSupportingRole(profiles[index]))
+                return null;
+            string? frame = null;
+            while (nextFrame < candidateFrames.Count)
+            {
+                var path = candidateFrames[nextFrame++];
+                if (string.IsNullOrWhiteSpace(path) || !used.Add(path))
+                    continue;
+                frame = path;
+                break;
+            }
+
+            if (frame is null)
+                return null;
+            filled.Add(frame);
+        }
+
+        return filled.Count >= minimumCharacterCount ? filled.ToArray() : null;
+    }
+
+    private static bool IsPlaceholderSupportingRole(CharacterProfile profile) =>
+        Regex.IsMatch(profile.Name, @"^主要配角\d*$", RegexOptions.CultureInvariant);
 
     private static string[]? StopRoleRecovery(
         int batchesRun,
@@ -1591,9 +1671,15 @@ public static partial class TikTokReferenceSourcePackageService
         int configuredCharacterCount,
         IReadOnlyList<int> checkedEpisodes,
         string reason,
+        IReadOnlyList<CharacterProfile> profiles,
+        IReadOnlyList<string> candidateFrames,
         Action<string>? log)
     {
-        if (!ShouldStopRoleRecovery(batchesRun, consecutiveNoGrowthBatches))
+        if (!ShouldStopRoleRecovery(
+                batchesRun,
+                consecutiveNoGrowthBatches,
+                best.Length,
+                minimumCharacterCount))
             return null;
         var range = FormatEpisodeRange(checkedEpisodes);
         if (best.Length >= minimumCharacterCount)
@@ -1601,6 +1687,19 @@ public static partial class TikTokReferenceSourcePackageService
             log?.Invoke(
                 $"角色补源：已检查第 {range} 集，匹配 {best.Length}/{configuredCharacterCount} 人，停止继续补源。{reason}");
             return best;
+        }
+
+        var filled = TryFillPlaceholderSupportingRoles(
+            profiles,
+            best,
+            candidateFrames,
+            minimumCharacterCount);
+        if (filled is not null)
+        {
+            log?.Invoke(
+                $"角色补源：已检查第 {range} 集，清晰露脸仍只有 {best.Length} 人。" +
+                $"占位配角改用尚未使用的人物画面，按 {filled.Length} 人完成（最低 {minimumCharacterCount} 人）。");
+            return filled;
         }
 
         throw new InvalidOperationException(
@@ -2232,6 +2331,7 @@ public static partial class TikTokReferenceSourcePackageService
 face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才为 true。胸口、脖子、手脚、服装局部、背影、脸被遮挡、脸太小或严重模糊必须为 false；此时 person_id 使用空字符串，clarity 不得超过 20。
 同时判断服装参考价值。framing 只能为 close_up、upper_body、half_body、full_body、unknown；clothing_visible 只有在至少能清楚看到肩部、领口和上身主要服装时才为 true；clothing_clarity 为 0 到 100，服装覆盖面积越大、款式颜色纹理越清楚则越高。只有脸部特写、看不到领口和上身服装时，clothing_visible 必须为 false。
 性别只能输出 male、female、unknown。clarity 为 0 到 100，脸越清晰、无遮挡、主体越明确则越高。
+主角、主角1、主角2 表示画面里任意反复出现的人物，不要求指定演员。优先选择出镜清楚的人；只有一个人时，可以用这个人的不同画面。
 待匹配角色：
 {{roles}}
 只返回 JSON，不要解释：
@@ -2260,11 +2360,11 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                 .FirstOrDefault(candidate => candidate is not null);
             var pool = analyses
                 .Where(candidate => !usedIndices.Contains(candidate.Index))
-                .Where(candidate => !usedPeople.Contains(candidate.PersonId))
+                .Where(candidate => IsUnusedPerson(candidate, usedPeople))
                 .Where(candidate => candidate.FaceVisible && candidate.Single)
                 .Where(candidate => expectedGender == "unknown" || candidate.Gender == expectedGender)
                 .OrderByDescending(candidate => candidate.Single)
-                .ThenByDescending(candidate => IsGenericPrimaryRole(profiles[roleIndex]) &&
+                .ThenByDescending(candidate => IsPlaceholderLead(profiles[roleIndex]) &&
                     previousPrimary is not null &&
                     candidate.Gender is "male" or "female" &&
                     previousPrimary.Gender is "male" or "female" &&
@@ -2275,14 +2375,24 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
                 .ThenBy(candidate => candidate.Index)
                 .ToArray();
             var selected = pool.FirstOrDefault();
+            if (selected is null && IsPlaceholderLead(profiles[roleIndex]))
+            {
+                selected = analyses
+                    .Where(candidate => !usedIndices.Contains(candidate.Index))
+                    .OrderByDescending(candidate => IsUnusedPerson(candidate, usedPeople))
+                    .ThenByDescending(candidate => candidate.FaceVisible && candidate.Single)
+                    .ThenByDescending(candidate => candidate.Clarity)
+                    .ThenBy(candidate => candidate.Index)
+                    .FirstOrDefault();
+            }
             if (selected is null)
             {
                 var requirement = expectedGender switch
                 {
                     "male" => "清晰露脸的男性单人画面",
                     "female" => "清晰露脸的女性单人画面",
-                    _ => IsGenericPrimaryRole(profiles[roleIndex])
-                        ? "与另一位主角不同且清晰露脸的单人画面"
+                    _ => IsPlaceholderLead(profiles[roleIndex])
+                        ? "另一张未使用的人物画面"
                         : "与两位主角不同且清晰露脸的第三个人物画面",
                 };
                 throw new InvalidOperationException(
@@ -2290,13 +2400,20 @@ face_visible 只有在眼睛、鼻子、嘴和整体脸型均清楚可辨时才�
             }
             assigned[roleIndex] = selected.Index;
             usedIndices.Add(selected.Index);
-            usedPeople.Add(selected.PersonId);
+            if (!string.IsNullOrWhiteSpace(selected.PersonId))
+                usedPeople.Add(selected.PersonId);
         }
         return assigned;
     }
 
+    private static bool IsUnusedPerson(ReferenceCandidateAnalysis candidate, HashSet<string> usedPeople) =>
+        string.IsNullOrWhiteSpace(candidate.PersonId) || !usedPeople.Contains(candidate.PersonId);
+
+    private static bool IsPlaceholderLead(CharacterProfile profile) =>
+        Regex.IsMatch(profile.Name, @"^[男女]?主角\d*$", RegexOptions.CultureInvariant);
+
     private static bool IsGenericPrimaryRole(CharacterProfile profile) =>
-        Regex.IsMatch(profile.Name, @"^[男女]?主角\d+$", RegexOptions.CultureInvariant);
+        IsPlaceholderLead(profile);
 
     private static string RoleGenderRequirement(CharacterProfile profile)
     {

@@ -78,6 +78,12 @@ public static class KuaishouFormChoices
         new("女", "女"),
     ];
 
+    public static IReadOnlyList<KuaishouFormChoice> UploadTransports { get; } =
+    [
+        new("页面上传（Playwright）", "playwright"),
+        new("接口上传", "api"),
+    ];
+
     public static IReadOnlyList<KuaishouFormChoice> BrowserModes { get; } =
     [
         new("有头浏览器", "false"),

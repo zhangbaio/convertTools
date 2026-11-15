@@ -56,14 +56,8 @@
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="8"
                               ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="合同选择模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ContractModeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="manual">指定合同 ID</ComboBoxItem>
-                                <ComboBoxItem Tag="first_available">使用第一个可用合同</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="ContractIdBox" Watermark="合同 ID" />
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="ContractIdBox" Watermark="合同 ID" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="提交动作" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="2" Grid.Column="1" x:Name="SubmitActionCombo" HorizontalAlignment="Stretch">
@@ -102,11 +96,19 @@
                             </ComboBox>
 
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="上传方式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="6" Grid.Column="1" x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="classic">经典（一次性上传全部视频）</ComboBoxItem>
-                                <ComboBoxItem Tag="batch">分批（每批 N 个，卡死整批重传）</ComboBoxItem>
-                                <ComboBoxItem Tag="api">接口直传（并发上传，按集号挂载排序）</ComboBoxItem>
-                            </ComboBox>
+                            <StackPanel Grid.Row="6" Grid.Column="1" Spacing="8">
+                                <ComboBox x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch" SelectionChanged="UploadStrategyCombo_SelectionChanged">
+                                    <ComboBoxItem Tag="playwright">网页上传</ComboBoxItem>
+                                    <ComboBoxItem Tag="api">接口上传</ComboBoxItem>
+                                </ComboBox>
+                                <StackPanel x:Name="PlaywrightDeliveryPanel" Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="正片投递" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="PlaywrightDeliveryCombo" MinWidth="280">
+                                        <ComboBoxItem Tag="classic">经典（一次传完全部）</ComboBoxItem>
+                                        <ComboBoxItem Tag="batch">分批（卡死就整批重传）</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                            </StackPanel>
 
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="付费模式" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="7" Grid.Column="1" x:Name="PaidEnabledBox" Content="启用" />
@@ -121,12 +123,7 @@
                             <CheckBox Grid.Row="10" Grid.Column="1" x:Name="AiDramaBox" Content="是" IsChecked="True" />
 
                             <TextBlock Grid.Row="11" Grid.Column="0" Text="AI 改写简介" VerticalAlignment="Center" />
-                            <StackPanel Grid.Row="11" Grid.Column="1" Orientation="Horizontal" Spacing="16">
-                                <CheckBox x:Name="AiRewriteSynopsisBox" Content="启用" />
-                                <CheckBox x:Name="RewriteFollowsSourceLanguageBox"
-                                          Content="改写信息跟随源语言"
-                                          ToolTip.Tip="开启后，标题和简介按导入短剧的语言生成。英文剧生成英文，不再固定写成中文。" />
-                            </StackPanel>
+                            <CheckBox Grid.Row="11" Grid.Column="1" x:Name="AiRewriteSynopsisBox" Content="启用" />
 
                             <TextBlock Grid.Row="12" Grid.Column="0" Text="新剧名随机度" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="12" Grid.Column="1" x:Name="AiNewTitleRandomnessCombo" Width="160" HorizontalAlignment="Left">
@@ -158,33 +155,20 @@
                             <TextBlock Grid.Row="21" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="21" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
 
-                            <TextBlock Grid.Row="22" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
+                            <TextBlock x:Name="BatchSizeLabel" Grid.Row="22" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="22" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
 
-                            <TextBlock Grid.Row="23" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
+                            <TextBlock x:Name="BatchStallLabel" Grid.Row="23" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="23" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
 
-                            <TextBlock Grid.Row="24" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
+                            <TextBlock x:Name="BatchRetriesLabel" Grid.Row="24" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="24" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
 
-                            <TextBlock Grid.Row="25" Grid.Column="0" Text="预期价格模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="25" Grid.Column="1" x:Name="ExpectedPriceModeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="manual">手动价格</ComboBoxItem>
-                                <ComboBoxItem Tag="option_index">按选项序号</ComboBoxItem>
-                            </ComboBox>
+                            <TextBlock Grid.Row="25" Grid.Column="0" Text="预期价格" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="25" Grid.Column="1" x:Name="ExpectedPriceValueBox" Watermark="0.3" />
 
-                            <TextBlock Grid.Row="26" Grid.Column="0" Text="预期全集价格" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="26" Grid.Column="1" x:Name="ExpectedPriceValueBox" Watermark="例如：22.33 或 $22.33 | $0.29/EP" />
-
-                            <TextBlock Grid.Row="27" Grid.Column="0" Text="价格选项序号" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="27" Grid.Column="1" x:Name="ExpectedPriceOptionIndexBox" Minimum="1" Maximum="999" Value="1" Width="160" HorizontalAlignment="Left" />
-
-                            <TextBlock Grid.Row="28" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="28" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
-
-                            <TextBlock Grid.Row="29" Grid.Column="0" Text="接口·失败回退" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="29" Grid.Column="1" x:Name="UploadApiFallbackBox" Content="接口直传失败时改用网页分批上传" IsChecked="True" />
-
+                            <TextBlock x:Name="ApiConcurrencyLabel" Grid.Row="26" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
+                            <NumericUpDown Grid.Row="26" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
 
                             <TextBlock Grid.Row="30" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="30" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />

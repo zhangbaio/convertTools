@@ -108,6 +108,21 @@ public sealed class TikTokAccountProfile
             ? DramaMarketOverseas
             : DramaMarketLocal;
 
+    /// <summary>海外剧的标题和简介按导入短剧的语言改写。本土剧保持中文。</summary>
+    public static bool RewriteFollowsImportedLanguage(string? dramaMarket) =>
+        NormalizeDramaMarket(dramaMarket) == DramaMarketOverseas;
+
+    /// <summary>「AI识别语言」保留为 auto，上传前再按新剧名识别。没选过源语言时，海外剧为英语，本土剧为中文。</summary>
+    public static string NormalizeStoredSourceLanguage(string? language, string? dramaMarket)
+    {
+        var text = (language ?? "").Trim();
+        if (text.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            return "auto";
+        if (text.Length == 0)
+            return RewriteFollowsImportedLanguage(dramaMarket) ? "en" : "zh";
+        return text;
+    }
+
     public string TiktokSourceLanguage { get; set; } = "zh";
     public bool TiktokIsAiDrama { get; set; } = true;
     public string TiktokContentCreationType { get; set; } = "original";
@@ -180,16 +195,20 @@ public sealed class TikTokAccountProfile
     public int TiktokFreePreviewEpisodes { get; set; } = 3;
     public string TiktokExpectedFullPriceMode { get; set; } = "manual";
     public int TiktokExpectedFullPriceOptionIndex { get; set; } = 1;
-    public string TiktokExpectedFullPriceValue { get; set; } = "";
+    public const string DefaultExpectedPriceUsd = "0.3";
+    public string TiktokExpectedFullPriceValue { get; set; } = DefaultExpectedPriceUsd;
     public string TiktokExpectedFullPriceLabel { get; set; } = "";
     public string TiktokExpectedFullPriceOptionsJson { get; set; } = "";
     public int TiktokUploadStallSeconds { get; set; } = 180;
     public string TiktokUploadStrategy { get; set; } = "api";
+    /// <summary>网页上传时的正片投递：classic 一次传完，batch 按批重传。接口上传不使用。</summary>
+    public string TiktokPlaywrightVideoDelivery { get; set; } = "classic";
     public int TiktokUploadBatchSize { get; set; } = 3;
     public int TiktokUploadBatchStallSeconds { get; set; } = 75;
     public int TiktokUploadBatchMaxRetries { get; set; } = 3;
     public int TiktokUploadApiConcurrency { get; set; } = 3;
-    public bool TiktokUploadApiFallbackToBatch { get; set; } = true;
+    /// <summary>已停用。旧账号里的值保留，发布时不再使用。</summary>
+    public bool TiktokUploadApiFallbackToBatch { get; set; }
     public string TiktokExcelReportPath { get; set; } = "";
     public List<string>? TiktokQueueEnabledSteps { get; set; }
     public bool? TiktokQueueAutoArchiveAfterUpload { get; set; }

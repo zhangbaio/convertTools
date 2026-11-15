@@ -29,15 +29,40 @@ public static class ShortDramaDramaServices
     public static void UseSettingsDatabase(string? databasePath) =>
         SettingsProvider.Value.UseDatabase(databasePath);
 
+    private static readonly AsyncLocal<int> SettingsHoldDepth = new();
+
+    public static IDisposable HoldSettings(ClientSettings settings)
+    {
+        RefreshSettings(settings);
+        SettingsHoldDepth.Value++;
+        return new SettingsHoldScope();
+    }
+
     public static void RefreshSettings(ClientSettings? settings = null)
     {
         if (settings is not null)
         {
             SettingsProvider.Value.Replace(settings);
+            return;
         }
-        else
+
+        if (SettingsHoldDepth.Value > 0)
+            return;
+
+        SettingsProvider.Value.Reload();
+    }
+
+    private sealed class SettingsHoldScope : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
         {
-            SettingsProvider.Value.Reload();
+            if (_disposed)
+                return;
+            _disposed = true;
+            var depth = SettingsHoldDepth.Value;
+            SettingsHoldDepth.Value = depth > 0 ? depth - 1 : 0;
         }
     }
 
@@ -166,6 +191,24 @@ public static class ShortDramaDramaServices
             page.HasMore,
             page.NextOffset,
             page.SessionId);
+    }
+
+    public readonly record struct DramaBoxNewPage(
+        IReadOnlyList<DramaSearchItem> Items,
+        bool HasMore,
+        int NextPage);
+
+    public static async Task<DramaBoxNewPage> GetDramaBoxNewPageAsync(int page, CancellationToken cancellationToken)
+    {
+        RefreshSettings();
+        var result = await Router.Value.GetDramaBoxNewPageAsync(page, cancellationToken);
+        return new DramaBoxNewPage(result.Items.Select(FromCore).ToArray(), result.HasMore, result.NextPage);
+    }
+
+    public static bool IsDramaBoxSourceSelected()
+    {
+        RefreshSettings();
+        return Router.Value.IsDramaBoxSourceSelected();
     }
 
     public static bool IsHongguoAppSourceSelected()

@@ -141,20 +141,13 @@ public static partial class TikTokBrowserActions
         Action<string>? log,
         CancellationToken ct)
     {
+        if (options.UseApiUpload)
+            throw new InvalidOperationException("接口上传不会填写网页表单。");
+
         ct.ThrowIfCancellationRequested();
         var uploadPaths = payload.UploadVideoPaths.Count > 0
             ? payload.UploadVideoPaths.ToList()
             : payload.VideoPaths.ToList();
-        if (options.UseApiUpload &&
-            TikTokApiUploadService.TryReadSeriesIdFromUrl(page.Url) is null &&
-            TikTokApiUploadService.ResolveLocalEpisodes(uploadPaths) is not null)
-        {
-            if (!coverAlreadyUploaded)
-                await UploadCoverAsync(page, coverPath, log, ct);
-            await TikTokApiUploadService.ContinueCreateAsDraftAsync(
-                page, payload, options, recommendation, coverPath, uploadPaths, log, ct);
-            return;
-        }
 
         if (TikTokBatchUploadService.ShouldUseBatchedUpload(options, uploadPaths.Count))
         {
@@ -758,26 +751,8 @@ public static partial class TikTokBrowserActions
         var combo = page.Locator(".semi-select").First;
         await combo.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
 
-        if (options.ContractIdMode == TikTokPublishConstants.ContractIdModeFirstAvailable)
-        {
-            await OpenContractDropdownAsync(page, combo, ct);
-            var option = await WaitForFirstContractOptionAsync(page, ct);
-            if (option is null)
-            {
-                var visible = await CollectContractOptionTextsAsync(page);
-                throw new InvalidOperationException($"未找到可用合同选项，当前可见选项: {string.Join(" | ", visible)}");
-            }
-            var text = await SafeInnerTextAsync(option);
-            await option.ClickAsync(new() { Timeout = 10000 });
-            Log(log, $"TikTok 合同模式：已使用默认第一个合同{(string.IsNullOrEmpty(text) ? "" : $"：{text}")}");
-            return;
-        }
-
         if (string.IsNullOrWhiteSpace(options.ContractId))
-        {
-            Log(log, "TikTok 合同 ID 未配置，保留页面默认合同选择。");
-            return;
-        }
+            throw new InvalidOperationException("TikTok 合同 ID 未配置。请在「账号管理 → 发布配置」填写合同 ID。");
 
         await OpenContractDropdownAsync(page, combo, ct);
         var matched = await FindContractOptionAsync(page, options.ContractId);
@@ -1028,22 +1003,20 @@ public static partial class TikTokBrowserActions
         await VerifyNumericFieldAsync(page, "#previewVideoNum", options.FreePreviewEpisodes, "免费预览集数", log, ct);
         await PauseBetweenFieldsAsync(page);
 
-        if (options.PaidEnabled
-            && options.ExpectedFullPriceMode == "manual"
-            && string.IsNullOrWhiteSpace(options.ExpectedFullPriceValue))
+        if (options.PaidEnabled &&
+            TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue) is null)
         {
-            throw new InvalidOperationException("是否付费=是 时，必须配置“预期全集价格设置”。");
+            throw new InvalidOperationException(
+                "上传前请先配置预期价格。请在「账号管理 → 发布配置」填写美元价格，例如 0.3。");
         }
 
         await SelectExpectedFullPriceAsync(page, options, log, ct);
         await VerifyExpectedFullPriceAsync(page, options, log, ct);
 
-        var label = options.ExpectedFullPriceMode == "option_index"
-            ? $"第 {options.ExpectedFullPriceOptionIndex} 个价格选项"
-            : options.ExpectedFullPriceLabel ?? options.ExpectedFullPriceValue;
+        var label = TikTokApiSeriesDocument.ReadPrice(options.ExpectedFullPriceValue) ?? options.ExpectedFullPriceValue;
         Log(log, options.PaidEnabled
-            ? $"商业模式已按付费=是填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}"
-            : $"商业模式已按付费=否预填个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期全集价格：{label}");
+            ? $"商业模式已按付费=是填写个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期价格：{label} 美元"
+            : $"商业模式已按付费=否预填个人页剧集展示集数：{options.ProfilePreviewEpisodes}，免费预览集数：{options.FreePreviewEpisodes}，预期价格：{label} 美元");
     }
 
     private static async Task ApplyZeroCostAdsAsync(

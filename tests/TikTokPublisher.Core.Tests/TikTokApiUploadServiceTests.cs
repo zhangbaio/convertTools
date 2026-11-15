@@ -67,6 +67,89 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
+    public void Image_signature_uses_the_imagex_service()
+    {
+        var uri = TikTokApiUploadService.BuildImageApplyUri("https://vod.tiktokdramacenter.com", 123, "abc");
+        var authorization = TikTokVodSigner.BuildAuthorization(
+            "GET", uri, "20261114T113000Z", FakeCredentials, null, "imagex");
+
+        authorization.Should().Contain("Credential=AKFAKE/20261114/ap-singapore-1/imagex/aws4_request");
+    }
+
+    [Fact]
+    public void Image_upload_uses_the_imagex_version_on_the_vod_host()
+    {
+        var apply = TikTokApiUploadService.BuildImageApplyUri("https://vod.tiktokdramacenter.com", 123, "abc");
+        apply.Host.Should().Be("vod.tiktokdramacenter.com");
+        apply.Query.Should().Contain("Action=ApplyImageUpload");
+        apply.Query.Should().Contain("Version=2018-08-01");
+        apply.Query.Should().Contain("ServiceId=xbj99bix8q");
+        apply.Query.Should().NotContain("2020-11-19");
+
+        var commit = TikTokApiUploadService.BuildImageCommitUri("https://vod.tiktokdramacenter.com");
+        commit.Query.Should().Contain("Action=CommitImageUpload");
+        commit.Query.Should().Contain("Version=2018-08-01");
+    }
+
+    [Fact]
+    public void Image_apply_reads_the_upload_address()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"Result":{"UploadAddress":{
+              "SessionKey":"session-1",
+              "UploadHosts":["tos-imagex.example.com"],
+              "StoreInfos":[{"StoreUri":"tos-alisg-i-xbj99bix8q-sg/cover","Auth":"auth-1"}]
+            }}}
+            """);
+
+        var ticket = TikTokApiUploadService.ReadImageUploadTicket(
+            document.RootElement,
+            "https://tos.tiktokdramacenter.com");
+
+        ticket.SessionKey.Should().Be("session-1");
+        ticket.StoreUri.Should().Be("tos-alisg-i-xbj99bix8q-sg/cover");
+        ticket.Auth.Should().Be("auth-1");
+        ticket.UploadHost.Should().Be("https://tos-imagex.example.com");
+        ticket.UploadHosts.Should().Equal("https://tos-imagex.example.com");
+    }
+
+    [Fact]
+    public void Image_apply_keeps_every_distinct_upload_host()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"Result":{"UploadAddress":{
+              "SessionKey":"session-1",
+              "UploadHosts":["tos-a.example.com","https://tos-b.example.com/","tos-a.example.com"],
+              "StoreInfos":[{"StoreUri":"tos-alisg-i-xbj99bix8q-sg/cover","Auth":"auth-1"}]
+            }}}
+            """);
+
+        var ticket = TikTokApiUploadService.ReadImageUploadTicket(
+            document.RootElement,
+            "https://tos.tiktokdramacenter.com");
+
+        ticket.UploadHost.Should().Be("https://tos-a.example.com");
+        ticket.UploadHosts.Should().Equal(
+            "https://tos-a.example.com",
+            "https://tos-b.example.com");
+        TikTokApiUploadService.DescribeUploadHost(ticket.UploadHosts[1]).Should().Be("tos-b.example.com");
+    }
+
+    [Fact]
+    public void Transport_closed_failure_is_recognized_from_the_ssl_eof()
+    {
+        var failure = new HttpRequestException(
+            "The SSL connection could not be established, see inner exception.",
+            new IOException("Received an unexpected EOF or 0 bytes from the transport stream."));
+
+        TikTokApiUploadService.IsTransportClosedFailure(failure).Should().BeTrue();
+        TikTokApiUploadService.IsTransportClosedFailure(new InvalidOperationException("TOS 上传失败"))
+            .Should().BeFalse();
+    }
+
+    [Fact]
     public void Service_hosts_follow_the_page_domain()
     {
         TikTokApiUploadService.ResolveServiceBaseUrl("https://www.tiktokdramacenter.com/series/draft/1", "vod")
@@ -164,6 +247,107 @@ public sealed class TikTokApiUploadServiceTests
             new("c", 2, "", 3),
             new("b", 3, "", 2),
         ]).Should().Equal("a", "b", "c");
+    }
+
+    [Fact]
+    public void Delete_plan_keeps_the_first_copy_of_each_episode()
+    {
+        var videos = new TikTokApiUploadService.SeriesVideo[]
+        {
+            new("ep1", 1, "剧-第1集", 1),
+            new("ep2a", 2, "剧-第2集", 2),
+            new("ep2b", 3, "剧-第3集-第2集", 2),
+            new("ep3a", 4, "剧-第3集", 3),
+            new("ep3b", 5, "剧-第3集", 3),
+            new("ep4a", 6, "剧-第4集", 4),
+            new("ep4b", 7, "剧-第4集", 4),
+            new("ep8", 8, "剧-第8集", 8),
+            new("blank", 9, "花絮", null),
+        };
+
+        TikTokApiUploadService.PlanDeleteExtras(videos).Should().Equal("ep2b", "ep3b", "ep4b", "blank");
+        TikTokApiUploadService.PlanDeleteExtras(videos.Take(2).ToArray()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Hidden_husband_draft_deletes_duplicate_copies_and_names_the_gap()
+    {
+        var videos = new List<TikTokApiUploadService.SeriesVideo>
+        {
+            new("1", 1, "第1集", 1),
+            new("2a", 2, "第2集", 2),
+            new("2b", 3, "第2集", 2),
+            new("3a", 4, "第3集", 3),
+            new("3b", 5, "第3集", 3),
+            new("4a", 6, "第4集", 4),
+            new("4b", 7, "第4集", 4),
+        };
+        for (var episode = 8; episode <= 50; episode++)
+            videos.Add(new TikTokApiUploadService.SeriesVideo(episode.ToString(), videos.Count + 1, $"第{episode}集", episode));
+
+        TikTokApiUploadService.PlanDeleteExtras(videos).Should().Equal("2b", "3b", "4b");
+        TikTokApiUploadService.DescribeEpisodeMismatch(videos, 50)
+            .Should().Contain("缺少第 5, 6, 7 集")
+            .And.Contain("第 2, 3, 4 集重复");
+
+        var repaired = TikTokApiUploadService.SelectUsableExisting(videos).ToList();
+        for (var episode = 5; episode <= 7; episode++)
+            repaired.Add(new TikTokApiUploadService.SeriesVideo(episode.ToString(), repaired.Count + 1, $"第{episode}集", episode));
+        TikTokApiUploadService.DescribeEpisodeMismatch(repaired, 50).Should().BeNull();
+    }
+
+    [Fact]
+    public void Submit_check_names_missing_duplicate_and_unreadable_rows()
+    {
+        TikTokApiUploadService.DescribeEpisodeMismatch(
+        [
+            new("a", 1, "", 1),
+            new("b", 2, "", 2),
+            new("b2", 3, "", 2),
+            new("c", 4, "", 4),
+            new("blank", 5, "花絮", null),
+        ], 4).Should().Be(
+            "接口直传：正片和总集数不一致（正片 5 条，总集数 4），已停止，不会提交。缺少第 3 集；第 2 集重复；1 行读不出集号。");
+
+        TikTokApiUploadService.DescribeEpisodeMismatch(
+        [
+            new("a", 1, "", 1),
+            new("z", 2, "", 9),
+        ], 1).Should().Contain("集号超出总集数：第 9 集");
+
+        TikTokApiUploadService.DescribeEpisodeMismatch(
+        [
+            new("a", 1, "", 1),
+            new("b", 2, "", 2),
+            new("c", 3, "", 3),
+        ], 3).Should().BeNull();
+    }
+
+    [Fact]
+    public void Batch_delete_body_sends_contract_and_video_ids()
+    {
+        using var document = JsonDocument.Parse(
+            TikTokApiUploadService.BuildBatchDeleteBody("7707846602790065160", ["v2", "v3"]));
+
+        var root = document.RootElement;
+        root.GetProperty("contractId").GetString().Should().Be("7707846602790065160");
+        root.GetProperty("videoIds").EnumerateArray().Select(item => item.GetString()).Should().Equal("v2", "v3");
+    }
+
+    [Fact]
+    public void Series_detail_reads_numeric_video_ids()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {"videos":[{"videoId":7707846602790065161,"orderNum":2,"title":"The Hidden Husband-第3集-第2集"}]}
+            """);
+
+        var videos = TikTokApiUploadService.ParseSeriesVideos(document.RootElement);
+
+        videos.Should().ContainSingle();
+        videos[0].VideoId.Should().Be("7707846602790065161");
+        videos[0].Episode.Should().Be(2);
+        TikTokApiUploadService.PlanDeleteExtras(videos).Should().BeEmpty();
     }
 
     [Fact]
@@ -266,7 +450,220 @@ public sealed class TikTokApiUploadServiceTests
         var account = new TikTokAccountProfile();
 
         account.TiktokUploadApiConcurrency.Should().Be(3);
-        account.TiktokUploadApiFallbackToBatch.Should().BeTrue();
-        TikTokPublishOptions.FromAccount(account).UseApiUpload.Should().BeTrue();
+        account.TiktokUploadApiFallbackToBatch.Should().BeFalse();
+        var options = TikTokPublishOptions.FromAccount(account);
+        options.UseApiUpload.Should().BeTrue();
+        options.UploadApiFallbackToBatch.Should().BeFalse();
+
+        var savedFallback = new TikTokAccountProfile { TiktokUploadApiFallbackToBatch = true };
+        TikTokPublishOptions.FromAccount(savedFallback).UploadApiFallbackToBatch.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(408, true)]
+    [InlineData(429, true)]
+    [InlineData(500, true)]
+    [InlineData(200, false)]
+    [InlineData(400, false)]
+    public void Transport_status_retries_only_network_and_server_errors(int status, bool retryable)
+    {
+        TikTokApiUploadService.IsTransientHttpStatus(status).Should().Be(retryable);
+    }
+
+    [Theory]
+    [InlineData("{\"data\":{\"contractId\":\"7707846602790065160\"}}", "7707846602790065160")]
+    [InlineData("{\"id\":7707843447088124935}", "7707843447088124935")]
+    [InlineData("{\"data\":{\"videos\":[{\"id\":\"1\"}]}}", null)]
+    [InlineData("not json", null)]
+    public void Series_id_is_read_from_the_create_response(string json, string? expected)
+    {
+        TikTokApiUploadService.ReadSeriesIdFromJson(json).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Existing_draft_id_comes_from_the_series_list()
+    {
+        const string title = "重生赶海的温柔守护";
+        var json = """
+            {"code":0,"data":{"list":[
+              {"title":"鱼塘边的诚信路","seriesId":"7707000000000000001","presentationStatus":31},
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129212","presentationStatus":31},
+              {"title":"重生赶海的温柔守护","id":"7708000000000000001","orderNum":3,"videoId":"v"}
+            ]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, title).SelectIds()
+            .Should().Equal("7707915752204129212");
+    }
+
+    [Fact]
+    public void Existing_draft_id_is_read_from_a_nested_series()
+    {
+        var json = """
+            {"data":{"records":[{
+              "presentationStatus":"草稿",
+              "seriesInfo":{"title":"重生赶海的温柔守护","id":"7707915752204129212"}
+            }]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, "  重生赶海的温柔守护  ").SelectIds()
+            .Should().Equal("7707915752204129212");
+    }
+
+    [Fact]
+    public void New_shell_with_collection_status_is_still_a_draft()
+    {
+        var json = """
+            {"data":{"list":[{
+              "info":{"contractId":"7707984308811699206","title":"大婚日仙尊母亲归来","status":1},
+              "presentationStatus":{"status":31}
+            }]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, "大婚日仙尊母亲归来").SelectIds()
+            .Should().Equal("7707984308811699206");
+    }
+
+    [Fact]
+    public void Published_series_is_not_reused_as_a_draft()
+    {
+        var json = """
+            {"data":{"list":[
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129212","presentationStatus":1005}
+            ]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, "重生赶海的温柔守护").SelectIds()
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Several_same_title_drafts_stay_unresolved()
+    {
+        var json = """
+            {"data":{"list":[
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129212","presentationStatus":31},
+              {"title":"重生赶海的温柔守护","seriesId":"7707915752204129999","status":"InDraft"}
+            ]}}
+            """;
+
+        var ids = TikTokApiUploadService.FindDraftSeries(json, "重生赶海的温柔守护").SelectIds();
+        ids.Should().Equal("7707915752204129212", "7707915752204129999");
+    }
+
+    [Fact]
+    public void Untagged_list_row_is_used_when_the_response_has_no_status()
+    {
+        var json = """
+            {"data":{"list":[{"seriesTitle":"重生赶海的温柔守护","contractId":"7707915752204129212"}]}}
+            """;
+
+        TikTokApiUploadService.FindDraftSeries(json, "重生赶海的温柔守护").SelectIds()
+            .Should().Equal("7707915752204129212");
+    }
+
+    [Fact]
+    public void User_price_matches_the_per_episode_option_closest_to_the_episode_count()
+    {
+        var options = new[]
+        {
+            "$13.63 | 每集$0.30",
+            "$13.64 | 每集$0.30",
+            "$15.00 | 每集$0.30",
+            "$22.33 | 每集$0.49",
+        };
+
+        TikTokApiSeriesDocument.MatchPriceOption(options, "0.3", 50).Should().Be(2);
+        TikTokApiSeriesDocument.MatchPriceOption(options, "$13.64", 50).Should().Be(1);
+        TikTokApiSeriesDocument.ReadPrice("$0.30").Should().Be("0.3");
+    }
+
+    [Fact]
+    public void Tos_part_retry_waits_longer_and_stops_at_thirty_seconds()
+    {
+        TikTokApiUploadService.TosPartAttempts.Should().Be(7);
+        TikTokApiUploadService.ResolveMultipartInitAttempts(isVideo: false, configuredRetries: 3)
+            .Should().Be(TikTokApiUploadService.TosPartAttempts);
+        TikTokApiUploadService.ResolveMultipartInitAttempts(isVideo: true, configuredRetries: 3)
+            .Should().Be(3);
+        TikTokApiUploadService.TosPartRetryDelay(1).TotalSeconds.Should().Be(3);
+        TikTokApiUploadService.TosPartRetryDelay(2).TotalSeconds.Should().Be(6);
+        TikTokApiUploadService.TosPartRetryDelay(3).TotalSeconds.Should().Be(12);
+        TikTokApiUploadService.TosPartRetryDelay(4).TotalSeconds.Should().Be(24);
+        TikTokApiUploadService.TosPartRetryDelay(5).TotalSeconds.Should().Be(30);
+        TikTokApiUploadService.TosPartRetryDelay(6).TotalSeconds.Should().Be(30);
+    }
+
+    [Fact]
+    public void Gateway_timeout_log_omits_the_html_error_page()
+    {
+        var html = "<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\"><html><head><title>504 Gateway Time-out</title></head><body></body></html>";
+        TikTokApiUploadService.DescribeHttpFailure("TOS", 504, html)
+            .Should().Be("TOS HTTP 504 Gateway Time-out");
+        TikTokApiUploadService.DescribeHttpFailure("TOS", 502, html)
+            .Should().Be("TOS HTTP 502");
+    }
+
+    [Fact]
+    public void Transport_failure_keeps_the_inner_reason_on_one_line()
+    {
+        var failure = new HttpRequestException(
+            "The SSL connection could not be established, see inner exception.",
+            new IOException("The handshake failed because the connection was closed."));
+
+        TikTokApiUploadService.DescribeTransportFailure(failure)
+            .Should().Be(
+                "The SSL connection could not be established, see inner exception. " +
+                "The handshake failed because the connection was closed.");
+    }
+
+    [Fact]
+    public void Commit_without_id_or_duration_is_retried_on_the_same_ticket_then_reuploaded()
+    {
+        TikTokApiUploadService.CommitMetadataRetries.Should().Be(3);
+        TikTokApiUploadService.CommitMetadataRetryDelay(1).TotalSeconds.Should().Be(3);
+        TikTokApiUploadService.CommitMetadataRetryDelay(2).TotalSeconds.Should().Be(6);
+        TikTokApiUploadService.CommitMetadataRetryDelay(3).TotalSeconds.Should().Be(12);
+
+        using var complete = JsonDocument.Parse("""
+            {"Vid":"v0200g","PosterUri":"tos-poster","VideoMeta":{"Duration":61.5}}
+            """);
+        var ready = TikTokApiUploadService.ReadCommitResult(complete.RootElement);
+        ready.Missing.Should().BeEmpty();
+        ready.Vid.Should().Be("v0200g");
+        ready.DurationMs.Should().Be(61500);
+        ready.PosterUri.Should().Be("tos-poster");
+
+        using var noDuration = JsonDocument.Parse("""
+            {"Vid":"v0200g","PosterUri":"tos-poster","VideoMeta":{"Duration":0}}
+            """);
+        TikTokApiUploadService.ReadCommitResult(noDuration.RootElement).Missing.Should().Be("时长");
+
+        using var noId = JsonDocument.Parse("""{"Vid":"","VideoMeta":{"Duration":12}}""");
+        TikTokApiUploadService.ReadCommitResult(noId.RootElement).Missing.Should().Be("视频 ID");
+
+        using var neither = JsonDocument.Parse("""{"VideoMeta":{}}""");
+        TikTokApiUploadService.ReadCommitResult(neither.RootElement).Missing.Should().Be("视频 ID 或时长");
+
+        var incomplete = TikTokApiUploadService.IncompleteCommitFailure("时长");
+        incomplete.Message.Should().Be("CommitUploadInner 没有返回时长。");
+        TikTokApiUploadService.ShouldRetryEpisode(incomplete).Should().BeTrue();
+        TikTokApiUploadService.ShouldRetryEpisode(new InvalidOperationException("TOS 上传失败")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Part_list_mismatch_reuploads_the_episode_instead_of_retrying_the_same_address()
+    {
+        TikTokApiUploadService.IsPartListMismatch(4019, "Mismatch Part List").Should().BeTrue();
+        TikTokApiUploadService.IsPartListMismatch(2000, "Success").Should().BeFalse();
+        TikTokApiUploadService.IsPartListMismatch(-1, "mismatch part list").Should().BeTrue();
+
+        var mismatch = TikTokApiUploadService.PartListMismatchFailure(200, 4019, "Mismatch Part List");
+        mismatch.Message.Should().Be("TOS 上传失败（HTTP 200，code 4019）：Mismatch Part List");
+        TikTokApiUploadService.ShouldRetryEpisode(mismatch).Should().BeTrue();
+        TikTokApiUploadService.RetriesOnTheSameAddress(mismatch).Should().BeFalse();
+        TikTokApiUploadService.RetriesOnTheSameAddress(
+            TikTokApiUploadService.IncompleteCommitFailure("时长")).Should().BeTrue();
     }
 }

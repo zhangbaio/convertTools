@@ -104,8 +104,19 @@ public sealed class TikTokRemoteCommandParserTests
             """);
 
         command!.LookupMode.Should().Be("series_id");
+        command.DownloadSource.Should().BeEmpty();
         command.Series.Should().ContainSingle();
         command.Series![0].SeriesId.Should().Be("731");
+    }
+
+    [Fact]
+    public void Parse_json_upload_reads_dramabox_download_source()
+    {
+        var command = TikTokRemoteCommandParser.Parse("""
+            {"command":"tiktok_upload_series","titles":["The Crown"],"download_source":"dramabox","series_id":"dramabox:9001"}
+            """);
+
+        command!.DownloadSource.Should().Be("dramabox");
     }
 
     [Fact]

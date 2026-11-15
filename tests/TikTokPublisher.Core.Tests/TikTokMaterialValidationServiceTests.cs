@@ -11,12 +11,12 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokMaterialValidationServiceTests
 {
     [Fact]
-    public void Upload_frame_rejects_a_short_side_below_1080()
+    public void Upload_frame_accepts_resolution_and_aspect_other_than_1080p()
     {
-        var issues = TikTokMaterialValidationService.ValidateVideoFrame(1014, 1804, "h264").ToArray();
-        issues.Should().Contain("1014×1804，短边小于 1080");
-        issues.Should().NotContain(issue => issue.Contains("比例", StringComparison.Ordinal));
-        issues.Should().NotContain(issue => issue.Contains("编码", StringComparison.Ordinal));
+        TikTokMaterialValidationService.ValidateVideoFrame(1014, 1804, "h264").Should().BeEmpty();
+        TikTokMaterialValidationService.ValidateVideoFrame(1080, 1882, "hevc").Should().BeEmpty();
+        TikTokMaterialValidationService.ValidateVideoFrame(496, 864, "hevc").Should().BeEmpty();
+        TikTokMaterialValidationService.ValidateVideoFrame(1080, 1080, "h264").Should().BeEmpty();
     }
 
     [Fact]
@@ -30,8 +30,7 @@ public sealed class TikTokMaterialValidationServiceTests
     public void Upload_frame_rejects_the_wrong_aspect_and_codec()
     {
         var issues = TikTokMaterialValidationService.ValidateVideoFrame(1080, 1080, "mpeg4").ToArray();
-        issues.Should().Contain("1080×1080，比例不是9:16");
-        issues.Should().Contain(issue => issue.Contains("mpeg4", StringComparison.Ordinal));
+        issues.Should().ContainSingle(issue => issue.Contains("mpeg4", StringComparison.Ordinal));
     }
 
     [Fact]

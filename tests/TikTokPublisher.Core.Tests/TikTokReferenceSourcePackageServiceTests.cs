@@ -623,6 +623,41 @@ public sealed class TikTokReferenceSourcePackageServiceTests
     }
 
     [Fact]
+    public void Placeholder_leads_use_any_person_when_no_clear_face_exists()
+    {
+        var profiles = TikTokReferenceSourcePackageService.AddFallbackCharacters([], "雪夜短剧")
+            .Take(2)
+            .ToArray();
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "unknown", "", false, 40, FaceVisible: false),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "unknown", "person-a", false, 55, FaceVisible: false),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(3, "unknown", "person-a", false, 30, FaceVisible: false),
+        };
+
+        TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates)
+            .Should().Equal(2, 1);
+    }
+
+    [Fact]
+    public void Placeholder_leads_reuse_another_frame_of_the_only_person()
+    {
+        var profiles = new[]
+        {
+            new TikTokReferenceSourcePackageService.CharacterProfile("主角1", "第一主角"),
+            new TikTokReferenceSourcePackageService.CharacterProfile("主角2", "第二主角"),
+        };
+        var candidates = new[]
+        {
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(1, "female", "only", true, 90),
+            new TikTokReferenceSourcePackageService.ReferenceCandidateAnalysis(2, "female", "only", true, 70),
+        };
+
+        TikTokReferenceSourcePackageService.AssignRoleReferenceCandidates(profiles, candidates)
+            .Should().Equal(1, 2);
+    }
+
+    [Fact]
     public void Role_reference_assignment_fails_when_supporting_actor_duplicates_the_leads()
     {
         var profiles = new[]
@@ -697,6 +732,7 @@ public sealed class TikTokReferenceSourcePackageServiceTests
 
         prompt.Should().Contain("#1 到 #24");
         prompt.Should().Contain("禁止遗漏");
+        prompt.Should().Contain("任意反复出现的人物");
         prompt.Should().Contain("服装相似不等于同一人");
         prompt.Should().Contain("面部身份不同");
         prompt.Should().Contain("clothing_visible");

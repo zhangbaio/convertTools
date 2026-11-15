@@ -91,6 +91,7 @@ public partial class TikTokQueueView : UserControl
         _vm = vm;
         _browserHost = browserHost;
         _ensureBrowserMounted = ensureBrowserMounted;
+        _automation.PersistAccount = SaveUploadedAccountAsync;
         DataContext = vm;
         _queueProgressSink = new QueueUiProgressSink(vm.HandleQueueWorkerProgress);
         vm.NavigateRequested += OnNavigateRequested;
@@ -4675,11 +4676,65 @@ public partial class TikTokQueueView : UserControl
         return QueueBrowserReadyResult.Ready();
     }
 
+    private Task SaveUploadedAccountAsync(TikTokAccountProfile account)
+    {
+        var vm = _vm;
+        if (vm is null)
+            return Task.CompletedTask;
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            vm.SaveAccountProfile(account);
+            return Task.CompletedTask;
+        }
+
+        return Dispatcher.UIThread.InvokeAsync(() => vm.SaveAccountProfile(account)).GetTask();
+    }
+
+    private async Task<string?> EnsureLicenseContractAsync(
+        TikTokAccountProfile account,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var result = await TikTokLicenseContractAutofill
+            .EnsureAsync(account, log, SaveUploadedAccountAsync, ct)
+            .ConfigureAwait(false);
+        return result.Status is TikTokLicenseContractLookupStatus.AlreadyConfigured
+            or TikTokLicenseContractLookupStatus.Single
+            ? null
+            : result.Message;
+    }
+
     private async Task<QueueBrowserReadyResult> EnsureAccountBrowserReadyAsync(
         TikTokAccountProfile account,
         Action<string>? log,
         CancellationToken ct)
     {
+        if (TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
+        {
+            var contractError = await EnsureLicenseContractAsync(account, log, ct).ConfigureAwait(false);
+            if (contractError is not null)
+                return QueueBrowserReadyResult.NotReady(contractError);
+
+            try
+            {
+                TikTokUploadPrerequisiteService.EnsureApiContractConfigured(account);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return QueueBrowserReadyResult.NotReady(ex.Message);
+            }
+
+            var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+            if (!File.Exists(authPath))
+            {
+                return QueueBrowserReadyResult.NotReady(
+                    "接口上传：没有保存的登录状态，请先在浏览器页登录该账号。");
+            }
+
+            log?.Invoke("上传方式：接口上传，不打开浏览器。");
+            return QueueBrowserReadyResult.Ready();
+        }
+
         // 程序自动打开的外部浏览器：只需存在授权文件（发布时 launch 浏览器并复用登录态）。
         if (UsesPlaywrightUploadBrowser(account))
         {
@@ -4728,10 +4783,31 @@ public partial class TikTokQueueView : UserControl
         Action<string> log,
         CancellationToken ct)
     {
-        // 与 EnsureAccountBrowserReadyAsync 保持一致：程序自动打开的外部浏览器 > 外部浏览器(CDP 可达) > 内置浏览器。
+        // 与 EnsureAccountBrowserReadyAsync 保持一致：接口上传不占浏览器；其余为外部浏览器 > 外部浏览器(CDP 可达) > 内置浏览器。
         IEmbeddedBrowser? browser;
         var usingEmbeddedBrowser = false;
-        if (UsesPlaywrightUploadBrowser(account))
+        if (TikTokUploadChannels.IsApi(account.TiktokUploadStrategy))
+        {
+            var contractError = await EnsureLicenseContractAsync(account, log, ct).ConfigureAwait(false);
+            if (contractError is not null)
+                return PublishResult.FailAndSkipManualIntervention(contractError);
+
+            try
+            {
+                TikTokUploadPrerequisiteService.EnsureApiContractConfigured(account);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return PublishResult.FailAndSkipManualIntervention(ex.Message);
+            }
+
+            var authPath = EmbeddedBrowserLoginHelper.ResolveAuthPath(account);
+            if (!File.Exists(authPath))
+                return PublishResult.Fail("接口上传：没有保存的登录状态，请先在浏览器页登录该账号。");
+
+            browser = new PlaywrightLaunchBrowser(account);
+        }
+        else if (UsesPlaywrightUploadBrowser(account))
         {
             var ready = await EnsureAutoLoginStateAsync(
                 account,

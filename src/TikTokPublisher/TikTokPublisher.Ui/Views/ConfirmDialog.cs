@@ -9,7 +9,7 @@ public sealed class ConfirmDialog : Window
 {
     private bool _accepted;
 
-    private ConfirmDialog(string title, string message, double width, double height)
+    private ConfirmDialog(string title, string message, double width, double height, string confirmText, string cancelText)
     {
         Title = title;
         Width = width;
@@ -30,8 +30,8 @@ public sealed class ConfirmDialog : Window
             HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
         };
-        var ok = new Button { Content = "确定", MinWidth = 88 };
-        var cancel = new Button { Content = "取消", MinWidth = 88 };
+        var ok = new Button { Content = confirmText, MinWidth = 88 };
+        var cancel = new Button { Content = cancelText, MinWidth = 88 };
         ok.Click += (_, _) =>
         {
             _accepted = true;
@@ -44,9 +44,16 @@ public sealed class ConfirmDialog : Window
         Content = root;
     }
 
-    public static async Task<bool> ShowAsync(Window? owner, string title, string message, double width = 420, double height = 170)
+    public static async Task<bool> ShowAsync(
+        Window? owner,
+        string title,
+        string message,
+        double width = 420,
+        double height = 170,
+        string confirmText = "确定",
+        string cancelText = "取消")
     {
-        var dialog = new ConfirmDialog(title, message, width, height);
+        var dialog = new ConfirmDialog(title, message, width, height, confirmText, cancelText);
         if (owner is not null)
             await dialog.ShowDialog(owner);
         else

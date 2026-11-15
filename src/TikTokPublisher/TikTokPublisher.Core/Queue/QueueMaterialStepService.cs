@@ -39,12 +39,19 @@ public static class QueueMaterialStepService
         Action<string> log,
         CancellationToken ct)
     {
-        ShortDramaDramaServices.RefreshSettings(settings);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         var bookId = FirstNonEmpty(metadata.BookId);
         if (string.IsNullOrWhiteSpace(bookId))
             throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
+        if (bookId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(settings.DramaSourceChain, "dramabox", StringComparison.OrdinalIgnoreCase))
+        {
+            settings = settings.Clone();
+            settings.DramaSourceChain = "dramabox";
+            log("这部剧来自 DramaBox，按 DramaBox 下载，不改本机默认数据链路。");
+        }
+        using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
 
         var concurrent = Math.Clamp(settings.DramaDownloadConcurrent, 1, 10);
         var maxParallelProjects = Math.Clamp(
@@ -1672,9 +1679,9 @@ public static class QueueMaterialStepService
         }
 
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
-        if (account?.TiktokRewriteFollowsSourceLanguage == true)
+        if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
         {
-            log("改写信息跟随源语言：将用 AI 判断原剧名和原简介的语言。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。");
+            log("海外剧：标题和简介按原剧语言改写。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。");
         }
 
         var rewriteVariantKey = BuildRewriteVariantKey(context, account);
@@ -1810,11 +1817,11 @@ public static class QueueMaterialStepService
         PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis, rewriteVariantKey);
         if (generatedResult is not null)
         {
-            if (account?.TiktokRewriteFollowsSourceLanguage == true)
+            if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
             {
                 var detected = RewriteSourceLanguage.ReadCached(workflowDir);
                 if (detected is not null)
-                    log($"改写信息跟随源语言：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题和简介使用该语言。");
+                    log($"海外剧：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题和简介使用该语言。");
             }
             log($"改写完成：{generatedResult.Title}");
         }
@@ -2599,7 +2606,9 @@ public static class QueueMaterialStepService
     {
         var accountKey = FirstNonEmpty(account?.Id, account?.DisplayName, "default");
         var synopsisMode = account?.TiktokAiRewriteSynopsis == true ? "1" : "0";
-        var followSource = account?.TiktokRewriteFollowsSourceLanguage == true ? "#follow=source" : "";
+        var followSource = TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket)
+            ? "#follow=source"
+            : "";
         return $"{Path.GetFullPath(context.SourceProjectDir)}#{accountKey}{followSource}#synopsis={synopsisMode}";
     }
 

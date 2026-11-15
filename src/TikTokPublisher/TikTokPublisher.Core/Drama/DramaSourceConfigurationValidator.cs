@@ -6,10 +6,54 @@ public static class VisibleDramaSource
 {
     public const string DefaultChain = "playlet";
 
+    public const string DefaultOverseasChain = "dramabox";
+
     public static string Normalize(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
         return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" or "foreign" ? chain : DefaultChain;
+    }
+
+    public static string NormalizeOverseas(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? DefaultOverseasChain : Normalize(value);
+
+    public static string ChainFor(ClientSettings settings, string? market)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        return TikTokAccountProfile.NormalizeDramaMarket(market) == TikTokAccountProfile.DramaMarketOverseas
+            ? NormalizeOverseas(settings.OverseasDramaSourceChain)
+            : Normalize(settings.DramaSourceChain);
+    }
+
+    public static ClientSettings SettingsFor(ClientSettings settings, string? market)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var chain = ChainFor(settings, market);
+        if (string.Equals(chain, settings.DramaSourceChain, StringComparison.OrdinalIgnoreCase))
+            return settings;
+        var clone = settings.Clone();
+        clone.DramaSourceChain = chain;
+        return clone;
+    }
+
+    public static string Label(string? source) => Normalize(source) switch
+    {
+        "hghigh" => "红果短剧助手",
+        "hglocal" => "本地直连",
+        "pikachu" => "皮卡丘",
+        "playlet" => "红果短剧下载器",
+        "hongguoapp" => "红果APP",
+        "dramabox" => "DramaBox",
+        "foreign" => "海外短剧下载器",
+        _ => source ?? "",
+    };
+
+    public static string Describe(ClientSettings settings, string? market)
+    {
+        var kind = TikTokAccountProfile.NormalizeDramaMarket(market) == TikTokAccountProfile.DramaMarketOverseas
+            ? "海外剧"
+            : "本土剧";
+        return $"当前链路：{kind} · {Label(ChainFor(settings, market))}";
     }
 
     public static bool IsRetired(string? value)

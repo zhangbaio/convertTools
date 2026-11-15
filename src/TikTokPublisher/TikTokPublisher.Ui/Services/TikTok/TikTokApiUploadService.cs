@@ -9,25 +9,36 @@ using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
 
 /// <summary>
 /// 接口直传：与剧集中心网页同一条链路（上传授权 → 点播 ApplyUploadInner → TOS 分片 → CommitUploadInner → 挂到剧集）。
-/// 剧集中心接口带反爬签名，只能在已登录页面里 <c>fetch</c>；点播和 TOS 只认 STS 签名，由 HttpClient 并发上传。
+/// 接口上传用账号保存的登录 Cookie 直接请求，不打开浏览器。网页上传仍在已登录页面里 fetch。点播和 TOS 只认 STS 签名，由 HttpClient 并发上传。
 /// </summary>
-public static class TikTokApiUploadService
+public static partial class TikTokApiUploadService
 {
     internal const string SpaceName = "tiktok-copyright-platform";
+    internal const string ImageServiceId = "xbj99bix8q";
     internal const int PartSize = 3 * 1024 * 1024;
     internal const int PartsInFlightPerFile = 3;
+    /// <summary>对象存储分片的尝试次数：第一次加上 6 次重试。网关 504 不跟账号里的 3 次重试绑在一起。</summary>
+    internal const int TosPartAttempts = 7;
+    /// <summary>图片分片初始化在同一地址上先试两次，仍是传输中断再换下一个地址。</summary>
+    internal const int ImageInitAttemptsPerHost = 2;
+    /// <summary>提交已成功但没有视频 ID 或时长时，用同一张票据再提交的次数。</summary>
+    internal const int CommitMetadataRetries = 3;
     private const int MaxPartsInFlight = 12;
     private const string ApiVersion = "2020-11-19";
+    private const string ImageApiVersion = "2018-08-01";
     private const string AddVideoPath = "/api/content-partner/series/videos/add";
-    private const int MountRetryCount = 2;
+    private const string DeleteVideosPath = "/api/content-partner/series/videos/batch-delete";
+    internal const string DramaCenterOrigin = "https://www.tiktokdramacenter.com";
 
     private static readonly Regex SeriesIdPattern =
         new(@"/series/(?:draft/)?(\d{16,20})/?(?=[?#]|$)", RegexOptions.Compiled);
+    private static readonly Regex SeriesIdValuePattern = new(@"^\d{16,20}$", RegexOptions.Compiled);
     private static readonly Regex EpisodePattern = new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
 
     internal sealed record SeriesVideo(string VideoId, int OrderNum, string Title, int? Episode);
@@ -62,7 +73,10 @@ public static class TikTokApiUploadService
         return match.Success ? match.Groups[1].Value : null;
     }
 
-    /// <summary>页面在 www.tiktokdramacenter.com 时，点播与 TOS 走同域代理 vod./tos.。</summary>
+    /// <summary>
+    /// 页面在 www.tiktokdramacenter.com 时，点播、图片和 TOS 走同域代理。
+    /// 图片申请也会改写到 vod.，版本是 2018-08-01。
+    /// </summary>
     internal static string ResolveServiceBaseUrl(string pageUrl, string prefix)
     {
         var host = Uri.TryCreate(pageUrl, UriKind.Absolute, out var uri)
@@ -71,6 +85,130 @@ public static class TikTokApiUploadService
         if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
             host = host[4..];
         return $"https://{prefix}.{host}";
+    }
+
+    /// <summary>剧集中心把 imagex-upload-sg 改写到 vod 域名，图片版本固定 2018-08-01。</summary>
+    internal static Uri BuildImageApplyUri(string serviceBase, long fileSize, string token) =>
+        new($"{serviceBase.TrimEnd('/')}/?Action=ApplyImageUpload&Version={ImageApiVersion}&ServiceId={ImageServiceId}" +
+            $"&FileSize={fileSize}&s={token}&device_platform=web");
+
+    internal static Uri BuildImageCommitUri(string serviceBase) =>
+        new($"{serviceBase.TrimEnd('/')}/?Action=CommitImageUpload&Version={ImageApiVersion}&ServiceId={ImageServiceId}");
+
+    internal readonly record struct ImageUploadTicket(
+        string SessionKey,
+        string StoreUri,
+        string Auth,
+        string UploadHost,
+        IReadOnlyList<string> UploadHosts);
+
+    internal static ImageUploadTicket ReadImageUploadTicket(JsonElement root, string fallbackHost)
+    {
+        var address = root.GetProperty("Result").GetProperty("UploadAddress");
+        var store = address.GetProperty("StoreInfos")[0];
+        var storeUri = ReadString(store, "StoreUri");
+        var auth = ReadString(store, "Auth");
+        var sessionKey = ReadString(address, "SessionKey");
+        if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
+            throw new InvalidOperationException("ApplyImageUpload 没有返回上传地址。");
+        var hosts = ListImageUploadHosts(address, fallbackHost);
+        if (hosts.Count == 0)
+            throw new InvalidOperationException("ApplyImageUpload 没有返回上传地址。");
+        return new ImageUploadTicket(sessionKey, storeUri, auth, hosts[0], hosts);
+    }
+
+    internal static IReadOnlyList<string> ListImageUploadHosts(JsonElement address, string fallbackHost)
+    {
+        var hosts = new List<string>();
+        if (address.TryGetProperty("UploadHosts", out var list) && list.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in list.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String)
+                    continue;
+                var normalized = NormalizeUploadHost(item.GetString());
+                if (normalized.Length == 0 ||
+                    hosts.Exists(existing => string.Equals(existing, normalized, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                hosts.Add(normalized);
+            }
+        }
+
+        if (hosts.Count == 0)
+        {
+            var single = ResolveImageUploadHost(address, fallbackHost);
+            if (!string.IsNullOrWhiteSpace(single))
+                hosts.Add(single);
+        }
+
+        return hosts;
+    }
+
+    internal static string DescribeUploadHost(string host)
+    {
+        if (Uri.TryCreate(host, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+            return uri.Host;
+        return host;
+    }
+
+    internal static bool IsTransportClosedFailure(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is HttpRequestException or System.Security.Authentication.AuthenticationException)
+                return true;
+            if (current is IOException &&
+                (current.Message.Contains("EOF", StringComparison.OrdinalIgnoreCase) ||
+                 current.Message.Contains("transport stream", StringComparison.OrdinalIgnoreCase) ||
+                 current.Message.Contains("SSL", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeUploadHost(string? value)
+    {
+        var host = value?.Trim() ?? "";
+        if (host.Length == 0)
+            return "";
+        return host.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? host.TrimEnd('/')
+            : "https://" + host.TrimEnd('/');
+    }
+
+    private static string ResolveImageUploadHost(JsonElement address, string fallbackHost)
+    {
+        if (address.TryGetProperty("UploadHosts", out var hosts) &&
+            hosts.ValueKind == JsonValueKind.Array &&
+            hosts.GetArrayLength() > 0 &&
+            hosts[0].ValueKind == JsonValueKind.String)
+        {
+            var normalized = NormalizeUploadHost(hosts[0].GetString());
+            if (normalized.Length > 0)
+                return normalized;
+        }
+
+        return ResolveObjectHost(address, null, fallbackHost);
+    }
+
+    private static string ResolveObjectHost(JsonElement node, string? preferred, string fallback)
+    {
+        var uploadHost = ReadString(node, "UploadHost");
+        if (uploadHost.Length == 0 && node.TryGetProperty("StoreInfos", out var stores) &&
+            stores.ValueKind == JsonValueKind.Array && stores.GetArrayLength() > 0)
+        {
+            uploadHost = ReadString(stores[0], "UploadHost");
+        }
+
+        if (uploadHost.Length > 0)
+        {
+            return uploadHost.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? uploadHost.TrimEnd('/')
+                : "https://" + uploadHost.TrimEnd('/');
+        }
+
+        return string.IsNullOrWhiteSpace(preferred) ? fallback : preferred.TrimEnd('/');
     }
 
     internal static int? ParseEpisode(string? title)
@@ -97,12 +235,12 @@ public static class TikTokApiUploadService
             : null;
     }
 
-    /// <summary>每一集都能读出且不重复。有多余行时仍可先删掉再接口直传，见 <see cref="SelectUsableExisting"/>。</summary>
+    /// <summary>每一集都能读出且不重复。读不出或重复的行要先用删除接口去掉。</summary>
     internal static bool ExistingVideosUsable(IReadOnlyList<SeriesVideo> videos) =>
         videos.All(video => video.Episode is not null) &&
         videos.Select(video => video.Episode).Distinct().Count() == videos.Count;
 
-    /// <summary>按出现顺序保留每个集号的第一行。读不出集号和重复行不参与接口直传。</summary>
+    /// <summary>按出现顺序保留每个集号的第一行。后面的重复行和读不出集号的行要删除。</summary>
     internal static IReadOnlyList<SeriesVideo> SelectUsableExisting(IReadOnlyList<SeriesVideo> videos)
     {
         var seen = new HashSet<int>();
@@ -166,6 +304,78 @@ public static class TikTokApiUploadService
         }
     }
 
+    /// <summary>每个集号只保留第一条。后面的重复条，以及读不出集号的条，返回它们的视频 ID。</summary>
+    internal static IReadOnlyList<string> PlanDeleteExtras(IReadOnlyList<SeriesVideo> videos)
+    {
+        var keep = SelectUsableExisting(videos).Select(video => video.VideoId).ToHashSet(StringComparer.Ordinal);
+        return videos
+            .OrderBy(video => video.OrderNum)
+            .Where(video => !keep.Contains(video.VideoId))
+            .Select(video => video.VideoId)
+            .ToList();
+    }
+
+    /// <summary>
+    /// 正片条数等于总集数，且 1 到总集数每个集号恰好一条时返回 null。
+    /// 否则返回要写进失败原因的说明，点名缺少、重复、超出总集数或读不出集号的行。
+    /// </summary>
+    internal static string? DescribeEpisodeMismatch(IReadOnlyList<SeriesVideo> videos, int expectedCount)
+    {
+        if (expectedCount <= 0)
+            return "接口直传：本地总集数无效，已停止，不会提交。";
+
+        var counts = new Dictionary<int, int>();
+        var unreadable = 0;
+        foreach (var video in videos)
+        {
+            if (video.Episode is int episode)
+                counts[episode] = counts.GetValueOrDefault(episode) + 1;
+            else
+                unreadable++;
+        }
+
+        var missing = new List<int>();
+        var duplicated = new List<int>();
+        for (var episode = 1; episode <= expectedCount; episode++)
+        {
+            var count = counts.GetValueOrDefault(episode);
+            if (count == 0)
+                missing.Add(episode);
+            else if (count > 1)
+                duplicated.Add(episode);
+        }
+
+        var outside = counts.Keys
+            .Where(episode => episode < 1 || episode > expectedCount)
+            .OrderBy(episode => episode)
+            .ToList();
+        if (videos.Count == expectedCount &&
+            missing.Count == 0 &&
+            duplicated.Count == 0 &&
+            outside.Count == 0 &&
+            unreadable == 0)
+        {
+            return null;
+        }
+
+        var parts = new List<string>();
+        if (missing.Count > 0)
+            parts.Add($"缺少第 {FormatEpisodes(missing)} 集");
+        if (duplicated.Count > 0)
+            parts.Add($"第 {FormatEpisodes(duplicated)} 集重复");
+        if (outside.Count > 0)
+            parts.Add($"集号超出总集数：第 {FormatEpisodes(outside)} 集");
+        if (unreadable > 0)
+            parts.Add($"{unreadable} 行读不出集号");
+        if (parts.Count == 0)
+            parts.Add($"正片 {videos.Count} 条，总集数 {expectedCount}");
+
+        return $"接口直传：正片和总集数不一致（正片 {videos.Count} 条，总集数 {expectedCount}），已停止，不会提交。{string.Join("；", parts)}。";
+    }
+
+    internal static string BuildBatchDeleteBody(string seriesId, IReadOnlyList<string> videoIds) =>
+        JsonSerializer.Serialize(new { contractId = seriesId, videoIds });
+
     /// <summary>按集号排好的 videoId；已经是升序时返回 null。</summary>
     internal static IReadOnlyList<string>? PlanReorder(IReadOnlyList<SeriesVideo> videos)
     {
@@ -195,11 +405,11 @@ public static class TikTokApiUploadService
         string.Join(",", partCrcs.Select((crc, index) => $"{index + 1}:{crc}"));
 
     /// <summary>
-    /// 把本地缺的集直传并挂到剧集上，最后按集号排序并刷新页面。
-    /// 返回 false 表示平台已有正片状态不适合接口处理（未做任何改动）；上传或挂集失败时抛出异常。
+    /// 按剧集详情里已经挂上的集号，先删掉重复和读不出集号的正片，再只直传缺少的集，最后按集号排序。
+    /// 删除失败、删完仍在、或正片不是 1 到总集数各一条，都直接失败，不改走网页，也不提交。
     /// </summary>
     public static async Task<bool> SyncEpisodesAsync(
-        IPage page,
+        IPage? page,
         string seriesId,
         IReadOnlyList<string> uploadPaths,
         TikTokPublishOptions options,
@@ -207,50 +417,24 @@ public static class TikTokApiUploadService
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var local = ResolveLocalEpisodes(uploadPaths);
-        if (local is null)
-        {
-            log?.Invoke("接口直传：本地视频文件名里有读不出集号或重复的集，改用网页上传。");
-            return false;
-        }
+        var local = ResolveLocalEpisodes(uploadPaths)
+                    ?? throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
 
         var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        var changed = false;
+        var extras = PlanDeleteExtras(existing);
+        if (extras.Count > 0)
+        {
+            var afterDelete = await DeleteExtraVideosAsync(page, seriesId, extras, options, log, ct);
+            log?.Invoke($"接口直传：已删除 {extras.Count} 条多余正片，草稿还剩 {afterDelete.Count} 条。");
+            existing = afterDelete;
+            changed = true;
+        }
+
         var usable = SelectUsableExisting(existing);
-        if (existing.Count > 0 && usable.Count == 0)
-        {
-            log?.Invoke($"接口直传：草稿已有 {existing.Count} 集里有重复或读不出集号的视频，改用网页流程处理。");
-            return false;
-        }
-
-        if (usable.Count < existing.Count)
-        {
-            var rejected = existing.Count - usable.Count;
-            log?.Invoke(
-                $"接口直传：草稿已有 {existing.Count} 行，其中 {rejected} 行读不出集号或与已有集重复。先删掉这 {rejected} 行，其余继续接口直传。");
-            if (PlanDropRejected(existing) is { } order)
-            {
-                await PageFetchAsync(
-                    page,
-                    "POST",
-                    "/api/content-partner/series/videos/reorder",
-                    JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = order }),
-                    ct);
-                await ReloadEditPageAsync(page, ct);
-            }
-
-            await TikTokBrowserActions.DeleteEditVideoRowsFromSlotAsync(page, usable.Count, log, ct);
-            existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
-            usable = SelectUsableExisting(existing);
-            if (usable.Count != existing.Count)
-            {
-                log?.Invoke($"接口直传：删完后仍有 {existing.Count - usable.Count} 行无法识别，改用网页流程处理。");
-                return false;
-            }
-        }
 
         var present = usable.Select(video => video.Episode!.Value).ToHashSet();
         var missing = local.Where(item => !present.Contains(item.Episode)).ToList();
-        var changed = false;
         var failures = new List<string>();
         if (missing.Count == 0)
         {
@@ -264,7 +448,7 @@ public static class TikTokApiUploadService
                 $"（第 {FormatEpisodes(missing.Select(item => item.Episode))} 集），并发 {concurrency}。");
 
             using var http = await CreateHttpClientAsync(page, options);
-            var sts = new StsCache(page);
+            var sts = new StsCache(page, Math.Clamp(options.UploadBatchMaxRetries, 1, 10), log);
             using var gates = new UploadGates(concurrency);
             using var uploadCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var uploaded = 0;
@@ -302,11 +486,7 @@ public static class TikTokApiUploadService
                         var item = missing[index];
                         try
                         {
-                            var committed = await UploadWithRetryAsync(
-                                http, sts, gates, page.Url, item, options, missing.Count,
-                                () => Interlocked.Increment(ref uploaded),
-                                bytes => Interlocked.Add(ref uploadedBytes, bytes),
-                                log, uploadCts.Token);
+                            var committed = await UploadEpisodeOnceAsync();
                             uploadedVideos[index] = committed;
                             ready.Writer.TryWrite(index);
                         }
@@ -315,12 +495,42 @@ public static class TikTokApiUploadService
                         {
                             return;
                         }
+                        catch (Exception ex) when (ShouldRetryEpisode(ex) && !uploadCts.IsCancellationRequested)
+                        {
+                            log?.Invoke(ex is PartListMismatchException
+                                ? $"接口直传：第 {item.Episode} 集分片列表和存储不一致，重新申请上传地址后再传一次。"
+                                : $"接口直传：第 {item.Episode} 集上传失败，重新申请上传地址后再传一次。");
+                            try
+                            {
+                                var committed = await UploadEpisodeOnceAsync();
+                                uploadedVideos[index] = committed;
+                                ready.Writer.TryWrite(index);
+                            }
+                            catch (Exception retryEx) when (retryEx is OperationCanceledException &&
+                                                             (ct.IsCancellationRequested || uploadCts.IsCancellationRequested))
+                            {
+                                return;
+                            }
+                            catch (Exception retryEx)
+                            {
+                                log?.Invoke($"接口直传：第 {item.Episode} 集上传失败：{retryEx.Message}");
+                                lock (failureLock)
+                                    failures.Add($"第 {item.Episode} 集（{retryEx.Message}）");
+                            }
+                        }
                         catch (Exception ex)
                         {
                             log?.Invoke($"接口直传：第 {item.Episode} 集上传失败：{ex.Message}");
                             lock (failureLock)
                                 failures.Add($"第 {item.Episode} 集（{ex.Message}）");
                         }
+
+                        Task<CommittedVideo> UploadEpisodeOnceAsync() =>
+                            UploadWithRetryAsync(
+                                http, sts, gates, CurrentPageUrl(page), item, options, missing.Count,
+                                () => Interlocked.Increment(ref uploaded),
+                                bytes => Interlocked.Add(ref uploadedBytes, bytes),
+                                log, uploadCts.Token);
 
                         MarkUploadSettled();
                     }
@@ -342,20 +552,20 @@ public static class TikTokApiUploadService
                     batch.Clear();
                     await MountBatchAsync(
                         page, seriesId, missing, orderNums, uploadedVideos, indexes,
-                        () => ++mounted, () => changed = true, failures, failureLock, log, ct);
+                        () => ++mounted, () => changed = true, failures, failureLock, options, log, ct);
                 }
 
                 if (batch.Count > 0)
                 {
                     await MountBatchAsync(
                         page, seriesId, missing, orderNums, uploadedVideos, batch,
-                        () => ++mounted, () => changed = true, failures, failureLock, log, ct);
+                        () => ++mounted, () => changed = true, failures, failureLock, options, log, ct);
                 }
             }
             catch
             {
                 uploadCts.Cancel();
-                if (changed)
+                if (changed && page is not null)
                     await ReloadEditPageAsync(page, ct);
                 throw;
             }
@@ -370,38 +580,53 @@ public static class TikTokApiUploadService
         }
 
         var after = await ReadSeriesVideosAsync(page, seriesId, ct, log);
-        if (ExistingVideosUsable(after) && (changed || PlanReorder(after) is not null))
+        if (PlanReorder(after) is { Count: > 0 } ordered)
         {
-            var ordered = after
-                .OrderBy(video => video.Episode ?? int.MaxValue)
-                .Select(video => video.VideoId)
-                .ToList();
-            if (ordered.Count > 0)
-            {
-                await PageFetchAsync(
-                    page,
-                    "POST",
-                    "/api/content-partner/series/videos/reorder",
-                    JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = ordered }),
-                    ct);
-                changed = true;
-                log?.Invoke($"接口直传：已按集号重新排序 {ordered.Count} 集。");
-            }
+            await PageFetchAsync(
+                page,
+                "POST",
+                "/api/content-partner/series/videos/reorder",
+                JsonSerializer.Serialize(new { contractId = seriesId, orderedVideoIds = ordered }),
+                ct);
+            changed = true;
+            log?.Invoke($"接口直传：已按集号重新排序 {ordered.Count} 集。");
         }
 
-        if (changed)
+        if (changed && page is not null)
             await ReloadEditPageAsync(page, ct);
 
         if (failures.Count > 0)
             throw new InvalidOperationException($"接口直传有 {failures.Count} 集未完成：{string.Join("；", failures)}");
 
+        if (DescribeEpisodeMismatch(after, local.Count) is { } mismatch)
+            throw new InvalidOperationException(mismatch);
+
         log?.Invoke($"接口直传完成：草稿正片 {after.Count} 集。");
         return true;
     }
 
+    /// <summary>提交前再读一次剧集详情。对不上就失败，调用方不要点提交。</summary>
+    public static async Task EnsureReadyToSubmitAsync(
+        IPage page,
+        IReadOnlyList<string> uploadPaths,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var local = ResolveLocalEpisodes(uploadPaths)
+                    ?? throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集，已停止，不会提交。");
+        var seriesId = TryReadSeriesIdFromUrl(page.Url)
+                       ?? throw new InvalidOperationException("接口直传：当前页面地址里没有剧集 ID，已停止，不会提交。");
+        var videos = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        if (DescribeEpisodeMismatch(videos, local.Count) is { } mismatch)
+            throw new InvalidOperationException(mismatch);
+
+        log?.Invoke($"接口直传：提交前核对通过，正片 {videos.Count} 集与总集数一致。");
+    }
+
     /// <summary>
-    /// 新建页还没有剧集 ID：先用网页传第 1 个文件，从网页自己的挂集请求里取剧集 ID，再转到草稿编辑页，
-    /// 剩下的集由编辑流程接口直传。
+    /// 新建页还没有剧集 ID：先按剧名查已有草稿。查到就用那条剧集 ID 继续上传；
+    /// 没有再保存剧壳，从创建接口、页面地址或保存后的列表取得剧集 ID，
+    /// 再转到草稿编辑页，全部正片都由接口直传。
     /// </summary>
     public static async Task ContinueCreateAsDraftAsync(
         IPage page,
@@ -413,33 +638,308 @@ public static class TikTokApiUploadService
         Action<string>? log,
         CancellationToken ct)
     {
-        var local = ResolveLocalEpisodes(uploadPaths)
-                    ?? throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
-        var first = local[0];
-        log?.Invoke($"接口直传：新建页先用网页上传第 {first.Episode} 集，用来取得剧集 ID。");
+        if (ResolveLocalEpisodes(uploadPaths) is null)
+            throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
 
-        var timeoutMs = Math.Max(180, options.UploadStallSeconds) * 1000f;
-        var response = await page.RunAndWaitForResponseAsync(
-            () => TikTokBrowserActions.UploadLocalVideosAsync(
-                page, new[] { first.Path }, waitForFinish: false, log, ct, confirmStartup: false),
-            candidate => candidate.Url.Contains(AddVideoPath, StringComparison.OrdinalIgnoreCase) &&
-                         string.Equals(candidate.Request.Method, "POST", StringComparison.OrdinalIgnoreCase),
-            new PageRunAndWaitForResponseOptions { Timeout = timeoutMs });
-
-        var responseText = "";
-        try { responseText = await response.TextAsync(); }
-        catch { /* 只看请求体里的剧集 ID */ }
-        if (!response.Ok || TikTokBrowserActions.ReorderResponseRejected(responseText))
-            throw new InvalidOperationException($"接口直传：网页挂第 {first.Episode} 集失败（HTTP {response.Status}）。");
-
-        var seriesId = ReadContractId(response.Request.PostData)
-                       ?? throw new InvalidOperationException("接口直传：网页挂集请求里没有剧集 ID。");
-        await ReadSeriesVideosAsync(page, seriesId, ct, log);
-
+        log?.Invoke("接口直传：先按剧名查找已有草稿，拿到剧集 ID 后再上传全部正片。");
+        var seriesId = await SaveShellForSeriesIdAsync(page, payload.Title, log, ct);
         var draftUrl = $"https://{new Uri(page.Url).Host}/series/draft/{seriesId}";
         log?.Invoke($"接口直传：已取得剧集 ID {seriesId}，转到草稿编辑页继续上传：{draftUrl}");
         await TikTokEditFlowService.OpenEditPublishFlowAsync(
             page, draftUrl, payload, options, recommendation, coverPath, log, ct);
+    }
+
+    private static async Task<string> SaveShellForSeriesIdAsync(
+        IPage page,
+        string? title,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var existing = TryReadSeriesIdFromUrl(page.Url);
+        if (existing is not null)
+            return existing;
+
+        var listed = await TryReadExistingDraftIdAsync(page, title, log, ct);
+        if (listed is not null)
+        {
+            log?.Invoke($"接口直传：平台已有同名草稿，直接使用剧集 ID {listed}。");
+            return listed;
+        }
+
+        log?.Invoke("接口直传：新建页先保存剧壳，取得剧集 ID 后再上传全部正片。");
+        IResponse? response = null;
+        try
+        {
+            response = await page.RunAndWaitForResponseAsync(
+                async () =>
+                {
+                    var button = page.Locator("button").Filter(new() { HasText = "保存" }).First;
+                    await button.ScrollIntoViewIfNeededAsync(new() { Timeout = 10000 });
+                    await button.ClickAsync(new() { Timeout = 15000 });
+                },
+                IsSeriesShellResponse,
+                new PageRunAndWaitForResponseOptions { Timeout = 20000 });
+        }
+        catch (TimeoutException)
+        {
+            log?.Invoke("接口直传：保存剧壳没有等到创建接口，改为看页面地址。");
+        }
+
+        string? seriesId = null;
+        if (response is not null)
+        {
+            var text = "";
+            try { text = await response.TextAsync(); }
+            catch { /* 下面再从地址里找 */ }
+            seriesId = ReadSeriesIdFromJson(text) ?? TryReadSeriesIdFromUrl(response.Url);
+        }
+
+        seriesId ??= await WaitForSeriesIdInUrlAsync(page, ct);
+        if (seriesId is null)
+        {
+            seriesId = await TryReadExistingDraftIdAsync(page, title, log, ct);
+            if (seriesId is not null)
+                log?.Invoke($"接口直传：保存剧壳后从剧集列表取得剧集 ID {seriesId}。");
+        }
+
+        return seriesId ?? throw new InvalidOperationException(
+            "接口直传：保存剧壳后没有拿到剧集 ID，已停止，不会改用网页上传。");
+    }
+
+    private static async Task<string?> TryReadExistingDraftIdAsync(
+        IPage? page,
+        string? title,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var normalized = title?.Trim() ?? "";
+        if (normalized.Length == 0)
+            return null;
+
+        if (PartnerSession.Current.Value is not null)
+            return await TryReadExistingDraftFromListAsync(normalized, log, ct);
+
+        if (page is null)
+            throw new InvalidOperationException("接口上传：没有登录页面，无法查找同名草稿。");
+
+        var rows = await TikTokSeriesListLookupService.SearchExactAsync(page, normalized, ct, log);
+        return SelectSingleDraftId(FindDraftSeries(rows));
+    }
+
+    private static async Task<string?> TryReadExistingDraftFromListAsync(
+        string title,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var matched = new List<TikTokSeriesListRow>();
+        int? total = null;
+        var pagesRead = 0;
+        for (var pageIndex = 1; pageIndex <= 10; pageIndex++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var body = JsonSerializer.Serialize(new { title, pageIndex, pageSize = 50 });
+            using var document = await PageFetchAsync(
+                null,
+                "POST",
+                "/api/content-partner/series/v2/list",
+                body,
+                ct);
+            var parsed = TikTokSeriesListLookupService.ParseSeriesList(document.RootElement);
+            total ??= parsed.Total;
+            pagesRead = pageIndex;
+            foreach (var row in parsed.Rows)
+            {
+                if (string.Equals(row.Title.Trim(), title, StringComparison.Ordinal))
+                    matched.Add(row);
+            }
+
+            if (parsed.Rows.Count < 50)
+                break;
+            if (total is int known && pageIndex * 50 >= known)
+                break;
+        }
+
+        if (pagesRead == 10 && total is int remaining && remaining > pagesRead * 50)
+            log?.Invoke("原剧管理接口仍有后续结果，本次只核对了前 500 条。");
+        return SelectSingleDraftId(FindDraftSeries(matched));
+    }
+
+    private static string? SelectSingleDraftId(DraftSeriesLookup lookup)
+    {
+        var ids = lookup.SelectIds();
+        if (ids.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"接口直传：同名草稿有 {ids.Count} 个（{string.Join("、", ids)}），已停止，不会改用网页上传。");
+        }
+
+        return ids.Count == 1 ? ids[0] : null;
+    }
+
+    private static bool IsSeriesShellResponse(IResponse candidate)
+    {
+        if (!string.Equals(candidate.Request.Method, "POST", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(candidate.Request.Method, "PUT", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var url = candidate.Url;
+        return url.Contains("/api/content-partner/series", StringComparison.OrdinalIgnoreCase) &&
+               !url.Contains("/videos/", StringComparison.OrdinalIgnoreCase) &&
+               !url.Contains("/list", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task<string?> WaitForSeriesIdInUrlAsync(IPage page, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var seriesId = TryReadSeriesIdFromUrl(page.Url);
+            if (seriesId is not null)
+                return seriesId;
+            await page.WaitForTimeoutAsync(500);
+        }
+
+        return TryReadSeriesIdFromUrl(page.Url);
+    }
+
+    internal static string? ReadSeriesIdFromJson(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+        try
+        {
+            using var document = JsonDocument.Parse(text);
+            return FindSeriesId(document.RootElement, 0);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string? FindSeriesId(JsonElement element, int depth)
+    {
+        if (depth > 8)
+            return null;
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                var found = FindSeriesId(item, depth + 1);
+                if (found is not null)
+                    return found;
+            }
+
+            return null;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+            return null;
+
+        foreach (var name in new[] { "contractId", "seriesId", "dramaId", "id" })
+        {
+            if (!element.TryGetProperty(name, out var value))
+                continue;
+            var raw = value.ValueKind switch
+            {
+                JsonValueKind.String => value.GetString(),
+                JsonValueKind.Number => value.GetRawText(),
+                _ => null,
+            };
+            if (raw is not null && SeriesIdValuePattern.IsMatch(raw.Trim()))
+                return raw.Trim();
+        }
+
+        foreach (var property in element.EnumerateObject())
+        {
+            var found = FindSeriesId(property.Value, depth + 1);
+            if (found is not null)
+                return found;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 剧集列表里同名行的归类。草稿状态优先；只有明确的非草稿时不拿来继续上传；
+    /// 列表没带状态时，按调用方的筛选结果使用。
+    /// </summary>
+    internal sealed record DraftSeriesLookup(
+        IReadOnlyList<string> DraftIds,
+        IReadOnlyList<string> OtherIds,
+        IReadOnlyList<string> UntaggedIds)
+    {
+        public static DraftSeriesLookup Empty { get; } = new([], [], []);
+
+        public IReadOnlyList<string> SelectIds()
+        {
+            if (DraftIds.Count > 0)
+                return DraftIds;
+            if (OtherIds.Count > 0)
+                return [];
+            return UntaggedIds;
+        }
+    }
+
+    internal static DraftSeriesLookup FindDraftSeries(string? json, string? title)
+    {
+        if (string.IsNullOrWhiteSpace(json) || string.IsNullOrWhiteSpace(title))
+            return DraftSeriesLookup.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return FindDraftSeries(document.RootElement, title);
+        }
+        catch (JsonException)
+        {
+            return DraftSeriesLookup.Empty;
+        }
+    }
+
+    internal static DraftSeriesLookup FindDraftSeries(JsonElement root, string title) =>
+        FindDraftSeries(TikTokSeriesListLookupService.ParseSeriesList(root).Rows, title);
+
+    private static DraftSeriesLookup FindDraftSeries(IReadOnlyList<TikTokSeriesListRow> rows, string? title = null)
+    {
+        var wanted = title?.Trim();
+        var drafts = new List<string>();
+        var others = new List<string>();
+        var untagged = new List<string>();
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.SeriesId))
+                continue;
+            if (!string.IsNullOrEmpty(wanted) &&
+                !string.Equals(row.Title.Trim(), wanted, StringComparison.Ordinal))
+                continue;
+            if (IsDraftLabel(row.PlatformStatus))
+                drafts.Add(row.SeriesId);
+            else if (string.IsNullOrWhiteSpace(row.PlatformStatus))
+                untagged.Add(row.SeriesId);
+            else
+                others.Add(row.SeriesId);
+        }
+
+        return new DraftSeriesLookup(DistinctIds(drafts), DistinctIds(others), DistinctIds(untagged));
+    }
+
+    private static bool IsDraftLabel(string? status) =>
+        !string.IsNullOrWhiteSpace(status) &&
+        (status.Contains("草稿", StringComparison.Ordinal) ||
+         status.Equals("Draft", StringComparison.OrdinalIgnoreCase) ||
+         status.Equals("InDraft", StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<string> DistinctIds(List<string> ids)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>();
+        foreach (var id in ids)
+        {
+            if (seen.Add(id))
+                result.Add(id);
+        }
+
+        return result;
     }
 
     internal static string? ReadContractId(string? postData)
@@ -468,7 +968,7 @@ public static class TikTokApiUploadService
 
         foreach (var video in videos.EnumerateArray())
         {
-            var videoId = ReadString(video, "videoId");
+            var videoId = ReadId(video, "videoId");
             if (string.IsNullOrWhiteSpace(videoId))
                 continue;
             var orderNum = video.TryGetProperty("orderNum", out var order) && order.TryGetInt32(out var number)
@@ -483,7 +983,7 @@ public static class TikTokApiUploadService
 
     /// <summary>刚由挂集请求建出来的剧集，详情接口会先返回一阵 HTTP 500，要等后台落库。</summary>
     private static async Task<IReadOnlyList<SeriesVideo>> ReadSeriesVideosAsync(
-        IPage page,
+        IPage? page,
         string seriesId,
         CancellationToken ct,
         Action<string>? log = null)
@@ -507,34 +1007,297 @@ public static class TikTokApiUploadService
         }
     }
 
+    /// <summary>
+    /// 剧集中心批量删除：POST /api/content-partner/series/videos/batch-delete，
+    /// 请求体是 contractId 和 videoIds。失败就停，不再往上面叠传。
+    /// </summary>
+    private static async Task<IReadOnlyList<SeriesVideo>> DeleteExtraVideosAsync(
+        IPage? page,
+        string seriesId,
+        IReadOnlyList<string> videoIds,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        log?.Invoke($"接口直传：草稿有 {videoIds.Count} 条重复或读不出集号的正片，先用接口删除。");
+        return await DeleteVideosAndConfirmAsync(
+            page,
+            seriesId,
+            videoIds,
+            options,
+            log,
+            ct,
+            "删除多余正片",
+            "接口直传：删除多余正片失败，已停止，不再补传。",
+            "接口直传：删除后这些视频仍在草稿里",
+            "，已停止，不再补传。");
+    }
+
+    /// <summary>新剧替换草稿先删掉草稿上的全部正片，再从第 1 集重传。</summary>
+    private static async Task ClearDraftVideosAsync(
+        IPage? page,
+        string seriesId,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        var ids = existing
+            .Select(video => video.VideoId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToList();
+        if (ids.Count == 0)
+        {
+            log?.Invoke("新剧替换草稿：草稿里没有正片。");
+            return;
+        }
+
+        log?.Invoke($"新剧替换草稿：开始清理已上传正片，共 {ids.Count} 条。");
+        await DeleteVideosAndConfirmAsync(
+            page,
+            seriesId,
+            ids,
+            options,
+            log,
+            ct,
+            "清理正片",
+            "新剧替换草稿：删除正片失败，已停止，不再上传。",
+            "新剧替换草稿：清理后这些正片仍在草稿里",
+            "，已停止，不再上传。");
+        log?.Invoke($"新剧替换草稿：已删除 {ids.Count} 条正片。");
+    }
+
+    private static async Task<IReadOnlyList<SeriesVideo>> DeleteVideosAndConfirmAsync(
+        IPage? page,
+        string seriesId,
+        IReadOnlyList<string> videoIds,
+        TikTokPublishOptions options,
+        Action<string>? log,
+        CancellationToken ct,
+        string step,
+        string deleteFailedPrefix,
+        string stillPresentIntro,
+        string stillPresentEnding)
+    {
+        var body = BuildBatchDeleteBody(seriesId, videoIds);
+        try
+        {
+            using var response = await ExecuteWithRetryAsync(
+                options.UploadBatchMaxRetries,
+                step,
+                log,
+                token => PageFetchAsync(page, "POST", DeleteVideosPath, body, token),
+                ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(deleteFailedPrefix + ex.Message, ex);
+        }
+
+        IReadOnlyList<SeriesVideo> afterDelete = Array.Empty<SeriesVideo>();
+        var stillThere = videoIds.ToList();
+        for (var attempt = 1; attempt <= 3 && stillThere.Count > 0; attempt++)
+        {
+            if (attempt > 1)
+                await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            afterDelete = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+            stillThere = videoIds
+                .Where(id => afterDelete.Any(video => string.Equals(video.VideoId, id, StringComparison.Ordinal)))
+                .ToList();
+        }
+
+        if (stillThere.Count > 0)
+        {
+            var preview = string.Join(", ", stillThere.Take(5));
+            if (stillThere.Count > 5)
+                preview += $" 等 {stillThere.Count} 条";
+            throw new InvalidOperationException($"{stillPresentIntro}（{preview}）{stillPresentEnding}");
+        }
+
+        return afterDelete;
+    }
+
     private sealed class PageFetchException(string message, int status) : InvalidOperationException(message)
     {
         public int Status { get; } = status;
+
+        public bool IsTransient => IsTransientHttpStatus(Status);
+    }
+
+    private sealed class TransientUploadException(string message) : InvalidOperationException(message);
+
+    /// <summary>分片清单和存储端不一致。同一地址再提交还会失败，只能换上传地址重传这一集。</summary>
+    private sealed class PartListMismatchException(string message) : InvalidOperationException(message);
+
+    internal const int TosPartListMismatchCode = 4019;
+
+    internal static bool IsTransientHttpStatus(int status) =>
+        status is 0 or 408 or 429 || status >= 500;
+
+    private static bool IsTransientFailure(Exception ex) =>
+        ex is TransientUploadException or HttpRequestException ||
+        (ex is PageFetchException fetch && fetch.IsTransient);
+
+    private static bool ShouldRetry(Exception ex, CancellationToken ct) =>
+        !ct.IsCancellationRequested && RetriesOnTheSameAddress(ex);
+
+    internal static bool ShouldRetryEpisode(Exception ex) =>
+        IsTransientFailure(ex) || ex is PartListMismatchException or TaskCanceledException or TimeoutException;
+
+    internal static bool IsPartListMismatch(int code, string? message) =>
+        code == TosPartListMismatchCode ||
+        (message ?? "").Contains("Mismatch Part List", StringComparison.OrdinalIgnoreCase);
+
+    internal static Exception PartListMismatchFailure(int status, int code, string? message) =>
+        new PartListMismatchException($"TOS 上传失败（HTTP {status}，code {code}）：{message}");
+
+    /// <summary>同一上传地址上的重试。分片清单不一致不在这里重试。</summary>
+    internal static bool RetriesOnTheSameAddress(Exception ex) =>
+        IsTransientFailure(ex) || ex is TaskCanceledException;
+
+    /// <summary>同一张票据再提交的间隔：3 秒、6 秒、12 秒。</summary>
+    internal static TimeSpan CommitMetadataRetryDelay(int attempt)
+    {
+        var seconds = 3d * Math.Pow(2, Math.Max(0, attempt - 1));
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    /// <summary>提交结果缺哪一项。两项都有时返回空字符串。</summary>
+    internal static string DescribeMissingCommitFields(string? vid, double durationMs)
+    {
+        var missingId = string.IsNullOrEmpty(vid);
+        var missingDuration = durationMs <= 0;
+        if (missingId && missingDuration)
+            return "视频 ID 或时长";
+        if (missingId)
+            return "视频 ID";
+        if (missingDuration)
+            return "时长";
+        return "";
+    }
+
+    internal static Exception IncompleteCommitFailure(string missing) =>
+        new TransientUploadException($"CommitUploadInner 没有返回{missing}。");
+
+    /// <summary>封面、证明材料和分镜图的分片初始化与正片分片使用同一套次数和间隔。</summary>
+    internal static int ResolveMultipartInitAttempts(bool isVideo, int configuredRetries) =>
+        isVideo ? Math.Clamp(configuredRetries, 1, 10) : TosPartAttempts;
+
+    /// <summary>把传输异常收成一行，带上最内层原因，不包含堆栈。</summary>
+    internal static string DescribeTransportFailure(Exception exception)
+    {
+        var outer = FlattenTransportMessage(exception.Message);
+        var detail = FlattenTransportMessage(DeepestTransportMessage(exception.InnerException));
+        if (detail.Length == 0 || outer.Contains(detail, StringComparison.Ordinal))
+            return outer;
+        return outer.Length == 0 ? detail : $"{outer} {detail}";
+    }
+
+    private static string? DeepestTransportMessage(Exception? exception)
+    {
+        string? message = null;
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.IsNullOrWhiteSpace(current.Message))
+                message = current.Message;
+        }
+
+        return message;
+    }
+
+    private static string FlattenTransportMessage(string? value) =>
+        (value ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+
+    /// <summary>分片重试间隔：3 秒、6 秒、12 秒、24 秒，最长 30 秒。</summary>
+    internal static TimeSpan TosPartRetryDelay(int attempt)
+    {
+        var seconds = 3d * Math.Pow(2, Math.Max(0, attempt - 1));
+        return TimeSpan.FromSeconds(Math.Min(30, seconds));
+    }
+
+    internal static string DescribeHttpFailure(string source, int statusCode, string? body)
+    {
+        if (statusCode == 504)
+            return $"{source} HTTP 504 Gateway Time-out";
+        var text = body ?? "";
+        if (text.Contains("<html", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("<!DOCTYPE", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"{source} HTTP {statusCode}";
+        }
+
+        return $"{source} 返回无法解析（HTTP {statusCode}）：{Truncate(text)}";
+    }
+
+    private static async Task<T> ExecuteWithRetryAsync<T>(
+        int retries,
+        string step,
+        Action<string>? log,
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken ct,
+        Func<int, TimeSpan>? delayForAttempt = null)
+    {
+        var attempts = Math.Clamp(retries, 1, 10);
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await action(ct);
+            }
+            catch (Exception ex) when (ShouldRetry(ex, ct) && attempt < attempts)
+            {
+                var delay = delayForAttempt?.Invoke(attempt) ?? TimeSpan.FromSeconds(attempt * 3);
+                log?.Invoke($"接口直传：{step}暂时失败（{DescribeTransportFailure(ex)}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
+                await Task.Delay(delay, ct);
+            }
+        }
+    }
+
+    private static string CurrentPageUrl(IPage? page)
+    {
+        var url = page?.Url;
+        return string.IsNullOrWhiteSpace(url) ? DramaCenterOrigin + "/" : url;
     }
 
     private static async Task<JsonDocument> PageFetchAsync(
-        IPage page,
+        IPage? page,
         string method,
         string path,
         string? body,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        var result = await page.EvaluateAsync<JsonElement>(
-            """
-            async ([method, path, body]) => {
-              const init = { method, credentials: 'include' };
-              if (body !== null) {
-                init.headers = { 'content-type': 'application/json' };
-                init.body = body;
-              }
-              const res = await fetch(path, init);
-              return { status: res.status, text: await res.text() };
-            }
-            """,
-            new object?[] { method, path, body });
-        var status = result.GetProperty("status").GetInt32();
-        var text = result.GetProperty("text").GetString() ?? "";
+        int status;
+        string text;
+        if (PartnerSession.Current.Value is { } session)
+        {
+            (status, text) = await session.SendAsync(method, path, body, ct);
+        }
+        else
+        {
+            if (page is null)
+                throw new InvalidOperationException("接口上传：没有登录页面，也没有保存的登录状态。");
+            var result = await page.EvaluateAsync<JsonElement>(
+                """
+                async ([method, path, body]) => {
+                  const init = { method, credentials: 'include' };
+                  if (body !== null) {
+                    init.headers = { 'content-type': 'application/json' };
+                    init.body = body;
+                  }
+                  const res = await fetch(path, init);
+                  return { status: res.status, text: await res.text() };
+                }
+                """,
+                new object?[] { method, path, body });
+            status = result.GetProperty("status").GetInt32();
+            text = result.GetProperty("text").GetString() ?? "";
+        }
+
         JsonDocument document;
         try
         {
@@ -542,7 +1305,7 @@ public static class TikTokApiUploadService
         }
         catch (JsonException)
         {
-            throw new InvalidOperationException($"{path} 返回无法解析（HTTP {status}）：{Truncate(text)}");
+            throw new PageFetchException($"{path} 返回无法解析（HTTP {status}）：{Truncate(text)}", status);
         }
 
         var root = document.RootElement;
@@ -552,15 +1315,18 @@ public static class TikTokApiUploadService
         if (status is < 200 or >= 300 || code != 0)
         {
             var message = ReadString(root, "message");
+            if (string.IsNullOrWhiteSpace(message))
+                message = ReadString(root, "msg");
             document.Dispose();
-            throw new PageFetchException($"{path} 失败（HTTP {status}，code {code}）：{Truncate(message)}", status);
+            var detail = string.IsNullOrWhiteSpace(message) ? Truncate(text) : Truncate(message);
+            throw new PageFetchException($"{path} 失败（HTTP {status}，code {code}）：{detail}", status);
         }
 
         return document;
     }
 
     private static async Task MountBatchAsync(
-        IPage page,
+        IPage? page,
         string seriesId,
         IReadOnlyList<LocalEpisode> missing,
         IReadOnlyList<int> orderNums,
@@ -570,9 +1336,11 @@ public static class TikTokApiUploadService
         Action markChanged,
         List<string> failures,
         object failureLock,
+        TikTokPublishOptions options,
         Action<string>? log,
         CancellationToken ct)
     {
+        var maxAttempts = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
         var pending = indexes.ToList();
         for (var attempt = 1; pending.Count > 0; attempt++)
         {
@@ -594,11 +1362,11 @@ public static class TikTokApiUploadService
                     continue;
                 }
 
-                if (result.Retryable && attempt <= MountRetryCount)
+                if (result.Retryable && attempt < maxAttempts)
                 {
                     var delaySeconds = attempt * 2;
                     log?.Invoke(
-                        $"接口直传：第 {episode} 集挂载暂时失败（{result.Error}），{delaySeconds} 秒后重试（{attempt}/{MountRetryCount}）。");
+                        $"接口直传：第 {episode} 集挂载暂时失败（{result.Error}），{delaySeconds} 秒后重试（{attempt}/{maxAttempts - 1}）。");
                     retry.Add(index);
                     continue;
                 }
@@ -617,12 +1385,30 @@ public static class TikTokApiUploadService
     private readonly record struct FetchReply(int Status, string Text);
 
     private static async Task<IReadOnlyList<FetchReply>> PostJsonManyAsync(
-        IPage page,
+        IPage? page,
         string path,
         IReadOnlyList<string> bodies,
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        if (PartnerSession.Current.Value is { } session)
+        {
+            var sent = await Task.WhenAll(bodies.Select(async body =>
+            {
+                try
+                {
+                    return await session.SendAsync("POST", path, body, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    return (Status: 0, Text: ex.Message);
+                }
+            }));
+            return sent.Select(reply => new FetchReply(reply.Status, reply.Text)).ToArray();
+        }
+
+        if (page is null)
+            throw new InvalidOperationException("接口上传：没有登录页面，也没有保存的登录状态。");
         var results = await page.EvaluateAsync<JsonElement>(
             """
             async ([path, bodies]) => {
@@ -687,22 +1473,12 @@ public static class TikTokApiUploadService
         CancellationToken ct)
     {
         var started = Stopwatch.StartNew();
-        var attempts = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                var (committed, timing) = await UploadFileAsync(http, sts, gates, pageUrl, item.Path, ct);
-                addUploadedBytes(timing.Bytes);
-                log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, timing, markUploaded(), total));
-                return committed;
-            }
-            catch (Exception ex) when (attempt < attempts && !ct.IsCancellationRequested)
-            {
-                log?.Invoke($"接口直传：第 {item.Episode} 集第 {attempt} 次上传失败（{ex.Message}），{attempt * 3} 秒后重试。");
-                await Task.Delay(TimeSpan.FromSeconds(attempt * 3), ct);
-            }
-        }
+        var retries = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
+        var (committed, timing) = await UploadFileAsync(
+            http, sts, gates, pageUrl, item.Path, log, item.Episode, retries, ct);
+        addUploadedBytes(timing.Bytes);
+        log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, timing, markUploaded(), total));
+        return committed;
     }
 
     internal static string FormatUploadedLog(int episode, TimeSpan elapsed, UploadTiming timing, int uploaded, int total) =>
@@ -744,6 +1520,9 @@ public static class TikTokApiUploadService
         UploadGates gates,
         string pageUrl,
         string path,
+        Action<string>? log,
+        int episode,
+        int retries,
         CancellationToken ct)
     {
         var fileSize = new FileInfo(path).Length;
@@ -758,7 +1537,8 @@ public static class TikTokApiUploadService
         try
         {
             var transferClock = Stopwatch.StartNew();
-            sessionKey = await TransferFileAsync(http, sts, gates, vodBase, tosBase, path, fileSize, ct);
+            sessionKey = await TransferFileAsync(
+                http, sts, gates, vodBase, tosBase, path, fileSize, log, episode, retries, ct);
             transferElapsed = transferClock.Elapsed;
         }
         finally
@@ -767,7 +1547,7 @@ public static class TikTokApiUploadService
         }
 
         var commitClock = Stopwatch.StartNew();
-        var video = await CommitFileAsync(http, sts, vodBase, sessionKey, ct);
+        var video = await CommitFileAsync(http, sts, vodBase, sessionKey, log, episode, retries, ct);
         return (video, new UploadTiming(fileSize, transferElapsed, commitClock.Elapsed));
     }
 
@@ -780,47 +1560,192 @@ public static class TikTokApiUploadService
         string tosBase,
         string path,
         long fileSize,
-        CancellationToken ct)
+        Action<string>? log,
+        int episode,
+        int retries,
+        CancellationToken ct,
+        string applyAction = "ApplyUploadInner",
+        string fileType = "video",
+        string? objectBase = null,
+        string? itemLabel = null)
     {
+        var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
+        var isVideo = string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase);
         var credentials = await sts.GetAsync(ct);
-
-        var applyUri = new Uri(
-            $"{vodBase}/?Action=ApplyUploadInner&Version={ApiVersion}&SpaceName={SpaceName}" +
-            $"&FileType=video&IsInner=1&FileSize={fileSize}&s={RandomToken()}&device_platform=web");
-        using var applyDocument = await SendVodAsync(http, HttpMethod.Get, applyUri, credentials, null, ct);
-        var node = applyDocument.RootElement
-            .GetProperty("Result").GetProperty("InnerUploadAddress").GetProperty("UploadNodes")[0];
-        var store = node.GetProperty("StoreInfos")[0];
-        var storeUri = ReadString(store, "StoreUri");
-        var auth = ReadString(store, "Auth");
-        var sessionKey = ReadString(node, "SessionKey");
-        if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
-            throw new InvalidOperationException("ApplyUploadInner 没有返回上传地址。");
-
-        var objectUrl = $"{tosBase}/upload/v1/{storeUri}";
-        var boundary = "----WebKitFormBoundary" + RandomToken(16);
-        using (var init = new HttpRequestMessage(HttpMethod.Post, $"{objectUrl}?uploadmode=part&phase=init"))
+        var applyUri = isVideo
+            ? new Uri($"{vodBase}/?Action=ApplyUploadInner&Version={ApiVersion}&SpaceName={SpaceName}" +
+              $"&FileType=video&IsInner=1&FileSize={fileSize}&s={RandomToken()}&device_platform=web")
+            : BuildImageApplyUri(vodBase, fileSize, RandomToken());
+        using var applyDocument = await ExecuteWithRetryAsync(
+            retries,
+            $"{label}初始化上传",
+            log,
+            token => SendVodAsync(http, HttpMethod.Get, applyUri, credentials, null, token),
+            ct);
+        string storeUri;
+        string auth;
+        string sessionKey;
+        string uploadHost;
+        JsonDocument initDocument;
+        if (isVideo)
         {
-            init.Headers.TryAddWithoutValidation("Authorization", auth);
-            init.Content = new StringContent($"--{boundary}--\r\n", Encoding.ASCII);
-            init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
-            using var initDocument = await SendTosAsync(http, init, ct);
-            var uploadId = ReadString(initDocument.RootElement.GetProperty("data"), "uploadid");
-            if (uploadId.Length == 0)
-                throw new InvalidOperationException("TOS 初始化没有返回 uploadid。");
-
-            var crcs = await SendPartsAsync(http, gates, objectUrl, uploadId, auth, path, fileSize, ct);
-
-            using var finish = new HttpRequestMessage(
-                HttpMethod.Post,
-                $"{objectUrl}?uploadmode=part&phase=finish&uploadid={uploadId}&size={fileSize}");
-            finish.Headers.TryAddWithoutValidation("Authorization", auth);
-            finish.Content = new StringContent(BuildFinishBody(crcs), Encoding.UTF8);
-            finish.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain;charset=UTF-8");
-            using (await SendTosAsync(http, finish, ct)) { }
+            var node = applyDocument.RootElement
+                .GetProperty("Result").GetProperty("InnerUploadAddress").GetProperty("UploadNodes")[0];
+            var store = node.GetProperty("StoreInfos")[0];
+            storeUri = ReadString(store, "StoreUri");
+            auth = ReadString(store, "Auth");
+            sessionKey = ReadString(node, "SessionKey");
+            uploadHost = tosBase;
+            if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
+                throw new InvalidOperationException($"{applyAction} 没有返回上传地址。");
+            var boundary = "----WebKitFormBoundary" + RandomToken(16);
+            initDocument = await ExecuteWithRetryAsync(
+                ResolveMultipartInitAttempts(isVideo, retries),
+                $"{label}分片初始化",
+                log,
+                async token =>
+                {
+                    using var init = new HttpRequestMessage(HttpMethod.Post, $"{uploadHost}/upload/v1/{storeUri}?uploadmode=part&phase=init");
+                    init.Headers.TryAddWithoutValidation("Authorization", auth);
+                    init.Content = new StringContent($"--{boundary}--\r\n", Encoding.ASCII);
+                    init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
+                    return await SendTosAsync(http, init, token);
+                },
+                ct);
         }
+        else
+        {
+            var initialized = await InitializeImageUploadAsync(
+                http,
+                sts,
+                vodBase,
+                objectBase ?? tosBase,
+                fileSize,
+                label,
+                retries,
+                ReadImageUploadTicket(applyDocument.RootElement, objectBase ?? tosBase),
+                log,
+                ct);
+            storeUri = initialized.Ticket.StoreUri;
+            auth = initialized.Ticket.Auth;
+            sessionKey = initialized.Ticket.SessionKey;
+            uploadHost = initialized.Ticket.UploadHost;
+            initDocument = initialized.Document;
+        }
+        var objectUrl = $"{uploadHost}/upload/v1/{storeUri}";
+        using var initScope = initDocument;
+        var uploadId = ReadString(initDocument.RootElement.GetProperty("data"), "uploadid");
+        if (uploadId.Length == 0)
+            throw new InvalidOperationException("TOS 初始化没有返回 uploadid。");
+
+        var crcs = await SendPartsAsync(
+            http, gates, objectUrl, uploadId, auth, path, fileSize, log, episode, retries, ct, label);
+
+        using (await ExecuteWithRetryAsync(
+            retries,
+            $"{label}分片提交",
+            log,
+            async token =>
+            {
+                using var finish = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{objectUrl}?uploadmode=part&phase=finish&uploadid={uploadId}&size={fileSize}");
+                finish.Headers.TryAddWithoutValidation("Authorization", auth);
+                finish.Content = new StringContent(BuildFinishBody(crcs), Encoding.UTF8);
+                finish.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain;charset=UTF-8");
+                return await SendTosAsync(http, finish, token);
+            },
+            ct)) { }
 
         return sessionKey;
+    }
+
+    private readonly record struct ImageInitResult(JsonDocument Document, ImageUploadTicket Ticket);
+
+    /// <summary>
+    /// 图片分片初始化：同一地址连续两次传输中断就换下一个地址；地址都失败时重新申请一次票据。
+    /// 每次初始化都要求关闭连接，避免把刚被掐断的连接再拿出来用。
+    /// </summary>
+    private static async Task<ImageInitResult> InitializeImageUploadAsync(
+        HttpClient http,
+        StsCache sts,
+        string vodBase,
+        string fallbackHost,
+        long fileSize,
+        string label,
+        int retries,
+        ImageUploadTicket ticket,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        Exception? last = null;
+        for (var round = 0; round < 2; round++)
+        {
+            if (round == 1)
+            {
+                log?.Invoke($"接口直传：{label}上传地址都不可用，重新申请一次上传票据。");
+                var credentials = await sts.GetAsync(ct);
+                var applyUri = BuildImageApplyUri(vodBase, fileSize, RandomToken());
+                using var applyDocument = await ExecuteWithRetryAsync(
+                    retries,
+                    $"{label}初始化上传",
+                    log,
+                    token => SendVodAsync(http, HttpMethod.Get, applyUri, credentials, null, token),
+                    ct);
+                ticket = ReadImageUploadTicket(applyDocument.RootElement, fallbackHost);
+            }
+
+            for (var hostIndex = 0; hostIndex < ticket.UploadHosts.Count; hostIndex++)
+            {
+                var host = ticket.UploadHosts[hostIndex];
+                log?.Invoke($"接口直传：{label}使用上传地址 {DescribeUploadHost(host)}。");
+                for (var attempt = 1; attempt <= ImageInitAttemptsPerHost; attempt++)
+                {
+                    try
+                    {
+                        var document = await SendImageInitAsync(http, host, ticket.StoreUri, ticket.Auth, ct);
+                        return new ImageInitResult(document, ticket with { UploadHost = host });
+                    }
+                    catch (Exception ex) when (IsTransportClosedFailure(ex) && !ct.IsCancellationRequested)
+                    {
+                        last = ex;
+                        if (attempt < ImageInitAttemptsPerHost)
+                        {
+                            var delay = TosPartRetryDelay(attempt);
+                            log?.Invoke(
+                                $"接口直传：{label}分片初始化暂时失败（{DescribeTransportFailure(ex)}），" +
+                                $"{delay.TotalSeconds:0} 秒后在同一地址重试（{attempt}/{ImageInitAttemptsPerHost - 1}）。");
+                            await Task.Delay(delay, ct);
+                            continue;
+                        }
+
+                        log?.Invoke(hostIndex < ticket.UploadHosts.Count - 1
+                            ? $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} 连续失败，改用下一个上传地址。"
+                            : $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} 连续失败。");
+                    }
+                }
+            }
+        }
+
+        throw last ?? new InvalidOperationException($"{label}分片初始化失败。");
+    }
+
+    private static async Task<JsonDocument> SendImageInitAsync(
+        HttpClient http,
+        string uploadHost,
+        string storeUri,
+        string auth,
+        CancellationToken ct)
+    {
+        var boundary = "----WebKitFormBoundary" + RandomToken(16);
+        using var init = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{uploadHost}/upload/v1/{storeUri}?uploadmode=part&phase=init");
+        init.Headers.ConnectionClose = true;
+        init.Headers.TryAddWithoutValidation("Authorization", auth);
+        init.Content = new StringContent($"--{boundary}--\r\n", Encoding.ASCII);
+        init.Content.Headers.ContentType = MediaTypeHeaderValue.Parse($"multipart/form-data; boundary={boundary}");
+        return await SendTosAsync(http, init, ct);
     }
 
     private static async Task<IReadOnlyList<string>> SendPartsAsync(
@@ -831,8 +1756,13 @@ public static class TikTokApiUploadService
         string auth,
         string path,
         long fileSize,
-        CancellationToken ct)
+        Action<string>? log,
+        int episode,
+        int retries,
+        CancellationToken ct,
+        string? itemLabel = null)
     {
+        var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
         var partCount = (int)((fileSize + PartSize - 1) / PartSize);
         var crcs = new string[partCount];
         using var partsCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -879,15 +1809,25 @@ public static class TikTokApiUploadService
                     try
                     {
                         var crc = TikTokCrc32.Hex(buffer.AsSpan(0, length));
-                        using var part = new HttpRequestMessage(
-                            HttpMethod.Post,
-                            $"{objectUrl}?uploadid={uploadId}&part_number={partIndex + 1}&phase=transfer&part_offset={partOffset}");
-                        part.Headers.TryAddWithoutValidation("Authorization", auth);
-                        part.Content = new ByteArrayContent(buffer, 0, length);
-                        part.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                        part.Content.Headers.TryAddWithoutValidation("Content-Disposition", "attachment; filename=\"undefined\"");
-                        part.Content.Headers.TryAddWithoutValidation("Content-CRC32", crc);
-                        using (await SendTosAsync(http, part, partsCts.Token)) { }
+                        await ExecuteWithRetryAsync(
+                            TosPartAttempts,
+                            $"{label}分片 {partIndex + 1}",
+                            log,
+                            async token =>
+                            {
+                                using var part = new HttpRequestMessage(
+                                    HttpMethod.Post,
+                                    $"{objectUrl}?uploadid={uploadId}&part_number={partIndex + 1}&phase=transfer&part_offset={partOffset}");
+                                part.Headers.TryAddWithoutValidation("Authorization", auth);
+                                part.Content = new ByteArrayContent(buffer, 0, length);
+                                part.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                                part.Content.Headers.TryAddWithoutValidation("Content-Disposition", "attachment; filename=\"undefined\"");
+                                part.Content.Headers.TryAddWithoutValidation("Content-CRC32", crc);
+                                using (await SendTosAsync(http, part, token)) { }
+                                return 0;
+                            },
+                            partsCts.Token,
+                            TosPartRetryDelay);
                         crcs[partIndex] = crc;
                     }
                     catch
@@ -930,6 +1870,9 @@ public static class TikTokApiUploadService
         StsCache sts,
         string vodBase,
         string sessionKey,
+        Action<string>? log,
+        int episode,
+        int retries,
         CancellationToken ct)
     {
         var commitBody = JsonSerializer.Serialize(new
@@ -938,9 +1881,36 @@ public static class TikTokApiUploadService
             Functions = new object[] { new { name = "Snapshot", input = new { SnapshotTime = 0 } } },
         });
         var commitUri = new Uri($"{vodBase}/?Action=CommitUploadInner&Version={ApiVersion}&SpaceName={SpaceName}");
-        using var commitDocument = await SendVodAsync(
-            http, HttpMethod.Post, commitUri, await sts.GetAsync(ct), commitBody, ct);
-        var committed = commitDocument.RootElement.GetProperty("Result").GetProperty("Results")[0];
+        var missing = "视频 ID 或时长";
+        for (var attempt = 0; ; attempt++)
+        {
+            using var commitDocument = await ExecuteWithRetryAsync(
+                retries,
+                $"第 {episode} 集提交视频",
+                log,
+                async token => await SendVodAsync(
+                    http, HttpMethod.Post, commitUri, await sts.GetAsync(token), commitBody, token),
+                ct);
+            var committed = commitDocument.RootElement.GetProperty("Result").GetProperty("Results")[0];
+            var read = ReadCommitResult(committed);
+            if (read.Missing.Length == 0)
+                return new CommittedVideo(read.Vid, read.DurationMs, read.PosterUri);
+
+            missing = read.Missing;
+            if (attempt >= CommitMetadataRetries)
+                throw IncompleteCommitFailure(missing);
+
+            var delay = CommitMetadataRetryDelay(attempt + 1);
+            log?.Invoke(
+                $"接口直传：第 {episode} 集提交结果缺少{missing}，{delay.TotalSeconds:0} 秒后用同一张票据再提交（{attempt + 1}/{CommitMetadataRetries}）。");
+            await Task.Delay(delay, ct);
+        }
+    }
+
+    internal readonly record struct CommitReadResult(string Vid, double DurationMs, string PosterUri, string Missing);
+
+    internal static CommitReadResult ReadCommitResult(JsonElement committed)
+    {
         var vid = ReadString(committed, "Vid");
         var poster = ReadString(committed, "PosterUri");
         var duration = committed.TryGetProperty("VideoMeta", out var meta) &&
@@ -948,9 +1918,7 @@ public static class TikTokApiUploadService
                        durationElement.TryGetDouble(out var seconds)
             ? seconds * 1000
             : 0;
-        if (vid.Length == 0 || duration <= 0)
-            throw new InvalidOperationException("CommitUploadInner 没有返回视频 ID 或时长。");
-        return new CommittedVideo(vid, duration, poster);
+        return new CommitReadResult(vid, duration, poster, DescribeMissingCommitFields(vid, duration));
     }
 
     private static async Task<int> ReadChunkAsync(Stream stream, Memory<byte> buffer, CancellationToken ct)
@@ -965,6 +1933,18 @@ public static class TikTokApiUploadService
         }
 
         return total;
+    }
+
+    private static string ReadVodAction(Uri uri)
+    {
+        var query = uri.Query.TrimStart('?');
+        foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (part.StartsWith("Action=", StringComparison.OrdinalIgnoreCase))
+                return Uri.UnescapeDataString(part["Action=".Length..]);
+        }
+
+        return "Vod";
     }
 
     private static async Task<JsonDocument> SendVodAsync(
@@ -982,10 +1962,11 @@ public static class TikTokApiUploadService
             request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain;charset=UTF-8");
         }
 
-        TikTokVodSigner.Sign(request, credentials, body, DateTime.UtcNow);
+        var action = ReadVodAction(uri);
+        var service = action is "ApplyImageUpload" or "CommitImageUpload" ? "imagex" : TikTokVodSigner.Service;
+        TikTokVodSigner.Sign(request, credentials, body, DateTime.UtcNow, service);
         using var response = await http.SendAsync(request, ct);
         var text = await response.Content.ReadAsStringAsync(ct);
-        var action = uri.Query.Contains("CommitUploadInner", StringComparison.Ordinal) ? "CommitUploadInner" : "ApplyUploadInner";
         JsonDocument document;
         try
         {
@@ -993,7 +1974,18 @@ public static class TikTokApiUploadService
         }
         catch (JsonException)
         {
-            throw new InvalidOperationException($"{action} 返回无法解析（HTTP {(int)response.StatusCode}）：{Truncate(text)}");
+            var statusCode = (int)response.StatusCode;
+            var message = DescribeHttpFailure(action, statusCode, text);
+            if (IsTransientHttpStatus(statusCode))
+                throw new TransientUploadException(message);
+            throw new InvalidOperationException(message);
+        }
+
+        var status = (int)response.StatusCode;
+        if (IsTransientHttpStatus(status))
+        {
+            document.Dispose();
+            throw new TransientUploadException($"{action} 失败（HTTP {status}）：{Truncate(text)}");
         }
 
         if (document.RootElement.TryGetProperty("ResponseMetadata", out var metadata) &&
@@ -1008,7 +2000,7 @@ public static class TikTokApiUploadService
         if (!response.IsSuccessStatusCode || !document.RootElement.TryGetProperty("Result", out _))
         {
             document.Dispose();
-            throw new InvalidOperationException($"{action} 失败（HTTP {(int)response.StatusCode}）：{Truncate(text)}");
+            throw new InvalidOperationException($"{action} 失败（HTTP {status}）：{Truncate(text)}");
         }
 
         return document;
@@ -1025,23 +2017,38 @@ public static class TikTokApiUploadService
         }
         catch (JsonException)
         {
-            throw new InvalidOperationException($"TOS 返回无法解析（HTTP {(int)response.StatusCode}）：{Truncate(text)}");
+            var statusCode = (int)response.StatusCode;
+            var message = DescribeHttpFailure("TOS", statusCode, text);
+            if (IsTransientHttpStatus(statusCode))
+                throw new TransientUploadException(message);
+            throw new InvalidOperationException(message);
         }
 
+        var status = (int)response.StatusCode;
         var code = document.RootElement.TryGetProperty("code", out var codeElement) && codeElement.TryGetInt32(out var value)
             ? value
             : -1;
+        if (IsTransientHttpStatus(status))
+        {
+            var message = ReadString(document.RootElement, "message");
+            document.Dispose();
+            throw new TransientUploadException($"TOS 上传失败（HTTP {status}，code {code}）：{Truncate(message)}");
+        }
+
         if (!response.IsSuccessStatusCode || code != 2000)
         {
             var message = ReadString(document.RootElement, "message");
             document.Dispose();
-            throw new InvalidOperationException($"TOS 上传失败（HTTP {(int)response.StatusCode}，code {code}）：{Truncate(message)}");
+            var failure = $"TOS 上传失败（HTTP {status}，code {code}）：{Truncate(message)}";
+            if (IsPartListMismatch(code, message))
+                throw new PartListMismatchException(failure);
+            throw new InvalidOperationException(failure);
         }
 
         return document;
     }
 
-    private static async Task<HttpClient> CreateHttpClientAsync(IPage page, TikTokPublishOptions options)
+    private static async Task<HttpClient> CreateHttpClientAsync(IPage? page, TikTokPublishOptions options)
     {
         var handler = new HttpClientHandler { AutomaticDecompression = DecompressionMethods.All };
         if (!string.IsNullOrWhiteSpace(options.NetworkProxyServer))
@@ -1056,6 +2063,14 @@ public static class TikTokApiUploadService
         }
 
         var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(5) };
+        if (page is null)
+        {
+            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+            http.DefaultRequestHeaders.TryAddWithoutValidation("Origin", DramaCenterOrigin);
+            http.DefaultRequestHeaders.TryAddWithoutValidation("Referer", DramaCenterOrigin + "/");
+            return http;
+        }
+
         try
         {
             var userAgent = await page.EvaluateAsync<string>("() => navigator.userAgent");
@@ -1077,7 +2092,7 @@ public static class TikTokApiUploadService
         return http;
     }
 
-    private sealed class StsCache(IPage page)
+    private sealed class StsCache(IPage? page, int retries, Action<string>? log)
     {
         private readonly SemaphoreSlim _lock = new(1, 1);
         private TikTokVodSigner.Credentials? _credentials;
@@ -1091,19 +2106,32 @@ public static class TikTokApiUploadService
                 if (_credentials is not null && DateTimeOffset.UtcNow < _expiresAt.AddMinutes(-5))
                     return _credentials;
 
-                using var document = await PageFetchAsync(page, "POST", "/api/content-partner/tool/upload/auth/", "{}", ct);
-                var ogc = document.RootElement.GetProperty("data").GetProperty("ogc");
-                _credentials = new TikTokVodSigner.Credentials(
-                    ReadString(ogc, "AccessKeyId"),
-                    ReadString(ogc, "SecretAccessKey"),
-                    ReadString(ogc, "SessionToken"));
-                if (_credentials.AccessKeyId.Length == 0 || _credentials.SecretAccessKey.Length == 0)
-                    throw new InvalidOperationException("上传授权没有返回 STS 密钥。");
-                _expiresAt = DateTimeOffset.TryParse(
-                    ReadString(ogc, "ExpiredTime"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var expires)
-                    ? expires
-                    : DateTimeOffset.UtcNow.AddMinutes(30);
-                return _credentials;
+                var attempts = Math.Clamp(retries, 1, 10);
+                for (var attempt = 1; ; attempt++)
+                {
+                    try
+                    {
+                        using var document = await PageFetchAsync(page, "POST", "/api/content-partner/tool/upload/auth/", "{}", ct);
+                        var ogc = document.RootElement.GetProperty("data").GetProperty("ogc");
+                        _credentials = new TikTokVodSigner.Credentials(
+                            ReadString(ogc, "AccessKeyId"),
+                            ReadString(ogc, "SecretAccessKey"),
+                            ReadString(ogc, "SessionToken"));
+                        if (_credentials.AccessKeyId.Length == 0 || _credentials.SecretAccessKey.Length == 0)
+                            throw new InvalidOperationException("上传授权没有返回 STS 密钥。");
+                        _expiresAt = DateTimeOffset.TryParse(
+                            ReadString(ogc, "ExpiredTime"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var expires)
+                            ? expires
+                            : DateTimeOffset.UtcNow.AddMinutes(30);
+                        return _credentials;
+                    }
+                    catch (Exception ex) when (ShouldRetry(ex, ct) && attempt < attempts)
+                    {
+                        var delay = TimeSpan.FromSeconds(attempt * 3);
+                        log?.Invoke($"接口直传：上传授权暂时失败（{ex.Message}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
+                        await Task.Delay(delay, ct);
+                    }
+                }
             }
             finally
             {
@@ -1118,6 +2146,18 @@ public static class TikTokApiUploadService
         value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? ""
             : "";
+
+    private static string ReadId(JsonElement element, string name)
+    {
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out var value))
+            return "";
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? "",
+            JsonValueKind.Number => value.GetRawText(),
+            _ => "",
+        };
+    }
 
     private static string RandomToken(int length = 11)
     {
@@ -1141,5 +2181,69 @@ public static class TikTokApiUploadService
     {
         var value = (text ?? "").Replace('\n', ' ').Trim();
         return value.Length <= max ? value : value[..max] + "…";
+    }
+
+    private sealed class PartnerSession : IDisposable
+    {
+        internal static readonly AsyncLocal<PartnerSession?> Current = new();
+
+        private readonly HttpClient _http;
+        private readonly string _cookie;
+
+        private PartnerSession(string cookie, TikTokPublishOptions options)
+        {
+            _cookie = cookie;
+            var handler = new HttpClientHandler
+            {
+                UseCookies = false,
+                AutomaticDecompression = DecompressionMethods.All,
+                UseProxy = false,
+            };
+            if (!string.IsNullOrWhiteSpace(options.NetworkProxyServer))
+            {
+                handler.Proxy = new WebProxy(new Uri(options.NetworkProxyServer))
+                {
+                    Credentials = string.IsNullOrWhiteSpace(options.NetworkProxyUsername)
+                        ? null
+                        : new NetworkCredential(options.NetworkProxyUsername, options.NetworkProxyPassword),
+                };
+                handler.UseProxy = true;
+            }
+
+            _http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(2) };
+        }
+
+        public static PartnerSession Open(string storageStatePath, TikTokPublishOptions options)
+        {
+            var cookie = TikTokAccountAnalyticsClient.ReadCookieHeader(storageStatePath);
+            if (string.IsNullOrWhiteSpace(cookie))
+                throw new InvalidOperationException("接口上传：保存的登录状态里没有剧集中心 Cookie，请先在浏览器页重新登录该账号。");
+            return new PartnerSession(cookie, options);
+        }
+
+        public async Task<(int Status, string Text)> SendAsync(
+            string method,
+            string path,
+            string? body,
+            CancellationToken ct)
+        {
+            var url = path.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? path
+                : DramaCenterOrigin + (path.StartsWith('/') ? path : "/" + path);
+            using var request = new HttpRequestMessage(new HttpMethod(method), url);
+            request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
+            request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
+            request.Headers.TryAddWithoutValidation("Origin", DramaCenterOrigin);
+            request.Headers.TryAddWithoutValidation("Referer", DramaCenterOrigin + "/series/draft");
+            request.Headers.TryAddWithoutValidation("Cookie", _cookie);
+            if (body is not null)
+                request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return ((int)response.StatusCode, text);
+        }
+
+        public void Dispose() => _http.Dispose();
     }
 }

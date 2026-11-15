@@ -7,6 +7,29 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class DramaSourceConfigurationValidatorTests
 {
     [Fact]
+    public void MarketSelectsItsOwnChain()
+    {
+        var settings = new ClientSettings
+        {
+            DramaSourceChain = "hongguoapp",
+            OverseasDramaSourceChain = "dramabox",
+        };
+
+        Assert.Equal("hongguoapp", VisibleDramaSource.ChainFor(settings, "local"));
+        Assert.Equal("dramabox", VisibleDramaSource.ChainFor(settings, "overseas"));
+        Assert.Equal("dramabox", VisibleDramaSource.NormalizeOverseas(""));
+        Assert.Equal("dramabox", VisibleDramaSource.ChainFor(new ClientSettings
+        {
+            DramaSourceChain = "playlet",
+            OverseasDramaSourceChain = "",
+        }, "overseas"));
+
+        var overseas = VisibleDramaSource.SettingsFor(settings, "overseas");
+        Assert.Equal("dramabox", overseas.DramaSourceChain);
+        Assert.Equal("hongguoapp", settings.DramaSourceChain);
+    }
+
+    [Fact]
     public void HgnewReportsEveryMissingRequiredField()
     {
         var status = DramaSourceConfigurationValidator.Check(new ClientSettings

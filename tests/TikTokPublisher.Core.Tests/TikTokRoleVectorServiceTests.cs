@@ -265,6 +265,22 @@ public sealed class TikTokRoleVectorServiceTests
             result.Should().Be(output);
             TikTokRoleVectorService.HasCurrentOutput(workflow).Should().BeTrue();
             TikTokRoleVectorService.HasCurrentOutput(workflow, 3).Should().BeTrue();
+            logs.Should().Contain(message => message.Contains("复制到角色素材包", StringComparison.Ordinal));
+            using (var state = JsonDocument.Parse(File.ReadAllText(TikTokRoleVectorService.GetStatePath(workflow))))
+            {
+                var references = state.RootElement.GetProperty("references").EnumerateArray().ToArray();
+                references.Should().NotBeEmpty();
+                foreach (var reference in references)
+                {
+                    var path = reference.GetProperty("path").GetString();
+                    path.Should().Contain(TikTokRoleVectorService.ReferenceFrameDirectoryName);
+                    File.Exists(path).Should().BeTrue();
+                }
+            }
+
+            Directory.Delete(sceneDir, recursive: true);
+            TikTokRoleVectorService.HasCurrentOutput(workflow, 3)
+                .Should().BeTrue("抽帧原图被替换后，角色图成品仍然有效");
             TikTokRoleVectorService.HasCurrentOutput(workflow, 4)
                 .Should().BeFalse("账号配置人数变化后状态指纹应失效");
             var statePath = TikTokRoleVectorService.GetStatePath(workflow);

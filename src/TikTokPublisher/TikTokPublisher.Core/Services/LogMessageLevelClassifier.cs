@@ -50,6 +50,7 @@ public static partial class LogMessageLevelClassifier
         if (ContainsAny(
                 message,
                 "成功", "完成", "已完成", "通过", "已保存", "已生成", "已同步", "已绑定",
+                "集已上传", "视频已上传",
                 "downloaded", "uploaded", "succeeded", "success", "done"))
         {
             return "success";

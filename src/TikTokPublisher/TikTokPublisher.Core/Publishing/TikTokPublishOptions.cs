@@ -24,6 +24,26 @@ public static class TikTokPublishConstants
         [SourceFileInformationMaterialType] = "原始文件或素材文件信息",
     };
 
+    /// <summary>账号「上传材料」里的表单标题，运行日志按这个名称对应每个文件。</summary>
+    public static readonly IReadOnlyDictionary<string, string> CopyrightMaterialFormTitles = new Dictionary<string, string>
+    {
+        ["production_agreement"] = "合作协议",
+        ["work_registration_certificate"] = "作品登记证书",
+        [FilingOrDistributionLicenseMaterialType] = "网络剧片备案、发行许可、监管审批文件",
+        ["opening_ending_rights_notice"] = "片头片尾及权利标识",
+        [AiGenerationScreenshotsMaterialType] = "AI 生成过程截图",
+        [EditingProjectFilesMaterialType] = "剪辑工程文件",
+        [SourceFileInformationMaterialType] = "原始文件或素材文件信息",
+    };
+
+    public static string CopyrightMaterialFormTitle(string? materialType)
+    {
+        if (!string.IsNullOrWhiteSpace(materialType) &&
+            CopyrightMaterialFormTitles.TryGetValue(materialType, out var title))
+            return title;
+        return CopyrightMaterialLabels.GetValueOrDefault(materialType ?? "", materialType ?? "");
+    }
+
     public static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> CopyrightMaterialLabelAliases =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -214,9 +234,9 @@ public static class TikTokPublishConstants
     {
         ArgumentNullException.ThrowIfNull(account);
 
-        var sourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage)
-            ? "zh"
-            : account.TiktokSourceLanguage.Trim();
+        var sourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            account.TiktokSourceLanguage,
+            account.TiktokDramaMarket);
         var contentCreationType = NormalizeContentCreationType(account.TiktokContentCreationType);
         if (account.TiktokIsAiDrama &&
             string.Equals(sourceLanguage, "zh", StringComparison.OrdinalIgnoreCase) &&
@@ -453,11 +473,14 @@ public sealed class TikTokPublishOptions
     public string ExpectedFullPriceLabel { get; set; } = "";
     public int UploadStallSeconds { get; set; } = 180;
     public string UploadStrategy { get; set; } = "api";
+    /// <summary>网页上传的正片投递。classic 一次传完，batch 分批。</summary>
+    public string PlaywrightVideoDelivery { get; set; } = TikTokUploadChannels.Classic;
     public int UploadBatchSize { get; set; } = 3;
     public int UploadBatchStallSeconds { get; set; } = 75;
     public int UploadBatchMaxRetries { get; set; } = 3;
     public int UploadApiConcurrency { get; set; } = 3;
-    public bool UploadApiFallbackToBatch { get; set; } = true;
+    /// <summary>已停用。接口直传失败后不再改走网页分批上传。</summary>
+    public bool UploadApiFallbackToBatch { get; set; }
     /// <summary>接口直传时 HttpClient 使用的代理，与账号浏览器代理一致；为空走系统代理。</summary>
     public string NetworkProxyServer { get; set; } = "";
     public string NetworkProxyUsername { get; set; } = "";
@@ -465,11 +488,12 @@ public sealed class TikTokPublishOptions
     public bool CustomPublishAccountsEnabled { get; set; }
     public IReadOnlyList<string> SelectedPublishAccountKeys { get; set; } = [];
 
-    public bool UseBatchUpload =>
-        string.Equals(UploadStrategy?.Trim(), "batch", StringComparison.OrdinalIgnoreCase);
+    public bool UsePlaywrightUpload => !UseApiUpload;
 
-    public bool UseApiUpload =>
-        string.Equals(UploadStrategy?.Trim(), "api", StringComparison.OrdinalIgnoreCase);
+    public bool UseBatchUpload =>
+        TikTokUploadChannels.IsBatchDelivery(UploadStrategy, PlaywrightVideoDelivery);
+
+    public bool UseApiUpload => TikTokUploadChannels.IsApi(UploadStrategy);
 
     public string ResolveCopyrightMaterialFilePath(string? materialType)
     {
@@ -537,13 +561,13 @@ public sealed class TikTokPublishOptions
     public static TikTokPublishOptions FromAccount(TikTokAccountProfile account) => new()
     {
         ContractId = account.TiktokContractId,
-        ContractIdMode = string.IsNullOrWhiteSpace(account.TiktokContractIdMode)
-            ? TikTokPublishConstants.ContractIdModeManual
-            : account.TiktokContractIdMode,
+        ContractIdMode = TikTokPublishConstants.ContractIdModeManual,
         AnchorPromotionEnabled = account.TiktokAnchorPromotionEnabled,
         TargetAudienceMode = string.IsNullOrWhiteSpace(account.TiktokTargetAudienceMode) ? "ai_recommend" : account.TiktokTargetAudienceMode,
         GenreCount = NormalizeGenreCount(account.TiktokGenreCount),
-        SourceLanguage = string.IsNullOrWhiteSpace(account.TiktokSourceLanguage) ? "zh" : account.TiktokSourceLanguage,
+        SourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
+            account.TiktokSourceLanguage,
+            account.TiktokDramaMarket),
         IsAiDrama = account.TiktokIsAiDrama,
         ContentCreationType = TikTokPublishConstants.NormalizeContentCreationType(
             account.TiktokContentCreationType),
@@ -579,12 +603,13 @@ public sealed class TikTokPublishOptions
         ExpectedFullPriceValue = account.TiktokExpectedFullPriceValue,
         ExpectedFullPriceLabel = account.TiktokExpectedFullPriceLabel,
         UploadStallSeconds = account.TiktokUploadStallSeconds > 0 ? account.TiktokUploadStallSeconds : 180,
-        UploadStrategy = string.IsNullOrWhiteSpace(account.TiktokUploadStrategy) ? "api" : account.TiktokUploadStrategy.Trim(),
+        UploadStrategy = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery).Channel,
+        PlaywrightVideoDelivery = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery).Delivery,
         UploadBatchSize = account.TiktokUploadBatchSize > 0 ? Math.Clamp(account.TiktokUploadBatchSize, 1, 20) : 3,
         UploadBatchStallSeconds = account.TiktokUploadBatchStallSeconds > 0 ? Math.Clamp(account.TiktokUploadBatchStallSeconds, 20, 600) : 75,
         UploadBatchMaxRetries = account.TiktokUploadBatchMaxRetries > 0 ? Math.Clamp(account.TiktokUploadBatchMaxRetries, 1, 10) : 3,
         UploadApiConcurrency = account.TiktokUploadApiConcurrency > 0 ? Math.Clamp(account.TiktokUploadApiConcurrency, 1, 6) : 3,
-        UploadApiFallbackToBatch = account.TiktokUploadApiFallbackToBatch,
+        UploadApiFallbackToBatch = false,
         NetworkProxyServer = TikTokProxyHelper.BuildFromAccount(account)?.Server ?? "",
         NetworkProxyUsername = TikTokProxyHelper.BuildFromAccount(account)?.Username ?? "",
         NetworkProxyPassword = TikTokProxyHelper.BuildFromAccount(account)?.Password ?? "",
