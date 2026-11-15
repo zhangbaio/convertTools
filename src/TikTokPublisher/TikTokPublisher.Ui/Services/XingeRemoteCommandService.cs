@@ -222,7 +222,10 @@ public sealed class XingeRemoteCommandService
                         }
                         else if (IsDispatchPaused)
                         {
-                            await PauseDayAsync(http, config, log, ct).ConfigureAwait(false);
+                            // 服务端可以手动恢复。这里不再次上报暂停，等下一次注册读到未暂停后再收这条剧。
+                            replay = message;
+                            log?.Invoke("今日不再接收仍在生效，这条派单先留着，等服务端恢复后再接收。");
+                            await Task.Delay(config.PollInterval, ct).ConfigureAwait(false);
                         }
                         else
                         {
