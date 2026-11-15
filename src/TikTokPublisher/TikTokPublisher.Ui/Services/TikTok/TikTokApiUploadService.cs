@@ -27,6 +27,8 @@ public static partial class TikTokApiUploadService
     internal const int TosPartAttempts = 7;
     /// <summary>图片分片初始化在同一地址上先试两次，仍是传输中断再换下一个地址。</summary>
     internal const int ImageInitAttemptsPerHost = 2;
+    /// <summary>提交已成功但没有视频 ID 或时长时，用同一张票据再提交的次数。</summary>
+    internal const int CommitMetadataRetries = 3;
     private const int MaxPartsInFlight = 12;
     private const string ApiVersion = "2020-11-19";
     private const string ImageApiVersion = "2018-08-01";
@@ -1136,8 +1138,32 @@ public static partial class TikTokApiUploadService
     private static bool ShouldRetry(Exception ex, CancellationToken ct) =>
         !ct.IsCancellationRequested && (IsTransientFailure(ex) || ex is TaskCanceledException);
 
-    private static bool ShouldRetryEpisode(Exception ex) =>
+    internal static bool ShouldRetryEpisode(Exception ex) =>
         IsTransientFailure(ex) || ex is TaskCanceledException or TimeoutException;
+
+    /// <summary>同一张票据再提交的间隔：3 秒、6 秒、12 秒。</summary>
+    internal static TimeSpan CommitMetadataRetryDelay(int attempt)
+    {
+        var seconds = 3d * Math.Pow(2, Math.Max(0, attempt - 1));
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    /// <summary>提交结果缺哪一项。两项都有时返回空字符串。</summary>
+    internal static string DescribeMissingCommitFields(string? vid, double durationMs)
+    {
+        var missingId = string.IsNullOrEmpty(vid);
+        var missingDuration = durationMs <= 0;
+        if (missingId && missingDuration)
+            return "视频 ID 或时长";
+        if (missingId)
+            return "视频 ID";
+        if (missingDuration)
+            return "时长";
+        return "";
+    }
+
+    internal static Exception IncompleteCommitFailure(string missing) =>
+        new TransientUploadException($"CommitUploadInner 没有返回{missing}。");
 
     /// <summary>封面、证明材料和分镜图的分片初始化与正片分片使用同一套次数和间隔。</summary>
     internal static int ResolveMultipartInitAttempts(bool isVideo, int configuredRetries) =>
@@ -1837,14 +1863,36 @@ public static partial class TikTokApiUploadService
             Functions = new object[] { new { name = "Snapshot", input = new { SnapshotTime = 0 } } },
         });
         var commitUri = new Uri($"{vodBase}/?Action=CommitUploadInner&Version={ApiVersion}&SpaceName={SpaceName}");
-        using var commitDocument = await ExecuteWithRetryAsync(
-            retries,
-            $"第 {episode} 集提交视频",
-            log,
-            async token => await SendVodAsync(
-                http, HttpMethod.Post, commitUri, await sts.GetAsync(token), commitBody, token),
-            ct);
-        var committed = commitDocument.RootElement.GetProperty("Result").GetProperty("Results")[0];
+        var missing = "视频 ID 或时长";
+        for (var attempt = 0; ; attempt++)
+        {
+            using var commitDocument = await ExecuteWithRetryAsync(
+                retries,
+                $"第 {episode} 集提交视频",
+                log,
+                async token => await SendVodAsync(
+                    http, HttpMethod.Post, commitUri, await sts.GetAsync(token), commitBody, token),
+                ct);
+            var committed = commitDocument.RootElement.GetProperty("Result").GetProperty("Results")[0];
+            var read = ReadCommitResult(committed);
+            if (read.Missing.Length == 0)
+                return new CommittedVideo(read.Vid, read.DurationMs, read.PosterUri);
+
+            missing = read.Missing;
+            if (attempt >= CommitMetadataRetries)
+                throw IncompleteCommitFailure(missing);
+
+            var delay = CommitMetadataRetryDelay(attempt + 1);
+            log?.Invoke(
+                $"接口直传：第 {episode} 集提交结果缺少{missing}，{delay.TotalSeconds:0} 秒后用同一张票据再提交（{attempt + 1}/{CommitMetadataRetries}）。");
+            await Task.Delay(delay, ct);
+        }
+    }
+
+    internal readonly record struct CommitReadResult(string Vid, double DurationMs, string PosterUri, string Missing);
+
+    internal static CommitReadResult ReadCommitResult(JsonElement committed)
+    {
         var vid = ReadString(committed, "Vid");
         var poster = ReadString(committed, "PosterUri");
         var duration = committed.TryGetProperty("VideoMeta", out var meta) &&
@@ -1852,9 +1900,7 @@ public static partial class TikTokApiUploadService
                        durationElement.TryGetDouble(out var seconds)
             ? seconds * 1000
             : 0;
-        if (vid.Length == 0 || duration <= 0)
-            throw new InvalidOperationException("CommitUploadInner 没有返回视频 ID 或时长。");
-        return new CommittedVideo(vid, duration, poster);
+        return new CommitReadResult(vid, duration, poster, DescribeMissingCommitFields(vid, duration));
     }
 
     private static async Task<int> ReadChunkAsync(Stream stream, Memory<byte> buffer, CancellationToken ct)

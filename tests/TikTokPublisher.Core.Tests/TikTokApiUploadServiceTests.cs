@@ -617,4 +617,38 @@ public sealed class TikTokApiUploadServiceTests
                 "The SSL connection could not be established, see inner exception. " +
                 "The handshake failed because the connection was closed.");
     }
+
+    [Fact]
+    public void Commit_without_id_or_duration_is_retried_on_the_same_ticket_then_reuploaded()
+    {
+        TikTokApiUploadService.CommitMetadataRetries.Should().Be(3);
+        TikTokApiUploadService.CommitMetadataRetryDelay(1).TotalSeconds.Should().Be(3);
+        TikTokApiUploadService.CommitMetadataRetryDelay(2).TotalSeconds.Should().Be(6);
+        TikTokApiUploadService.CommitMetadataRetryDelay(3).TotalSeconds.Should().Be(12);
+
+        using var complete = JsonDocument.Parse("""
+            {"Vid":"v0200g","PosterUri":"tos-poster","VideoMeta":{"Duration":61.5}}
+            """);
+        var ready = TikTokApiUploadService.ReadCommitResult(complete.RootElement);
+        ready.Missing.Should().BeEmpty();
+        ready.Vid.Should().Be("v0200g");
+        ready.DurationMs.Should().Be(61500);
+        ready.PosterUri.Should().Be("tos-poster");
+
+        using var noDuration = JsonDocument.Parse("""
+            {"Vid":"v0200g","PosterUri":"tos-poster","VideoMeta":{"Duration":0}}
+            """);
+        TikTokApiUploadService.ReadCommitResult(noDuration.RootElement).Missing.Should().Be("时长");
+
+        using var noId = JsonDocument.Parse("""{"Vid":"","VideoMeta":{"Duration":12}}""");
+        TikTokApiUploadService.ReadCommitResult(noId.RootElement).Missing.Should().Be("视频 ID");
+
+        using var neither = JsonDocument.Parse("""{"VideoMeta":{}}""");
+        TikTokApiUploadService.ReadCommitResult(neither.RootElement).Missing.Should().Be("视频 ID 或时长");
+
+        var incomplete = TikTokApiUploadService.IncompleteCommitFailure("时长");
+        incomplete.Message.Should().Be("CommitUploadInner 没有返回时长。");
+        TikTokApiUploadService.ShouldRetryEpisode(incomplete).Should().BeTrue();
+        TikTokApiUploadService.ShouldRetryEpisode(new InvalidOperationException("TOS 上传失败")).Should().BeFalse();
+    }
 }
