@@ -80,8 +80,8 @@ public static class KuaishouFormChoices
 
     public static IReadOnlyList<KuaishouFormChoice> UploadTransports { get; } =
     [
-        new("页面上传（Playwright）", "playwright"),
         new("接口上传", "api"),
+        new("页面上传（Playwright）", "playwright"),
     ];
 
     public static IReadOnlyList<KuaishouFormChoice> BrowserModes { get; } =

@@ -9,18 +9,19 @@ namespace PlatformPublisher.Kuaishou.Tests;
 public sealed class KuaishouApiUploadTests
 {
     [Theory]
-    [InlineData(null)]
-    [InlineData("")]
     [InlineData("playwright")]
     [InlineData("browser")]
-    public void IsApi_is_false_unless_the_value_is_api(string? value) =>
+    public void IsApi_is_false_for_browser(string? value) =>
         Assert.False(KuaishouUploadTransport.IsApi(value));
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
     [InlineData("api")]
     [InlineData("API")]
     [InlineData(" api ")]
-    public void IsApi_accepts_only_api(string value) =>
+    public void IsApi_defaults_to_api(string? value) =>
         Assert.True(KuaishouUploadTransport.IsApi(value));
 
     [Fact]
