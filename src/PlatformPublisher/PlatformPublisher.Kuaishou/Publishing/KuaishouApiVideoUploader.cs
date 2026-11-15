@@ -13,6 +13,8 @@ public sealed class KuaishouApiVideoUploader
 
     public readonly record struct UploadTicket(string Endpoint, string UploadToken, string UploadTaskId);
 
+    public readonly record struct ResumePoint(int NextFragment, long Offset);
+
     public async Task UploadAsync(
         KuaishouApiSession session,
         string seriesId,
@@ -25,6 +27,11 @@ public sealed class KuaishouApiVideoUploader
         var episodes = await ReadEpisodesAsync(session, seriesId, cancellationToken);
         if (episodes.Count != videoPaths.Count)
             throw new InvalidOperationException($"短剧 {seriesId} 有 {episodes.Count} 集，本地有 {videoPaths.Count} 集，已停止上传。");
+        var ready = episodes.Count(episode => episode.Ready);
+        if (ready > 0)
+            progress?.Report(ready == episodes.Count
+                ? $"{label}：草稿 {seriesId} 的 {ready} 集视频都已在线上。"
+                : $"{label}：草稿 {seriesId} 已有 {ready} 集视频，其余从断点续传。");
         for (var index = 0; index < videoPaths.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -42,28 +49,33 @@ public sealed class KuaishouApiVideoUploader
                 throw new FileNotFoundException($"缺少第 {index + 1} 集视频。", path);
             var ticket = await StartAsync(session, episode.Id, cancellationToken);
             var length = new FileInfo(path).Length;
-            var uploaded = await ResumeIndexAsync(session, ticket, cancellationToken);
+            var point = await ResumePointAsync(session, ticket, cancellationToken);
             var total = ChunkCount(length);
-            if (uploaded < 0 || uploaded > total)
-                throw new InvalidOperationException("快手视频断点无效。");
-            progress?.Report($"{label}：第 {index + 1}/{videoPaths.Count} 集开始分片上传。");
+            if (point.NextFragment == total && point.Offset > length)
+                point = point with { Offset = length };
+            if (point.NextFragment > total || point.Offset > length || (point.NextFragment < total && point.Offset >= length && length > 0))
+                throw new InvalidOperationException($"快手视频断点无效：fragment_index={point.NextFragment - 1}。");
+            progress?.Report(point.NextFragment > 0
+                ? $"{label}：第 {index + 1}/{videoPaths.Count} 集从第 {point.NextFragment + 1}/{total} 片续传。"
+                : $"{label}：第 {index + 1}/{videoPaths.Count} 集开始分片上传。");
             await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            if (uploaded > 0)
-                stream.Seek((long)uploaded * ChunkBytes, SeekOrigin.Begin);
+            if (point.Offset > 0)
+                stream.Seek(point.Offset, SeekOrigin.Begin);
             var buffer = new byte[ChunkBytes];
-            for (var fragment = uploaded; fragment < total; fragment++)
+            var offset = point.Offset;
+            for (var fragment = point.NextFragment; fragment < total; fragment++)
             {
                 var read = await ReadChunkAsync(stream, buffer, cancellationToken);
                 if (read <= 0)
                     throw new InvalidOperationException($"第 {index + 1} 集视频在第 {fragment + 1} 片提前结束。");
                 var body = read == buffer.Length ? buffer : buffer[..read];
-                var start = (long)fragment * ChunkBytes;
-                var range = $"bytes {start}-{start + body.Length - 1}/{length}";
+                var range = $"bytes {offset}-{offset + body.Length - 1}/{length}";
                 await session.PostBytesAsync(
                     FragmentUrl(ticket.Endpoint, ticket.UploadToken, fragment).AbsoluteUri,
                     body,
                     cancellationToken,
                     range);
+                offset += body.Length;
                 if (fragment == total - 1 || fragment % 10 == 0)
                     progress?.Report($"{label}：第 {index + 1} 集分片 {fragment + 1}/{total}。");
             }
@@ -127,18 +139,23 @@ public sealed class KuaishouApiVideoUploader
         if (string.IsNullOrWhiteSpace(json))
             return 0;
         using var document = JsonDocument.Parse(json);
-        foreach (var name in new[] { "fragment_index", "fragmentIndex" })
-        {
-            if (document.RootElement.TryGetProperty(name, out var value) && value.TryGetInt32(out var index))
-                return index;
-            if (document.RootElement.TryGetProperty("data", out var data) &&
-                data.ValueKind == JsonValueKind.Object &&
-                data.TryGetProperty(name, out var nested) &&
-                nested.TryGetInt32(out index))
-                return index;
-        }
+        return ReadInt64(document.RootElement, "fragment_index", "fragmentIndex") is long index
+            ? (int)index
+            : 0;
+    }
 
-        return 0;
+    public static ResumePoint ReadResumePoint(string json, int chunkBytes)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new ResumePoint(0, 0);
+        using var document = JsonDocument.Parse(json);
+        var index = ReadInt64(document.RootElement, "fragment_index", "fragmentIndex");
+        var bytes = ReadInt64(document.RootElement, "fragment_index_bytes", "fragmentIndexBytes");
+        if (index is null or < 0)
+            return new ResumePoint(0, 0);
+        var next = (int)index.Value + 1;
+        var offset = bytes is > 0 ? bytes.Value : (long)next * Math.Max(1, chunkBytes);
+        return new ResumePoint(next, offset);
     }
 
     public static bool EpisodeReady(JsonElement row)
@@ -176,16 +193,16 @@ public sealed class KuaishouApiVideoUploader
         return ReadTicket(response);
     }
 
-    private async Task<int> ResumeIndexAsync(KuaishouApiSession session, UploadTicket ticket, CancellationToken cancellationToken)
+    private async Task<ResumePoint> ResumePointAsync(KuaishouApiSession session, UploadTicket ticket, CancellationToken cancellationToken)
     {
         try
         {
             var response = await session.GetAsync(ResumeUrl(ticket.Endpoint, ticket.UploadToken).AbsoluteUri, cancellationToken);
-            return ReadFragmentIndex(response);
+            return ReadResumePoint(response, ChunkBytes);
         }
         catch (InvalidOperationException ex) when (!ex.Message.Contains("登录", StringComparison.Ordinal))
         {
-            return 0;
+            return new ResumePoint(0, 0);
         }
     }
 
@@ -217,18 +234,62 @@ public sealed class KuaishouApiVideoUploader
     {
         var detail = await session.PostJsonAsync(DetailUrl, "{\"miniSeriesId\":" + seriesId + "}", cancellationToken);
         using var document = JsonDocument.Parse(detail);
-        var rows = new List<EpisodeSlot>();
+        var rows = new List<(int Order, int Index, EpisodeSlot Episode)>();
+        var index = 0;
         foreach (var row in Enumerate(document.RootElement))
         {
             var id = FirstString(row, "episodeId");
             if (id.Length == 0)
+            {
+                index++;
                 continue;
-            rows.Add(new EpisodeSlot(id, EpisodeReady(row)));
+            }
+
+            var order = row.TryGetProperty("orderNo", out var orderNo) && orderNo.TryGetInt32(out var value)
+                ? value
+                : index;
+            rows.Add((order, index, new EpisodeSlot(id, EpisodeReady(row))));
+            index++;
         }
 
         if (rows.Count == 0)
             throw new InvalidOperationException("快手返回了无效的剧集列表。");
-        return rows;
+        return rows
+            .OrderBy(row => row.Order)
+            .ThenBy(row => row.Index)
+            .Select(row => row.Episode)
+            .ToArray();
+    }
+
+    private static long? ReadInt64(JsonElement root, params string[] names)
+    {
+        if (TryReadInt64(root, names, out var value))
+            return value;
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("data", out var data) &&
+            data.ValueKind == JsonValueKind.Object &&
+            TryReadInt64(data, names, out value))
+            return value;
+        return null;
+    }
+
+    private static bool TryReadInt64(JsonElement element, string[] names, out long value)
+    {
+        value = 0;
+        if (element.ValueKind != JsonValueKind.Object)
+            return false;
+        foreach (var name in names)
+        {
+            if (!element.TryGetProperty(name, out var node))
+                continue;
+            if (node.TryGetInt64(out value))
+                return true;
+            if (node.ValueKind == JsonValueKind.String &&
+                long.TryParse(node.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+                return true;
+        }
+
+        return false;
     }
 
     private static IEnumerable<JsonElement> Enumerate(JsonElement root)
