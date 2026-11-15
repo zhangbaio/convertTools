@@ -9,7 +9,7 @@ using TikTokPublisher.Core.Services;
 namespace TikTokPublisher.Core.Publishing;
 
 /// <summary>
-/// 旧账号里的「AI识别语言」不再探测新剧名。海外剧落到英语，本土剧落到中文。
+/// 源语言选「AI识别语言」时，上传前按新剧名识别成具体语种。手选的语种保持不变。
 /// </summary>
 public static class TikTokNewTitleLanguageService
 {
@@ -29,12 +29,10 @@ public static class TikTokNewTitleLanguageService
         if (!IsAuto(account.TiktokSourceLanguage))
             return;
 
-        options.SourceLanguage = TikTokAccountProfile.NormalizeStoredSourceLanguage(
-            account.TiktokSourceLanguage,
-            account.TiktokDramaMarket);
+        options.SourceLanguage = TikTokNewTitleLanguageService.Auto;
     }
 
-    public static Task ApplyAsync(
+    public static async Task ApplyAsync(
         TikTokPublishOptions options,
         TikTokAccountProfile account,
         string? projectDir,
@@ -42,21 +40,29 @@ public static class TikTokNewTitleLanguageService
         Action<string>? log,
         CancellationToken ct)
     {
-        ApplyKnown(options, account, projectDir);
-        if (IsAuto(account.TiktokSourceLanguage))
-        {
-            log?.Invoke(string.Equals(options.SourceLanguage, "en", StringComparison.OrdinalIgnoreCase)
-                ? "源语言已不再自动识别，海外剧按英语上传。"
-                : "源语言已不再自动识别，本土剧按中文上传。");
-        }
+        if (!IsAuto(account.TiktokSourceLanguage))
+            return;
 
-        return Task.CompletedTask;
+        options.SourceLanguage = await ResolveAsync(
+            fallbackTitle,
+            projectDir,
+            settings: null,
+            log,
+            ct).ConfigureAwait(false);
+        if (options.IsAiDrama &&
+            string.Equals(options.SourceLanguage, "zh", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(options.ContentCreationType, "remake", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "TikTok 发布配置不合理：仅源语言为非中文的短剧可选择「成片重制」。" +
+                "请将源语言改为非中文，或将内容创作类型改为「原创/小说改编」。");
+        }
     }
 
     public static async Task<string> ResolveAsync(
         string? newTitle,
         string? projectDir,
-        ClientSettings settings,
+        ClientSettings? settings,
         Action<string>? log,
         CancellationToken ct)
     {
@@ -90,7 +96,7 @@ public static class TikTokNewTitleLanguageService
 
         try
         {
-            var detected = await AskLatinLanguageAsync(title, settings, ct);
+            var detected = await AskLatinLanguageAsync(title, settings ?? ClientSettingsStore.Load(), ct);
             if (LatinCodes.Contains(detected, StringComparer.OrdinalIgnoreCase))
             {
                 SaveCache(projectDir, title, detected);

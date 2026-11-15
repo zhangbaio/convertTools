@@ -112,11 +112,13 @@ public sealed class TikTokAccountProfile
     public static bool RewriteFollowsImportedLanguage(string? dramaMarket) =>
         NormalizeDramaMarket(dramaMarket) == DramaMarketOverseas;
 
-    /// <summary>已取消的「AI识别语言」按剧集类型落到具体语种：海外剧英语，本土剧中文。手选的语种保持不变。</summary>
+    /// <summary>「AI识别语言」保留为 auto，上传前再按新剧名识别。没选过源语言时，海外剧为英语，本土剧为中文。</summary>
     public static string NormalizeStoredSourceLanguage(string? language, string? dramaMarket)
     {
         var text = (language ?? "").Trim();
-        if (text.Length == 0 || text.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        if (text.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            return "auto";
+        if (text.Length == 0)
             return RewriteFollowsImportedLanguage(dramaMarket) ? "en" : "zh";
         return text;
     }

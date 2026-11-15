@@ -75,30 +75,56 @@ public sealed class TikTokNewTitleLanguageServiceTests
         }
     }
 
-    [Theory]
-    [InlineData("local", "zh")]
-    [InlineData("overseas", "en")]
-    public void ApplyKnown_replaces_removed_auto_language_with_the_market_default(string market, string expected)
+    [Fact]
+    public void ApplyKnown_keeps_auto_until_upload_detects_the_title()
     {
-        var options = new TikTokPublishOptions();
+        var options = new TikTokPublishOptions { SourceLanguage = "zh" };
         TikTokNewTitleLanguageService.ApplyKnown(
             options,
             new TikTokAccountProfile
             {
                 TiktokSourceLanguage = TikTokNewTitleLanguageService.Auto,
-                TiktokDramaMarket = market,
+                TiktokDramaMarket = "overseas",
             },
             projectDir: null);
 
-        options.SourceLanguage.Should().Be(expected);
+        options.SourceLanguage.Should().Be("auto");
     }
 
     [Fact]
-    public void Stored_source_language_keeps_a_chosen_language_and_maps_auto_by_market()
+    public async Task ApplyAsync_detects_a_chinese_title_and_keeps_a_hand_picked_language()
     {
-        TikTokAccountProfile.NormalizeStoredSourceLanguage("auto", "overseas").Should().Be("en");
-        TikTokAccountProfile.NormalizeStoredSourceLanguage("auto", "local").Should().Be("zh");
+        var detected = new TikTokPublishOptions { SourceLanguage = "auto", IsAiDrama = true };
+        var logs = new List<string>();
+        await TikTokNewTitleLanguageService.ApplyAsync(
+            detected,
+            new TikTokAccountProfile { TiktokSourceLanguage = "auto", TiktokDramaMarket = "local" },
+            projectDir: null,
+            "我的保安老公是隐世高人",
+            logs.Add,
+            CancellationToken.None);
+
+        detected.SourceLanguage.Should().Be("zh");
+        logs.Should().Contain(line => line.Contains("识别为中文", StringComparison.Ordinal));
+
+        var chosen = new TikTokPublishOptions { SourceLanguage = "id" };
+        await TikTokNewTitleLanguageService.ApplyAsync(
+            chosen,
+            new TikTokAccountProfile { TiktokSourceLanguage = "id" },
+            projectDir: null,
+            "我的保安老公是隐世高人",
+            null,
+            CancellationToken.None);
+        chosen.SourceLanguage.Should().Be("id");
+    }
+
+    [Fact]
+    public void Stored_source_language_keeps_auto_and_a_chosen_language()
+    {
+        TikTokAccountProfile.NormalizeStoredSourceLanguage("auto", "overseas").Should().Be("auto");
+        TikTokAccountProfile.NormalizeStoredSourceLanguage("auto", "local").Should().Be("auto");
         TikTokAccountProfile.NormalizeStoredSourceLanguage("", "overseas").Should().Be("en");
+        TikTokAccountProfile.NormalizeStoredSourceLanguage("", "local").Should().Be("zh");
         TikTokAccountProfile.NormalizeStoredSourceLanguage("zh", "overseas").Should().Be("zh");
         TikTokAccountProfile.NormalizeStoredSourceLanguage("id", "local").Should().Be("id");
         TikTokAccountProfile.RewriteFollowsImportedLanguage("overseas").Should().BeTrue();
