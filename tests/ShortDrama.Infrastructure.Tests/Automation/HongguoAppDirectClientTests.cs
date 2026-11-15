@@ -301,11 +301,12 @@ public sealed class HongguoAppDirectClientTests
     public async Task DesktopPlanPlaybackUsesVideoTabModel()
     {
         var urls = new List<string>();
+        var headers = new List<string>();
         const string videoId = "7600111222333444555";
         var model = """
             {"code":0,"message":"success","data":{"video_model":"{\"video_list\":[{\"main_url\":\"https://v.fqnovelvod.com/a\",\"codec_type\":\"bytevc1\",\"video_meta\":{\"definition\":\"1080p\",\"size\":12}}]}"}}
             """;
-        using var http = new HttpClient(Script(urls, _ => Json(model)));
+        using var http = new HttpClient(Script(urls, _ => Json(model), headers));
         var client = new HongguoAppDirectClient(http);
         var playback = await client.GetVideoPlaybackAsync(
             HongguoHighCrypto.EncodeEpisodeId("1234567890123456", 1, videoId),
@@ -313,15 +314,21 @@ public sealed class HongguoAppDirectClientTests
             CancellationToken.None,
             "2855907370751180",
             "2855907370755276",
+            streamLink1: false,
+            streamLink2: true,
             plan: "2");
 
         Assert.StartsWith("https://v.fqnovelvod.com/a", playback.Url, StringComparison.Ordinal);
-        Assert.Contains(urls, url => url.Contains("https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/video_model/v1/?", StringComparison.Ordinal));
-        Assert.Contains(urls, url => url.Contains("version_name=7.4.2.32", StringComparison.Ordinal));
-        Assert.Contains(urls, url => url.Contains("device_level=3", StringComparison.Ordinal));
-        Assert.Contains(urls, url => url.Contains("video_platform=1024", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/?", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("version_name=7.3.9.32", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("version_code=73932", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("device_level=1", StringComparison.Ordinal));
+        Assert.Contains(urls, url => url.Contains("video_id_type=0", StringComparison.Ordinal));
         Assert.Contains(urls, url => url.Contains("video_id=" + videoId, StringComparison.Ordinal));
-        Assert.DoesNotContain(urls, url => url.Contains("/multi_video_model/", StringComparison.Ordinal));
+        Assert.Contains(headers, name => name == "x-khronos");
+        Assert.Contains(headers, name => name == "x-ladon");
+        Assert.Contains(headers, name => name == "x-argus");
+        Assert.DoesNotContain(headers, name => name is "x-gorgon" or "x-helios" or "x-medusa");
     }
 
     [Fact]
@@ -339,6 +346,8 @@ public sealed class HongguoAppDirectClientTests
             CancellationToken.None,
             "2855907370751180",
             "2855907370755276",
+            streamLink1: false,
+            streamLink2: true,
             plan: "2");
 
         Assert.Equal("https://v.fqnovelvod.com/720", playback.Url);
@@ -360,6 +369,8 @@ public sealed class HongguoAppDirectClientTests
             CancellationToken.None,
             "2855907370751180",
             "2855907370755276",
+            streamLink1: false,
+            streamLink2: true,
             plan: "2"));
 
         Assert.Contains("没有 FFmpeg 可播放的下载地址", error.Message, StringComparison.Ordinal);
@@ -581,8 +592,8 @@ public sealed class HongguoAppDirectClientTests
         return true;
     }
 
-    private static HttpMessageHandler Script(List<string> urls, Func<HttpRequestMessage, HttpResponseMessage> respond) =>
-        new RecordingHandler(urls, respond);
+    private static HttpMessageHandler Script(List<string> urls, Func<HttpRequestMessage, HttpResponseMessage> respond, List<string>? headers = null) =>
+        new RecordingHandler(urls, respond, headers);
 
     private static HttpResponseMessage Json(string body) =>
         new(HttpStatusCode.OK)
@@ -593,17 +604,25 @@ public sealed class HongguoAppDirectClientTests
     private sealed class RecordingHandler : HttpMessageHandler
     {
         private readonly List<string> _urls;
+        private readonly List<string>? _headers;
         private readonly Func<HttpRequestMessage, HttpResponseMessage> _respond;
 
-        internal RecordingHandler(List<string> urls, Func<HttpRequestMessage, HttpResponseMessage> respond)
+        internal RecordingHandler(List<string> urls, Func<HttpRequestMessage, HttpResponseMessage> respond, List<string>? headers = null)
         {
             _urls = urls;
+            _headers = headers;
             _respond = respond;
         }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             _urls.Add(request.RequestUri?.AbsoluteUri ?? "");
+            if (_headers is not null)
+            {
+                foreach (var header in request.Headers)
+                    _headers.Add(header.Key);
+            }
+
             return Task.FromResult(_respond(request));
         }
     }
