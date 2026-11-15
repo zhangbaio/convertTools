@@ -2794,6 +2794,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 if (request.Poster && !preserved.Contains("poster-rename"))
                 {
                     await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Running, "正在生成快手海报");
+                    var posterDirectories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+                    if (!KuaishouPosterService.HasSourcePoster(posterDirectories.SourceDirectory, posterDirectories.WorkflowDirectory))
+                    {
+                        AppendActivityLog("海报原图缺失，开始补下海报，不重新下载视频。", projectName);
+                        await _dramaDownloader.DownloadMissingPosterAsync(
+                            posterDirectories.SourceDirectory,
+                            projectName,
+                            new Progress<string>(message => AppendActivityLog(message, projectName)),
+                            cancellationToken);
+                        SyncKuaishouWorkflow(posterDirectories.SourceDirectory, projectName);
+                    }
                     var imageSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
                     await new KuaishouPosterService().PrepareAsync(
                         projectDirectory,

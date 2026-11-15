@@ -158,6 +158,19 @@ public sealed class KuaishouPosterService
         return normalized is "ofox_image2" or "openai_image2" ? "1536x1024" : "2816x1584";
     }
 
+    public static bool HasSourcePoster(string sourceDirectory, string workflowDirectory)
+    {
+        try
+        {
+            FindSourcePoster(sourceDirectory, workflowDirectory);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+    }
+
     public static string FindSourcePoster(string sourceDirectory, string workflowDirectory)
     {
         foreach (var directory in DistinctDirectories(sourceDirectory, workflowDirectory))

@@ -37,5 +37,28 @@ public sealed class KuaishouPrepareStateStoreTests
         }
     }
 
+    [Fact]
+    public async Task Concurrent_marks_keep_the_downloaded_step()
+    {
+        var workflow = Path.Combine(Path.GetTempPath(), "ks-prepare-lock-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workflow);
+        try
+        {
+            var tasks = Enumerable.Range(0, 8).Select(index => Task.Run(() =>
+            {
+                KuaishouPrepareStateStore.Mark(workflow, enterprise: false, index % 2 == 0 ? "download" : "rewrite_info");
+                _ = KuaishouPrepareStateStore.ReadSteps(workflow, enterprise: false);
+            })).ToArray();
+            await Task.WhenAll(tasks);
+            var steps = KuaishouPrepareStateStore.ReadSteps(workflow, enterprise: false);
+            Assert.Contains("download", steps);
+            Assert.Contains("rewrite_info", steps);
+        }
+        finally
+        {
+            Directory.Delete(workflow, true);
+        }
+    }
+
     private static string Json(string path) => "\"" + path.Replace("\\", "\\\\") + "\"";
 }
