@@ -178,10 +178,12 @@ public sealed class KuaishouApiSession : IDisposable, IKuaishouKdjGateway
         return await SendAsync(HttpMethod.Post, url, form, cancellationToken);
     }
 
-    public Task<string> PostBytesAsync(string url, byte[] body, CancellationToken cancellationToken)
+    public Task<string> PostBytesAsync(string url, byte[] body, CancellationToken cancellationToken, string? contentRange = null)
     {
         var content = new ByteArrayContent(body);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        if (!string.IsNullOrWhiteSpace(contentRange))
+            content.Headers.TryAddWithoutValidation("Content-Range", contentRange);
         return SendAsync(HttpMethod.Post, url, content, cancellationToken);
     }
 

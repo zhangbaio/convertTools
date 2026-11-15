@@ -80,22 +80,16 @@ public sealed class KuaishouApiUploadTests
     }
 
     [Fact]
-    public void Start_body_uses_numeric_ids_and_file_size()
+    public void Start_body_sends_only_the_episode_id()
     {
-        var path = Path.Combine(Path.GetTempPath(), "kuaishou-video-" + Guid.NewGuid().ToString("n") + ".mp4");
-        File.WriteAllBytes(path, new byte[11]);
-        try
-        {
-            using var document = JsonDocument.Parse(KuaishouApiVideoUploader.StartBody("42", "7", path));
-            Assert.Equal(42, document.RootElement.GetProperty("miniSeriesId").GetInt64());
-            Assert.Equal(7, document.RootElement.GetProperty("episodeId").GetInt64());
-            Assert.Equal(Path.GetFileName(path), document.RootElement.GetProperty("fileName").GetString());
-            Assert.Equal(11, document.RootElement.GetProperty("fileSize").GetInt64());
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        using var document = JsonDocument.Parse(KuaishouApiVideoUploader.StartBody("3123333560"));
+        Assert.Equal(3123333560, document.RootElement.GetProperty("episodeId").GetInt64());
+        Assert.Single(document.RootElement.EnumerateObject());
+        using var finish = JsonDocument.Parse(KuaishouApiVideoUploader.FinishBody(
+            new KuaishouApiVideoUploader.UploadTicket("upload.kuaishouzt.com", "tok", "964861418")));
+        Assert.Equal("tok", finish.RootElement.GetProperty("uploadToken").GetString());
+        Assert.Equal("964861418", finish.RootElement.GetProperty("uploadTaskId").GetString());
+        Assert.True(finish.RootElement.GetProperty("success").GetBoolean());
     }
 
     [Fact]
@@ -111,6 +105,11 @@ public sealed class KuaishouApiUploadTests
             """{"result":1,"data":{"uploadToken":"t","uploadTaskId":"task"}}"""));
         Assert.Throws<InvalidOperationException>(() => KuaishouApiVideoUploader.ReadTicket(
             """{"endpoint":"upload.kuaishouzt.com","uploadToken":"t"}"""));
+        var listed = KuaishouApiVideoUploader.ReadTicket("""
+            {"result":1,"data":{"httpEndpointList":["upload.kuaishouzt.com"],"uploadToken":"tok","uploadTaskId":"964861418"}}
+            """);
+        Assert.Equal("upload.kuaishouzt.com", listed.Endpoint);
+        Assert.Equal("964861418", listed.UploadTaskId);
     }
 
     [Fact]
@@ -128,8 +127,12 @@ public sealed class KuaishouApiUploadTests
         using var uploaded = JsonDocument.Parse("""{"videoId":"v1","videoUploadStatus":1}""");
         using var success = JsonDocument.Parse("""{"videoUploadStatus":"SUCCESS"}""");
         using var failed = JsonDocument.Parse("""{"videoUploadStatus":3}""");
+        using var waiting = JsonDocument.Parse("""{"videoStatus":0,"previewVideoPlayUrl":null}""");
+        using var uploadedStatus = JsonDocument.Parse("""{"videoStatus":1}""");
         Assert.True(KuaishouApiVideoUploader.EpisodeReady(uploaded.RootElement));
         Assert.True(KuaishouApiVideoUploader.EpisodeReady(success.RootElement));
+        Assert.False(KuaishouApiVideoUploader.EpisodeReady(waiting.RootElement));
+        Assert.True(KuaishouApiVideoUploader.EpisodeReady(uploadedStatus.RootElement));
         var error = Assert.Throws<InvalidOperationException>(() => KuaishouApiVideoUploader.EpisodeReady(failed.RootElement));
         Assert.Equal("快手确认分集视频状态失败。", error.Message);
     }

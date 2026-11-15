@@ -5,7 +5,7 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 
 public sealed class KuaishouApiVideoUploader
 {
-    public const int ChunkBytes = 4 * 1024 * 1024;
+    public const int ChunkBytes = 5 * 1024 * 1024;
     public const string StartUrl = "https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/episode/videoUpload/start";
     public const string FinishUrl = "https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/episode/videoUpload/finish";
     public const string DetailUrl = "https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/episode/videoUpload/detail";
@@ -40,9 +40,10 @@ public sealed class KuaishouApiVideoUploader
             var path = videoPaths[index];
             if (!File.Exists(path))
                 throw new FileNotFoundException($"缺少第 {index + 1} 集视频。", path);
-            var ticket = await StartAsync(session, seriesId, episode.Id, path, cancellationToken);
+            var ticket = await StartAsync(session, episode.Id, cancellationToken);
+            var length = new FileInfo(path).Length;
             var uploaded = await ResumeIndexAsync(session, ticket, cancellationToken);
-            var total = ChunkCount(new FileInfo(path).Length);
+            var total = ChunkCount(length);
             if (uploaded < 0 || uploaded > total)
                 throw new InvalidOperationException("快手视频断点无效。");
             progress?.Report($"{label}：第 {index + 1}/{videoPaths.Count} 集开始分片上传。");
@@ -56,13 +57,19 @@ public sealed class KuaishouApiVideoUploader
                 if (read <= 0)
                     throw new InvalidOperationException($"第 {index + 1} 集视频在第 {fragment + 1} 片提前结束。");
                 var body = read == buffer.Length ? buffer : buffer[..read];
-                await session.PostBytesAsync(FragmentUrl(ticket.Endpoint, ticket.UploadToken, fragment).AbsoluteUri, body, cancellationToken);
+                var start = (long)fragment * ChunkBytes;
+                var range = $"bytes {start}-{start + body.Length - 1}/{length}";
+                await session.PostBytesAsync(
+                    FragmentUrl(ticket.Endpoint, ticket.UploadToken, fragment).AbsoluteUri,
+                    body,
+                    cancellationToken,
+                    range);
                 if (fragment == total - 1 || fragment % 10 == 0)
                     progress?.Report($"{label}：第 {index + 1} 集分片 {fragment + 1}/{total}。");
             }
 
             await session.PostBytesAsync(CompleteUrl(ticket.Endpoint, ticket.UploadToken, total).AbsoluteUri, [], cancellationToken);
-            await session.PostJsonAsync(FinishUrl, FinishBody(seriesId, episode.Id, ticket), cancellationToken);
+            await session.PostJsonAsync(FinishUrl, FinishBody(ticket), cancellationToken);
             await WaitUntilReadyAsync(session, seriesId, episode.Id, progress, index + 1, cancellationToken);
             if (afterEpisode is not null)
                 await afterEpisode(index, cancellationToken);
@@ -71,29 +78,21 @@ public sealed class KuaishouApiVideoUploader
 
     public async Task SubmitAsync(KuaishouApiSession session, string seriesId, CancellationToken cancellationToken)
     {
-        var id = long.Parse(seriesId, CultureInfo.InvariantCulture);
-        await session.PostJsonAsync(SubmitUrl, "{\"miniSeriesId\":" + id.ToString(CultureInfo.InvariantCulture) + "}", cancellationToken);
+        await session.PostJsonAsync(
+            SubmitUrl,
+            JsonSerializer.Serialize(new { miniSeriesId = seriesId.Trim() }),
+            cancellationToken);
     }
 
-    public static string StartBody(string seriesId, string episodeId, string path)
-    {
-        var size = new FileInfo(path).Length;
-        return JsonSerializer.Serialize(new
-        {
-            miniSeriesId = long.Parse(seriesId, CultureInfo.InvariantCulture),
-            episodeId = long.Parse(episodeId, CultureInfo.InvariantCulture),
-            fileName = Path.GetFileName(path),
-            fileSize = size,
-        });
-    }
+    public static string StartBody(string episodeId) =>
+        JsonSerializer.Serialize(new { episodeId = long.Parse(episodeId, CultureInfo.InvariantCulture) });
 
-    public static string FinishBody(string seriesId, string episodeId, UploadTicket ticket) =>
+    public static string FinishBody(UploadTicket ticket) =>
         JsonSerializer.Serialize(new
         {
-            miniSeriesId = long.Parse(seriesId, CultureInfo.InvariantCulture),
-            episodeId = long.Parse(episodeId, CultureInfo.InvariantCulture),
             uploadToken = ticket.UploadToken,
             uploadTaskId = ticket.UploadTaskId,
+            success = true,
         });
 
     public static int ChunkCount(long length) =>
@@ -113,7 +112,7 @@ public sealed class KuaishouApiVideoUploader
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         var data = root.TryGetProperty("data", out var nested) && nested.ValueKind == JsonValueKind.Object ? nested : root;
-        var endpoint = First(data, root, "endpoint", "upload_host");
+        var endpoint = FirstEndpoint(data) is { Length: > 0 } listed ? listed : First(data, root, "endpoint", "upload_host");
         var token = First(data, root, "uploadToken", "upload_token");
         var task = First(data, root, "uploadTaskId", "upload_task_id");
         if (endpoint.Length == 0)
@@ -161,19 +160,19 @@ public sealed class KuaishouApiVideoUploader
             }
         }
 
-        if (FirstString(row, "videoId", "previewVideoId").Length > 0)
+        if (FirstString(row, "previewVideoPlayUrl", "videoId", "previewVideoId").Length > 0)
             return true;
+        if (row.TryGetProperty("videoStatus", out var videoStatus) && videoStatus.TryGetInt32(out var videoCode))
+            return videoCode == 1;
         return row.TryGetProperty("videoUploadStatus", out status) && status.TryGetInt32(out var ready) && ready == 2;
     }
 
     private async Task<UploadTicket> StartAsync(
         KuaishouApiSession session,
-        string seriesId,
         string episodeId,
-        string path,
         CancellationToken cancellationToken)
     {
-        var response = await session.PostJsonAsync(StartUrl, StartBody(seriesId, episodeId, path), cancellationToken);
+        var response = await session.PostJsonAsync(StartUrl, StartBody(episodeId), cancellationToken);
         return ReadTicket(response);
     }
 
@@ -262,6 +261,23 @@ public sealed class KuaishouApiVideoUploader
             text = "https://" + text.Trim('/');
         var uri = new Uri(text);
         return uri.GetLeftPart(UriPartial.Authority);
+    }
+
+    private static string FirstEndpoint(JsonElement data)
+    {
+        foreach (var name in new[] { "httpEndpointList", "endpointList", "endpoints" })
+        {
+            if (!data.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array)
+                continue;
+            foreach (var item in value.EnumerateArray())
+            {
+                var text = item.ValueKind == JsonValueKind.String ? item.GetString() : item.ToString();
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text.Trim();
+            }
+        }
+
+        return string.Empty;
     }
 
     private static string First(JsonElement data, JsonElement root, params string[] names)
