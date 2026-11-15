@@ -497,7 +497,9 @@ public static partial class TikTokApiUploadService
                         }
                         catch (Exception ex) when (ShouldRetryEpisode(ex) && !uploadCts.IsCancellationRequested)
                         {
-                            log?.Invoke($"接口直传：第 {item.Episode} 集上传失败，重新申请上传地址后再传一次。");
+                            log?.Invoke(ex is PartListMismatchException
+                                ? $"接口直传：第 {item.Episode} 集分片列表和存储不一致，重新申请上传地址后再传一次。"
+                                : $"接口直传：第 {item.Episode} 集上传失败，重新申请上传地址后再传一次。");
                             try
                             {
                                 var committed = await UploadEpisodeOnceAsync();
@@ -1128,6 +1130,11 @@ public static partial class TikTokApiUploadService
 
     private sealed class TransientUploadException(string message) : InvalidOperationException(message);
 
+    /// <summary>分片清单和存储端不一致。同一地址再提交还会失败，只能换上传地址重传这一集。</summary>
+    private sealed class PartListMismatchException(string message) : InvalidOperationException(message);
+
+    internal const int TosPartListMismatchCode = 4019;
+
     internal static bool IsTransientHttpStatus(int status) =>
         status is 0 or 408 or 429 || status >= 500;
 
@@ -1136,10 +1143,21 @@ public static partial class TikTokApiUploadService
         (ex is PageFetchException fetch && fetch.IsTransient);
 
     private static bool ShouldRetry(Exception ex, CancellationToken ct) =>
-        !ct.IsCancellationRequested && (IsTransientFailure(ex) || ex is TaskCanceledException);
+        !ct.IsCancellationRequested && RetriesOnTheSameAddress(ex);
 
     internal static bool ShouldRetryEpisode(Exception ex) =>
-        IsTransientFailure(ex) || ex is TaskCanceledException or TimeoutException;
+        IsTransientFailure(ex) || ex is PartListMismatchException or TaskCanceledException or TimeoutException;
+
+    internal static bool IsPartListMismatch(int code, string? message) =>
+        code == TosPartListMismatchCode ||
+        (message ?? "").Contains("Mismatch Part List", StringComparison.OrdinalIgnoreCase);
+
+    internal static Exception PartListMismatchFailure(int status, int code, string? message) =>
+        new PartListMismatchException($"TOS 上传失败（HTTP {status}，code {code}）：{message}");
+
+    /// <summary>同一上传地址上的重试。分片清单不一致不在这里重试。</summary>
+    internal static bool RetriesOnTheSameAddress(Exception ex) =>
+        IsTransientFailure(ex) || ex is TaskCanceledException;
 
     /// <summary>同一张票据再提交的间隔：3 秒、6 秒、12 秒。</summary>
     internal static TimeSpan CommitMetadataRetryDelay(int attempt)
@@ -2021,7 +2039,10 @@ public static partial class TikTokApiUploadService
         {
             var message = ReadString(document.RootElement, "message");
             document.Dispose();
-            throw new InvalidOperationException($"TOS 上传失败（HTTP {status}，code {code}）：{Truncate(message)}");
+            var failure = $"TOS 上传失败（HTTP {status}，code {code}）：{Truncate(message)}";
+            if (IsPartListMismatch(code, message))
+                throw new PartListMismatchException(failure);
+            throw new InvalidOperationException(failure);
         }
 
         return document;

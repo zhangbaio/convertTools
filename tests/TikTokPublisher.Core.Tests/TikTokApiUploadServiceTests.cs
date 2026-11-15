@@ -651,4 +651,19 @@ public sealed class TikTokApiUploadServiceTests
         TikTokApiUploadService.ShouldRetryEpisode(incomplete).Should().BeTrue();
         TikTokApiUploadService.ShouldRetryEpisode(new InvalidOperationException("TOS 上传失败")).Should().BeFalse();
     }
+
+    [Fact]
+    public void Part_list_mismatch_reuploads_the_episode_instead_of_retrying_the_same_address()
+    {
+        TikTokApiUploadService.IsPartListMismatch(4019, "Mismatch Part List").Should().BeTrue();
+        TikTokApiUploadService.IsPartListMismatch(2000, "Success").Should().BeFalse();
+        TikTokApiUploadService.IsPartListMismatch(-1, "mismatch part list").Should().BeTrue();
+
+        var mismatch = TikTokApiUploadService.PartListMismatchFailure(200, 4019, "Mismatch Part List");
+        mismatch.Message.Should().Be("TOS 上传失败（HTTP 200，code 4019）：Mismatch Part List");
+        TikTokApiUploadService.ShouldRetryEpisode(mismatch).Should().BeTrue();
+        TikTokApiUploadService.RetriesOnTheSameAddress(mismatch).Should().BeFalse();
+        TikTokApiUploadService.RetriesOnTheSameAddress(
+            TikTokApiUploadService.IncompleteCommitFailure("时长")).Should().BeTrue();
+    }
 }
