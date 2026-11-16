@@ -402,8 +402,9 @@ public static class VideoDedupService
     {
         if (string.Equals(preset.AudioCodec, VideoDedupPreset.AudioDefault, StringComparison.Ordinal))
             return "默认";
-        var bitrate = preset.AudioBitrateKbps > 0 ? preset.AudioBitrateKbps : 128;
-        return $"AAC {bitrate.ToString(CultureInfo.InvariantCulture)} kbps";
+        if (preset.AudioBitrateKbps <= 0)
+            return "AAC 源码率";
+        return $"AAC {preset.AudioBitrateKbps.ToString(CultureInfo.InvariantCulture)} kbps";
     }
 
     private static string FormatSize(long bytes)
@@ -607,6 +608,7 @@ public static class VideoDedupService
         var width = 0;
         var height = 0;
         var hasAudio = false;
+        var audioBitrateKbps = 0;
         if (root.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
         {
             foreach (var stream in streams.EnumerateArray())
@@ -620,11 +622,23 @@ public static class VideoDedupService
                 else if (string.Equals(codecType, "audio", StringComparison.Ordinal))
                 {
                     hasAudio = true;
+                    if (audioBitrateKbps == 0)
+                        audioBitrateKbps = ReadAudioBitrateKbps(stream);
                 }
             }
         }
 
-        return new VideoDedupProbe(duration, width, height, hasAudio);
+        return new VideoDedupProbe(duration, width, height, hasAudio, audioBitrateKbps);
+    }
+
+    private static int ReadAudioBitrateKbps(JsonElement stream)
+    {
+        if (!stream.TryGetProperty("bit_rate", out var node))
+            return 0;
+        var raw = node.ValueKind == JsonValueKind.String ? node.GetString() : node.GetRawText();
+        if (!long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bps) || bps <= 0)
+            return 0;
+        return (int)Math.Clamp((bps + 500) / 1000, 1, 512);
     }
 
     internal static Task<EncoderChoice> ResolveEncoderForTests(VideoDedupPreset preset, CancellationToken ct) =>

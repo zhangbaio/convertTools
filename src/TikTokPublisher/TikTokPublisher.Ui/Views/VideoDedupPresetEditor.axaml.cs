@@ -92,8 +92,8 @@ public partial class VideoDedupPresetEditor : UserControl
         EncoderNvencBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingNvenc;
         EncoderAmfBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingAmf;
         EncoderQsvBox.IsChecked = value.EncodingPreference == VideoDedupPreset.EncodingQsv;
-        MinDurationBox.Value = (decimal)value.MinimumDurationSeconds;
-        MaxDurationBox.Value = (decimal)value.MaximumDurationSeconds;
+        MinDurationBox.Value = value.MinimumDurationSeconds > 0 ? (decimal)value.MinimumDurationSeconds : null;
+        MaxDurationBox.Value = value.MaximumDurationSeconds > 0 ? (decimal)value.MaximumDurationSeconds : null;
         TransitionsEnabledBox.IsChecked = value.TransitionsEnabled;
         FadeBlackBox.IsChecked = value.TransitionFadeBlack;
         DissolveBox.IsChecked = value.TransitionDissolve;
@@ -120,7 +120,7 @@ public partial class VideoDedupPresetEditor : UserControl
         CrfBox.Value = value.Crf;
         AudioDefaultBox.IsChecked = value.AudioCodec == VideoDedupPreset.AudioDefault;
         AudioAacBox.IsChecked = value.AudioCodec != VideoDedupPreset.AudioDefault;
-        AudioBitrateBox.Value = value.AudioBitrateKbps;
+        AudioBitrateBox.Value = value.AudioBitrateKbps > 0 ? value.AudioBitrateKbps : null;
         LowGainBox.Value = (decimal)value.AudioLowGainDb;
         MidGainBox.Value = (decimal)value.AudioMidGainDb;
         HighGainBox.Value = (decimal)value.AudioHighGainDb;

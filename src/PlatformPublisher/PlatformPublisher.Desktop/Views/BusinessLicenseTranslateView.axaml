@@ -18,7 +18,7 @@
         <StackPanel Spacing="6">
           <TextBlock Text="中文" FontWeight="SemiBold" />
           <TextBlock Text="统一社会信用代码" />
-          <TextBox x:Name="CreditBox" />
+          <TextBox x:Name="CreditBox" TextChanged="CreditBox_TextChanged" />
           <TextBlock Text="名称" />
           <TextBox x:Name="NameBox" />
           <TextBlock Text="类型" />
@@ -41,7 +41,7 @@
         <StackPanel Grid.Column="1" Spacing="6">
           <TextBlock Text="英文" FontWeight="SemiBold" />
           <TextBlock Text="Unified Social Credit Code" />
-          <TextBox x:Name="EnglishCreditBox" IsReadOnly="True" />
+          <TextBox x:Name="EnglishCreditBox" TextChanged="EnglishCreditBox_TextChanged" />
           <TextBlock Text="Name" />
           <TextBox x:Name="EnglishNameBox" />
           <TextBlock Text="Type" />

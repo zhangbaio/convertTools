@@ -13,6 +13,9 @@ public interface IKuaishouKdjGateway
     Task<string> PostJsonAsync(string url, string body, CancellationToken cancellationToken);
 
     Task<string> UploadFileAsync(string url, string path, string label, int byteLimit, CancellationToken cancellationToken);
+
+    Task<string> GetAsync(string url, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
 }
 
 public static class KuaishouUploadTransport

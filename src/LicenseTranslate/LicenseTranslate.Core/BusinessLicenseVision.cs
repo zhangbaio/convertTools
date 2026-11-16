@@ -61,7 +61,7 @@ public static class BusinessLicenseVision
         {
             SourcePath = imagePath,
             Kind = individual ? "个体工商户" : "公司",
-            CreditCode = Read("creditCode"),
+            CreditCode = CompactCredit(Read("creditCode")),
             Name = Read("name"),
             Type = type,
             PersonRole = individual ? "经营者" : "法定代表人",
@@ -80,11 +80,14 @@ public static class BusinessLicenseVision
 
     private static string Trim(string text) => text.Length <= 240 ? text : text[..240];
 
+    private static string CompactCredit(string value) =>
+        string.Concat(value.Where(character => !char.IsWhiteSpace(character)));
+
     private const string Prompt = """
         你在读取一张中国营业执照照片。只输出一个 JSON 对象，不要 Markdown。
         按原件逐字抄录，不要翻译，不要编造看不清的字。看不清就留空字符串。
         键名只能是 creditCode、name、type、personName、capital、establishDate、address、scope、authority、issueDate。
-        creditCode 是 18 位统一社会信用代码。
+        creditCode 是 18 位统一社会信用代码，连续书写，不要空格。
         capital 抄注册资本原文，例如壹拾万圆人民币。
         establishDate 和 issueDate 用原件日期，发照日期在登记机关红章旁边，不要和成立日期搞混。
         address 抄完整住所，包括小区、楼栋、楼层和房号。

@@ -209,13 +209,13 @@ public sealed class VideoDedupPreset
     public bool HasDurationLimit =>
         MinimumDurationSeconds > 0 && MaximumDurationSeconds >= MinimumDurationSeconds;
 
-    /// <summary>两个都留 0 表示不重新分集。只填一个，或最小大于最大，都不能保存。</summary>
+    /// <summary>两个都留空表示不重新分集。只填一个，或最小大于最大，都不能保存。</summary>
     public string? DurationRangeError()
     {
         var hasMinimum = MinimumDurationSeconds > 0;
         var hasMaximum = MaximumDurationSeconds > 0;
         if (hasMinimum != hasMaximum)
-            return "单集最小时长和最大时长要同时填写。两个都留 0 表示不重新分集。";
+            return "单集最小时长和最大时长要同时填写。两个都留空表示不重新分集。";
         if (hasMinimum && MaximumDurationSeconds < MinimumDurationSeconds)
             return "单集最小时长不能大于最大时长。";
         return null;
@@ -261,7 +261,9 @@ public sealed class VideoDedupPreset
             Num(preset.VideoBitrateMbps),
             preset.Crf.ToString(CultureInfo.InvariantCulture),
             preset.AudioCodec,
-            preset.AudioBitrateKbps.ToString(CultureInfo.InvariantCulture),
+            preset.AudioBitrateKbps > 0
+                ? preset.AudioBitrateKbps.ToString(CultureInfo.InvariantCulture)
+                : "source",
             Num(preset.AudioLowGainDb),
             Num(preset.AudioMidGainDb),
             Num(preset.AudioHighGainDb));

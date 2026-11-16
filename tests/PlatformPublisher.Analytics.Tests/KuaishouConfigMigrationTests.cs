@@ -219,6 +219,7 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         config.ApiBaseUrl = "https://example.test";
         config.AccessToken = "token";
         config.AdvertiserId = "67890";
+        config.UploadTransport = KuaishouUploadTransport.Playwright;
         await config.SaveAsync(KuaishouPersonalConfig.DefaultConfigPath(job.AccountId, job.Platform));
 
         var queue = new KuaishouOnlineQueueStore(jsonStore);

@@ -29,71 +29,107 @@ public sealed class KuaishouOnlineQueueProcessor
     {
         var config = KuaishouPersonalConfig.Load(new PublishJob { AccountId = accountId, Platform = platform });
         if (!config.AutoOnlineEnabled && !config.StepOnlineSeries) return 0;
-        EnsureApiConfiguration(config);
 
-        var queue = _queueStore.Load(accountId, platform).ToList();
-        var due = queue
-            .Where(item => item.Status is "pending_audit" or "audit_passed" or "retry")
-            .Where(item => item.NextCheckAt <= DateTimeOffset.UtcNow)
-            .OrderBy(item => item.NextCheckAt)
-            .Take(Math.Clamp(config.AutoOnlineMaxItemsPerRound, 1, 200))
-            .ToArray();
-        var onlineCount = 0;
-        foreach (var item in due)
+        KuaishouApiSession? session = null;
+        KuaishouShelfApiClient? shelf = null;
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
+            if (KuaishouUploadTransport.IsApi(config.UploadTransport))
             {
-                var status = await QueryStatusAsync(item, config, cancellationToken);
-                item.CheckedCount++;
-                item.UpdatedAt = DateTimeOffset.UtcNow;
-                if (status.AuditStatus == 4)
-                {
-                    item.Status = "rejected";
-                    item.LastError = "平台审核未通过";
-                }
-                else if (status.AuditStatus != 3)
-                {
-                    item.Status = "pending_audit";
-                    item.LastError = string.Empty;
-                    item.NextCheckAt = NextCheck(config);
-                }
-                else if (status.SellingStatus == 9)
-                {
-                    item.Status = "risk_offline";
-                    item.LastError = "平台状态为风控下架";
-                }
-                else if (status.SellingStatus == 1)
-                {
-                    item.Status = "online";
-                    item.LastError = string.Empty;
-                }
-                else
-                {
-                    await SetOnlineAsync(item, config, cancellationToken);
-                    item.Status = "online";
-                    item.LastError = string.Empty;
-                    onlineCount++;
-                    progress?.Report($"{platform.DisplayName()}：短剧《{item.Title}》已自动上架。 ");
-                }
+                if (string.IsNullOrWhiteSpace(config.AuthStatePath) || !File.Exists(config.AuthStatePath))
+                    throw new InvalidOperationException("请先打开经营者管理平台登录。");
+                session = KuaishouApiSession.Open(config.AuthStatePath);
+                shelf = new KuaishouShelfApiClient();
+            }
+            else
+            {
+                EnsureApiConfiguration(config);
+            }
 
-                if (item.Status == "online" && config.OnlineAutoDistributionEnabled)
-                    await _distributionService.ApplyAsync(item.MiniSeriesId, config, progress, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            var queue = _queueStore.Load(accountId, platform).ToList();
+            var due = queue
+                .Where(item => item.Status is "pending_audit" or "audit_passed" or "retry")
+                .Where(item => item.NextCheckAt <= DateTimeOffset.UtcNow)
+                .OrderBy(item => item.NextCheckAt)
+                .Take(Math.Clamp(config.AutoOnlineMaxItemsPerRound, 1, 200))
+                .ToArray();
+            var onlineCount = 0;
+            foreach (var item in due)
             {
-                item.Status = "retry";
-                item.LastError = ex.Message.Length <= 300 ? ex.Message : ex.Message[..300];
-                item.NextCheckAt = NextCheck(config);
-                item.UpdatedAt = DateTimeOffset.UtcNow;
-                progress?.Report($"{platform.DisplayName()}：自动上架检查失败，将稍后重试：{item.LastError}");
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    var status = shelf is null
+                        ? await QueryStatusAsync(item, config, cancellationToken)
+                        : await QueryKdjStatusAsync(shelf, session!, item.MiniSeriesId, cancellationToken);
+                    item.CheckedCount++;
+                    item.UpdatedAt = DateTimeOffset.UtcNow;
+                    if (status.AuditStatus == 4)
+                    {
+                        item.Status = "rejected";
+                        item.LastError = "平台审核未通过";
+                    }
+                    else if (status.AuditStatus != 3)
+                    {
+                        item.Status = "pending_audit";
+                        item.LastError = string.Empty;
+                        item.NextCheckAt = NextCheck(config);
+                    }
+                    else if (status.SellingStatus == 9)
+                    {
+                        item.Status = "risk_offline";
+                        item.LastError = "平台状态为风控下架";
+                    }
+                    else if (status.SellingStatus == 1)
+                    {
+                        item.Status = "online";
+                        item.LastError = string.Empty;
+                    }
+                    else
+                    {
+                        if (shelf is null)
+                            await SetOnlineAsync(item, config, cancellationToken);
+                        else
+                            await shelf.SetOnlineAsync(session!, item.MiniSeriesId, cancellationToken);
+                        item.Status = "online";
+                        item.LastError = string.Empty;
+                        onlineCount++;
+                        progress?.Report($"{platform.DisplayName()}：短剧《{item.Title}》已自动上架。 ");
+                    }
+
+                    if (item.Status == "online" && config.OnlineAutoDistributionEnabled)
+                        await _distributionService.ApplyAsync(item.MiniSeriesId, config, progress, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    item.Status = "retry";
+                    item.LastError = ex.Message.Length <= 300 ? ex.Message : ex.Message[..300];
+                    item.NextCheckAt = NextCheck(config);
+                    item.UpdatedAt = DateTimeOffset.UtcNow;
+                    progress?.Report($"{platform.DisplayName()}：自动上架检查失败，将稍后重试：{item.LastError}");
+                }
+                finally
+                {
+                    _queueStore.Save(accountId, platform, queue);
+                }
             }
-            finally
-            {
-                _queueStore.Save(accountId, platform, queue);
-            }
+
+            return onlineCount;
         }
-        return onlineCount;
+        finally
+        {
+            session?.Dispose();
+        }
+    }
+
+    private static async Task<(int AuditStatus, int SellingStatus)> QueryKdjStatusAsync(
+        KuaishouShelfApiClient shelf,
+        IKuaishouKdjGateway gateway,
+        string seriesId,
+        CancellationToken cancellationToken)
+    {
+        var status = await shelf.ReadStatusAsync(gateway, seriesId, cancellationToken);
+        return status ?? (0, 0);
     }
 
     private async Task<(int AuditStatus, int SellingStatus)> QueryStatusAsync(

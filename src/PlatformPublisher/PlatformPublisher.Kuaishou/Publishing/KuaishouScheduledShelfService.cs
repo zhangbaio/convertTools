@@ -17,6 +17,9 @@ public sealed class KuaishouScheduledShelfService
         CancellationToken cancellationToken)
     {
         var config = KuaishouPersonalConfig.Load(job);
+        if (KuaishouUploadTransport.IsApi(config.UploadTransport))
+            return await RunApiAsync(config, progress, cancellationToken);
+
         var max = Math.Clamp(config.ScheduledShelfMaxItemsPerRound, 1, 200);
         var shelved = 0;
         var failed = 0;
@@ -100,6 +103,87 @@ public sealed class KuaishouScheduledShelfService
                     pageNum++;
             }
         }, cancellationToken, headless: true);
+
+        progress?.Report($"定时上架完成：上架 {shelved}，失败 {failed}，跳过 {skipped}，扫描 {scanned}。");
+        return new KuaishouScheduledShelfResult(shelved, failed, skipped, scanned);
+    }
+
+    private static async Task<KuaishouScheduledShelfResult> RunApiAsync(
+        KuaishouPersonalConfig config,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(config.AuthStatePath) || !File.Exists(config.AuthStatePath))
+            throw new InvalidOperationException("请先打开经营者管理平台登录。");
+
+        var max = Math.Clamp(config.ScheduledShelfMaxItemsPerRound, 1, 200);
+        var shelved = 0;
+        var failed = 0;
+        var skipped = 0;
+        var scanned = 0;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        progress?.Report("使用接口上架，不打开浏览器。");
+        using var session = KuaishouApiSession.Open(config.AuthStatePath);
+        var client = new KuaishouShelfApiClient();
+        var page = 1;
+        var passes = 0;
+        while (shelved < max && page <= 30 && passes < 40)
+        {
+            passes++;
+            cancellationToken.ThrowIfCancellationRequested();
+            var (rows, raw) = await client.ListOfflinePageAsync(session, page, KuaishouShelfApi.PageSize, cancellationToken);
+            if (raw == 0)
+                break;
+
+            var acted = false;
+            foreach (var row in rows)
+            {
+                if (!seen.Add(row.SeriesId))
+                    continue;
+                scanned++;
+                if (!row.CanShelf)
+                {
+                    if (row.SkipReason == "平台风控")
+                    {
+                        skipped++;
+                        progress?.Report($"跳过平台风控下架：{row.Title}");
+                    }
+                    else
+                    {
+                        skipped++;
+                        progress?.Report($"没有上架按钮，跳过：{row.Title}");
+                    }
+
+                    continue;
+                }
+
+                acted = true;
+                try
+                {
+                    progress?.Report($"正在上架：{row.Title}");
+                    await client.SetOnlineAsync(session, row.SeriesId, cancellationToken);
+                    shelved++;
+                    progress?.Report($"已上架：{row.Title}");
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    failed++;
+                    progress?.Report($"上架失败：{row.Title}；{OneLine(ex.Message)}");
+                }
+
+                if (shelved >= max)
+                    break;
+            }
+
+            if (shelved >= max)
+                break;
+            if (acted)
+                page = 1;
+            else if (raw < KuaishouShelfApi.PageSize)
+                break;
+            else
+                page++;
+        }
 
         progress?.Report($"定时上架完成：上架 {shelved}，失败 {failed}，跳过 {skipped}，扫描 {scanned}。");
         return new KuaishouScheduledShelfResult(shelved, failed, skipped, scanned);

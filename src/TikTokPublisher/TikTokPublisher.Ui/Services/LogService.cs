@@ -510,9 +510,13 @@ public sealed class LogService
     private static bool IsProblemLevel(string level) =>
         NormalizeLevel(level) is "error" or "warn";
 
-    private static bool ContainsProblemKeyword(string text) =>
-        ContainsAny(text, "失败", "错误", "异常", "无法", "终止", "超时", "重试", "兜底", "警告",
+    private static bool ContainsProblemKeyword(string text)
+    {
+        if (text.Contains("接口上传：表单「", StringComparison.Ordinal))
+            return false;
+        return ContainsAny(text, "失败", "错误", "异常", "无法", "终止", "超时", "重试", "兜底", "警告",
             "failed", "failure", "error", "exception", "retry", "timeout", "warn", "warning");
+    }
 
     private static bool ContainsAny(string text, params string[] keywords)
     {

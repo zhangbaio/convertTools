@@ -4,12 +4,17 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Kuaishou.Publishing;
+using TikTokPublisher.Core.Remote;
+using TikTokPublisher.Ui.Views;
 using GlobalAccount = ChannelsPublisher.Core.Models.PublishAccount;
 
 namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
+    private bool _ksRestartResumeChecked;
+    private bool _ksRestartResumeConfirmed;
+
     private static readonly string[] DefaultKsSettleDispatchSteps =
     [
         "download",
@@ -95,6 +100,7 @@ public sealed partial class MainWindowViewModel
         Func<long, string, string, string, Task> reportAsync,
         CancellationToken cancellationToken)
     {
+        var resume = new List<(KsSettleOpenAssignment Item, GlobalAccount Account, string Directory)>();
         foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -120,10 +126,49 @@ public sealed partial class MainWindowViewModel
                     await reportAsync(item.Id, "failed", "", "上次执行已经失败，不再自动重试").ConfigureAwait(false);
                     break;
                 case KsSettleAutoPublishRecovery.Action.Resume when located.Directory is not null && located.Account is not null:
-                    await ResumeMarkedProjectAsync(item, located.Account, located.Directory, reportAsync, cancellationToken).ConfigureAwait(false);
+                    resume.Add((item, located.Account, located.Directory));
                     break;
             }
         }
+
+        if (resume.Count == 0 || !await ConfirmKsRestartResumeAsync(resume, cancellationToken).ConfigureAwait(false))
+            return;
+
+        foreach (var entry in resume)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await ResumeMarkedProjectAsync(entry.Item, entry.Account, entry.Directory, reportAsync, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // 本次启动只问一次。倒计时结束或点立即执行才续跑，暂不执行则这次启动不再自动续跑。
+    private async Task<bool> ConfirmKsRestartResumeAsync(
+        IReadOnlyList<(KsSettleOpenAssignment Item, GlobalAccount Account, string Directory)> resume,
+        CancellationToken cancellationToken)
+    {
+        if (_ksRestartResumeChecked)
+            return _ksRestartResumeConfirmed;
+        _ksRestartResumeChecked = true;
+        var session = new DispatchConfirmSession(DateTimeOffset.Now, DispatchConfirmSession.DefaultCountdownSeconds);
+        foreach (var entry in resume)
+        {
+            session.TryAdd(new DispatchConfirmItem
+            {
+                MessageId = entry.Item.Id,
+                AssignmentId = entry.Item.Id,
+                AccountName = entry.Account.Name,
+                Edition = entry.Item.Edition,
+                Title = entry.Item.Title,
+                ConfirmSeconds = DispatchConfirmSession.DefaultCountdownSeconds,
+            });
+        }
+
+        LogKsSettleDispatch($"客户端重启后将继续执行 {resume.Count} 部下发剧集，{DispatchConfirmSession.DefaultCountdownSeconds} 秒后自动开始。");
+        _ksRestartResumeConfirmed = await XingeRestartResumePrompt.ConfirmAsync(session).WaitAsync(cancellationToken).ConfigureAwait(false);
+        LogKsSettleDispatch(_ksRestartResumeConfirmed
+            ? "已确认继续执行重启前下发的剧集。"
+            : "已关闭继续执行提示，本次启动不再自动执行已下发剧集。");
+        return _ksRestartResumeConfirmed;
     }
 
     private async Task<YunfanRemoteCommandResult> ExecuteKsSettlementOnUiAsync(

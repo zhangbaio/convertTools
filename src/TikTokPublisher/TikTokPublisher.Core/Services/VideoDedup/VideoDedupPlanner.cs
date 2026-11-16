@@ -5,7 +5,12 @@ using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Services.VideoDedup;
 
-internal sealed record VideoDedupProbe(double DurationSeconds, int Width, int Height, bool HasAudio);
+internal sealed record VideoDedupProbe(
+    double DurationSeconds,
+    int Width,
+    int Height,
+    bool HasAudio,
+    int AudioBitrateKbps = 0);
 
 internal sealed record VideoDedupClip(string Path, VideoDedupProbe Probe);
 
@@ -475,7 +480,7 @@ internal static class VideoDedupPlanner
             }
         }
 
-        AppendEncoder(args, preset, videoEncoder, hasAudio);
+        AppendEncoder(args, preset, videoEncoder, hasAudio, ResolveSourceAudioBitrateKbps(clips, slices));
         args.AddRange(["-movflags", "+faststart", outputPath]);
         return args;
     }
@@ -547,7 +552,8 @@ internal static class VideoDedupPlanner
         List<string> args,
         VideoDedupPreset preset,
         string videoEncoder,
-        bool includeAudio)
+        bool includeAudio,
+        int sourceAudioBitrateKbps = 0)
     {
         var rate = preset.Fps.ToString(CultureInfo.InvariantCulture);
         args.AddRange(["-r", rate, "-c:v", videoEncoder]);
@@ -571,10 +577,25 @@ internal static class VideoDedupPlanner
             return;
 
         args.AddRange(["-c:a", "aac"]);
-        if (preset.AudioBitrateKbps > 0)
-            args.AddRange(["-b:a", $"{preset.AudioBitrateKbps.ToString(CultureInfo.InvariantCulture)}k"]);
-        else
-            args.AddRange(["-b:a", "128k"]);
+        var bitrate = preset.AudioBitrateKbps > 0 ? preset.AudioBitrateKbps : sourceAudioBitrateKbps;
+        if (bitrate > 0)
+            args.AddRange(["-b:a", $"{bitrate.ToString(CultureInfo.InvariantCulture)}k"]);
+    }
+
+    internal static int ResolveSourceAudioBitrateKbps(
+        IReadOnlyList<VideoDedupClip> clips,
+        IReadOnlyList<VideoDedupSlice> slices)
+    {
+        foreach (var slice in slices)
+        {
+            if ((uint)slice.ClipIndex >= (uint)clips.Count)
+                continue;
+            var bitrate = clips[slice.ClipIndex].Probe.AudioBitrateKbps;
+            if (bitrate > 0)
+                return bitrate;
+        }
+
+        return 0;
     }
 
     private static void AppendNvenc(List<string> args, VideoDedupPreset preset)
