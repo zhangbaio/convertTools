@@ -106,7 +106,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private long _nextActivityLogFlushTick;
     private int _kuaishouLogNotifyPending;
     private long _nextKuaishouLogNotifyTick;
-    private Task? _managementBrowserTask;
+    private readonly Dictionary<string, Task> _managementBrowsers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _managementBrowserGate = new();
     private bool _scheduleTickRunning;
     private CancellationTokenSource? _episodeLoadCts;
     private WorkflowInteractionRequest? _currentInteractionRequest;
@@ -3869,18 +3870,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private Task OpenKuaishouManagementPlatformAsync()
     {
-        if (_managementBrowserTask is { IsCompleted: false })
-        {
-            StatusMessage = "经营者管理平台已打开，请先在该浏览器中操作。";
-            AppendActivityLog(StatusMessage);
-            return Task.CompletedTask;
-        }
-
         var job = ResolveOperatorPlatformJob();
         if (job is null)
         {
             StatusMessage = "请先选择账号后再打开经营者管理平台。";
             return Task.CompletedTask;
+        }
+
+        var key = ManagementBrowserKey(job);
+        var accountName = string.IsNullOrWhiteSpace(job.AccountName) ? job.ProjectName : job.AccountName.Trim();
+        lock (_managementBrowserGate)
+        {
+            if (_managementBrowsers.TryGetValue(key, out var running) && !running.IsCompleted)
+            {
+                StatusMessage = $"「{accountName}」的经营者管理平台已打开，请先在该浏览器中操作。";
+                AppendActivityLog(StatusMessage);
+                return Task.CompletedTask;
+            }
         }
 
         var adapter = _coordinator.GetAdapter(job.Platform);
@@ -3890,16 +3896,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return Task.CompletedTask;
         }
 
-        StatusMessage = "已打开经营者管理平台。关闭该浏览器后保存登录态，不影响当前队列。";
+        StatusMessage = $"已打开「{accountName}」的经营者管理平台。关闭该浏览器后保存登录态，不影响当前队列。";
         AppendActivityLog(StatusMessage);
-        _managementBrowserTask = Task.Run(async () =>
+        Task? task = null;
+        task = Task.Run(async () =>
         {
             try
             {
                 await adapter.OpenLoginAsync(job, CancellationToken.None);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    StatusMessage = "经营者管理平台已关闭，登录态已保存。";
+                    StatusMessage = $"「{accountName}」的经营者管理平台已关闭，登录态已保存。";
                     AppendActivityLog(StatusMessage);
                 });
             }
@@ -3907,12 +3914,30 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    StatusMessage = $"打开经营者管理平台失败：{ex.Message}";
+                    StatusMessage = $"打开「{accountName}」的经营者管理平台失败：{ex.Message}";
                     AppendActivityLog(StatusMessage);
                 });
             }
+            finally
+            {
+                lock (_managementBrowserGate)
+                {
+                    if (_managementBrowsers.TryGetValue(key, out var current) && ReferenceEquals(current, task))
+                        _managementBrowsers.Remove(key);
+                }
+            }
         });
+        lock (_managementBrowserGate)
+            _managementBrowsers[key] = task;
         return Task.CompletedTask;
+    }
+
+    private static string ManagementBrowserKey(PublishJob job)
+    {
+        var account = job.AccountId?.Trim() ?? string.Empty;
+        if (account.Length == 0)
+            account = string.IsNullOrWhiteSpace(job.ConfigPath) ? job.ProjectName?.Trim() ?? string.Empty : job.ConfigPath.Trim();
+        return account + "|" + job.Platform;
     }
 
     private async Task RemoveSelectedAsync()
