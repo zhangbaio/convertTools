@@ -331,6 +331,25 @@ public partial class WeixinWorkflowView : UserControl
     private void OnViewKuaishouLogsClick(object? sender, RoutedEventArgs e) =>
         ViewLogsRequested?.Invoke(this, EventArgs.Empty);
 
+    private async void OnResubmitKuaishouCommitmentClick(object? sender, RoutedEventArgs e)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null || ViewModel is null)
+            return;
+        KuaishouResubmitButton.IsEnabled = false;
+        KuaishouResubmitButton.Content = "正在提交…";
+        try
+        {
+            var message = await ViewModel.ResubmitKuaishouCommitmentAsync();
+            await InfoDialog.ShowAsync(owner, message, "重新提交", 560, 320);
+        }
+        finally
+        {
+            KuaishouResubmitButton.Content = "重新提交";
+            KuaishouResubmitButton.IsEnabled = true;
+        }
+    }
+
     private async void OnRepairKuaishouVideosClick(object? sender, RoutedEventArgs e)
     {
         var owner = TopLevel.GetTopLevel(this) as Window;

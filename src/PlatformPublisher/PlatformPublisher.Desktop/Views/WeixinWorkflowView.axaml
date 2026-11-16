@@ -280,6 +280,8 @@
                             <Button Content="查看日志" Click="OnViewKuaishouLogsClick" Classes="logAction compactAction" Margin="0,0,6,0" />
                             <Button x:Name="KuaishouRepairVideosButton" Content="视频补传" Click="OnRepairKuaishouVideosClick" Classes="repairAction compactAction"
                                     ToolTip.Tip="按新剧名补传无法播放的集。列表里还有视频就直接补传；已归档的先回退并重新下载。" />
+                            <Button x:Name="KuaishouResubmitButton" Content="重新提交" Click="OnResubmitKuaishouCommitmentClick" Classes="repairAction compactAction" Margin="6,0,0,0"
+                                    ToolTip.Tip="筛选当前账号已上架、发布成功，且承诺函提示未加盖机构主体公章的短剧，按原内容重新提交审核。" />
                         </WrapPanel>
                     </Border>
                     <StackPanel Orientation="Horizontal" IsVisible="False">
