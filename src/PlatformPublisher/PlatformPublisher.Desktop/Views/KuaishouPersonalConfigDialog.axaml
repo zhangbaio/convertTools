@@ -27,7 +27,7 @@
                         <TextBlock Text="上传方式" FontWeight="SemiBold" />
                         <ComboBox x:Name="UploadTransportBox" HorizontalAlignment="Left" MinWidth="280"
                                   SelectionChanged="UploadTransportBox_SelectionChanged" />
-                        <TextBlock Text="默认接口上传，使用已保存的登录 Cookie，不打开浏览器，也不占用上传名额。选页面上传才打开浏览器。改完只影响下一部剧。"
+                        <TextBlock Text="默认接口上传，使用已保存的登录 Cookie，不打开浏览器，也不占用上传名额。选接口时上架也走接口。选页面上传才打开浏览器。改完只影响下一部剧。"
                                    Foreground="#64748B" TextWrapping="Wrap" />
                     </StackPanel>
                     <StackPanel Spacing="6">
@@ -382,7 +382,7 @@
                         <Border BorderBrush="#AEBFD2" BorderThickness="1" CornerRadius="8" Background="#F7FBFF" Padding="12">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="上传与提交" FontWeight="SemiBold" />
-                                <TextBlock Text="上传方式在「登录授权」里切换，默认接口上传。这里改也会同步过去。页面上传才打开浏览器；浏览器模式只在页面上传时生效。"
+                                <TextBlock Text="上传方式在「登录授权」里切换，默认接口上传。这里改也会同步过去。选接口时，上传和上架都走接口，不打开浏览器。选页面上传才打开浏览器，浏览器模式只在那时生效。"
                                            TextWrapping="Wrap" Foreground="#536171" />
                                 <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                     <TextBlock Text="上传方式" VerticalAlignment="Center" />
