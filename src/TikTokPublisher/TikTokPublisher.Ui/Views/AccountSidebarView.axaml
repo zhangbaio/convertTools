@@ -95,37 +95,9 @@
                 </Border>
             </StackPanel>
 
-            <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0" Spacing="8">
-                <Border Background="#173E5E" BorderBrush="#2C5878" BorderThickness="1"
-                        CornerRadius="8" Padding="10">
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="资产概览" Foreground="#55CFFF" FontWeight="SemiBold" />
-                        <Border Background="#1B466B" CornerRadius="6" Padding="10,8">
-                            <StackPanel>
-                                <TextBlock Text="账号总数" Classes="pageSummary" />
-                                <TextBlock Text="{Binding Accounts.Count}" FontSize="22"
-                                           Foreground="#52B9FF" FontWeight="Bold" />
-                            </StackPanel>
-                        </Border>
-                        <Border Background="#1B466B" CornerRadius="6" Padding="10,8">
-                            <StackPanel>
-                                <TextBlock Text="正常账号" Classes="pageSummary" />
-                                <TextBlock Text="{Binding Accounts.Count}" FontSize="22"
-                                           Foreground="#63D8A2" FontWeight="Bold" />
-                            </StackPanel>
-                        </Border>
-                        <Border Background="#1B466B" CornerRadius="6" Padding="10,8">
-                            <StackPanel>
-                                <TextBlock Text="可用终端" Classes="pageSummary" />
-                                <TextBlock Text="{Binding Accounts.Count}" FontSize="22"
-                                           Foreground="#46D9D0" FontWeight="Bold" />
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-                </Border>
-                <TextBlock Classes="pageSummary" TextWrapping="Wrap"
-                           Text="{Binding SelectedAccount.DisplayName, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
-            </StackPanel>
+            <TextBlock DockPanel.Dock="Bottom" Margin="0,12,0,0"
+                       Classes="pageSummary" TextWrapping="Wrap"
+                       Text="{Binding SelectedAccount.DisplayName, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
 
             <ListBox x:Name="AccountList" ItemsSource="{Binding FilteredAccounts}"
                      SelectedItem="{Binding SelectedAccount, Mode=TwoWay}">
