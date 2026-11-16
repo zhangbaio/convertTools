@@ -163,18 +163,6 @@
                         <Grid Classes="profileForm" ColumnDefinitions="140,*" ColumnSpacing="10">
                             <TextBlock Grid.Column="0"
                                        Classes="formLabel"
-                                       Text="API 站点"
-                                       VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1"
-                                      x:Name="ApiSiteCombo"
-                                      HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="domestic">国内站</ComboBoxItem>
-                                <ComboBoxItem Tag="international">国际站</ComboBoxItem>
-                            </ComboBox>
-                        </Grid>
-                        <Grid Classes="profileForm" ColumnDefinitions="140,*" ColumnSpacing="10">
-                            <TextBlock Grid.Column="0"
-                                       Classes="formLabel"
                                        Text="剧集类型"
                                        VerticalAlignment="Center" />
                             <ComboBox Grid.Column="1"

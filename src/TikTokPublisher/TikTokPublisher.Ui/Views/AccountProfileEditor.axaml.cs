@@ -222,7 +222,6 @@ public partial class AccountProfileEditor : UserControl
         PlaywrightHeadlessBox.IsChecked = profile.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
-        SelectByTag(ApiSiteCombo, TikTokApiSites.Normalize(profile.TiktokApiSite), TikTokApiSites.Domestic);
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         SelectByTag(
             SourceLanguageCombo,
@@ -342,7 +341,7 @@ public partial class AccountProfileEditor : UserControl
                 profile.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
                 _persistedRemoteDispatch = profile.XingeRemoteDispatchEnabled;
             }
-            profile.TiktokApiSite = TikTokApiSites.Normalize(TagOf(ApiSiteCombo, TikTokApiSites.Domestic));
+            profile.TiktokApiSite = TikTokApiSites.Domestic;
             profile.TiktokSeriesUrl = TikTokApiSites.AlignConsoleUrl(
                 string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
                     ? TikTokApiSites.SeriesDraftUrl(profile.TiktokApiSite)

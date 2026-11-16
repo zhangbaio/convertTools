@@ -67,7 +67,6 @@ public partial class AccountSettingsDialog : Window
         PlaywrightHeadlessBox.IsChecked = p.TiktokPlaywrightUploadHeadless;
         SelectByTag(PublishModeCombo, p.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, p.TiktokTargetAudienceMode, "ai_recommend");
-        SelectByTag(ApiSiteCombo, TikTokApiSites.Normalize(p.TiktokApiSite), TikTokApiSites.Domestic);
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(p.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
         SelectByTag(
             SourceLanguageCombo,
@@ -205,7 +204,7 @@ public partial class AccountSettingsDialog : Window
         p.Name = NameBox.Text?.Trim() ?? p.Name;
         p.TiktokAccountNickname = NicknameBox.Text?.Trim() ?? "";
         p.TiktokLoginEmail = LoginEmailBox.Text?.Trim() ?? "";
-        p.TiktokApiSite = TikTokApiSites.Normalize(TagOf(ApiSiteCombo, TikTokApiSites.Domestic));
+        p.TiktokApiSite = TikTokApiSites.Domestic;
         p.TiktokSeriesUrl = TikTokApiSites.AlignConsoleUrl(
             string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
                 ? TikTokApiSites.SeriesDraftUrl(p.TiktokApiSite)

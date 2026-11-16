@@ -103,8 +103,12 @@ public sealed class TikTokAccountProfile
     /// <summary>剧集类型：local=本土剧；overseas=海外剧。未保存过的账号按本土剧。</summary>
     public string TiktokDramaMarket { get; set; } = DramaMarketLocal;
 
-    /// <summary>API 站点：domestic=国内站；international=国际站。未保存过的账号按国内站。</summary>
-    public string TiktokApiSite { get; set; } = TikTokApiSites.Domestic;
+    /// <summary>API 站点固定为国内站，界面不再提供切换。</summary>
+    public string TiktokApiSite
+    {
+        get => TikTokApiSites.Domestic;
+        set { }
+    }
 
     public static string NormalizeDramaMarket(string? value) =>
         string.Equals((value ?? "").Trim(), DramaMarketOverseas, StringComparison.OrdinalIgnoreCase)
