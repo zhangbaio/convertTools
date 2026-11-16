@@ -85,13 +85,22 @@ public sealed class KuaishouApiUploadService
                 throw new InvalidOperationException("请先在快手分账配置的“登录授权”中填写快手昵称和用户快手号 ID。");
             }
 
-            var seriesId = await new KuaishouSeriesDraftClient().SaveAsync(
-                session, data, config, form, state.MiniSeriesId, progress, cancellationToken);
-            state.MiniSeriesId = seriesId;
-            state.EpisodeInfoCompleted = true;
-            state.FirstPageCompleted = true;
-            state.CurrentStage = "first_page";
-            await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);
+            var seriesId = state.MiniSeriesId?.Trim() ?? string.Empty;
+            var resumeDraft = seriesId.Length > 0 && state.FirstPageCompleted;
+            if (resumeDraft)
+            {
+                progress?.Report($"{label}：从已有草稿 {seriesId} 继续上传。已有视频的集会跳过，未完成的分片从断点续传。");
+            }
+            else
+            {
+                seriesId = await new KuaishouSeriesDraftClient().SaveAsync(
+                    session, data, config, form, state.MiniSeriesId, progress, cancellationToken);
+                state.MiniSeriesId = seriesId;
+                state.EpisodeInfoCompleted = true;
+                state.FirstPageCompleted = true;
+                state.CurrentStage = "first_page";
+                await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);
+            }
 
             var firstPageAction = (config.FirstPageAction ?? "next").Trim().ToLowerInvariant();
             if (firstPageAction is "draft" or "keep")
@@ -144,6 +153,12 @@ public sealed class KuaishouApiUploadService
                 progress?.Report($"{label}：分销已设置为上架成功后执行。 ");
             else
                 await _distributionService.ApplyAsync(state.MiniSeriesId, config, progress, cancellationToken);
+        }
+        catch (KuaishouExistingSeriesNotEditableException ex)
+        {
+            state.MarkAlreadyOnPlatform(ex.SeriesId);
+            await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
+            progress?.Report($"{label}：{ex.Message}");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -24,6 +24,13 @@
                                    Foreground="#64748B" TextWrapping="Wrap" />
                     </StackPanel>
                     <StackPanel Spacing="6">
+                        <TextBlock Text="上传方式" FontWeight="SemiBold" />
+                        <ComboBox x:Name="UploadTransportBox" HorizontalAlignment="Left" MinWidth="280"
+                                  SelectionChanged="UploadTransportBox_SelectionChanged" />
+                        <TextBlock Text="默认接口上传，使用已保存的登录 Cookie，不打开浏览器，也不占用上传名额。选页面上传才打开浏览器。改完只影响下一部剧。"
+                                   Foreground="#64748B" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Spacing="6">
                         <CheckBox x:Name="RemoteDispatchBox" Content="远程分发" />
                         <TextBlock Text="每个账号单独勾选。服务端也启用这个账号，并且客户端没有正在执行时，才会接收这一轮派发的剧集。"
                                    Foreground="#64748B" TextWrapping="Wrap" />
@@ -375,11 +382,12 @@
                         <Border BorderBrush="#AEBFD2" BorderThickness="1" CornerRadius="8" Background="#F7FBFF" Padding="12">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="上传与提交" FontWeight="SemiBold" />
-                                <TextBlock Text="上传方式可一键切换。页面上传打开浏览器；接口上传使用已保存的登录 Cookie，不打开浏览器。浏览器模式只在页面上传时生效。"
+                                <TextBlock Text="上传方式在「登录授权」里切换，默认接口上传。这里改也会同步过去。页面上传才打开浏览器；浏览器模式只在页面上传时生效。"
                                            TextWrapping="Wrap" Foreground="#536171" />
                                 <Grid ColumnDefinitions="160,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                                     <TextBlock Text="上传方式" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="UploadTransportBox" Grid.Column="1" />
+                                    <ComboBox x:Name="UploadTransportMirrorBox" Grid.Column="1"
+                                              SelectionChanged="UploadTransportMirrorBox_SelectionChanged" />
                                     <TextBlock Grid.Row="1" Text="登录超时(秒)" VerticalAlignment="Center" />
                                     <TextBox x:Name="LoginTimeoutBox" Grid.Row="1" Grid.Column="1" Watermark="登录等待秒数，默认 300" />
                                     <TextBlock Grid.Row="2" Text="上传浏览器模式" VerticalAlignment="Center" />

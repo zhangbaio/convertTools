@@ -14,8 +14,8 @@ namespace ShortDrama.Infrastructure.Automation;
 /// 查询保持已安装的 7.4.3.32 精简参数；机型、品牌和系统版本读模拟器自身。
 /// 没有模拟器设备时，播放用单集接口。连续空包就更换本机 audit 设备号并马上重试，仍失败再按勾选走链路 1 和链路 2。
 /// 模拟器设备在时，播放空包只在 preload 上退避重试，仍失败再试一次单集接口，不再注册新设备。
-/// 方案2：设备号用设置里保存的一对，不读模拟器。剧集仍走桌面 7.4.2.32。
-/// 播放按原桌面程序的 GET /reading/bookapi/video_tab/video_model/v1/ 取地址，失败不注册新设备。
+/// 取流链路和 SDPwh 一致：至少一条，多选时先链路 1 再链路 2。
+/// 链路 1 是无签名播放。链路 2 是 SDPwh 2.1.4 的 GET /reading/bookapi/video_tab/multi_video_model/v1/，版本 7.3.9.32。
 /// </summary>
 internal sealed class HongguoAppDirectClient
 {
@@ -48,6 +48,9 @@ internal sealed class HongguoAppDirectClient
 
     private const string DesktopUserAgent =
         "com.phoenix.read/74232 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
+
+    private const string DesktopModelUserAgent =
+        "com.phoenix.read/73932 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
 
     private static readonly (string Key, string Value)[] DesktopQuery =
     [
@@ -387,28 +390,8 @@ internal sealed class HongguoAppDirectClient
             streamLink2 = true;
         }
 
-        if (IsDesktopPlan(plan))
-        {
-            if (!HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
-                throw new HongguoHighException("缺少播放设备号和安装号");
-            try
-            {
-                return await GetDesktopModelAsync(
-                    rawVideoId, deviceId!.Trim(), installId!.Trim(), cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new HongguoHighException("桌面链路失败：" + ex.Message, 0, ex);
-            }
-        }
+        if (IsDesktopPlan(plan) || string.Equals(plan?.Trim(), "1", StringComparison.Ordinal))
+            return await PlayCheckedLinksAsync(rawVideoId, cancellationToken, deviceId, installId, persist, streamLink1, streamLink2);
 
         if (TryReadEmulator(out var did, out var iid))
         {
@@ -830,9 +813,9 @@ internal sealed class HongguoAppDirectClient
         return host + path + "?" + string.Join("&", parts);
     }
 
-    internal const string DesktopModelPath = "/reading/bookapi/video_tab/video_model/v1/";
+    internal const string DesktopModelPath = "/reading/bookapi/video_tab/multi_video_model/v1/";
 
-    internal static string BuildDesktopModelUrl(string videoId, string deviceId, string installId, long rticket, int ts)
+    internal static string BuildDesktopModelUrl(string videoId, string deviceId, string installId, long rticket, int ts, string? cdid = null)
     {
         var query = string.Join("&", new[]
         {
@@ -840,31 +823,105 @@ internal sealed class HongguoAppDirectClient
             "ac=wifi",
             "aid=8662",
             "app_name=novelread",
+            "cdid=" + Uri.EscapeDataString(string.IsNullOrWhiteSpace(cdid) ? DesktopCdid(deviceId) : cdid),
             "channel=update_64",
+            "compliance_status=0",
             "device_brand=Redmi",
             "device_id=" + Uri.EscapeDataString(deviceId),
-            "device_level=3",
+            "device_level=1",
             "device_platform=android",
             "device_type=25053RT47C",
             "dpi=520",
+            "dragon_device_type=phone",
+            "from_video_id=",
+            "host_abi=arm64-v8a",
             "iid=" + Uri.EscapeDataString(installId),
+            "is_android_pad_screen=0",
             "language=zh",
-            "manifest_version_code=74232",
-            "need_all_video_definition=true",
-            "need_mp4_align=false",
+            "manifest_version_code=73932",
+            "need_all_video_definition=1",
+            "need_mp4_align=0",
+            "need_personal_recommend=1",
             "os=android",
             "os_api=36",
             "os_version=16",
+            "player_so_load=1",
+            "pv_player=73932",
             "resolution=" + Uri.EscapeDataString("1280*2772"),
+            "source=0",
             "ssmix=a",
             "ts=" + ts,
-            "update_version_code=74232",
-            "version_code=74232",
-            "version_name=7.4.2.32",
+            "update_version_code=73932",
+            "use_os_player=0",
+            "version_code=73932",
+            "version_name=7.3.9.32",
             "video_id=" + Uri.EscapeDataString(videoId),
+            "video_id_type=0",
             "video_platform=1024",
         });
         return PlaybackHost + DesktopModelPath + "?" + query;
+    }
+
+    private static string DesktopCdid(string deviceId)
+    {
+        var hash = MD5.HashData(Encoding.UTF8.GetBytes("hg-desktop-cdid:" + deviceId));
+        return new Guid(hash).ToString();
+    }
+
+    private async Task<JsonObject> PlayCheckedLinksAsync(
+        string rawVideoId,
+        CancellationToken cancellationToken,
+        string? deviceId,
+        string? installId,
+        Action<string, string>? persist,
+        bool streamLink1,
+        bool streamLink2)
+    {
+        if (!HongguoGuestPlayback.IsSavedIdentity(deviceId, installId))
+            throw new HongguoHighException("缺少播放设备号和安装号");
+        var device = deviceId!.Trim();
+        var install = installId!.Trim();
+        Exception? first = null;
+        if (streamLink1)
+        {
+            try
+            {
+                return await _playback.LoadModelAsync(rawVideoId, cancellationToken, device, install, persist);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                first = ex;
+                if (!streamLink2)
+                    throw new HongguoHighException("链路 1 失败：" + ex.Message, 0, ex);
+            }
+        }
+
+        try
+        {
+            return await GetDesktopModelAsync(rawVideoId, device, install, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (HongguoGuestPlayback.IsUnsupportedCodec(ex))
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (first is not null)
+                throw new HongguoHighException($"链路 1 失败：{first.Message}；链路 2 失败：{ex.Message}", 0, ex);
+            throw new HongguoHighException("链路 2 失败：" + ex.Message, 0, ex);
+        }
     }
 
     private async Task<JsonObject> GetDesktopModelAsync(
@@ -879,16 +936,22 @@ internal sealed class HongguoAppDirectClient
             var rticket = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var khronos = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var url = BuildDesktopModelUrl(videoId, deviceId, installId, rticket, khronos);
-            for (var guard = 0; HongguoPureSign.BranchOf(url, null, khronos) == 1 && guard < 32; guard++)
-            {
-                rticket++;
-                url = BuildDesktopModelUrl(videoId, deviceId, installId, rticket, khronos);
-            }
-
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.TryAddWithoutValidation("user-agent", DesktopUserAgent);
+            request.Headers.TryAddWithoutValidation("user-agent", DesktopModelUserAgent);
+            request.Headers.TryAddWithoutValidation("Accept", "application/json; charset=utf-8,application/x-protobuf");
+            request.Headers.TryAddWithoutValidation("sdk-version", "2");
+            request.Headers.TryAddWithoutValidation("x-xs-from-web", "0");
+            request.Headers.TryAddWithoutValidation("passport-sdk-version", "50561");
+            request.Headers.TryAddWithoutValidation("x-ss-dp", "8662");
+            request.Headers.TryAddWithoutValidation("x-tt-store-region", "cn");
+            request.Headers.TryAddWithoutValidation("x-tt-store-region-src", "did");
+            request.Headers.TryAddWithoutValidation("x-tt-request-tag", "t=0;n=0");
+            request.Headers.TryAddWithoutValidation("x-ss-req-ticket", rticket.ToString());
             foreach (var header in HongguoPureSign.Sign(url, null, khronos))
-                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            {
+                if (header.Key is "x-khronos" or "x-ladon" or "x-argus")
+                    request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
             try
             {
                 using var response = await _httpClient.SendAsync(request, cancellationToken);

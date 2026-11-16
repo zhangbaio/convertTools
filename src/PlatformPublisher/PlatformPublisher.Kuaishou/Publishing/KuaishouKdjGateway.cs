@@ -18,8 +18,12 @@ public static class KuaishouUploadTransport
     public const string Playwright = "playwright";
     public const string Api = "api";
 
-    public static bool IsApi(string? value) =>
-        string.Equals(value?.Trim(), Api, StringComparison.OrdinalIgnoreCase);
+    public static bool IsApi(string? value)
+    {
+        var text = value?.Trim();
+        return string.IsNullOrEmpty(text)
+            || string.Equals(text, Api, StringComparison.OrdinalIgnoreCase);
+    }
 }
 
 public static class KuaishouAuthCookies

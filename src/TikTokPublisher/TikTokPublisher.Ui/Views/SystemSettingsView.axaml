@@ -337,16 +337,17 @@
                         <Separator Margin="0,4" />
 
                         <TextBlock Text="红果APP下载" FontWeight="Bold" />
+                        <TextBlock Text="至少选择一条；多选时按链路 1、链路 2 顺序尝试。"
+                                   Classes="pageSummary"
+                                   TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
-                            <TextBlock Grid.Column="0" Text="下载方案" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="0" Text="取流链路" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16">
-                                <RadioButton Content="方案1" GroupName="HongguoAppPlan" IsChecked="{Binding HongguoAppPlanIsCurrent}" />
-                                <RadioButton Content="方案2" GroupName="HongguoAppPlan" IsChecked="{Binding HongguoAppPlanIsDesktop}" />
+                                <CheckBox Content="链路 1" IsChecked="{Binding HongguoAppStreamLink1}" />
+                                <CheckBox Content="链路 2" IsChecked="{Binding HongguoAppStreamLink2}" />
                             </StackPanel>
                         </Grid>
                         <StackPanel IsVisible="False">
-                            <CheckBox Content="链路 1" IsChecked="{Binding HongguoAppStreamLink1}" />
-                            <CheckBox Content="链路 2" IsChecked="{Binding HongguoAppStreamLink2}" />
                             <TextBox Text="{Binding HongguoAppDeviceId}" />
                             <TextBox Text="{Binding HongguoAppInstallId}" />
                         </StackPanel>

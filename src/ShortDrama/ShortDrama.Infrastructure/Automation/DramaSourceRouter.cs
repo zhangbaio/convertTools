@@ -1254,7 +1254,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         {
             RememberPosterUrl(request.OutputDir, posterUrl);
             RememberPosterUrl(request.ProjectDir, posterUrl);
-            await EnsurePosterAsync(request.OutputDir, request.DisplayName, posterUrl, progress, cancellationToken);
+            try
+            {
+                await EnsurePosterAsync(request.OutputDir, request.DisplayName, posterUrl, progress, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failures.Add(ex.Message);
+            }
         }
 
         var videoCount = CountVideoFiles(request.OutputDir);
@@ -3471,6 +3478,23 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return deviceId;
     }
 
+    public async Task DownloadMissingPosterAsync(
+        string projectDirectory,
+        string displayName,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory))
+            throw new InvalidOperationException("没有项目目录，无法补下海报原图。");
+        var posterUrl = ReadPosterUrlFromProject(projectDirectory);
+        if (!LooksLikeHttpUrl(posterUrl))
+            posterUrl = ReadPosterUrlFromLinkedWorkflow(projectDirectory);
+        if (!LooksLikeHttpUrl(posterUrl))
+            throw new InvalidOperationException("没有已保存的海报地址，无法只补下海报原图。");
+        progress?.Report("开始补下海报原图。");
+        await EnsurePosterAsync(projectDirectory, displayName, posterUrl, progress, cancellationToken);
+    }
+
     private async Task EnsurePosterAsync(string outputDir, string displayName, string posterUrl, IProgress<string>? progress, CancellationToken cancellationToken)
     {
         if (!LooksLikeHttpUrl(posterUrl))
@@ -3500,7 +3524,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            progress?.Report($"海报下载失败: {ex.Message}");
+            throw new InvalidOperationException($"海报下载失败：{ex.Message}", ex);
         }
     }
 
@@ -4101,6 +4125,25 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         catch
         {
             // The downloaded image is what the poster step needs.
+        }
+    }
+
+    private static string ReadPosterUrlFromLinkedWorkflow(string projectDirectory)
+    {
+        var metadataPath = Path.Combine(projectDirectory, "shortdrama-project.json");
+        if (!File.Exists(metadataPath))
+            return string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+            var workflow = GetString(document.RootElement, "workflowProjectDir");
+            if (string.IsNullOrWhiteSpace(workflow))
+                return string.Empty;
+            return ReadPosterUrlFromProject(workflow);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            return string.Empty;
         }
     }
 

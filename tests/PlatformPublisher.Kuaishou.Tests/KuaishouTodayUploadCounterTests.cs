@@ -131,6 +131,65 @@ public sealed class KuaishouTodayUploadCounterTests
     }
 
     [Fact]
+    public void Existing_locked_series_marked_complete_is_not_counted_today()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var today = new DateTimeOffset(2026, 11, 15, 15, 13, 0, TimeSpan.FromHours(8));
+        var locked = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_乡厨百味"));
+        var uploaded = Directory.CreateDirectory(Path.Combine(root.FullName, "workflow", "_夜食追凶"));
+        File.WriteAllText(
+            Path.Combine(locked.FullName, ".kuaishou-enterprise-upload-state.json"),
+            $$"""
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "SkipTodayUploadCount": true,
+              "UpdatedAt": "{{today:O}}"
+            }
+            """);
+        File.WriteAllText(
+            Path.Combine(uploaded.FullName, ".kuaishou-enterprise-upload-state.json"),
+            $$"""
+            {
+              "Status": "completed",
+              "ReviewSubmitted": true,
+              "UpdatedAt": "{{today:O}}"
+            }
+            """);
+
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouEnterpriseRevenue,
+            "acct-a",
+            root.FullName,
+            today.Date,
+            store,
+            [locked.FullName, uploaded.FullName]));
+        Assert.DoesNotContain(
+            KuaishouTodayUploadCounter.ListToday(PublishPlatform.KuaishouEnterpriseRevenue, "acct-a", today.Date, store),
+            item => item.Title.Contains("乡厨", StringComparison.Ordinal));
+
+        KuaishouTodayUploadCounter.AppendRun(
+            PublishPlatform.KuaishouEnterpriseRevenue,
+            "acct-a",
+            "薄荷剧场",
+            locked.FullName,
+            succeeded: true,
+            error: "",
+            store);
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouEnterpriseRevenue,
+            "acct-a",
+            root.FullName,
+            today.Date,
+            store,
+            [locked.FullName, uploaded.FullName]));
+        Assert.DoesNotContain(
+            KuaishouUploadRecordStore.List("enterprise", store),
+            record => record.Status == "成功" && record.OriginalTitle.Contains("乡厨", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Upload_state_completed_today_counts_without_a_ledger_row()
     {
         var root = Directory.CreateTempSubdirectory();

@@ -35,6 +35,24 @@ public sealed class KuaishouPosterServiceTests
     }
 
     [Fact]
+    public void Missing_source_poster_is_detected_before_generation()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "kuaishou-poster-missing-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(root, "快手竖屏海报.jpg"), [1, 2, 3]);
+            Assert.False(KuaishouPosterService.HasSourcePoster(root, root));
+            File.WriteAllBytes(Path.Combine(root, "别拿我的钱疼你全家.jpg"), [1, 2, 3]);
+            Assert.True(KuaishouPosterService.HasSourcePoster(root, root));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Crop_landscape_outputs_1600_by_1000()
     {
         var root = Path.Combine(Path.GetTempPath(), "kuaishou-crop-" + Guid.NewGuid().ToString("N"));

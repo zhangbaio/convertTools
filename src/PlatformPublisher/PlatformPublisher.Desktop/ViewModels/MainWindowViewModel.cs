@@ -2794,6 +2794,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 if (request.Poster && !preserved.Contains("poster-rename"))
                 {
                     await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Running, "正在生成快手海报");
+                    var posterDirectories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
+                    if (!KuaishouPosterService.HasSourcePoster(posterDirectories.SourceDirectory, posterDirectories.WorkflowDirectory))
+                    {
+                        AppendActivityLog("海报原图缺失，开始补下海报，不重新下载视频。", projectName);
+                        await _dramaDownloader.DownloadMissingPosterAsync(
+                            posterDirectories.SourceDirectory,
+                            projectName,
+                            new Progress<string>(message => AppendActivityLog(message, projectName)),
+                            cancellationToken);
+                        SyncKuaishouWorkflow(posterDirectories.SourceDirectory, projectName);
+                    }
                     var imageSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
                     await new KuaishouPosterService().PrepareAsync(
                         projectDirectory,
@@ -2922,6 +2933,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             trackedRow.Refresh(reloadArtifacts: false);
                         StatusMessage = line;
                     });
+                    ActivityLogAccountScope.Value = KuaishouRunKey(request.AccountId, request.Platform);
+                    ActivityLogPlatformScope.Value = request.Platform;
                     AppendActivityLog(line, projectName);
                 });
                 await adapter.RunAsync(trackedJob, uploadProgress, cancellationToken);
@@ -4462,6 +4475,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(value) || value == "软件授权联网校验通过")
             return;
+        if (_kuaishouQueueStatusVisible)
+        {
+            HideQueueStatusFromFooter();
+            return;
+        }
+
         FooterLogText = value;
     }
 
@@ -4470,22 +4489,39 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly Dictionary<string, string> _lastLogByAccount = new(StringComparer.OrdinalIgnoreCase);
     private string _lastUnaffiliatedLog = "";
     private string _lastOtherAccountId = "";
+    private bool _kuaishouQueueStatusVisible;
+
+    /// <summary>
+    /// 快手队列页自己的状态条已经显示当前账号上传日志。窗口底部只保留其他账号，避免同一条再出现一次。
+    /// </summary>
+    public void SetKuaishouQueueStatusVisible(bool visible)
+    {
+        if (_kuaishouQueueStatusVisible == visible)
+            return;
+        _kuaishouQueueStatusVisible = visible;
+        if (visible)
+            HideQueueStatusFromFooter();
+        else
+            ApplyFooterLogs();
+    }
 
     private void NoteFooterLog(string? accountKey, string text)
     {
         if (string.IsNullOrWhiteSpace(text))
             return;
-        var currentId = _activeGlobalAccount?.Id ?? "";
-        var forCurrent = string.IsNullOrWhiteSpace(accountKey)
-            || string.Equals(accountKey, currentId, StringComparison.OrdinalIgnoreCase)
-            || (!string.IsNullOrWhiteSpace(currentId) &&
-                accountKey.StartsWith(currentId + "|", StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrWhiteSpace(accountKey))
             _lastUnaffiliatedLog = text;
         else
             _lastLogByAccount[accountKey] = text;
 
-        if (forCurrent)
+        if (_kuaishouQueueStatusVisible &&
+            (IsCurrentAccountLogKey(accountKey) || SameLogProject(text, StatusMessage)))
+        {
+            HideQueueStatusFromFooter();
+            return;
+        }
+
+        if (IsCurrentAccountLogKey(accountKey))
         {
             FooterLogText = text;
             return;
@@ -4495,20 +4531,66 @@ public sealed partial class MainWindowViewModel : ObservableObject
         OtherAccountFooterLogText = text;
     }
 
-    private void ApplyFooterLogs()
+    private void HideQueueStatusFromFooter()
+    {
+        FooterLogText = "";
+        if (SameLogProject(OtherAccountFooterLogText, StatusMessage))
+            OtherAccountFooterLogText = "";
+    }
+
+    private bool IsCurrentAccountLogKey(string? accountKey)
     {
         var currentId = _activeGlobalAccount?.Id ?? "";
-        if (!string.IsNullOrWhiteSpace(currentId) &&
-            _lastLogByAccount.TryGetValue(currentId, out var owned) &&
-            !string.IsNullOrWhiteSpace(owned))
-            FooterLogText = owned;
-        else if (!string.IsNullOrWhiteSpace(_lastUnaffiliatedLog))
+        if (string.IsNullOrWhiteSpace(accountKey))
+            return true;
+        if (string.IsNullOrWhiteSpace(currentId))
+            return false;
+        return string.Equals(accountKey, currentId, StringComparison.OrdinalIgnoreCase)
+            || accountKey.StartsWith(currentId + "|", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool SameLogProject(string? left, string? right)
+    {
+        var a = ExtractLeadingProject(StripLogClock(left ?? ""));
+        var b = ExtractLeadingProject(StripLogClock(right ?? ""));
+        return a.Length > 0 && b.Length > 0 && string.Equals(a, b, StringComparison.Ordinal);
+    }
+
+    private static string StripLogClock(string text)
+    {
+        var value = text.Trim();
+        if (value.Length >= 10 && value[0] == '[' && value[3] == ':' && value[6] == ':' && value[9] == ']')
+            return value[10..].TrimStart();
+        return value;
+    }
+
+    private void ApplyFooterLogs()
+    {
+        if (_kuaishouQueueStatusVisible)
+        {
+            HideQueueStatusFromFooter();
+            return;
+        }
+
+        var currentId = _activeGlobalAccount?.Id ?? "";
+        FooterLogText = "";
+        if (!string.IsNullOrWhiteSpace(currentId))
+        {
+            foreach (var pair in _lastLogByAccount)
+            {
+                if (IsCurrentAccountLogKey(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
+                    FooterLogText = pair.Value;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(FooterLogText) && !string.IsNullOrWhiteSpace(_lastUnaffiliatedLog))
             FooterLogText = _lastUnaffiliatedLog;
 
         OtherAccountFooterLogText = "";
         if (!string.IsNullOrWhiteSpace(_lastOtherAccountId) &&
-            !string.Equals(_lastOtherAccountId, currentId, StringComparison.OrdinalIgnoreCase) &&
-            _lastLogByAccount.TryGetValue(_lastOtherAccountId, out var other))
+            !IsCurrentAccountLogKey(_lastOtherAccountId) &&
+            _lastLogByAccount.TryGetValue(_lastOtherAccountId, out var other) &&
+            !string.IsNullOrWhiteSpace(other))
         {
             OtherAccountFooterLogText = other;
             return;
@@ -4516,7 +4598,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         foreach (var pair in _lastLogByAccount)
         {
-            if (string.Equals(pair.Key, currentId, StringComparison.OrdinalIgnoreCase))
+            if (IsCurrentAccountLogKey(pair.Key) || string.IsNullOrWhiteSpace(pair.Value))
                 continue;
             OtherAccountFooterLogText = pair.Value;
         }

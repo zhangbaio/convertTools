@@ -49,6 +49,11 @@ public partial class MainWindow : Window
         WeixinPublisherView.SetAccountSettingsOnly(!YunfanFeatures.WeixinAssistantEnabled);
         WeixinNavButton.IsVisible = YunfanFeatures.WeixinAssistantEnabled;
         GlobalAccountSidebar.UseShellChrome();
+        KuaishouWorkflowPage.PropertyChanged += (_, e) =>
+        {
+            if (e.Property.Name == nameof(IsVisible))
+                ViewModel?.SetKuaishouQueueStatusVisible(KuaishouWorkflowPage.IsVisible);
+        };
         KuaishouWorkflowPage.KuaishouConfigRequested += (_, _) =>
             ShowKuaishouConfigPage(ViewModel?.IsKuaishouPlatform == true
                 ? ViewModel.SelectedPlatform.Value

@@ -22,6 +22,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private string _cleanEdition = "";
     private bool _cleanRemoteDispatch;
     private bool _suspendDirty;
+    private bool _transportSync;
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
     public event Func<ChannelsAccount, string, Task<bool>>? ConfirmAccountEdition;
     public event Func<ChannelsAccount, string, Task>? AccountEditionApplied;
@@ -204,7 +205,10 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         FillChoice(GenderBox, KuaishouFormChoices.Genders, _config.Gender, "");
         CommitmentPdfBox.Text = _config.CommitmentPdfPath;
         LoginTimeoutBox.Text = _config.LoginTimeoutSeconds.ToString();
-        FillChoice(UploadTransportBox, KuaishouFormChoices.UploadTransports, _config.UploadTransport, "playwright");
+        _transportSync = true;
+        FillChoice(UploadTransportBox, KuaishouFormChoices.UploadTransports, _config.UploadTransport, KuaishouUploadTransport.Api);
+        FillChoice(UploadTransportMirrorBox, KuaishouFormChoices.UploadTransports, _config.UploadTransport, KuaishouUploadTransport.Api);
+        _transportSync = false;
         FillChoice(RevenueShareBrowserModeBox, KuaishouFormChoices.BrowserModes, _config.RevenueShareHeadless ? "true" : "false", "false");
         RevenueShareFullSceneBox.IsChecked = _config.RevenueShareFullSceneDisplay;
         KeepBrowserBox.IsChecked = _config.KeepBrowserOpenOnFailure;
@@ -508,7 +512,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.Gender = ChoiceValue(GenderBox, "");
         _config.CommitmentPdfPath = CommitmentPdfBox.Text?.Trim() ?? string.Empty;
         _config.LoginTimeoutSeconds = Positive(LoginTimeoutBox.Text, 300);
-        _config.UploadTransport = ChoiceValue(UploadTransportBox, "playwright");
+        _config.UploadTransport = ChoiceValue(UploadTransportBox, KuaishouUploadTransport.Api);
         _config.RevenueShareHeadless = ChoiceValue(RevenueShareBrowserModeBox, "false") == "true";
         _config.Headless = _config.RevenueShareHeadless;
         _config.RevenueShareFullSceneDisplay = RevenueShareFullSceneBox.IsChecked == true;
@@ -527,6 +531,27 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     }
 
     private void SaleTypeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateSaleTypeRows();
+
+    private void UploadTransportBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        SyncUploadTransport(UploadTransportBox, UploadTransportMirrorBox);
+
+    private void UploadTransportMirrorBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+        SyncUploadTransport(UploadTransportMirrorBox, UploadTransportBox);
+
+    private void SyncUploadTransport(ComboBox source, ComboBox target)
+    {
+        if (_transportSync || source.SelectedItem is not KuaishouFormChoice choice)
+            return;
+        if (target.ItemsSource is not IEnumerable<KuaishouFormChoice> items)
+            return;
+        var match = items.FirstOrDefault(item =>
+            string.Equals(item.Value, choice.Value, StringComparison.OrdinalIgnoreCase));
+        if (match is null || ReferenceEquals(target.SelectedItem, match))
+            return;
+        _transportSync = true;
+        target.SelectedItem = match;
+        _transportSync = false;
+    }
 
     private void UpdateSaleTypeRows()
     {

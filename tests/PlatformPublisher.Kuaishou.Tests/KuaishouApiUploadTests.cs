@@ -9,18 +9,19 @@ namespace PlatformPublisher.Kuaishou.Tests;
 public sealed class KuaishouApiUploadTests
 {
     [Theory]
-    [InlineData(null)]
-    [InlineData("")]
     [InlineData("playwright")]
     [InlineData("browser")]
-    public void IsApi_is_false_unless_the_value_is_api(string? value) =>
+    public void IsApi_is_false_for_browser(string? value) =>
         Assert.False(KuaishouUploadTransport.IsApi(value));
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
     [InlineData("api")]
     [InlineData("API")]
     [InlineData(" api ")]
-    public void IsApi_accepts_only_api(string value) =>
+    public void IsApi_defaults_to_api(string? value) =>
         Assert.True(KuaishouUploadTransport.IsApi(value));
 
     [Fact]
@@ -118,7 +119,30 @@ public sealed class KuaishouApiUploadTests
         Assert.Equal(0, KuaishouApiVideoUploader.ReadFragmentIndex(""));
         Assert.Equal(4, KuaishouApiVideoUploader.ReadFragmentIndex("""{"fragment_index":4}"""));
         Assert.Equal(2, KuaishouApiVideoUploader.ReadFragmentIndex("""{"data":{"fragmentIndex":2}}"""));
+        Assert.Equal(-1, KuaishouApiVideoUploader.ReadFragmentIndex("""{"fragment_index":-1}"""));
         Assert.Equal(2, KuaishouApiVideoUploader.ChunkCount(KuaishouApiVideoUploader.ChunkBytes + 1));
+    }
+
+    [Fact]
+    public void Resume_point_treats_minus_one_as_the_start_and_continues_after_the_last_fragment()
+    {
+        var fresh = KuaishouApiVideoUploader.ReadResumePoint(
+            """{"result":1,"existed":false,"fragment_index":-1,"fragment_index_bytes":0,"fragment_list":[]}""",
+            KuaishouApiVideoUploader.ChunkBytes);
+        Assert.Equal(0, fresh.NextFragment);
+        Assert.Equal(0, fresh.Offset);
+
+        var continued = KuaishouApiVideoUploader.ReadResumePoint(
+            """{"fragment_index":1,"fragment_index_bytes":10485760}""",
+            KuaishouApiVideoUploader.ChunkBytes);
+        Assert.Equal(2, continued.NextFragment);
+        Assert.Equal(10485760, continued.Offset);
+
+        var nested = KuaishouApiVideoUploader.ReadResumePoint(
+            """{"data":{"fragmentIndex":2}}""",
+            KuaishouApiVideoUploader.ChunkBytes);
+        Assert.Equal(3, nested.NextFragment);
+        Assert.Equal(3L * KuaishouApiVideoUploader.ChunkBytes, nested.Offset);
     }
 
     [Fact]

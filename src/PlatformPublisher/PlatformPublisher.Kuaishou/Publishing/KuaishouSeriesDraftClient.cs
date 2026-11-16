@@ -202,9 +202,10 @@ public sealed class KuaishouSeriesDraftClient
         string? existingMiniSeriesId,
         CancellationToken cancellationToken)
     {
+        var found = await FindSingleSeriesIdAsync(gateway, title, cancellationToken);
         if (!string.IsNullOrWhiteSpace(existingMiniSeriesId))
             return existingMiniSeriesId.Trim();
-        return await FindSingleSeriesIdAsync(gateway, title, cancellationToken);
+        return found;
     }
 
     private static async Task<string> FindSingleSeriesIdAsync(IKuaishouKdjGateway gateway, string title, CancellationToken cancellationToken)
@@ -231,7 +232,7 @@ public sealed class KuaishouSeriesDraftClient
             throw new InvalidOperationException($"内容管理里有 {matches.Count} 部同名短剧《{title}》，已停止创建。");
         if (matches.Count == 0) return string.Empty;
         if (matches[0].AuditStatus != 1)
-            throw new InvalidOperationException($"内容管理已有同名短剧《{title}》，当前不是待提交，已停止创建。");
+            throw new KuaishouExistingSeriesNotEditableException(title, matches[0].Id, matches[0].AuditStatus);
         return matches[0].Id;
     }
 
@@ -348,4 +349,17 @@ public sealed class KuaishouSeriesDraftClient
 
     private static string First(params string?[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
+}
+
+public sealed class KuaishouExistingSeriesNotEditableException : InvalidOperationException
+{
+    public KuaishouExistingSeriesNotEditableException(string title, string seriesId, int auditStatus)
+        : base($"内容管理已有同名短剧《{title}》，当前不是待提交，本地已记为完成，不计入今日上传。")
+    {
+        SeriesId = seriesId;
+        AuditStatus = auditStatus;
+    }
+
+    public string SeriesId { get; }
+    public int AuditStatus { get; }
 }
