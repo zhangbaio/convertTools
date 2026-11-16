@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Services;
@@ -391,12 +392,15 @@ public static class TikTokUploadStateStore
         var text = (candidate ?? "").Trim();
         if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) ||
             !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(uri.Host, "www.tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase))
+            !TikTokApiSites.IsConsoleHost(text))
             return "";
 
         var match = SeriesIdPattern.Match(uri.AbsolutePath);
         if (!match.Success) return "";
-        return $"https://www.tiktokdramacenter.com/series/draft/{match.Groups[1].Value}";
+        var origin = TikTokApiSites.IsInternationalHost(text)
+            ? TikTokApiSites.InternationalOrigin
+            : TikTokApiSites.DomesticOrigin;
+        return $"{origin}/series/draft/{match.Groups[1].Value}";
     }
 
     private static string NowText() => DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");

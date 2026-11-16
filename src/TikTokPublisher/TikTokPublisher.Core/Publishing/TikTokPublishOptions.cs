@@ -473,6 +473,8 @@ public sealed class TikTokPublishOptions
     public string ExpectedFullPriceLabel { get; set; } = "";
     public int UploadStallSeconds { get; set; } = 180;
     public string UploadStrategy { get; set; } = "api";
+    /// <summary>API 站点。domestic 为国内站，international 为国际站。</summary>
+    public string ApiSite { get; set; } = TikTokApiSites.Domestic;
     /// <summary>网页上传的正片投递。classic 一次传完，batch 分批。</summary>
     public string PlaywrightVideoDelivery { get; set; } = TikTokUploadChannels.Classic;
     public int UploadBatchSize { get; set; } = 3;
@@ -604,6 +606,7 @@ public sealed class TikTokPublishOptions
         ExpectedFullPriceLabel = account.TiktokExpectedFullPriceLabel,
         UploadStallSeconds = account.TiktokUploadStallSeconds > 0 ? account.TiktokUploadStallSeconds : 180,
         UploadStrategy = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery).Channel,
+        ApiSite = TikTokApiSites.Normalize(account.TiktokApiSite),
         PlaywrightVideoDelivery = TikTokUploadChannels.Resolve(account.TiktokUploadStrategy, account.TiktokPlaywrightVideoDelivery).Delivery,
         UploadBatchSize = account.TiktokUploadBatchSize > 0 ? Math.Clamp(account.TiktokUploadBatchSize, 1, 20) : 3,
         UploadBatchStallSeconds = account.TiktokUploadBatchStallSeconds > 0 ? Math.Clamp(account.TiktokUploadBatchStallSeconds, 20, 600) : 75,

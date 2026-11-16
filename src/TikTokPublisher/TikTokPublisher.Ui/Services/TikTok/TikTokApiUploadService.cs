@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Microsoft.Playwright;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 
@@ -79,6 +80,8 @@ public static partial class TikTokApiUploadService
     /// </summary>
     internal static string ResolveServiceBaseUrl(string pageUrl, string prefix)
     {
+        if (TikTokApiSites.IsInternationalHost(pageUrl))
+            return TikTokApiSites.ServiceBase(TikTokApiSites.International, prefix);
         var host = Uri.TryCreate(pageUrl, UriKind.Absolute, out var uri)
             ? uri.Host
             : "www.tiktokdramacenter.com";
@@ -744,7 +747,9 @@ public static partial class TikTokApiUploadService
                 "/api/content-partner/series/v2/list",
                 body,
                 ct);
-            var parsed = TikTokSeriesListLookupService.ParseSeriesList(document.RootElement);
+            var parsed = TikTokSeriesListLookupService.ParseSeriesList(
+                document.RootElement,
+                PartnerSession.Current.Value?.Site);
             total ??= parsed.Total;
             pagesRead = pageIndex;
             foreach (var row in parsed.Rows)
@@ -1475,7 +1480,7 @@ public static partial class TikTokApiUploadService
         var started = Stopwatch.StartNew();
         var retries = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
         var (committed, timing) = await UploadFileAsync(
-            http, sts, gates, pageUrl, item.Path, log, item.Episode, retries, ct);
+            http, sts, gates, pageUrl, options, item.Path, log, item.Episode, retries, ct);
         addUploadedBytes(timing.Bytes);
         log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, timing, markUploaded(), total));
         return committed;
@@ -1519,6 +1524,7 @@ public static partial class TikTokApiUploadService
         StsCache sts,
         UploadGates gates,
         string pageUrl,
+        TikTokPublishOptions options,
         string path,
         Action<string>? log,
         int episode,
@@ -1529,8 +1535,9 @@ public static partial class TikTokApiUploadService
         if (fileSize <= 0)
             throw new InvalidOperationException($"视频文件为空：{path}");
 
-        var vodBase = ResolveServiceBaseUrl(pageUrl, "vod");
-        var tosBase = ResolveServiceBaseUrl(pageUrl, "tos");
+        var site = TikTokApiSites.Resolve(options.ApiSite, pageUrl);
+        var vodBase = TikTokApiSites.VideoApplyBase(site);
+        var tosBase = TikTokApiSites.VideoObjectFallback(site);
         string sessionKey;
         TimeSpan transferElapsed;
         await gates.Transfer.WaitAsync(ct);
@@ -1538,7 +1545,8 @@ public static partial class TikTokApiUploadService
         {
             var transferClock = Stopwatch.StartNew();
             sessionKey = await TransferFileAsync(
-                http, sts, gates, vodBase, tosBase, path, fileSize, log, episode, retries, ct);
+                http, sts, gates, vodBase, tosBase, path, fileSize, log, episode, retries, ct,
+                useResponseUploadHost: TikTokApiSites.IsInternational(site));
             transferElapsed = transferClock.Elapsed;
         }
         finally
@@ -1567,7 +1575,8 @@ public static partial class TikTokApiUploadService
         string applyAction = "ApplyUploadInner",
         string fileType = "video",
         string? objectBase = null,
-        string? itemLabel = null)
+        string? itemLabel = null,
+        bool useResponseUploadHost = false)
     {
         var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
         var isVideo = string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase);
@@ -1595,7 +1604,9 @@ public static partial class TikTokApiUploadService
             storeUri = ReadString(store, "StoreUri");
             auth = ReadString(store, "Auth");
             sessionKey = ReadString(node, "SessionKey");
-            uploadHost = tosBase;
+            uploadHost = useResponseUploadHost
+                ? ResolveObjectHost(node, null, tosBase)
+                : tosBase;
             if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
                 throw new InvalidOperationException($"{applyAction} 没有返回上传地址。");
             var boundary = "----WebKitFormBoundary" + RandomToken(16);
@@ -2066,8 +2077,9 @@ public static partial class TikTokApiUploadService
         if (page is null)
         {
             http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-            http.DefaultRequestHeaders.TryAddWithoutValidation("Origin", DramaCenterOrigin);
-            http.DefaultRequestHeaders.TryAddWithoutValidation("Referer", DramaCenterOrigin + "/");
+            var origin = TikTokApiSites.Origin(options.ApiSite);
+            http.DefaultRequestHeaders.TryAddWithoutValidation("Origin", origin);
+            http.DefaultRequestHeaders.TryAddWithoutValidation("Referer", origin + "/");
             return http;
         }
 
@@ -2189,10 +2201,15 @@ public static partial class TikTokApiUploadService
 
         private readonly HttpClient _http;
         private readonly string _cookie;
+        private readonly string _origin;
+
+        internal string Site { get; }
 
         private PartnerSession(string cookie, TikTokPublishOptions options)
         {
             _cookie = cookie;
+            Site = TikTokApiSites.Normalize(options.ApiSite);
+            _origin = TikTokApiSites.Origin(Site);
             var handler = new HttpClientHandler
             {
                 UseCookies = false,
@@ -2229,12 +2246,12 @@ public static partial class TikTokApiUploadService
         {
             var url = path.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                 ? path
-                : DramaCenterOrigin + (path.StartsWith('/') ? path : "/" + path);
+                : _origin + (path.StartsWith('/') ? path : "/" + path);
             using var request = new HttpRequestMessage(new HttpMethod(method), url);
             request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
             request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
-            request.Headers.TryAddWithoutValidation("Origin", DramaCenterOrigin);
-            request.Headers.TryAddWithoutValidation("Referer", DramaCenterOrigin + "/series/draft");
+            request.Headers.TryAddWithoutValidation("Origin", _origin);
+            request.Headers.TryAddWithoutValidation("Referer", _origin + "/series/draft");
             request.Headers.TryAddWithoutValidation("Cookie", _cookie);
             if (body is not null)
                 request.Content = new StringContent(body, Encoding.UTF8, "application/json");

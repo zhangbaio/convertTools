@@ -384,7 +384,10 @@ internal static class TikTokSeriesListLookupService
                 pageSize = SeriesListPageSize,
             });
             using var document = await PostSeriesListAsync(page, body, ct).ConfigureAwait(false);
-            var parsed = ParseSeriesList(document.RootElement);
+            var site = TikTokApiSites.IsInternationalHost(page.Url)
+                ? TikTokApiSites.International
+                : TikTokApiSites.Domestic;
+            var parsed = ParseSeriesList(document.RootElement, site);
             total ??= parsed.Total;
             pagesRead = pageIndex;
             foreach (var row in parsed.Rows)
@@ -461,7 +464,7 @@ internal static class TikTokSeriesListLookupService
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
-            var detailUrl = urls.FirstOrDefault() ?? BuildFallbackUrl(rawText, ids);
+            var detailUrl = urls.FirstOrDefault() ?? BuildFallbackUrl(rawText, ids, page.Url);
             results.Add(new TikTokSeriesListRow(
                 title,
                 ExtractStatus(lines, rawText),
@@ -1339,7 +1342,7 @@ internal static class TikTokSeriesListLookupService
         return match.Success ? match.Groups[1].Value : string.Empty;
     }
 
-    private static string BuildFallbackUrl(string rawText, IReadOnlyList<string> ids)
+    private static string BuildFallbackUrl(string rawText, IReadOnlyList<string> ids, string? pageUrl = null)
     {
         if (ids.Count != 1)
             return string.Empty;
@@ -1347,7 +1350,10 @@ internal static class TikTokSeriesListLookupService
                       rawText.Contains("Draft", StringComparison.OrdinalIgnoreCase)
             ? "draft"
             : "detail";
-        return $"https://www.tiktokdramacenter.com/series/{segment}/{ids[0]}";
+        var origin = TikTokApiSites.IsInternationalHost(pageUrl)
+            ? TikTokApiSites.InternationalOrigin
+            : TikTokApiSites.DomesticOrigin;
+        return $"{origin}/series/{segment}/{ids[0]}";
     }
 
     private static bool IsLoginPage(string? url) =>
@@ -1370,10 +1376,10 @@ internal static class TikTokSeriesListLookupService
         }
     }
 
-    internal static SeriesListDocument ParseSeriesList(JsonElement root)
+    internal static SeriesListDocument ParseSeriesList(JsonElement root, string? site = null)
     {
         var rows = new List<TikTokSeriesListRow>();
-        CollectSeriesRows(root, rows, 0);
+        CollectSeriesRows(root, rows, 0, site);
         return new SeriesListDocument(DistinctSeriesRows(rows), ReadSeriesTotal(root));
     }
 
@@ -1382,7 +1388,7 @@ internal static class TikTokSeriesListLookupService
         ct.ThrowIfCancellationRequested();
         if (IsLoginPage(page.Url))
             throw new InvalidOperationException("TikTok 登录态失效，请先重新登录当前账号。");
-        if (page.Url.Contains("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase))
+        if (TikTokApiSites.IsConsoleHost(page.Url))
             return;
 
         await page.GotoAsync(TikTokUrls.DefaultSeriesListUrl, new PageGotoOptions
@@ -1443,26 +1449,26 @@ internal static class TikTokSeriesListLookupService
         return document;
     }
 
-    private static void CollectSeriesRows(JsonElement element, List<TikTokSeriesListRow> rows, int depth)
+    private static void CollectSeriesRows(JsonElement element, List<TikTokSeriesListRow> rows, int depth, string? site)
     {
         if (depth > 8)
             return;
         if (element.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in element.EnumerateArray())
-                CollectSeriesRows(item, rows, depth + 1);
+                CollectSeriesRows(item, rows, depth + 1, site);
             return;
         }
 
         if (element.ValueKind != JsonValueKind.Object)
             return;
 
-        ConsiderSeriesRow(element, rows);
+        ConsiderSeriesRow(element, rows, site);
         foreach (var property in element.EnumerateObject())
-            CollectSeriesRows(property.Value, rows, depth + 1);
+            CollectSeriesRows(property.Value, rows, depth + 1, site);
     }
 
-    private static void ConsiderSeriesRow(JsonElement element, List<TikTokSeriesListRow> rows)
+    private static void ConsiderSeriesRow(JsonElement element, List<TikTokSeriesListRow> rows, string? site)
     {
         if (element.TryGetProperty("orderNum", out _) || element.TryGetProperty("videoId", out _))
             return;
@@ -1488,7 +1494,7 @@ internal static class TikTokSeriesListLookupService
             title.Trim(),
             label,
             seriesId,
-            BuildSeriesUrl(label, seriesId),
+            BuildSeriesUrl(label, seriesId, site),
             string.IsNullOrWhiteSpace(label)
                 ? $"{title.Trim()} ID: {seriesId}"
                 : $"{title.Trim()} ID: {seriesId} {label}"));
@@ -1598,10 +1604,10 @@ internal static class TikTokSeriesListLookupService
         return text;
     }
 
-    private static string BuildSeriesUrl(string status, string seriesId)
+    private static string BuildSeriesUrl(string status, string seriesId, string? site)
     {
         var segment = status.Contains("草稿", StringComparison.Ordinal) ? "draft" : "detail";
-        return $"https://www.tiktokdramacenter.com/series/{segment}/{seriesId}";
+        return $"{TikTokApiSites.Origin(site)}/series/{segment}/{seriesId}";
     }
 
     private static int? ReadSeriesTotal(JsonElement root)

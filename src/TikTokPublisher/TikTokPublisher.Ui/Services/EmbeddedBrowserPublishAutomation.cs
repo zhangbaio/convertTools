@@ -82,9 +82,11 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
             return PublishResult.Fail(ex.Message);
         }
 
-        var targetUrl = string.IsNullOrWhiteSpace(account.TiktokSeriesUrl)
-            ? TikTokUrls.DefaultSeriesDraftUrl
-            : account.TiktokSeriesUrl.Trim();
+        var targetUrl = TikTokApiSites.AlignConsoleUrl(
+            string.IsNullOrWhiteSpace(account.TiktokSeriesUrl)
+                ? TikTokApiSites.SeriesDraftUrl(account.TiktokApiSite)
+                : account.TiktokSeriesUrl.Trim(),
+            account.TiktokApiSite);
 
         string workflowDir;
         TikTokPublishOptions options;
@@ -781,8 +783,7 @@ public sealed class EmbeddedBrowserPublishAutomation : IPublishAutomation, IAsyn
 
     private static bool IsLoginPage(string url)
     {
-        var lowered = (url ?? "").ToLowerInvariant();
-        return lowered.Contains("tiktokdramacenter.com") && lowered.Contains("/login");
+        return TikTokApiSites.IsLoginUrl(url);
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;

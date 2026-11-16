@@ -43,6 +43,15 @@
                 <ScrollViewer>
                     <StackPanel Spacing="8" Margin="4">
                         <Grid ColumnDefinitions="130,*" ColumnSpacing="10">
+                            <TextBlock Grid.Column="0" Text="API 站点" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1"
+                                      x:Name="ApiSiteCombo"
+                                      HorizontalAlignment="Stretch">
+                                <ComboBoxItem Tag="domestic">国内站</ComboBoxItem>
+                                <ComboBoxItem Tag="international">国际站</ComboBoxItem>
+                            </ComboBox>
+                        </Grid>
+                        <Grid ColumnDefinitions="130,*" ColumnSpacing="10">
                             <TextBlock Grid.Column="0" Text="剧集类型" VerticalAlignment="Center" />
                             <ComboBox Grid.Column="1"
                                       x:Name="DramaMarketCombo"

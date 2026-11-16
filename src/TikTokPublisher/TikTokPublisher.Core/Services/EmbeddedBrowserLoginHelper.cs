@@ -6,19 +6,18 @@ public static class EmbeddedBrowserLoginHelper
 {
   private static readonly string[] AuthCookieDomainMarkers = ["tiktokdramacenter.com", "tiktok.com"];
 
-  public static bool IsLoginUrl(string? url)
-  {
-    var lowered = (url ?? "").Trim().ToLowerInvariant();
-    return lowered.Contains("tiktokdramacenter.com") && lowered.Contains("/login");
-  }
+  public static bool IsLoginUrl(string? url) => TikTokApiSites.IsLoginUrl(url);
 
   public static string ResolveHomeUrl(TikTokAccountProfile profile)
   {
+    var site = profile.TiktokApiSite;
     var configured = (profile.TiktokSeriesUrl ?? "").Trim();
-    var normalized = string.IsNullOrEmpty(configured) ? TikTokUrls.DefaultSeriesListUrl : NormalizeUrl(configured);
+    var normalized = string.IsNullOrEmpty(configured)
+      ? TikTokApiSites.SeriesListUrl(site)
+      : TikTokApiSites.AlignConsoleUrl(NormalizeUrl(configured), site);
     var lowered = normalized.ToLowerInvariant();
     if (lowered.Contains("/login") || lowered.Contains("/series/draft"))
-      return TikTokUrls.DefaultSeriesListUrl;
+      return TikTokApiSites.SeriesListUrl(site);
     return normalized;
   }
 
