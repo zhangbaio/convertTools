@@ -145,7 +145,8 @@ public static partial class TikTokApiUploadService
         }
         catch (PageFetchException ex) when (ex.Message.Contains("3016009", StringComparison.Ordinal))
         {
-            throw new TikTokDailyLimitException(ex.Message);
+            log?.Invoke($"接口上传：平台返回单日创建剧集上限。{ex.Message}");
+            throw new TikTokDailyLimitException("今日创建额度已用完");
         }
 
         log?.Invoke($"接口上传完成：剧集 ID {seriesId} 已提交。");
@@ -505,7 +506,8 @@ public static partial class TikTokApiUploadService
         }
         catch (PageFetchException ex) when (ex.Message.Contains("3016009", StringComparison.Ordinal))
         {
-            throw new TikTokDailyLimitException(ex.Message);
+            log?.Invoke($"接口上传：平台返回单日创建剧集上限。{ex.Message}");
+            throw new TikTokDailyLimitException("今日创建额度已用完");
         }
         catch (PageFetchException ex) when (ex.Message.Contains("4097", StringComparison.Ordinal))
         {
