@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Playwright;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 
@@ -78,7 +79,7 @@ public static partial class TikTokApiUploadService
         }
         if (!string.IsNullOrWhiteSpace(workflowDir))
         {
-            var draftUrl = $"https://www.tiktokdramacenter.com/series/draft/{seriesId}";
+            var draftUrl = TikTokApiSites.SeriesDraftUrl(options.ApiSite, seriesId);
             if (TikTokUploadStateStore.TryRecordPlatformSeriesFromUrl(workflowDir, draftUrl, payload.Title, "api_upload"))
                 log?.Invoke($"接口上传：已记录草稿 {draftUrl}");
         }
@@ -144,7 +145,8 @@ public static partial class TikTokApiUploadService
         }
         catch (PageFetchException ex) when (ex.Message.Contains("3016009", StringComparison.Ordinal))
         {
-            throw new TikTokDailyLimitException(ex.Message);
+            log?.Invoke($"接口上传：平台返回单日创建剧集上限。{ex.Message}");
+            throw new TikTokDailyLimitException("今日创建额度已用完");
         }
 
         log?.Invoke($"接口上传完成：剧集 ID {seriesId} 已提交。");
@@ -404,8 +406,9 @@ public static partial class TikTokApiUploadService
         using var http = await CreateHttpClientAsync(page, options);
         var sts = new StsCache(page, retries, log);
         using var gates = new UploadGates(1);
-        var vodBase = ResolveServiceBaseUrl(CurrentPageUrl(page), "vod");
-        var imageBase = ResolveServiceBaseUrl(CurrentPageUrl(page), "imagex");
+        var site = TikTokApiSites.Resolve(options.ApiSite, CurrentPageUrl(page));
+        var vodBase = TikTokApiSites.ImageApplyBase(site);
+        var imageBase = TikTokApiSites.ImageObjectFallback(site);
         string sessionKey;
         await gates.Transfer.WaitAsync(ct);
         try
@@ -425,7 +428,8 @@ public static partial class TikTokApiUploadService
                 applyAction: "ApplyImageUpload",
                 fileType: "image",
                 objectBase: imageBase,
-                itemLabel: label);
+                itemLabel: label,
+                preferDomesticImageHosts: !TikTokApiSites.IsInternational(site));
         }
         finally
         {
@@ -502,7 +506,8 @@ public static partial class TikTokApiUploadService
         }
         catch (PageFetchException ex) when (ex.Message.Contains("3016009", StringComparison.Ordinal))
         {
-            throw new TikTokDailyLimitException(ex.Message);
+            log?.Invoke($"接口上传：平台返回单日创建剧集上限。{ex.Message}");
+            throw new TikTokDailyLimitException("今日创建额度已用完");
         }
         catch (PageFetchException ex) when (ex.Message.Contains("4097", StringComparison.Ordinal))
         {

@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using Microsoft.Playwright;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 
@@ -79,6 +80,8 @@ public static partial class TikTokApiUploadService
     /// </summary>
     internal static string ResolveServiceBaseUrl(string pageUrl, string prefix)
     {
+        if (TikTokApiSites.IsInternationalHost(pageUrl))
+            return TikTokApiSites.ServiceBase(TikTokApiSites.International, prefix);
         var host = Uri.TryCreate(pageUrl, UriKind.Absolute, out var uri)
             ? uri.Host
             : "www.tiktokdramacenter.com";
@@ -142,6 +145,32 @@ public static partial class TikTokApiUploadService
         }
 
         return hosts;
+    }
+
+    /// <summary>
+    /// 国内站图片先走已经能连通的剧集中心域名，票据返回的 tiktokcdn 地址放在后面。
+    /// 正片仍用原来的视频地址，这里只排封面和证明材料。
+    /// </summary>
+    internal static IReadOnlyList<string> OrderDomesticImageUploadHosts(IEnumerable<string> returnedHosts)
+    {
+        var hosts = new List<string>();
+        AddImageUploadHost(hosts, "https://tos.tiktokdramacenter.com");
+        AddImageUploadHost(hosts, "https://vod.tiktokdramacenter.com");
+        foreach (var host in returnedHosts)
+            AddImageUploadHost(hosts, host);
+        return hosts;
+    }
+
+    internal static bool IsImageTicketRejected(Exception exception) =>
+        exception is InvalidOperationException and not TransientUploadException and not PartListMismatchException;
+
+    private static void AddImageUploadHost(List<string> hosts, string? value)
+    {
+        var normalized = NormalizeUploadHost(value);
+        if (normalized.Length == 0 ||
+            hosts.Exists(existing => string.Equals(existing, normalized, StringComparison.OrdinalIgnoreCase)))
+            return;
+        hosts.Add(normalized);
     }
 
     internal static string DescribeUploadHost(string host)
@@ -744,7 +773,9 @@ public static partial class TikTokApiUploadService
                 "/api/content-partner/series/v2/list",
                 body,
                 ct);
-            var parsed = TikTokSeriesListLookupService.ParseSeriesList(document.RootElement);
+            var parsed = TikTokSeriesListLookupService.ParseSeriesList(
+                document.RootElement,
+                PartnerSession.Current.Value?.Site);
             total ??= parsed.Total;
             pagesRead = pageIndex;
             foreach (var row in parsed.Rows)
@@ -1475,7 +1506,7 @@ public static partial class TikTokApiUploadService
         var started = Stopwatch.StartNew();
         var retries = Math.Clamp(options.UploadBatchMaxRetries, 1, 10);
         var (committed, timing) = await UploadFileAsync(
-            http, sts, gates, pageUrl, item.Path, log, item.Episode, retries, ct);
+            http, sts, gates, pageUrl, options, item.Path, log, item.Episode, retries, ct);
         addUploadedBytes(timing.Bytes);
         log?.Invoke(FormatUploadedLog(item.Episode, started.Elapsed, timing, markUploaded(), total));
         return committed;
@@ -1519,6 +1550,7 @@ public static partial class TikTokApiUploadService
         StsCache sts,
         UploadGates gates,
         string pageUrl,
+        TikTokPublishOptions options,
         string path,
         Action<string>? log,
         int episode,
@@ -1529,8 +1561,9 @@ public static partial class TikTokApiUploadService
         if (fileSize <= 0)
             throw new InvalidOperationException($"视频文件为空：{path}");
 
-        var vodBase = ResolveServiceBaseUrl(pageUrl, "vod");
-        var tosBase = ResolveServiceBaseUrl(pageUrl, "tos");
+        var site = TikTokApiSites.Resolve(options.ApiSite, pageUrl);
+        var vodBase = TikTokApiSites.VideoApplyBase(site);
+        var tosBase = TikTokApiSites.VideoObjectFallback(site);
         string sessionKey;
         TimeSpan transferElapsed;
         await gates.Transfer.WaitAsync(ct);
@@ -1538,7 +1571,8 @@ public static partial class TikTokApiUploadService
         {
             var transferClock = Stopwatch.StartNew();
             sessionKey = await TransferFileAsync(
-                http, sts, gates, vodBase, tosBase, path, fileSize, log, episode, retries, ct);
+                http, sts, gates, vodBase, tosBase, path, fileSize, log, episode, retries, ct,
+                useResponseUploadHost: TikTokApiSites.IsInternational(site));
             transferElapsed = transferClock.Elapsed;
         }
         finally
@@ -1567,7 +1601,9 @@ public static partial class TikTokApiUploadService
         string applyAction = "ApplyUploadInner",
         string fileType = "video",
         string? objectBase = null,
-        string? itemLabel = null)
+        string? itemLabel = null,
+        bool useResponseUploadHost = false,
+        bool preferDomesticImageHosts = false)
     {
         var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
         var isVideo = string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase);
@@ -1595,7 +1631,9 @@ public static partial class TikTokApiUploadService
             storeUri = ReadString(store, "StoreUri");
             auth = ReadString(store, "Auth");
             sessionKey = ReadString(node, "SessionKey");
-            uploadHost = tosBase;
+            uploadHost = useResponseUploadHost
+                ? ResolveObjectHost(node, null, tosBase)
+                : tosBase;
             if (storeUri.Length == 0 || auth.Length == 0 || sessionKey.Length == 0)
                 throw new InvalidOperationException($"{applyAction} 没有返回上传地址。");
             var boundary = "----WebKitFormBoundary" + RandomToken(16);
@@ -1625,7 +1663,8 @@ public static partial class TikTokApiUploadService
                 retries,
                 ReadImageUploadTicket(applyDocument.RootElement, objectBase ?? tosBase),
                 log,
-                ct);
+                ct,
+                preferDomesticImageHosts);
             storeUri = initialized.Ticket.StoreUri;
             auth = initialized.Ticket.Auth;
             sessionKey = initialized.Ticket.SessionKey;
@@ -1663,7 +1702,8 @@ public static partial class TikTokApiUploadService
     private readonly record struct ImageInitResult(JsonDocument Document, ImageUploadTicket Ticket);
 
     /// <summary>
-    /// 图片分片初始化：同一地址连续两次传输中断就换下一个地址；地址都失败时重新申请一次票据。
+    /// 图片分片初始化：国内站先试剧集中心域名。票据被拒绝就立刻换下一个地址。
+    /// 传输中断仍在同一地址再试一次。地址都失败时重新申请一次票据。
     /// 每次初始化都要求关闭连接，避免把刚被掐断的连接再拿出来用。
     /// </summary>
     private static async Task<ImageInitResult> InitializeImageUploadAsync(
@@ -1676,7 +1716,8 @@ public static partial class TikTokApiUploadService
         int retries,
         ImageUploadTicket ticket,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool preferDomesticImageHosts)
     {
         Exception? last = null;
         for (var round = 0; round < 2; round++)
@@ -1695,9 +1736,12 @@ public static partial class TikTokApiUploadService
                 ticket = ReadImageUploadTicket(applyDocument.RootElement, fallbackHost);
             }
 
-            for (var hostIndex = 0; hostIndex < ticket.UploadHosts.Count; hostIndex++)
+            var hosts = preferDomesticImageHosts
+                ? OrderDomesticImageUploadHosts(ticket.UploadHosts)
+                : ticket.UploadHosts;
+            for (var hostIndex = 0; hostIndex < hosts.Count; hostIndex++)
             {
-                var host = ticket.UploadHosts[hostIndex];
+                var host = hosts[hostIndex];
                 log?.Invoke($"接口直传：{label}使用上传地址 {DescribeUploadHost(host)}。");
                 for (var attempt = 1; attempt <= ImageInitAttemptsPerHost; attempt++)
                 {
@@ -1706,10 +1750,11 @@ public static partial class TikTokApiUploadService
                         var document = await SendImageInitAsync(http, host, ticket.StoreUri, ticket.Auth, ct);
                         return new ImageInitResult(document, ticket with { UploadHost = host });
                     }
-                    catch (Exception ex) when (IsTransportClosedFailure(ex) && !ct.IsCancellationRequested)
+                    catch (Exception ex) when (CanSwitchImageUploadHost(ex) && !ct.IsCancellationRequested)
                     {
                         last = ex;
-                        if (attempt < ImageInitAttemptsPerHost)
+                        var rejected = IsImageTicketRejected(ex);
+                        if (!rejected && attempt < ImageInitAttemptsPerHost)
                         {
                             var delay = TosPartRetryDelay(attempt);
                             log?.Invoke(
@@ -1719,9 +1764,12 @@ public static partial class TikTokApiUploadService
                             continue;
                         }
 
-                        log?.Invoke(hostIndex < ticket.UploadHosts.Count - 1
-                            ? $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} 连续失败，改用下一个上传地址。"
-                            : $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} 连续失败。");
+                        var next = hostIndex < hosts.Count - 1;
+                        var reason = rejected ? "被拒绝" : "连续失败";
+                        log?.Invoke(next
+                            ? $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} {reason}，改用下一个上传地址。"
+                            : $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} {reason}。");
+                        break;
                     }
                 }
             }
@@ -1729,6 +1777,11 @@ public static partial class TikTokApiUploadService
 
         throw last ?? new InvalidOperationException($"{label}分片初始化失败。");
     }
+
+    private static bool CanSwitchImageUploadHost(Exception exception) =>
+        IsTransportClosedFailure(exception) ||
+        exception is TransientUploadException ||
+        IsImageTicketRejected(exception);
 
     private static async Task<JsonDocument> SendImageInitAsync(
         HttpClient http,
@@ -2066,8 +2119,9 @@ public static partial class TikTokApiUploadService
         if (page is null)
         {
             http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
-            http.DefaultRequestHeaders.TryAddWithoutValidation("Origin", DramaCenterOrigin);
-            http.DefaultRequestHeaders.TryAddWithoutValidation("Referer", DramaCenterOrigin + "/");
+            var origin = TikTokApiSites.Origin(options.ApiSite);
+            http.DefaultRequestHeaders.TryAddWithoutValidation("Origin", origin);
+            http.DefaultRequestHeaders.TryAddWithoutValidation("Referer", origin + "/");
             return http;
         }
 
@@ -2189,10 +2243,15 @@ public static partial class TikTokApiUploadService
 
         private readonly HttpClient _http;
         private readonly string _cookie;
+        private readonly string _origin;
+
+        internal string Site { get; }
 
         private PartnerSession(string cookie, TikTokPublishOptions options)
         {
             _cookie = cookie;
+            Site = TikTokApiSites.Normalize(options.ApiSite);
+            _origin = TikTokApiSites.Origin(Site);
             var handler = new HttpClientHandler
             {
                 UseCookies = false,
@@ -2229,12 +2288,12 @@ public static partial class TikTokApiUploadService
         {
             var url = path.StartsWith("http", StringComparison.OrdinalIgnoreCase)
                 ? path
-                : DramaCenterOrigin + (path.StartsWith('/') ? path : "/" + path);
+                : _origin + (path.StartsWith('/') ? path : "/" + path);
             using var request = new HttpRequestMessage(new HttpMethod(method), url);
             request.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0");
             request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
-            request.Headers.TryAddWithoutValidation("Origin", DramaCenterOrigin);
-            request.Headers.TryAddWithoutValidation("Referer", DramaCenterOrigin + "/series/draft");
+            request.Headers.TryAddWithoutValidation("Origin", _origin);
+            request.Headers.TryAddWithoutValidation("Referer", _origin + "/series/draft");
             request.Headers.TryAddWithoutValidation("Cookie", _cookie);
             if (body is not null)
                 request.Content = new StringContent(body, Encoding.UTF8, "application/json");

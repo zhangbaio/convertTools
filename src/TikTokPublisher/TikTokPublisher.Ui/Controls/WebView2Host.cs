@@ -23,6 +23,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     [
         "https://www.tiktokdramacenter.com",
         "https://tiktokdramacenter.com",
+        "https://drama.tiktok.com",
         "https://www.tiktok.com",
     ];
     private const int MaxLoggedDialogMessageLength = 120;

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 
@@ -305,10 +306,7 @@ public static partial class TikTokBrowserActions
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
             return false;
 
-        var isTikTokDramaCenter =
-            parsed.Host.Equals("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase) ||
-            parsed.Host.EndsWith(".tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase);
-        if (!isTikTokDramaCenter)
+        if (!TikTokApiSites.IsConsoleHost(url))
             return false;
 
         var path = parsed.AbsolutePath.TrimEnd('/');

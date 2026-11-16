@@ -77,7 +77,7 @@ public static class TikTokLoginService
                 try
                 {
                     var page = await context.NewPageAsync();
-                    await NavigateToLoginPageAsync(page);
+                    await NavigateToLoginPageAsync(page, account);
                     try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 12000 }); }
                     catch { /* SPA */ }
 
@@ -142,7 +142,7 @@ public static class TikTokLoginService
             });
             var page = context.Pages.FirstOrDefault(p => !p.IsClosed) ?? await context.NewPageAsync();
 
-            await NavigateToLoginPageAsync(page);
+            await NavigateToLoginPageAsync(page, account);
             try { await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 12000 }); }
             catch { /* SPA */ }
 
@@ -182,11 +182,11 @@ public static class TikTokLoginService
         }
     }
 
-    private static async Task NavigateToLoginPageAsync(IPage page)
+    private static async Task NavigateToLoginPageAsync(IPage page, TikTokAccountProfile account)
     {
         try
         {
-            await page.GotoAsync(TikTokUrls.DefaultLoginUrl, new PageGotoOptions
+            await page.GotoAsync(TikTokApiSites.LoginUrl(account.TiktokApiSite), new PageGotoOptions
             {
                 WaitUntil = WaitUntilState.DOMContentLoaded,
                 Timeout = 60000,
@@ -297,8 +297,7 @@ public static class TikTokLoginService
 
     private static async Task<bool> IsLoggedInAsync(IPage page)
     {
-        var currentUrl = (page.Url ?? "").ToLowerInvariant();
-        return currentUrl.Contains("tiktokdramacenter.com") && !currentUrl.Contains("/login");
+        return TikTokApiSites.IsLoggedInUrl(page.Url);
     }
 
     private static async Task<string> ExtractLoginMessageAsync(IPage page)

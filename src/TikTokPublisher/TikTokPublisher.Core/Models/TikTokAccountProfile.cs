@@ -103,6 +103,13 @@ public sealed class TikTokAccountProfile
     /// <summary>剧集类型：local=本土剧；overseas=海外剧。未保存过的账号按本土剧。</summary>
     public string TiktokDramaMarket { get; set; } = DramaMarketLocal;
 
+    /// <summary>API 站点固定为国内站，界面不再提供切换。</summary>
+    public string TiktokApiSite
+    {
+        get => TikTokApiSites.Domestic;
+        set { }
+    }
+
     public static string NormalizeDramaMarket(string? value) =>
         string.Equals((value ?? "").Trim(), DramaMarketOverseas, StringComparison.OrdinalIgnoreCase)
             ? DramaMarketOverseas
@@ -335,4 +342,103 @@ public static class TikTokUrls
     public const string DefaultSeriesDraftUrl = "https://www.tiktokdramacenter.com/series/draft";
     public const string DefaultSeriesListUrl = "https://www.tiktokdramacenter.com/series/list";
     public const string ContentPerformanceUrl = "https://www.tiktokdramacenter.com/analytics/content-performance";
+}
+
+/// <summary>
+/// 国内站走 tiktokdramacenter.com，点播和对象存储用同域 vod、tos。
+/// 国际站走 drama.tiktok.com，视频申请走 vod-upload-sg，图片走 imagex-upload-sg。
+/// </summary>
+public static class TikTokApiSites
+{
+    public const string Domestic = "domestic";
+    public const string International = "international";
+    public const string DomesticOrigin = "https://www.tiktokdramacenter.com";
+    public const string InternationalOrigin = "https://drama.tiktok.com";
+
+    public static string Normalize(string? value) =>
+        string.Equals((value ?? "").Trim(), International, StringComparison.OrdinalIgnoreCase)
+            ? International
+            : Domestic;
+
+    public static bool IsInternational(string? value) => Normalize(value) == International;
+
+    public static string Origin(string? site) =>
+        IsInternational(site) ? InternationalOrigin : DomesticOrigin;
+
+    public static string LoginUrl(string? site) => Origin(site) + "/login";
+
+    public static string SeriesDraftUrl(string? site) => Origin(site) + "/series/draft";
+
+    public static string SeriesListUrl(string? site) => Origin(site) + "/series/list";
+
+    public static string ContentPerformanceUrl(string? site) => Origin(site) + "/analytics/content-performance";
+
+    public static string SeriesDraftUrl(string? site, string seriesId) =>
+        Origin(site) + "/series/draft/" + seriesId.Trim();
+
+    public static string VideoApplyBase(string? site) =>
+        IsInternational(site) ? "https://vod-upload-sg.tiktok.com" : "https://vod.tiktokdramacenter.com";
+
+    public static string VideoObjectFallback(string? site) =>
+        IsInternational(site) ? "https://vod-upload-sg.tiktok.com" : "https://tos.tiktokdramacenter.com";
+
+    public static string ImageApplyBase(string? site) =>
+        IsInternational(site) ? "https://imagex-upload-sg.tiktok.com" : "https://vod.tiktokdramacenter.com";
+
+    public static string ImageObjectFallback(string? site) =>
+        IsInternational(site) ? "https://imagex-upload-sg.tiktok.com" : "https://imagex.tiktokdramacenter.com";
+
+    public static string Resolve(string? site, string? pageUrl) =>
+        string.IsNullOrWhiteSpace(site)
+            ? IsInternationalHost(pageUrl) ? International : Domestic
+            : Normalize(site);
+
+    public static string ServiceBase(string? site, string prefix) =>
+        IsInternational(site)
+            ? prefix.Equals("imagex", StringComparison.OrdinalIgnoreCase)
+                ? ImageApplyBase(site)
+                : VideoApplyBase(site)
+            : $"https://{prefix}.tiktokdramacenter.com";
+
+    public static bool IsInternationalHost(string? url) =>
+        HostEndsWith(url, "drama.tiktok.com");
+
+    public static bool IsDomesticHost(string? url) =>
+        HostEndsWith(url, "tiktokdramacenter.com");
+
+    public static bool IsConsoleHost(string? url) =>
+        IsDomesticHost(url) || IsInternationalHost(url);
+
+    public static bool IsLoginUrl(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+        return IsConsoleHost(url) &&
+               uri.AbsolutePath.Contains("/login", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsLoggedInUrl(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+        return IsConsoleHost(url) &&
+               !uri.AbsolutePath.Contains("/login", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>已知站点的地址换成所选站点，路径保留。其他地址原样返回。</summary>
+    public static string AlignConsoleUrl(string? url, string? site)
+    {
+        var text = (url ?? "").Trim();
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) || !IsConsoleHost(text))
+            return string.IsNullOrWhiteSpace(text) ? SeriesDraftUrl(site) : text;
+        return Origin(site) + uri.AbsolutePath + uri.Query;
+    }
+
+    private static bool HostEndsWith(string? url, string host)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+        return uri.Host.Equals(host, StringComparison.OrdinalIgnoreCase) ||
+               uri.Host.EndsWith("." + host, StringComparison.OrdinalIgnoreCase);
+    }
 }

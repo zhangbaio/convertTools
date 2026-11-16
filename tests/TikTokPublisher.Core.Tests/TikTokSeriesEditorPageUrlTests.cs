@@ -12,6 +12,8 @@ public sealed class TikTokSeriesEditorPageUrlTests
     [InlineData("https://www.tiktokdramacenter.com/series/7686659828362613780")]
     [InlineData("https://www.tiktokdramacenter.com/series/7686659828362613780/")]
     [InlineData("https://www.tiktokdramacenter.com/series/7686659828362613780?from=draft")]
+    [InlineData("https://drama.tiktok.com/series/draft/7686659828362613780")]
+    [InlineData("https://drama.tiktok.com/series/7686659828362613780")]
     public void Recognizes_supported_series_editor_routes(string url)
     {
         TikTokBrowserActions.IsTikTokSeriesEditorPageUrl(url).Should().BeTrue();

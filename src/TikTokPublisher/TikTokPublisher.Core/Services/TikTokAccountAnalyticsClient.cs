@@ -94,7 +94,8 @@ public sealed class TikTokAccountAnalyticsClient
         foreach (var cookie in cookies.EnumerateArray())
         {
             var domain = cookie.TryGetProperty("domain", out var domainNode) ? domainNode.GetString() ?? "" : "";
-            if (!domain.Contains("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase))
+            if (!domain.Contains("tiktokdramacenter.com", StringComparison.OrdinalIgnoreCase) &&
+                !domain.Contains("tiktok.com", StringComparison.OrdinalIgnoreCase))
                 continue;
             var name = cookie.TryGetProperty("name", out var nameNode) ? nameNode.GetString() : "";
             var value = cookie.TryGetProperty("value", out var valueNode) ? valueNode.GetString() : "";

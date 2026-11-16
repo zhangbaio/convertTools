@@ -341,9 +341,12 @@ public partial class AccountProfileEditor : UserControl
                 profile.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
                 _persistedRemoteDispatch = profile.XingeRemoteDispatchEnabled;
             }
-            profile.TiktokSeriesUrl = string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
-                ? TikTokUrls.DefaultSeriesDraftUrl
-                : SeriesUrlBox.Text.Trim();
+            profile.TiktokApiSite = TikTokApiSites.Domestic;
+            profile.TiktokSeriesUrl = TikTokApiSites.AlignConsoleUrl(
+                string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
+                    ? TikTokApiSites.SeriesDraftUrl(profile.TiktokApiSite)
+                    : SeriesUrlBox.Text.Trim(),
+                profile.TiktokApiSite);
 
             var workspace = WorkspaceBox.Text?.Trim() ?? "";
             profile.TiktokUploadProfilePath = workspace;

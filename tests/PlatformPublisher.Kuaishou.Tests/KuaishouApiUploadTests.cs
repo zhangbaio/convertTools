@@ -193,6 +193,196 @@ public sealed class KuaishouApiUploadTests
         }
     }
 
+    [Fact]
+    public void PassToken_cookie_stays_on_the_login_host()
+    {
+        var path = Write("""
+            {"cookies":[
+              {"name":"passToken","value":"p","domain":"id.kuaishou.com","path":"/","expires":4102444800,"secure":true},
+              {"name":"kuaishou.cebp.skit_st","value":"s","domain":"kdj.kuaishou.com","path":"/","httpOnly":true},
+              {"name":"did","value":"d","domain":".kuaishou.com","path":"/","expires":4102444800}
+            ]}
+            """);
+        try
+        {
+            var cookies = KuaishouAuthCookies.Load(path);
+            var kdj = Names(cookies, "https://kdj.kuaishou.com/");
+            var login = Names(cookies, "https://id.kuaishou.com/");
+            Assert.Contains("kuaishou.cebp.skit_st", kdj);
+            Assert.Contains("did", kdj);
+            Assert.DoesNotContain("passToken", kdj);
+            Assert.Contains("passToken", login);
+            Assert.Contains("did", login);
+            Assert.DoesNotContain("kuaishou.cebp.skit_st", login);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Refreshed_cookie_is_written_back_without_dropping_storage()
+    {
+        var path = Write("""
+            {"cookies":[
+              {"name":"kuaishou.cebp.skit_st","value":"old","domain":"kdj.kuaishou.com","path":"/","expires":-1,"httpOnly":true,"secure":true,"sameSite":"None"},
+              {"name":"passToken","value":"p","domain":"id.kuaishou.com","path":"/","expires":4102444800,"httpOnly":true,"secure":true,"sameSite":"None"}
+            ],"origins":[{"origin":"https://kdj.kuaishou.com","localStorage":[{"name":"skitTitleGuideShown_paid","value":"1"}]}]}
+            """);
+        try
+        {
+            var cookies = KuaishouAuthCookies.Load(path);
+            cookies.Add(new Cookie("kuaishou.cebp.skit_st", "fresh", "/", "kdj.kuaishou.com") { HttpOnly = true, Secure = true });
+            var current = cookies.GetCookies(new Uri("https://kdj.kuaishou.com/")).Cast<Cookie>()
+                .Where(cookie => cookie.Name == "kuaishou.cebp.skit_st")
+                .Select(cookie => cookie.Value)
+                .ToArray();
+            Assert.Equal("fresh", Assert.Single(current));
+            KuaishouAuthCookies.Save(path, cookies);
+            using var saved = JsonDocument.Parse(File.ReadAllText(path));
+            var root = saved.RootElement;
+            var stored = root.GetProperty("cookies").EnumerateArray()
+                .ToDictionary(item => item.GetProperty("name").GetString()!, item => item);
+            Assert.Equal("fresh", stored["kuaishou.cebp.skit_st"].GetProperty("value").GetString());
+            Assert.True(stored["kuaishou.cebp.skit_st"].GetProperty("httpOnly").GetBoolean());
+            Assert.Equal("p", stored["passToken"].GetProperty("value").GetString());
+            Assert.Equal("skitTitleGuideShown_paid", root.GetProperty("origins")[0].GetProperty("localStorage")[0].GetProperty("name").GetString());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Result_109_refreshes_with_passToken_and_retries()
+    {
+        var login = "https://id.kuaishou.com/pass/kuaishou/login/passToken?callback=1";
+        var handler = new SequenceHandler((index, request) =>
+        {
+            if (request.Method == HttpMethod.Get)
+                return TextResponse("<html></html>");
+            var body = request.Content is null ? "" : request.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            Assert.Equal("{\"page\":1}", body);
+            return index == 0
+                ? JsonResponse("{\"result\":109,\"loginUrl\":\"" + login + "\"}")
+                : JsonResponse("{\"result\":1,\"data\":{}}");
+        });
+        var path = Storage();
+        try
+        {
+            using var session = KuaishouApiSession.Open(path, handler);
+            var text = await session.PostJsonAsync("https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/tagList", "{\"page\":1}", CancellationToken.None);
+            Assert.Contains("\"result\":1", text);
+            Assert.Equal(["POST", "GET", "POST"], handler.Methods);
+            Assert.Equal(login, handler.Urls[1]);
+            using var saved = JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal("keep", saved.RootElement.GetProperty("origins")[0].GetProperty("localStorage")[0].GetProperty("name").GetString());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Result_109_after_refresh_asks_for_the_management_platform()
+    {
+        var login = "https://id.kuaishou.com/pass/kuaishou/login/passToken";
+        var handler = new SequenceHandler((_, request) => request.Method == HttpMethod.Get
+            ? TextResponse("<html></html>")
+            : JsonResponse("{\"result\":109,\"loginUrl\":\"" + login + "\"}"));
+        var path = Storage();
+        try
+        {
+            using var session = KuaishouApiSession.Open(path, handler);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                session.PostJsonAsync("https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/tagList", "{}", CancellationToken.None));
+            Assert.Equal(KuaishouPassTokenLogin.Message, error.Message);
+            Assert.Equal(["POST", "GET", "POST"], handler.Methods);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Successful_result_does_not_open_the_login_url()
+    {
+        var handler = new SequenceHandler((_, _) => JsonResponse("{\"result\":1}"));
+        var path = Storage();
+        try
+        {
+            using var session = KuaishouApiSession.Open(path, handler);
+            var text = await session.PostJsonAsync("https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/tagList", "{}", CancellationToken.None);
+            Assert.Contains("\"result\":1", text);
+            Assert.Equal(["POST"], handler.Methods);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Other_login_urls_are_not_followed()
+    {
+        var handler = new SequenceHandler((_, request) =>
+        {
+            if (request.Method == HttpMethod.Get)
+                throw new InvalidOperationException("followed");
+            return JsonResponse("{\"result\":109,\"loginUrl\":\"https://evil.test/pass/kuaishou/login/passToken\"}");
+        });
+        var path = Storage();
+        try
+        {
+            using var session = KuaishouApiSession.Open(path, handler);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                session.PostJsonAsync("https://kdj.kuaishou.com/rest/ad/miniSeries/product/pc/tagList", "{}", CancellationToken.None));
+            Assert.Equal(KuaishouPassTokenLogin.Message, error.Message);
+            Assert.Equal(["POST"], handler.Methods);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static string Storage() => Write("""
+        {"cookies":[{"name":"kuaishou.cebp.skit_st","value":"s","domain":"kdj.kuaishou.com","path":"/","httpOnly":true,"secure":true,"sameSite":"None"}],"origins":[{"origin":"https://kdj.kuaishou.com","localStorage":[{"name":"keep","value":"1"}]}]}
+        """);
+
+    private static List<string> Names(CookieContainer cookies, string uri) =>
+        cookies.GetCookies(new Uri(uri)).Cast<Cookie>().Select(cookie => cookie.Name).ToList();
+
+    private static HttpResponseMessage JsonResponse(string json) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(json, Encoding.UTF8, "application/json"),
+    };
+
+    private static HttpResponseMessage TextResponse(string html) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(html, Encoding.UTF8, "text/html"),
+    };
+
+    private sealed class SequenceHandler : HttpMessageHandler
+    {
+        private readonly Func<int, HttpRequestMessage, HttpResponseMessage> _respond;
+        public SequenceHandler(Func<int, HttpRequestMessage, HttpResponseMessage> respond) => _respond = respond;
+        public List<string> Methods { get; } = new();
+        public List<string> Urls { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var index = Methods.Count;
+            Methods.Add(request.Method.Method);
+            Urls.Add(request.RequestUri?.AbsoluteUri ?? string.Empty);
+            return Task.FromResult(_respond(index, request));
+        }
+    }
+
     private static string Write(string json)
     {
         var path = Path.Combine(Path.GetTempPath(), "kuaishou-auth-" + Guid.NewGuid().ToString("n") + ".json");

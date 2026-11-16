@@ -204,7 +204,12 @@ public partial class AccountSettingsDialog : Window
         p.Name = NameBox.Text?.Trim() ?? p.Name;
         p.TiktokAccountNickname = NicknameBox.Text?.Trim() ?? "";
         p.TiktokLoginEmail = LoginEmailBox.Text?.Trim() ?? "";
-        p.TiktokSeriesUrl = string.IsNullOrWhiteSpace(SeriesUrlBox.Text) ? TikTokUrls.DefaultSeriesDraftUrl : SeriesUrlBox.Text.Trim();
+        p.TiktokApiSite = TikTokApiSites.Domestic;
+        p.TiktokSeriesUrl = TikTokApiSites.AlignConsoleUrl(
+            string.IsNullOrWhiteSpace(SeriesUrlBox.Text)
+                ? TikTokApiSites.SeriesDraftUrl(p.TiktokApiSite)
+                : SeriesUrlBox.Text.Trim(),
+            p.TiktokApiSite);
         p.TiktokStorageStatePath = StorageStateBox.Text?.Trim() ?? p.TiktokStorageStatePath;
         var workspace = WorkspaceBox.Text?.Trim() ?? "";
         p.TiktokUploadProfilePath = workspace;

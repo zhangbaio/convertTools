@@ -106,7 +106,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private long _nextActivityLogFlushTick;
     private int _kuaishouLogNotifyPending;
     private long _nextKuaishouLogNotifyTick;
-    private Task? _managementBrowserTask;
+    private readonly Dictionary<string, Task> _managementBrowsers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _managementBrowserGate = new();
     private bool _scheduleTickRunning;
     private CancellationTokenSource? _episodeLoadCts;
     private WorkflowInteractionRequest? _currentInteractionRequest;
@@ -2166,6 +2167,24 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SelectedPlatform.Value == request.Platform &&
         string.Equals(_activeGlobalAccount?.Id, request.AccountId, StringComparison.OrdinalIgnoreCase);
 
+    private bool CanResumeKuaishouUpload(string projectDirectory, PublishPlatform platform)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+                return false;
+            var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+            if (string.IsNullOrWhiteSpace(workflow) || !Directory.Exists(workflow))
+                workflow = projectDirectory;
+            var state = new KuaishouPersonalUploadStateStore().Load(workflow, platform);
+            return KuaishouDailyUploadLimit.AllowsResume(state);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     public bool IsKuaishouDailyUploadLimited(string? accountId)
     {
         var id = (accountId ?? "").Trim();
@@ -2193,7 +2212,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (!first)
             return;
         var name = string.IsNullOrWhiteSpace(accountName) ? id : accountName.Trim();
-        var message = $"账号「{name}」今天最多上传 10 部短剧，额度已经用完。队列已停止，今天不再分发，明天会自动恢复。";
+        var message = $"账号「{name}」今天新建短剧已达 10 部。还没有草稿的剧今天不再创建，上传失败的草稿会继续。";
         AppendActivityLog(message);
         Dispatcher.UIThread.Post(() => KuaishouDailyUploadLimitReached?.Invoke(id, message));
     }
@@ -2216,7 +2235,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
 
         var counts = new int[2];
-        var dailyLimitDetail = "";
         var loginDetail = "";
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var work = targets.Select(directory =>
@@ -2247,8 +2265,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 ActivityLogPlatformScope.Value = request.Platform;
                 try
                 {
-                    if (IsKuaishouDailyUploadLimited(request.AccountId))
-                        throw new OperationCanceledException(KuaishouDailyUploadLimit.Detail);
+                    if (IsKuaishouDailyUploadLimited(request.AccountId) &&
+                        !CanResumeKuaishouUpload(item.directory, request.Platform))
+                    {
+                        AppendActivityLog($"今日新建短剧已达 10 部，{projectName} 还没有可续传的草稿，已跳过。", projectName);
+                        SetKuaishouLogTone(item.directory, "none");
+                        return;
+                    }
                     using var projectSlot = await KuaishouMachineGate.Shared.AcquireProjectAsync(
                         request.AccountId,
                         KuaishouAccountOrder(request.AccountId),
@@ -2281,15 +2304,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 {
                     Interlocked.Increment(ref counts[1]);
                     lastError = KuaishouDailyUploadLimit.Detail;
-                    dailyLimitDetail = KuaishouDailyUploadLimit.Detail;
                     SetKuaishouLogTone(item.directory, "failed");
                     RememberKuaishouUploadReport(item.directory, request, succeeded: false, error: KuaishouDailyUploadLimit.Detail);
                     var stopped = $"共享项目流水线失败：{KuaishouDailyUploadLimit.Detail}";
                     ReportRunStatus(stopped);
                     AppendActivityLog(stopped, projectName);
                     NoteKuaishouDailyUploadLimit(request.AccountId, request.AccountName);
-                    stop.Cancel();
-                    throw new OperationCanceledException(KuaishouDailyUploadLimit.Detail);
                 }
                 catch (Exception ex) when (IsKuaishouLoginFailure(ex))
                 {
@@ -2322,12 +2342,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
             }, stop.Token);
         }
-        catch (OperationCanceledException) when (dailyLimitDetail.Length > 0)
-        {
-            ReportRunStatus(dailyLimitDetail);
-            AppendActivityLog("快手分账今日短剧上传已达上限，队列已停止。");
-            return (counts[0], counts[1], dailyLimitDetail);
-        }
         catch (OperationCanceledException) when (loginDetail.Length > 0)
         {
             ReportRunStatus(loginDetail);
@@ -2339,13 +2353,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ReportRunStatus("共享项目流水线已停止。");
             AppendActivityLog("共享项目流水线已停止。");
             return (counts[0], counts[1], "已停止");
-        }
-
-        if (dailyLimitDetail.Length > 0)
-        {
-            ReportRunStatus(dailyLimitDetail);
-            AppendActivityLog("快手分账今日短剧上传已达上限，队列已停止。");
-            return (counts[0], counts[1], dailyLimitDetail);
         }
 
         if (cancellationToken.IsCancellationRequested)
@@ -3863,18 +3870,23 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private Task OpenKuaishouManagementPlatformAsync()
     {
-        if (_managementBrowserTask is { IsCompleted: false })
-        {
-            StatusMessage = "经营者管理平台已打开，请先在该浏览器中操作。";
-            AppendActivityLog(StatusMessage);
-            return Task.CompletedTask;
-        }
-
         var job = ResolveOperatorPlatformJob();
         if (job is null)
         {
             StatusMessage = "请先选择账号后再打开经营者管理平台。";
             return Task.CompletedTask;
+        }
+
+        var key = ManagementBrowserKey(job);
+        var accountName = string.IsNullOrWhiteSpace(job.AccountName) ? job.ProjectName : job.AccountName.Trim();
+        lock (_managementBrowserGate)
+        {
+            if (_managementBrowsers.TryGetValue(key, out var running) && !running.IsCompleted)
+            {
+                StatusMessage = $"「{accountName}」的经营者管理平台已打开，请先在该浏览器中操作。";
+                AppendActivityLog(StatusMessage);
+                return Task.CompletedTask;
+            }
         }
 
         var adapter = _coordinator.GetAdapter(job.Platform);
@@ -3884,16 +3896,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
             return Task.CompletedTask;
         }
 
-        StatusMessage = "已打开经营者管理平台。关闭该浏览器后保存登录态，不影响当前队列。";
+        StatusMessage = $"已打开「{accountName}」的经营者管理平台。关闭该浏览器后保存登录态，不影响当前队列。";
         AppendActivityLog(StatusMessage);
-        _managementBrowserTask = Task.Run(async () =>
+        Task? task = null;
+        task = Task.Run(async () =>
         {
             try
             {
                 await adapter.OpenLoginAsync(job, CancellationToken.None);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    StatusMessage = "经营者管理平台已关闭，登录态已保存。";
+                    StatusMessage = $"「{accountName}」的经营者管理平台已关闭，登录态已保存。";
                     AppendActivityLog(StatusMessage);
                 });
             }
@@ -3901,12 +3914,30 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    StatusMessage = $"打开经营者管理平台失败：{ex.Message}";
+                    StatusMessage = $"打开「{accountName}」的经营者管理平台失败：{ex.Message}";
                     AppendActivityLog(StatusMessage);
                 });
             }
+            finally
+            {
+                lock (_managementBrowserGate)
+                {
+                    if (_managementBrowsers.TryGetValue(key, out var current) && ReferenceEquals(current, task))
+                        _managementBrowsers.Remove(key);
+                }
+            }
         });
+        lock (_managementBrowserGate)
+            _managementBrowsers[key] = task;
         return Task.CompletedTask;
+    }
+
+    private static string ManagementBrowserKey(PublishJob job)
+    {
+        var account = job.AccountId?.Trim() ?? string.Empty;
+        if (account.Length == 0)
+            account = string.IsNullOrWhiteSpace(job.ConfigPath) ? job.ProjectName?.Trim() ?? string.Empty : job.ConfigPath.Trim();
+        return account + "|" + job.Platform;
     }
 
     private async Task RemoveSelectedAsync()

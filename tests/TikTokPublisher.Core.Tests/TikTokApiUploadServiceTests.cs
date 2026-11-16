@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services.TikTok;
 
 namespace TikTokPublisher.Core.Tests;
@@ -138,6 +139,34 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
+    public void Domestic_image_upload_tries_drama_center_hosts_before_the_returned_node()
+    {
+        var hosts = TikTokApiUploadService.OrderDomesticImageUploadHosts(
+        [
+            "tos-my216-up.tiktokcdn.com",
+            "https://tos.tiktokdramacenter.com/",
+            "https://vod.tiktokdramacenter.com",
+        ]);
+
+        hosts.Should().Equal(
+            "https://tos.tiktokdramacenter.com",
+            "https://vod.tiktokdramacenter.com",
+            "https://tos-my216-up.tiktokcdn.com");
+    }
+
+    [Fact]
+    public void Image_ticket_rejection_switches_host_without_looking_like_a_transport_failure()
+    {
+        var rejected = new InvalidOperationException("TOS 上传失败（HTTP 403，code 4003）：auth");
+
+        TikTokApiUploadService.IsImageTicketRejected(rejected).Should().BeTrue();
+        TikTokApiUploadService.IsTransportClosedFailure(rejected).Should().BeFalse();
+        TikTokApiUploadService.IsImageTicketRejected(
+            new HttpRequestException("由于连接方在一段时间后没有正确答复或连接的主机没有反应"))
+            .Should().BeFalse();
+    }
+
+    [Fact]
     public void Transport_closed_failure_is_recognized_from_the_ssl_eof()
     {
         var failure = new HttpRequestException(
@@ -156,6 +185,43 @@ public sealed class TikTokApiUploadServiceTests
             .Should().Be("https://vod.tiktokdramacenter.com");
         TikTokApiUploadService.ResolveServiceBaseUrl("https://www.tiktokdramacenter.com/series/draft/1", "tos")
             .Should().Be("https://tos.tiktokdramacenter.com");
+    }
+
+    [Fact]
+    public void Api_site_defaults_to_domestic_and_international_uses_singapore_upload_hosts()
+    {
+        TikTokApiSites.Normalize(null).Should().Be(TikTokApiSites.Domestic);
+        TikTokApiSites.Normalize(" ").Should().Be(TikTokApiSites.Domestic);
+        TikTokApiSites.Normalize("somewhere").Should().Be(TikTokApiSites.Domestic);
+        TikTokApiSites.Normalize("INTERNATIONAL").Should().Be(TikTokApiSites.International);
+
+        var account = new TikTokAccountProfile();
+        account.TiktokApiSite.Should().Be(TikTokApiSites.Domestic);
+        TikTokPublishOptions.FromAccount(account).ApiSite.Should().Be(TikTokApiSites.Domestic);
+
+        TikTokApiSites.Origin(TikTokApiSites.Domestic).Should().Be("https://www.tiktokdramacenter.com");
+        TikTokApiSites.VideoApplyBase(TikTokApiSites.Domestic).Should().Be("https://vod.tiktokdramacenter.com");
+        TikTokApiSites.VideoObjectFallback(TikTokApiSites.Domestic).Should().Be("https://tos.tiktokdramacenter.com");
+        TikTokApiSites.ImageApplyBase(TikTokApiSites.Domestic).Should().Be("https://vod.tiktokdramacenter.com");
+
+        TikTokApiSites.Origin(TikTokApiSites.International).Should().Be("https://drama.tiktok.com");
+        TikTokApiSites.LoginUrl(TikTokApiSites.International).Should().Be("https://drama.tiktok.com/login");
+        TikTokApiSites.VideoApplyBase(TikTokApiSites.International).Should().Be("https://vod-upload-sg.tiktok.com");
+        TikTokApiSites.ImageApplyBase(TikTokApiSites.International).Should().Be("https://imagex-upload-sg.tiktok.com");
+        TikTokApiUploadService.ResolveServiceBaseUrl("https://drama.tiktok.com/series/draft/1", "vod")
+            .Should().Be("https://vod-upload-sg.tiktok.com");
+        TikTokApiUploadService.ResolveServiceBaseUrl("https://drama.tiktok.com/series/draft/1", "imagex")
+            .Should().Be("https://imagex-upload-sg.tiktok.com");
+
+        TikTokApiSites.AlignConsoleUrl(
+                "https://www.tiktokdramacenter.com/series/draft/7706784720234976308",
+                TikTokApiSites.International)
+            .Should().Be("https://drama.tiktok.com/series/draft/7706784720234976308");
+        TikTokUploadStateStore.NormalizeSeriesDraftDetailUrl("https://drama.tiktok.com/series/7706784720234976308")
+            .Should().Be("https://drama.tiktok.com/series/draft/7706784720234976308");
+        TikTokApiSites.IsLoginUrl("https://drama.tiktok.com/login").Should().BeTrue();
+        TikTokApiSites.IsLoggedInUrl("https://drama.tiktok.com/series/list").Should().BeTrue();
+        TikTokApiSites.IsLoggedInUrl("https://www.tiktok.com/").Should().BeFalse();
     }
 
     [Fact]

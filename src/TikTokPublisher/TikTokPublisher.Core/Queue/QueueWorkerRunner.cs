@@ -1913,7 +1913,7 @@ public sealed class QueueWorkerRunner
                 mutate(() => MarkStopped(item, QueueStepRegistry.UploadSeries));
                 var accountLabel = DescribeDailyLimitAccount(account);
                 Report(onProgress, workspace, item,
-                    $"账号「{accountLabel}」已达单日创建剧集上限，任务队列已停止，请明天再继续上传：{failureMessage}",
+                    $"账号「{accountLabel}」已达单日创建剧集上限，任务队列已停止，请明天再继续上传。",
                     QueueStepRegistry.UploadSeries);
             }
             else
