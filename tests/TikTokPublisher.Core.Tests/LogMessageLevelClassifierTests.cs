@@ -121,6 +121,17 @@ public sealed class LogMessageLevelClassifierTests
     }
 
     [Fact]
+    public void Api_form_values_stay_info_when_the_copy_contains_failure_words()
+    {
+        LogMessageLevelClassifier.InferLevel(
+                "接口上传：表单「简介」亲情无法用财富弥补，失败与错误都只是正文。")
+            .Should().Be("info");
+        LogMessageLevelClassifier.InferLevel(
+                "TikTok 版权材料表单「授权书」的文件上传失败：超时。")
+            .Should().Be("error");
+    }
+
+    [Fact]
     public void Poster_verification_that_still_fails_is_error()
     {
         LogMessageLevelClassifier.InferLevel("海报文字清理后标题校验仍未通过：检测到异体字或非标准字符")

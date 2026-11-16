@@ -14,6 +14,10 @@ public static partial class LogMessageLevelClassifier
             return level == "warning" ? "warn" : level;
         }
 
+        // 表单字段记录的是填写内容，正文里的「无法」「失败」不是这次操作的结果。
+        if (message.Contains("接口上传：表单「", StringComparison.Ordinal))
+            return "info";
+
         var errorScanMessage = ZeroFailureCountRegex().Replace(message, "");
         if (PosterVerificationContinuationRegex().IsMatch(errorScanMessage)
             && !ContainsAny(errorScanMessage, "仍未通过", "已停止", "阻断"))
