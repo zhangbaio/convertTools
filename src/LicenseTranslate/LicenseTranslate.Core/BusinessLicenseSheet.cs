@@ -24,13 +24,10 @@ internal sealed class BusinessLicenseSheet
     public static BusinessLicenseSheet From(BusinessLicenseDraft draft)
     {
         var individual = draft.Kind == "个体工商户";
-        var authority = draft.EnglishAuthority.Trim();
-        if (authority.Length > 0 && !authority.EndsWith("(Sealed)", StringComparison.Ordinal))
-            authority += " (Sealed)";
         var duplicateNo = string.IsNullOrWhiteSpace(draft.EnglishDuplicateNo) ? draft.DuplicateNo.Trim() : draft.EnglishDuplicateNo.Trim();
         return new BusinessLicenseSheet
         {
-            Credit = draft.CreditCode.Trim(),
+            Credit = string.Concat(draft.CreditCode.Where(character => !char.IsWhiteSpace(character))),
             Name = draft.EnglishName.Trim(),
             Type = draft.EnglishType.Trim(),
             ExtraLabel = individual ? "Form of Organization" : "Registered capital",
@@ -42,8 +39,8 @@ internal sealed class BusinessLicenseSheet
             AddressLabel = "Address",
             Address = draft.EnglishAddress.Trim(),
             Scope = draft.EnglishScope.Trim(),
-            Authority = authority,
-            Issued = string.IsNullOrWhiteSpace(draft.EnglishIssueDate) ? draft.EnglishDateValue.Trim() : draft.EnglishIssueDate.Trim(),
+            Authority = draft.EnglishAuthority.Trim(),
+            Issued = draft.EnglishIssueDate.Trim(),
             Duplicate = duplicateNo.Length == 0 ? "(Duplicate)(1-1)" : "(Duplicate)(" + duplicateNo + ")",
             TranslatedOn = DateTime.Now.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture),
         };

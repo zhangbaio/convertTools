@@ -173,6 +173,44 @@ public class BusinessLicenseTranslatorTests
     }
 
     [Fact]
+    public void Generated_word_keeps_the_edited_english()
+    {
+        var draft = new BusinessLicenseDraft
+        {
+            Kind = "公司",
+            SourcePath = Path.Combine(Path.GetTempPath(), "license.png"),
+            CreditCode = "91 420106MA4F5DDT0E",
+            EnglishName = "Edited Name Co., Ltd.",
+            EnglishType = "Edited Type",
+            EnglishPersonName = "Edited Person",
+            EnglishExtraValue = "CNY 1",
+            EnglishDateValue = "January 1, 2020",
+            EnglishAddress = "Edited Address",
+            EnglishScope = "Edited scope text",
+            EnglishAuthority = "Edited Authority",
+            EnglishIssueDate = "March 3, 2024",
+        };
+        var path = Path.Combine(Path.GetTempPath(), "yunfan-license-edited-" + Guid.NewGuid().ToString("N") + ".docx");
+        BusinessLicenseDocumentWriter.Write(path, draft);
+        string xml;
+        using (var zip = ZipFile.OpenRead(path))
+        using (var reader = new StreamReader(zip.GetEntry("word/document.xml")!.Open()))
+            xml = reader.ReadToEnd();
+        Assert.Contains("Edited Name Co., Ltd.", xml);
+        Assert.Contains("Edited Type", xml);
+        Assert.Contains("Edited Person", xml);
+        Assert.Contains("CNY 1", xml);
+        Assert.Contains("January 1, 2020", xml);
+        Assert.Contains("Edited Address", xml);
+        Assert.Contains("Edited scope text", xml);
+        Assert.Contains("Edited Authority", xml);
+        Assert.DoesNotContain("Edited Authority (Sealed)", xml);
+        Assert.Contains("March 3, 2024", xml);
+        Assert.Contains("91420106MA4F5DDT0E", xml);
+        File.Delete(path);
+    }
+
+    [Fact]
     public void Individual_name_uses_lyu_for_lv()
     {
         Assert.Equal("Lyu Bin", BusinessLicenseTranslator.PersonName("吕斌"));

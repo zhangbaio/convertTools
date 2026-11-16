@@ -143,6 +143,18 @@ public partial class BusinessLicenseTranslateView : UserControl
         _loading = false;
     }
 
+    private void CreditBox_TextChanged(object? sender, TextChangedEventArgs e) => CopyCredit(CreditBox, EnglishCreditBox);
+
+    private void EnglishCreditBox_TextChanged(object? sender, TextChangedEventArgs e) => CopyCredit(EnglishCreditBox, CreditBox);
+
+    private void CopyCredit(TextBox source, TextBox target)
+    {
+        if (_loading || source.Text == target.Text) return;
+        _loading = true;
+        target.Text = source.Text;
+        _loading = false;
+    }
+
     private void Show(BusinessLicenseDraft draft)
     {
         _current = draft;
