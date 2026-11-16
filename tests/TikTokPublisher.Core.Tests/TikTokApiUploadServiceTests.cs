@@ -139,6 +139,34 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
+    public void Domestic_image_upload_tries_drama_center_hosts_before_the_returned_node()
+    {
+        var hosts = TikTokApiUploadService.OrderDomesticImageUploadHosts(
+        [
+            "tos-my216-up.tiktokcdn.com",
+            "https://tos.tiktokdramacenter.com/",
+            "https://vod.tiktokdramacenter.com",
+        ]);
+
+        hosts.Should().Equal(
+            "https://tos.tiktokdramacenter.com",
+            "https://vod.tiktokdramacenter.com",
+            "https://tos-my216-up.tiktokcdn.com");
+    }
+
+    [Fact]
+    public void Image_ticket_rejection_switches_host_without_looking_like_a_transport_failure()
+    {
+        var rejected = new InvalidOperationException("TOS 上传失败（HTTP 403，code 4003）：auth");
+
+        TikTokApiUploadService.IsImageTicketRejected(rejected).Should().BeTrue();
+        TikTokApiUploadService.IsTransportClosedFailure(rejected).Should().BeFalse();
+        TikTokApiUploadService.IsImageTicketRejected(
+            new HttpRequestException("由于连接方在一段时间后没有正确答复或连接的主机没有反应"))
+            .Should().BeFalse();
+    }
+
+    [Fact]
     public void Transport_closed_failure_is_recognized_from_the_ssl_eof()
     {
         var failure = new HttpRequestException(

@@ -427,7 +427,8 @@ public static partial class TikTokApiUploadService
                 applyAction: "ApplyImageUpload",
                 fileType: "image",
                 objectBase: imageBase,
-                itemLabel: label);
+                itemLabel: label,
+                preferDomesticImageHosts: !TikTokApiSites.IsInternational(site));
         }
         finally
         {

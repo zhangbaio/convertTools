@@ -147,6 +147,32 @@ public static partial class TikTokApiUploadService
         return hosts;
     }
 
+    /// <summary>
+    /// 国内站图片先走已经能连通的剧集中心域名，票据返回的 tiktokcdn 地址放在后面。
+    /// 正片仍用原来的视频地址，这里只排封面和证明材料。
+    /// </summary>
+    internal static IReadOnlyList<string> OrderDomesticImageUploadHosts(IEnumerable<string> returnedHosts)
+    {
+        var hosts = new List<string>();
+        AddImageUploadHost(hosts, "https://tos.tiktokdramacenter.com");
+        AddImageUploadHost(hosts, "https://vod.tiktokdramacenter.com");
+        foreach (var host in returnedHosts)
+            AddImageUploadHost(hosts, host);
+        return hosts;
+    }
+
+    internal static bool IsImageTicketRejected(Exception exception) =>
+        exception is InvalidOperationException and not TransientUploadException and not PartListMismatchException;
+
+    private static void AddImageUploadHost(List<string> hosts, string? value)
+    {
+        var normalized = NormalizeUploadHost(value);
+        if (normalized.Length == 0 ||
+            hosts.Exists(existing => string.Equals(existing, normalized, StringComparison.OrdinalIgnoreCase)))
+            return;
+        hosts.Add(normalized);
+    }
+
     internal static string DescribeUploadHost(string host)
     {
         if (Uri.TryCreate(host, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
@@ -1576,7 +1602,8 @@ public static partial class TikTokApiUploadService
         string fileType = "video",
         string? objectBase = null,
         string? itemLabel = null,
-        bool useResponseUploadHost = false)
+        bool useResponseUploadHost = false,
+        bool preferDomesticImageHosts = false)
     {
         var label = string.IsNullOrWhiteSpace(itemLabel) ? $"第 {episode} 集" : itemLabel.Trim();
         var isVideo = string.Equals(fileType, "video", StringComparison.OrdinalIgnoreCase);
@@ -1636,7 +1663,8 @@ public static partial class TikTokApiUploadService
                 retries,
                 ReadImageUploadTicket(applyDocument.RootElement, objectBase ?? tosBase),
                 log,
-                ct);
+                ct,
+                preferDomesticImageHosts);
             storeUri = initialized.Ticket.StoreUri;
             auth = initialized.Ticket.Auth;
             sessionKey = initialized.Ticket.SessionKey;
@@ -1674,7 +1702,8 @@ public static partial class TikTokApiUploadService
     private readonly record struct ImageInitResult(JsonDocument Document, ImageUploadTicket Ticket);
 
     /// <summary>
-    /// 图片分片初始化：同一地址连续两次传输中断就换下一个地址；地址都失败时重新申请一次票据。
+    /// 图片分片初始化：国内站先试剧集中心域名。票据被拒绝就立刻换下一个地址。
+    /// 传输中断仍在同一地址再试一次。地址都失败时重新申请一次票据。
     /// 每次初始化都要求关闭连接，避免把刚被掐断的连接再拿出来用。
     /// </summary>
     private static async Task<ImageInitResult> InitializeImageUploadAsync(
@@ -1687,7 +1716,8 @@ public static partial class TikTokApiUploadService
         int retries,
         ImageUploadTicket ticket,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool preferDomesticImageHosts)
     {
         Exception? last = null;
         for (var round = 0; round < 2; round++)
@@ -1706,9 +1736,12 @@ public static partial class TikTokApiUploadService
                 ticket = ReadImageUploadTicket(applyDocument.RootElement, fallbackHost);
             }
 
-            for (var hostIndex = 0; hostIndex < ticket.UploadHosts.Count; hostIndex++)
+            var hosts = preferDomesticImageHosts
+                ? OrderDomesticImageUploadHosts(ticket.UploadHosts)
+                : ticket.UploadHosts;
+            for (var hostIndex = 0; hostIndex < hosts.Count; hostIndex++)
             {
-                var host = ticket.UploadHosts[hostIndex];
+                var host = hosts[hostIndex];
                 log?.Invoke($"接口直传：{label}使用上传地址 {DescribeUploadHost(host)}。");
                 for (var attempt = 1; attempt <= ImageInitAttemptsPerHost; attempt++)
                 {
@@ -1717,10 +1750,11 @@ public static partial class TikTokApiUploadService
                         var document = await SendImageInitAsync(http, host, ticket.StoreUri, ticket.Auth, ct);
                         return new ImageInitResult(document, ticket with { UploadHost = host });
                     }
-                    catch (Exception ex) when (IsTransportClosedFailure(ex) && !ct.IsCancellationRequested)
+                    catch (Exception ex) when (CanSwitchImageUploadHost(ex) && !ct.IsCancellationRequested)
                     {
                         last = ex;
-                        if (attempt < ImageInitAttemptsPerHost)
+                        var rejected = IsImageTicketRejected(ex);
+                        if (!rejected && attempt < ImageInitAttemptsPerHost)
                         {
                             var delay = TosPartRetryDelay(attempt);
                             log?.Invoke(
@@ -1730,9 +1764,12 @@ public static partial class TikTokApiUploadService
                             continue;
                         }
 
-                        log?.Invoke(hostIndex < ticket.UploadHosts.Count - 1
-                            ? $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} 连续失败，改用下一个上传地址。"
-                            : $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} 连续失败。");
+                        var next = hostIndex < hosts.Count - 1;
+                        var reason = rejected ? "被拒绝" : "连续失败";
+                        log?.Invoke(next
+                            ? $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} {reason}，改用下一个上传地址。"
+                            : $"接口直传：{label}分片初始化在 {DescribeUploadHost(host)} {reason}。");
+                        break;
                     }
                 }
             }
@@ -1740,6 +1777,11 @@ public static partial class TikTokApiUploadService
 
         throw last ?? new InvalidOperationException($"{label}分片初始化失败。");
     }
+
+    private static bool CanSwitchImageUploadHost(Exception exception) =>
+        IsTransportClosedFailure(exception) ||
+        exception is TransientUploadException ||
+        IsImageTicketRejected(exception);
 
     private static async Task<JsonDocument> SendImageInitAsync(
         HttpClient http,
