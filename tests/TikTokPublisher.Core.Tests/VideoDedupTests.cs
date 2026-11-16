@@ -399,11 +399,29 @@ public sealed class VideoDedupTests
         joined.Should().Contain("-b:v 2000k");
         joined.Should().Contain("-r 30");
         joined.Should().Contain("-c:a aac");
+        joined.Should().NotContain("-b:a");
         joined.Should().Contain("-profile:v main");
         joined.Should().Contain("setparams=range=tv:color_primaries=bt709");
         joined.Should().Contain("aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo");
         joined.Should().NotContain("scale=");
         args[^1].Should().Be("out.mp4");
+    }
+
+    [Fact]
+    public void Empty_audio_bitrate_uses_the_probed_source_bitrate()
+    {
+        var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();
+        var clip = new VideoDedupClip(
+            "episode-1.mp4",
+            new VideoDedupProbe(12, 1080, 1920, true, 192));
+
+        var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 3));
+        joined.Should().Contain("-b:a 192k");
+
+        preset.AudioBitrateKbps = 160;
+        var configured = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 3));
+        configured.Should().Contain("-b:a 160k");
+        configured.Should().NotContain("-b:a 192k");
     }
 
     [Fact]

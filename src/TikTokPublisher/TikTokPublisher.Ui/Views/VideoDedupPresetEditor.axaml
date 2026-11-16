@@ -41,12 +41,12 @@
             </Grid>
 
             <TextBlock Text="单集时长" FontWeight="SemiBold" />
-            <TextBlock Classes="dedupHint" Text="两个都留 0 表示不重新分集。都大于 0 时把全部原片接成一条，按总时长平均切开，每集长度靠近最短和最长的中间。相邻原片可以合进同一集。每一集再做开头、结尾裁剪和变速。转场让某一集超出范围时，向相邻集借一点时长。没有任何分法能落在最短和最长之内时，去重直接失败，不会开始编码。" />
+            <TextBlock Classes="dedupHint" Text="两个都留空表示不重新分集。都填写时把全部原片接成一条，按总时长平均切开，每集长度靠近最短和最长的中间。相邻原片可以合进同一集。每一集再做开头、结尾裁剪和变速。转场让某一集超出范围时，向相邻集借一点时长。没有任何分法能落在最短和最长之内时，去重直接失败，不会开始编码。" />
             <Grid ColumnDefinitions="140,*,140,*" ColumnSpacing="10">
                 <TextBlock Classes="dedupLabel" Text="单集最小时长" />
-                <NumericUpDown x:Name="MinDurationBox" Grid.Column="1" Minimum="0" Maximum="3600" Increment="1" FormatString="0" />
+                <NumericUpDown x:Name="MinDurationBox" Grid.Column="1" Minimum="1" Maximum="3600" Increment="1" FormatString="0" Watermark="留空不重新分集" />
                 <TextBlock Grid.Column="2" Classes="dedupLabel" Text="单集最大时长" />
-                <NumericUpDown x:Name="MaxDurationBox" Grid.Column="3" Minimum="0" Maximum="7200" Increment="1" FormatString="0" />
+                <NumericUpDown x:Name="MaxDurationBox" Grid.Column="3" Minimum="1" Maximum="7200" Increment="1" FormatString="0" Watermark="留空不重新分集" />
             </Grid>
 
             <TextBlock Text="拼接转场" FontWeight="SemiBold" />
@@ -113,10 +113,18 @@
                 <RadioButton x:Name="AudioAacBox" GroupName="DedupAudio" Content="AAC" IsChecked="True" />
             </StackPanel>
             <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
-                <TextBlock Classes="dedupLabel" Text="音频码率 Kbps" />
-                <NumericUpDown x:Name="AudioBitrateBox" Grid.Column="1" Minimum="0" Maximum="320" Increment="16" FormatString="0" />
+                <TextBlock Classes="dedupLabel" Text="音频码率" />
+                <Panel Grid.Column="1">
+                    <NumericUpDown x:Name="AudioBitrateBox" Minimum="64" Maximum="320" Increment="16" FormatString="0" Watermark="留空表示原码率" />
+                    <TextBlock Text="Kbps"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Center"
+                               Margin="0,0,32,0"
+                               Foreground="#6B7280"
+                               IsHitTestVisible="False" />
+                </Panel>
             </Grid>
-            <TextBlock Classes="dedupHint" Text="音频码率填 0 时使用 128 Kbps。变速、抽帧、裁剪或均衡开启时会重新编码音频。" />
+            <TextBlock Classes="dedupHint" Text="音频码率留空表示使用源码率，单位 Kbps。填写后按该码率重新编码。变速、抽帧、裁剪或均衡开启时会重新编码音频。" />
 
             <Grid ColumnDefinitions="140,*,140,*,140,*" ColumnSpacing="10">
                 <TextBlock Classes="dedupLabel" Text="低频 100 Hz" />
