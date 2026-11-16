@@ -5,7 +5,7 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 public static class KuaishouDailyUploadLimit
 {
     public const string FailureKind = "account_daily_limit";
-    public const string Detail = "快手分账今日短剧上传已达上限，每天最多 10 部。队列已停止，今天不再分发。";
+    public const string Detail = "快手分账今日新建短剧已达 10 部。还没有草稿的剧今天不再创建，上传失败的草稿可以继续。";
 
     private static readonly string[] VisiblePhrases =
     [
@@ -24,7 +24,19 @@ public static class KuaishouDailyUploadLimit
             .Replace("\n", "", StringComparison.Ordinal);
         return compact.Contains("短剧上传已达上限", StringComparison.Ordinal)
             || compact.Contains("今日上传额度已用完", StringComparison.Ordinal)
-            || compact.Contains("每天最多上传10部", StringComparison.Ordinal);
+            || compact.Contains("每天最多上传10部", StringComparison.Ordinal)
+            || compact.Contains("每日限传10部", StringComparison.Ordinal);
+    }
+
+    public static bool AllowsResume(KuaishouPersonalUploadState? state)
+    {
+        if (state is null || state.SkipTodayUploadCount || state.VideosUploaded || state.ReviewSubmitted)
+            return false;
+        var status = state.Status?.Trim() ?? string.Empty;
+        if (status.Equals("completed", StringComparison.OrdinalIgnoreCase) ||
+            status.Equals("success", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return !string.IsNullOrWhiteSpace(state.MiniSeriesId) && state.FirstPageCompleted;
     }
 
     public static bool Is(Exception? ex)
