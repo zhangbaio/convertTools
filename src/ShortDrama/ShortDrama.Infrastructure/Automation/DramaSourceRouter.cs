@@ -1246,6 +1246,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         if (!LooksLikeHttpUrl(posterUrl))
             posterUrl = tasks.Select(item => item.PosterUrl).FirstOrDefault(url => LooksLikeHttpUrl(url)) ?? string.Empty;
 
+        WriteIntroFile(request.OutputDir, progress);
+        if (!string.Equals(request.ProjectDir, request.OutputDir, StringComparison.OrdinalIgnoreCase))
+            WriteIntroFile(request.ProjectDir, progress);
+
         if (!LooksLikeHttpUrl(posterUrl))
         {
             progress?.Report("未找到海报 URL，跳过海报下载。");
@@ -1762,6 +1766,30 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     {
         if (dramaBoxMedia)
         {
+            var library = DramaBoxLibcurl.Find();
+            if (!string.IsNullOrWhiteSpace(library))
+            {
+                try
+                {
+                    await Task.Run(
+                        () => DramaBoxLibcurl.DownloadSegmented(library, url, targetPath, 16, report),
+                        cancellationToken);
+                    if (!IsDramaBoxDeniedFile(targetPath))
+                        return;
+                    report?.Invoke("直连分块被 CDN 拒绝，改用代理分块");
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    report?.Invoke($"直连分块失败，改用代理分块：{ex.Message}");
+                }
+
+                DeleteIfExists(targetPath);
+            }
+
             try
             {
                 await DownloadHttpContentAsync(
@@ -3492,6 +3520,24 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         if (!LooksLikeHttpUrl(posterUrl))
             throw new InvalidOperationException("没有已保存的海报地址，无法只补下海报原图。");
         progress?.Report("开始补下海报原图。");
+        WriteIntroFile(projectDirectory, progress);
+        await EnsurePosterAsync(projectDirectory, displayName, posterUrl, progress, cancellationToken);
+    }
+
+    public async Task EnsurePosterAndIntroAsync(
+        string projectDirectory,
+        string displayName,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+            return;
+        WriteIntroFile(projectDirectory, progress);
+        var posterUrl = ReadPosterUrlFromProject(projectDirectory);
+        if (!LooksLikeHttpUrl(posterUrl))
+            posterUrl = ReadPosterUrlFromLinkedWorkflow(projectDirectory);
+        if (!LooksLikeHttpUrl(posterUrl) || PosterFileExists(projectDirectory))
+            return;
         await EnsurePosterAsync(projectDirectory, displayName, posterUrl, progress, cancellationToken);
     }
 
@@ -3503,7 +3549,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         var extension = ResolveImageExtensionFromUrl(posterUrl);
-        var targetPath = Path.Combine(outputDir, $"{SanitizeFileStem(displayName)}{extension}");
+        var targetPath = Path.Combine(outputDir, "海报原图" + extension);
         if (File.Exists(targetPath) && new FileInfo(targetPath).Length > 0)
         {
             progress?.Report($"海报已存在，跳过: {Path.GetFileName(targetPath)}");
@@ -3513,6 +3559,19 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         progress?.Report("开始下载海报...");
         try
         {
+            await DownloadPosterFileAsync(posterUrl, targetPath, cancellationToken);
+            progress?.Report($"海报下载完成: {Path.GetFileName(targetPath)}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new InvalidOperationException($"海报下载失败：{ex.Message}", ex);
+        }
+    }
+
+    private async Task DownloadPosterFileAsync(string posterUrl, string targetPath, CancellationToken cancellationToken)
+    {
+        try
+        {
             using var request = new HttpRequestMessage(HttpMethod.Get, posterUrl);
             request.Headers.TryAddWithoutValidation("User-Agent", MobileUserAgent);
             request.Headers.UserAgent.Add(UserAgentProduct);
@@ -3520,11 +3579,71 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             response.EnsureSuccessStatusCode();
             await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
             await WriteReleasedFileAsync(targetPath, source, cancellationToken);
-            progress?.Report($"海报下载完成: {Path.GetFileName(targetPath)}");
+            if (new FileInfo(targetPath).Length > 0)
+                return;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            throw new InvalidOperationException($"海报下载失败：{ex.Message}", ex);
+        }
+
+        var library = DramaBoxLibcurl.Find();
+        if (string.IsNullOrWhiteSpace(library))
+            throw new InvalidOperationException("海报图片下载失败。");
+        if (File.Exists(targetPath))
+            File.Delete(targetPath);
+        await Task.Run(
+            () => DramaBoxLibcurl.Download(library, posterUrl, targetPath, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                ["Accept"] = "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            }, 60),
+            cancellationToken);
+        if (!File.Exists(targetPath) || new FileInfo(targetPath).Length == 0)
+            throw new InvalidOperationException("海报图片下载失败。");
+    }
+
+    private static bool PosterFileExists(string projectDirectory)
+    {
+        foreach (var name in new[] { "海报原图.jpg", "海报原图.jpeg", "海报原图.png", "海报原图.webp", "cover.jpg", "cover.png" })
+        {
+            var path = Path.Combine(projectDirectory, name);
+            if (File.Exists(path) && new FileInfo(path).Length > 0)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static void WriteIntroFile(string projectDirectory, IProgress<string>? progress)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+            return;
+        var target = Path.Combine(projectDirectory, "简介.txt");
+        if (File.Exists(target) && new FileInfo(target).Length > 0)
+            return;
+        var intro = ReadProjectIntro(projectDirectory);
+        if (string.IsNullOrWhiteSpace(intro))
+            return;
+        File.WriteAllText(target, intro.Trim() + Environment.NewLine);
+        progress?.Report("简介已保存: 简介.txt");
+    }
+
+    private static string ReadProjectIntro(string projectDirectory)
+    {
+        var metadataPath = Path.Combine(projectDirectory, "shortdrama-project.json");
+        if (!File.Exists(metadataPath))
+            return "";
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
+            return GetString(document.RootElement, "intro")
+                   ?? GetString(document.RootElement, "introduction")
+                   ?? GetString(document.RootElement, "description")
+                   ?? "";
+        }
+        catch
+        {
+            return "";
         }
     }
 

@@ -41,6 +41,7 @@ internal static class DramaBoxLibcurl
     private static SlistAppendDelegate? _slistAppend;
     private static SlistFreeDelegate? _slistFree;
     private static readonly WriteCallback WriteThunk = WriteBody;
+    private static readonly WriteCallback HeaderThunk = WriteHeader;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int GlobalInitDelegate(int flags);
@@ -108,6 +109,95 @@ internal static class DramaBoxLibcurl
         return new DramaBoxApiService.HttpText(status, text);
     }
 
+    public static int DownloadSegmented(
+        string libraryPath,
+        string url,
+        string targetPath,
+        int maxSegments,
+        Action<string>? report)
+    {
+        EnsureLoaded(libraryPath);
+        var total = ProbeLength(url);
+        var count = PlanSegments(total, maxSegments);
+        report?.Invoke($"启用 {count} 路直连分块下载（{total / 1024d / 1024d:0.#} MB）");
+        using (var file = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+            file.SetLength(total);
+
+        if (count <= 1)
+        {
+            var bytes = ReadRange(url, 0, total - 1);
+            using var file = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+            file.Write(bytes, 0, bytes.Length);
+            return 1;
+        }
+
+        var part = total / count;
+        Parallel.For(0, count, index =>
+        {
+            var start = index * part;
+            var end = index == count - 1 ? total - 1 : start + part - 1;
+            var bytes = ReadRange(url, start, end);
+            var expected = end - start + 1;
+            if (bytes.LongLength != expected)
+                throw new InvalidOperationException("DramaBox 分块长度不完整。");
+            using var file = new FileStream(targetPath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+            file.Seek(start, SeekOrigin.Begin);
+            file.Write(bytes, 0, bytes.Length);
+        });
+        return count;
+    }
+
+    private static long ProbeLength(string url)
+    {
+        var headers = new StringBuilder();
+        using var body = new MemoryStream();
+        Perform("GET", url, null, MediaHeaders(0, 0), 30, body, headers);
+        return TotalLength(headers.ToString(), body.Length);
+    }
+
+    private static byte[] ReadRange(string url, long start, long end)
+    {
+        using var body = new MemoryStream();
+        var status = Perform("GET", url, null, MediaHeaders(start, end), 120, body);
+        if (status is not (200 or 206))
+            throw new InvalidOperationException($"DramaBox 分块 HTTP {status}。");
+        return body.ToArray();
+    }
+
+    private static Dictionary<string, string> MediaHeaders(long start, long end) => new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        ["Accept"] = "*/*",
+        ["Accept-Encoding"] = "identity",
+        ["Range"] = $"bytes={start}-{end}",
+    };
+
+    private static int PlanSegments(long total, int maxSegments)
+    {
+        var requested = Math.Clamp(maxSegments, 1, 16);
+        if (total < 4L * 1024 * 1024)
+            return 1;
+        var byMegabyte = (int)Math.Max(1, total / (1024 * 1024));
+        return Math.Clamp(Math.Min(requested, byMegabyte), 1, 16);
+    }
+
+    private static long TotalLength(string headers, long bodyLength)
+    {
+        foreach (var raw in headers.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (!line.StartsWith("Content-Range:", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var slash = line.LastIndexOf('/');
+            if (slash >= 0 && long.TryParse(line[(slash + 1)..].Trim(), out var total) && total > 0)
+                return total;
+        }
+
+        if (bodyLength > 1)
+            return bodyLength;
+        throw new InvalidOperationException("DramaBox 没有返回视频大小。");
+    }
+
     public static void Download(
         string libraryPath,
         string url,
@@ -126,7 +216,8 @@ internal static class DramaBoxLibcurl
         byte[]? body,
         IReadOnlyDictionary<string, string> headers,
         int timeoutSeconds,
-        Stream output)
+        Stream output,
+        StringBuilder? responseHeaders = null)
     {
         var easy = _easyInit!();
         if (easy == IntPtr.Zero)
@@ -141,6 +232,7 @@ internal static class DramaBoxLibcurl
         var errorBuffer = Marshal.AllocHGlobal(256);
         var statusBuffer = Marshal.AllocHGlobal(4);
         var outputHandle = GCHandle.Alloc(output);
+        var headerHandle = responseHeaders is null ? default : GCHandle.Alloc(responseHeaders);
         GCHandle bodyHandle = default;
         try
         {
@@ -165,6 +257,11 @@ internal static class DramaBoxLibcurl
             _setopt(easy, CurlOptAcceptEncoding, encodingNative);
             _setopt(easy, 20011, Marshal.GetFunctionPointerForDelegate(WriteThunk));
             _setopt(easy, 10001, GCHandle.ToIntPtr(outputHandle));
+            if (headerHandle.IsAllocated)
+            {
+                _setopt(easy, 20079, Marshal.GetFunctionPointerForDelegate(HeaderThunk));
+                _setopt(easy, 10029, GCHandle.ToIntPtr(headerHandle));
+            }
             _setopt(easy, CurlOptHttpVersion, new IntPtr(CurlHttpVersion11));
             _setopt(easy, CurlOptTimeout, new IntPtr(timeoutSeconds));
             methodNative = Marshal.StringToCoTaskMemUTF8(method);
@@ -207,6 +304,8 @@ internal static class DramaBoxLibcurl
             if (bodyHandle.IsAllocated)
                 bodyHandle.Free();
             outputHandle.Free();
+            if (headerHandle.IsAllocated)
+                headerHandle.Free();
             if (urlNative != IntPtr.Zero)
                 Marshal.FreeCoTaskMem(urlNative);
             if (methodNative != IntPtr.Zero)
@@ -258,6 +357,16 @@ internal static class DramaBoxLibcurl
             return detail.Trim();
         var fallback = _easyStrError!(code);
         return fallback == IntPtr.Zero ? code.ToString() : Marshal.PtrToStringUTF8(fallback) ?? code.ToString();
+    }
+
+    private static nuint WriteHeader(IntPtr data, nuint size, nuint nmemb, IntPtr userdata)
+    {
+        var count = checked((int)(size * nmemb));
+        if (count <= 0)
+            return 0;
+        var headers = (StringBuilder)GCHandle.FromIntPtr(userdata).Target!;
+        headers.Append(Marshal.PtrToStringUTF8(data, count));
+        return (nuint)count;
     }
 
     private static nuint WriteBody(IntPtr data, nuint size, nuint nmemb, IntPtr userdata)

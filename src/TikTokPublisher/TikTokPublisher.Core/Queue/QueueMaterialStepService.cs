@@ -1845,6 +1845,22 @@ public static class QueueMaterialStepService
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
 
+    internal static async Task EnsureDownloadedMaterialsAsync(
+        QueueProjectItem item,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        if (ShortDramaDramaServices.Downloader is not DramaSourceRouter router)
+            return;
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var displayName = FirstNonEmpty(item.OriginalTitle, item.Title, Path.GetFileName(context.SourceProjectDir));
+        await router.EnsurePosterAndIntroAsync(
+            context.SourceProjectDir,
+            displayName,
+            new Progress<string>(log),
+            ct).ConfigureAwait(false);
+    }
+
     public static bool NeedsAiRewrite(QueueProjectItem item, TikTokAccountProfile? account = null)
     {
         try
@@ -1915,6 +1931,12 @@ public static class QueueMaterialStepService
 
         var inputPath = await QueueMaterialPrepareService.PrepareMaterialInputsAsync(item.ProjectDir, log, ct)
             ?? ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir);
+        if (inputPath is null)
+        {
+            await EnsureDownloadedMaterialsAsync(item, log, ct).ConfigureAwait(false);
+            inputPath = ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir);
+        }
+
         if (inputPath is null)
         {
             if (videoFrameFailure is not null)

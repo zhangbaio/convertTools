@@ -1413,6 +1413,21 @@ public sealed class QueueWorkerRunner
             var stepAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
             if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
+                if (string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal))
+                {
+                    try
+                    {
+                        await QueueMaterialStepService.EnsureDownloadedMaterialsAsync(
+                            item,
+                            message => Report(onProgress, workspace, item, message, stepKey),
+                            ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        Report(onProgress, workspace, item, "海报或简介补全失败：" + ex.Message, stepKey);
+                    }
+                }
+
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
                 return;
             }
