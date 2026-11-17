@@ -2807,8 +2807,8 @@ public partial class MainWindowViewModel : ViewModelBase
         var busyMessage = _searchMode switch
         {
             SearchModeToday => "正在获取今日上新...",
-            SearchModeMangaToday => HongguoAppNewReleaseText("正在获取漫剧上新，最新上架，7天内...", $"正在获取漫剧上新，查询近 {ParseSearchQueryDays()} 天..."),
-            SearchModeAiToday => DramaBoxNewText("正在读取 DramaBox New…", HongguoAppNewReleaseText("正在获取 AI 短剧上新，最新上架，7天内...", $"正在获取 AI 短剧上新，查询近 {ParseSearchQueryDays()} 天...")),
+            SearchModeMangaToday => PlayletNewText("正在获取漫剧上新，最新上架，7天内...", HongguoAppNewReleaseText("正在获取漫剧上新，最新上架，7天内...", $"正在获取漫剧上新，查询近 {ParseSearchQueryDays()} 天...")),
+            SearchModeAiToday => PlayletNewText("正在获取 AI短剧上新，最新上架，7天内...", DramaBoxNewText("正在读取 DramaBox New…", HongguoAppNewReleaseText("正在获取 AI 短剧上新，最新上架，7天内...", $"正在获取 AI 短剧上新，查询近 {ParseSearchQueryDays()} 天..."))),
             SearchModeHistory => $"正在获取历史上新，查询近 {ParseSearchQueryDays()} 天...",
             SearchModeSimilarUpnew => $"正在相似上新检索，查询近 {ParseSearchQueryDays()} 天...",
             _ => $"正在搜索短剧：{_lastSearchKeyword}"
@@ -3056,13 +3056,18 @@ public partial class MainWindowViewModel : ViewModelBase
             ? dramaBoxText
             : fallback;
 
+    private string PlayletNewText(string playletText, string fallback) =>
+        _dramaSearchService is DramaSourceRouter router && router.IsPlayletSourceSelected()
+            ? playletText
+            : fallback;
+
     private string ResolveSearchModeLabel()
     {
         return _searchMode switch
         {
             SearchModeToday => "今日上新",
-            SearchModeMangaToday => HongguoAppNewReleaseText("漫剧上新 · 最新上架 · 7天内", $"漫剧上新（近 {ParseSearchQueryDays()} 天）"),
-            SearchModeAiToday => DramaBoxNewText("AI短剧上新 · DramaBox New · 英语", HongguoAppNewReleaseText("AI 短剧上新 · 最新上架 · 7天内", $"AI 短剧上新（近 {ParseSearchQueryDays()} 天）")),
+            SearchModeMangaToday => PlayletNewText("漫剧上新 · 最新上架 · 7天内", HongguoAppNewReleaseText("漫剧上新 · 最新上架 · 7天内", $"漫剧上新（近 {ParseSearchQueryDays()} 天）")),
+            SearchModeAiToday => PlayletNewText("AI短剧上新 · 最新上架 · 7天内", DramaBoxNewText("AI短剧上新 · DramaBox New · 英语", HongguoAppNewReleaseText("AI 短剧上新 · 最新上架 · 7天内", $"AI 短剧上新（近 {ParseSearchQueryDays()} 天）"))),
             SearchModeHistory => $"历史上新（近 {ParseSearchQueryDays()} 天）",
             SearchModeSimilarUpnew => $"相似上新（近 {ParseSearchQueryDays()} 天）",
             _ => "短剧搜索"

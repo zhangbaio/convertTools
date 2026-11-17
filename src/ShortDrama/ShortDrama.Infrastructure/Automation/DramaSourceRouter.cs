@@ -199,7 +199,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var settings = _settingsProvider.Get();
         ThrowIfForeignCatalogUnsupported(settings);
         if (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
-            return await PlayletDramaClient.GetComicNewTodayAsync(_httpClient, cancellationToken);
+        {
+            progress?.Report("正在读取漫剧上新，最新上架，7天内...");
+            var items = await LoadPlayletShelfNewAsync("comic_series", cancellationToken);
+            partialResults?.Report(items);
+            return items;
+        }
         if (string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
             return await GetHongguoAppNewReleaseAsync("comic_series", partialResults, cancellationToken);
 
@@ -237,6 +242,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         if (string.Equals(settings.DramaSourceChain?.Trim(), "hongguoapp", StringComparison.OrdinalIgnoreCase))
             return await GetHongguoAppNewReleaseAsync("ai_series", partialResults, cancellationToken);
+        if (string.Equals(settings.DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase))
+        {
+            progress?.Report("正在读取 AI短剧上新，最新上架，7天内...");
+            var items = await LoadPlayletShelfNewAsync("ai_series", cancellationToken);
+            partialResults?.Report(items);
+            return items;
+        }
 
         return await LoadNewReleaseAsync(
             settings,
@@ -296,6 +308,46 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     public bool IsHighSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "hghigh", StringComparison.OrdinalIgnoreCase);
+
+    private async Task<IReadOnlyList<DramaSearchItem>> LoadPlayletShelfNewAsync(
+        string genre,
+        CancellationToken cancellationToken)
+    {
+        var items = new List<DramaSearchItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var offset = 0;
+        var sessionId = "";
+        for (var page = 0; page < 8; page++)
+        {
+            var batch = await _hongguoApp.GetNewReleasePageAsync(genre, offset, sessionId, cancellationToken);
+            foreach (var item in batch.Items)
+            {
+                var retargeted = AsPlayletBook(item);
+                if (!string.IsNullOrWhiteSpace(retargeted.BookId) && seen.Add(retargeted.BookId))
+                    items.Add(retargeted);
+            }
+
+            if (!string.IsNullOrWhiteSpace(batch.SessionId))
+                sessionId = batch.SessionId;
+            if (!batch.HasMore || batch.NextOffset <= offset || batch.Items.Count == 0)
+                break;
+            offset = batch.NextOffset;
+        }
+
+        return items;
+    }
+
+    private static DramaSearchItem AsPlayletBook(DramaSearchItem item)
+    {
+        var raw = (item.BookId ?? "").Trim();
+        var colon = raw.IndexOf(':');
+        if (colon >= 0)
+            raw = raw[(colon + 1)..];
+        return item with
+        {
+            BookId = string.IsNullOrWhiteSpace(raw) ? "" : PlayletDramaClient.BookPrefix + raw,
+        };
+    }
 
     public bool IsPlayletSourceSelected() =>
         string.Equals(_settingsProvider.Get().DramaSourceChain?.Trim(), "playlet", StringComparison.OrdinalIgnoreCase);

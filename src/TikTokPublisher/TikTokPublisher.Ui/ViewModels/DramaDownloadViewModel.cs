@@ -582,8 +582,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (ShortDramaDramaServices.IsPlayletSourceSelected())
         {
             await LoadSearchResultsAsync(
-                "漫剧上新 · 当天",
-                ct => ShortDramaDramaServices.GetMangaTodayAsync(1, ct),
+                "漫剧上新 · 最新上架 · 7天内",
+                ct => ShortDramaDramaServices.GetMangaTodayAsync(7, ct),
                 sourceMode: "mj_today");
             return;
         }
@@ -608,6 +608,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (ShortDramaDramaServices.IsDramaBoxSourceSelected())
         {
             await LoadDramaBoxNewAsync(append: false);
+            return;
+        }
+
+        if (ShortDramaDramaServices.IsPlayletSourceSelected())
+        {
+            await LoadSearchResultsAsync(
+                "AI短剧上新 · 最新上架 · 7天内",
+                ct => ShortDramaDramaServices.GetAiTodayAsync(7, ct),
+                sourceMode: "aiju_today");
             return;
         }
 
