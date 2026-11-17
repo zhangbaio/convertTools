@@ -2203,6 +2203,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    private bool ShouldContinueKuaishouReplace(string projectDirectory, PublishPlatform platform)
+    {
+        try
+        {
+            return KuaishouDraftReplace.ContinueDespiteDailyCap(LoadKuaishouUploadState(projectDirectory, platform));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private KuaishouPersonalUploadState? LoadKuaishouUploadState(string projectDirectory, PublishPlatform platform)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+            return null;
+        var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+        if (string.IsNullOrWhiteSpace(workflow) || !Directory.Exists(workflow))
+            workflow = projectDirectory;
+        return new KuaishouPersonalUploadStateStore().Load(workflow, platform);
+    }
+
     public bool IsKuaishouDailyUploadLimited(string? accountId) =>
         KuaishouDailyUploadLimit.IsNoted(accountId);
 
@@ -2279,7 +2301,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 try
                 {
                     if (IsKuaishouDailyUploadLimited(request.AccountId) &&
-                        !CanResumeKuaishouUpload(item.directory, request.Platform))
+                        !CanResumeKuaishouUpload(item.directory, request.Platform) &&
+                        !ShouldContinueKuaishouReplace(item.directory, request.Platform))
                     {
                         AppendActivityLog($"今日新建短剧已达 10 部，{projectName} 还没开始上传，今天不再新建。", projectName);
                         SetKuaishouLogTone(item.directory, "none");
@@ -2316,7 +2339,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
                 {
                     NoteKuaishouDailyUploadLimit(request.AccountId, request.AccountName);
-                    if (HasKuaishouUploadStarted(item.directory, request.Platform))
+                    if (ShouldContinueKuaishouReplace(item.directory, request.Platform))
+                    {
+                        SetKuaishouLogTone(item.directory, "running");
+                        var kept = $"{projectName} 正在替换已有短剧，今日新建限额不中断，继续替换。";
+                        ReportRunStatus(kept);
+                        AppendActivityLog(kept, projectName);
+                    }
+                    else if (HasKuaishouUploadStarted(item.directory, request.Platform))
                     {
                         SetKuaishouLogTone(item.directory, "running");
                         var kept = $"{projectName} 已在上传，今日新建限额不中断，继续传完。";

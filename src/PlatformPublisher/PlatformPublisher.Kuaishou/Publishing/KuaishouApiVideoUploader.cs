@@ -21,14 +21,17 @@ public sealed class KuaishouApiVideoUploader
         IReadOnlyList<string> videoPaths,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        Func<int, CancellationToken, Task>? afterEpisode = null)
+        Func<int, CancellationToken, Task>? afterEpisode = null,
+        bool replaceExisting = false)
     {
         var label = "快手分账";
-        var episodes = await ReadEpisodesAsync(session, seriesId, cancellationToken);
+        var episodes = await ReadEpisodesAsync(session, seriesId, cancellationToken, replaceExisting);
         if (episodes.Count != videoPaths.Count)
             throw new InvalidOperationException($"短剧 {seriesId} 有 {episodes.Count} 集，本地有 {videoPaths.Count} 集，已停止上传。");
         var ready = episodes.Count(episode => episode.Ready);
-        if (ready > 0)
+        if (replaceExisting)
+            progress?.Report($"{label}：短剧 {seriesId} 的 {episodes.Count} 集视频都会重新上传。");
+        else if (ready > 0)
             progress?.Report(ready == episodes.Count
                 ? $"{label}：草稿 {seriesId} 的 {ready} 集视频都已在线上。"
                 : $"{label}：草稿 {seriesId} 已有 {ready} 集视频，其余从断点续传。");
@@ -36,7 +39,7 @@ public sealed class KuaishouApiVideoUploader
         {
             cancellationToken.ThrowIfCancellationRequested();
             var episode = episodes[index];
-            if (episode.Ready)
+            if (SkipUploadedEpisode(episode.Ready, replaceExisting))
             {
                 progress?.Report($"{label}：第 {index + 1} 集已在线上，跳过。");
                 if (afterEpisode is not null)
@@ -184,6 +187,21 @@ public sealed class KuaishouApiVideoUploader
         return row.TryGetProperty("videoUploadStatus", out status) && status.TryGetInt32(out var ready) && ready == 2;
     }
 
+    public static bool EpisodeUploaded(JsonElement row, bool replaceExisting)
+    {
+        try
+        {
+            return EpisodeReady(row);
+        }
+        catch (InvalidOperationException) when (replaceExisting)
+        {
+            return false;
+        }
+    }
+
+    public static bool SkipUploadedEpisode(bool uploaded, bool replaceExisting) =>
+        uploaded && !replaceExisting;
+
     private async Task<UploadTicket> StartAsync(
         KuaishouApiSession session,
         string episodeId,
@@ -230,7 +248,8 @@ public sealed class KuaishouApiVideoUploader
     private async Task<IReadOnlyList<EpisodeSlot>> ReadEpisodesAsync(
         KuaishouApiSession session,
         string seriesId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool replaceExisting = false)
     {
         var detail = await session.PostJsonAsync(DetailUrl, "{\"miniSeriesId\":" + seriesId + "}", cancellationToken);
         using var document = JsonDocument.Parse(detail);
@@ -248,7 +267,7 @@ public sealed class KuaishouApiVideoUploader
             var order = row.TryGetProperty("orderNo", out var orderNo) && orderNo.TryGetInt32(out var value)
                 ? value
                 : index;
-            rows.Add((order, index, new EpisodeSlot(id, EpisodeReady(row))));
+            rows.Add((order, index, new EpisodeSlot(id, EpisodeUploaded(row, replaceExisting))));
             index++;
         }
 

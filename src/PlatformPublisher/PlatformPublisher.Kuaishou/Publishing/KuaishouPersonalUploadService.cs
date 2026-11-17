@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Playwright;
 using PlatformPublisher.Common.Models;
@@ -42,11 +43,14 @@ public sealed class KuaishouPersonalUploadService
     {
         using var account = KuaishouDailyUploadLimit.UseAccount(job.AccountId);
         var config = KuaishouPersonalConfig.Load(job);
-        if (KuaishouUploadTransport.IsApi(config.UploadTransport))
+        var apiTransport = KuaishouUploadTransport.IsApi(config.UploadTransport);
+        var boundId = "";
+        var continueReplace = !apiTransport && TryBoundReplaceSeries(job, out boundId);
+        if (apiTransport || continueReplace)
         {
-            await new KuaishouApiUploadService(
-                    _projectDataService, _stateStore, _commitmentService, _distributionService, _onlineQueueStore)
-                .RunAsync(job, progress, cancellationToken);
+            if (continueReplace)
+                progress?.Report($"{job.Platform.DisplayName()}：这部已绑定短剧 {boundId}，继续用接口替换，不打开浏览器。");
+            await ApiUpload().RunAsync(job, progress, cancellationToken);
             return;
         }
 
@@ -195,6 +199,61 @@ public sealed class KuaishouPersonalUploadService
             await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
             throw;
         }
+    }
+
+    public async Task<KuaishouDraftReplacePreview> PreviewReplaceAsync(
+        PublishJob job,
+        string seriesId,
+        CancellationToken cancellationToken)
+    {
+        if (!KuaishouDraftReplace.TryParseSeriesId(seriesId, out var id))
+            throw new InvalidOperationException("短剧 ID 只能是数字。");
+        var config = KuaishouPersonalConfig.Load(job);
+        if (string.IsNullOrWhiteSpace(config.AuthStatePath) || !File.Exists(config.AuthStatePath))
+            throw new InvalidOperationException("请先打开经营者管理平台登录。");
+        var data = await _projectDataService.ResolveAsync(job.ProjectDirectory, config, cancellationToken);
+        if (data.VideoPaths.Count == 0)
+            throw new InvalidOperationException("这部本地剧没有可上传的视频。");
+        var state = _stateStore.Load(data.WorkflowDirectory, job.Platform);
+        var binding = KuaishouDraftReplace.BindingMessage(state.MiniSeriesId, id);
+        if (binding.Length > 0)
+            throw new InvalidOperationException(binding);
+        using var session = KuaishouApiSession.Open(config.AuthStatePath);
+        var listed = await session.PostJsonAsync(KuaishouShelfApi.ListUrl, KuaishouShelfApi.StatusBody(id), cancellationToken);
+        using var document = JsonDocument.Parse(listed);
+        if (!KuaishouDraftReplace.TryRead(document.RootElement, id, out var target))
+            throw new InvalidOperationException($"内容管理没有短剧 {id}。");
+        var refusal = KuaishouDraftReplace.Refusal(target);
+        if (refusal.Length > 0)
+            throw new InvalidOperationException(refusal);
+        await KuaishouDraftReplace.EnsureEpisodeCountAsync(session, id, data.VideoPaths.Count, cancellationToken);
+        return new KuaishouDraftReplacePreview(id, target.Title, data.Title, data.VideoPaths.Count);
+    }
+
+    public Task ReplaceDraftAsync(
+        PublishJob job,
+        string seriesId,
+        string platformTitle,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken) =>
+        ApiUpload().ReplaceDraftAsync(job, seriesId, platformTitle, progress, cancellationToken);
+
+    private KuaishouApiUploadService ApiUpload() =>
+        new(_projectDataService, _stateStore, _commitmentService, _distributionService, _onlineQueueStore);
+
+    private bool TryBoundReplaceSeries(PublishJob job, out string seriesId)
+    {
+        seriesId = "";
+        if (string.IsNullOrWhiteSpace(job.ProjectDirectory))
+            return false;
+        var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(job.ProjectDirectory).WorkflowDirectory;
+        if (string.IsNullOrWhiteSpace(workflow) || !Directory.Exists(workflow))
+            workflow = job.ProjectDirectory;
+        var state = _stateStore.Load(workflow, job.Platform);
+        if (!state.ReplaceExistingVideos || string.IsNullOrWhiteSpace(state.MiniSeriesId))
+            return false;
+        seriesId = state.MiniSeriesId.Trim();
+        return true;
     }
 
     private async Task RecordStageAsync(
