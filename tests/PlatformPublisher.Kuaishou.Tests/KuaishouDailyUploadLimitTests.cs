@@ -1,3 +1,4 @@
+using System.Text.Json;
 using PlatformPublisher.Kuaishou.Publishing;
 using Xunit;
 
@@ -54,5 +55,45 @@ public sealed class KuaishouDailyUploadLimitTests
             ReviewSubmitted = true,
         }));
         Assert.False(KuaishouDailyUploadLimit.AllowsResume(null));
+    }
+
+    [Fact]
+    public void Noted_account_blocks_only_that_account()
+    {
+        var blocked = "acct-limit-" + Guid.NewGuid().ToString("N");
+        var other = "acct-open-" + Guid.NewGuid().ToString("N");
+        Assert.True(KuaishouDailyUploadLimit.TryNote(blocked));
+        Assert.False(KuaishouDailyUploadLimit.TryNote(blocked));
+        Assert.True(KuaishouDailyUploadLimit.IsNoted(blocked));
+        Assert.False(KuaishouDailyUploadLimit.IsNoted(other));
+        Assert.False(KuaishouDailyUploadLimit.IsNoted(""));
+        Assert.Throws<KuaishouDailyUploadLimitException>(() => KuaishouDailyUploadLimit.ThrowIfNoted(blocked));
+    }
+
+    [Fact]
+    public void Create_limit_response_notes_the_account_that_is_uploading()
+    {
+        var account = "acct-create-" + Guid.NewGuid().ToString("N");
+        using var scope = KuaishouDailyUploadLimit.UseAccount(account);
+        using var document = JsonDocument.Parse("""{"result":11,"error_msg":"为保证内容审核质量，每位创作者每日限传10部"}""");
+        Assert.Throws<KuaishouDailyUploadLimitException>(() => KuaishouSeriesDraft.EnsureSuccess(document.RootElement));
+        Assert.True(KuaishouDailyUploadLimit.IsNoted(account));
+        Assert.Equal(account, KuaishouDailyUploadLimit.CurrentAccountId);
+    }
+
+    [Fact]
+    public void Started_upload_is_separate_from_a_series_that_has_not_been_created()
+    {
+        Assert.True(KuaishouDailyUploadLimit.HasStartedUpload(new KuaishouPersonalUploadState
+        {
+            MiniSeriesId = "56507813",
+            FirstPageCompleted = true,
+            VideosUploaded = false,
+        }));
+        Assert.False(KuaishouDailyUploadLimit.HasStartedUpload(new KuaishouPersonalUploadState
+        {
+            Status = "failed",
+            CurrentStage = "api_upload",
+        }));
     }
 }

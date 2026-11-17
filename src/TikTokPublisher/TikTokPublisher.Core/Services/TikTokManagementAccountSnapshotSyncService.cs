@@ -13,7 +13,10 @@ namespace TikTokPublisher.Core.Services;
 public sealed record TikTokClientAccountSnapshotItem(
     [property: JsonPropertyName("client_account_id")] string ClientAccountId,
     [property: JsonPropertyName("tiktok_username")] string TikTokUsername,
-    [property: JsonPropertyName("subject_company")] string SubjectCompany = "");
+    [property: JsonPropertyName("subject_company")] string SubjectCompany = "",
+    [property: JsonPropertyName("subject_companies")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? SubjectCompanies = null);
 
 public sealed record TikTokAccountSnapshotSyncResult(
     bool Ok,
@@ -135,10 +138,12 @@ public sealed class TikTokManagementAccountSnapshotSyncService
             var username = profile.ResolveTikTokAccountName().Trim();
             if (string.IsNullOrWhiteSpace(accountId) || string.IsNullOrWhiteSpace(username))
                 continue;
+            var companies = SubjectCompaniesFor(profile);
             byId[accountId] = new TikTokClientAccountSnapshotItem(
                 accountId,
                 username,
-                (profile.TiktokProofDeclarantCompanyName ?? "").Trim());
+                companies.FirstOrDefault() ?? "",
+                companies.Count == 0 ? null : companies);
         }
 
         return byId.Values
@@ -160,6 +165,8 @@ public sealed class TikTokManagementAccountSnapshotSyncService
                 .Append(account.TikTokUsername)
                 .Append('\u001f')
                 .Append(account.SubjectCompany);
+            foreach (var company in account.SubjectCompanies ?? [])
+                builder.Append('\u001f').Append(company);
         }
         return builder.ToString();
     }
@@ -173,6 +180,24 @@ public sealed class TikTokManagementAccountSnapshotSyncService
     }
 
     private static string CleanBaseUrl(string? value) => (value ?? "").Trim().TrimEnd('/');
+
+    internal static IReadOnlyList<string> SubjectCompaniesFor(TikTokAccountProfile profile)
+    {
+        var companies = new List<string>(2);
+        AddSubjectCompany(companies, profile.TiktokProofDeclarantCompanyName);
+        AddSubjectCompany(companies, profile.TiktokProofCopyrightCompanyName);
+        return companies;
+    }
+
+    private static void AddSubjectCompany(List<string> companies, string? value)
+    {
+        var company = (value ?? "").Trim();
+        if (company.Length == 0)
+            return;
+        if (companies.Exists(existing => string.Equals(existing, company, StringComparison.Ordinal)))
+            return;
+        companies.Add(company);
+    }
 
     private static string FirstNonEmpty(params string?[] values) =>
         values.Select(value => (value ?? "").Trim())

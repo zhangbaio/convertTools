@@ -34,7 +34,7 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
             {
                 Id = "acct-a",
                 TiktokLoginEmail = "account-a@example.test",
-                TiktokProofCopyrightCompanyName = "不应上报的致贵方名称",
+                TiktokProofCopyrightCompanyName = "武汉思语行科技有限公司",
                 TiktokProofDeclarantCompanyName = "武汉速视科技有限公司",
             },
         ]);
@@ -54,6 +54,9 @@ public sealed class TikTokAccountInventorySyncCoordinatorTests
         account.GetProperty("client_account_id").GetString().Should().Be("acct-a");
         account.GetProperty("tiktok_username").GetString().Should().Be("account-a@example.test");
         account.GetProperty("subject_company").GetString().Should().Be("武汉速视科技有限公司");
+        account.GetProperty("subject_companies").EnumerateArray()
+            .Select(item => item.GetString())
+            .Should().Equal("武汉速视科技有限公司", "武汉思语行科技有限公司");
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Playwright;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
@@ -6,6 +7,61 @@ public static class KuaishouDailyUploadLimit
 {
     public const string FailureKind = "account_daily_limit";
     public const string Detail = "快手分账今日新建短剧已达 10 部。还没有草稿的剧今天不再创建，上传失败的草稿可以继续。";
+    private static readonly AsyncLocal<string?> Account = new();
+    private static readonly object NotedGate = new();
+    private static readonly Dictionary<string, DateOnly> NotedDays = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> CreateGates = new(StringComparer.OrdinalIgnoreCase);
+
+    public static string CurrentAccountId => Account.Value?.Trim() ?? "";
+
+    public static IDisposable UseAccount(string? accountId) => new AccountScope(accountId);
+
+    public static bool IsNoted(string? accountId)
+    {
+        var id = (accountId ?? "").Trim();
+        if (id.Length == 0)
+            return false;
+        lock (NotedGate)
+            return NotedDays.TryGetValue(id, out var day) && day == DateOnly.FromDateTime(DateTime.Now);
+    }
+
+    public static bool TryNote(string? accountId)
+    {
+        var id = (accountId ?? "").Trim();
+        if (id.Length == 0)
+            return false;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        lock (NotedGate)
+        {
+            if (NotedDays.TryGetValue(id, out var day) && day == today)
+                return false;
+            NotedDays[id] = today;
+            return true;
+        }
+    }
+
+    public static void NoteCurrent() => TryNote(Account.Value);
+
+    public static void ThrowIfNoted(string? accountId)
+    {
+        if (IsNoted(accountId))
+            throw new KuaishouDailyUploadLimitException();
+    }
+
+    public static SemaphoreSlim CreateGateFor(string? accountId)
+    {
+        var id = (accountId ?? "").Trim();
+        if (id.Length == 0)
+            id = CurrentAccountId;
+        if (id.Length == 0)
+            id = "_";
+        return CreateGates.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+    }
+
+    public static bool HasStartedUpload(KuaishouPersonalUploadState? state) =>
+        state is not null &&
+        !string.IsNullOrWhiteSpace(state.MiniSeriesId) &&
+        state.FirstPageCompleted;
 
     private static readonly string[] VisiblePhrases =
     [
@@ -70,6 +126,19 @@ public static class KuaishouDailyUploadLimit
         }
 
         return false;
+    }
+
+    private sealed class AccountScope : IDisposable
+    {
+        private readonly string? _previous;
+
+        public AccountScope(string? accountId)
+        {
+            _previous = Account.Value;
+            Account.Value = accountId?.Trim() ?? "";
+        }
+
+        public void Dispose() => Account.Value = _previous;
     }
 }
 

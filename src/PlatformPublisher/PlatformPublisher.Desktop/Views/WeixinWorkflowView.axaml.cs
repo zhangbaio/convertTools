@@ -350,6 +350,28 @@ public partial class WeixinWorkflowView : UserControl
         }
     }
 
+    private async void OnReplaceKuaishouDraftClick(object? sender, RoutedEventArgs e)
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window;
+        if (owner is null || ViewModel is null)
+            return;
+        var seriesId = await KuaishouDraftReplaceDialog.ShowAsync(owner);
+        if (string.IsNullOrWhiteSpace(seriesId))
+            return;
+        KuaishouReplaceDraftButton.IsEnabled = false;
+        KuaishouReplaceDraftButton.Content = "正在替换…";
+        try
+        {
+            var message = await ViewModel.ReplaceKuaishouDraftAsync(seriesId);
+            await InfoDialog.ShowAsync(owner, message, "新剧替换草稿", 560, 280);
+        }
+        finally
+        {
+            KuaishouReplaceDraftButton.Content = "新剧替换草稿";
+            KuaishouReplaceDraftButton.IsEnabled = true;
+        }
+    }
+
     private async void OnRepairKuaishouVideosClick(object? sender, RoutedEventArgs e)
     {
         var owner = TopLevel.GetTopLevel(this) as Window;

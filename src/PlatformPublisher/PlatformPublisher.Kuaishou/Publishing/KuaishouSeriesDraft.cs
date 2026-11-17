@@ -342,7 +342,10 @@ public static class KuaishouSeriesDraft
         if (IsSuccess(root)) return;
         var message = ReadMessage(root);
         if (KuaishouDailyUploadLimit.Matches(message))
+        {
+            KuaishouDailyUploadLimit.NoteCurrent();
             throw new KuaishouDailyUploadLimitException();
+        }
         throw new InvalidOperationException(string.IsNullOrWhiteSpace(message)
             ? "快手接口没有返回成功结果。"
             : message.Length <= 300 ? message : message[..300]);

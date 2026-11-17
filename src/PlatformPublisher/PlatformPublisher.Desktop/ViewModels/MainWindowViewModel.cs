@@ -2185,20 +2185,55 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
-    public bool IsKuaishouDailyUploadLimited(string? accountId)
+    private bool HasKuaishouUploadStarted(string projectDirectory, PublishPlatform platform)
     {
-        var id = (accountId ?? "").Trim();
-        if (id.Length == 0)
+        try
+        {
+            if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+                return false;
+            var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+            if (string.IsNullOrWhiteSpace(workflow) || !Directory.Exists(workflow))
+                workflow = projectDirectory;
+            var state = new KuaishouPersonalUploadStateStore().Load(workflow, platform);
+            return KuaishouDailyUploadLimit.HasStartedUpload(state);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
             return false;
-        lock (_ksDailyLimitGate)
-            return _ksDailyLimitDay.TryGetValue(id, out var day) && day == DateOnly.FromDateTime(DateTime.Now);
+        }
     }
+
+    private bool ShouldContinueKuaishouReplace(string projectDirectory, PublishPlatform platform)
+    {
+        try
+        {
+            return KuaishouDraftReplace.ContinueDespiteDailyCap(LoadKuaishouUploadState(projectDirectory, platform));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private KuaishouPersonalUploadState? LoadKuaishouUploadState(string projectDirectory, PublishPlatform platform)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+            return null;
+        var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+        if (string.IsNullOrWhiteSpace(workflow) || !Directory.Exists(workflow))
+            workflow = projectDirectory;
+        return new KuaishouPersonalUploadStateStore().Load(workflow, platform);
+    }
+
+    public bool IsKuaishouDailyUploadLimited(string? accountId) =>
+        KuaishouDailyUploadLimit.IsNoted(accountId);
 
     public void NoteKuaishouDailyUploadLimit(string? accountId, string? accountName)
     {
         var id = (accountId ?? "").Trim();
         if (id.Length == 0)
             return;
+        KuaishouDailyUploadLimit.TryNote(id);
         var today = DateOnly.FromDateTime(DateTime.Now);
         var first = false;
         lock (_ksDailyLimitGate)
@@ -2212,7 +2247,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (!first)
             return;
         var name = string.IsNullOrWhiteSpace(accountName) ? id : accountName.Trim();
-        var message = $"账号「{name}」今天新建短剧已达 10 部。还没有草稿的剧今天不再创建，上传失败的草稿会继续。";
+        var message = $"账号「{name}」今天新建短剧已达 10 部。正在上传的会传完，还没开始的今天不再新建。";
         AppendActivityLog(message);
         Dispatcher.UIThread.Post(() => KuaishouDailyUploadLimitReached?.Invoke(id, message));
     }
@@ -2266,9 +2301,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 try
                 {
                     if (IsKuaishouDailyUploadLimited(request.AccountId) &&
-                        !CanResumeKuaishouUpload(item.directory, request.Platform))
+                        !CanResumeKuaishouUpload(item.directory, request.Platform) &&
+                        !ShouldContinueKuaishouReplace(item.directory, request.Platform))
                     {
-                        AppendActivityLog($"今日新建短剧已达 10 部，{projectName} 还没有可续传的草稿，已跳过。", projectName);
+                        AppendActivityLog($"今日新建短剧已达 10 部，{projectName} 还没开始上传，今天不再新建。", projectName);
                         SetKuaishouLogTone(item.directory, "none");
                         return;
                     }
@@ -2302,14 +2338,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 }
                 catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
                 {
-                    Interlocked.Increment(ref counts[1]);
-                    lastError = KuaishouDailyUploadLimit.Detail;
-                    SetKuaishouLogTone(item.directory, "failed");
-                    RememberKuaishouUploadReport(item.directory, request, succeeded: false, error: KuaishouDailyUploadLimit.Detail);
-                    var stopped = $"共享项目流水线失败：{KuaishouDailyUploadLimit.Detail}";
-                    ReportRunStatus(stopped);
-                    AppendActivityLog(stopped, projectName);
                     NoteKuaishouDailyUploadLimit(request.AccountId, request.AccountName);
+                    if (ShouldContinueKuaishouReplace(item.directory, request.Platform))
+                    {
+                        SetKuaishouLogTone(item.directory, "running");
+                        var kept = $"{projectName} 正在替换已有短剧，今日新建限额不中断，继续替换。";
+                        ReportRunStatus(kept);
+                        AppendActivityLog(kept, projectName);
+                    }
+                    else if (HasKuaishouUploadStarted(item.directory, request.Platform))
+                    {
+                        SetKuaishouLogTone(item.directory, "running");
+                        var kept = $"{projectName} 已在上传，今日新建限额不中断，继续传完。";
+                        ReportRunStatus(kept);
+                        AppendActivityLog(kept, projectName);
+                    }
+                    else
+                    {
+                        SetKuaishouLogTone(item.directory, "none");
+                        var skipped = $"今日新建短剧已达 10 部，{projectName} 还没开始上传，今天不再新建。";
+                        ReportRunStatus(skipped);
+                        AppendActivityLog(skipped, projectName);
+                    }
                 }
                 catch (Exception ex) when (IsKuaishouLoginFailure(ex))
                 {

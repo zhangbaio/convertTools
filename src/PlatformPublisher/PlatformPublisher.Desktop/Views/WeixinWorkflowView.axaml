@@ -282,6 +282,8 @@
                                     ToolTip.Tip="按新剧名补传无法播放的集。列表里还有视频就直接补传；已归档的先回退并重新下载。" />
                             <Button x:Name="KuaishouResubmitButton" Content="重新提交" Click="OnResubmitKuaishouCommitmentClick" Classes="repairAction compactAction" Margin="6,0,0,0"
                                     ToolTip.Tip="筛选当前账号已上架、发布成功，且承诺函提示未加盖机构主体公章的短剧，按原内容重新提交审核。" />
+                            <Button x:Name="KuaishouReplaceDraftButton" Content="新剧替换草稿" Click="OnReplaceKuaishouDraftClick" Classes="repairAction compactAction" Margin="6,0,0,0"
+                                    ToolTip.Tip="勾选一部本地新剧，填入已有短剧 ID。用这部新剧的标题、封面和视频替换该草稿，不新建，不占用今日 10 部。" />
                         </WrapPanel>
                     </Border>
                     <StackPanel Orientation="Horizontal" IsVisible="False">
