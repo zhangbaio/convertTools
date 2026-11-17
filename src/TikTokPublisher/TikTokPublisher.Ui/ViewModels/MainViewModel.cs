@@ -291,6 +291,13 @@ public sealed partial class MainViewModel : ViewModelBase
         SystemSettings.StatusRequested += message => StatusMessage = message;
         SystemSettings.Load(WorkspacePath);
         SystemSettings.BeginHongguoAppPlaybackIdentity();
+        DramaDownload.ChainPersisted += (chain, overseas) =>
+        {
+            if (overseas)
+                SystemSettings.OverseasDramaSourceChain = chain;
+            else
+                SystemSettings.DramaSourceChain = chain;
+        };
         DramaDownload.ApplyClientSettings(ClientSettingsStore.Load(), preferSavedWorkspace: true);
     }
 
