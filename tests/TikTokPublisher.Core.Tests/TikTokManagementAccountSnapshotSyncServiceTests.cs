@@ -21,7 +21,7 @@ public sealed class TikTokManagementAccountSnapshotSyncServiceTests
                 TiktokAccountNickname = "昵称不能上传",
                 TiktokLoginEmail = " 2720937754@qq.com ",
                 TiktokLoginPassword = "secret-a",
-                TiktokProofCopyrightCompanyName = "不应上报的致贵方名称",
+                TiktokProofCopyrightCompanyName = "武汉思语行科技有限公司",
                 TiktokProofDeclarantCompanyName = "武汉速视科技有限公司",
             },
             new TikTokAccountProfile
@@ -40,9 +40,31 @@ public sealed class TikTokManagementAccountSnapshotSyncServiceTests
 
         var snapshot = TikTokManagementAccountSnapshotSyncService.BuildSnapshot(profiles);
 
-        snapshot.Should().Equal(
-            new TikTokClientAccountSnapshotItem("acct-a", "2720937754@qq.com", "武汉速视科技有限公司"),
-            new TikTokClientAccountSnapshotItem("acct-b", "15327086817@163.com"));
+        snapshot.Should().BeEquivalentTo(
+            [
+                new TikTokClientAccountSnapshotItem(
+                    "acct-a",
+                    "2720937754@qq.com",
+                    "武汉速视科技有限公司",
+                    ["武汉速视科技有限公司", "武汉思语行科技有限公司"]),
+                new TikTokClientAccountSnapshotItem("acct-b", "15327086817@163.com"),
+            ],
+            options => options.WithStrictOrdering());
+    }
+
+    [Fact]
+    public void SubjectCompanies_KeepDeclarantFirstAndDropBlankOrDuplicateRecipient()
+    {
+        TikTokManagementAccountSnapshotSyncService.SubjectCompaniesFor(new TikTokAccountProfile
+        {
+            TiktokProofDeclarantCompanyName = " 同一公司 ",
+            TiktokProofCopyrightCompanyName = "同一公司",
+        }).Should().Equal("同一公司");
+
+        TikTokManagementAccountSnapshotSyncService.SubjectCompaniesFor(new TikTokAccountProfile
+        {
+            TiktokProofCopyrightCompanyName = "武汉思语行科技有限公司",
+        }).Should().Equal("武汉思语行科技有限公司");
     }
 
     [Fact]
