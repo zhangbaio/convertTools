@@ -27,6 +27,7 @@ public sealed class KuaishouApiUploadService
 
     public async Task RunAsync(PublishJob job, IProgress<string>? progress, CancellationToken cancellationToken)
     {
+        using var account = KuaishouDailyUploadLimit.UseAccount(job.AccountId);
         var config = KuaishouPersonalConfig.Load(job);
         var configurationIssues = KuaishouConfigurationValidator.Validate(config);
         if (configurationIssues.Count > 0)
@@ -93,6 +94,7 @@ public sealed class KuaishouApiUploadService
             }
             else
             {
+                KuaishouDailyUploadLimit.ThrowIfNoted(job.AccountId);
                 seriesId = await new KuaishouSeriesDraftClient().SaveAsync(
                     session, data, config, form, state.MiniSeriesId, progress, cancellationToken);
                 state.MiniSeriesId = seriesId;
@@ -116,7 +118,7 @@ public sealed class KuaishouApiUploadService
 
             state.CurrentStage = "episode_upload";
             await _stateStore.SaveAsync(data.WorkflowDirectory, state, cancellationToken, job.Platform);
-            await _videos.UploadAsync(session, seriesId, data.VideoPaths, progress, cancellationToken, async (_, token) =>
+            await UploadVideosDespiteDailyCapAsync(session, seriesId, data.VideoPaths, label, progress, cancellationToken, async (_, token) =>
             {
                 state.MiniSeriesId = seriesId;
                 await _stateStore.SaveAsync(data.WorkflowDirectory, state, token, job.Platform);
@@ -128,7 +130,7 @@ public sealed class KuaishouApiUploadService
             if (string.Equals(config.FinalAction, "submit_review", StringComparison.OrdinalIgnoreCase))
             {
                 progress?.Report($"{label}：正在提交快手审核。");
-                await _videos.SubmitAsync(session, seriesId, cancellationToken);
+                await SubmitDespiteDailyCapAsync(session, seriesId, label, progress, cancellationToken);
                 state.ReviewSubmitted = true;
                 state.CurrentStage = "review_submitted";
                 progress?.Report($"{label}：已提交审核。 ");
@@ -160,6 +162,18 @@ public sealed class KuaishouApiUploadService
             await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
             progress?.Report($"{label}：{ex.Message}");
         }
+        catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
+        {
+            KuaishouDailyUploadLimit.TryNote(job.AccountId);
+            if (!KuaishouDailyUploadLimit.HasStartedUpload(state))
+            {
+                state.Status = "failed";
+                state.LastError = ex.Message;
+                await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
+            }
+
+            throw;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             state.Status = "failed";
@@ -178,5 +192,51 @@ public sealed class KuaishouApiUploadService
         }
 
         return string.Empty;
+    }
+
+    private async Task UploadVideosDespiteDailyCapAsync(
+        KuaishouApiSession session,
+        string seriesId,
+        IReadOnlyList<string> videoPaths,
+        string label,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken,
+        Func<int, CancellationToken, Task>? afterEpisode)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _videos.UploadAsync(session, seriesId, videoPaths, progress, cancellationToken, afterEpisode);
+                return;
+            }
+            catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex) && attempt < 3)
+            {
+                KuaishouDailyUploadLimit.TryNote(KuaishouDailyUploadLimit.CurrentAccountId);
+                progress?.Report($"{label}：今日新建已达限额，这部已在上传，继续传完。");
+            }
+        }
+    }
+
+    private async Task SubmitDespiteDailyCapAsync(
+        KuaishouApiSession session,
+        string seriesId,
+        string label,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _videos.SubmitAsync(session, seriesId, cancellationToken);
+                return;
+            }
+            catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex) && attempt < 3)
+            {
+                KuaishouDailyUploadLimit.TryNote(KuaishouDailyUploadLimit.CurrentAccountId);
+                progress?.Report($"{label}：今日新建已达限额，这部已在上传，继续传完。");
+            }
+        }
     }
 }

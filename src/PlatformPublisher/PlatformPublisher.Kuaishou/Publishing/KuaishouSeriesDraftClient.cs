@@ -174,26 +174,43 @@ public sealed class KuaishouSeriesDraftClient
         var body = KuaishouSeriesDraft.Build(input);
         if (creating)
         {
+            var gate = KuaishouDailyUploadLimit.CreateGateFor(AccountKey(config));
+            await gate.WaitAsync(cancellationToken);
             try
             {
-                var response = await gateway.PostJsonAsync(CreateUrl, body, cancellationToken);
-                var created = KuaishouSeriesDraft.ReadCreatedId(JsonDocument.Parse(response).RootElement);
-                if (created.Length > 0) return created;
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException && ex is not KuaishouDailyUploadLimitException && ex is not InvalidOperationException)
-            {
-                var recovered = await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
-                if (recovered.Length > 0) return recovered;
-                throw new InvalidOperationException("快手创建结果无法确认，已停止再次创建。请先在内容管理核对是否已有同名短剧。", ex);
-            }
+                KuaishouDailyUploadLimit.ThrowIfNoted(AccountKey(config));
+                try
+                {
+                    var response = await gateway.PostJsonAsync(CreateUrl, body, cancellationToken);
+                    var created = KuaishouSeriesDraft.ReadCreatedId(JsonDocument.Parse(response).RootElement);
+                    if (created.Length > 0) return created;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException && ex is not KuaishouDailyUploadLimitException && ex is not InvalidOperationException)
+                {
+                    var recovered = await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
+                    if (recovered.Length > 0) return recovered;
+                    throw new InvalidOperationException("快手创建结果无法确认，已停止再次创建。请先在内容管理核对是否已有同名短剧。", ex);
+                }
 
-            var existing = await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
-            if (existing.Length > 0) return existing;
-            throw new InvalidOperationException("快手创建结果无法确认，已停止再次创建。请先在内容管理核对是否已有同名短剧。");
+                var existing = await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
+                if (existing.Length > 0) return existing;
+                throw new InvalidOperationException("快手创建结果无法确认，已停止再次创建。请先在内容管理核对是否已有同名短剧。");
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
 
         await gateway.PostJsonAsync(UpdateUrl, body, cancellationToken);
         return seriesId;
+    }
+
+    private static string AccountKey(KuaishouPersonalConfig config)
+    {
+        if (!string.IsNullOrWhiteSpace(config.StorageAccountId))
+            return config.StorageAccountId.Trim();
+        return KuaishouDailyUploadLimit.CurrentAccountId;
     }
 
     private static async Task<string> ResolveSeriesIdAsync(

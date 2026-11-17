@@ -40,6 +40,7 @@ public sealed class KuaishouPersonalUploadService
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
+        using var account = KuaishouDailyUploadLimit.UseAccount(job.AccountId);
         var config = KuaishouPersonalConfig.Load(job);
         if (KuaishouUploadTransport.IsApi(config.UploadTransport))
         {
@@ -101,6 +102,7 @@ public sealed class KuaishouPersonalUploadService
                 }
                 if (!resume)
                 {
+                    KuaishouDailyUploadLimit.ThrowIfNoted(job.AccountId);
                     state.CurrentStage = "first_page";
                     await _stateStore.SaveAsync(data.WorkflowDirectory, state, ct, job.Platform);
                     var seriesId = await _firstPageService.FillAndSaveDraftAsync(
@@ -173,6 +175,18 @@ public sealed class KuaishouPersonalUploadService
             state.MarkAlreadyOnPlatform(ex.SeriesId);
             await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
             progress?.Report($"{label}：{ex.Message}");
+        }
+        catch (Exception ex) when (KuaishouDailyUploadLimit.Is(ex))
+        {
+            KuaishouDailyUploadLimit.TryNote(job.AccountId);
+            if (!KuaishouDailyUploadLimit.HasStartedUpload(state))
+            {
+                state.Status = "failed";
+                state.LastError = ex.Message;
+                await _stateStore.SaveAsync(data.WorkflowDirectory, state, CancellationToken.None, job.Platform);
+            }
+
+            throw;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
