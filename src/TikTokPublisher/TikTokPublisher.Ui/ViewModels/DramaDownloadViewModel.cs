@@ -297,6 +297,13 @@ public sealed partial class DramaQueueRowViewModel : ViewModelBase
     }
 }
 
+public sealed class DramaChainChoice(string id, string label)
+{
+    public string Id { get; } = id;
+    public string Label { get; } = label;
+    public override string ToString() => Label;
+}
+
 public sealed partial class DramaDownloadViewModel : ViewModelBase
 {
     private readonly string? _stateDatabasePath;
@@ -322,10 +329,14 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private int _newReleaseGeneration;
     private string _newReleaseSession = "";
     private string _accountMarket = TikTokAccountProfile.DramaMarketLocal;
+    private bool _suppressChainSave;
 
     public DramaDownloadViewModel(string? stateDatabasePath = null)
     {
         _stateDatabasePath = stateDatabasePath;
+        _suppressChainSave = true;
+        SelectedChain = ChainOptions.First(item => item.Id == VisibleDramaSource.DefaultChain);
+        _suppressChainSave = false;
     }
 
     public ObservableCollection<DramaSearchRowViewModel> SearchResults { get; } = new();
@@ -337,8 +348,21 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public IReadOnlyList<string> SearchViewModeOptions { get; } = ["列表视图", "封面视图"];
     public IReadOnlyList<string> EpisodeRangeOptions { get; } = ["全部", "前1集", "前3集", "前5集", "自定义"];
 
+    public IReadOnlyList<DramaChainChoice> ChainOptions { get; } =
+    [
+        new("hghigh", "红果短剧助手"),
+        new("hglocal", "本地直连"),
+        new("pikachu", "皮卡丘"),
+        new("playlet", "红果短剧下载器"),
+        new("hongguoapp", "红果APP"),
+        new("dramabox", "DramaBox"),
+        new("foreign", "海外短剧下载器"),
+    ];
+
     [ObservableProperty] private string _downloadWorkspace = "";
     [ObservableProperty] private string _activeChainText = "当前链路：本土剧";
+    [ObservableProperty] private string _activeMarketText = "本土剧";
+    [ObservableProperty] private DramaChainChoice? _selectedChain;
     [ObservableProperty] private string _searchKeyword = "";
     [ObservableProperty] private string _searchCategory = "漫剧";
     [ObservableProperty] private int _searchPage = 1;
@@ -482,9 +506,54 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private void RefreshActiveChain(ClientSettings? settings = null)
     {
         settings ??= ClientSettingsStore.Load(_stateDatabasePath);
+        var overseas = TikTokAccountProfile.NormalizeDramaMarket(_accountMarket) == TikTokAccountProfile.DramaMarketOverseas;
+        ActiveMarketText = overseas ? "海外剧" : "本土剧";
         ActiveChainText = VisibleDramaSource.Describe(settings, _accountMarket);
+        var chain = VisibleDramaSource.ChainFor(settings, _accountMarket);
+        var choice = ChainOptions.FirstOrDefault(item => string.Equals(item.Id, chain, StringComparison.OrdinalIgnoreCase))
+                     ?? ChainOptions.First(item => item.Id == VisibleDramaSource.DefaultChain);
+        if (!ReferenceEquals(SelectedChain, choice))
+        {
+            _suppressChainSave = true;
+            SelectedChain = choice;
+            _suppressChainSave = false;
+        }
+
         ShortDramaDramaServices.RefreshSettings(VisibleDramaSource.SettingsFor(settings, _accountMarket));
     }
+
+    partial void OnSelectedChainChanged(DramaChainChoice? value)
+    {
+        if (_suppressChainSave || _isLoadingState || value is null)
+            return;
+        PersistSelectedChain(value.Id);
+    }
+
+    private void PersistSelectedChain(string chainId)
+    {
+        var settings = ClientSettingsStore.Load(_stateDatabasePath);
+        var overseas = TikTokAccountProfile.NormalizeDramaMarket(_accountMarket) == TikTokAccountProfile.DramaMarketOverseas;
+        var normalized = overseas
+            ? VisibleDramaSource.NormalizeOverseas(chainId)
+            : VisibleDramaSource.Normalize(chainId);
+        var current = overseas ? settings.OverseasDramaSourceChain : settings.DramaSourceChain;
+        if (string.Equals(current, normalized, StringComparison.OrdinalIgnoreCase))
+        {
+            RefreshActiveChain(settings);
+            return;
+        }
+
+        if (overseas)
+            settings.OverseasDramaSourceChain = normalized;
+        else
+            settings.DramaSourceChain = normalized;
+        ClientSettingsStore.Save(settings, _stateDatabasePath);
+        RefreshActiveChain(settings);
+        ChainPersisted?.Invoke(normalized, overseas);
+        LogRequested?.Invoke($"下载链路已保存：{ActiveMarketText} · {VisibleDramaSource.Label(normalized)}");
+    }
+
+    public event Action<string, bool>? ChainPersisted;
 
     private IDisposable HoldActiveChain()
     {
@@ -582,8 +651,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (ShortDramaDramaServices.IsPlayletSourceSelected())
         {
             await LoadSearchResultsAsync(
-                "漫剧上新 · 当天",
-                ct => ShortDramaDramaServices.GetMangaTodayAsync(1, ct),
+                "漫剧上新 · 最新上架 · 7天内",
+                ct => ShortDramaDramaServices.GetMangaTodayAsync(7, ct),
                 sourceMode: "mj_today");
             return;
         }
@@ -608,6 +677,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         if (ShortDramaDramaServices.IsDramaBoxSourceSelected())
         {
             await LoadDramaBoxNewAsync(append: false);
+            return;
+        }
+
+        if (ShortDramaDramaServices.IsPlayletSourceSelected())
+        {
+            await LoadSearchResultsAsync(
+                "AI短剧上新 · 最新上架 · 7天内",
+                ct => ShortDramaDramaServices.GetAiTodayAsync(7, ct),
+                sourceMode: "aiju_today");
             return;
         }
 

@@ -98,4 +98,14 @@ public class DramaBoxNewChannelTests
         text.Status.Should().Be(206);
         text.Body.Should().Be("{\"ok\":true}");
     }
+
+    [Fact]
+    public void Swaps_the_two_drama_box_api_hosts()
+    {
+        const string signed = "https://sapi.dramaboxdb.com/drama-box/chapterv2/detail?timestamp=1";
+        var alternate = DramaBoxApiService.AlternateDramaBoxHost(signed);
+        alternate.Should().Be("https://sapi.dramaboxvideo.com/drama-box/chapterv2/detail?timestamp=1");
+        DramaBoxApiService.AlternateDramaBoxHost(alternate!).Should().Be(signed);
+        DramaBoxApiService.AlternateDramaBoxHost("https://api.iusc.cc/api/dr/sign").Should().BeNull();
+    }
 }

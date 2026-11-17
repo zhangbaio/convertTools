@@ -291,6 +291,18 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
     private static async Task DownloadFileWithImpersonationAsync(
         string url, string targetPath, CancellationToken cancellationToken)
     {
+        var library = DramaBoxLibcurl.Find();
+        if (!string.IsNullOrWhiteSpace(library))
+        {
+            await Task.Run(
+                () => DramaBoxLibcurl.Download(library, url, targetPath, new Dictionary<string, string>
+                {
+                    ["User-Agent"] = "okhttp/4.10.0",
+                }, 600),
+                cancellationToken);
+            return;
+        }
+
         var curl = FindCurlImpersonate();
         if (!string.IsNullOrWhiteSpace(curl))
         {
@@ -539,7 +551,7 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
             },
             cancellationToken);
         var signText = signResponse.Body;
-        using var signed = JsonDocument.Parse(string.IsNullOrWhiteSpace(signText) ? "{}" : signText);
+        using var signed = ParseApiJson(signText, signResponse.Status);
         if (signResponse.Status is < 200 or >= 300 || !IsSuccess(signed.RootElement))
             throw new InvalidOperationException("DramaBox 签名失败：" + ReadMessage(signed.RootElement));
         if (!signed.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
@@ -562,7 +574,7 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         var text = upstream.Body;
         if (upstream.Status is < 200 or >= 300 && !IsCdnDenied(text))
             throw new InvalidOperationException($"DramaBox 接口 HTTP {upstream.Status}：{Trim(text)}");
-        var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(text) ? "{}" : text);
+        var document = ParseApiJson(text, upstream.Status);
         if (document.RootElement.TryGetProperty("success", out var success) &&
             success.ValueKind == JsonValueKind.False)
         {
@@ -576,7 +588,95 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
 
     internal readonly record struct HttpText(int Status, string Body);
 
+    private static JsonDocument ParseApiJson(string? text, int status)
+    {
+        var value = (text ?? "").TrimStart('\uFEFF').Trim();
+        try
+        {
+            return JsonDocument.Parse(string.IsNullOrWhiteSpace(value) ? "{}" : value);
+        }
+        catch (JsonException ex)
+        {
+            var sample = value.Length <= 24 ? value : value[..24];
+            var hex = Convert.ToHexString(Encoding.UTF8.GetBytes(sample));
+            throw new InvalidOperationException($"DramaBox 接口返回的不是 JSON（HTTP {status}，开头 {hex}）。", ex);
+        }
+    }
+
+    internal static string? AlternateDramaBoxHost(string url)
+    {
+        const string primary = "://sapi.dramaboxdb.com";
+        const string secondary = "://sapi.dramaboxvideo.com";
+        if (url.Contains(primary, StringComparison.OrdinalIgnoreCase))
+            return ReplaceHostOnce(url, primary, secondary);
+        if (url.Contains(secondary, StringComparison.OrdinalIgnoreCase))
+            return ReplaceHostOnce(url, secondary, primary);
+        return null;
+    }
+
+    private static IReadOnlyDictionary<string, string> HeadersForCandidate(
+        IReadOnlyDictionary<string, string> headers, string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !headers.ContainsKey("Host"))
+            return headers;
+        var copy = new Dictionary<string, string>(headers, StringComparer.OrdinalIgnoreCase)
+        {
+            ["Host"] = uri.IsDefaultPort ? uri.Host : uri.Host + ":" + uri.Port,
+        };
+        return copy;
+    }
+
+    private static string ReplaceHostOnce(string url, string current, string replacement)
+    {
+        var index = url.IndexOf(current, StringComparison.OrdinalIgnoreCase);
+        if (index < 0)
+            return url;
+        return string.Concat(url.AsSpan(0, index), replacement, url.AsSpan(index + current.Length));
+    }
+
     private async Task<HttpText> SendTextAsync(
+        HttpMethod method,
+        string url,
+        byte[]? body,
+        IReadOnlyDictionary<string, string> headers,
+        CancellationToken cancellationToken)
+    {
+        // v1.5.9 在 curl 35 时换主机再试，顺序是原主机、另一个主机、再回到原主机。
+        var candidates = new List<string> { url };
+        var alternate = AlternateDramaBoxHost(url);
+        if (alternate is not null)
+        {
+            candidates.Add(alternate);
+            candidates.Add(url);
+        }
+
+        Exception? last = null;
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var result = await SendTextOnceAsync(method, candidate, body, HeadersForCandidate(headers, candidate), cancellationToken);
+                if (!IsCdnDenied(result.Body))
+                    return result;
+                last = new InvalidOperationException("DramaBox 接口被 CDN 拒绝。");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (alternate is not null)
+            {
+                last = ex;
+            }
+        }
+
+        if (last is not null)
+            throw last;
+        throw new InvalidOperationException("DramaBox 接口被 CDN 拒绝。");
+    }
+
+    private async Task<HttpText> SendTextOnceAsync(
         HttpMethod method,
         string url,
         byte[]? body,
@@ -627,6 +727,14 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         IReadOnlyDictionary<string, string> headers,
         CancellationToken cancellationToken)
     {
+        var library = DramaBoxLibcurl.Find();
+        if (!string.IsNullOrWhiteSpace(library))
+        {
+            return await Task.Run(
+                () => DramaBoxLibcurl.SendText(library, method, url, body, headers, 40),
+                cancellationToken);
+        }
+
         var curl = FindCurlImpersonate();
         if (!string.IsNullOrWhiteSpace(curl))
             return await SendTextWithCurlAsync(curl, method, url, body, headers, cancellationToken);
