@@ -9,7 +9,7 @@ namespace TikTokPublisher.Core.Models;
 /// </summary>
 public sealed class TikTokAccountProfile
 {
-    public const int DefaultAiScriptOutlineEpisodeCount = 15;
+    public const int DefaultAiScriptOutlineEpisodeCount = 5;
     public const int DefaultEpisodeScriptEpisodeCount = 5;
     public const int DefaultRoleVectorCharacterCount = 3;
     public const int DefaultRoleVectorMinimumCharacterCount = 3;
