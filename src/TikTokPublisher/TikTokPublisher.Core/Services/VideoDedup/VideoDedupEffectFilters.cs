@@ -34,12 +34,48 @@ public static class VideoDedupEffectFilters
         return effects.Layers.Any(IsVisibleImage);
     }
 
+    internal static IEnumerable<string> CompositionFilters(VideoDedupEffects effects, int seed)
+    {
+        if (effects.FrameMixEnabled)
+        {
+            var weights = string.Join(" ", Enumerable.Repeat("1", effects.FrameMixCount - 1));
+            yield return $"tmix=frames={effects.FrameMixCount}:weights='{weights} {Num(effects.FrameMixCurrentWeight)}'";
+        }
+
+        if (effects.ReframeEnabled && effects.ReframeKeepPercent < 100)
+        {
+            var keep = Num(effects.ReframeKeepPercent / 100);
+            var random = new Random(seed);
+            var horizontal = effects.ReframeHorizontalPercent / 100;
+            var vertical = effects.ReframeVerticalPercent / 100;
+            if (effects.ReframeVaryByEpisode)
+            {
+                horizontal = 0.5 + (random.NextDouble() - 0.5) * horizontal;
+                vertical = 0.5 + (random.NextDouble() - 0.5) * vertical;
+            }
+            yield return $"crop=trunc(iw*{keep}/2)*2:trunc(ih*{keep}/2)*2:trunc((iw-ow)*{Num(horizontal)}/2)*2:trunc((ih-oh)*{Num(vertical)}/2)*2";
+        }
+    }
+
+    internal static int CompositionSeed(string sourcePath)
+    {
+        var path = Path.GetFileName(sourcePath).ToUpperInvariant();
+        var digest = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(path));
+        return System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(digest);
+    }
+
     public static string LinearFilters(VideoDedupPreset preset)
     {
         var effects = preset.Effects ?? new VideoDedupEffects();
         var filters = new List<string>();
         if (Math.Abs(effects.Exposure) > 0.01)
             filters.Add($"exposure=exposure={Num(effects.Exposure / 50d)}");
+
+        if (effects.NaturalColorStrength > 0)
+        {
+            var strength = effects.NaturalColorStrength / 100;
+            filters.Add($"eq=contrast={Num(1 + 0.03 * strength)}:brightness={Num(0.005 * strength)}:saturation={Num(1 + 0.04 * strength)}:gamma={Num(1 + 0.01 * strength)}");
+        }
 
         var gamma = 1 + effects.Gamma / 200d;
         var eq = new List<string>();
@@ -140,6 +176,9 @@ public static class VideoDedupEffectFilters
         if (effects.SplitToneAmount > 0.01) names.Add($"分离色调 {Num(effects.SplitToneAmount)}%");
         if (effects.LutAmount > 0.01 && !string.IsNullOrWhiteSpace(effects.LutPath)) names.Add($"3D LUT {Num(effects.LutAmount)}%");
         if (effects.Blur > 0.01) names.Add($"模糊 {Num(effects.Blur)}");
+        if (effects.FrameMixEnabled) names.Add($"帧混合 {effects.FrameMixCount} 帧");
+        if (effects.ReframeEnabled && effects.ReframeKeepPercent < 100) names.Add($"重取景 {Num(effects.ReframeKeepPercent)}%");
+        if (effects.NaturalColorStrength > 0) names.Add($"自然调色 {Num(effects.NaturalColorStrength)}%");
         if (effects.VignetteAmount > 0.01) names.Add($"暗角 {Num(effects.VignetteAmount)}%");
         if (effects.GrainAmount > 0.01) names.Add($"颗粒 {Num(effects.GrainAmount)}%");
         if (effects.MosaicAmount > 0.01 && effects.MosaicRegions.Count > 0) names.Add($"局部马赛克 {effects.MosaicRegions.Count.ToString(CultureInfo.InvariantCulture)} 处");
@@ -176,12 +215,18 @@ public static class VideoDedupEffectFilters
             ["-y", "-hide_banner", "-loglevel", "error", "-ss", position, "-i", videoPath, "-frames:v", "1", "-vf", "scale=640:-2", originalPath],
             ct).ConfigureAwait(false);
 
-        var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error", "-ss", position, "-i", videoPath };
+        var effects = preset.Effects ?? new VideoDedupEffects();
+        // Read up to one second before the selected instant so temporal mixing has prior frames.
+        var warmup = effects.FrameMixEnabled ? Math.Min(1, Math.Max(0, seconds)) : 0;
+        var inputPosition = Math.Max(0, seconds - warmup).ToString("0.###", CultureInfo.InvariantCulture);
+        var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error", "-ss", inputPosition, "-i", videoPath };
         foreach (var image in ImageInputs(preset))
             args.AddRange(["-i", image]);
-        var graph = new StringBuilder("[0:v]scale=640:-2[vprev]");
+        var previewFilters = CompositionFilters(effects, CompositionSeed(videoPath)).Append("scale=640:-2");
+        var graph = new StringBuilder($"[0:v]{string.Join(",", previewFilters)}[vprev]");
         var label = Finish(graph, "vprev", preset, 1);
-        args.AddRange(["-filter_complex", graph.ToString(), "-map", $"[{label}]", "-frames:v", "1", filteredPath]);
+        args.AddRange(["-filter_complex", graph.ToString(), "-map", $"[{label}]", "-ss",
+            warmup.ToString("0.###", CultureInfo.InvariantCulture), "-frames:v", "1", filteredPath]);
         await FfmpegRunner.RunAsync(ffmpeg, args, ct).ConfigureAwait(false);
     }
 

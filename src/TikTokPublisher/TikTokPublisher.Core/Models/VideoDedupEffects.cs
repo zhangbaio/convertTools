@@ -92,6 +92,16 @@ public sealed class VideoDedupEffects
     public double LutAmount { get; set; }
     public string LutPath { get; set; } = "";
 
+    public bool FrameMixEnabled { get; set; }
+    public int FrameMixCount { get; set; } = 2;
+    public double FrameMixCurrentWeight { get; set; } = 4;
+    public bool ReframeEnabled { get; set; }
+    public double ReframeKeepPercent { get; set; } = 95;
+    public double ReframeHorizontalPercent { get; set; } = 60;
+    public double ReframeVerticalPercent { get; set; } = 50;
+    public bool ReframeVaryByEpisode { get; set; }
+    public double NaturalColorStrength { get; set; }
+
     public double Blur { get; set; }
     public double VignetteAmount { get; set; }
     public double VignetteRadius { get; set; } = 70;
@@ -135,6 +145,15 @@ public sealed class VideoDedupEffects
         SplitToneBalance = SplitToneBalance,
         LutAmount = LutAmount,
         LutPath = LutPath,
+        FrameMixEnabled = FrameMixEnabled,
+        FrameMixCount = FrameMixCount,
+        FrameMixCurrentWeight = FrameMixCurrentWeight,
+        ReframeEnabled = ReframeEnabled,
+        ReframeKeepPercent = ReframeKeepPercent,
+        ReframeHorizontalPercent = ReframeHorizontalPercent,
+        ReframeVerticalPercent = ReframeVerticalPercent,
+        ReframeVaryByEpisode = ReframeVaryByEpisode,
+        NaturalColorStrength = NaturalColorStrength,
         Blur = Blur,
         VignetteAmount = VignetteAmount,
         VignetteRadius = VignetteRadius,
@@ -175,6 +194,12 @@ public sealed class VideoDedupEffects
         SplitToneBalance = Math.Clamp(SplitToneBalance, -100, 100);
         LutAmount = Math.Clamp(LutAmount, 0, 100);
         LutPath = LutPath?.Trim() ?? "";
+        FrameMixCount = Math.Clamp(FrameMixCount, 2, 5);
+        FrameMixCurrentWeight = Math.Clamp(FrameMixCurrentWeight, 1, 10);
+        ReframeKeepPercent = Math.Clamp(ReframeKeepPercent, 90, 100);
+        ReframeHorizontalPercent = Math.Clamp(ReframeHorizontalPercent, 0, 100);
+        ReframeVerticalPercent = Math.Clamp(ReframeVerticalPercent, 0, 100);
+        NaturalColorStrength = Math.Clamp(NaturalColorStrength, 0, 100);
         Blur = Math.Clamp(Blur, 0, 20);
         VignetteAmount = Math.Clamp(VignetteAmount, 0, 100);
         VignetteRadius = Math.Clamp(VignetteRadius <= 0 ? 70 : VignetteRadius, 1, 100);
@@ -212,6 +237,11 @@ public sealed class VideoDedupEffects
         AddSplitTone(lines);
         if (LutAmount > 0.01 && !string.IsNullOrWhiteSpace(LutPath))
             lines.Add($"lut {Num(LutAmount)} {LutPath}");
+        if (FrameMixEnabled)
+            lines.Add($"frame-mix {FrameMixCount} {Num(FrameMixCurrentWeight)}");
+        if (ReframeEnabled && ReframeKeepPercent < 100)
+            lines.Add($"reframe {Num(ReframeKeepPercent)} {Num(ReframeHorizontalPercent)} {Num(ReframeVerticalPercent)} {ReframeVaryByEpisode}");
+        Add(lines, "natural-color", NaturalColorStrength);
         Add(lines, "blur", Blur);
         if (VignetteAmount > 0.01)
             lines.Add($"vignette {Num(VignetteAmount)} {Num(VignetteRadius)} {Num(VignetteFeather)}");

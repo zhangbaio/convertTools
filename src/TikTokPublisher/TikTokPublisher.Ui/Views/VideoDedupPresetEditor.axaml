@@ -82,6 +82,31 @@
                 <NumericUpDown x:Name="FrameDropBox" Grid.Row="3" Grid.Column="3" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
             </Grid>
 
+            <TextBlock Text="帧混合与构图" FontWeight="SemiBold" />
+            <StackPanel Spacing="8">
+                <Button Content="应用帧混合＋重取景＋自然调色预设" Click="OnCompositionPresetClick" />
+                <CheckBox x:Name="FrameMixEnabledBox" Content="启用相邻帧混合" />
+                <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="8">
+                    <TextBlock Classes="dedupLabel" Text="混合帧数" />
+                    <NumericUpDown x:Name="FrameMixCountBox" Grid.Column="1" Minimum="2" Maximum="5" Increment="1" />
+                    <TextBlock Grid.Row="1" Classes="dedupLabel" Text="当前帧权重" />
+                    <NumericUpDown x:Name="FrameMixWeightBox" Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="10" Increment="0.5" />
+                </Grid>
+                <CheckBox x:Name="ReframeEnabledBox" Content="启用构图重取景" />
+                <CheckBox x:Name="ReframeVaryBox" Content="按源片改变偏移（重复处理同一片段时使用相同偏移）" />
+                <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                    <TextBlock Classes="dedupLabel" Text="保留画面 %" />
+                    <NumericUpDown x:Name="ReframeKeepBox" Grid.Column="1" Minimum="90" Maximum="100" Increment="1" />
+                    <TextBlock Grid.Row="1" Classes="dedupLabel" Text="水平偏移 %" />
+                    <NumericUpDown x:Name="ReframeHorizontalBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" />
+                    <TextBlock Grid.Row="2" Classes="dedupLabel" Text="垂直偏移 %" />
+                    <NumericUpDown x:Name="ReframeVerticalBox" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" />
+                    <TextBlock Grid.Row="3" Classes="dedupLabel" Text="自然调色强度 %" />
+                    <NumericUpDown x:Name="NaturalColorBox" Grid.Row="3" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" />
+                </Grid>
+                <TextBlock Classes="dedupHint" Text="自然调色强度为 0 时关闭。启用重取景后请预览底部字幕和边缘内容。" />
+            </StackPanel>
+
             <Button Content="画面滤镜与预览..." HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnOpenEffectsClick" />
             <TextBlock x:Name="FilterSummaryText" Classes="dedupHint" Text="未启用。数值为 0 时不参与去重。" />
 

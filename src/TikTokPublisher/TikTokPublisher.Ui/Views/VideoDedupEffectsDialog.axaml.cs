@@ -13,6 +13,7 @@ public partial class VideoDedupEffectsDialog : Window
     private readonly List<MosaicRow> _mosaicRows = [];
     private readonly List<LayerRow> _layerRows = [];
     private bool _applied;
+    private VideoDedupEffects _previewEffects = new();
 
     public VideoDedupEffectsDialog()
     {
@@ -22,6 +23,7 @@ public partial class VideoDedupEffectsDialog : Window
     public static async Task<bool> EditAsync(Window owner, VideoDedupPreset target)
     {
         var dialog = new VideoDedupEffectsDialog();
+        dialog._previewEffects = target.Effects?.Clone() ?? new VideoDedupEffects();
         dialog.Load(target);
         await dialog.ShowDialog(owner);
         return dialog._applied && dialog.TryWrite(target, out _);
@@ -148,7 +150,7 @@ public partial class VideoDedupEffectsDialog : Window
             return;
         }
 
-        var draft = new VideoDedupPreset();
+        var draft = new VideoDedupPreset { Effects = _previewEffects.Clone() };
         if (!TryWrite(draft, out var error))
         {
             PreviewStatusText.Text = error;
@@ -204,7 +206,7 @@ public partial class VideoDedupEffectsDialog : Window
         LayerRows.Children.Clear();
         _mosaicRows.Clear();
         _layerRows.Clear();
-        PreviewStatusText.Text = "已恢复默认，所有滤镜关闭。";
+        PreviewStatusText.Text = "已重置此弹窗的滤镜。";
     }
 
     private void OnAddMosaicClick(object? sender, RoutedEventArgs e) =>

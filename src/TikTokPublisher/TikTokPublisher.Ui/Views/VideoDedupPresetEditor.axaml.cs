@@ -74,6 +74,11 @@ public partial class VideoDedupPresetEditor : UserControl
     {
         InitializeComponent();
         Load(null);
+        foreach (var toggle in new[] { FrameMixEnabledBox, ReframeEnabledBox, ReframeVaryBox })
+            toggle.IsCheckedChanged += (_, _) => RefreshEffectsSummary();
+        foreach (var number in new[] { FrameMixCountBox, FrameMixWeightBox, ReframeKeepBox,
+                     ReframeHorizontalBox, ReframeVerticalBox, NaturalColorBox })
+            number.ValueChanged += (_, _) => RefreshEffectsSummary();
     }
 
     private void OnApplyToAllAccountsClick(object? sender, RoutedEventArgs e)
@@ -108,6 +113,15 @@ public partial class VideoDedupPresetEditor : UserControl
         SpeedBox.Value = (decimal)value.SpeedFactor;
         FrameDropBox.Value = (decimal)value.FrameDropPercent;
         StoreFilters(value);
+        FrameMixEnabledBox.IsChecked = _effects.FrameMixEnabled;
+        FrameMixCountBox.Value = _effects.FrameMixCount;
+        FrameMixWeightBox.Value = (decimal)_effects.FrameMixCurrentWeight;
+        ReframeEnabledBox.IsChecked = _effects.ReframeEnabled;
+        ReframeVaryBox.IsChecked = _effects.ReframeVaryByEpisode;
+        ReframeKeepBox.Value = (decimal)_effects.ReframeKeepPercent;
+        ReframeHorizontalBox.Value = (decimal)_effects.ReframeHorizontalPercent;
+        ReframeVerticalBox.Value = (decimal)_effects.ReframeVerticalPercent;
+        NaturalColorBox.Value = (decimal)_effects.NaturalColorStrength;
         CodecDefaultBox.IsChecked = value.VideoCodec == VideoDedupPreset.CodecDefault;
         CodecH264Box.IsChecked = value.VideoCodec == VideoDedupPreset.CodecH264;
         CodecHevcBox.IsChecked = value.VideoCodec == VideoDedupPreset.CodecHevc;
@@ -190,11 +204,40 @@ public partial class VideoDedupPresetEditor : UserControl
             AudioMidGainDb = (double)(MidGainBox.Value ?? 0),
             AudioHighGainDb = (double)(HighGainBox.Value ?? 0),
         };
+        ReadComposition(preset.Effects);
         preset.Normalize();
         var durationError = preset.DurationRangeError();
         if (durationError is not null)
             throw new InvalidOperationException(durationError);
         return preset;
+    }
+
+    private void ReadComposition(VideoDedupEffects effects)
+    {
+        effects.FrameMixEnabled = FrameMixEnabledBox.IsChecked == true;
+        effects.FrameMixCount = (int)(FrameMixCountBox.Value ?? 2);
+        effects.FrameMixCurrentWeight = (double)(FrameMixWeightBox.Value ?? 4);
+        effects.ReframeEnabled = ReframeEnabledBox.IsChecked == true;
+        effects.ReframeVaryByEpisode = ReframeVaryBox.IsChecked == true;
+        effects.ReframeKeepPercent = (double)(ReframeKeepBox.Value ?? 95);
+        effects.ReframeHorizontalPercent = (double)(ReframeHorizontalBox.Value ?? 60);
+        effects.ReframeVerticalPercent = (double)(ReframeVerticalBox.Value ?? 50);
+        effects.NaturalColorStrength = (double)(NaturalColorBox.Value ?? 0);
+    }
+
+    private void RefreshEffectsSummary()
+    {
+        var preset = new VideoDedupPreset
+        {
+            Brightness = _brightness,
+            Contrast = _contrast,
+            Saturation = _saturation,
+            Sharpness = _sharpness,
+            Grayscale = _grayscale,
+            Effects = _effects.Clone(),
+        };
+        ReadComposition(preset.Effects);
+        FilterSummaryText.Text = VideoDedupEffectFilters.Summary(preset);
     }
 
     private void StoreFilters(VideoDedupPreset value)
@@ -226,6 +269,19 @@ public partial class VideoDedupPresetEditor : UserControl
         if (!await VideoDedupEffectsDialog.EditAsync(owner, draft))
             return;
         StoreFilters(draft);
+    }
+
+    private void OnCompositionPresetClick(object? sender, RoutedEventArgs e)
+    {
+        FrameMixEnabledBox.IsChecked = true;
+        FrameMixCountBox.Value = 2;
+        FrameMixWeightBox.Value = 4;
+        ReframeEnabledBox.IsChecked = true;
+        ReframeVaryBox.IsChecked = true;
+        ReframeKeepBox.Value = 95;
+        ReframeHorizontalBox.Value = 60;
+        ReframeVerticalBox.Value = 50;
+        NaturalColorBox.Value = 100;
     }
 
     private void OnResetEqualizerClick(object? sender, RoutedEventArgs e)

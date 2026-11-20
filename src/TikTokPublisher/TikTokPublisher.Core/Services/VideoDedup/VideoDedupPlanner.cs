@@ -910,17 +910,23 @@ internal static class VideoDedupPlanner
                 $"crop=trunc(iw*{Num(width)}/2)*2:trunc(ih*{Num(height)}/2)*2:trunc(iw*{Num(preset.CropLeftPercent / 100d)}/2)*2:trunc(ih*{Num(preset.CropTopPercent / 100d)}/2)*2");
         }
 
+        var effects = preset.Effects ?? new VideoDedupEffects();
+        filters.AddRange(VideoDedupEffectFilters.CompositionFilters(effects, VideoDedupEffectFilters.CompositionSeed(clip.Path)));
+
         var frame = sharedFrame ?? ResolveUploadFrame(clip.Probe.Width, clip.Probe.Height, preset);
         var downsampleBeforeScale = reduceFramesBeforeScaling && frame.Scaled
             && clip.Probe.AverageFramesPerSecond * preset.SpeedFactor > preset.Fps;
         if (downsampleBeforeScale)
             AppendFrameRateFilters(filters, preset);
 
-        if (sharedFrame is not null || frame.Scaled)
+        if (sharedFrame is not null || frame.Scaled || effects.ReframeEnabled && effects.ReframeKeepPercent < 100)
         {
             filters.Add(
                 $"scale={frame.Width.ToString(CultureInfo.InvariantCulture)}:{frame.Height.ToString(CultureInfo.InvariantCulture)}:flags=bicubic");
         }
+
+        if (effects.ReframeEnabled && effects.ReframeKeepPercent < 100)
+            filters.Add("setsar=1");
 
         filters.Add("format=yuv420p,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709");
 

@@ -1372,6 +1372,34 @@ public sealed class VideoDedupTests
         VideoDedupService.IsHardwareEncoderFailure(encoder, error).Should().Be(recoverable);
 
     [Fact]
+    public void Composition_effects_survive_normalization_and_apply_to_each_joined_slice()
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        var defaultFingerprint = preset.Fingerprint();
+        preset.Effects.FrameMixCount = 3;
+        preset.Effects.ReframeKeepPercent = 94;
+        preset.Fingerprint().Should().Be(defaultFingerprint);
+
+        preset.Effects.FrameMixEnabled = true;
+        preset.Effects.ReframeEnabled = true;
+        preset.Effects.ReframeVaryByEpisode = true;
+        preset.Effects.NaturalColorStrength = 50;
+        var normalized = preset.NormalizedCopy();
+        normalized.Fingerprint().Should().NotBe(defaultFingerprint);
+        VideoDedupClip[] clips =
+        [
+            new("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, true)),
+            new("episode-2.mp4", new VideoDedupProbe(12, 1080, 1920, true)),
+        ];
+        VideoDedupSlice[] slices = [new(0, 0, 6), new(1, 0, 6)];
+        var arguments = VideoDedupPlanner.BuildArguments(normalized, clips, slices, "out.mp4", "libx264", seed: 1);
+        var graph = string.Join(" ", arguments);
+        graph.Split("tmix=frames=3:weights='1 1 4'").Should().HaveCount(3);
+        graph.Split("crop=trunc(iw*0.94/2)").Should().HaveCount(3);
+        graph.Should().Contain("eq=contrast=1.015");
+    }
+
+    [Fact]
     public void Auto_encoder_tries_the_detected_vendor_before_the_others()
     {
         VideoDedupHardwareOrder.Encoders(false, new VideoDedupHardwareOrder.Vendors(false, true, false), mac: false)

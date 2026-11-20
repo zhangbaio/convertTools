@@ -101,34 +101,34 @@
                     </ScrollViewer>
                 </TabItem>
                 <TabItem Header="风格">
-                    <ScrollViewer>
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Spacing="8" Margin="4">
                             <TextBlock Text="色阶" FontWeight="SemiBold" />
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="强度 %" />
                                 <NumericUpDown x:Name="LevelsAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="1" Classes="effectLabel" Text="输入黑 / 白" />
-                                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                    <NumericUpDown x:Name="InputBlackBox" Width="100" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
-                                    <NumericUpDown x:Name="InputWhiteBox" Width="100" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
-                                </StackPanel>
+                                <WrapPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
+                                    <NumericUpDown x:Name="InputBlackBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                                    <NumericUpDown x:Name="InputWhiteBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                                </WrapPanel>
                                 <TextBlock Grid.Row="2" Classes="effectLabel" Text="中间调 / 输出" />
-                                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                    <NumericUpDown x:Name="LevelsGammaBox" Width="100" Minimum="0.1" Maximum="3" Increment="0.01" FormatString="0.00" />
-                                    <NumericUpDown x:Name="OutputBlackBox" Width="100" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
-                                    <NumericUpDown x:Name="OutputWhiteBox" Width="100" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
-                                </StackPanel>
+                                <WrapPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
+                                    <NumericUpDown x:Name="LevelsGammaBox" Width="136" Margin="0,0,8,4" Minimum="0.1" Maximum="3" Increment="0.01" FormatString="0.00" />
+                                    <NumericUpDown x:Name="OutputBlackBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                                    <NumericUpDown x:Name="OutputWhiteBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                                </WrapPanel>
                             </Grid>
                             <TextBlock Text="分离色调" FontWeight="SemiBold" />
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="强度 %" />
                                 <NumericUpDown x:Name="SplitAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="1" Classes="effectLabel" Text="阴影 / 高光 / 平衡" />
-                                <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                    <TextBox x:Name="ShadowColorBox" Width="90" />
-                                    <TextBox x:Name="HighlightColorBox" Width="90" />
-                                    <NumericUpDown x:Name="SplitBalanceBox" Width="100" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
-                                </StackPanel>
+                                <WrapPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
+                                    <TextBox x:Name="ShadowColorBox" Width="90" Margin="0,0,8,4" />
+                                    <TextBox x:Name="HighlightColorBox" Width="90" Margin="0,0,8,4" />
+                                    <NumericUpDown x:Name="SplitBalanceBox" Width="136" Margin="0,0,8,4" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
+                                </WrapPanel>
                             </Grid>
                             <TextBlock Text="3D LUT" FontWeight="SemiBold" />
                             <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="8">
@@ -143,7 +143,7 @@
                     </ScrollViewer>
                 </TabItem>
                 <TabItem Header="空间">
-                    <ScrollViewer>
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                         <StackPanel Spacing="8" Margin="4">
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="模糊" />
@@ -151,17 +151,17 @@
                                 <TextBlock Grid.Row="1" Classes="effectLabel" Text="暗角 %" />
                                 <NumericUpDown x:Name="VignetteAmountBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="2" Classes="effectLabel" Text="暗角范围 / 羽化" />
-                                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                    <NumericUpDown x:Name="VignetteRadiusBox" Width="100" Minimum="1" Maximum="100" Increment="1" FormatString="0" />
-                                    <NumericUpDown x:Name="VignetteFeatherBox" Width="100" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
-                                </StackPanel>
+                                <WrapPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
+                                    <NumericUpDown x:Name="VignetteRadiusBox" Width="136" Margin="0,0,8,4" Minimum="1" Maximum="100" Increment="1" FormatString="0" />
+                                    <NumericUpDown x:Name="VignetteFeatherBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                </WrapPanel>
                                 <TextBlock Grid.Row="3" Classes="effectLabel" Text="颗粒 %" />
                                 <NumericUpDown x:Name="GrainAmountBox" Grid.Row="3" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="4" Classes="effectLabel" Text="颗粒大小 / 数量" />
-                                <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                    <NumericUpDown x:Name="GrainSizeBox" Width="100" Minimum="1" Maximum="40" Increment="1" FormatString="0" />
-                                    <NumericUpDown x:Name="GrainDensityBox" Width="100" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
-                                </StackPanel>
+                                <WrapPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal">
+                                    <NumericUpDown x:Name="GrainSizeBox" Width="136" Margin="0,0,8,4" Minimum="1" Maximum="40" Increment="1" FormatString="0" />
+                                    <NumericUpDown x:Name="GrainDensityBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                </WrapPanel>
                             </Grid>
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="局部马赛克 %" />
