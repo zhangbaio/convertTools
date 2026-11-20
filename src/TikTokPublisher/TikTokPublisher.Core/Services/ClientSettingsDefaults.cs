@@ -44,7 +44,6 @@ public static class ClientSettingsDefaults
     public const string PosterMode = "original";
     public const string PosterLayoutRequestMode = "standard";
     public const string PosterLayoutRequestModeFast = "fast";
-    public const string NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.SystemValue;
     public const string ImageProvider = "doubao";
     public const string ImageModelEndpoint = "https://ark.cn-beijing.volces.com/api/v3";
     public const string ImageModelId = "doubao-seedream-5-0-flash-260915";
@@ -84,15 +83,11 @@ public static class ClientSettingsDefaults
     public const int TiktokMinimumEpisodeCount = 30;
     public const int TiktokMaximumEpisodeCount = 120;
     public const int TiktokOverLimitDownloadEpisodeCount = TiktokMaximumEpisodeCount;
-    public const string TiktokProjectImageGenerationMode = "image_template";
     public const string TiktokProjectImageTemplateId = "image-template-project-image-3";
     public const string TiktokProjectImageTemplateName = "图片模板工程图3";
     public const int TiktokProjectImageCount = 4;
     public const int TiktokProjectImageRenderEpisodeLimit = 6;
     public const string TiktokProjectImageSubtitleAiMode = "fast";
-    public const string TiktokProjectImageFableCutRoot = "";
-    public const int TiktokProjectImageFableCutClipCount = 24;
-    public const string TiktokProjectImageFableCutScreenshotStyle = "standard";
     // Empty means use the DOCX embedded in TikTokPublisher.Core.
     public const string TiktokProofTemplateDocxPath = "";
     public const string TiktokProofTemplateLanguage = "zh";

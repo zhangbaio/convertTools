@@ -42,7 +42,7 @@ public static partial class TikTokReferenceSourcePackageService
     public const string Version = "v8-paired-reference-and-costume-lock";
 
     private static readonly HttpClient Http =
-        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
+        ShortDrama.Infrastructure.Networking.DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
     private const string SceneDesignTemplateResourceName1 =
         "TikTokPublisher.Core.Resources.SceneDesignTemplate1.png";
     private const string SceneDesignTemplateResourceName2 =

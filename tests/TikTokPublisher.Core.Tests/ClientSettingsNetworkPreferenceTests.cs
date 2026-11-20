@@ -1,50 +1,36 @@
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
-using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
 public sealed class ClientSettingsNetworkPreferenceTests
 {
-    [Fact]
-    public void Network_preference_defaults_to_system_and_survives_clone()
-    {
-        new ClientSettings().NetworkAddressPreference.Should().Be("system");
-
-        var clone = new ClientSettings
-        {
-            NetworkAddressPreference = "ipv4",
-            PosterLayoutRequestMode = "fast",
-        }.Clone();
-
-        clone.NetworkAddressPreference.Should().Be("ipv4");
-        clone.PosterLayoutRequestMode.Should().Be("fast");
-    }
-
     [Theory]
-    [InlineData(" IPv4 ", "ipv4")]
-    [InlineData("IPV6", "ipv6")]
-    [InlineData("", "system")]
-    [InlineData("unknown", "system")]
-    public void Store_normalizes_network_preference(string input, string expected)
+    [InlineData("ipv4")]
+    [InlineData("ipv6")]
+    public void Saving_settings_removes_the_legacy_network_preference(string preference)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-network-{Guid.NewGuid():N}");
-        var databasePath = Path.Combine(tempDir, "app.db");
-        Directory.CreateDirectory(tempDir);
+        var directory = Directory.CreateTempSubdirectory("client-settings-network-");
+        var databasePath = Path.Combine(directory.FullName, "app.db");
         try
         {
-            ClientSettingsStore.Save(new ClientSettings { NetworkAddressPreference = input }, databasePath);
+            AppSettingStore.SaveJson(
+                ClientSettingsStore.SettingsKey,
+                new Dictionary<string, string> { ["network_address_preference"] = preference },
+                databasePath);
 
-            ClientSettingsStore.Load(databasePath).NetworkAddressPreference.Should().Be(expected);
+            ClientSettingsStore.Save(ClientSettingsStore.Load(databasePath), databasePath);
+
+            AppSettingStore.TryLoadJson<Dictionary<string, JsonElement>>(
+                ClientSettingsStore.SettingsKey, out var saved, databasePath).Should().BeTrue();
+            saved!.Should().NotContainKey("network_address_preference");
         }
         finally
         {
-            ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Preference =
-                ShortDrama.Infrastructure.Networking.NetworkAddressPreference.System;
             SqliteConnection.ClearAllPools();
-            try { Directory.Delete(tempDir, recursive: true); }
-            catch (IOException) { }
+            directory.Delete(recursive: true);
         }
     }
 }

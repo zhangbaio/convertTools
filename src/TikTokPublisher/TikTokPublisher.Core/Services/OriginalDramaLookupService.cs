@@ -73,7 +73,7 @@ public static class OriginalDramaLookupService
             DramaSourceChain = "hghigh",
             HghighEdition = HongguoClientProfile.StandardEdition,
         };
-        using var http = PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(2));
+        using var http = DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(2));
         var api = new HongguoHighApiService(http);
         return await LookupCoreAsync(
             titles,

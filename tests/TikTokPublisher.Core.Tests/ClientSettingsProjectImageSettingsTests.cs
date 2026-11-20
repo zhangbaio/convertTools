@@ -10,76 +10,40 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class ClientSettingsProjectImageSettingsTests
 {
     [Fact]
-    public void Project_image_fablecut_settings_use_expected_defaults_and_clone_values()
-    {
-        var defaults = new ClientSettings();
-        defaults.TiktokProjectImageFableCutRoot.Should().BeEmpty();
-        defaults.TiktokProjectImageFableCutClipCount.Should().Be(24);
-
-        var settings = new ClientSettings
-        {
-            TiktokProjectImageGenerationMode = "fablecut",
-            TiktokProjectImageFableCutRoot = @"D:\tools\FableCut",
-            TiktokProjectImageFableCutClipCount = 30,
-        };
-
-        var clone = settings.Clone();
-
-        clone.TiktokProjectImageGenerationMode.Should().Be("fablecut");
-        clone.TiktokProjectImageFableCutRoot.Should().Be(@"D:\tools\FableCut");
-        clone.TiktokProjectImageFableCutClipCount.Should().Be(30);
-    }
-
-    [Theory]
-    [InlineData("fablecut", "fablecut")]
-    [InlineData(" FABLECUT_EDITOR ", "fablecut")]
-    [InlineData("image_template", "image_template")]
-    [InlineData(" IMAGE_TEMPLATES ", "image_template")]
-    [InlineData("image_template_overlay", "image_template")]
-    [InlineData("unknown", "image_template")]
-    [InlineData(" ", "image_template")]
-    public void Store_normalizes_project_image_generation_mode(string input, string expected)
+    public void Saving_settings_removes_legacy_fablecut_options_and_preserves_the_template()
     {
         WithTemporaryDatabase(databasePath =>
         {
-            ClientSettingsStore.Save(new ClientSettings
-            {
-                TiktokProjectImageGenerationMode = input,
-            }, databasePath);
+            AppSettingStore.SaveJson(
+                ClientSettingsStore.SettingsKey,
+                new Dictionary<string, string>
+                {
+                    ["tiktok_project_image_generation_mode"] = "fablecut",
+                    ["tiktok_project_image_fable_cut_root"] = "old-editor-path",
+                    ["tiktok_project_image_fable_cut_clip_count"] = "30",
+                    ["tiktok_project_image_template_id"] = "image_template_project_image_13",
+                },
+                databasePath);
 
-            ClientSettingsStore.Load(databasePath).TiktokProjectImageGenerationMode.Should().Be(expected);
-        });
-    }
+            var settings = ClientSettingsStore.Load(databasePath);
+            settings.TiktokProjectImageTemplateId.Should().Be("image_template_project_image_13");
+            ClientSettingsStore.Save(settings, databasePath);
 
-    [Theory]
-    [InlineData(0, 24)]
-    [InlineData(1, 12)]
-    [InlineData(18, 18)]
-    [InlineData(48, 36)]
-    public void Store_trims_fablecut_root_and_clamps_clip_count(int input, int expected)
-    {
-        WithTemporaryDatabase(databasePath =>
-        {
-            ClientSettingsStore.Save(new ClientSettings
-            {
-                TiktokProjectImageFableCutRoot = @"  D:\tools\FableCut  ",
-                TiktokProjectImageFableCutClipCount = input,
-            }, databasePath);
-
-            var loaded = ClientSettingsStore.Load(databasePath);
-            loaded.TiktokProjectImageFableCutRoot.Should().Be(@"D:\tools\FableCut");
-            loaded.TiktokProjectImageFableCutClipCount.Should().Be(expected);
+            AppSettingStore.TryLoadJson<Dictionary<string, JsonElement>>(
+                ClientSettingsStore.SettingsKey, out var saved, databasePath).Should().BeTrue();
+            saved!.Should().NotContainKey("tiktok_project_image_generation_mode");
+            saved.Should().NotContainKey("tiktok_project_image_fable_cut_root");
+            saved.Should().NotContainKey("tiktok_project_image_fable_cut_clip_count");
         });
     }
 
     [Fact]
-    public void Workflow_config_contains_fablecut_project_image_settings()
+    public void Workflow_config_contains_image_template_settings()
     {
         var settings = new ClientSettings
         {
-            TiktokProjectImageGenerationMode = "fablecut",
-            TiktokProjectImageFableCutRoot = @"D:\tools\FableCut",
-            TiktokProjectImageFableCutClipCount = 30,
+            TiktokProjectImageTemplateId = "image_template_project_image_13",
+            TiktokProjectImageSubtitleAiMode = "off",
         };
         var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
 
@@ -88,15 +52,13 @@ public sealed class ClientSettingsProjectImageSettingsTests
             using var document = JsonDocument.Parse(File.ReadAllText(path));
             var root = document.RootElement;
 
-            root.GetProperty("ProjectImageGenerationMode").GetString().Should().Be("fablecut");
-            root.GetProperty("ProjectImageFableCutRoot").GetString().Should().Be(@"D:\tools\FableCut");
-            root.GetProperty("ProjectImageFableCutClipCount").GetInt32().Should().Be(30);
-            root.GetProperty("ProjectImageFableCutScreenshotStyle").GetString().Should().Be("standard");
+            root.GetProperty("ProjectImageTemplateId").GetString().Should().Be(settings.TiktokProjectImageTemplateId);
+            root.GetProperty("ProjectImageSubtitleAiMode").GetString().Should().Be("off");
+            root.TryGetProperty("ProjectImageGenerationMode", out _).Should().BeFalse();
         }
         finally
         {
-            try { File.Delete(path); }
-            catch (IOException) { }
+            File.Delete(path);
         }
     }
 

@@ -3177,7 +3177,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             templateId = config.ProjectImageTemplateId;
         if (!string.IsNullOrWhiteSpace(templateId))
             settings.TiktokProjectImageTemplateId = templateId.Trim();
-        settings.TiktokProjectImageGenerationMode = TikTokProjectImageService.ImageTemplateMode;
 
         await TikTokProjectImageService.GenerateAsync(
             new QueueProjectItem

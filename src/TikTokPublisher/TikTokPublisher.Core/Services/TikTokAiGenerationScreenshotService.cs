@@ -1998,6 +1998,6 @@ public static class TikTokAiGenerationScreenshotService
 
     private static HttpClient CreateHttpClient()
     {
-        return ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateClient(Timeout.InfiniteTimeSpan);
+        return ShortDrama.Infrastructure.Networking.DefaultNetworkHttp.CreateClient(Timeout.InfiniteTimeSpan);
     }
 }

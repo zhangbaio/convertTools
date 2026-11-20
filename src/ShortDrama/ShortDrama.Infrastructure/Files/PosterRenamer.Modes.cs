@@ -40,7 +40,7 @@ public sealed partial class PosterRenamer
     """;
 
     private readonly PosterTitleVerificationService _titleVerifier = new(
-        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(2)));
+        ShortDrama.Infrastructure.Networking.DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(2)));
 
     private static void Log(PosterRenameRequest request, string message) => request.Log?.Invoke(message);
 

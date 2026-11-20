@@ -24,7 +24,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton(_ =>
         {
-            var handler = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateHandler();
+            var handler = ShortDrama.Infrastructure.Networking.DefaultNetworkHttp.CreateHandler();
             handler.PooledConnectionLifetime = TimeSpan.FromMinutes(10);
             handler.ConnectTimeout = TimeSpan.FromSeconds(15);
 

@@ -119,7 +119,7 @@ public static class ClientSettingsStore
         var raw = LoadRawObject(path);
         if (raw is null)
         {
-            return ApplyNetworkPreference(new ClientSettings());
+            return new ClientSettings();
         }
 
         MigrateSharedAsrSettings(raw);
@@ -128,12 +128,12 @@ public static class ClientSettingsStore
         MigrateHghighStandardClientVersionDefault(raw);
         var json = raw.ToJsonString();
         var settings = JsonSerializer.Deserialize<ClientSettings>(json, JsonOptions) ?? new ClientSettings();
-        return ApplyNetworkPreference(Normalize(settings));
+        return Normalize(settings);
     }
 
     public static void Save(ClientSettings settings, string? databasePath = null)
     {
-        var normalized = ApplyNetworkPreference(Normalize(settings));
+        var normalized = Normalize(settings);
         var path = ResolvePath(databasePath);
         AppDatabaseInitializer.EnsureInitialized(path);
 
@@ -167,6 +167,10 @@ public static class ClientSettingsStore
         existing.Remove("mapleleaf_account");
         existing.Remove("mapleleaf_password");
         existing.Remove("mapleleaf_udid");
+        existing.Remove("network_address_preference");
+        existing.Remove("tiktok_project_image_generation_mode");
+        existing.Remove("tiktok_project_image_fable_cut_root");
+        existing.Remove("tiktok_project_image_fable_cut_clip_count");
         SaveRawObject(path, existing);
     }
 
@@ -493,8 +497,6 @@ public static class ClientSettingsStore
         settings.KuaishouPublishInfoPrompt = ResolveKuaishouPublishInfoPrompt(settings);
         settings.PosterMode = NormalizePosterMode(settings.PosterMode);
         settings.PosterLayoutRequestMode = NormalizePosterLayoutRequestMode(settings.PosterLayoutRequestMode);
-        var networkPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
-        settings.NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.ToValue(networkPreference);
         settings.ImageProvider = ClientSettingsDefaults.ImageProvider;
         settings.ImageModelId = ClientSettingsDefaults.NormalizeImageModelId(settings.ImageModelId);
         settings.ImageModelApiKey ??= "";
@@ -553,7 +555,6 @@ public static class ClientSettingsStore
             ClientSettingsDefaults.PosterGenerationSafeRetryPrompt);
         settings.PosterNameSystemPrompt = DefaultIfBlank(settings.PosterNameSystemPrompt, ClientSettingsDefaults.PosterNameSystemPrompt);
         settings.PosterNameUserPrompt = DefaultIfBlank(settings.PosterNameUserPrompt, ClientSettingsDefaults.PosterNameUserPrompt);
-        settings.TiktokProjectImageGenerationMode = NormalizeProjectImageGenerationMode(settings.TiktokProjectImageGenerationMode);
         settings.TiktokProjectImageTemplateRoot = (settings.TiktokProjectImageTemplateRoot ?? "").Trim();
         settings.TiktokProjectImageTemplateId = DefaultIfBlank(
             settings.TiktokProjectImageTemplateId,
@@ -571,13 +572,6 @@ public static class ClientSettingsStore
             1,
             200);
         settings.TiktokProjectImageSubtitleAiMode = NormalizeProjectImageSubtitleAiMode(settings.TiktokProjectImageSubtitleAiMode);
-        settings.TiktokProjectImageFableCutRoot = (settings.TiktokProjectImageFableCutRoot ?? "").Trim();
-        settings.TiktokProjectImageFableCutClipCount = Math.Clamp(
-            settings.TiktokProjectImageFableCutClipCount <= 0
-                ? ClientSettingsDefaults.TiktokProjectImageFableCutClipCount
-                : settings.TiktokProjectImageFableCutClipCount,
-            12,
-            36);
         settings.TiktokProofTemplateDocxPath = (settings.TiktokProofTemplateDocxPath ?? "").Trim();
         if (TikTokProofMaterialTemplateProvider.IsLegacyDefaultPath(settings.TiktokProofTemplateDocxPath))
             settings.TiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
@@ -776,13 +770,6 @@ public static class ClientSettingsStore
     public static string NormalizeUdid(string? value) =>
         ShortDrama.Infrastructure.Automation.HongguoDeviceId.Normalize(value);
 
-    private static ClientSettings ApplyNetworkPreference(ClientSettings settings)
-    {
-        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Preference =
-            ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
-        return settings;
-    }
-
     private static string NormalizePosterLayoutRequestMode(string? value) =>
         ClientSettingsDefaults.PosterLayoutRequestMode;
 
@@ -820,14 +807,6 @@ public static class ClientSettingsStore
         {
             "accurate" or "fast" or "off" => (value ?? ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode).Trim().ToLowerInvariant(),
             _ => ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode
-        };
-
-    private static string NormalizeProjectImageGenerationMode(string? value) =>
-        (value ?? ClientSettingsDefaults.TiktokProjectImageGenerationMode).Trim().ToLowerInvariant() switch
-        {
-            "fablecut" or "fablecut_editor" => "fablecut",
-            "image_template" or "image_templates" or "image_template_overlay" => "image_template",
-            _ => ClientSettingsDefaults.TiktokProjectImageGenerationMode,
         };
 
     private static string NormalizeProofPdfRenderer(string? value) =>

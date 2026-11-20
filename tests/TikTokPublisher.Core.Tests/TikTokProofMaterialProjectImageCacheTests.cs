@@ -13,7 +13,7 @@ public sealed class TikTokProofMaterialProjectImageCacheTests
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
 
     [Fact]
-    public async Task Proof_material_reuses_existing_project_images_even_when_current_fablecut_configuration_is_invalid()
+    public async Task Proof_material_reuses_existing_project_images_even_when_current_template_configuration_is_invalid()
     {
         var workspaceRoot = Path.Combine(
             Path.GetTempPath(),
@@ -33,9 +33,8 @@ public sealed class TikTokProofMaterialProjectImageCacheTests
 
             var settings = new ClientSettings
             {
-                TiktokProjectImageGenerationMode = "fablecut",
+                TiktokProjectImageTemplateRoot = Path.Combine(workspaceRoot, "missing-templates"),
                 TiktokProjectImageCount = TikTokProjectImageService.MinUploadImageCount,
-                TiktokProjectImageFableCutRoot = Path.Combine(workspaceRoot, "missing-fablecut"),
             };
             var account = new TikTokAccountProfile
             {

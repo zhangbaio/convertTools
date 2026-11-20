@@ -238,7 +238,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
     [ObservableProperty] private string _posterLayoutRequestMode = ClientSettingsDefaults.PosterLayoutRequestMode;
-    [ObservableProperty] private string _networkAddressPreference = ClientSettingsDefaults.NetworkAddressPreference;
     [ObservableProperty] private string _imageModelId = ClientSettingsDefaults.ImageModelId;
     [ObservableProperty] private string _imageModelApiKey = "";
     [ObservableProperty] private string _imageModelEndpoint = ClientSettingsDefaults.ImageModelEndpoint;
@@ -254,14 +253,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _posterAgentPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
     private string _posterAgentDirectPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
     private string _posterAgentErasePrompt = ClientSettingsDefaults.PosterAgentErasePrompt;
-    [ObservableProperty] private string _tiktokProjectImageGenerationMode = ClientSettingsDefaults.TiktokProjectImageGenerationMode;
     [ObservableProperty] private string _tiktokProjectImageTemplateRoot = "";
     [ObservableProperty] private string _tiktokProjectImageTemplateId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
     [ObservableProperty] private int _tiktokProjectImageCount = ClientSettingsDefaults.TiktokProjectImageCount;
     [ObservableProperty] private int _tiktokProjectImageRenderEpisodeLimit = ClientSettingsDefaults.TiktokProjectImageRenderEpisodeLimit;
     [ObservableProperty] private string _tiktokProjectImageSubtitleAiMode = ClientSettingsDefaults.TiktokProjectImageSubtitleAiMode;
-    [ObservableProperty] private string _tiktokProjectImageFableCutRoot = ClientSettingsDefaults.TiktokProjectImageFableCutRoot;
-    [ObservableProperty] private int _tiktokProjectImageFableCutClipCount = ClientSettingsDefaults.TiktokProjectImageFableCutClipCount;
     [ObservableProperty] private string _tiktokProofTemplateDocxPath = ClientSettingsDefaults.TiktokProofTemplateDocxPath;
     [ObservableProperty] private string _tiktokProofTemplateLanguage = ClientSettingsDefaults.TiktokProofTemplateLanguage;
     [ObservableProperty] private string _tiktokProofWpsPath = ClientSettingsDefaults.TiktokProofWpsPath;
@@ -290,21 +286,8 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
     public IReadOnlyList<string> PosterModeOptions { get; } = [ClientSettingsDefaults.PosterMode];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
-    public IReadOnlyList<string> ProjectImageGenerationModeOptions { get; } = ["image_template", "fablecut"];
     public IReadOnlyList<string> ProjectImageSubtitleAiModeOptions { get; } = ["fast", "accurate", "off"];
     public IReadOnlyList<string> ManagementDedupScopeOptions { get; } = ["tiktok_username", "software_user", "all_series"];
-
-    public bool IsProjectImageTemplateMode => !IsProjectImageFableCutMode;
-    public bool IsProjectImageFableCutMode => string.Equals(
-        TiktokProjectImageGenerationMode,
-        "fablecut",
-        StringComparison.OrdinalIgnoreCase);
-
-    partial void OnTiktokProjectImageGenerationModeChanged(string value)
-    {
-        OnPropertyChanged(nameof(IsProjectImageTemplateMode));
-        OnPropertyChanged(nameof(IsProjectImageFableCutMode));
-    }
 
     public void Load(string? workspacePath = null)
     {
@@ -457,7 +440,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.KuaishouPublishInfoPrompt = KuaishouPublishInfoPrompt;
         settings.PosterMode = PosterMode;
         settings.PosterLayoutRequestMode = PosterLayoutRequestMode;
-        settings.NetworkAddressPreference = NetworkAddressPreference;
         settings.ImageProvider = ClientSettingsDefaults.ImageProvider;
         settings.ImageModelId = ClientSettingsDefaults.NormalizeImageModelId(ImageModelId);
         settings.ImageModelApiKey = ImageModelApiKey;
@@ -493,14 +475,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             _kuaishouPosterHorizontalErasePrompt,
             horizontal: true,
             ClientSettingsDefaults.PosterModeEraseFixedTitle);
-        settings.TiktokProjectImageGenerationMode = TiktokProjectImageGenerationMode;
         settings.TiktokProjectImageTemplateRoot = TiktokProjectImageTemplateRoot.Trim();
         settings.TiktokProjectImageTemplateId = TiktokProjectImageTemplateId.Trim();
         settings.TiktokProjectImageCount = TiktokProjectImageCount;
         settings.TiktokProjectImageRenderEpisodeLimit = TiktokProjectImageRenderEpisodeLimit;
         settings.TiktokProjectImageSubtitleAiMode = TiktokProjectImageSubtitleAiMode;
-        settings.TiktokProjectImageFableCutRoot = TiktokProjectImageFableCutRoot.Trim();
-        settings.TiktokProjectImageFableCutClipCount = Math.Clamp(TiktokProjectImageFableCutClipCount, 12, 36);
         settings.TiktokProofTemplateDocxPath = TiktokProofTemplateDocxPath.Trim();
         settings.TiktokProofTemplateLanguage = TiktokProofTemplateLanguage.Trim();
         settings.TiktokProofWpsPath = TiktokProofWpsPath.Trim();
@@ -1117,10 +1096,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    partial void OnNetworkAddressPreferenceChanged(string value) =>
-        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Preference =
-            ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(value);
-
     private async Task ProbeAiTextAsync()
     {
         if (string.IsNullOrWhiteSpace(AiTextEndpoint) || string.IsNullOrWhiteSpace(AiTextApiKey))
@@ -1379,7 +1354,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         KuaishouPublishInfoPrompt = ClientSettingsStore.ResolveKuaishouPublishInfoPrompt(settings);
         PosterMode = settings.PosterMode;
         PosterLayoutRequestMode = settings.PosterLayoutRequestMode;
-        NetworkAddressPreference = settings.NetworkAddressPreference;
         ImageModelId = settings.ImageModelId;
         ImageModelApiKey = settings.ImageModelApiKey;
         ImageModelEndpoint = settings.ImageModelEndpoint;
@@ -1408,14 +1382,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         _kuaishouPosterHorizontalErasePrompt = ClientSettingsStore.ResolveKuaishouPosterPrompt(
             settings, horizontal: true, ClientSettingsDefaults.PosterModeEraseFixedTitle);
         ShowKuaishouPosterPromptsForCurrentMode();
-        TiktokProjectImageGenerationMode = settings.TiktokProjectImageGenerationMode;
         TiktokProjectImageTemplateRoot = settings.TiktokProjectImageTemplateRoot;
         TiktokProjectImageTemplateId = settings.TiktokProjectImageTemplateId;
         TiktokProjectImageCount = settings.TiktokProjectImageCount;
         TiktokProjectImageRenderEpisodeLimit = settings.TiktokProjectImageRenderEpisodeLimit;
         TiktokProjectImageSubtitleAiMode = settings.TiktokProjectImageSubtitleAiMode;
-        TiktokProjectImageFableCutRoot = settings.TiktokProjectImageFableCutRoot;
-        TiktokProjectImageFableCutClipCount = settings.TiktokProjectImageFableCutClipCount;
         TiktokProofTemplateDocxPath = settings.TiktokProofTemplateDocxPath;
         TiktokProofTemplateLanguage = settings.TiktokProofTemplateLanguage;
         TiktokProofWpsPath = settings.TiktokProofWpsPath;
@@ -1494,7 +1465,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     private static HttpClient CreateProbeHttpClient()
     {
-        var handler = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateHandler();
+        var handler = ShortDrama.Infrastructure.Networking.DefaultNetworkHttp.CreateHandler();
         handler.ConnectTimeout = TimeSpan.FromSeconds(15);
         return new HttpClient(handler)
         {

@@ -82,4 +82,11 @@
     <Style Selector="StackPanel.configurationField">
         <Setter Property="Margin" Value="0,0,12,6" />
     </Style>
+    <Style Selector="Border.configurationPanel">
+        <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="14,12" />
+    </Style>
 </Styles>

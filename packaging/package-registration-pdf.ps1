@@ -62,7 +62,7 @@ function Assert-RegistrationPdfPublished {
 function Remove-UnusedRegistrationPdfPayload {
     param([Parameter(Mandatory = $true)][string]$PublishDirectory)
 
-    foreach ($dir in @(".playwright", "templates", "timestamp-certificate", "fablecut", "tools")) {
+    foreach ($dir in @(".playwright", "templates", "timestamp-certificate", "tools")) {
         $path = Join-Path $PublishDirectory $dir
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force

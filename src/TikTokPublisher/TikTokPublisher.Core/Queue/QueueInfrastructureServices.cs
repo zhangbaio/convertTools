@@ -21,7 +21,7 @@ internal static class QueueInfrastructureServices
 
     private static IProjectInfoRewriter CreateProjectInfoRewriter()
     {
-        var http = PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
+        var http = DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
         return new ProjectInfoRewriter(
             new TxtProjectInfoParser(),
             http,
@@ -30,7 +30,7 @@ internal static class QueueInfrastructureServices
 
     private static IPosterRenamer CreatePosterRenamer()
     {
-        var http = PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
+        var http = DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
         return new PosterRenamer(
             new TxtProjectInfoParser(),
             new ExternalProcessRunner(),
@@ -40,7 +40,7 @@ internal static class QueueInfrastructureServices
 
     private static IProjectImageGenerator CreateProjectImageGenerator()
     {
-        var http = PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
+        var http = DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
         return new ProjectImageGenerator(
             new ExternalProcessRunner(),
             new TxtProjectInfoParser(),

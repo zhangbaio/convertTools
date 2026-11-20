@@ -7,7 +7,6 @@ using ShortDrama.Infrastructure.Imaging;
 using SixLabors.ImageSharp;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
-using TikTokPublisher.Core.Services.ProjectImages.FableCut;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -16,9 +15,7 @@ public static class TikTokProjectImageService
     /// <summary>与版权材料“剪辑工程文件”对应，独立于 workflow 根目录。</summary>
     public const string OutputDirectoryName = "剪辑工程文件";
     public const int MinUploadImageCount = 4;
-    public const string ImageTemplateMode = "image_template";
-    public const string FableCutMode = "fablecut";
-    public const string StateVersionToken = "v5-mode-aware-fablecut";
+    public const string StateVersionToken = "v6-image-template";
 
     private const string DocumentType = "tiktok_project_image_state";
     private const string LegacyInputStagingDirName = ".project_image_inputs";
@@ -26,7 +23,6 @@ public static class TikTokProjectImageService
     private const string StageDirectoryPrefix = ".staging-";
     private const string BackupDirectoryPrefix = ".backup-";
     private const string ObsoleteBackupDirectoryPrefix = ".obsolete-backup-";
-    private const string FableCutRendererSchema = "fablecut-csharp-renderer-v1";
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> ProjectLocks =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -71,7 +67,6 @@ public static class TikTokProjectImageService
             ? item.EpisodeCount
             : ProjectWorkspaceService.ResolveSourceEpisodeCount(context.SourceProjectDir));
         var workflowDir = ProjectWorkspaceService.EnsureWorkflowInfo(context.SourceProjectDir, episodeCount, log);
-        var mode = ResolveGenerationMode(settings);
         var count = ResolveCount(settings);
         var renderEpisodeLimit = ResolveRenderEpisodeLimit(settings);
         var outputDir = GetOutputDirectory(workflowDir);
@@ -87,25 +82,14 @@ public static class TikTokProjectImageService
             return;
         }
 
-        var templateDir = "";
-        var fableCutRoot = "";
-        var resourceFingerprint = "";
-        if (mode == FableCutMode)
+        var templateDir = ResolveTemplateDirectory(settings, log);
+        if (string.IsNullOrWhiteSpace(templateDir))
         {
-            fableCutRoot = FableCutAssetResolver.Resolve(settings.TiktokProjectImageFableCutRoot);
-            resourceFingerprint = FableCutAssetResolver.ComputeFingerprint(fableCutRoot);
+            throw new DirectoryNotFoundException(
+                $"未找到工程图模板：{settings.TiktokProjectImageTemplateId}，请在系统设置里配置模板根目录。");
         }
-        else
-        {
-            templateDir = ResolveTemplateDirectory(settings, log);
-            if (string.IsNullOrWhiteSpace(templateDir))
-            {
-                throw new DirectoryNotFoundException(
-                    $"未找到工程图模板：{settings.TiktokProjectImageTemplateId}，请在系统设置里配置模板根目录。");
-            }
 
-            resourceFingerprint = ComputeDirectoryFingerprint(templateDir);
-        }
+        var resourceFingerprint = ComputeDirectoryFingerprint(templateDir);
 
         var sourceVideos = ProjectVideoResolver
             .ResolveMaterialVideos(context.SourceProjectDir, allowStagedFallback: true)
@@ -118,14 +102,13 @@ public static class TikTokProjectImageService
         var signature = ComputeSignature(
             context,
             settings,
-            mode,
             resourceFingerprint,
             sourceVideos,
             episodeNames,
             count,
             renderEpisodeLimit);
         log?.Invoke(
-            $"工程图输入：模式={DisplayMode(mode)}，视频={sourceVideos.Length}，" +
+            $"工程图输入：模式=图片模板，视频={sourceVideos.Length}，" +
             $"渲染上限={renderEpisodeLimit}，目标图片={count}。");
 
         if (TryDeleteLegacyInputDirectory(context.WorkflowProjectDir))
@@ -136,42 +119,23 @@ public static class TikTokProjectImageService
         string? configPath = null;
         try
         {
-            ProjectImageGenerateResult result;
-            if (mode == FableCutMode)
-            {
-                var title = ResolveProjectTitle(item, context);
-                result = await FableCutProjectImageBackend.GenerateAsync(
-                    context.SourceProjectDir,
-                    stageDir,
-                    sourceVideos,
-                    title,
-                    count,
-                    settings.TiktokProjectImageFableCutClipCount,
-                    fableCutRoot,
-                    settings,
-                    log,
-                    ct).ConfigureAwait(false);
-            }
-            else
-            {
-                configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
-                log?.Invoke(
-                    $"开始生成工程图：模板={settings.TiktokProjectImageTemplateId}，" +
-                    $"数量={count}，视频={sourceVideos.Length}。");
-                result = await QueueInfrastructureServices.ProjectImages.GenerateAsync(
-                    new ProjectImageGenerateRequest(
-                        ProjectDir: workflowDir,
-                        InputDir: context.SourceProjectDir,
-                        OutputDir: stageDir,
-                        TemplateImageDir: templateDir,
-                        ConfigFile: configPath,
-                        Count: count,
-                        Overwrite: true,
-                        EpisodeNames: episodeNames,
-                        SourceVideos: sourceVideos,
-                        Progress: log),
-                    ct).ConfigureAwait(false);
-            }
+            configPath = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
+            log?.Invoke(
+                $"开始生成工程图：模板={settings.TiktokProjectImageTemplateId}，" +
+                $"数量={count}，视频={sourceVideos.Length}。");
+            var result = await QueueInfrastructureServices.ProjectImages.GenerateAsync(
+                new ProjectImageGenerateRequest(
+                    ProjectDir: workflowDir,
+                    InputDir: context.SourceProjectDir,
+                    OutputDir: stageDir,
+                    TemplateImageDir: templateDir,
+                    ConfigFile: configPath,
+                    Count: count,
+                    Overwrite: true,
+                    EpisodeNames: episodeNames,
+                    SourceVideos: sourceVideos,
+                    Progress: log),
+                ct).ConfigureAwait(false);
 
             var stagedOutputs = await ValidateStagedOutputsAsync(stageDir, result, count, ct)
                 .ConfigureAwait(false);
@@ -182,8 +146,7 @@ public static class TikTokProjectImageService
             SaveState(
                 context,
                 signature,
-                mode,
-                mode == FableCutMode ? fableCutRoot : templateDir,
+                templateDir,
                 resourceFingerprint,
                 count,
                 committedOutputs,
@@ -340,7 +303,6 @@ public static class TikTokProjectImageService
     private static void SaveState(
         ProjectWorkspaceContext context,
         string signature,
-        string mode,
         string resourceDirectory,
         string resourceFingerprint,
         int count,
@@ -351,11 +313,9 @@ public static class TikTokProjectImageService
         {
             ["fingerprint"] = signature,
             ["signature_version"] = StateVersionToken,
-            ["generation_mode"] = mode,
-            ["template_id"] = mode == ImageTemplateMode ? settings.TiktokProjectImageTemplateId : "",
+            ["template_id"] = settings.TiktokProjectImageTemplateId,
             ["resource_dir"] = resourceDirectory,
             ["resource_fingerprint"] = resourceFingerprint,
-            ["fablecut_clip_count"] = mode == FableCutMode ? settings.TiktokProjectImageFableCutClipCount : null,
             ["count"] = count,
             ["outputs"] = outputs.Select(Path.GetFullPath).ToArray(),
             ["generated_at"] = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
@@ -459,42 +419,13 @@ public static class TikTokProjectImageService
 
     private static ClientSettings NormalizeProjectImageSettings(ClientSettings settings)
     {
-        settings.TiktokProjectImageGenerationMode = ResolveGenerationMode(settings);
         settings.TiktokProjectImageTemplateRoot = (settings.TiktokProjectImageTemplateRoot ?? "").Trim();
         settings.TiktokProjectImageTemplateId = string.IsNullOrWhiteSpace(settings.TiktokProjectImageTemplateId)
             ? ClientSettingsDefaults.TiktokProjectImageTemplateId
             : settings.TiktokProjectImageTemplateId.Trim();
         settings.TiktokProjectImageCount = ResolveCount(settings);
         settings.TiktokProjectImageRenderEpisodeLimit = ResolveRenderEpisodeLimit(settings);
-        settings.TiktokProjectImageFableCutRoot = (settings.TiktokProjectImageFableCutRoot ?? "").Trim();
-        settings.TiktokProjectImageFableCutClipCount = Math.Clamp(
-            settings.TiktokProjectImageFableCutClipCount <= 0
-                ? ClientSettingsDefaults.TiktokProjectImageFableCutClipCount
-                : settings.TiktokProjectImageFableCutClipCount,
-            12,
-            36);
         return settings;
-    }
-
-    private static string ResolveGenerationMode(ClientSettings settings) =>
-        (settings.TiktokProjectImageGenerationMode ?? "").Trim().ToLowerInvariant() switch
-        {
-            "fablecut" or "fablecut_editor" => FableCutMode,
-            _ => ImageTemplateMode,
-        };
-
-    private static string DisplayMode(string mode) =>
-        mode == FableCutMode ? "FableCut真实工程" : "图片模板";
-
-    private static string ResolveProjectTitle(QueueProjectItem item, ProjectWorkspaceContext context)
-    {
-        foreach (var candidate in new[] { item.Title, item.DisplayName, Path.GetFileName(context.SourceProjectDir) })
-        {
-            if (!string.IsNullOrWhiteSpace(candidate))
-                return candidate.Trim();
-        }
-
-        return "短剧工程";
     }
 
     private static IReadOnlyList<string> ResolveEpisodeNames(IReadOnlyList<string> sourceVideos) =>
@@ -519,7 +450,6 @@ public static class TikTokProjectImageService
     private static string ComputeSignature(
         ProjectWorkspaceContext context,
         ClientSettings settings,
-        string mode,
         string resourceFingerprint,
         IReadOnlyList<string> sourceVideos,
         IReadOnlyList<string> episodeNames,
@@ -529,20 +459,11 @@ public static class TikTokProjectImageService
         var payload = new
         {
             version = StateVersionToken,
-            generation_mode = mode,
             resource = resourceFingerprint,
-            template_id = mode == ImageTemplateMode ? settings.TiktokProjectImageTemplateId : "",
+            template_id = settings.TiktokProjectImageTemplateId,
             count,
             render_episode_limit = renderEpisodeLimit,
-            subtitle_ai_mode = mode == ImageTemplateMode ? settings.TiktokProjectImageSubtitleAiMode : "",
-            fablecut = mode == FableCutMode
-                ? new
-                {
-                    renderer = FableCutRendererSchema,
-                    clip_count = settings.TiktokProjectImageFableCutClipCount,
-                    asr = FableCutTranscriptCache.ComputeSettingsFingerprint(settings),
-                }
-                : null,
+            subtitle_ai_mode = settings.TiktokProjectImageSubtitleAiMode,
             info = FileSignature(Path.Combine(context.WorkflowProjectDir, "短剧信息.txt")),
             videos = sourceVideos.Select(FileSignature).ToArray(),
             episode_names = episodeNames,

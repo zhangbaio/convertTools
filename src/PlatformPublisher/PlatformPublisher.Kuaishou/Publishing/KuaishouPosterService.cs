@@ -90,7 +90,7 @@ public sealed class KuaishouPosterService
             progress?.Report(settings.EraseMode
                 ? "开始清除竖屏海报文字，并用固定字体写入新剧名。"
                 : "开始重新设计竖屏海报。");
-            var http = PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
+            var http = DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
             var renamer = new PosterRenamer(
                 new TxtProjectInfoParser(),
                 new ExternalProcessRunner(),

@@ -17,7 +17,7 @@ public static class TikTokEpisodeScriptService
     private const int MaximumCharacterTableSourceCharacters = 48000;
     private static readonly TimeSpan CharacterTableRequestTimeout = TimeSpan.FromSeconds(90);
     private static readonly HttpClient Http =
-        ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.CreateClient(TimeSpan.FromMinutes(8));
+        ShortDrama.Infrastructure.Networking.DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(8));
 
     internal static string GetOutputPath(QueueProjectItem item, TikTokAccountProfile? account)
     {

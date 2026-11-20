@@ -6,14 +6,6 @@
              Background="{StaticResource PythonPageBgBrush}">
 
     <UserControl.Styles>
-        <Style Selector="Border.accountConfigPanel">
-            <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource PythonPanelBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="14,12" />
-        </Style>
-
         <Style Selector="Border.accountActionBar">
             <Setter Property="Background" Value="#FFFFFF" />
             <Setter Property="BorderBrush" Value="#E5E7EB" />
@@ -79,7 +71,7 @@
 
         <TextBlock DockPanel.Dock="Top" Text="账号配置" Classes="pageTitle" Margin="0,0,0,10" />
 
-        <Border Classes="accountConfigPanel">
+        <Border Classes="configurationPanel">
             <TabControl Classes="accountTabs">
             <TabItem Header="发布配置">
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled">
