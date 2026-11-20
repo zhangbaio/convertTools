@@ -62,15 +62,11 @@ public static class TikTokAccountAiSettings
         new("", "本机默认", settings.AiTextEndpoint, settings.AiTextModel, settings.AiTextTimeoutSeconds);
 
     public static TikTokAiImagePreset DefaultImage(ClientSettings settings) =>
-        PosterImageConfigHelper.IsOpenAiImageProvider(settings.ImageProvider)
-            ? new("", "本机默认", settings.OfoxImage2Endpoint, settings.OfoxImage2ModelId,
-                settings.OfoxImage2Size, settings.OfoxImage2Quality, "ofox_image2")
-            : new("", "本机默认", settings.ImageModelEndpoint, settings.ImageModelId,
-                settings.DoubaoImageResolution, settings.DoubaoImageRatio);
+        new("", "本机默认", settings.ImageModelEndpoint, settings.ImageModelId,
+            settings.DoubaoImageResolution, settings.DoubaoImageRatio);
 
-    public static string DefaultImageKey(ClientSettings settings) =>
-        PosterImageConfigHelper.IsOpenAiImageProvider(settings.ImageProvider)
-            ? settings.OfoxImage2ApiKey : settings.ImageModelApiKey;
+    public static bool IsVolcanoPreset(TikTokAiImagePreset preset) =>
+        !PosterImageConfigHelper.IsOpenAiImageProvider(preset.Provider);
 
     public static string ResolveKey(BoundKey? local, string endpoint, string defaultEndpoint, string defaultKey)
     {
@@ -82,6 +78,9 @@ public static class TikTokAccountAiSettings
     public static ClientSettings Apply(ClientSettings defaults, TikTokAccountProfile? account)
     {
         var settings = defaults.Clone();
+        settings.ImageProvider = "doubao";
+        settings.TiktokRoleVectorViewMode = ClientSettingsDefaults.TiktokRoleVectorViewMode;
+        settings.PosterTitleVerifyAiRetryCount = ClientSettingsDefaults.PosterTitleVerifyAiRetryCount;
         settings.PosterAgentDirectPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
         settings.PosterAgentErasePrompt = ClientSettingsDefaults.PosterAgentErasePrompt;
         if (account?.AiOptions is not { } options)
@@ -103,41 +102,26 @@ public static class TikTokAccountAiSettings
         var imageId = options.ImagePresetId ?? "";
         var imageDefault = DefaultImage(defaults);
         var image = imageId.Length == 0 ? imageDefault : library.Image.GetValueOrDefault(imageId);
-        if (image is null)
+        if (image is not null && !IsVolcanoPreset(image))
+            image = imageDefault;
+
+        if (image is not null)
         {
-            settings.ImageModelApiKey = settings.OfoxImage2ApiKey = "";
+            settings.ImageModelEndpoint = image.Endpoint;
+            settings.ImageModelId = image.Model;
+            settings.DoubaoImageResolution = image.Resolution;
+            settings.DoubaoImageRatio = image.Ratio;
         }
-        else
-        {
-            var key = ResolveKey(keys.Image, image.Endpoint, imageDefault.Endpoint, DefaultImageKey(defaults));
-            settings.ImageProvider = image.Provider;
-            if (PosterImageConfigHelper.IsOpenAiImageProvider(image.Provider))
-            {
-                settings.OfoxImage2Endpoint = image.Endpoint;
-                settings.OfoxImage2ModelId = image.Model;
-                settings.OfoxImage2Size = image.Resolution;
-                settings.OfoxImage2Quality = image.Ratio;
-                settings.OfoxImage2ApiKey = key;
-            }
-            else
-            {
-                settings.ImageModelEndpoint = image.Endpoint;
-                settings.ImageModelId = image.Model;
-                settings.DoubaoImageResolution = image.Resolution;
-                settings.DoubaoImageRatio = image.Ratio;
-                settings.ImageModelApiKey = key;
-            }
-        }
+        settings.ImageModelApiKey = image is null ? "" :
+            ResolveKey(keys.Image, image.Endpoint, imageDefault.Endpoint, defaults.ImageModelApiKey);
 
         settings.AiPublishInfoPrompt = string.IsNullOrWhiteSpace(options.PublishPrompt)
             ? ClientSettingsDefaults.AiPublishInfoPrompt : options.PublishPrompt;
         settings.TiktokRoleReferenceSelectionMode = options.RoleSelectionMode;
         settings.TiktokRoleReferenceAiFallbackEnabled = options.RoleFallback;
-        settings.TiktokRoleVectorViewMode = options.RoleViewMode;
         settings.PosterMode = options.PosterMode;
         settings.PosterTitleVerifyEnabled = options.VerifyTitle;
         settings.PosterTitleVerifyMode = options.VerifyMode;
-        settings.PosterTitleVerifyAiRetryCount = options.VerifyRetries;
         return settings;
     }
 

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
@@ -51,7 +52,10 @@ public sealed class AccountAiEditor : UserControl
         _draft = account.AiOptions ?? TikTokAccountAiOptions.FromSettings(settings);
         _textEdits.Clear();
         _imageEdits.Clear();
-        RefreshPresets(_draft.TextPresetId, _draft.ImagePresetId);
+        var imageId = _draft.ImagePresetId ?? "";
+        if (_library.Image.TryGetValue(imageId, out var image) && !TikTokAccountAiSettings.IsVolcanoPreset(image))
+            imageId = "";
+        RefreshPresets(_draft.TextPresetId, imageId);
         _textKey.RevealPassword = _imageKey.RevealPassword = false;
         _textKey.Text = _shownTextKey = "";
         _imageKey.Text = _shownImageKey = "";
@@ -122,7 +126,7 @@ public sealed class AccountAiEditor : UserControl
         if (Read(_imageKey) == _shownImageKey)
             _imageKey.Text = _shownImageKey = image is null ? "" : TikTokAccountAiSettings.ResolveKey(
                 _savedKeys.Image, image.Endpoint, TikTokAccountAiSettings.DefaultImage(_defaults).Endpoint,
-                TikTokAccountAiSettings.DefaultImageKey(_defaults));
+                _defaults.ImageModelApiKey);
     }
 
     private void RefreshPresets(string textId, string imageId)
@@ -133,6 +137,7 @@ public sealed class AccountAiEditor : UserControl
             Fill(_textPresets, textId, _library.Text.Values.Concat(_textEdits.Values)
                 .GroupBy(preset => preset.Id).Select(group => (group.Key, group.Last().Name)));
             Fill(_imagePresets, imageId, _library.Image.Values.Concat(_imageEdits.Values)
+                .Where(TikTokAccountAiSettings.IsVolcanoPreset)
                 .GroupBy(preset => preset.Id).Select(group => (group.Key, group.Last().Name)));
         }
         finally
@@ -172,7 +177,7 @@ public sealed class AccountAiEditor : UserControl
         var timeout = Number(preset.Timeout, 5, 600);
         var role = Choice(draft.RoleSelectionMode, ("local", "本地链路"), ("ai_full_review", "AI 全量优选"));
         var fallback = new CheckBox { Content = "全量优选失败时回退本地链路", IsChecked = draft.RoleFallback };
-        var dialog = new DetailWindow("AI 文本详细配置", create);
+        var dialog = new DetailWindow(owner, "AI 文本详细配置", create);
         dialog.Add("预设名称", name);
         dialog.Add("接口地址", endpoint);
         dialog.Add("模型名称", model);
@@ -232,47 +237,38 @@ public sealed class AccountAiEditor : UserControl
         var name = Input(create ? "" : preset.Name);
         var endpoint = Input(preset.Endpoint);
         var model = Input(preset.Model);
-        var provider = Choice(preset.Provider, ("doubao", "豆包"), ("ofox_image2", "Ofox Image 2"));
         var resolution = Input(preset.Resolution);
         var ratio = Input(preset.Ratio);
         var mode = Choice(draft.PosterMode, (ClientSettingsDefaults.PosterModeDirect, "AI 直接生成"),
             (ClientSettingsDefaults.PosterModeEraseFixedTitle, "去字后固定字体写入"));
         var verify = new CheckBox { Content = "启用标题校验", IsChecked = draft.VerifyTitle };
         var verifyMode = Choice(draft.VerifyMode, ("fallback_repaint", "AI 重试后重绘"), ("warn", "AI 重试后仅警告"), ("blocking", "AI 重试后阻断"));
-        var retries = Number(draft.VerifyRetries, 0, 3);
-        var roleView = Choice(draft.RoleViewMode, ("multi_angle", "多角度"), ("single", "单图"));
-        var dialog = new DetailWindow("AI 图片详细配置", create);
+        var dialog = new DetailWindow(owner, "AI 图片详细配置", create);
         dialog.Add("预设名称", name);
-        dialog.Add("图片接口类型", provider);
         dialog.Add("模型 Endpoint", endpoint);
         dialog.Add("模型 ID", model);
-        dialog.Add("分辨率 / Image 2 尺寸", resolution);
-        dialog.Add("比例 / Image 2 质量", ratio);
+        dialog.Add("分辨率", resolution);
+        dialog.Add("比例", ratio);
         dialog.Add("海报模式", mode);
-        dialog.Add("角色定妆视图", roleView);
         dialog.Fields.Children.Add(verify);
         dialog.Add("校验失败处理", verifyMode);
-        dialog.Add("AI 修复重试", retries);
         dialog.Validate = () => ValidateConnection(name, endpoint, model);
         if (!await dialog.ShowDialog<bool>(owner) || !ReferenceEquals(_draft, draft))
             return;
 
         var connectionChanged = !TikTokAccountAiSettings.SameEndpoint(Read(endpoint), preset.Endpoint)
-            || Read(model) != preset.Model || Read(resolution) != preset.Resolution || Read(ratio) != preset.Ratio
-            || SelectedId(provider) != preset.Provider;
+            || Read(model) != preset.Model || Read(resolution) != preset.Resolution || Read(ratio) != preset.Ratio;
         if (create || current is null || connectionChanged || Read(name) != preset.Name)
         {
             id = create || preset.Id.Length == 0 ? Guid.NewGuid().ToString("N") : preset.Id;
             var savedName = !create && preset.Id.Length == 0 && Read(name) == preset.Name ? Read(model) : Read(name);
-            _imageEdits[id] = new(id, savedName, Read(endpoint), Read(model), Read(resolution), Read(ratio), SelectedId(provider));
+            _imageEdits[id] = new(id, savedName, Read(endpoint), Read(model), Read(resolution), Read(ratio));
         }
         _draft = draft with
         {
             PosterMode = SelectedId(mode),
-            RoleViewMode = SelectedId(roleView),
             VerifyTitle = verify.IsChecked == true,
             VerifyMode = SelectedId(verifyMode),
-            VerifyRetries = (int)(retries.Value ?? draft.VerifyRetries),
         };
         RefreshPresets(SelectedId(_textPresets), id);
     }
@@ -314,11 +310,11 @@ public sealed class AccountAiEditor : UserControl
         Watermark = "留空使用默认提示词", Classes = { "configurationInput" },
     };
     private static NumericUpDown Number(int value, int min, int max) =>
-        new() { Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max), FormatString = "0" };
+        new() { Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max), FormatString = "0", Classes = { "configurationInput" } };
 
     private static ComboBox Choice(string selected, params (string Id, string Name)[] choices)
     {
-        var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Classes = { "configurationInput" } };
         foreach (var (id, name) in choices)
             box.Items.Add(new ComboBoxItem { Content = name, Tag = id });
         box.SelectedItem = box.Items.OfType<ComboBoxItem>().FirstOrDefault(item => Equals(item.Tag, selected)) ?? box.Items[0];
@@ -372,8 +368,13 @@ public sealed class AccountAiEditor : UserControl
         public TextBlock Message { get; } = new() { TextWrapping = TextWrapping.Wrap };
         public Func<string?>? Validate { get; set; }
 
-        public DetailWindow(string title, bool create)
+        public DetailWindow(Window owner, string title, bool create)
         {
+            Styles.Add(new StyleInclude((Uri?)null)
+            {
+                Source = new Uri("avares://TikTokPublisher.Ui/Themes/ConfigurationFormStyles.axaml"),
+            });
+            Classes.Set("compact", owner.Classes.Contains("compact"));
             Title = title;
             Width = 560;
             Height = 650;
@@ -403,7 +404,7 @@ public sealed class AccountAiEditor : UserControl
                 } },
             };
             DockPanel.SetDock(footer, Dock.Bottom);
-            Content = new DockPanel { Children = { footer, new ScrollViewer { Content = Fields } } };
+            Content = new DockPanel { Children = { footer, new ScrollViewer { Content = Fields, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled } } };
         }
 
         public void Add(string label, Control input) => Fields.Children.Add(Field(label, input));

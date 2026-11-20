@@ -23,6 +23,9 @@ public sealed class TikTokAccountAiSettingsTests
             {
                 AiTextEndpoint = "https://default.example/v1",
                 AiTextApiKey = "default-text-key",
+                ImageProvider = "ofox_image2",
+                TiktokRoleVectorViewMode = "single",
+                PosterTitleVerifyAiRetryCount = 3,
                 ImageModelApiKey = "default-image-key",
                 PosterAgentDirectPrompt = "legacy custom poster prompt",
                 PosterAgentErasePrompt = "legacy custom erase prompt",
@@ -45,6 +48,9 @@ public sealed class TikTokAccountAiSettingsTests
             effective.AiTextModel.Should().Be("account-model");
             effective.AiTextTimeoutSeconds.Should().Be(77);
             effective.AiTextApiKey.Should().Be("local-text-key");
+            effective.ImageProvider.Should().Be("doubao");
+            effective.TiktokRoleVectorViewMode.Should().Be("multi_angle");
+            effective.PosterTitleVerifyAiRetryCount.Should().Be(1);
             effective.ImageModelApiKey.Should().Be("local-image-key");
             effective.AiPublishInfoPrompt.Should().Be("account prompt");
             JsonSerializer.Serialize(account).Should().NotContain("local-text-key").And.NotContain("local-image-key");
@@ -53,6 +59,9 @@ public sealed class TikTokAccountAiSettingsTests
 
             var legacy = TikTokAccountAiSettings.Apply(defaults, new TikTokAccountProfile());
             legacy.AiTextApiKey.Should().Be(defaults.AiTextApiKey);
+            legacy.ImageProvider.Should().Be("doubao");
+            legacy.TiktokRoleVectorViewMode.Should().Be("multi_angle");
+            legacy.PosterTitleVerifyAiRetryCount.Should().Be(1);
             legacy.PosterAgentDirectPrompt.Should().Be(ClientSettingsDefaults.PosterAgentDirectPrompt);
             defaults.PosterAgentDirectPrompt.Should().Be("legacy custom poster prompt");
 
