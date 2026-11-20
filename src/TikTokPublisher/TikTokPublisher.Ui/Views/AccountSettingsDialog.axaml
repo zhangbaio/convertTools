@@ -19,7 +19,6 @@
                         <TextBox x:Name="NicknameBox" Watermark="TikTok 昵称" />
                         <TextBox x:Name="LoginEmailBox" Watermark="登录邮箱/用户名" />
                         <TextBox x:Name="SeriesUrlBox" />
-                        <TextBox x:Name="StorageStateBox" Watermark="Playwright storage_state 路径" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBox x:Name="WorkspaceBox" Watermark="上传工作目录" MinWidth="420" />
                             <Button Content="浏览…" Click="OnBrowseWorkspaceClick" />
@@ -110,14 +109,20 @@
                                 </StackPanel>
                             </StackPanel>
 
-                            <TextBlock Grid.Row="7" Grid.Column="0" Text="付费模式" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="7" Grid.Column="1" x:Name="PaidEnabledBox" Content="启用" />
-
-                            <TextBlock Grid.Row="8" Grid.Column="0" Text="付费比例" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="8" Grid.Column="1" x:Name="PaidRatioEnabledBox" Content="启用" />
-
-                            <TextBlock Grid.Row="9" Grid.Column="0" Text="付费比例 %" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="20" Width="160" HorizontalAlignment="Left" />
+                            <StackPanel Grid.Row="7" Grid.Column="1" Spacing="5">
+                                <ToggleSwitch x:Name="PaidEnabledBox" OnContent="付费模式" OffContent="付费模式" AutomationProperties.Name="付费模式" />
+                                <StackPanel Spacing="5" IsVisible="{Binding IsChecked, ElementName=PaidEnabledBox}">
+                                    <WrapPanel>
+                                        <RadioButton x:Name="PaidRatioModeBox" GroupName="DialogPaidStrategy" Content="按比例付费" IsChecked="True" Margin="0,0,16,0" />
+                                        <RadioButton x:Name="PaidAllModeBox" GroupName="DialogPaidStrategy" Content="全部付费" />
+                                    </WrapPanel>
+                                    <StackPanel Spacing="4" IsVisible="{Binding IsChecked, ElementName=PaidRatioModeBox}">
+                                        <TextBlock Text="付费比例（按剧计算）" />
+                                        <NumericUpDown x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="20"
+                                                       AutomationProperties.Name="付费比例 %" FormatString="0.##'%'" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
 
                             <TextBlock Grid.Row="10" Grid.Column="0" Text="AI 短剧" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="10" Grid.Column="1" x:Name="AiDramaBox" Content="是" IsChecked="True" />
@@ -149,9 +154,6 @@
                             <TextBlock Grid.Row="19" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="19" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
 
-                            <TextBlock Grid.Row="20" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="20" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
-
                             <TextBlock Grid.Row="21" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
                             <NumericUpDown Grid.Row="21" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
 
@@ -167,21 +169,13 @@
                             <TextBlock Grid.Row="25" Grid.Column="0" Text="预期价格" VerticalAlignment="Center" />
                             <TextBox Grid.Row="25" Grid.Column="1" x:Name="ExpectedPriceValueBox" Watermark="0.3" />
 
-                            <TextBlock x:Name="ApiConcurrencyLabel" Grid.Row="26" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="26" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
-
-                            <TextBlock Grid.Row="30" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="30" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
-
 
                             <TextBlock Grid.Row="32" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="32" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
                                 <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
-                                <ComboBoxItem Tag="playwright">外部浏览器（程序自动打开，可无头）</ComboBoxItem>
+                                <ComboBoxItem Tag="playwright">外部浏览器（显示窗口）</ComboBoxItem>
+                                <ComboBoxItem Tag="playwright_headless">外部浏览器（无头）</ComboBoxItem>
                             </ComboBox>
-
-                            <TextBlock Grid.Row="33" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="33" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（仅程序自动打开的外部浏览器生效）" />
 
                             <TextBlock Grid.Row="34" Grid.Column="0" Text="原始权利人" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="34" Grid.Column="1" x:Name="OriginalRightsHolderBox" Content="是" IsChecked="True" />

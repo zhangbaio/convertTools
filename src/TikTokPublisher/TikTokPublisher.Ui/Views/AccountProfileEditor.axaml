@@ -81,29 +81,342 @@
 
         <Border Classes="accountConfigPanel">
             <TabControl Classes="accountTabs">
-                <TabItem Header="登录设置">
-                    <ScrollViewer>
-                        <Grid Classes="profileForm" Margin="2,4,2,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="140,*" RowSpacing="10" ColumnSpacing="10">
-                        <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="登录状态" VerticalAlignment="Top" Margin="0,4,0,0" />
-                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LoginStatusText" Classes="pageSummary" TextWrapping="Wrap" Text="尚未登录" />
+            <TabItem Header="发布配置">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                    <Grid Margin="2,4,2,8" SizeChanged="OnPublishFormSizeChanged">
+                        <StackPanel x:Name="PublishForm" MaxWidth="1080" HorizontalAlignment="Left" Spacing="10">
+                            <StackPanel.Resources>
+                                <SolidColorBrush x:Key="ToggleSwitchFillOff">#8897AA</SolidColorBrush>
+                                <SolidColorBrush x:Key="ToggleSwitchStrokeOff">#738297</SolidColorBrush>
+                                <SolidColorBrush x:Key="ToggleSwitchKnobFillOff">#FFFFFF</SolidColorBrush>
+                                <SolidColorBrush x:Key="ToggleSwitchFillOffPointerOver">#73859B</SolidColorBrush>
+                                <SolidColorBrush x:Key="ToggleSwitchStrokeOffPointerOver">#657991</SolidColorBrush>
+                                <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPointerOver">#FFFFFF</SolidColorBrush>
+                                <SolidColorBrush x:Key="ToggleSwitchFillOffPressed">#64758A</SolidColorBrush>
+                                <SolidColorBrush x:Key="ToggleSwitchStrokeOffPressed">#5B6D82</SolidColorBrush>
+                                <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPressed">#FFFFFF</SolidColorBrush>
+                                <SolidColorBrush x:Key="PublishInputBackground">#F1F5FA</SolidColorBrush>
+                                <SolidColorBrush x:Key="PublishInputBorder">#A7B6CA</SolidColorBrush>
+                                <SolidColorBrush x:Key="PublishInputHoverBackground">#E8F0F9</SolidColorBrush>
+                                <SolidColorBrush x:Key="PublishInputHoverBorder">#879EB9</SolidColorBrush>
+                                <SolidColorBrush x:Key="PublishInputFocusBorder">#0078D4</SolidColorBrush>
+                                <SolidColorBrush x:Key="PublishInputDisabledBackground">#F0F1F3</SolidColorBrush>
+                                <SolidColorBrush x:Key="PublishInputDisabledBorder">#D0D5DD</SolidColorBrush>
+                                <SolidColorBrush x:Key="PublishInputDisabledForeground">#667085</SolidColorBrush>
 
-                        <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="账号昵称" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="1" Grid.Column="1" x:Name="NicknameBox" Watermark="用于左侧账号列表显示，可留空" />
+                                <StaticResource x:Key="TextControlBackgroundPointerOver" ResourceKey="PublishInputHoverBackground" />
+                                <StaticResource x:Key="TextControlBorderBrushPointerOver" ResourceKey="PublishInputHoverBorder" />
+                                <StaticResource x:Key="TextControlBackgroundFocused" ResourceKey="PublishInputBackground" />
+                                <StaticResource x:Key="TextControlBorderBrushFocused" ResourceKey="PublishInputFocusBorder" />
+                                <Thickness x:Key="TextControlBorderThemeThicknessFocused">1.5</Thickness>
+                                <StaticResource x:Key="TextControlBackgroundDisabled" ResourceKey="PublishInputDisabledBackground" />
+                                <StaticResource x:Key="TextControlBorderBrushDisabled" ResourceKey="PublishInputDisabledBorder" />
+                                <StaticResource x:Key="TextControlForegroundDisabled" ResourceKey="PublishInputDisabledForeground" />
 
-                        <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="TikTok 用户名" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="2" Grid.Column="1" x:Name="LoginEmailBox" Watermark="邮箱或用户名" />
+                                <StaticResource x:Key="ComboBoxBackgroundPointerOver" ResourceKey="PublishInputHoverBackground" />
+                                <StaticResource x:Key="ComboBoxBorderBrushPointerOver" ResourceKey="PublishInputHoverBorder" />
+                                <StaticResource x:Key="ComboBoxBackgroundPressed" ResourceKey="PublishInputHoverBackground" />
+                                <StaticResource x:Key="ComboBoxBorderBrushPressed" ResourceKey="PublishInputFocusBorder" />
+                                <StaticResource x:Key="ComboBoxBackgroundBorderBrushFocused" ResourceKey="PublishInputFocusBorder" />
+                                <StaticResource x:Key="ComboBoxBackgroundDisabled" ResourceKey="PublishInputDisabledBackground" />
+                                <StaticResource x:Key="ComboBoxBorderBrushDisabled" ResourceKey="PublishInputDisabledBorder" />
+                                <StaticResource x:Key="ComboBoxForegroundDisabled" ResourceKey="PublishInputDisabledForeground" />
 
-                        <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="TikTok 密码" VerticalAlignment="Center" />
-                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="PasswordBox" PasswordChar="●" RevealPassword="False" Watermark="可选，仅本地保存" />
+                                <StaticResource x:Key="RepeatButtonBackgroundPointerOver" ResourceKey="PublishInputHoverBackground" />
+                                <SolidColorBrush x:Key="RepeatButtonBackgroundPressed">#DBE8F7</SolidColorBrush>
+                                <StaticResource x:Key="RepeatButtonBackgroundDisabled" ResourceKey="PublishInputDisabledBackground" />
+                            </StackPanel.Resources>
+                            <StackPanel.Styles>
+                                <Style Selector="TextBox.publishInput, ComboBox.publishInput, NumericUpDown.publishInput">
+                                    <Setter Property="Background" Value="{StaticResource PublishInputBackground}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource PublishInputBorder}" />
+                                    <Setter Property="BorderThickness" Value="1" />
+                                    <Setter Property="CornerRadius" Value="7" />
+                                </Style>
+                                <Style Selector="ComboBox.publishInput:focus-within:not(:error) /template/ Border#Background">
+                                    <Setter Property="BorderBrush" Value="{StaticResource PublishInputFocusBorder}" />
+                                </Style>
+                                <Style Selector="NumericUpDown.publishInput:pointerover">
+                                    <Setter Property="Background" Value="{StaticResource PublishInputHoverBackground}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource PublishInputHoverBorder}" />
+                                </Style>
+                                <Style Selector="NumericUpDown.publishInput:focus-within:not(:error)">
+                                    <Setter Property="Background" Value="{StaticResource PublishInputBackground}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource PublishInputFocusBorder}" />
+                                </Style>
+                                <Style Selector="NumericUpDown.publishInput:disabled">
+                                    <Setter Property="Background" Value="{StaticResource PublishInputDisabledBackground}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource PublishInputDisabledBorder}" />
+                                    <Setter Property="Foreground" Value="{StaticResource PublishInputDisabledForeground}" />
+                                </Style>
+                                <Style Selector="NumericUpDown.publishInput /template/ TextBox#PART_TextBox /template/ Border#PART_BorderElement">
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                </Style>
+                                <Style Selector="StackPanel.publishField">
+                                    <Setter Property="Margin" Value="0,0,12,0" />
+                                </Style>
+                                <Style Selector="StackPanel.publishField TextBlock.formLabel">
+                                    <Setter Property="Foreground" Value="#1F2937" />
+                                    <Setter Property="FontSize" Value="14" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                </Style>
+                                <Style Selector="StackPanel.publishField ComboBox">
+                                    <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                </Style>
+                            </StackPanel.Styles>
+                            <TextBlock Text="账号登录" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0" />
+                            <StackPanel Classes="publishField" Spacing="4">
+                                <TextBlock Classes="formLabel" Text="登录状态" />
+                                <TextBlock x:Name="LoginStatusText" Classes="pageSummary" TextWrapping="Wrap" Text="尚未登录" />
+                            </StackPanel>
 
-                        <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="登录态文件" VerticalAlignment="Center" />
-                        <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto">
-                            <TextBox Grid.Column="0" x:Name="StorageStateBox" Watermark="留空时使用 ~/.tiktok_publisher/profiles/{id}/tiktok_auth_state.json" />
-                            <Button Grid.Column="1" Content="浏览" Click="OnBrowseAuthPathClick" Margin="8,0,0,0" />
-                        </Grid>
-                        </Grid>
-                    </ScrollViewer>
-                </TabItem>
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="账号昵称" />
+                                    <TextBox Classes="publishInput" x:Name="NicknameBox" Watermark="用于左侧账号列表显示，可留空" />
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="TikTok 用户名" />
+                                    <TextBox Classes="publishInput" x:Name="LoginEmailBox" Watermark="邮箱或用户名" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="TikTok 密码" />
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBox Classes="publishInput" x:Name="PasswordBox" PasswordChar="●" RevealPassword="False"
+                                                 AutomationProperties.Name="TikTok 密码" Watermark="可选，仅本地保存" />
+                                        <Button Grid.Column="1" x:Name="PasswordVisibilityButton" Click="OnPasswordVisibilityClick"
+                                                AutomationProperties.Name="显示密码" ToolTip.Tip="显示密码" VerticalAlignment="Stretch"
+                                                HorizontalContentAlignment="Center" Width="40">
+                                            <PathIcon Width="16" Height="16"
+                                                      Data="M 0,8 C 4,1 12,1 16,8 C 12,15 4,15 0,8 Z M 8,5 A 3,3 0 1 0 8,11 A 3,3 0 1 0 8,5 Z" />
+                                        </Button>
+                                    </Grid>
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
+                            <TextBlock Text="剧集与版权" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0" />
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="剧集类型" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput"
+                                              x:Name="DramaMarketCombo"
+                                              HorizontalAlignment="Stretch"
+                                              SelectionChanged="OnDramaMarketSelectionChanged">
+                                        <ComboBoxItem Tag="local">本土剧</ComboBoxItem>
+                                        <ComboBoxItem Tag="overseas">海外剧</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="合同 ID" TextWrapping="Wrap" />
+                                    <TextBox Classes="publishInput" x:Name="ContractIdBox" Watermark="合同 ID" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="目标观众" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="AudienceCombo" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Tag="female">女性</ComboBoxItem>
+                                        <ComboBoxItem Tag="male">男性</ComboBoxItem>
+                                        <ComboBoxItem Tag="ai_recommend">AI 推荐</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="源语言" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="SourceLanguageCombo" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Tag="auto">AI识别语言</ComboBoxItem>
+                                        <ComboBoxItem Tag="zh">中文</ComboBoxItem>
+                                        <ComboBoxItem Tag="en">英语 / English</ComboBoxItem>
+                                        <ComboBoxItem Tag="id">印尼语 / Indonesian</ComboBoxItem>
+                                        <ComboBoxItem Tag="pt">葡语 / Portuguese</ComboBoxItem>
+                                        <ComboBoxItem Tag="ja">日语 / Japanese</ComboBoxItem>
+                                        <ComboBoxItem Tag="th">泰语 / Thai</ComboBoxItem>
+                                        <ComboBoxItem Tag="es">西语 / Spanish</ComboBoxItem>
+                                        <ComboBoxItem Tag="ko">韩语 / Korean</ComboBoxItem>
+                                        <ComboBoxItem Tag="tr">土耳其语 / Turkish</ComboBoxItem>
+                                        <ComboBoxItem Tag="hi">印地语 / Hindi</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="内容原创类型" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Tag="original">原创</ComboBoxItem>
+                                        <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="内容创作类型" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Tag="original">原创</ComboBoxItem>
+                                        <ComboBoxItem Tag="remake">成片重制</ComboBoxItem>
+                                        <ComboBoxItem Tag="novel_adaptation">小说改编</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <ToggleSwitch x:Name="OriginalRightsHolderBox" OnContent="原始权利人" OffContent="原始权利人"
+                                          AutomationProperties.Name="原始权利人" IsChecked="True" />
+                            <views:PublishAccountSelector x:Name="PublishAccounts" />
+
+                            <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
+                            <TextBlock Text="商业与发布" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0" />
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="发布模式" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="PublishModeCombo" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Tag="auto_after_review">过审后自动发布</ComboBoxItem>
+                                        <ComboBoxItem Tag="manual">手动发布</ComboBoxItem>
+                                        <ComboBoxItem Tag="scheduled">定时发布</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <ToggleSwitch x:Name="PaidEnabledBox" OnContent="付费模式" OffContent="付费模式" AutomationProperties.Name="付费模式" />
+                                    <StackPanel Spacing="5" IsVisible="{Binding IsChecked, ElementName=PaidEnabledBox}">
+                                        <WrapPanel>
+                                            <RadioButton x:Name="PaidRatioModeBox" GroupName="ProfilePaidStrategy" Content="按比例付费" IsChecked="True" Margin="0,0,16,0" />
+                                            <RadioButton x:Name="PaidAllModeBox" GroupName="ProfilePaidStrategy" Content="全部付费" />
+                                        </WrapPanel>
+                                        <StackPanel Spacing="4" IsVisible="{Binding IsChecked, ElementName=PaidRatioModeBox}">
+                                            <TextBlock Text="付费比例（按剧计算）" />
+                                            <NumericUpDown Classes="publishInput" x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="20"
+                                                           AutomationProperties.Name="付费比例 %" FormatString="0.##'%'" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="个人页预览集数" TextWrapping="Wrap" />
+                                    <NumericUpDown Classes="publishInput" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="免费预览集数" TextWrapping="Wrap" />
+                                    <NumericUpDown Classes="publishInput" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="预期价格" TextWrapping="Wrap" />
+                                    <TextBox Classes="publishInput" x:Name="ExpectedPriceValueBox" Watermark="0.3" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <WrapPanel Orientation="Horizontal">
+                                <ToggleSwitch x:Name="ConsignmentBox" OnContent="寄售模式" OffContent="寄售模式" AutomationProperties.Name="寄售模式" Margin="0,0,24,4" />
+                                <ToggleSwitch x:Name="AnchorPromotionBox" OnContent="锚点推广" OffContent="锚点推广" AutomationProperties.Name="锚点推广" Margin="0,0,24,4" />
+                                <ToggleSwitch x:Name="ZeroCostAdsBox" OnContent="0 元投放" OffContent="0 元投放" AutomationProperties.Name="0 元投放" Margin="0,0,24,4" />
+                            </WrapPanel>
+                            <StackPanel Classes="publishField" IsVisible="{Binding IsChecked, ElementName=ZeroCostAdsBox}" Spacing="5">
+                                <TextBlock Classes="formLabel" Text="第 0 天 ROI" TextWrapping="Wrap" />
+                                <NumericUpDown Classes="publishInput"
+                                               x:Name="DayZeroRoiBox"
+                                               Minimum="1.00"
+                                               Maximum="1.50"
+                                               Increment="0.01"
+                                               FormatString="0.00"
+                                               Value="1.05"
+                                               Width="160"
+                                               HorizontalAlignment="Stretch" />
+                            </StackPanel>
+
+                            <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
+                            <TextBlock Text="内容生成" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0" />
+
+                            <WrapPanel Orientation="Horizontal">
+                                <ToggleSwitch x:Name="AiDramaBox" OnContent="AI 短剧" OffContent="AI 短剧" AutomationProperties.Name="AI 短剧" IsChecked="True" Margin="0,0,24,4" />
+                                <ToggleSwitch x:Name="AiRewriteSynopsisBox" OnContent="AI 改写简介" OffContent="AI 改写简介" AutomationProperties.Name="AI 改写简介" Margin="0,0,24,4" />
+                            </WrapPanel>
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="新剧名随机度" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="AiNewTitleRandomnessCombo" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Tag="low">低</ComboBoxItem>
+                                        <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
+                                        <ComboBoxItem Tag="high">高</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="题材数量" TextWrapping="Wrap" />
+                                    <NumericUpDown Classes="publishInput" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
+                            <TextBlock Text="上传与提交" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0" />
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="上传方式" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch" SelectionChanged="UploadStrategyCombo_SelectionChanged">
+                                        <ComboBoxItem Tag="playwright">网页上传</ComboBoxItem>
+                                        <ComboBoxItem Tag="api">接口上传</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="上传浏览器" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
+                                        <ComboBoxItem Tag="playwright">外部浏览器（显示窗口）</ComboBoxItem>
+                                        <ComboBoxItem Tag="playwright_headless">外部浏览器（无头）</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <StackPanel x:Name="PlaywrightDeliveryPanel" Orientation="Vertical" Classes="publishField" Spacing="8">
+                                <TextBlock Classes="formLabel" Text="正片投递" />
+                                <ComboBox Classes="publishInput" x:Name="PlaywrightDeliveryCombo">
+                                    <ComboBoxItem Tag="classic">经典（一次传完全部）</ComboBoxItem>
+                                    <ComboBoxItem Tag="batch">分批（卡死就整批重传）</ComboBoxItem>
+                                </ComboBox>
+                            </StackPanel>
+
+                            <UniformGrid Classes="publishRow" Columns="2">
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="提交动作" TextWrapping="Wrap" />
+                                    <ComboBox Classes="publishInput" x:Name="SubmitActionCombo" HorizontalAlignment="Stretch">
+                                        <ComboBoxItem Tag="none">不提交</ComboBoxItem>
+                                        <ComboBoxItem Tag="save">保存</ComboBoxItem>
+                                        <ComboBoxItem Tag="submit">提交</ComboBoxItem>
+                                    </ComboBox>
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5">
+                                    <TextBlock Classes="formLabel" Text="项目并发数" TextWrapping="Wrap" />
+                                    <NumericUpDown Classes="publishInput" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                            <UniformGrid Classes="publishRow" Columns="2" IsVisible="{Binding IsVisible, ElementName=UploadBatchSizeBox}">
+                                <StackPanel Classes="publishField" Spacing="5" IsVisible="{Binding IsVisible, ElementName=UploadBatchSizeBox}">
+                                    <TextBlock Classes="formLabel" x:Name="BatchSizeLabel" Text="分批·每批数量" TextWrapping="Wrap" />
+                                    <NumericUpDown Classes="publishInput" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5" IsVisible="{Binding IsVisible, ElementName=UploadBatchStallBox}">
+                                    <TextBlock Classes="formLabel" x:Name="BatchStallLabel" Text="分批·卡死秒数" TextWrapping="Wrap" />
+                                    <NumericUpDown Classes="publishInput" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
+                                </StackPanel>
+                                <StackPanel Classes="publishField" Spacing="5" IsVisible="{Binding IsVisible, ElementName=UploadBatchRetriesBox}">
+                                    <TextBlock Classes="formLabel" x:Name="BatchRetriesLabel" Text="分批·重试次数" TextWrapping="Wrap" />
+                                    <NumericUpDown Classes="publishInput" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
+                                </StackPanel>
+                            </UniformGrid>
+
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
 
             <TabItem Header="网络 / IP">
                 <ScrollViewer>
@@ -154,195 +467,6 @@
                             <TextBlock x:Name="ProxyTestResultText" TextWrapping="Wrap" Foreground="#666" Text="点击「测试IP」检测当前代理的实际出口 IP 与归属地。" />
                         </StackPanel>
                     </Grid>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="发布配置">
-                <ScrollViewer>
-                    <StackPanel Spacing="10" Margin="2,4,2,2">
-                        <Grid Classes="profileForm" ColumnDefinitions="140,*" ColumnSpacing="10">
-                            <TextBlock Grid.Column="0"
-                                       Classes="formLabel"
-                                       Text="剧集类型"
-                                       VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1"
-                                      x:Name="DramaMarketCombo"
-                                      HorizontalAlignment="Stretch"
-                                      SelectionChanged="OnDramaMarketSelectionChanged">
-                                <ComboBoxItem Tag="local">本土剧</ComboBoxItem>
-                                <ComboBoxItem Tag="overseas">海外剧</ComboBoxItem>
-                            </ComboBox>
-                        </Grid>
-                        <Grid Classes="profileForm" ColumnDefinitions="140,*" ColumnSpacing="10">
-                            <TextBlock Grid.Column="0"
-                                       Classes="formLabel"
-                                       Text="0 元投放"
-                                       VerticalAlignment="Top"
-                                       Margin="0,5,0,0" />
-                            <StackPanel Grid.Column="1" Spacing="7">
-                                <CheckBox x:Name="ZeroCostAdsBox" Content="启用" />
-                                <Grid ColumnDefinitions="120,*"
-                                      ColumnSpacing="10"
-                                      IsVisible="{Binding IsChecked, ElementName=ZeroCostAdsBox}">
-                                    <TextBlock Grid.Column="0"
-                                               Classes="formLabel"
-                                               Text="第 0 天 ROI"
-                                               VerticalAlignment="Center" />
-                                    <NumericUpDown Grid.Column="1"
-                                                   x:Name="DayZeroRoiBox"
-                                                   Minimum="1.00"
-                                                   Maximum="1.50"
-                                                   Increment="0.01"
-                                                   FormatString="0.00"
-                                                   Value="1.05"
-                                                   Width="160"
-                                                   HorizontalAlignment="Left" />
-                                </Grid>
-                            </StackPanel>
-                        </Grid>
-                        <Grid Classes="profileForm" ColumnDefinitions="140,*"
-                              RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
-                              RowSpacing="8"
-                              ColumnSpacing="10">
-                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="合同 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="ContractIdBox" Watermark="合同 ID" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="提交动作" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="SubmitActionCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="none">不提交</ComboBoxItem>
-                                <ComboBoxItem Tag="save">保存</ComboBoxItem>
-                                <ComboBoxItem Tag="submit">提交</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="3" Grid.Column="0" Text="发布模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="PublishModeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="auto_after_review">过审后自动发布</ComboBoxItem>
-                                <ComboBoxItem Tag="manual">手动发布</ComboBoxItem>
-                                <ComboBoxItem Tag="scheduled">定时发布</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="4" Grid.Column="0" Text="目标观众" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="4" Grid.Column="1" x:Name="AudienceCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="female">女性</ComboBoxItem>
-                                <ComboBoxItem Tag="male">男性</ComboBoxItem>
-                                <ComboBoxItem Tag="ai_recommend">AI 推荐</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="源语言" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="5" Grid.Column="1" x:Name="SourceLanguageCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="auto">AI识别语言</ComboBoxItem>
-                                <ComboBoxItem Tag="zh">中文</ComboBoxItem>
-                                <ComboBoxItem Tag="en">英语 / English</ComboBoxItem>
-                                <ComboBoxItem Tag="id">印尼语 / Indonesian</ComboBoxItem>
-                                <ComboBoxItem Tag="pt">葡语 / Portuguese</ComboBoxItem>
-                                <ComboBoxItem Tag="ja">日语 / Japanese</ComboBoxItem>
-                                <ComboBoxItem Tag="th">泰语 / Thai</ComboBoxItem>
-                                <ComboBoxItem Tag="es">西语 / Spanish</ComboBoxItem>
-                                <ComboBoxItem Tag="ko">韩语 / Korean</ComboBoxItem>
-                                <ComboBoxItem Tag="tr">土耳其语 / Turkish</ComboBoxItem>
-                                <ComboBoxItem Tag="hi">印地语 / Hindi</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="上传方式" VerticalAlignment="Center" />
-                            <StackPanel Grid.Row="6" Grid.Column="1" Spacing="8">
-                                <ComboBox x:Name="UploadStrategyCombo" HorizontalAlignment="Stretch" SelectionChanged="UploadStrategyCombo_SelectionChanged">
-                                    <ComboBoxItem Tag="playwright">网页上传</ComboBoxItem>
-                                    <ComboBoxItem Tag="api">接口上传</ComboBoxItem>
-                                </ComboBox>
-                                <StackPanel x:Name="PlaywrightDeliveryPanel" Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="正片投递" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="PlaywrightDeliveryCombo" MinWidth="280">
-                                        <ComboBoxItem Tag="classic">经典（一次传完全部）</ComboBoxItem>
-                                        <ComboBoxItem Tag="batch">分批（卡死就整批重传）</ComboBoxItem>
-                                    </ComboBox>
-                                </StackPanel>
-                            </StackPanel>
-
-                            <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="付费模式" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="7" Grid.Column="1" x:Name="PaidEnabledBox" Content="启用" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="8" Grid.Column="0" Text="付费比例" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="8" Grid.Column="1" x:Name="PaidRatioEnabledBox" Content="启用" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="9" Grid.Column="0" Text="付费比例 %" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="PaidRatioPercentBox" Minimum="0" Maximum="100" Value="20" Width="160" HorizontalAlignment="Left" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="10" Grid.Column="0" Text="AI 短剧" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="10" Grid.Column="1" x:Name="AiDramaBox" Content="是" IsChecked="True" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="11" Grid.Column="0" Text="AI 改写简介" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="11" Grid.Column="1" x:Name="AiRewriteSynopsisBox" Content="启用" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="12" Grid.Column="0" Text="新剧名随机度" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="12" Grid.Column="1" x:Name="AiNewTitleRandomnessCombo" Width="160" HorizontalAlignment="Left">
-                                <ComboBoxItem Tag="low">低</ComboBoxItem>
-                                <ComboBoxItem Tag="medium">中（默认）</ComboBoxItem>
-                                <ComboBoxItem Tag="high">高</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="14" Grid.Column="0" Text="寄售模式" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="14" Grid.Column="1" x:Name="ConsignmentBox" Content="启用" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="15" Grid.Column="0" Text="锚点推广" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="15" Grid.Column="1" x:Name="AnchorPromotionBox" Content="启用" />
-
-                            <views:PublishAccountSelector Grid.Row="16" Grid.Column="0" Grid.ColumnSpan="2" x:Name="PublishAccounts" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="17" Grid.Column="0" Text="启用提交" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="17" Grid.Column="1" x:Name="SubmitEnabledBox" Content="启用" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="18" Grid.Column="0" Text="上传浏览器" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="18" Grid.Column="1" x:Name="UploadBrowserModeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="embedded">内置浏览器（WebView2）</ComboBoxItem>
-                                <ComboBoxItem Tag="playwright">外部浏览器（程序自动打开，可无头）</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="19" Grid.Column="0" Text="外部浏览器无头" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="19" Grid.Column="1" x:Name="PlaywrightHeadlessBox" Content="无头模式（不显示窗口，仅程序自动打开的外部浏览器生效）" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="20" Grid.Column="0" Text="原始权利人" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="20" Grid.Column="1" x:Name="OriginalRightsHolderBox" Content="是" IsChecked="True" />
-
-                            <TextBlock Classes="formLabel" Grid.Row="21" Grid.Column="0" Text="内容原创类型" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="21" Grid.Column="1" x:Name="ContentOriginalityCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="original">原创</ComboBoxItem>
-                                <ComboBoxItem Tag="adapted">改编</ComboBoxItem>
-                            </ComboBox>
-
-                            <TextBlock Classes="formLabel" Grid.Row="22" Grid.Column="0" Text="内容创作类型" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="22" Grid.Column="1" x:Name="ContentCreationTypeCombo" HorizontalAlignment="Stretch">
-                                <ComboBoxItem Tag="original">原创</ComboBoxItem>
-                                <ComboBoxItem Tag="remake">成片重制</ComboBoxItem>
-                                <ComboBoxItem Tag="novel_adaptation">小说改编</ComboBoxItem>
-                            </ComboBox>
-
-                        </Grid>
-
-                        <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="10">
-                            <TextBlock Classes="formLabel" Grid.Row="0" Grid.Column="0" Text="预期价格" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="ExpectedPriceValueBox" Watermark="0.3" MinWidth="160" />
-                            <TextBlock Classes="formLabel" Grid.Row="1" Grid.Column="0" Text="个人页预览集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" x:Name="ProfilePreviewBox" Minimum="1" Maximum="999" Value="3" />
-                            <TextBlock Classes="formLabel" Grid.Row="2" Grid.Column="0" Text="免费预览集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="1" x:Name="FreePreviewBox" Minimum="1" Maximum="999" Value="3" />
-                            <TextBlock Classes="formLabel" x:Name="ApiConcurrencyLabel" Grid.Row="3" Grid.Column="0" Text="接口·并发集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" x:Name="UploadApiConcurrencyBox" Minimum="1" Maximum="6" Value="3" />
-                            <TextBlock Classes="formLabel" Grid.Row="5" Grid.Column="0" Text="题材数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" x:Name="GenreCountBox" Minimum="1" Maximum="8" Value="3" />
-                            <TextBlock Classes="formLabel" Grid.Row="6" Grid.Column="0" Text="上传停滞秒数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="6" Grid.Column="1" x:Name="UploadStallBox" Minimum="30" Maximum="3600" Value="180" />
-                            <TextBlock Classes="formLabel" Grid.Row="7" Grid.Column="0" Text="项目并发数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="7" Grid.Column="1" x:Name="ProjectConcurrencyBox" Minimum="1" Maximum="8" Value="4" />
-                            <TextBlock Classes="formLabel" x:Name="BatchSizeLabel" Grid.Row="8" Grid.Column="0" Text="分批·每批数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="8" Grid.Column="1" x:Name="UploadBatchSizeBox" Minimum="1" Maximum="20" Value="3" />
-                            <TextBlock Classes="formLabel" x:Name="BatchStallLabel" Grid.Row="9" Grid.Column="0" Text="分批·卡死秒数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="9" Grid.Column="1" x:Name="UploadBatchStallBox" Minimum="20" Maximum="600" Value="75" />
-                            <TextBlock Classes="formLabel" x:Name="BatchRetriesLabel" Grid.Row="10" Grid.Column="0" Text="分批·重试次数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="10" Grid.Column="1" x:Name="UploadBatchRetriesBox" Minimum="1" Maximum="10" Value="3" />
-                        </Grid>
-                        <Grid Classes="profileForm" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="10">
-                        </Grid>
-                    </StackPanel>
                 </ScrollViewer>
             </TabItem>
 

@@ -452,7 +452,8 @@ public sealed class TikTokApiUploadServiceTests
         var account = new TikTokAccountProfile
         {
             TiktokUploadStrategy = "api",
-            TiktokUploadApiConcurrency = 9,
+            TiktokUploadApiConcurrency = 6,
+            TiktokUploadStallSeconds = 45,
             TiktokUploadApiFallbackToBatch = false,
             TiktokProxyEnabled = true,
             TiktokProxyHost = "127.0.0.1",
@@ -463,7 +464,8 @@ public sealed class TikTokApiUploadServiceTests
 
         options.UseApiUpload.Should().BeTrue();
         options.UseBatchUpload.Should().BeFalse();
-        options.UploadApiConcurrency.Should().Be(6);
+        options.UploadApiConcurrency.Should().Be(3);
+        options.UploadStallSeconds.Should().Be(180);
         options.UploadApiFallbackToBatch.Should().BeFalse();
         options.NetworkProxyServer.Should().Be("http://127.0.0.1:7890");
     }

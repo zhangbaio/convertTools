@@ -55,8 +55,9 @@ public static class TikTokUploadPrerequisiteService
 
     public static bool PaidUploadPossible(TikTokAccountProfile account)
     {
-        if (account.TiktokPaidRatioEnabled && account.TiktokPaidRatioPercent > 0.0)
-            return true;
-        return account.TiktokPaidEnabled;
+        if (!account.TiktokPaidRatioEnabled)
+            return account.TiktokPaidEnabled;
+
+        return double.IsFinite(account.TiktokPaidRatioPercent) && account.TiktokPaidRatioPercent > 0;
     }
 }

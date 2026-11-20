@@ -18,7 +18,7 @@ public sealed class PublishAccountSelector : UserControl
     public static readonly StyledProperty<double> LabelColumnWidthProperty =
         AvaloniaProperty.Register<PublishAccountSelector, double>(nameof(LabelColumnWidth), 140);
 
-    private readonly CheckBox _enabled = new() { Content = "启用" };
+    private readonly ToggleSwitch _enabled = new() { OnContent = "启用", OffContent = "关闭" };
     private readonly TextBlock _dropdownLabel;
     private readonly StackPanel _fetchRow = new()
     {
@@ -118,6 +118,33 @@ public sealed class PublishAccountSelector : UserControl
         _fetchButton.Click += (_, _) => FetchRequested?.Invoke(this, EventArgs.Empty);
         UpdateDetailsVisibility();
         UpdateSummary();
+    }
+
+    public void UseInlineLayout(ToggleSwitch leadingSwitch)
+    {
+        if (Content is not Grid grid || _enabled.Parent is not StackPanel details)
+            return;
+
+        details.Children.Remove(_enabled);
+        grid.Children.Remove(details);
+        grid.Children.Remove(_dropdownLabel);
+        grid.Children.Remove(_dropdownRow);
+        _enabled.OnContent = "自定义发布账号";
+        _enabled.OffContent = "自定义发布账号";
+        Avalonia.Automation.AutomationProperties.SetName(_enabled, "自定义发布账号");
+
+        leadingSwitch.Margin = new Thickness(0, 0, 24, 4);
+        _enabled.Margin = new Thickness(0, 0, 0, 4);
+        var toggles = new WrapPanel { Orientation = Orientation.Horizontal };
+        toggles.Children.Add(leadingSwitch);
+        toggles.Children.Add(_enabled);
+
+        var content = new StackPanel { Spacing = 4 };
+        content.Children.Add(toggles);
+        content.Children.Add(details);
+        content.Children.Add(_dropdownLabel);
+        content.Children.Add(_dropdownRow);
+        Content = content;
     }
 
     public IReadOnlyList<string> ReadSelectedKeys() =>

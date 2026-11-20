@@ -295,6 +295,7 @@ public sealed class AccountStore
             TiktokUploadBrowserMode = "playwright",
             TiktokPlaywrightUploadHeadless = true,
             TiktokUploadStrategy = "api",
+            TiktokPaidEnabled = true,
             TiktokPaidRatioEnabled = true,
             TiktokExpectedFullPriceMode = "manual",
             TiktokExpectedFullPriceValue = TikTokAccountProfile.DefaultExpectedPriceUsd,

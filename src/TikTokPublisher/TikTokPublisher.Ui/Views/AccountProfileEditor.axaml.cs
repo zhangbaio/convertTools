@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -37,6 +38,8 @@ public partial class AccountProfileEditor : UserControl
     public AccountProfileEditor()
     {
         InitializeComponent();
+        PublishForm.Children.Remove(OriginalRightsHolderBox);
+        PublishAccounts.UseInlineLayout(OriginalRightsHolderBox);
         PublishAccounts.FetchRequested += (_, _) => _ = FetchPublishAccountsAsync();
         VideoDedupEditor.ApplyToAllAccountsRequested += (_, _) => _ = ApplyDedupPresetToAllAccountsAsync();
         DataContextChanged += (_, _) => ReloadFromSelectedAccount();
@@ -185,6 +188,7 @@ public partial class AccountProfileEditor : UserControl
 
     private void ReloadFromSelectedAccountCore()
     {
+        SetPasswordVisibility(false);
         var profile = _vm?.SelectedAccount?.Model;
         if (profile is null)
         {
@@ -199,7 +203,6 @@ public partial class AccountProfileEditor : UserControl
         NicknameBox.Text = profile.TiktokAccountNickname;
         LoginEmailBox.Text = profile.TiktokLoginEmail;
         PasswordBox.Text = profile.TiktokLoginPassword;
-        StorageStateBox.Text = profile.TiktokStorageStatePath;
         ShowPersistedRemoteDispatch(profile);
         SeriesUrlBox.Text = profile.TiktokSeriesUrl;
         WorkspaceBox.Text = !string.IsNullOrWhiteSpace(profile.TiktokUploadProfilePath)
@@ -217,9 +220,10 @@ public partial class AccountProfileEditor : UserControl
         RequestContractAutofill(profile);
         var submitAction = NormalizeSubmitAction(profile.TiktokSubmitAction, profile.TiktokSubmitEnabled);
         SelectByTag(SubmitActionCombo, submitAction, "submit");
-        SubmitEnabledBox.IsChecked = string.Equals(submitAction, "submit", StringComparison.Ordinal);
-        SelectByTag(UploadBrowserModeCombo, profile.TiktokUploadBrowserMode, "playwright");
-        PlaywrightHeadlessBox.IsChecked = profile.TiktokPlaywrightUploadHeadless;
+        var browserOption = string.Equals(profile.TiktokUploadBrowserMode, "embedded", StringComparison.OrdinalIgnoreCase)
+            ? "embedded"
+            : profile.TiktokPlaywrightUploadHeadless ? "playwright_headless" : "playwright";
+        SelectByTag(UploadBrowserModeCombo, browserOption, "playwright_headless");
         SelectByTag(PublishModeCombo, profile.TiktokPublishMode, "auto_after_review");
         SelectByTag(AudienceCombo, profile.TiktokTargetAudienceMode, "ai_recommend");
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.NormalizeDramaMarket(profile.TiktokDramaMarket), TikTokAccountProfile.DramaMarketLocal);
@@ -232,11 +236,11 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(PlaywrightDeliveryCombo, upload.Delivery, "classic");
         UpdateUploadChannelVisibility();
 
-        PaidEnabledBox.IsChecked = profile.TiktokPaidEnabled;
-        PaidRatioEnabledBox.IsChecked = profile.TiktokPaidRatioEnabled;
-        PaidRatioPercentBox.Value = (decimal)(profile.TiktokPaidRatioPercent > 0
-            ? profile.TiktokPaidRatioPercent
-            : 20);
+        PaidEnabledBox.IsChecked = profile.TiktokPaidEnabled || profile.TiktokPaidRatioEnabled;
+        PaidRatioModeBox.IsChecked = profile.TiktokPaidRatioEnabled || !profile.TiktokPaidEnabled;
+        PaidAllModeBox.IsChecked = PaidRatioModeBox.IsChecked != true;
+        var paidRatio = profile.TiktokPaidRatioPercent;
+        PaidRatioPercentBox.Value = double.IsFinite(paidRatio) ? (decimal)Math.Clamp(paidRatio, 0, 100) : 0;
         AiDramaBox.IsChecked = profile.TiktokIsAiDrama;
         SelectByTag(ContentCreationTypeCombo, profile.TiktokContentCreationType, "original");
         OriginalRightsHolderBox.IsChecked = profile.TiktokIsOriginalRightsHolder;
@@ -285,12 +289,10 @@ public partial class AccountProfileEditor : UserControl
         ProfilePreviewBox.Value = profile.TiktokProfilePreviewEpisodes > 0 ? profile.TiktokProfilePreviewEpisodes : 3;
         FreePreviewBox.Value = profile.TiktokFreePreviewEpisodes > 0 ? profile.TiktokFreePreviewEpisodes : 3;
         GenreCountBox.Value = TikTokPublishOptions.NormalizeGenreCount(profile.TiktokGenreCount);
-        UploadStallBox.Value = profile.TiktokUploadStallSeconds;
         ProjectConcurrencyBox.Value = profile.TiktokProjectConcurrency;
         UploadBatchSizeBox.Value = profile.TiktokUploadBatchSize;
         UploadBatchStallBox.Value = profile.TiktokUploadBatchStallSeconds;
         UploadBatchRetriesBox.Value = profile.TiktokUploadBatchMaxRetries;
-        UploadApiConcurrencyBox.Value = profile.TiktokUploadApiConcurrency;
 
         ExpectedPriceValueBox.Text = TikTokApiSeriesDocument.ReadPrice(profile.TiktokExpectedFullPriceValue) ?? "";
 
@@ -334,7 +336,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokAccountNickname = NicknameBox.Text?.Trim() ?? "";
             profile.TiktokLoginEmail = LoginEmailBox.Text?.Trim() ?? "";
             profile.TiktokLoginPassword = PasswordBox.Text ?? "";
-            profile.TiktokStorageStatePath = StorageStateBox.Text?.Trim() ?? profile.TiktokStorageStatePath;
             if (_vm.SystemServices.XingeRemoteEnabled)
             {
                 profile.XingeRemoteDispatchConfigured = true;
@@ -363,10 +364,12 @@ public partial class AccountProfileEditor : UserControl
 
             profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
             profile.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
-            profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"), SubmitEnabledBox.IsChecked == true);
+            profile.TiktokSubmitAction = NormalizeSubmitAction(TagOf(SubmitActionCombo, "submit"));
             profile.TiktokSubmitEnabled = string.Equals(profile.TiktokSubmitAction, "submit", StringComparison.Ordinal);
-            profile.TiktokUploadBrowserMode = TagOf(UploadBrowserModeCombo, "playwright");
-            profile.TiktokPlaywrightUploadHeadless = PlaywrightHeadlessBox.IsChecked == true;
+            var browserOption = TagOf(UploadBrowserModeCombo, "playwright_headless");
+            profile.TiktokUploadBrowserMode = browserOption == "embedded" ? "embedded" : "playwright";
+            if (browserOption != "embedded")
+                profile.TiktokPlaywrightUploadHeadless = browserOption == "playwright_headless";
             profile.TiktokPublishMode = TagOf(PublishModeCombo, "auto_after_review");
             profile.TiktokTargetAudienceMode = TagOf(AudienceCombo, "ai_recommend");
             profile.TiktokDramaMarket = TikTokAccountProfile.NormalizeDramaMarket(TagOf(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal));
@@ -377,8 +380,8 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadStrategy = upload.Channel;
             profile.TiktokPlaywrightVideoDelivery = upload.Delivery;
             profile.TiktokPaidEnabled = PaidEnabledBox.IsChecked == true;
-            profile.TiktokPaidRatioEnabled = PaidRatioEnabledBox.IsChecked == true;
-            profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 0);
+            profile.TiktokPaidRatioEnabled = profile.TiktokPaidEnabled && PaidRatioModeBox.IsChecked == true;
+            profile.TiktokPaidRatioPercent = (double)(PaidRatioPercentBox.Value ?? 20);
             profile.TiktokIsAiDrama = AiDramaBox.IsChecked == true;
             profile.TiktokContentCreationType = TagOf(ContentCreationTypeCombo, "original");
             profile.TiktokIsOriginalRightsHolder = OriginalRightsHolderBox.IsChecked == true;
@@ -424,12 +427,10 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokProfilePreviewEpisodes = (int)(ProfilePreviewBox.Value ?? 3);
             profile.TiktokFreePreviewEpisodes = (int)(FreePreviewBox.Value ?? 3);
             profile.TiktokGenreCount = TikTokPublishOptions.NormalizeGenreCount((int)(GenreCountBox.Value ?? TikTokPublishOptions.DefaultGenreCount));
-            profile.TiktokUploadStallSeconds = (int)(UploadStallBox.Value ?? 180);
             profile.TiktokProjectConcurrency = (int)(ProjectConcurrencyBox.Value ?? 4);
             profile.TiktokUploadBatchSize = (int)(UploadBatchSizeBox.Value ?? 3);
             profile.TiktokUploadBatchStallSeconds = (int)(UploadBatchStallBox.Value ?? 75);
             profile.TiktokUploadBatchMaxRetries = (int)(UploadBatchRetriesBox.Value ?? 3);
-            profile.TiktokUploadApiConcurrency = (int)(UploadApiConcurrencyBox.Value ?? 3);
             profile.TiktokUploadApiFallbackToBatch = false;
             profile.TiktokExpectedFullPriceMode = "manual";
             profile.TiktokExpectedFullPriceValue = TikTokApiSeriesDocument.ReadPrice(ExpectedPriceValueBox.Text) ?? "";
@@ -1044,7 +1045,6 @@ public partial class AccountProfileEditor : UserControl
         NicknameBox.Text = "";
         LoginEmailBox.Text = "";
         PasswordBox.Text = "";
-        StorageStateBox.Text = "";
         SeriesUrlBox.Text = TikTokUrls.DefaultSeriesDraftUrl;
         WorkspaceBox.Text = "";
         ArchiveRootBox.Text = "";
@@ -1066,7 +1066,7 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(DramaMarketCombo, TikTokAccountProfile.DramaMarketLocal, TikTokAccountProfile.DramaMarketLocal);
         ZeroCostAdsBox.IsChecked = false;
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
-        SubmitEnabledBox.IsChecked = true;
+        SelectByTag(SubmitActionCombo, "submit", "submit");
         ExpectedPriceValueBox.Text = "";
         VideoDedupEditor.Load(null);
         ProxyHostBox.Text = "";
@@ -1076,8 +1076,16 @@ public partial class AccountProfileEditor : UserControl
         StaticIpNoteBox.Text = "";
     }
 
-    private async void OnBrowseAuthPathClick(object? sender, RoutedEventArgs e) =>
-        await PickFileAsync(StorageStateBox, "选择登录态 JSON 文件", ["json"]);
+    private void OnPasswordVisibilityClick(object? sender, RoutedEventArgs e) =>
+        SetPasswordVisibility(!PasswordBox.RevealPassword);
+
+    private void SetPasswordVisibility(bool visible)
+    {
+        PasswordBox.RevealPassword = visible;
+        var label = visible ? "隐藏密码" : "显示密码";
+        ToolTip.SetTip(PasswordVisibilityButton, label);
+        Avalonia.Automation.AutomationProperties.SetName(PasswordVisibilityButton, label);
+    }
 
     private async void OnBrowseWorkspaceClick(object? sender, RoutedEventArgs e) =>
         await PickFolderAsync(WorkspaceBox, "选择上传工作目录");
@@ -1297,6 +1305,21 @@ public partial class AccountProfileEditor : UserControl
     private void UploadStrategyCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
         UpdateUploadChannelVisibility();
 
+    private void OnPublishFormSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        var width = e.NewSize.Width;
+        if (width <= 0)
+            return;
+
+        PublishForm.Width = Math.Min(width, PublishForm.MaxWidth);
+        foreach (var row in PublishForm.Children.OfType<UniformGrid>())
+        {
+            var columns = width < 580 ? 1 : 2;
+            if (row.Columns != columns)
+                row.Columns = columns;
+        }
+    }
+
     private void UpdateUploadChannelVisibility()
     {
         if (PlaywrightDeliveryPanel is null)
@@ -1310,7 +1333,5 @@ public partial class AccountProfileEditor : UserControl
         UploadBatchStallBox.IsVisible = !api;
         BatchRetriesLabel.IsVisible = !api;
         UploadBatchRetriesBox.IsVisible = !api;
-        ApiConcurrencyLabel.IsVisible = api;
-        UploadApiConcurrencyBox.IsVisible = api;
     }
 }
