@@ -63,7 +63,7 @@
                    TextWrapping="Wrap" />
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" IsVisible="{Binding ShowSaveButton}">
-            <Button Content="保存系统服务配置" Command="{Binding SaveCommand}" Classes="primaryAction" />
+            <Button Content="保存 XINGE 配置" Command="{Binding SaveCommand}" Classes="primaryAction" />
         </StackPanel>
     </StackPanel>
 </UserControl>

@@ -10,157 +10,79 @@
     </UserControl.Styles>
 
 
-    <ScrollViewer Classes="pageRoot">
-        <StackPanel Spacing="12">
-            <TextBlock Text="系统服务" Classes="pageTitle" />
-            <TextBlock Text="{Binding ServiceSummaryText}"
-                       Classes="pageSummary"
+    <ScrollViewer>
+        <StackPanel Spacing="12" Margin="4" MaxWidth="1080">
+            <TextBlock Text="{Binding ServiceSummaryText}" Classes="pageSummary" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="120,*"
+                  RowDefinitions="Auto,Auto,Auto"
+                  RowSpacing="10"
+                  ColumnSpacing="10">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="授权状态" VerticalAlignment="Top" Margin="0,6,0,0" />
+                <TextBox Classes="configurationInput" Grid.Row="0"
+                         Grid.Column="1"
+                         Text="{Binding LicenseSummary}"
+                         IsReadOnly="True"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         Height="120" />
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="服务器地址" VerticalAlignment="Center" />
+                <TextBox Classes="configurationInput" Grid.Row="1"
+                         Grid.Column="1"
+                         Text="{Binding AuthServerUrl}" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="联网校验间隔" VerticalAlignment="Center" />
+                <NumericUpDown Classes="configurationInput" Grid.Row="2"
+                               Grid.Column="1"
+                               Value="{Binding LicenseVerifyIntervalHours, Mode=OneWay}"
+                               Minimum="1"
+                               Maximum="1"
+                               IsEnabled="False"
+                               Width="170"
+                               HorizontalAlignment="Left"
+                               FormatString="0 小时（系统固定）" />
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="保存授权配置" Command="{Binding SaveAuthServerUrlCommand}" />
+                <Button Content="登录 / 更换账号" Click="OnLicenseLoginClick" Classes="primaryAction" />
+                <Button Content="退出登录 / 清除本机登录" Click="OnLicenseLogoutClick" />
+                <Button Content="导出配置" Click="OnExportConfigClick" />
+                <Button Content="导入配置" Click="OnImportConfigClick" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="上传配置到云端"
+                        Click="OnUploadCloudConfigClick"
+                        Classes="primaryAction"
+                        IsEnabled="{Binding CloudConfigSyncEnabled}" />
+                <Button Content="从云端下载配置"
+                        Click="OnDownloadCloudConfigClick"
+                        IsEnabled="{Binding CloudConfigSyncEnabled}" />
+            </StackPanel>
+            <TextBlock Text="上传和下载使用当前软件登录账号。云端只保留一份配置，后一次上传会覆盖前一次。另一台电脑登录同一账号后，可以手动下载并合并。"
+                       Classes="compactHint"
                        TextWrapping="Wrap" />
 
-            <TabControl Classes="secondaryTabs">
-                <TabItem Header="软件授权">
-                    <StackPanel Spacing="12" Margin="12" MaxWidth="1080">
-                        <Grid ColumnDefinitions="120,*"
-                              RowDefinitions="Auto,Auto,Auto"
-                              RowSpacing="10"
-                              ColumnSpacing="10">
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="授权状态" VerticalAlignment="Top" Margin="0,6,0,0" />
-                            <TextBox Classes="configurationInput" Grid.Row="0"
-                                     Grid.Column="1"
-                                     Text="{Binding LicenseSummary}"
-                                     IsReadOnly="True"
-                                     AcceptsReturn="True"
-                                     TextWrapping="Wrap"
-                                     Height="120" />
+            <TextBlock Text="软件每次启动及运行期间都会联网校验账号和设备授权；网络失败、未登录、授权过期、设备不匹配或服务器拒绝授权时，软件将直接退出。登录信息保存在 ~/.tiktok_publisher/license_state.bin。"
+                       Classes="compactHint"
+                       TextWrapping="Wrap" />
+            <TextBlock Text="{Binding LoginStatus}" Classes="pageSummary" TextWrapping="Wrap" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="服务器地址" VerticalAlignment="Center" />
-                            <TextBox Classes="configurationInput" Grid.Row="1"
-                                     Grid.Column="1"
-                                     Text="{Binding AuthServerUrl}" />
-
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="联网校验间隔" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="2"
-                                           Grid.Column="1"
-                                           Value="{Binding LicenseVerifyIntervalHours, Mode=OneWay}"
-                                           Minimum="1"
-                                           Maximum="1"
-                                           IsEnabled="False"
-                                           Width="170"
-                                           HorizontalAlignment="Left"
-                                           FormatString="0 小时（系统固定）" />
-                        </Grid>
-
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="登录 / 更换账号" Click="OnLicenseLoginClick" Classes="primaryAction" />
-                            <Button Content="退出登录 / 清除本机登录" Click="OnLicenseLogoutClick" />
-                            <Button Content="导出配置" Click="OnExportConfigClick" />
-                            <Button Content="导入配置" Click="OnImportConfigClick" />
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="上传配置到云端"
-                                    Click="OnUploadCloudConfigClick"
-                                    Classes="primaryAction"
-                                    IsEnabled="{Binding CloudConfigSyncEnabled}" />
-                            <Button Content="从云端下载配置"
-                                    Click="OnDownloadCloudConfigClick"
-                                    IsEnabled="{Binding CloudConfigSyncEnabled}" />
-                        </StackPanel>
-                        <TextBlock Text="上传和下载使用当前软件登录账号。云端只保留一份配置，后一次上传会覆盖前一次。另一台电脑登录同一账号后，可以手动下载并合并。"
-                                   Classes="compactHint"
-                                   TextWrapping="Wrap" />
-
-                        <TextBlock Text="软件每次启动及运行期间都会联网校验账号和设备授权；网络失败、未登录、授权过期、设备不匹配或服务器拒绝授权时，软件将直接退出。登录信息保存在 ~/.tiktok_publisher/license_state.bin。"
-                                   Classes="compactHint"
-                                   TextWrapping="Wrap" />
-                        <TextBlock Text="{Binding LoginStatus}" Classes="pageSummary" TextWrapping="Wrap" />
-                    </StackPanel>
-                </TabItem>
-
-                <TabItem Header="XINGE">
-                    <views:XingeConnectionView x:Name="XingeConnectionHost" />
-                </TabItem>
-
-                <TabItem Header="翻译配置" IsVisible="False">
-                    <StackPanel Margin="8" Spacing="10">
-                        <TextBlock Text="视频翻译（ASR 识别 → 翻译 → 中文字幕烧录）" FontWeight="Bold" />
-                        <TextBlock Text="识别凭据沿用“系统设置”中的火山 ASR；这里配置翻译引擎和字幕样式。" Classes="compactHint" TextWrapping="Wrap" />
-                        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
-                            <TextBlock Grid.Row="0" Text="翻译引擎" VerticalAlignment="Center" />
-                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding VideoTranslateEngine}" Watermark="volc 或 llm" />
-                            <TextBlock Grid.Row="1" Text="源语言" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding VideoTranslateSourceLanguage}" Watermark="en" />
-                            <TextBlock Grid.Row="2" Text="目标语言" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" Text="{Binding VideoTranslateTargetLanguage}" Watermark="zh" />
-                            <TextBlock Grid.Row="3" Text="火山 AccessKeyId" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="3" Grid.Column="1" Text="{Binding VideoTranslateVolcAccessKeyId}" />
-                            <TextBlock Grid.Row="4" Text="火山 SecretAccessKey" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="4" Grid.Column="1" Text="{Binding VideoTranslateVolcSecretAccessKey}" PasswordChar="●" />
-                            <TextBlock Grid.Row="5" Text="大模型 Base URL" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="5" Grid.Column="1" Text="{Binding VideoTranslateLlmBaseUrl}" />
-                            <TextBlock Grid.Row="6" Text="大模型 API Key" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="6" Grid.Column="1" Text="{Binding VideoTranslateLlmApiKey}" PasswordChar="●" />
-                            <TextBlock Grid.Row="7" Text="大模型名称" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="7" Grid.Column="1" Text="{Binding VideoTranslateLlmModel}" />
-                            <TextBlock Grid.Row="8" Text="字幕字体" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="8" Grid.Column="1" Text="{Binding VideoTranslateFont}" />
-                            <TextBlock Grid.Row="9" Text="字幕字号" VerticalAlignment="Center" /><NumericUpDown Classes="configurationInput" Grid.Row="9" Grid.Column="1" Value="{Binding VideoTranslateFontSize}" Minimum="12" Maximum="120" Width="120" HorizontalAlignment="Left" />
-                            <TextBlock Grid.Row="10" Text="底部边距" VerticalAlignment="Center" /><NumericUpDown Classes="configurationInput" Grid.Row="10" Grid.Column="1" Value="{Binding VideoTranslateMarginV}" Minimum="0" Maximum="600" Width="120" HorizontalAlignment="Left" />
-                            <TextBlock Grid.Row="11" Text="双语字幕" VerticalAlignment="Center" /><ToggleSwitch Grid.Row="11" Grid.Column="1" IsChecked="{Binding VideoTranslateBilingual}" OnContent="译文下方保留原文" OffContent="译文下方保留原文" />
-                        </Grid>
-                    </StackPanel>
-                </TabItem>
-
-                <TabItem Header="远程命令">
-                    <StackPanel Spacing="12" Margin="12" MaxWidth="1080">
-                        <TextBlock Text="远程上传 TikTok 剧集" FontWeight="SemiBold" />
-                        <TextBlock Text="配置远程命令触发“上传 TikTok 剧集”时默认执行的步骤。命令文本里单独传“步骤”时会优先使用命令里的步骤；下面的队列选项仍按这里的配置生效。"
-                                   Classes="pageSummary"
-                                   TextWrapping="Wrap" />
-
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                            <Button Content="全选步骤" Command="{Binding SelectAllRemoteStepsCommand}" />
-                            <Button Content="恢复默认" Command="{Binding ResetRemoteStepsCommand}" />
-                            <Button Content="取消全选" Command="{Binding ClearRemoteStepsCommand}" />
-                        </StackPanel>
-
-                        <WrapPanel>
-                            <CheckBox Content="下载" IsChecked="{Binding RemoteDownloadEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="视频去重" IsChecked="{Binding RemoteVideoDedupEnabled}" Margin="0,0,16,10" ToolTip.Tip="按账号里的去重方案处理下载视频。" />
-                            <CheckBox Content="改写" IsChecked="{Binding RemoteRewriteEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="海报" IsChecked="{Binding RemoteGeneratePosterEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="证明材料" IsChecked="{Binding RemoteGenerateProofMaterialEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="修复" IsChecked="{Binding RemoteSmallVideoRepairEnabled}" Margin="0,0,16,10" ToolTip.Tip="检查并修复过小的上传视频。" />
-                            <CheckBox Content="翻译" IsChecked="{Binding RemoteVideoTranslateEnabled}" Margin="0,0,16,10" IsVisible="False" />
-                            <CheckBox Content="校验" IsChecked="{Binding RemoteMaterialValidateEnabled}" Margin="0,0,16,10" />
-                            <CheckBox Content="上传" IsChecked="{Binding RemoteUploadEnabled}" Margin="0,0,16,10" />
-                        </WrapPanel>
-
-                        <WrapPanel>
-                            <CheckBox Content="传后归档" IsChecked="{Binding RemoteAutoArchiveAfterUpload}" Margin="0,0,18,10" ToolTip.Tip="上传成功后自动把项目移入归档。" />
-                            <CheckBox Content="强制重跑" IsChecked="{Binding RemoteForceRerunCompletedSteps}" Margin="0,0,18,10" ToolTip.Tip="已完成步骤会重新执行。" />
-                            <CheckBox Content="优先上传" IsChecked="{Binding RemotePreferUploadWhenReady}" Margin="0,0,18,10" ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
-                        </WrapPanel>
-
-                        <TextBlock Text="这组配置仅用于远程命令里的“上传 TikTok 剧集”。本地 TikTok 上传页上的勾选步骤不会被这里覆盖。"
-                                   Classes="compactHint"
-                                   TextWrapping="Wrap" />
-                    </StackPanel>
-                </TabItem>
-
-                <TabItem Header="客户端更新">
-                    <StackPanel Spacing="12" Margin="12" MaxWidth="1080">
-                        <TextBlock Text="{Binding ClientUpdateStatus}" Classes="pageSummary" TextWrapping="Wrap" />
-                        <TextBlock Text="{Binding ClientUpdateDetail}" Classes="compactHint" TextWrapping="Wrap" />
-                        <TextBlock Text="已用自动升级包装过的程序会从管理系统拿到阿里云 OSS 目录并下载新版本。队列运行时只下载，不重启。"
-                                   Classes="compactHint"
-                                   TextWrapping="Wrap" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Content="检查更新"
-                                    Command="{Binding CheckClientUpdateCommand}"
-                                    Classes="primaryAction"
-                                    IsEnabled="{Binding !ClientUpdateBusy}" />
-                            <Button Content="升级并重启"
-                                    Command="{Binding RestartClientUpdateCommand}"
-                                    IsEnabled="{Binding ClientUpdateCanRestart}" />
-                        </StackPanel>
-                    </StackPanel>
-                </TabItem>
-            </TabControl>
-
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="保存系统服务配置" Command="{Binding SaveSystemServicesCommand}" Classes="primaryAction" />
+            <Separator />
+            <TextBlock Text="客户端更新" Classes="configurationHeading" />
+            <TextBlock Text="{Binding ClientUpdateStatus}" Classes="pageSummary" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding ClientUpdateDetail}" Classes="compactHint" TextWrapping="Wrap" />
+            <TextBlock Text="已用自动升级包装过的程序会从管理系统拿到阿里云 OSS 目录并下载新版本。队列运行时只下载，不重启。"
+                       Classes="compactHint"
+                       TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="检查更新"
+                        Command="{Binding CheckClientUpdateCommand}"
+                        Classes="primaryAction"
+                        IsEnabled="{Binding !ClientUpdateBusy}" />
+                <Button Content="升级并重启"
+                        Command="{Binding RestartClientUpdateCommand}"
+                        IsEnabled="{Binding ClientUpdateCanRestart}" />
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

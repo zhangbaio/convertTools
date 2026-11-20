@@ -39,13 +39,13 @@ public static class TikTokManagementUploadRecordSyncService
         if (string.IsNullOrWhiteSpace(baseUrl))
             baseUrl = CleanBaseUrl(settings.AuthServerUrl);
         if (string.IsNullOrWhiteSpace(baseUrl))
-            return new(false, "管理系统地址未配置（请在 系统服务 配置服务器地址或登录账号）");
+            return new(false, "管理系统地址未配置（请在「系统设置 → 软件授权」配置服务器地址或登录账号）");
 
         var accountName = FirstNonEmpty(state.AccountUsername, state.Email, state.LicenseKey);
         var machineId = (state.MachineId ?? "").Trim();
         var token = (state.Token ?? "").Trim();
         if (string.IsNullOrWhiteSpace(machineId) || string.IsNullOrWhiteSpace(token))
-            return new(false, "软件未登录或登录态不完整，请在 系统服务 登录 TT 账号后再同步");
+            return new(false, "软件未登录或登录态不完整，请在「系统设置 → 软件授权」登录 TT 账号后再同步");
 
         var record = FinalizeRecord(BuildRecordForSync(item, account), account);
         var payload = JsonSerializer.Serialize(new Dictionary<string, object?>
@@ -358,7 +358,7 @@ public static class TikTokManagementUploadRecordSyncService
             ? FirstNonEmpty(errorObject["error"]?.ToString(), errorObject["message"]?.ToString())
             : parsed?.ToString() ?? "";
         if (status == 401)
-            return new(false, FirstNonEmpty(message, "TT 登录态失效，请在 系统服务 重新登录 TT 账号"));
+            return new(false, FirstNonEmpty(message, "TT 登录态失效，请在「系统设置 → 软件授权」重新登录 TT 账号"));
         return new(false, FirstNonEmpty(message, $"管理系统返回错误：HTTP {status}"));
     }
 

@@ -51,7 +51,7 @@ public sealed partial class SystemServicesViewModel
         LoginPassword = password;
 
         var settings = ClientSettingsStore.Load();
-        ApplyUiToSettings(settings);
+        ApplyAuthorizationSettings(settings);
         LicenseSettingsBridge.ApplyAccountLoginCredentials(settings, state, AuthServerUrl, LoginAccount, LoginPassword);
         ClientSettingsStore.Save(settings);
 

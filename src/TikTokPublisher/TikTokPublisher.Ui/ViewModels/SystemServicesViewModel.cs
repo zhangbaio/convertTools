@@ -6,7 +6,6 @@ using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
-using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.ViewModels;
@@ -15,7 +14,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
 {
     public event Action<string>? StatusRequested;
     public event Action? ConfigImported;
-    public event Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>>? RemoteCommandRequested;
     public event Action? SettingsSaved;
 
     private XingeConnectionViewModel? _xinge;
@@ -36,20 +34,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _xingeClientName = "TikTokPublisher";
     [ObservableProperty] private int _xingePollIntervalSeconds = ClientSettingsDefaults.XingePollIntervalSeconds;
     [ObservableProperty] private string _xingeRemoteStatus = "未启用";
-    [ObservableProperty] private string _remoteCommandPreviewText = "";
-    [ObservableProperty] private string _remoteCommandPreviewResult = "";
-    [ObservableProperty] private bool _remoteDownloadEnabled;
-    [ObservableProperty] private bool _remoteVideoDedupEnabled;
-    [ObservableProperty] private bool _remoteRewriteEnabled;
-    [ObservableProperty] private bool _remoteGeneratePosterEnabled;
-    [ObservableProperty] private bool _remoteGenerateProofMaterialEnabled;
-    [ObservableProperty] private bool _remoteSmallVideoRepairEnabled;
-    [ObservableProperty] private bool _remoteVideoTranslateEnabled;
-    [ObservableProperty] private bool _remoteMaterialValidateEnabled;
-    [ObservableProperty] private bool _remoteUploadEnabled;
-    [ObservableProperty] private bool _remoteAutoArchiveAfterUpload;
-    [ObservableProperty] private bool _remoteForceRerunCompletedSteps;
-    [ObservableProperty] private bool _remotePreferUploadWhenReady;
     [ObservableProperty] private string _videoTranslateEngine = "volc";
     [ObservableProperty] private string _videoTranslateSourceLanguage = "en";
     [ObservableProperty] private string _videoTranslateTargetLanguage = "zh";
@@ -82,9 +66,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         XingeClientToken = settings.XingeClientToken ?? "";
         XingeClientName = string.IsNullOrWhiteSpace(settings.XingeClientName) ? "TikTokPublisher" : settings.XingeClientName;
         XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
-        RemoteAutoArchiveAfterUpload = settings.RemoteTiktokUploadAutoArchiveAfterUpload;
-        RemoteForceRerunCompletedSteps = settings.RemoteTiktokUploadForceRerunCompletedSteps;
-        RemotePreferUploadWhenReady = settings.RemoteTiktokUploadPreferUploadWhenReady;
         VideoTranslateEngine = settings.VideoTranslateEngine;
         VideoTranslateSourceLanguage = settings.VideoTranslateSourceLanguage;
         VideoTranslateTargetLanguage = settings.VideoTranslateTargetLanguage;
@@ -97,7 +78,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         VideoTranslateFontSize = settings.VideoTranslateFontSize;
         VideoTranslateMarginV = settings.VideoTranslateMarginV;
         VideoTranslateBilingual = settings.VideoTranslateBilingual;
-        ApplyRemoteSteps(TikTokRemoteRunOptions.LoadTikTokUploadEnabledSteps(settings));
         XingeRemoteStatus = XingeRemoteEnabled ? "等待连接" : "未启用";
         CopyXingeToConnection();
         RefreshLicenseSummary();
@@ -181,7 +161,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         try
         {
             var settings = ClientSettingsStore.Load();
-            ApplyUiToSettings(settings);
+            ApplyAuthorizationSettings(settings);
             ClientSettingsStore.Save(settings);
 
             await LicenseAuthService.LoginAsync(settings.AuthServerUrl, LoginAccount, LoginPassword);
@@ -206,138 +186,19 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [RelayCommand]
     private void SaveAuthServerUrl()
     {
-        SaveSystemServices();
-    }
-
-    [RelayCommand]
-    private void SaveSystemServices()
-    {
         var settings = ClientSettingsStore.Load();
-        ApplyUiToSettings(settings);
+        ApplyAuthorizationSettings(settings);
         ClientSettingsStore.Save(settings);
-        XingeRemoteStatus = settings.XingeRemoteEnabled ? "等待连接" : "未启用";
-        StatusRequested?.Invoke("系统服务配置已保存");
-        SettingsSaved?.Invoke();
+        StatusRequested?.Invoke("授权配置已保存");
     }
 
-    [RelayCommand]
-    private Task TestXingeLoginAsync() => _xinge?.TestLoginAsync() ?? Task.CompletedTask;
-
-    [RelayCommand]
-    private void SelectAllRemoteSteps() => ApplyRemoteSteps(QueueStepRegistry.UserSelectable.Select(step => step.Key));
-
-    [RelayCommand]
-    private void ResetRemoteSteps() => ApplyRemoteSteps(TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps);
-
-    [RelayCommand]
-    private void ClearRemoteSteps() => ApplyRemoteSteps([]);
-
-    [RelayCommand]
-    private async Task RunRemoteCommandPreviewAsync()
-    {
-        var command = TikTokRemoteCommandParser.Parse(RemoteCommandPreviewText);
-        if (command is null)
-        {
-            RemoteCommandPreviewResult = "命令格式未识别";
-            StatusRequested?.Invoke(RemoteCommandPreviewResult);
-            return;
-        }
-
-        if (RemoteCommandRequested is null)
-        {
-            RemoteCommandPreviewResult = $"已识别命令：{command.Command}";
-            StatusRequested?.Invoke(RemoteCommandPreviewResult);
-            return;
-        }
-
-        var result = await RemoteCommandRequested.Invoke(command);
-        RemoteCommandPreviewResult = result.SummaryText;
-        StatusRequested?.Invoke(result.SummaryText);
-    }
-
-    public QueueRunOptions BuildRemoteUploadRunOptions(TikTokRemoteCommand? command = null)
-    {
-        var settings = ClientSettingsStore.Load();
-        ApplyUiToSettings(settings);
-        return TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(settings, command);
-    }
-
-    private void ApplyUiToSettings(ClientSettings settings)
+    private void ApplyAuthorizationSettings(ClientSettings settings)
     {
         settings.AuthServerUrl = AuthServerUrl.Trim();
         settings.AuthAccount = LoginAccount.Trim();
         settings.AuthPassword = LoginPassword;
-        settings.RemoteTiktokUploadEnabledStepsJson =
-            TikTokRemoteRunOptions.DumpTikTokUploadEnabledSteps(ReadRemoteSteps());
-        settings.RemoteTiktokUploadAutoArchiveAfterUpload = RemoteAutoArchiveAfterUpload;
-        settings.RemoteTiktokUploadForceRerunCompletedSteps = RemoteForceRerunCompletedSteps;
-        settings.RemoteTiktokUploadPreferUploadWhenReady = RemotePreferUploadWhenReady;
-        settings.VideoTranslateEngine = VideoTranslateEngine == "llm" ? "llm" : "volc";
-        settings.VideoTranslateSourceLanguage = VideoTranslateSourceLanguage.Trim();
-        settings.VideoTranslateTargetLanguage = VideoTranslateTargetLanguage.Trim();
-        settings.VideoTranslateVolcAccessKeyId = VideoTranslateVolcAccessKeyId.Trim();
-        settings.VideoTranslateVolcSecretAccessKey = VideoTranslateVolcSecretAccessKey;
-        settings.VideoTranslateLlmBaseUrl = VideoTranslateLlmBaseUrl.Trim();
-        settings.VideoTranslateLlmApiKey = VideoTranslateLlmApiKey;
-        settings.VideoTranslateLlmModel = VideoTranslateLlmModel.Trim();
-        settings.VideoTranslateFont = VideoTranslateFont.Trim();
-        settings.VideoTranslateFontSize = Math.Clamp(VideoTranslateFontSize, 12, 120);
-        settings.VideoTranslateMarginV = Math.Clamp(VideoTranslateMarginV, 0, 600);
-        settings.VideoTranslateBilingual = VideoTranslateBilingual;
-        if (_xinge is not null)
-        {
-            _xinge.ApplyTo(settings);
-            XingeRemoteEnabled = _xinge.Enabled;
-            XingeServerUrl = _xinge.ServerUrl;
-            XingeAccount = _xinge.Account;
-            XingePassword = _xinge.Password;
-            XingeClientId = _xinge.ClientId;
-            XingeClientToken = _xinge.ClientToken;
-            XingeClientName = _xinge.ClientName;
-            XingePollIntervalSeconds = _xinge.PollIntervalSeconds;
-        }
-        else
-        {
-            settings.XingeRemoteEnabled = XingeRemoteEnabled;
-            settings.XingeServerUrl = XingeServerUrl.Trim();
-            settings.XingeAccount = XingeAccount.Trim();
-            settings.XingePassword = XingePassword;
-            settings.XingeClientId = XingeClientId.Trim();
-            settings.XingeClientToken = XingeClientToken.Trim();
-            settings.XingeClientName = string.IsNullOrWhiteSpace(XingeClientName) ? "TikTokPublisher" : XingeClientName.Trim();
-            settings.XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(XingePollIntervalSeconds);
-        }
     }
 
-    private IReadOnlyList<string> ReadRemoteSteps()
-    {
-        var steps = new List<string>();
-        if (RemoteDownloadEnabled) steps.Add(QueueStepRegistry.Download);
-        if (RemoteVideoDedupEnabled) steps.Add(QueueStepRegistry.VideoDedup);
-        if (RemoteRewriteEnabled) steps.Add(QueueStepRegistry.RewriteInfo);
-        if (RemoteGeneratePosterEnabled) steps.Add(QueueStepRegistry.GeneratePoster);
-        if (RemoteGenerateProofMaterialEnabled) steps.Add(QueueStepRegistry.GenerateProofMaterial);
-        if (RemoteSmallVideoRepairEnabled) steps.Add(QueueStepRegistry.SmallVideoRepair);
-        if (RemoteVideoTranslateEnabled) steps.Add(QueueStepRegistry.VideoTranslate);
-        if (RemoteMaterialValidateEnabled) steps.Add(QueueStepRegistry.MaterialValidate);
-        if (RemoteUploadEnabled) steps.Add(QueueStepRegistry.UploadSeries);
-        return QueueStepRegistry.OrderEnabledSteps(steps).ToList();
-    }
-
-    private void ApplyRemoteSteps(IEnumerable<string> steps)
-    {
-        var normalized = TikTokRemoteCommandParser.NormalizeEnabledSteps(steps?.Cast<object?>() ?? []);
-        var selected = normalized.ToHashSet(StringComparer.Ordinal);
-        RemoteDownloadEnabled = selected.Contains(QueueStepRegistry.Download);
-        RemoteVideoDedupEnabled = selected.Contains(QueueStepRegistry.VideoDedup);
-        RemoteRewriteEnabled = selected.Contains(QueueStepRegistry.RewriteInfo);
-        RemoteGeneratePosterEnabled = selected.Contains(QueueStepRegistry.GeneratePoster);
-        RemoteGenerateProofMaterialEnabled = selected.Contains(QueueStepRegistry.GenerateProofMaterial);
-        RemoteSmallVideoRepairEnabled = selected.Contains(QueueStepRegistry.SmallVideoRepair);
-        RemoteVideoTranslateEnabled = selected.Contains(QueueStepRegistry.VideoTranslate);
-        RemoteMaterialValidateEnabled = selected.Contains(QueueStepRegistry.MaterialValidate);
-        RemoteUploadEnabled = selected.Contains(QueueStepRegistry.UploadSeries);
-    }
 }
 
 public sealed partial class ArchivedProjectRowViewModel : ViewModelBase

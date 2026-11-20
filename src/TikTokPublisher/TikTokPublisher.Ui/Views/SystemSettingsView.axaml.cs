@@ -18,6 +18,29 @@ public partial class SystemSettingsView : UserControl
     {
         InitializeComponent();
     }
+    public void BindServices(SystemServicesViewModel vm)
+    {
+        SoftwareLicenseHost.Bind(vm);
+        var xinge = new XingeConnectionViewModel(null, "TikTokPublisher",
+            "启用后客户端会用账号登录 XINGE，注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的上传任务。")
+        {
+            ShowSaveButton = true,
+            ShowHeading = false,
+        };
+        XingeConnectionHost.Bind(xinge);
+        vm.AttachXinge(xinge);
+        SoftwareLicenseTab.IsVisible = true;
+        XingeSettingsTab.IsVisible = true;
+    }
+
+    private void OnSettingsTabChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is TabControl tabs && ReferenceEquals(e.Source, tabs) && SettingsSaveFooter is { } footer)
+        {
+            footer.IsVisible = tabs.SelectedItem != SoftwareLicenseTab && tabs.SelectedItem != XingeSettingsTab;
+        }
+    }
+
 
     public void Bind(SystemSettingsViewModel vm)
     {

@@ -1,5 +1,3 @@
-using System.Text.Json;
-using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 
 namespace TikTokPublisher.Core.Remote;
@@ -7,13 +5,12 @@ namespace TikTokPublisher.Core.Remote;
 public static class TikTokRemoteRunOptions
 {
     public static QueueRunOptions BuildTikTokUploadRunOptions(
-        ClientSettings settings,
         TikTokRemoteCommand? command = null)
     {
         var commandSteps = command?.EnabledSteps is { Count: > 0 }
             ? command.EnabledSteps
             : null;
-        var enabledSteps = commandSteps ?? LoadTikTokUploadEnabledSteps(settings);
+        var enabledSteps = commandSteps ?? TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps;
         var queueOptions = command?.QueueOptions;
 
         return new QueueRunOptions
@@ -22,53 +19,20 @@ public static class TikTokRemoteRunOptions
             AutoArchiveAfterUpload = RemoteOptionBool(
                 queueOptions,
                 "auto_archive_after_upload",
-                settings.RemoteTiktokUploadAutoArchiveAfterUpload),
+                false),
             ForceRerunCompletedSteps = RemoteOptionBool(
                 queueOptions,
                 "force_rerun_completed_steps",
-                settings.RemoteTiktokUploadForceRerunCompletedSteps),
+                false),
             PreferUploadWhenReady = RemoteOptionBool(
                 queueOptions,
                 "prefer_upload_when_ready",
-                settings.RemoteTiktokUploadPreferUploadWhenReady),
+                false),
             SyncManagementAfterUpload =
                 RemoteOptionBool(queueOptions, "sync_management_on_upload_success", false) ||
                 RemoteOptionBool(queueOptions, "sync_management_after_upload", false),
             ProjectConcurrency = 4,
         };
-    }
-
-    public static IReadOnlyList<string> LoadTikTokUploadEnabledSteps(ClientSettings settings)
-    {
-        var raw = (settings.RemoteTiktokUploadEnabledStepsJson ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(raw))
-            return TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps;
-
-        try
-        {
-            using var document = JsonDocument.Parse(raw);
-            if (document.RootElement.ValueKind != JsonValueKind.Array)
-                return TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps;
-
-            var normalized = QueueStepRegistry.OrderUserSelectableSteps(
-                    TikTokRemoteCommandParser.NormalizeEnabledSteps(document.RootElement))
-                .ToList();
-            return normalized.Count > 0
-                ? normalized
-                : TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps;
-        }
-        catch
-        {
-            return TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps;
-        }
-    }
-
-    public static string DumpTikTokUploadEnabledSteps(IEnumerable<string>? enabledSteps)
-    {
-        var normalized = QueueStepRegistry.OrderUserSelectableSteps(
-                NormalizeSteps(enabledSteps))
-            .ToList();
-        return JsonSerializer.Serialize(normalized);
     }
 
     private static IEnumerable<string> NormalizeSteps(IEnumerable<string>? enabledSteps)

@@ -448,7 +448,7 @@ public static class PublisherConfigTransfer
         if (key != ClientSettingsStore.SettingsKey || JsonNode.Parse(json) is not JsonObject settings)
             return json;
 
-        ClientSettingsStore.MigrateRemoteUploadSettings(settings);
+        ClientSettingsStore.RemoveRetiredCommandSettings(settings);
         return settings.ToJsonString();
     }
 

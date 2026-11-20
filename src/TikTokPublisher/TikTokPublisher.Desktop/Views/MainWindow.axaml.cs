@@ -28,7 +28,6 @@ public partial class MainWindow : Window
         ["accounts"] = ("账号管理", "账号"),
         ["logs"] = ("运行日志", "日志"),
         ["settings"] = ("系统设置", "设置"),
-        ["services"] = ("系统服务", "服务"),
         ["analytics"] = ("数据统计", "统计"),
         ["archived"] = ("已归档项目", "归档"),
     };
@@ -81,7 +80,7 @@ public partial class MainWindow : Window
         AccountsView.Bind(_viewModel);
         LogView.Bind(_viewModel, _viewModel.Logs);
         SettingsView.Bind(_viewModel.SystemSettings);
-        ServicesView.Bind(_viewModel.SystemServices);
+        SettingsView.BindServices(_viewModel.SystemServices);
         ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning);
         _viewModel.SystemServices.ConfirmClientUpdate = message =>
             ConfirmDialog.ShowAsync(this, "客户端升级", message);
@@ -627,7 +626,6 @@ public partial class MainWindow : Window
         AccountsView.IsVisible = tag == "accounts";
         LogView.IsVisible = tag == "logs";
         SettingsView.IsVisible = tag == "settings";
-        ServicesView.IsVisible = tag == "services";
         ArchivedView.IsVisible = tag == "archived";
 
         DownloadView.ZIndex = tag == "download" ? activeZ : inactiveZ;
@@ -636,7 +634,6 @@ public partial class MainWindow : Window
         AccountsView.ZIndex = tag == "accounts" ? activeZ : inactiveZ;
         LogView.ZIndex = tag == "logs" ? activeZ : inactiveZ;
         SettingsView.ZIndex = tag == "settings" ? activeZ : inactiveZ;
-        ServicesView.ZIndex = tag == "services" ? activeZ : inactiveZ;
         ArchivedView.ZIndex = tag == "archived" ? activeZ : inactiveZ;
 
         if (browserActive)
@@ -663,9 +660,8 @@ public partial class MainWindow : Window
             _viewModel.RefreshLogSnapshot();
         if (tag == "archived")
             _viewModel.ArchivedProjects.RefreshCommand.Execute(null);
-        if (tag == "services")
+        if (tag == "settings")
         {
-            _viewModel.SystemServices.Load();
             _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
         }
     }

@@ -188,10 +188,6 @@ public sealed class ClientSettings
     public int TiktokMinimumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMinimumEpisodeCount;
     public int TiktokMaximumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMaximumEpisodeCount;
     public int TiktokOverLimitDownloadEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount;
-    public string RemoteTiktokUploadEnabledStepsJson { get; set; } = "";
-    public bool RemoteTiktokUploadAutoArchiveAfterUpload { get; set; }
-    public bool RemoteTiktokUploadForceRerunCompletedSteps { get; set; }
-    public bool RemoteTiktokUploadPreferUploadWhenReady { get; set; }
     public bool XingeRemoteEnabled { get; set; }
     public string XingeServerUrl { get; set; } = "";
     public string XingeAccount { get; set; } = "";
@@ -361,10 +357,6 @@ public sealed class ClientSettings
         TiktokMinimumEpisodeCount = TiktokMinimumEpisodeCount,
         TiktokMaximumEpisodeCount = TiktokMaximumEpisodeCount,
         TiktokOverLimitDownloadEpisodeCount = TiktokOverLimitDownloadEpisodeCount,
-        RemoteTiktokUploadEnabledStepsJson = RemoteTiktokUploadEnabledStepsJson,
-        RemoteTiktokUploadAutoArchiveAfterUpload = RemoteTiktokUploadAutoArchiveAfterUpload,
-        RemoteTiktokUploadForceRerunCompletedSteps = RemoteTiktokUploadForceRerunCompletedSteps,
-        RemoteTiktokUploadPreferUploadWhenReady = RemoteTiktokUploadPreferUploadWhenReady,
         XingeRemoteEnabled = XingeRemoteEnabled,
         XingeServerUrl = XingeServerUrl,
         XingeAccount = XingeAccount,

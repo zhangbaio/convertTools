@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TikTokPublisher.Ui.ViewModels"
+             xmlns:views="using:TikTokPublisher.Ui.Views"
              x:Class="TikTokPublisher.Ui.Views.SystemSettingsView"
              x:DataType="vm:SystemSettingsViewModel"
              Background="{StaticResource PythonPageBgBrush}">
@@ -10,7 +11,7 @@
 
 
     <DockPanel Classes="pageRoot">
-        <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+        <Grid x:Name="SettingsSaveFooter" DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
             <TextBlock Grid.Column="0" VerticalAlignment="Center" Classes="pageSummary" Text="{Binding SaveMessage}" />
             <Button Grid.Column="1" Content="保存设置" Command="{Binding SaveSettingsCommand}" Classes="primaryAction" MinWidth="140" />
         </Grid>
@@ -18,7 +19,7 @@
         <TextBlock DockPanel.Dock="Top" Text="系统设置" Classes="pageTitle" FontWeight="Bold" Margin="0,0,0,10" />
 
         <Border Classes="configurationPanel">
-            <TabControl Classes="secondaryTabs">
+            <TabControl Classes="secondaryTabs" SelectionChanged="OnSettingsTabChanged">
             <TabItem Header="登录设置">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
@@ -697,6 +698,14 @@
                             <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                <TabItem x:Name="SoftwareLicenseTab" Header="软件授权" IsVisible="False">
+                    <views:SystemServicesView x:Name="SoftwareLicenseHost" />
+                </TabItem>
+                <TabItem x:Name="XingeSettingsTab" Header="XINGE" IsVisible="False">
+                    <ScrollViewer>
+                        <views:XingeConnectionView x:Name="XingeConnectionHost" />
+                    </ScrollViewer>
+                </TabItem>
                             <NumericUpDown Classes="configurationInput" Grid.Row="2" Grid.Column="1" Value="{Binding KuaishouProjectImageConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />

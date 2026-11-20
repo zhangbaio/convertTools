@@ -122,7 +122,7 @@ public static class ClientSettingsStore
             return new ClientSettings();
         }
 
-        MigrateRemoteUploadSettings(raw);
+        RemoveRetiredCommandSettings(raw);
         MigrateSharedAsrSettings(raw);
         MigrateProjectImageRenderEpisodeLimitDefault(raw);
         MigrateImageModelDefault(raw);
@@ -139,7 +139,7 @@ public static class ClientSettingsStore
         AppDatabaseInitializer.EnsureInitialized(path);
 
         var existing = LoadRawObject(path) ?? new JsonObject();
-        MigrateRemoteUploadSettings(existing);
+        RemoveRetiredCommandSettings(existing);
         var incoming = JsonSerializer.SerializeToNode(normalized, JsonOptions)?.AsObject() ?? new JsonObject();
 
         foreach (var property in incoming)
@@ -208,26 +208,22 @@ public static class ClientSettingsStore
         return WorkspaceQueuePaths.QueueDatabasePath(workspacePath);
     }
 
-    private static void MigrateSharedAsrSettings(JsonObject settings)
+    internal static void RemoveRetiredCommandSettings(JsonObject settings)
     {
-    internal static void MigrateRemoteUploadSettings(JsonObject settings)
-    {
-        const string legacyUploadPrefix = "feishu_tiktok_upload_";
         foreach (var key in settings.Select(property => property.Key).ToArray())
         {
-            if (key.StartsWith(legacyUploadPrefix, StringComparison.Ordinal))
+            if (key.StartsWith("feishu_", StringComparison.Ordinal) ||
+                key.StartsWith("remote_tiktok_upload_", StringComparison.Ordinal))
             {
-                var currentKey = "remote_tiktok_upload_" + key[legacyUploadPrefix.Length..];
-                if (!settings.ContainsKey(currentKey))
-                    settings[currentKey] = settings[key]?.DeepClone();
-            }
-            if (key.StartsWith("feishu_", StringComparison.Ordinal))
                 settings.Remove(key);
         }
     }
+            }
 
         CopyLegacyValue("tiktok_silence_local_model_dir", "tiktok_asr_local_model_dir");
         CopyLegacyValue("tiktok_silence_local_vad_path", "tiktok_asr_local_vad_path");
+    private static void MigrateSharedAsrSettings(JsonObject settings)
+    {
         CopyLegacyValue("tiktok_silence_asr_app_id", "tiktok_asr_app_id");
         CopyLegacyValue("tiktok_silence_asr_access_token", "tiktok_asr_access_token");
         CopyLegacyValue("tiktok_silence_asr_language", "tiktok_asr_language");
@@ -615,8 +611,6 @@ public static class ClientSettingsStore
                 settings.TiktokMinimumEpisodeCount,
                 settings.TiktokMaximumEpisodeCount);
         settings.TiktokOverLimitDownloadEpisodeCount = settings.TiktokMaximumEpisodeCount;
-        settings.RemoteTiktokUploadEnabledStepsJson = TikTokRemoteRunOptions.DumpTikTokUploadEnabledSteps(
-            TikTokRemoteRunOptions.LoadTikTokUploadEnabledSteps(settings));
         settings.XingeServerUrl = (settings.XingeServerUrl ?? "").Trim().TrimEnd('/');
         settings.XingeAccount = (settings.XingeAccount ?? "").Trim();
         settings.XingePassword ??= "";

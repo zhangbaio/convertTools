@@ -146,7 +146,7 @@ public sealed class TikTokRemoteCommandParserTests
     [Fact]
     public void Build_upload_run_options_uses_python_remote_defaults()
     {
-        var options = TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(new ClientSettings());
+        var options = TikTokRemoteRunOptions.BuildTikTokUploadRunOptions();
 
         options.EnabledSteps.Should().Equal(
             QueueStepRegistry.Download,
@@ -162,32 +162,8 @@ public sealed class TikTokRemoteCommandParserTests
     }
 
     [Fact]
-    public void Load_upload_steps_removes_hidden_project_image_step_and_keeps_explicit_proof()
-    {
-        var settings = new ClientSettings
-        {
-            RemoteTiktokUploadEnabledStepsJson =
-                """["download","generate_project_images","generate_proof_material","upload_series"]""",
-        };
-
-        var steps = TikTokRemoteRunOptions.LoadTikTokUploadEnabledSteps(settings);
-
-        steps.Should().Equal(
-            QueueStepRegistry.Download,
-            QueueStepRegistry.GenerateProofMaterial,
-            QueueStepRegistry.UploadSeries);
-    }
-
-    [Fact]
     public void Build_upload_run_options_allows_command_steps_and_option_override()
     {
-        var settings = new ClientSettings
-        {
-            RemoteTiktokUploadEnabledStepsJson = """["download","rewrite_info","upload_series"]""",
-            RemoteTiktokUploadAutoArchiveAfterUpload = false,
-            RemoteTiktokUploadForceRerunCompletedSteps = false,
-            RemoteTiktokUploadPreferUploadWhenReady = false,
-        };
         var command = new TikTokRemoteCommand(
             TikTokRemoteCommandNames.UploadSeries,
             EnabledSteps:
@@ -204,7 +180,7 @@ public sealed class TikTokRemoteCommandParserTests
                 ["sync_management_on_upload_success"] = true,
             });
 
-        var options = TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(settings, command);
+        var options = TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(command);
 
         options.EnabledSteps.Should().Equal(
             QueueStepRegistry.GenerateProofMaterial,

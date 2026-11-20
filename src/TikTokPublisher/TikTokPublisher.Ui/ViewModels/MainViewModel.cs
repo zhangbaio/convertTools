@@ -281,7 +281,6 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.LogRequested += AppendLog;
         WireSystemSettings();
         SystemServices.StatusRequested += message => StatusMessage = message;
-        SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         WireXingeRemoteCommandService();
         SystemServices.Load();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
@@ -335,7 +334,6 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.LogRequested += AppendLog;
         WireSystemSettings();
         SystemServices.StatusRequested += message => StatusMessage = message;
-        SystemServices.RemoteCommandRequested += ExecuteRemoteCommandAsync;
         WireXingeRemoteCommandService();
         SystemServices.Load();
         ArchivedProjects.StatusRequested += message => StatusMessage = message;
@@ -611,7 +609,6 @@ public sealed partial class MainViewModel : ViewModelBase
         if (assignment.EnabledSteps is not { Count: > 0 })
             return null;
         return TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(
-            ClientSettingsStore.Load(),
             new TikTokRemoteCommand(
                 TikTokRemoteCommandNames.UploadSeries,
                 EnabledSteps: assignment.EnabledSteps,
@@ -3805,7 +3802,7 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         var serverOptions = command.EnabledSteps is { Count: > 0 }
-            ? SystemServices.BuildRemoteUploadRunOptions(command)
+            ? TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(command)
             : null;
         if (serverOptions is not null)
             ApplyAutoPublishServerSteps(account, root, serverOptions);
@@ -4300,7 +4297,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var runQueueRequested = RemoteQueueRunRequested;
         ActivateRemoteWorkspace(targetWorkspace);
 
-        var options = SystemServices.BuildRemoteUploadRunOptions(command);
+        var options = TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(command);
         options.ProjectConcurrency = Math.Clamp(targetAccount?.TiktokProjectConcurrency ?? options.ProjectConcurrency, 1, 20);
         if (command.EnabledSteps is { Count: > 0 })
         {
@@ -4594,7 +4591,7 @@ public sealed partial class MainViewModel : ViewModelBase
         if (RemoteAllQueueRunRequested is null)
             return TikTokRemoteCommandResult.Failed(command.Command, "剧集已导入，但队列视图尚未初始化，无法启动 TikTok 多账号队列。");
 
-        var options = SystemServices.BuildRemoteUploadRunOptions(command);
+        var options = TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(command);
         var started = await RemoteAllQueueRunRequested.Invoke(options, runTargets);
         if (!started)
             return TikTokRemoteCommandResult.Failed(command.Command, "TikTok 多账号剧集已导入，但目标队列未启动，请查看运行日志。");
