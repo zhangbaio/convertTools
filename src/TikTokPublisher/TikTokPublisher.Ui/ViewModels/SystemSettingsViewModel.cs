@@ -203,7 +203,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokGenerationPerProjectConcurrency = 2;
     [ObservableProperty] private int _tiktokAiTextConcurrency = 3;
     [ObservableProperty] private int _tiktokAsrConcurrency = 2;
-    [ObservableProperty] private int _tiktokFfmpegConcurrency = 2;
     [ObservableProperty] private int _tiktokImageGenerationConcurrency = 2;
     [ObservableProperty] private int _tiktokVisualConcurrency = 2;
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
@@ -418,7 +417,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokGenerationPerProjectConcurrency = TiktokGenerationPerProjectConcurrency;
         settings.TiktokAiTextConcurrency = TiktokAiTextConcurrency;
         settings.TiktokAsrConcurrency = TiktokAsrConcurrency;
-        settings.TiktokFfmpegConcurrency = TiktokFfmpegConcurrency;
         settings.TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency;
         settings.TiktokVisualConcurrency = TiktokVisualConcurrency;
         settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
@@ -1332,7 +1330,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokGenerationPerProjectConcurrency = settings.TiktokGenerationPerProjectConcurrency;
         TiktokAiTextConcurrency = settings.TiktokAiTextConcurrency;
         TiktokAsrConcurrency = settings.TiktokAsrConcurrency;
-        TiktokFfmpegConcurrency = settings.TiktokFfmpegConcurrency;
         TiktokImageGenerationConcurrency = settings.TiktokImageGenerationConcurrency;
         TiktokVisualConcurrency = settings.TiktokVisualConcurrency;
         TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;

@@ -109,15 +109,17 @@ internal static class QueueWorkloadResourceScheduler
 
     public static void Configure(ClientSettings settings)
     {
+        var videoDedupLimit = VideoDedupCpuBudget.Normalize(
+            settings.TiktokVideoDedupConcurrency, Environment.ProcessorCount);
         var limits = new[]
         {
             Math.Clamp(settings.TiktokAiTextConcurrency, 1, 12),
             Math.Clamp(settings.TiktokAsrConcurrency, 1, 8),
-            Math.Clamp(settings.TiktokFfmpegConcurrency, 1, 8),
+            videoDedupLimit,
             Math.Clamp(settings.TiktokImageGenerationConcurrency, 1, 8),
             Math.Clamp(settings.TiktokVisualConcurrency, 1, 8),
             Math.Clamp(settings.TiktokDocumentConcurrency, 1, 8),
-            VideoDedupCpuBudget.Normalize(settings.TiktokVideoDedupConcurrency, Environment.ProcessorCount),
+            videoDedupLimit,
         };
         var signature = string.Join('|', limits);
         lock (ConfigurationLock)

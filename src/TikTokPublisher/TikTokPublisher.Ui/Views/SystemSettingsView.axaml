@@ -693,7 +693,7 @@
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU 占用 %" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
                             <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupCpuPercent}" Minimum="50" Maximum="100" Increment="5" FormatString="0" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="视频去重并发" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="视频去重并发" ToolTip.Tip="FFmpeg 并发随此设置" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
                             <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
@@ -723,8 +723,6 @@
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="文档渲染并发" VerticalAlignment="Center" />
                             <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokDocumentConcurrency}" Minimum="1" Maximum="8" />
-                            <TextBlock Grid.Row="1" Grid.Column="2" Text="FFmpeg并发" VerticalAlignment="Center" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="3" Value="{Binding TiktokFfmpegConcurrency}" Minimum="1" Maximum="8" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="AI图片并发" VerticalAlignment="Center" />
                             <NumericUpDown Classes="configurationInput" Grid.Row="2" Grid.Column="1" Value="{Binding TiktokImageGenerationConcurrency}" Minimum="1" Maximum="8" />

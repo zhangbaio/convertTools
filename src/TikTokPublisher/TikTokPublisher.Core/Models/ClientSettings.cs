@@ -64,7 +64,6 @@ public sealed class ClientSettings
     public int TiktokGenerationPerProjectConcurrency { get; set; } = 2;
     public int TiktokAiTextConcurrency { get; set; } = 3;
     public int TiktokAsrConcurrency { get; set; } = 2;
-    public int TiktokFfmpegConcurrency { get; set; } = 2;
     public int TiktokImageGenerationConcurrency { get; set; } = 2;
     public int TiktokVisualConcurrency { get; set; } = 2;
     public int TiktokDocumentConcurrency { get; set; } = 2;
@@ -268,7 +267,6 @@ public sealed class ClientSettings
         TiktokGenerationPerProjectConcurrency = TiktokGenerationPerProjectConcurrency,
         TiktokAiTextConcurrency = TiktokAiTextConcurrency,
         TiktokAsrConcurrency = TiktokAsrConcurrency,
-        TiktokFfmpegConcurrency = TiktokFfmpegConcurrency,
         TiktokImageGenerationConcurrency = TiktokImageGenerationConcurrency,
         TiktokVisualConcurrency = TiktokVisualConcurrency,
         TiktokDocumentConcurrency = TiktokDocumentConcurrency,
