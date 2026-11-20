@@ -114,7 +114,7 @@ public sealed class ForeignPlayletClientTests
     public void ReadReelShortV2SearchMapsResults()
     {
         using var document = System.Text.Json.JsonDocument.Parse("""
-            {"results":[{"id":"abc","title":"Back Off","chapters":71,"pic":"https://img.example/a.jpg"}]}
+            {"results":[{"id":"abc","title":"Back Off","chapters":71,"description":"ReelShort 简介","pic":"https://img.example/a.jpg"}]}
             """);
 
         var items = ForeignPlayletClient.ReadReelShortV2Search(document.RootElement, "reelshortv2", "en");
@@ -122,6 +122,24 @@ public sealed class ForeignPlayletClientTests
         Assert.Single(items);
         Assert.Equal("foreign:reelshortv2|en|abc", items[0].BookId);
         Assert.Equal(71, items[0].EpisodeTotal);
+        Assert.Equal("ReelShort 简介", items[0].Intro);
+    }
+
+    [Fact]
+    public void ReadNetShortSearchPreservesTheFirstAvailableIntro()
+    {
+        using var document = System.Text.Json.JsonDocument.Parse("""
+            {"data":{"searchCodeSearchResult":[
+                {"shortPlayId":"a","shortPlayName":"Drama A","shortPlayDesc":" ","introduction":"第一段\n第二段"},
+                {"shortPlayId":"b","shortPlayName":"Drama B"}
+            ]}}
+            """);
+
+        var items = ForeignPlayletClient.ReadNetShortSearch(document.RootElement, "netshort", "en");
+
+        Assert.Equal(2, items.Count);
+        Assert.Equal("第一段\n第二段", items[0].Intro);
+        Assert.Empty(items[1].Intro);
     }
 
     [Fact]

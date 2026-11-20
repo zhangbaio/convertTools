@@ -114,6 +114,7 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
     public string Category => string.IsNullOrWhiteSpace(Item.Category) ? "-" : Item.Category;
     public string PublishTime => FormatPublishTime(Item.PublishTime);
     public string Intro => Item.Intro;
+    public string IntroText => string.IsNullOrWhiteSpace(Intro) ? "暂无简介" : Intro.Trim();
     public string PosterUrl => Item.PosterUrl;
 
     public void UpdateItem(DramaSearchItem item)
@@ -131,6 +132,7 @@ public sealed partial class DramaSearchRowViewModel : ViewModelBase
         OnPropertyChanged(nameof(Category));
         OnPropertyChanged(nameof(PublishTime));
         OnPropertyChanged(nameof(Intro));
+        OnPropertyChanged(nameof(IntroText));
         OnPropertyChanged(nameof(PosterUrl));
         if (titleChanged)
             ExistenceText = "核对中";
@@ -2045,7 +2047,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         target.Category = source.Category;
         target.EpisodeTotal = source.EpisodeTotal;
         target.PublishTime = source.PublishTime;
-        target.Intro = source.Intro;
+        if (!string.IsNullOrWhiteSpace(source.Intro))
+            target.Intro = source.Intro;
         target.PosterUrl = source.PosterUrl;
         target.FavoriteCount = source.FavoriteCount;
         target.PlayCount = source.PlayCount;

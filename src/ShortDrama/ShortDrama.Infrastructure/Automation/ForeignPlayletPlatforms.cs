@@ -147,7 +147,7 @@ public static partial class ForeignPlayletClient
                 title,
                 "",
                 ReadInt(item, "chapters"),
-                "",
+                ReadPlatformIntro(item, "synopsis", "summary", "description", "intro"),
                 ReadString(item, "pic"));
         });
     }
@@ -168,7 +168,7 @@ public static partial class ForeignPlayletClient
                 title,
                 ReadString(item, "tagNames"),
                 0,
-                ReadString(item, "introduction"),
+                ReadPlatformIntro(item, "introduction", "intro", "description"),
                 ReadString(item, "cover"),
                 ReadString(item, "author"));
         });
@@ -189,7 +189,7 @@ public static partial class ForeignPlayletClient
                 title,
                 ReadString(item, "series_tag"),
                 ReadInt(item, "episode_count"),
-                ReadString(item, "desc"),
+                ReadPlatformIntro(item, "desc", "description", "intro"),
                 ReadString(item, "cover"));
         });
     }
@@ -217,7 +217,7 @@ public static partial class ForeignPlayletClient
                 title,
                 labels,
                 0,
-                "",
+                ReadPlatformIntro(item, "shortPlayDesc", "shortPlayIntroduction", "introduction", "description", "summary"),
                 ReadString(item, "shortPlayCover"));
         });
     }
@@ -240,10 +240,22 @@ public static partial class ForeignPlayletClient
                 title,
                 "",
                 ReadInt(item, "episodes"),
-                ReadString(item, "summary"),
+                ReadPlatformIntro(item, "summary", "synopsis", "description", "intro"),
                 ReadString(item, "cover"),
                 PlayCount: ReadInt(item, "views"));
         });
+    }
+
+    private static string ReadPlatformIntro(JsonElement item, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            var intro = ReadString(item, key).Trim();
+            if (intro.Length > 0)
+                return intro;
+        }
+
+        return "";
     }
 
     private static IReadOnlyList<EpisodeItem> ReadReelShortV2Episodes(JsonElement root, BookReference book, string? quality)
