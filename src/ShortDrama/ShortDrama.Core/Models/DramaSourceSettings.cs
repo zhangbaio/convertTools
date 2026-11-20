@@ -24,19 +24,12 @@ public sealed record DramaSourceSettings
     public string HongguoAppPlan { get; init; } = "1";
     public bool HongguoAppStreamLink1 { get; init; } = true;
     public bool HongguoAppStreamLink2 { get; init; } = true;
-    public string MapleleafAccount { get; init; } = "";
-    public string MapleleafPassword { get; init; } = "";
-    public string MapleleafUdid { get; init; } = "";
     public string HongguoDownloadTimeoutSeconds { get; init; } = "60";
     public string HongguoEpisodeDownloadAttempts { get; init; } = "5";
     public string DownloadFileSegments { get; init; } = "4";
     public string DownloaderApiBaseUrl { get; init; } = "http://127.0.0.1:17891";
     public string DownloaderApiKey { get; init; } = "";
 
-    public string HongguoLocalBaseUrl { get; init; } = "";
-    public string HongguoLocalApiKey { get; init; } = "";
-    public string HongguoLocalDownloadMode { get; init; } = "fast";
-    public string HongguoLocalTranscodeEngine { get; init; } = "auto";
 
     public string PikachuServerUrl { get; init; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; init; } = "";

@@ -11,7 +11,7 @@ public static class VisibleDramaSource
     public static string Normalize(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hghigh" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" or "foreign" ? chain : DefaultChain;
+        return chain is "hghigh" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" or "foreign" ? chain : DefaultChain;
     }
 
     public static string NormalizeOverseas(string? value) =>
@@ -39,7 +39,6 @@ public static class VisibleDramaSource
     public static string Label(string? source) => Normalize(source) switch
     {
         "hghigh" => "红果短剧助手",
-        "hglocal" => "本地直连",
         "pikachu" => "皮卡丘",
         "playlet" => "红果短剧下载器",
         "hongguoapp" => "红果APP",
@@ -59,7 +58,7 @@ public static class VisibleDramaSource
     public static bool IsRetired(string? value)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hgnew" or "mapleleaf" or "downloader";
+        return chain is "hgnew" or "downloader";
     }
 }
 
@@ -75,8 +74,6 @@ public static class DramaSourceConfigurationValidator
         {
             "hgnew" => Missing((settings.HgnewAccount, "账号"), (settings.HgnewPassword, "密码"), (settings.HgnewUdid, "UDID/DeviceId")),
             "hghigh" => Missing((settings.HghighAccount, "账号"), (settings.HghighPassword, "密码")),
-            "mapleleaf" => Missing((settings.MapleleafAccount, "账号"), (settings.MapleleafPassword, "密码"), (settings.MapleleafUdid, "DeviceUDID")),
-            "hglocal" => Missing((settings.HongguoLocalBaseUrl, "本地服务地址")),
             "pikachu" => Missing((settings.PikachuServerUrl, "服务器地址")),
             "playlet" => Missing((settings.PlayletServerUrl, "服务器地址"), (settings.PlayletDeviceId, "设备号")),
             "hongguoapp" => [],
@@ -101,8 +98,6 @@ public static class DramaSourceConfigurationValidator
     {
         "hgnew" => "红果新接口",
         "hghigh" => "红果短剧助手",
-        "mapleleaf" => "Mapleleaf",
-        "hglocal" => "本地直连",
         "pikachu" => "皮卡丘",
         "playlet" => "红果短剧下载器",
         "hongguoapp" => "红果APP",

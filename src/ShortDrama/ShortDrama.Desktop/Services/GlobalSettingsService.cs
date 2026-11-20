@@ -60,19 +60,12 @@ public sealed class GlobalSettingsService
             HghighClientExe = snapshot.HghighClientExe,
             HghighStandardDeviceId = snapshot.HghighStandardDeviceId,
             HghighStandardClientExe = snapshot.HghighStandardClientExe,
-            MapleleafAccount = snapshot.MapleleafAccount,
-            MapleleafPassword = snapshot.MapleleafPassword,
-            MapleleafUdid = snapshot.MapleleafUdid,
             HongguoDownloadTimeoutSeconds = int.TryParse(snapshot.HongguoDownloadTimeoutSeconds, out var hongguoDownloadTimeoutSeconds) && hongguoDownloadTimeoutSeconds > 0
                 ? hongguoDownloadTimeoutSeconds
                 : 60,
             HongguoEpisodeDownloadAttempts = int.TryParse(snapshot.HongguoEpisodeDownloadAttempts, out var hongguoEpisodeDownloadAttempts) && hongguoEpisodeDownloadAttempts > 0
                 ? hongguoEpisodeDownloadAttempts
                 : 5,
-            HongguoLocalBaseUrl = snapshot.HongguoLocalBaseUrl,
-            HongguoLocalApiKey = snapshot.HongguoLocalApiKey,
-            HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(snapshot.HongguoLocalDownloadMode),
-            HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(snapshot.HongguoLocalTranscodeEngine),
             PikachuServerUrl = snapshot.PikachuServerUrl,
             PikachuFanqieCookie = snapshot.PikachuFanqieCookie,
             PikachuDramaType = snapshot.PikachuDramaType,
@@ -287,7 +280,7 @@ public sealed class GlobalSettingsService
         }
 
         var mergedDramaSourceChain = PickString(current.DramaSourceChain, "drama_source_chain", "hgnew");
-        if (mergedDramaSourceChain is not ("hgnew" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "hghigh" or "mapleleaf" or "downloader" or "dramabox" or "foreign"))
+        if (mergedDramaSourceChain is not ("hgnew" or "pikachu" or "playlet" or "hongguoapp" or "hghigh" or "downloader" or "dramabox" or "foreign"))
         {
             mergedDramaSourceChain = "hgnew";
         }
@@ -320,15 +313,8 @@ public sealed class GlobalSettingsService
             HghighClientExe = PickString(current.HghighClientExe, "hghigh_client_exe"),
             HghighStandardDeviceId = PickString(current.HghighStandardDeviceId, "hghigh_standard_device_id"),
             HghighStandardClientExe = PickString(current.HghighStandardClientExe, "hghigh_standard_client_exe"),
-            MapleleafAccount = PickString(current.MapleleafAccount, "mapleleaf_account"),
-            MapleleafPassword = PickString(current.MapleleafPassword, "mapleleaf_password"),
-            MapleleafUdid = PickString(current.MapleleafUdid, "mapleleaf_udid"),
             HongguoDownloadTimeoutSeconds = PickPositiveInt(current.HongguoDownloadTimeoutSeconds, "hongguo_download_timeout_seconds", 60),
             HongguoEpisodeDownloadAttempts = PickPositiveInt(current.HongguoEpisodeDownloadAttempts, "hongguo_episode_download_attempts", 5),
-            HongguoLocalBaseUrl = PickString(current.HongguoLocalBaseUrl, "hongguo_local_base_url"),
-            HongguoLocalApiKey = PickString(current.HongguoLocalApiKey, "hongguo_local_api_key"),
-            HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(PickString(current.HongguoLocalDownloadMode, "hongguo_local_download_mode", "fast")),
-            HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(PickString(current.HongguoLocalTranscodeEngine, "hongguo_local_transcode_engine", "auto")),
             PikachuServerUrl = PickString(current.PikachuServerUrl, "pikachu_server_url", "https://startvlog.cn/start-prod-api"),
             PikachuFanqieCookie = PickString(current.PikachuFanqieCookie, "pikachu_fanqie_cookie"),
             PikachuDramaType = "manga",
@@ -400,23 +386,13 @@ public sealed class GlobalSettingsService
         };
     }
 
-    private static string NormalizeHongguoLocalDownloadMode(string? value)
-    {
-        var normalized = (value ?? "fast").Trim().ToLowerInvariant();
-        return normalized is "compatible" ? "compatible" : "fast";
-    }
-
-    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
-    {
-        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
-        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
-    }
-
     private static GlobalConfigSnapshot ToSnapshot(string settingsFilePath, GlobalDesktopSettings dto)
     {
         return new GlobalConfigSnapshot(
             SettingsFilePath: settingsFilePath,
-            DramaSourceChain: dto.DramaSourceChain,
+            DramaSourceChain: dto.DramaSourceChain?.Trim().ToLowerInvariant() is "hglocal" or "mapleleaf"
+                ? "hgnew"
+                : dto.DramaSourceChain ?? "hgnew",
             DownloadFileSegments: Math.Clamp(dto.DownloadFileSegments <= 0 ? 4 : dto.DownloadFileSegments, 1, 8).ToString(),
             DownloaderApiBaseUrl: dto.DownloaderApiBaseUrl,
             DownloaderApiKey: dto.DownloaderApiKey,
@@ -442,15 +418,8 @@ public sealed class GlobalSettingsService
             HghighClientExe: dto.HghighClientExe,
             HghighStandardDeviceId: dto.HghighStandardDeviceId,
             HghighStandardClientExe: dto.HghighStandardClientExe,
-            MapleleafAccount: dto.MapleleafAccount,
-            MapleleafPassword: dto.MapleleafPassword,
-            MapleleafUdid: dto.MapleleafUdid,
             HongguoDownloadTimeoutSeconds: Math.Max(1, dto.HongguoDownloadTimeoutSeconds).ToString(),
             HongguoEpisodeDownloadAttempts: Math.Max(1, dto.HongguoEpisodeDownloadAttempts).ToString(),
-            HongguoLocalBaseUrl: dto.HongguoLocalBaseUrl,
-            HongguoLocalApiKey: dto.HongguoLocalApiKey,
-            HongguoLocalDownloadMode: NormalizeHongguoLocalDownloadMode(dto.HongguoLocalDownloadMode),
-            HongguoLocalTranscodeEngine: NormalizeHongguoLocalTranscodeEngine(dto.HongguoLocalTranscodeEngine),
             PikachuServerUrl: dto.PikachuServerUrl,
             PikachuFanqieCookie: dto.PikachuFanqieCookie,
             PikachuDramaType: "manga",

@@ -18,7 +18,7 @@ public sealed class DramaSourceRouterDownloadTests
     [InlineData(true)]
     public async Task Cenc_download_checks_cipher_size_before_remux(bool truncated)
     {
-        var directory = Path.Combine(Path.GetTempPath(), $"mapleleaf-cenc-{Guid.NewGuid():N}");
+        var directory = Path.Combine(Path.GetTempPath(), $"cenc-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         using var http = new HttpClient(new LocalStreamRecordingHandler());
         var previousResolver = DramaSourceRouter.ResolveFfmpegBinaryForTests.Value;
@@ -37,18 +37,17 @@ public sealed class DramaSourceRouterDownloadTests
             };
             var router = new DramaSourceRouter(http,
                 new TestDramaSettingsProvider(new DramaSourceSettings()),
-                new HongguoLocalApiService(http), new HongguoNewApiService(http),
-                new HongguoDramaSearchService(http), new HongguoDramaDownloader(http),
+                new HongguoNewApiService(http), new HongguoDramaSearchService(http), new HongguoDramaDownloader(http),
                 new HongguoMemoryReaderService());
             var method = typeof(DramaSourceRouter).GetMethods(
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-                .Single(item => item.Name == "DownloadVideoFileOnceAsync" && item.GetParameters().Length == 13);
+                .Single(item => item.Name == "DownloadVideoFileOnceAsync" && item.GetParameters().Length == 14);
             var finalPath = Path.Combine(directory, "final.mp4");
             var task = (Task)method.Invoke(router, new object?[] {
                 "https://cdn.example.com/video.mp4", Path.Combine(directory, "temp.mp4"), finalPath,
                 (long)LocalStreamRecordingHandler.StreamBytes.Length + (truncated ? 1 : 0),
                 30, CancellationToken.None, "0123456789abcdef0123456789abcdef",
-                null, false, 1, false, "auto", null
+                null, 1, null, 0, 0, null, false
             })!;
             if (truncated)
             {
@@ -171,33 +170,6 @@ public sealed class DramaSourceRouterDownloadTests
 
         ranges.Should().HaveCount(3);
         ranges[2].Should().Be((2L * pieceSize, total - 1));
-    }
-
-    [Theory]
-    [InlineData("mapleleaf", 60, 900)]
-    [InlineData("MAPLELEAF", 600, 900)]
-    [InlineData("hghigh", 60, 60)]
-    [InlineData("hgnew", 5, 10)]
-    public void Provider_download_timeout_prevents_mapleleaf_slow_cdn_restart_loops(
-        string source,
-        int configuredSeconds,
-        int expectedSeconds)
-    {
-        DramaSourceRouter.ResolveProviderDownloadTimeoutSeconds(source, configuredSeconds)
-            .Should().Be(expectedSeconds);
-    }
-
-    [Theory]
-    [InlineData(0, 15)]
-    [InlineData(60, 15)]
-    [InlineData(10, 10)]
-    [InlineData(2, 5)]
-    public void Play_url_resolution_uses_reference_client_short_timeout(
-        int configuredSeconds,
-        int expectedSeconds)
-    {
-        DramaSourceRouter.ResolvePlayUrlTimeoutSeconds(configuredSeconds)
-            .Should().Be(expectedSeconds);
     }
 
     [Fact]
@@ -493,92 +465,6 @@ public sealed class DramaSourceRouterDownloadTests
     }
 
     [Fact]
-    public async Task DownloadAsync_Should_Use_Local_Stream_And_Transcode_Hevc_To_H264()
-    {
-        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-hglocal-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(outputDir);
-        var handler = new LocalStreamRecordingHandler();
-        using var httpClient = new HttpClient(handler);
-        var previousFfmpegResolver = DramaSourceRouter.ResolveFfmpegBinaryForTests.Value;
-        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
-        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
-
-        try
-        {
-            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = () => "fake-ffmpeg";
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
-            DramaSourceRouter.RunProcessAsyncForTests.Value = async (startInfo, cancellationToken) =>
-            {
-                if (startInfo.FileName == "fake-ffprobe")
-                {
-                    return startInfo.ArgumentList[^1].EndsWith(".h264.mp4", StringComparison.OrdinalIgnoreCase)
-                        ? ProbeResult("h264")
-                        : ProbeResult("hevc");
-                }
-
-                startInfo.FileName.Should().Be("fake-ffmpeg");
-                startInfo.ArgumentList.Should().Contain("libx264");
-                startInfo.ArgumentList.Should().Contain("aac");
-                var inputPath = startInfo.ArgumentList[startInfo.ArgumentList.IndexOf("-i") + 1];
-                File.ReadAllBytes(inputPath).Should().Equal(LocalStreamRecordingHandler.StreamBytes);
-                var outputPath = startInfo.ArgumentList[^1];
-                outputPath.Should().EndWith(".h264.mp4");
-                await File.WriteAllBytesAsync(outputPath, Encoding.UTF8.GetBytes("h264-video"), cancellationToken);
-                return new DramaSourceRouter.ProcessRunResult(0, "", "");
-            };
-
-            var settings = new DramaSourceSettings
-            {
-                DramaSourceChain = "hglocal",
-                HongguoDownloadTimeoutSeconds = "10",
-                HongguoEpisodeDownloadAttempts = "1",
-                HongguoLocalBaseUrl = "https://local.example.com",
-                HongguoLocalApiKey = "local-key",
-                HongguoLocalDownloadMode = "compatible",
-                HongguoLocalTranscodeEngine = "cpu"
-            };
-            var router = new DramaSourceRouter(
-                httpClient,
-                new TestDramaSettingsProvider(settings),
-                new HongguoLocalApiService(httpClient),
-                new HongguoNewApiService(httpClient),
-                new HongguoDramaSearchService(httpClient),
-                new HongguoDramaDownloader(httpClient),
-                new HongguoMemoryReaderService());
-
-            var request = new DramaDownloadRequest(
-                ProjectDir: outputDir,
-                OutputDir: outputDir,
-                DisplayName: "test-drama",
-                BookId: "hglocal:series-1",
-                Episodes: "1",
-                Quality: "1080P+",
-                Concurrent: 1,
-                EpisodeNumberMode: "source");
-
-            var result = await router.DownloadAsync(request, progress: null, CancellationToken.None);
-
-            result.Ok.Should().BeTrue(result.Message);
-            result.VideoCount.Should().Be(1);
-            var videoPath = Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle().Subject;
-            File.ReadAllText(videoPath).Should().Be("h264-video");
-            handler.Requests.Should().Contain(request =>
-                request.RequestUri!.AbsolutePath.EndsWith("/api/hongguo/video_url", StringComparison.OrdinalIgnoreCase));
-            handler.Requests.Should().Contain(request =>
-                string.Equals(request.RequestUri!.Host, "cdn.example.com", StringComparison.OrdinalIgnoreCase));
-            handler.Requests.Should().NotContain(request =>
-                request.RequestUri!.AbsolutePath.EndsWith("/api/hongguo/stream", StringComparison.OrdinalIgnoreCase));
-        }
-        finally
-        {
-            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = previousFfmpegResolver;
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
-            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
-            Directory.Delete(outputDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public async Task DownloadAsync_Should_Use_Configured_Range_Segments_And_Preserve_Content()
     {
         var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-range-{Guid.NewGuid():N}");
@@ -605,7 +491,7 @@ public sealed class DramaSourceRouterDownloadTests
 
             var result = await CreateRouter(
                     httpClient,
-                    CreateLocalSettings(downloadMode: "fast", fileSegments: "4"))
+                    CreateGatewaySettings(fileSegments: "4"))
                 .DownloadAsync(CreateDownloadRequest(outputDir), progress, CancellationToken.None);
 
             result.Ok.Should().BeTrue(result.Message);
@@ -653,7 +539,7 @@ public sealed class DramaSourceRouterDownloadTests
 
             var result = await CreateRouter(
                     httpClient,
-                    CreateLocalSettings(downloadMode: "fast", fileSegments: "4"))
+                    CreateGatewaySettings(fileSegments: "4"))
                 .DownloadAsync(CreateDownloadRequest(outputDir), progress, CancellationToken.None);
 
             result.Ok.Should().BeTrue(result.Message);
@@ -694,7 +580,7 @@ public sealed class DramaSourceRouterDownloadTests
 
             var result = await CreateRouter(
                     httpClient,
-                    CreateLocalSettings(downloadMode: "fast", fileSegments: "4"))
+                    CreateGatewaySettings(fileSegments: "4"))
                 .DownloadAsync(CreateDownloadRequest(outputDir), progress: null, CancellationToken.None);
 
             result.Ok.Should().BeTrue(result.Message);
@@ -725,13 +611,14 @@ public sealed class DramaSourceRouterDownloadTests
 
         try
         {
-            var result = await CreateRouter(
-                    httpClient,
-                    CreateLocalSettings(downloadMode: "fast", fileSegments: "1"))
-                .DownloadAsync(CreateDownloadRequest(outputDir), progress: null, CancellationToken.None);
-
-            result.Ok.Should().BeFalse();
-            result.Message.Should().Contain("意外返回 HTTP 206");
+            var router = CreateRouter(httpClient, CreateGatewaySettings());
+            var download = typeof(DramaSourceRouter).GetMethods(
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                .Single(method => method.Name == "DownloadVideoFileOnceAsync" && method.GetParameters().Length == 14);
+            var exception = await Assert.ThrowsAsync<InvalidDataException>(() => (Task)download.Invoke(router,
+                new object?[] { "https://cdn.example.com/video.mp4", Path.Combine(outputDir, "video.part"),
+                    Path.Combine(outputDir, "video.mp4"), 0L, 10, CancellationToken.None, null, null, 1, null, 0, 0, null, false })!);
+            exception.Message.Should().Contain("意外返回 HTTP 206");
             Directory.GetFiles(outputDir, "*.mp4").Should().BeEmpty();
         }
         finally
@@ -761,7 +648,7 @@ public sealed class DramaSourceRouterDownloadTests
                 throw new InvalidOperationException("取消发生在媒体校验之前。");
             var downloadTask = CreateRouter(
                     httpClient,
-                    CreateLocalSettings(downloadMode: "fast", fileSegments: "4"))
+                    CreateGatewaySettings(fileSegments: "4"))
                 .DownloadAsync(CreateDownloadRequest(outputDir), progress: null, cancellation.Token);
 
             await handler.DataRangeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -775,267 +662,6 @@ public sealed class DramaSourceRouterDownloadTests
         finally
         {
             cancellation.Cancel();
-            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
-            Directory.Delete(outputDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task DownloadAsync_Should_Use_Nvenc_When_Local_Compatible_Mode_Is_Auto_And_Nvenc_Available()
-    {
-        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-hglocal-nvenc-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(outputDir);
-        var handler = new LocalStreamRecordingHandler();
-        using var httpClient = new HttpClient(handler);
-        var previousFfmpegResolver = DramaSourceRouter.ResolveFfmpegBinaryForTests.Value;
-        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
-        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
-        var sawEncoderProbe = false;
-        var sawNvencTranscode = false;
-        var sawCpuTranscode = false;
-
-        try
-        {
-            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = () => "fake-ffmpeg";
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
-            DramaSourceRouter.RunProcessAsyncForTests.Value = async (startInfo, cancellationToken) =>
-            {
-                if (startInfo.FileName == "fake-ffprobe")
-                {
-                    return startInfo.ArgumentList[^1].EndsWith(".h264.mp4", StringComparison.OrdinalIgnoreCase)
-                        ? ProbeResult("h264")
-                        : ProbeResult("hevc");
-                }
-
-                startInfo.FileName.Should().Be("fake-ffmpeg");
-                if (startInfo.ArgumentList.Contains("-encoders"))
-                {
-                    sawEncoderProbe = true;
-                    return new DramaSourceRouter.ProcessRunResult(0, " V....D h264_nvenc NVIDIA NVENC H.264 encoder", "");
-                }
-
-                if (startInfo.ArgumentList.Contains("libx264"))
-                {
-                    sawCpuTranscode = true;
-                }
-
-                sawNvencTranscode = true;
-                startInfo.ArgumentList.Should().Contain("hevc_cuvid");
-                startInfo.ArgumentList.Should().Contain("h264_nvenc");
-                startInfo.ArgumentList.Should().Contain("-cq");
-                startInfo.ArgumentList[startInfo.ArgumentList.IndexOf("-cq") + 1].Should().Be("26");
-                startInfo.ArgumentList.Should().Contain("aac");
-                var inputPath = startInfo.ArgumentList[startInfo.ArgumentList.IndexOf("-i") + 1];
-                File.ReadAllBytes(inputPath).Should().Equal(LocalStreamRecordingHandler.StreamBytes);
-                await File.WriteAllBytesAsync(startInfo.ArgumentList[^1], Encoding.UTF8.GetBytes("nvenc-video"), cancellationToken);
-                return new DramaSourceRouter.ProcessRunResult(0, "", "");
-            };
-
-            var settings = new DramaSourceSettings
-            {
-                DramaSourceChain = "hglocal",
-                HongguoDownloadTimeoutSeconds = "10",
-                HongguoEpisodeDownloadAttempts = "1",
-                HongguoLocalBaseUrl = "https://local.example.com",
-                HongguoLocalApiKey = "local-key",
-                HongguoLocalDownloadMode = "compatible",
-                HongguoLocalTranscodeEngine = "auto"
-            };
-            var router = new DramaSourceRouter(
-                httpClient,
-                new TestDramaSettingsProvider(settings),
-                new HongguoLocalApiService(httpClient),
-                new HongguoNewApiService(httpClient),
-                new HongguoDramaSearchService(httpClient),
-                new HongguoDramaDownloader(httpClient),
-                new HongguoMemoryReaderService());
-
-            var request = new DramaDownloadRequest(
-                ProjectDir: outputDir,
-                OutputDir: outputDir,
-                DisplayName: "test-drama",
-                BookId: "hglocal:series-1",
-                Episodes: "1",
-                Quality: "1080P+",
-                Concurrent: 1,
-                EpisodeNumberMode: "source");
-
-            var result = await router.DownloadAsync(request, progress: null, CancellationToken.None);
-
-            result.Ok.Should().BeTrue(result.Message);
-            File.ReadAllText(Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle().Subject).Should().Be("nvenc-video");
-            sawEncoderProbe.Should().BeTrue();
-            sawNvencTranscode.Should().BeTrue();
-            sawCpuTranscode.Should().BeFalse();
-        }
-        finally
-        {
-            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = previousFfmpegResolver;
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
-            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
-            Directory.Delete(outputDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task DownloadAsync_Should_Fall_Back_To_Cpu_When_Forced_Nvenc_Is_Unavailable()
-    {
-        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-hglocal-nvenc-fallback-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(outputDir);
-        var handler = new LocalStreamRecordingHandler();
-        using var httpClient = new HttpClient(handler);
-        var previousFfmpegResolver = DramaSourceRouter.ResolveFfmpegBinaryForTests.Value;
-        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
-        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
-        var sawCpuTranscode = false;
-
-        try
-        {
-            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = () => "fake-ffmpeg";
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
-            DramaSourceRouter.RunProcessAsyncForTests.Value = async (startInfo, cancellationToken) =>
-            {
-                if (startInfo.FileName == "fake-ffprobe")
-                {
-                    return startInfo.ArgumentList[^1].EndsWith(".h264.mp4", StringComparison.OrdinalIgnoreCase)
-                        ? ProbeResult("h264")
-                        : ProbeResult("hevc");
-                }
-
-                if (startInfo.ArgumentList.Contains("-encoders"))
-                {
-                    return new DramaSourceRouter.ProcessRunResult(0, " V..... libx264", "");
-                }
-
-                startInfo.ArgumentList.Should().Contain("libx264");
-                startInfo.ArgumentList.Should().NotContain("h264_nvenc");
-                sawCpuTranscode = true;
-                await File.WriteAllTextAsync(startInfo.ArgumentList[^1], "cpu-video", cancellationToken);
-                return new DramaSourceRouter.ProcessRunResult(0, "", "");
-            };
-
-            var progress = new RecordingProgress();
-            var result = await CreateRouter(
-                    httpClient,
-                    CreateLocalSettings(downloadMode: "compatible", transcodeEngine: "nvenc"))
-                .DownloadAsync(CreateDownloadRequest(outputDir), progress, CancellationToken.None);
-
-            result.Ok.Should().BeTrue(result.Message);
-            sawCpuTranscode.Should().BeTrue();
-            File.ReadAllText(Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle().Subject).Should().Be("cpu-video");
-            progress.Messages.Should().Contain(message => message.Contains("CPU libx264", StringComparison.Ordinal));
-        }
-        finally
-        {
-            DramaSourceRouter.ResolveFfmpegBinaryForTests.Value = previousFfmpegResolver;
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
-            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
-            Directory.Delete(outputDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task DownloadAsync_Should_Keep_Hglocal_Hevc_When_Mode_Is_Fast()
-    {
-        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-hglocal-fast-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(outputDir);
-        var handler = new LocalStreamRecordingHandler();
-        using var httpClient = new HttpClient(handler);
-        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
-        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
-        var sawFfprobe = false;
-
-        try
-        {
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
-            DramaSourceRouter.RunProcessAsyncForTests.Value = (startInfo, _) =>
-            {
-                startInfo.FileName.Should().Be("fake-ffprobe", "fast mode should validate media but never run ffmpeg");
-                sawFfprobe = true;
-                return Task.FromResult(ProbeResult("hevc"));
-            };
-
-            var settings = new DramaSourceSettings
-            {
-                DramaSourceChain = "hglocal",
-                HongguoDownloadTimeoutSeconds = "10",
-                HongguoEpisodeDownloadAttempts = "1",
-                HongguoLocalBaseUrl = "https://local.example.com",
-                HongguoLocalApiKey = "local-key"
-            };
-            var router = new DramaSourceRouter(
-                httpClient,
-                new TestDramaSettingsProvider(settings),
-                new HongguoLocalApiService(httpClient),
-                new HongguoNewApiService(httpClient),
-                new HongguoDramaSearchService(httpClient),
-                new HongguoDramaDownloader(httpClient),
-                new HongguoMemoryReaderService());
-
-            var request = new DramaDownloadRequest(
-                ProjectDir: outputDir,
-                OutputDir: outputDir,
-                DisplayName: "test-drama",
-                BookId: "hglocal:series-1",
-                Episodes: "1",
-                Quality: "1080P+",
-                Concurrent: 1,
-                EpisodeNumberMode: "source");
-
-            var result = await router.DownloadAsync(request, progress: null, CancellationToken.None);
-
-            result.Ok.Should().BeTrue(result.Message);
-            sawFfprobe.Should().BeTrue();
-            var videoPath = Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle().Subject;
-            File.ReadAllBytes(videoPath).Should().Equal(LocalStreamRecordingHandler.StreamBytes);
-            handler.Requests.Should().Contain(request =>
-                string.Equals(request.RequestUri!.Host, "cdn.example.com", StringComparison.OrdinalIgnoreCase));
-            handler.Requests.Should().NotContain(request =>
-                request.RequestUri!.AbsolutePath.EndsWith("/api/hongguo/stream", StringComparison.OrdinalIgnoreCase));
-        }
-        finally
-        {
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
-            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
-            Directory.Delete(outputDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task DownloadAsync_Should_Keep_H264_Without_Starting_Ffmpeg()
-    {
-        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-h264-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(outputDir);
-        var h264Bytes = Encoding.UTF8.GetBytes("h264-source-video");
-        var handler = new LocalStreamRecordingHandler { DownloadBytes = h264Bytes };
-        using var httpClient = new HttpClient(handler);
-        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
-        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
-        var progress = new RecordingProgress();
-
-        try
-        {
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
-            DramaSourceRouter.RunProcessAsyncForTests.Value = (startInfo, _) =>
-            {
-                startInfo.FileName.Should().Be("fake-ffprobe", "H.264 media should not start ffmpeg");
-                return Task.FromResult(ProbeResult("h264"));
-            };
-
-            var settings = CreateLocalSettings(downloadMode: "compatible", transcodeEngine: "cpu");
-            var result = await CreateRouter(httpClient, settings).DownloadAsync(
-                CreateDownloadRequest(outputDir),
-                progress,
-                CancellationToken.None);
-
-            result.Ok.Should().BeTrue(result.Message);
-            File.ReadAllBytes(Directory.GetFiles(outputDir, "*.mp4").Should().ContainSingle().Subject).Should().Equal(h264Bytes);
-            progress.Messages.Should().Contain(message => message.Contains("编码 H264", StringComparison.Ordinal) &&
-                                                          message.Contains("无需转码", StringComparison.Ordinal));
-        }
-        finally
-        {
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
             DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
             Directory.Delete(outputDir, recursive: true);
         }
@@ -1059,7 +685,7 @@ public sealed class DramaSourceRouterDownloadTests
             DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) =>
                 throw new InvalidOperationException("HTML responses should be rejected before ffprobe");
 
-            var result = await CreateRouter(httpClient, CreateLocalSettings()).DownloadAsync(
+            var result = await CreateRouter(httpClient, CreateGatewaySettings()).DownloadAsync(
                 CreateDownloadRequest(outputDir),
                 progress: null,
                 CancellationToken.None);
@@ -1071,44 +697,6 @@ public sealed class DramaSourceRouterDownloadTests
         }
         finally
         {
-            DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
-            Directory.Delete(outputDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task DownloadAsync_Should_Fail_When_Ffprobe_Finds_No_Video_Stream()
-    {
-        var outputDir = Path.Combine(Path.GetTempPath(), $"drama-router-invalid-media-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(outputDir);
-        var handler = new LocalStreamRecordingHandler
-        {
-            DownloadBytes = Encoding.UTF8.GetBytes("not-media"),
-            DownloadMediaType = null
-        };
-        using var httpClient = new HttpClient(handler);
-        var previousFfprobeResolver = DramaSourceRouter.ResolveFfprobeBinaryForTests.Value;
-        var previousProcessRunner = DramaSourceRouter.RunProcessAsyncForTests.Value;
-
-        try
-        {
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = () => "fake-ffprobe";
-            DramaSourceRouter.RunProcessAsyncForTests.Value = (_, _) => Task.FromResult(
-                new DramaSourceRouter.ProcessRunResult(1, "", "Invalid data found when processing input"));
-
-            var result = await CreateRouter(httpClient, CreateLocalSettings(downloadMode: "compatible")).DownloadAsync(
-                CreateDownloadRequest(outputDir),
-                progress: null,
-                CancellationToken.None);
-
-            result.Ok.Should().BeFalse();
-            result.Message.Should().Contain("ffprobe 无法识别媒体");
-            Directory.GetFiles(outputDir, "*.mp4").Should().BeEmpty();
-            Directory.GetFiles(outputDir, "*.part").Should().BeEmpty();
-        }
-        finally
-        {
-            DramaSourceRouter.ResolveFfprobeBinaryForTests.Value = previousFfprobeResolver;
             DramaSourceRouter.RunProcessAsyncForTests.Value = previousProcessRunner;
             Directory.Delete(outputDir, recursive: true);
         }
@@ -1141,7 +729,7 @@ public sealed class DramaSourceRouterDownloadTests
                     : ProbeResult("h264"));
             };
 
-            var result = await CreateRouter(httpClient, CreateLocalSettings()).DownloadAsync(
+            var result = await CreateRouter(httpClient, CreateGatewaySettings()).DownloadAsync(
                 CreateDownloadRequest(outputDir),
                 progress,
                 CancellationToken.None);
@@ -1186,7 +774,7 @@ public sealed class DramaSourceRouterDownloadTests
             {
                 ExistingVideoPolicy = ExistingVideoPolicy.ReplaceAll
             };
-            var result = await CreateRouter(httpClient, CreateLocalSettings()).DownloadAsync(
+            var result = await CreateRouter(httpClient, CreateGatewaySettings()).DownloadAsync(
                 request,
                 progress,
                 CancellationToken.None);
@@ -1225,7 +813,7 @@ public sealed class DramaSourceRouterDownloadTests
             {
                 ExistingVideoPolicy = ExistingVideoPolicy.ReplaceAll
             };
-            var result = await CreateRouter(httpClient, CreateLocalSettings()).DownloadAsync(
+            var result = await CreateRouter(httpClient, CreateGatewaySettings()).DownloadAsync(
                 request,
                 progress: null,
                 CancellationToken.None);
@@ -1240,49 +828,16 @@ public sealed class DramaSourceRouterDownloadTests
         }
     }
 
-    [Theory]
-    [InlineData(false, ExistingVideoPolicy.ReuseValid, false)]
-    [InlineData(true, ExistingVideoPolicy.ReuseValid, true)]
-    [InlineData(false, ExistingVideoPolicy.ReplaceInvalid, false)]
-    [InlineData(false, ExistingVideoPolicy.ReplaceAll, false)]
-    [InlineData(true, ExistingVideoPolicy.ReplaceAll, true)]
-    public void Codec_Validation_Depends_Only_On_Source(
-        bool sourceDefault,
-        ExistingVideoPolicy policy,
-        bool expected)
-    {
-        DramaSourceRouter.RequiresVideoEncodingValidation(sourceDefault, policy)
-            .Should().Be(expected);
-    }
-
-    [Theory]
-    [InlineData("hglocal", true)]
-    [InlineData("HGLOCAL", true)]
-    [InlineData("downloader", false)]
-    [InlineData("hghigh", false)]
-    [InlineData("mapleleaf", false)]
-    [InlineData("pikachu", false)]
-    [InlineData("hgnew", false)]
-    [InlineData("", false)]
-    public void Only_Local_Direct_Source_Enables_Codec_Validation(string source, bool expected)
-    {
-        DramaSourceRouter.ShouldValidateVideoEncodingForSource(source).Should().Be(expected);
-    }
-
-    private static DramaSourceSettings CreateLocalSettings(
-        string downloadMode = "fast",
-        string transcodeEngine = "auto",
+    private static DramaSourceSettings CreateGatewaySettings(
         string fileSegments = "4") =>
         new()
         {
-            DramaSourceChain = "hglocal",
+            DramaSourceChain = "downloader",
+            DownloaderApiBaseUrl = "https://gateway.example",
+            DownloaderApiKey = "test-key",
             HongguoDownloadTimeoutSeconds = "10",
             HongguoEpisodeDownloadAttempts = "1",
             DownloadFileSegments = fileSegments,
-            HongguoLocalBaseUrl = "https://local.example.com",
-            HongguoLocalApiKey = "local-key",
-            HongguoLocalDownloadMode = downloadMode,
-            HongguoLocalTranscodeEngine = transcodeEngine
         };
 
     private static DramaDownloadRequest CreateDownloadRequest(string outputDir) =>
@@ -1290,7 +845,7 @@ public sealed class DramaSourceRouterDownloadTests
             ProjectDir: outputDir,
             OutputDir: outputDir,
             DisplayName: "test-drama",
-            BookId: "hglocal:series-1",
+            BookId: "downloader:series-1",
             Episodes: "1",
             Quality: "1080P+",
             Concurrent: 1,
@@ -1371,7 +926,6 @@ public sealed class DramaSourceRouterDownloadTests
         new(
             httpClient,
             new TestDramaSettingsProvider(settings),
-            new HongguoLocalApiService(httpClient),
             new HongguoNewApiService(httpClient),
             new HongguoDramaSearchService(httpClient),
             new HongguoDramaDownloader(httpClient),
@@ -1505,7 +1059,7 @@ public sealed class DramaSourceRouterDownloadTests
                 Requests.Add(request);
             }
             var path = request.RequestUri!.AbsolutePath;
-            if (path.EndsWith("/api/hongguo/episodes", StringComparison.OrdinalIgnoreCase))
+            if (path.EndsWith("/api/v1/catalog/episodes", StringComparison.OrdinalIgnoreCase))
             {
                 return Task.FromResult(JsonResponse("""
                     {
@@ -1516,14 +1070,12 @@ public sealed class DramaSourceRouterDownloadTests
                     """));
             }
 
-            if (path.EndsWith("/api/hongguo/video_url", StringComparison.OrdinalIgnoreCase))
+            if (path.EndsWith("/api/v1/catalog/video-url", StringComparison.OrdinalIgnoreCase))
             {
                 return Task.FromResult(JsonResponse("""
                     {
                       "url": "https://cdn.example.com/encrypted.mp4",
-                      "encrypted_url": "https://cdn.example.com/encrypted.mp4",
-                      "spade_a": "test-spade",
-                      "encrypt": true
+                      "encrypt": false
                     }
                     """));
             }

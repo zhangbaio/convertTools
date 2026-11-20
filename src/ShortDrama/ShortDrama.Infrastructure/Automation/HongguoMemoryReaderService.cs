@@ -279,7 +279,6 @@ public sealed class HongguoMemoryReaderService
     {
         return value.Contains("hongguo", StringComparison.OrdinalIgnoreCase) ||
                value.Contains("hgdownload", StringComparison.OrdinalIgnoreCase) ||
-               value.Contains("hglocal", StringComparison.OrdinalIgnoreCase) ||
                value.Contains("红果", StringComparison.OrdinalIgnoreCase) ||
                value.Contains("聚合短剧盒子", StringComparison.OrdinalIgnoreCase);
     }

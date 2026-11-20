@@ -13,8 +13,6 @@ public static class DramaDownloadSourceSelector
 
     private static readonly (string Source, string BookPrefix, string EpisodePrefix)[] Known =
     [
-        ("mapleleaf", "mapleleaf:", "mapleleaf_ep:"),
-        ("hglocal", "hglocal:", "hglocal_ep:"),
         ("downloader", "downloader:", "downloader_ep:"),
         ("hghigh", "hghigh:", "hghigh_ep:"),
         ("pikachu", "pikachu:", "pikachu_ep:"),
@@ -34,14 +32,12 @@ public static class DramaDownloadSourceSelector
     public static string Normalize(string? chain)
     {
         var value = (chain ?? string.Empty).Trim().ToLowerInvariant();
-        return value.Length == 0 ? DefaultChain : value;
+        return value is "" or "hglocal" or "mapleleaf" ? DefaultChain : value;
     }
 
     public static string Label(string? chain) => Normalize(chain) switch
     {
         "hghigh" => "红果高清",
-        "mapleleaf" => "Mapleleaf",
-        "hglocal" => "本地直连",
         "pikachu" => "皮卡丘",
         "playlet" => "红果短剧下载器",
         "hongguoapp" => "红果APP",
@@ -64,10 +60,17 @@ public static class DramaDownloadSourceSelector
         return "hgnew";
     }
 
+    public static bool IsRemovedBookId(string? bookId) =>
+        bookId?.Trim() is { } id &&
+        (id.StartsWith("hglocal:", StringComparison.OrdinalIgnoreCase) ||
+         id.StartsWith("hglocal_ep:", StringComparison.OrdinalIgnoreCase) ||
+         id.StartsWith("mapleleaf:", StringComparison.OrdinalIgnoreCase) ||
+         id.StartsWith("mapleleaf_ep:", StringComparison.OrdinalIgnoreCase));
+
     public static bool IsRetired(string? chain)
     {
         var value = (chain ?? string.Empty).Trim().ToLowerInvariant();
-        return value is "hgnew" or "mapleleaf" or "downloader";
+        return value is "hgnew" or "downloader";
     }
 
     /// <summary>
@@ -77,6 +80,10 @@ public static class DramaDownloadSourceSelector
     {
         var id = (bookId ?? string.Empty).Trim();
         if (id.Length == 0)
+            return null;
+
+        // Old projects must resolve a fresh ID by title on the selected source.
+        if (IsRemovedBookId(id))
             return null;
 
         var selected = Normalize(selectedChain);
@@ -105,6 +112,7 @@ public static class DramaDownloadSourceSelector
         var references = root?["sourceReferences"] as JsonObject;
         var reference = references?[Normalize(chain)] as JsonObject;
         return reference?["bookId"] is JsonValue value && value.TryGetValue<string>(out var bookId)
+            && !IsRemovedBookId(bookId)
             ? bookId.Trim()
             : null;
     }
@@ -112,7 +120,7 @@ public static class DramaDownloadSourceSelector
     public static void Remember(string? directory, string? chain, string? bookId, string? title)
     {
         var path = ProjectPath(directory);
-        if (path is null || string.IsNullOrWhiteSpace(bookId))
+        if (path is null || string.IsNullOrWhiteSpace(bookId) || IsRemovedBookId(bookId))
             return;
 
         var root = ReadProject(directory);

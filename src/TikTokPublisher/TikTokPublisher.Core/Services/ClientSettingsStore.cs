@@ -160,6 +160,13 @@ public static class ClientSettingsStore
         foreach (var key in RetiredSilenceSettingKeys)
             existing.Remove(key);
 
+        existing.Remove("hongguo_local_base_url");
+        existing.Remove("hongguo_local_api_key");
+        existing.Remove("hongguo_local_download_mode");
+        existing.Remove("hongguo_local_transcode_engine");
+        existing.Remove("mapleleaf_account");
+        existing.Remove("mapleleaf_password");
+        existing.Remove("mapleleaf_udid");
         SaveRawObject(path, existing);
     }
 
@@ -410,8 +417,6 @@ public static class ClientSettingsStore
             8);
         settings.HongguoDownloadTimeoutSeconds = Math.Clamp(settings.HongguoDownloadTimeoutSeconds, 10, 300);
         settings.HongguoEpisodeDownloadAttempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 10);
-        settings.HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode);
-        settings.HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine);
         settings.HgnewUdid = NormalizeUdid(settings.HgnewUdid);
         settings.HgnewClientVersion = HongguoClientVersion.Normalize(settings.HgnewClientVersion);
         settings.PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
@@ -490,7 +495,7 @@ public static class ClientSettingsStore
         settings.PosterLayoutRequestMode = NormalizePosterLayoutRequestMode(settings.PosterLayoutRequestMode);
         var networkPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(settings.NetworkAddressPreference);
         settings.NetworkAddressPreference = ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.ToValue(networkPreference);
-        settings.ImageProvider = NormalizeImageProvider(settings.ImageProvider);
+        settings.ImageProvider = ClientSettingsDefaults.ImageProvider;
         settings.ImageModelId = ClientSettingsDefaults.NormalizeImageModelId(settings.ImageModelId);
         settings.ImageModelApiKey ??= "";
         settings.ImageModelEndpoint = DefaultIfBlank(settings.ImageModelEndpoint, ClientSettingsDefaults.ImageModelEndpoint);
@@ -631,18 +636,6 @@ public static class ClientSettingsStore
         string.Equals(value?.Trim(), "manga", StringComparison.OrdinalIgnoreCase)
             ? "manga"
             : "short";
-
-    private static string NormalizeHongguoLocalDownloadMode(string? value)
-    {
-        var normalized = (value ?? "fast").Trim().ToLowerInvariant();
-        return normalized is "compatible" ? "compatible" : "fast";
-    }
-
-    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
-    {
-        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
-        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
-    }
 
     /// <summary>
     /// 发布信息提示词为空时，沿用用户改过的旧「完整信息 System Prompt」，否则使用新默认值。
@@ -807,13 +800,6 @@ public static class ClientSettingsStore
         string.Equals(value?.Trim(), "single", StringComparison.OrdinalIgnoreCase)
             ? "single"
             : ClientSettingsDefaults.TiktokRoleVectorViewMode;
-
-    private static string NormalizeImageProvider(string? value) =>
-        (value ?? ClientSettingsDefaults.ImageProvider).Trim().ToLowerInvariant() switch
-        {
-            "doubao" or "ofox_image2" => (value ?? ClientSettingsDefaults.ImageProvider).Trim().ToLowerInvariant(),
-            _ => ClientSettingsDefaults.ImageProvider
-        };
 
     private static string NormalizePosterTitleVerifyMode(string? value) =>
         (value ?? ClientSettingsDefaults.PosterTitleVerifyMode).Trim().ToLowerInvariant() switch

@@ -993,7 +993,6 @@ public sealed class HongguoHighDramaChainTests
         var router = new DramaSourceRouter(
             httpClient,
             new StaticSettings(settings),
-            new HongguoLocalApiService(httpClient),
             new HongguoNewApiService(httpClient),
             new HongguoDramaSearchService(httpClient),
             new HongguoDramaDownloader(httpClient),

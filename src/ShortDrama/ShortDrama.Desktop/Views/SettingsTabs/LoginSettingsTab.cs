@@ -13,8 +13,6 @@ public sealed class LoginSettingsTab : UserControl
 {
     private readonly RadioButton _hgnewButton;
     private readonly RadioButton _hghighButton;
-    private readonly RadioButton _mapleleafButton;
-    private readonly RadioButton _hglocalButton;
     private readonly RadioButton _pikachuButton;
     private readonly RadioButton _downloaderButton;
 
@@ -22,8 +20,6 @@ public sealed class LoginSettingsTab : UserControl
     {
         _hgnewButton = BuildSourceButton("hgnew", "hgnew");
         _hghighButton = BuildSourceButton("hghigh", "hghigh");
-        _mapleleafButton = BuildSourceButton("mapleleaf", "Mapleleaf");
-        _hglocalButton = BuildSourceButton("hglocal", "hglocal");
         _pikachuButton = BuildSourceButton("pikachu", "pikachu");
         _downloaderButton = BuildSourceButton("downloader", "统一下载器");
         DataContextChanged += (_, _) => SyncSourceButtons();
@@ -42,7 +38,7 @@ public sealed class LoginSettingsTab : UserControl
             Margin = new Thickness(16)
         };
 
-        panel.Children.Add(Hint("登录设置支持 hgnew / hghigh / Mapleleaf / hglocal / pikachu；短剧搜索、下载和上新只使用当前选择的数据源，不再自动降级。"));
+        panel.Children.Add(Hint("登录设置支持 hgnew / hghigh / pikachu；短剧搜索、下载和上新只使用当前选择的数据源，不再自动降级。"));
         panel.Children.Add(BuildSourceRow());
 
         panel.Children.Add(SectionTitle("统一下载器"));
@@ -72,19 +68,6 @@ public sealed class LoginSettingsTab : UserControl
         panel.Children.Add(Row("密钥状态", ReadOnlyText(nameof(ConfigWindowViewModel.HghighMastersStatus))));
         panel.Children.Add(Row("测试结果", BuildHghighProbeRow()));
 
-        panel.Children.Add(SectionTitle("Mapleleaf 1.6.5"));
-        panel.Children.Add(Hint("独立账号和设备号；搜索、上新与剧集列表走 Mapleleaf，单集播放地址通常需要同时配置 hglocal。"));
-        panel.Children.Add(Row("账号", BindText(nameof(ConfigWindowViewModel.MapleleafAccount))));
-        panel.Children.Add(Row("密码", BindPassword(nameof(ConfigWindowViewModel.MapleleafPassword))));
-        panel.Children.Add(Row("DeviceUDID", BuildMapleleafUdidRow()));
-        panel.Children.Add(Row("测试结果", ReadOnlyText(nameof(ConfigWindowViewModel.MapleleafProbeStatus))));
-
-        panel.Children.Add(SectionTitle("hglocal"));
-        panel.Children.Add(Row("本地链路地址", BindText(nameof(ConfigWindowViewModel.HongguoLocalBaseUrl))));
-        panel.Children.Add(Row("本地链路密钥", BindText(nameof(ConfigWindowViewModel.HongguoLocalApiKey))));
-
-        panel.Children.Add(Row("测试结果", BuildHongguoLocalProbeRow()));
-
         panel.Children.Add(SectionTitle("pikachu"));
         panel.Children.Add(Row("内容类型", BuildPikachuTypeCombo()));
         panel.Children.Add(Row("代理服务地址", BindText(nameof(ConfigWindowViewModel.PikachuServerUrl))));
@@ -104,8 +87,6 @@ public sealed class LoginSettingsTab : UserControl
         };
         row.Children.Add(_hgnewButton);
         row.Children.Add(_hghighButton);
-        row.Children.Add(_mapleleafButton);
-        row.Children.Add(_hglocalButton);
         row.Children.Add(_pikachuButton);
         row.Children.Add(_downloaderButton);
         return row;
@@ -137,8 +118,6 @@ public sealed class LoginSettingsTab : UserControl
 
         _hgnewButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "hgnew", StringComparison.OrdinalIgnoreCase);
         _hghighButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "hghigh", StringComparison.OrdinalIgnoreCase);
-        _mapleleafButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "mapleleaf", StringComparison.OrdinalIgnoreCase);
-        _hglocalButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "hglocal", StringComparison.OrdinalIgnoreCase);
         _pikachuButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "pikachu", StringComparison.OrdinalIgnoreCase);
         _downloaderButton.IsChecked = string.Equals(viewModel.DramaSourceChain, "downloader", StringComparison.OrdinalIgnoreCase);
     }
@@ -210,54 +189,6 @@ public sealed class LoginSettingsTab : UserControl
         probeButton.Click += ProbeHghighLogin_Click;
         grid.Children.Add(probeButton);
         Grid.SetColumn(probeButton, 3);
-
-        return grid;
-    }
-
-    private static Control BuildMapleleafUdidRow()
-    {
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"),
-            ColumnSpacing = 8
-        };
-        var text = BindText(nameof(ConfigWindowViewModel.MapleleafUdid));
-        grid.Children.Add(text);
-        var readButton = new Button { Content = "读取 DeviceUDID", MinWidth = 120 };
-        readButton.Click += ReadMapleleafUdid_Click;
-        grid.Children.Add(readButton);
-        Grid.SetColumn(readButton, 1);
-        var generateButton = new Button { Content = "生成", MinWidth = 72 };
-        generateButton.Click += GenerateMapleleafUdid_Click;
-        grid.Children.Add(generateButton);
-        Grid.SetColumn(generateButton, 2);
-        var probeButton = new Button { Content = "测试登录", MinWidth = 96 };
-        probeButton.Click += ProbeMapleleafLogin_Click;
-        grid.Children.Add(probeButton);
-        Grid.SetColumn(probeButton, 3);
-        return grid;
-    }
-
-    private static Control BuildHongguoLocalProbeRow()
-    {
-        var grid = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-            ColumnSpacing = 8
-        };
-
-        var status = ReadOnlyText(nameof(ConfigWindowViewModel.HongguoLocalProbeStatus));
-        grid.Children.Add(status);
-        Grid.SetColumn(status, 0);
-
-        var probeButton = new Button
-        {
-            Content = "测试 hglocal",
-            MinWidth = 110
-        };
-        probeButton.Click += ProbeHongguoLocal_Click;
-        grid.Children.Add(probeButton);
-        Grid.SetColumn(probeButton, 1);
 
         return grid;
     }
@@ -365,32 +296,6 @@ public sealed class LoginSettingsTab : UserControl
             Mode = BindingMode.TwoWay
         };
         return combo;
-    }
-
-    private static void ReadMapleleafUdid_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
-            viewModel.ReadMapleleafUdid();
-    }
-
-    private static void GenerateMapleleafUdid_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
-            viewModel.GenerateMapleleafUdid();
-    }
-
-    private static async void ProbeMapleleafLogin_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
-            await viewModel.ProbeMapleleafLoginAsync();
-    }
-
-    private static async void ProbeHongguoLocal_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Control { DataContext: ConfigWindowViewModel viewModel })
-        {
-            await viewModel.ProbeHongguoLocalAsync();
-        }
     }
 
     private static async void ReadPikachuRuntime_Click(object? sender, RoutedEventArgs e)

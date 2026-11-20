@@ -1240,13 +1240,14 @@ public static class QueueMaterialStepService
         if (!string.Equals(selected, VisibleDramaSource.DefaultChain, StringComparison.Ordinal))
             return false;
         var id = (bookId ?? string.Empty).Trim();
-        return id.Length > 0 && VisibleDramaSource.IsRetired(InferBookIdSource(id));
+        return id.Length > 0 && !DramaDownloadSourceSelector.IsRemovedBookId(id) &&
+               VisibleDramaSource.IsRetired(InferBookIdSource(id));
     }
 
     internal static string NormalizeDramaSource(string? source)
     {
         var value = (source ?? string.Empty).Trim().ToLowerInvariant();
-        return value is "hgnew" or "hglocal" or "pikachu" or "playlet" or "hongguoapp" or "hghigh" or "mapleleaf" or "downloader" or "dramabox" or "foreign"
+        return value is "hgnew" or "pikachu" or "playlet" or "hongguoapp" or "hghigh" or "downloader" or "dramabox" or "foreign"
             ? value
             : "hgnew";
     }
@@ -1254,10 +1255,6 @@ public static class QueueMaterialStepService
     internal static string InferBookIdSource(string? bookId)
     {
         var id = (bookId ?? string.Empty).Trim();
-        if (id.StartsWith("mapleleaf:", StringComparison.OrdinalIgnoreCase) ||
-            id.StartsWith("mapleleaf_ep:", StringComparison.OrdinalIgnoreCase)) return "mapleleaf";
-        if (id.StartsWith("hglocal:", StringComparison.OrdinalIgnoreCase) ||
-            id.StartsWith("hglocal_ep:", StringComparison.OrdinalIgnoreCase)) return "hglocal";
         if (id.StartsWith("downloader:", StringComparison.OrdinalIgnoreCase) ||
             id.StartsWith("downloader_ep:", StringComparison.OrdinalIgnoreCase)) return "downloader";
         if (id.StartsWith("hghigh:", StringComparison.OrdinalIgnoreCase) ||
@@ -1277,7 +1274,7 @@ public static class QueueMaterialStepService
     internal static bool IsBookIdForSource(string? bookId, string? source)
     {
         var id = (bookId ?? string.Empty).Trim();
-        return id.Length > 0 &&
+        return id.Length > 0 && !DramaDownloadSourceSelector.IsRemovedBookId(id) &&
                string.Equals(
                    InferBookIdSource(id),
                    NormalizeDramaSource(source),
@@ -1288,8 +1285,6 @@ public static class QueueMaterialStepService
         NormalizeDramaSource(source) switch
         {
             "hghigh" => "红果短剧助手",
-            "mapleleaf" => "Mapleleaf",
-            "hglocal" => "本地直连",
             "pikachu" => "皮卡丘",
             "playlet" => "红果短剧下载器",
             "hongguoapp" => "红果APP",
@@ -1345,6 +1340,8 @@ public static class QueueMaterialStepService
         string bookId,
         string title)
     {
+        if (DramaDownloadSourceSelector.IsRemovedBookId(bookId)) return;
+
         var path = Path.Combine(sourceProjectDir, "shortdrama-project.json");
         if (!File.Exists(path)) return;
 

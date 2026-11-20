@@ -80,10 +80,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private bool _hghighRevealEnc;
     [ObservableProperty] private bool _hghighRevealSign;
 
-    [ObservableProperty] private string _mapleleafAccount = "";
-    [ObservableProperty] private string _mapleleafPassword = "";
-    [ObservableProperty] private string _mapleleafUdid = "";
-    [ObservableProperty] private string _mapleleafProbeStatus = "";
 
     public string HghighRevealEncButtonText => HghighRevealEnc ? "隐藏密钥" : "显示密钥";
     public string HghighRevealSignButtonText => HghighRevealSign ? "隐藏密钥" : "显示密钥";
@@ -124,10 +120,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
     private HongguoClientProfile SelectedHghighProfile => HongguoClientProfile.Resolve(HghighEdition);
 
-    [ObservableProperty] private string _hongguoLocalBaseUrl = "";
-    [ObservableProperty] private string _hongguoLocalApiKey = "";
-    [ObservableProperty] private string _hongguoLocalDownloadMode = "fast";
-    [ObservableProperty] private string _hongguoLocalTranscodeEngine = "auto";
 
     [ObservableProperty] private string _pikachuServerUrl = "https://startvlog.cn/start-prod-api";
     [ObservableProperty] private string _pikachuFanqieCookie = "";
@@ -201,7 +193,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _foreignLanguage = ForeignPlayletClient.DefaultLanguage;
     [ObservableProperty] private string _foreignProbeStatus = "";
     [ObservableProperty] private bool _isForeignBusy;
-    [ObservableProperty] private string _hongguoLocalProbeStatus = "";
     [ObservableProperty] private string _aiTextProbeStatus = "";
 
     [ObservableProperty] private string _tiktokAsrLocalModelDir = "";
@@ -248,17 +239,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private string _posterMode = ClientSettingsDefaults.PosterMode;
     [ObservableProperty] private string _posterLayoutRequestMode = ClientSettingsDefaults.PosterLayoutRequestMode;
     [ObservableProperty] private string _networkAddressPreference = ClientSettingsDefaults.NetworkAddressPreference;
-    [ObservableProperty] private string _imageProvider = ClientSettingsDefaults.ImageProvider;
     [ObservableProperty] private string _imageModelId = ClientSettingsDefaults.ImageModelId;
     [ObservableProperty] private string _imageModelApiKey = "";
     [ObservableProperty] private string _imageModelEndpoint = ClientSettingsDefaults.ImageModelEndpoint;
     [ObservableProperty] private string _doubaoImageResolution = ClientSettingsDefaults.DoubaoImageResolution;
     [ObservableProperty] private string _doubaoImageRatio = ClientSettingsDefaults.DoubaoImageRatio;
-    [ObservableProperty] private string _ofoxImage2ModelId = ClientSettingsDefaults.OfoxImage2ModelId;
-    [ObservableProperty] private string _ofoxImage2ApiKey = "";
-    [ObservableProperty] private string _ofoxImage2Endpoint = ClientSettingsDefaults.OfoxImage2Endpoint;
-    [ObservableProperty] private string _ofoxImage2Quality = ClientSettingsDefaults.OfoxImage2Quality;
-    [ObservableProperty] private string _ofoxImage2Size = ClientSettingsDefaults.OfoxImage2Size;
     [ObservableProperty] private bool _posterTitleVerifyEnabled = ClientSettingsDefaults.PosterTitleVerifyEnabled;
     [ObservableProperty] private string _posterTitleVerifyMode = ClientSettingsDefaults.PosterTitleVerifyMode;
     [ObservableProperty] private int _posterTitleVerifyAiRetryCount = ClientSettingsDefaults.PosterTitleVerifyAiRetryCount;
@@ -296,7 +281,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     public IReadOnlyList<string> DramaSourceOptions { get; } =
     [
         "hghigh",
-        "hglocal",
         "pikachu",
         "playlet",
         "hongguoapp",
@@ -305,7 +289,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public IReadOnlyList<string> PikachuDramaTypeOptions { get; } = ["short", "manga"];
     public IReadOnlyList<string> PosterModeOptions { get; } = [ClientSettingsDefaults.PosterMode];
-    public IReadOnlyList<string> ImageProviderOptions { get; } = ["doubao", "ofox_image2"];
     public IReadOnlyList<string> PosterTitleVerifyModeOptions { get; } = ["fallback_repaint", "warn", "blocking"];
     public IReadOnlyList<string> ProjectImageGenerationModeOptions { get; } = ["image_template", "fablecut"];
     public IReadOnlyList<string> ProjectImageSubtitleAiModeOptions { get; } = ["fast", "accurate", "off"];
@@ -431,13 +414,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
             settings.HongguoAppStreamLink1 = true;
             settings.HongguoAppStreamLink2 = true;
         }
-        settings.MapleleafAccount = MapleleafAccount.Trim();
-        settings.MapleleafPassword = MapleleafPassword;
-        settings.MapleleafUdid = MapleleafUdid.Trim();
-        settings.HongguoLocalBaseUrl = HongguoLocalBaseUrl.Trim();
-        settings.HongguoLocalApiKey = HongguoLocalApiKey.Trim();
-        settings.HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(HongguoLocalDownloadMode);
-        settings.HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(HongguoLocalTranscodeEngine);
         settings.PikachuServerUrl = PikachuServerUrl.Trim();
         settings.PikachuFanqieCookie = PikachuFanqieCookie.Trim();
         settings.PikachuDramaType = NormalizePikachuDramaType(PikachuDramaType);
@@ -482,17 +458,12 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.PosterMode = PosterMode;
         settings.PosterLayoutRequestMode = PosterLayoutRequestMode;
         settings.NetworkAddressPreference = NetworkAddressPreference;
-        settings.ImageProvider = ImageProvider;
+        settings.ImageProvider = ClientSettingsDefaults.ImageProvider;
         settings.ImageModelId = ClientSettingsDefaults.NormalizeImageModelId(ImageModelId);
         settings.ImageModelApiKey = ImageModelApiKey;
         settings.ImageModelEndpoint = ImageModelEndpoint.Trim();
         settings.DoubaoImageResolution = PosterImageConfigHelper.NormalizeDoubaoImageResolution(DoubaoImageResolution);
         settings.DoubaoImageRatio = DoubaoImageRatio;
-        settings.OfoxImage2ModelId = OfoxImage2ModelId.Trim();
-        settings.OfoxImage2ApiKey = OfoxImage2ApiKey;
-        settings.OfoxImage2Endpoint = OfoxImage2Endpoint.Trim();
-        settings.OfoxImage2Quality = OfoxImage2Quality;
-        settings.OfoxImage2Size = OfoxImage2Size.Trim();
         settings.PosterTitleVerifyEnabled = PosterTitleVerifyEnabled;
         settings.PosterTitleVerifyMode = PosterTitleVerifyMode;
         settings.PosterTitleVerifyAiRetryCount = PosterTitleVerifyAiRetryCount;
@@ -1146,78 +1117,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private async Task ProbeHongguoLocalAsync()
-    {
-        HongguoLocalProbeStatus = "测试中...";
-        try
-        {
-            var settings = DramaSourceSettingsMapping.FromClientSettings(ToSettings());
-            var service = new HongguoLocalApiService(ProbeHttp);
-            var results = await service.SearchAsync(settings, "测试", 1, CancellationToken.None);
-            HongguoLocalProbeStatus = $"本地直连服务连接成功，返回 {results.Count} 条：{DateTime.Now:HH:mm:ss}";
-        }
-        catch (Exception ex)
-        {
-            HongguoLocalProbeStatus = $"本地直连服务连接失败：{ex.Message}";
-        }
-    }
-
-    [RelayCommand]
-    private void ReadMapleleafUdid()
-    {
-        var deviceId = MapleleafDeviceStore.TryReadDeviceId();
-        if (string.IsNullOrWhiteSpace(deviceId))
-        {
-            MapleleafProbeStatus = "未在注册表中找到 HongGuoClient\\DeviceUDID。请先登录 Mapleleaf，或生成新设备号。";
-            return;
-        }
-
-        MapleleafUdid = deviceId;
-        MapleleafProbeStatus = "已从注册表读取 Mapleleaf DeviceUDID。";
-    }
-
-    [RelayCommand]
-    private void GenerateMapleleafUdid()
-    {
-        if (!string.IsNullOrWhiteSpace(MapleleafUdid))
-        {
-            MapleleafProbeStatus = "设备号已有值；如确需更换，请先清空后再生成，避免账号与旧设备解绑。";
-            return;
-        }
-
-        MapleleafUdid = MapleleafDeviceStore.GenerateDeviceId();
-        MapleleafProbeStatus = "已生成新的 Mapleleaf DeviceUDID，请保存设置。";
-    }
-
-    [RelayCommand]
-    private async Task ProbeMapleleafLoginAsync()
-    {
-        if (string.IsNullOrWhiteSpace(MapleleafAccount) || string.IsNullOrWhiteSpace(MapleleafPassword))
-        {
-            MapleleafProbeStatus = "请先填写 Mapleleaf 账号和密码。";
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(MapleleafUdid))
-        {
-            MapleleafProbeStatus = "请先填写、读取或生成 Mapleleaf DeviceUDID。";
-            return;
-        }
-
-        MapleleafProbeStatus = "测试中...";
-        try
-        {
-            var settings = DramaSourceSettingsMapping.FromClientSettings(ToSettings());
-            var result = await new MapleleafApiService(ProbeHttp).ProbeLoginAsync(settings, CancellationToken.None);
-            var preview = result.Token.Length > 12 ? $"{result.Token[..6]}…{result.Token[^4..]}" : result.Token;
-            MapleleafProbeStatus = $"测试登录成功：{DateTime.Now:HH:mm:ss} token={preview}";
-        }
-        catch (Exception ex)
-        {
-            MapleleafProbeStatus = $"测试登录失败：{ex.Message}";
-        }
-    }
-
-    [RelayCommand]
     partial void OnNetworkAddressPreferenceChanged(string value) =>
         ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Preference =
             ShortDrama.Infrastructure.Networking.PreferredNetworkHttp.Parse(value);
@@ -1425,19 +1324,10 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         HongguoAppStreamLink1 = settings.HongguoAppStreamLink1;
         HongguoAppStreamLink2 = settings.HongguoAppStreamLink2;
         _hongguoAppPlaybackLoadedDeviceId = HongguoAppDeviceId;
-        MapleleafAccount = settings.MapleleafAccount;
-        MapleleafPassword = settings.MapleleafPassword;
-        MapleleafUdid = string.IsNullOrWhiteSpace(settings.MapleleafUdid)
-            ? MapleleafDeviceStore.TryReadDeviceId()
-            : settings.MapleleafUdid;
         var masters = HongguoHighDeviceStore.LoadStartupMastersRaw(SelectedHghighProfile);
         HghighEncMaster = masters.Enc;
         HghighSignMaster = masters.Sign;
         RefreshHghighMastersStatus();
-        HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl;
-        HongguoLocalApiKey = settings.HongguoLocalApiKey;
-        HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode);
-        HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine);
         PikachuServerUrl = settings.PikachuServerUrl;
         PikachuFanqieCookie = settings.PikachuFanqieCookie;
         PikachuDramaType = NormalizePikachuDramaType(settings.PikachuDramaType);
@@ -1490,17 +1380,11 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         PosterMode = settings.PosterMode;
         PosterLayoutRequestMode = settings.PosterLayoutRequestMode;
         NetworkAddressPreference = settings.NetworkAddressPreference;
-        ImageProvider = settings.ImageProvider;
         ImageModelId = settings.ImageModelId;
         ImageModelApiKey = settings.ImageModelApiKey;
         ImageModelEndpoint = settings.ImageModelEndpoint;
         DoubaoImageResolution = settings.DoubaoImageResolution;
         DoubaoImageRatio = settings.DoubaoImageRatio;
-        OfoxImage2ModelId = settings.OfoxImage2ModelId;
-        OfoxImage2ApiKey = settings.OfoxImage2ApiKey;
-        OfoxImage2Endpoint = settings.OfoxImage2Endpoint;
-        OfoxImage2Quality = settings.OfoxImage2Quality;
-        OfoxImage2Size = settings.OfoxImage2Size;
         PosterTitleVerifyEnabled = settings.PosterTitleVerifyEnabled;
         PosterTitleVerifyMode = settings.PosterTitleVerifyMode;
         PosterTitleVerifyAiRetryCount = settings.PosterTitleVerifyAiRetryCount;
@@ -1574,18 +1458,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     {
         var text = (value ?? "").Trim();
         return string.IsNullOrWhiteSpace(text) ? fallback : text;
-    }
-
-    private static string NormalizeHongguoLocalDownloadMode(string? value)
-    {
-        var normalized = (value ?? "fast").Trim().ToLowerInvariant();
-        return normalized is "compatible" ? "compatible" : "fast";
-    }
-
-    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
-    {
-        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
-        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
     }
 
     private static string NormalizePikachuDramaType(string? value) =>

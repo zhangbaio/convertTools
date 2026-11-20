@@ -35,7 +35,6 @@ public sealed class PlayletDramaChainTests
                 PikachuDramaType = "short",
                 PlayletDeviceId = "DC8D94CB6E7122F92E"
             }),
-            new HongguoLocalApiService(httpClient),
             new HongguoNewApiService(httpClient),
             new HongguoDramaSearchService(httpClient),
             new HongguoDramaDownloader(httpClient),

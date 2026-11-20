@@ -8,12 +8,22 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public class DramaDownloadSourceSelectorTests
 {
+
+    [Theory]
+    [InlineData("hglocal:123456")]
+    [InlineData("HGLOCAL_EP:123456")]
+    [InlineData("mapleleaf:123456")]
+    [InlineData("MAPLELEAF_EP:123456")]
+    public void Removed_source_ids_require_a_fresh_title_match(string bookId)
+    {
+        DramaDownloadSourceSelector.TryRetarget(bookId, "playlet").Should().BeNull();
+    }
+
     [Theory]
     [InlineData("playlet", "hongguoapp:7701593495751904281", "playlet:7701593495751904281")]
     [InlineData("hongguoapp", "playlet:7701593495751904281", "hongguoapp:7701593495751904281")]
     [InlineData("hghigh", "hongguoapp:7701593495751904281", "hghigh:7701593495751904281")]
     [InlineData("playlet", "playlet:7701593495751904281", "playlet:7701593495751904281")]
-    [InlineData("playlet", "mapleleaf:123", "mapleleaf:123")]
     [InlineData("pikachu", "7599558182226119705", "7599558182226119705")]
     [InlineData("hongguoapp", "playlet_ep:video-1", "playlet_ep:video-1")]
     public void Shared_series_ids_follow_the_current_chain(string chain, string bookId, string expected)
@@ -78,7 +88,6 @@ public class DramaDownloadSourceSelectorTests
         var router = new DramaSourceRouter(
             http,
             new FixedSettings(new DramaSourceSettings { DramaSourceChain = "playlet" }),
-            new HongguoLocalApiService(http),
             new HongguoNewApiService(http),
             new HongguoDramaSearchService(http),
             new HongguoDramaDownloader(http),

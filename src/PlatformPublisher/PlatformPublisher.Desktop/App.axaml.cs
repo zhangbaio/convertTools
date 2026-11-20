@@ -151,10 +151,8 @@ public partial class App : Application
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information));
         services.AddShortDramaServices();
         // 默认下载器是旧红果 hgm.php，不认识 hghigh: 书号。共享流水线改用和 TikTok 助手相同的多链路下载器。
-        services.AddSingleton<HongguoLocalApiService>();
         services.AddSingleton<HongguoNewApiService>();
         services.AddSingleton<HongguoHighApiService>();
-        services.AddSingleton<MapleleafApiService>();
         services.AddSingleton<HongguoMemoryReaderService>();
         services.AddSingleton<HongguoDramaSearchService>();
         services.AddSingleton<HongguoDramaDownloader>();

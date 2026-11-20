@@ -30,18 +30,11 @@ public static class DramaSourceSettingsMapping
         HongguoAppPlan = ClientSettings.NormalizeHongguoAppPlan(settings.HongguoAppPlan),
         HongguoAppStreamLink1 = settings.HongguoAppStreamLink1,
         HongguoAppStreamLink2 = settings.HongguoAppStreamLink2,
-        MapleleafAccount = settings.MapleleafAccount ?? "",
-        MapleleafPassword = settings.MapleleafPassword ?? "",
-        MapleleafUdid = settings.MapleleafUdid ?? "",
         HongguoDownloadTimeoutSeconds = settings.HongguoDownloadTimeoutSeconds.ToString(),
         HongguoEpisodeDownloadAttempts = settings.HongguoEpisodeDownloadAttempts.ToString(),
         DownloadFileSegments = settings.DownloadFileSegments.ToString(),
         DownloaderApiBaseUrl = settings.DownloaderApiBaseUrl ?? "http://127.0.0.1:17891",
         DownloaderApiKey = settings.DownloaderApiKey ?? "",
-        HongguoLocalBaseUrl = settings.HongguoLocalBaseUrl ?? "",
-        HongguoLocalApiKey = settings.HongguoLocalApiKey ?? "",
-        HongguoLocalDownloadMode = NormalizeHongguoLocalDownloadMode(settings.HongguoLocalDownloadMode),
-        HongguoLocalTranscodeEngine = NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine),
         PikachuServerUrl = settings.PikachuServerUrl ?? "",
         PikachuFanqieCookie = settings.PikachuFanqieCookie ?? "",
         PikachuDramaType = string.Equals(settings.PikachuDramaType, "manga", StringComparison.OrdinalIgnoreCase)
@@ -69,17 +62,6 @@ public static class DramaSourceSettingsMapping
 
     private static string NormalizeChain(string? chain) => VisibleDramaSource.Normalize(chain);
 
-    private static string NormalizeHongguoLocalDownloadMode(string? mode)
-    {
-        var normalized = (mode ?? "fast").Trim().ToLowerInvariant();
-        return normalized is "compatible" ? "compatible" : "fast";
-    }
-
-    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
-    {
-        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
-        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
-    }
 }
 
 public sealed class ClientSettingsDramaSettingsProvider : IDramaSettingsProvider

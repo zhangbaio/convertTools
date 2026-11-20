@@ -43,13 +43,10 @@ public partial class SystemSettingsView : UserControl
                 or nameof(SystemSettingsViewModel.OverseasDramaSourceChain)
                 or nameof(SystemSettingsViewModel.HghighEdition)
                 or nameof(SystemSettingsViewModel.PikachuDramaType)
-                or nameof(SystemSettingsViewModel.HongguoLocalDownloadMode)
-                or nameof(SystemSettingsViewModel.HongguoLocalTranscodeEngine)
                 or nameof(SystemSettingsViewModel.TiktokRoleReferenceSelectionMode)
                 or nameof(SystemSettingsViewModel.TiktokRoleVectorViewMode)
                 or nameof(SystemSettingsViewModel.PosterMode)
                 or nameof(SystemSettingsViewModel.NetworkAddressPreference)
-                or nameof(SystemSettingsViewModel.ImageProvider)
                 or nameof(SystemSettingsViewModel.ImageModelId)
                 or nameof(SystemSettingsViewModel.PosterTitleVerifyMode)
                 or nameof(SystemSettingsViewModel.TiktokProjectImageGenerationMode)
@@ -141,16 +138,7 @@ public partial class SystemSettingsView : UserControl
         PikachuTypeCombo.Items.Add(CreateItem("红果漫剧（类型编号 13，免 Cookie）", "manga"));
         PikachuTypeCombo.SelectionChanged += OnPikachuTypeChanged;
 
-        HongguoLocalDownloadModeCombo.Items.Clear();
-        HongguoLocalDownloadModeCombo.Items.Add(CreateItem("快速模式（保持原格式）", "fast"));
-        HongguoLocalDownloadModeCombo.Items.Add(CreateItem("兼容模式（必要时转码）", "compatible"));
-        HongguoLocalDownloadModeCombo.SelectionChanged += OnHongguoLocalDownloadModeChanged;
 
-        HongguoLocalTranscodeEngineCombo.Items.Clear();
-        HongguoLocalTranscodeEngineCombo.Items.Add(CreateItem("自动选择（推荐）", "auto"));
-        HongguoLocalTranscodeEngineCombo.Items.Add(CreateItem("英伟达显卡加速", "nvenc"));
-        HongguoLocalTranscodeEngineCombo.Items.Add(CreateItem("处理器转码", "cpu"));
-        HongguoLocalTranscodeEngineCombo.SelectionChanged += OnHongguoLocalTranscodeEngineChanged;
 
         RoleReferenceSelectionModeCombo.Items.Clear();
         RoleReferenceSelectionModeCombo.Items.Add(CreateItem("本地链路（默认）", "local"));
@@ -173,10 +161,6 @@ public partial class SystemSettingsView : UserControl
         NetworkAddressPreferenceCombo.Items.Add(CreateItem("优先 IPv6", PreferredNetworkHttp.Ipv6Value));
         NetworkAddressPreferenceCombo.SelectionChanged += OnNetworkAddressPreferenceChanged;
 
-        ImageProviderCombo.Items.Clear();
-        ImageProviderCombo.Items.Add(CreateItem("豆包", "doubao"));
-        ImageProviderCombo.Items.Add(CreateItem("Ofox Image2", "ofox_image2"));
-        ImageProviderCombo.SelectionChanged += OnImageProviderChanged;
 
         ImageModelCombo.Items.Clear();
         ImageModelCombo.Items.Add(CreateItem(ClientSettingsDefaults.ImageModelId, ClientSettingsDefaults.ImageModelId));
@@ -229,13 +213,10 @@ public partial class SystemSettingsView : UserControl
         SelectComboItem(HghighEditionCombo, _vm.HghighEdition);
         SelectComboItem(HghighStandardPlaybackCombo, _vm.HghighStandardPlaybackMode);
         SelectComboItem(PikachuTypeCombo, _vm.PikachuDramaType);
-        SelectComboItem(HongguoLocalDownloadModeCombo, _vm.HongguoLocalDownloadMode);
-        SelectComboItem(HongguoLocalTranscodeEngineCombo, _vm.HongguoLocalTranscodeEngine);
         SelectComboItem(RoleReferenceSelectionModeCombo, _vm.TiktokRoleReferenceSelectionMode);
         SelectComboItem(RoleVectorViewModeCombo, _vm.TiktokRoleVectorViewMode);
         SelectComboItem(PosterModeCombo, _vm.PosterMode);
         SelectComboItem(NetworkAddressPreferenceCombo, _vm.NetworkAddressPreference);
-        SelectComboItem(ImageProviderCombo, _vm.ImageProvider);
         SelectComboItem(ImageModelCombo, ClientSettingsDefaults.NormalizeImageModelId(_vm.ImageModelId));
         SelectComboItem(PosterTitleVerifyModeCombo, _vm.PosterTitleVerifyMode);
         SelectComboItem(ProjectImageGenerationModeCombo, _vm.TiktokProjectImageGenerationMode);
@@ -307,7 +288,6 @@ public partial class SystemSettingsView : UserControl
     {
         combo.Items.Clear();
         combo.Items.Add(CreateItem("红果短剧助手", "hghigh"));
-        combo.Items.Add(CreateItem("本地直连", "hglocal"));
         combo.Items.Add(CreateItem("皮卡丘", "pikachu"));
         combo.Items.Add(CreateItem("红果短剧下载器", "playlet"));
         combo.Items.Add(CreateItem("红果APP", "hongguoapp"));
@@ -343,18 +323,6 @@ public partial class SystemSettingsView : UserControl
     {
         if (_vm is null || PikachuTypeCombo.SelectedItem is not ComboBoxItem item) return;
         _vm.PikachuDramaType = item.Tag as string ?? "short";
-    }
-
-    private void OnHongguoLocalDownloadModeChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_vm is null || HongguoLocalDownloadModeCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.HongguoLocalDownloadMode = item.Tag as string ?? "fast";
-    }
-
-    private void OnHongguoLocalTranscodeEngineChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_vm is null || HongguoLocalTranscodeEngineCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.HongguoLocalTranscodeEngine = item.Tag as string ?? "auto";
     }
 
     private void OnRoleReferenceSelectionModeChanged(object? sender, SelectionChangedEventArgs e)
@@ -420,12 +388,6 @@ public partial class SystemSettingsView : UserControl
         PosterModeHintText.Text = string.Equals(mode, "erase_fixed_lower_title", StringComparison.OrdinalIgnoreCase)
             ? "AI 只清除封面上的全部原文字，然后在下半部分用固定黄字黑边写入新剧名。"
             : "AI 重新设计海报：更换背景、构图和人物动作服饰，只写一次新剧名，并进行标题校验。";
-    }
-
-    private void OnImageProviderChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_vm is null || ImageProviderCombo.SelectedItem is not ComboBoxItem item) return;
-        _vm.ImageProvider = item.Tag as string ?? "doubao";
     }
 
     private void OnImageModelChanged(object? sender, SelectionChangedEventArgs e)

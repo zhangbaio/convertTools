@@ -22,11 +22,9 @@ public sealed class QueueMaterialStepServiceTests
     [Theory]
     [InlineData("123456", "hgnew")]
     [InlineData("hghigh:123456", "hghigh")]
-    [InlineData("hglocal:123456", "hglocal")]
     [InlineData("pikachu:123456", "pikachu")]
     [InlineData("playlet:123456", "playlet")]
     [InlineData("playlet_ep:video-1", "playlet")]
-    [InlineData("mapleleaf:123456", "mapleleaf")]
     [InlineData("downloader:standard|123456", "downloader")]
     [InlineData("downloader_ep:standard|123456|video-1|1", "downloader")]
     public void Book_id_source_is_inferred_without_cross_source_conversion(
@@ -38,7 +36,7 @@ public sealed class QueueMaterialStepServiceTests
     }
 
     [Theory]
-    [InlineData("playlet", "mapleleaf:123", true)]
+    [InlineData("playlet", "mapleleaf:123", false)]
     [InlineData("playlet", "downloader:standard|123", true)]
     [InlineData("playlet", "123456", true)]
     [InlineData("playlet", "playlet:123", false)]
@@ -109,10 +107,10 @@ public sealed class QueueMaterialStepServiceTests
             File.WriteAllText(metadataPath, """{"title":"测试剧","bookId":"hghigh:100"}""");
 
             QueueMaterialStepService.PersistBookReference(root, "hghigh", "hghigh:100", "测试剧");
-            QueueMaterialStepService.PersistBookReference(root, "mapleleaf", "mapleleaf:200", "测试剧");
+            QueueMaterialStepService.PersistBookReference(root, "pikachu", "pikachu:200", "测试剧");
 
             QueueMaterialStepService.ReadCachedBookId(root, "hghigh").Should().Be("hghigh:100");
-            QueueMaterialStepService.ReadCachedBookId(root, "mapleleaf").Should().Be("mapleleaf:200");
+            QueueMaterialStepService.ReadCachedBookId(root, "pikachu").Should().Be("pikachu:200");
             using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
             document.RootElement.GetProperty("bookId").GetString().Should().Be("hghigh:100");
         }

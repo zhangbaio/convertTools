@@ -442,12 +442,10 @@ public static class UploadTitleImportService
         var prefix = chain switch
         {
             "hongguoapp" => "hongguoapp:",
-            "hglocal" => "hglocal:",
             "hghigh" => "hghigh:",
             "playlet" => "playlet:",
             "pikachu" => "pikachu:",
             "dramabox" => "dramabox:",
-            "mapleleaf" => "mapleleaf:",
             "downloader" => "downloader:",
             "foreign" => "foreign:",
             _ => ""

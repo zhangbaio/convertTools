@@ -59,18 +59,6 @@ public sealed class DramaSourceConfigurationValidatorTests
     }
 
     [Fact]
-    public void LocalSourceRequiresServiceAddress()
-    {
-        var status = DramaSourceConfigurationValidator.Check(new ClientSettings
-        {
-            DramaSourceChain = "hglocal",
-        });
-
-        Assert.False(status.IsConfigured);
-        Assert.Contains("本地服务地址", status.Message);
-    }
-
-    [Fact]
     public void DownloaderSourceRequiresAddressAndAllowsAutomaticLocalKeyDiscovery()
     {
         var missing = DramaSourceConfigurationValidator.Check(new ClientSettings
@@ -99,14 +87,14 @@ public sealed class DramaSourceConfigurationValidatorTests
     public void RetiredAndUnknownChainsBecomePlaylet(string? chain)
     {
         Assert.Equal("playlet", VisibleDramaSource.Normalize(chain));
-        Assert.Equal(chain is "hgnew" or "mapleleaf" or "downloader", VisibleDramaSource.IsRetired(chain));
+        Assert.Equal(chain is "hgnew" or "downloader", VisibleDramaSource.IsRetired(chain));
     }
 
     [Fact]
     public void VisibleChainsStaySelectable()
     {
         Assert.Equal("hghigh", VisibleDramaSource.Normalize("hghigh"));
-        Assert.Equal("hglocal", VisibleDramaSource.Normalize("hglocal"));
+        Assert.Equal(VisibleDramaSource.DefaultChain, VisibleDramaSource.Normalize("hglocal"));
         Assert.Equal("pikachu", VisibleDramaSource.Normalize("pikachu"));
         Assert.Equal("playlet", VisibleDramaSource.Normalize("playlet"));
         Assert.Equal("hongguoapp", VisibleDramaSource.Normalize("hongguoapp"));

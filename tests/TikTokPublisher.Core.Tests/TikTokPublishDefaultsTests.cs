@@ -139,6 +139,43 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Client_settings_store_replaces_removed_mapleleaf_source_and_clears_credentials()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-mapleleaf-migration-{Guid.NewGuid():N}");
+        var databasePath = Path.Combine(tempDir, "app.db");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            AppSettingStore.SaveJson(
+                ClientSettingsStore.SettingsKey,
+                new Dictionary<string, string>
+                {
+                    ["drama_source_chain"] = "mapleleaf",
+                    ["mapleleaf_account"] = "legacy-account",
+                    ["mapleleaf_password"] = "legacy-password",
+                    ["mapleleaf_udid"] = "legacy-device",
+                    ["unrecognized_setting"] = "preserved",
+                },
+                databasePath);
+
+            var loaded = ClientSettingsStore.Load(databasePath);
+            loaded.DramaSourceChain.Should().Be(TikTokPublisher.Core.Drama.VisibleDramaSource.DefaultChain);
+
+            ClientSettingsStore.Save(loaded, databasePath);
+            AppSettingStore.TryLoadJson<Dictionary<string, JsonElement>>(
+                    ClientSettingsStore.SettingsKey, out var saved, databasePath)
+                .Should().BeTrue();
+            saved!.Keys.Should().NotContain(key => key.StartsWith("mapleleaf_", StringComparison.Ordinal));
+            saved["unrecognized_setting"].GetString().Should().Be("preserved");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Client_settings_store_migrates_shared_asr_values_and_removes_retired_silence_keys()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"client-settings-asr-migration-{Guid.NewGuid():N}");
@@ -212,8 +249,10 @@ public sealed class TikTokPublishDefaultsTests
         }
     }
 
-    [Fact]
-    public void Client_settings_store_normalizes_blank_ai_non_key_values_to_defaults()
+    [Theory]
+    [InlineData("")]
+    [InlineData("ofox_image2")]
+    public void Client_settings_store_normalizes_ai_settings_to_supported_defaults(string imageProvider)
     {
         var databasePath = Path.Combine(Path.GetTempPath(), $"client-settings-{Guid.NewGuid():N}.db");
         try
@@ -228,7 +267,7 @@ public sealed class TikTokPublishDefaultsTests
                 TiktokRoleReferenceSelectionMode = "invalid",
                 TiktokRoleVectorViewMode = "invalid",
                 PosterMode = "",
-                ImageProvider = "",
+                ImageProvider = imageProvider,
                 ImageModelId = "",
                 ImageModelApiKey = "",
                 ImageModelEndpoint = "",

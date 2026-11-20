@@ -74,8 +74,6 @@ public partial class App : Application
         services.AddSingleton<IDramaSettingsProvider, GlobalDramaSettingsProvider>();
         services.AddSingleton<HongguoNewApiService>();
         services.AddSingleton<HongguoHighApiService>();
-        services.AddSingleton<MapleleafApiService>();
-        services.AddSingleton<HongguoLocalApiService>();
         services.AddSingleton<HongguoMemoryReaderService>();
         services.AddSingleton<HongguoDramaSearchService>();
         services.AddSingleton<HongguoDramaDownloader>();

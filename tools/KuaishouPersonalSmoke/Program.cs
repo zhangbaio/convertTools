@@ -240,7 +240,6 @@ static bool HasDownloadConfiguration(ClientSettings value) => (value.DramaSource
 {
     "hgnew" => Present(value.HgnewAccount, value.HgnewPassword, value.HgnewUdid),
     "hghigh" => Present(value.HghighAccount, value.HghighPassword, value.HghighDeviceId),
-    "mapleleaf" => Present(value.MapleleafAccount, value.MapleleafPassword, value.MapleleafUdid),
     _ => false,
 };
 static bool Present(params string?[] values) => values.All(value => !string.IsNullOrWhiteSpace(value));

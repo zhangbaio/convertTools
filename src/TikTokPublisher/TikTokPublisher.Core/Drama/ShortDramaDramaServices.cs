@@ -8,7 +8,7 @@ using CoreSearchItem = ShortDrama.Core.Models.DramaSearchItem;
 namespace TikTokPublisher.Core.Drama;
 
 /// <summary>
-/// 桥接 <c>ShortDrama.Infrastructure</c> 多链路短剧搜索/下载（hgnew / hglocal / pikachu / hghigh / mapleleaf）。
+/// 桥接 <c>ShortDrama.Infrastructure</c> 多链路短剧搜索/下载（hgnew / pikachu / hghigh）。
 /// </summary>
 public static class ShortDramaDramaServices
 {
@@ -17,7 +17,6 @@ public static class ShortDramaDramaServices
     private static readonly Lazy<DramaSourceRouter> Router = new(() => new DramaSourceRouter(
         SharedHttp.Value,
         SettingsProvider.Value,
-        new HongguoLocalApiService(SharedHttp.Value),
         new HongguoNewApiService(SharedHttp.Value),
         new HongguoDramaSearchService(SharedHttp.Value),
         new HongguoDramaDownloader(SharedHttp.Value),

@@ -353,7 +353,6 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public IReadOnlyList<DramaChainChoice> ChainOptions { get; } =
     [
         new("hghigh", "红果短剧助手"),
-        new("hglocal", "本地直连"),
         new("pikachu", "皮卡丘"),
         new("playlet", "红果短剧下载器"),
         new("hongguoapp", "红果APP"),

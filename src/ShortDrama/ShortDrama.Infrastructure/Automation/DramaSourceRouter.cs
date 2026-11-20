@@ -16,8 +16,8 @@ namespace ShortDrama.Infrastructure.Automation;
 
 public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 {
-    private static readonly string[] SearchServices = ["hgnew", "hglocal", "pikachu", "playlet", "hongguoapp", "hghigh", "mapleleaf", "downloader", "dramabox", "foreign"];
-    private static readonly string[] NewReleaseServices = ["hgnew", "hglocal", "hghigh", "mapleleaf", "downloader"];
+    private static readonly string[] SearchServices = ["hgnew", "pikachu", "playlet", "hongguoapp", "hghigh", "downloader", "dramabox", "foreign"];
+    private static readonly string[] NewReleaseServices = ["hgnew", "hghigh", "downloader"];
     private const string HongguoAppBookPrefix = "hongguoapp:";
     private const string HongguoAppEpisodePrefix = "hongguoapp_ep:";
     private const string DownloadStateFileName = ".weixin-channel-download-state.json";
@@ -28,8 +28,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private const int HghighMinimumDownloadConcurrency = 6;
     private const int HghighPieceSizeBytes = 512 * 1024;
     private const int HghighPiecePoolWorkers = 16;
-    private const int MapleleafMinimumDownloadTimeoutSeconds = 15 * 60;
-    private const int DefaultPlayUrlTimeoutSeconds = 15;
     private const int DefaultPlayUrlResolveConcurrency = 4;
     private const long MinSegmentedDownloadSize = 4L * 1024 * 1024;
     private const string DownloadUserAgent = "Mozilla/5.0";
@@ -43,21 +41,18 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private readonly HttpClient _httpClient;
     private readonly IDramaSettingsProvider _settingsProvider;
-    private readonly HongguoLocalApiService _hglocalApiService;
     private readonly HongguoNewApiService _hgnewApiService;
     private readonly HongguoDramaSearchService _hgnewSearchService;
     private readonly HongguoDramaDownloader _hgnewDownloader;
     private readonly HongguoMemoryReaderService _hongguoMemoryReaderService;
     private readonly HongguoHighApiService _hghighApiService;
     private readonly HongguoAppDirectClient _hongguoApp;
-    private readonly MapleleafApiService _mapleleafApiService;
     private readonly DownloaderGatewayApiService _downloaderApiService;
     private readonly DramaBoxApiService _dramaBoxApiService;
 
     public DramaSourceRouter(
         HttpClient httpClient,
         IDramaSettingsProvider settingsProvider,
-        HongguoLocalApiService hglocalApiService,
         HongguoNewApiService hgnewApiService,
         HongguoDramaSearchService hgnewSearchService,
         HongguoDramaDownloader hgnewDownloader,
@@ -65,59 +60,31 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         : this(
             httpClient,
             settingsProvider,
-            hglocalApiService,
             hgnewApiService,
             hgnewSearchService,
             hgnewDownloader,
             hongguoMemoryReaderService,
-            new HongguoHighApiService(httpClient),
-            new MapleleafApiService(httpClient))
+            new HongguoHighApiService(httpClient))
     {
     }
 
     public DramaSourceRouter(
         HttpClient httpClient,
         IDramaSettingsProvider settingsProvider,
-        HongguoLocalApiService hglocalApiService,
         HongguoNewApiService hgnewApiService,
         HongguoDramaSearchService hgnewSearchService,
         HongguoDramaDownloader hgnewDownloader,
         HongguoMemoryReaderService hongguoMemoryReaderService,
         HongguoHighApiService hghighApiService)
-        : this(
-            httpClient,
-            settingsProvider,
-            hglocalApiService,
-            hgnewApiService,
-            hgnewSearchService,
-            hgnewDownloader,
-            hongguoMemoryReaderService,
-            hghighApiService,
-            new MapleleafApiService(httpClient))
-    {
-    }
-
-    public DramaSourceRouter(
-        HttpClient httpClient,
-        IDramaSettingsProvider settingsProvider,
-        HongguoLocalApiService hglocalApiService,
-        HongguoNewApiService hgnewApiService,
-        HongguoDramaSearchService hgnewSearchService,
-        HongguoDramaDownloader hgnewDownloader,
-        HongguoMemoryReaderService hongguoMemoryReaderService,
-        HongguoHighApiService hghighApiService,
-        MapleleafApiService mapleleafApiService)
     {
         _httpClient = httpClient;
         _settingsProvider = settingsProvider;
-        _hglocalApiService = hglocalApiService;
         _hgnewApiService = hgnewApiService;
         _hgnewSearchService = hgnewSearchService;
         _hgnewDownloader = hgnewDownloader;
         _hongguoMemoryReaderService = hongguoMemoryReaderService;
         _hghighApiService = hghighApiService;
         _hongguoApp = new HongguoAppDirectClient(httpClient);
-        _mapleleafApiService = mapleleafApiService;
         _downloaderApiService = new DownloaderGatewayApiService(httpClient);
         _dramaBoxApiService = new DramaBoxApiService(httpClient);
     }
@@ -139,12 +106,10 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return source switch
         {
             "hgnew" => await SearchHgnewAsync(keyword, page, settings, cancellationToken),
-            "hglocal" => await SearchLocalAsync(keyword, page, settings, cancellationToken),
             "pikachu" => await SearchPikachuAsync(keyword, page, settings, cancellationToken, searchCategory),
             "playlet" => await SearchPlayletAsync(keyword, page, settings, cancellationToken, searchCategory),
             "hongguoapp" => await SearchHongguoAppAsync(keyword, page, settings, cancellationToken, searchCategory),
             "hghigh" => await _hghighApiService.SearchAsync(settings, keyword, page, cancellationToken, searchCategory),
-            "mapleleaf" => await _mapleleafApiService.SearchAsync(settings, keyword, page, cancellationToken),
             "downloader" => await _downloaderApiService.SearchAsync(settings, keyword, page, cancellationToken),
             "dramabox" => await _dramaBoxApiService.SearchAsync(settings, keyword, page, cancellationToken),
             "foreign" => await ForeignPlayletClient.SearchAsync(
@@ -179,9 +144,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => _hgnewApiService.GetTodayNewAsync(settings, "djnew", ct),
-            hglocalLoader: ct => GetLocalTodayAsync(settings, ct),
             cancellationToken,
-            mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "djnew", 1, ct),
             downloaderLoader: ct => _downloaderApiService.GetLatestAsync(settings, "short", 1, ct));
     }
 
@@ -211,11 +174,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewMangaTodayAsync(settings, days, ct),
-            hglocalLoader: ct => GetLatestByGenreAsync(settings, "comic_series", days, ct),
             cancellationToken: cancellationToken,
             hghighLoader: ct => _hghighApiService.GetManjuNewAsync(
                 settings, days, enrich, progress, ct, partialResults, detailResults),
-            mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "mjnew", days, ct),
             downloaderLoader: ct => _downloaderApiService.GetLatestAsync(settings, "comic", days, ct));
     }
 
@@ -253,11 +214,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewAiTodayAsync(settings, days, ct),
-            hglocalLoader: ct => GetLatestByGenreAsync(settings, "ai_series", days, ct),
             cancellationToken: cancellationToken,
             hghighLoader: ct => _hghighApiService.GetAiNewAsync(
                 settings, days, enrich, progress, ct, partialResults, detailResults),
-            mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "aiju", days, ct),
             downloaderLoader: ct => _downloaderApiService.GetLatestAsync(settings, "ai", days, ct));
     }
 
@@ -429,9 +388,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return await LoadNewReleaseAsync(
             settings,
             hgnewLoader: ct => LoadHgnewHistoryAsync(settings, days, ct),
-            hglocalLoader: ct => GetLatestByGenreAsync(settings, "short_play", days, ct),
             cancellationToken,
-            mapleleafLoader: ct => _mapleleafApiService.GetLatestAsync(settings, "djnew", days, ct),
             downloaderLoader: ct => _downloaderApiService.GetLatestAsync(settings, "short", days, ct));
     }
 
@@ -455,19 +412,15 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private async Task<IReadOnlyList<DramaSearchItem>> LoadNewReleaseAsync(
         DramaSourceSettings settings,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hgnewLoader,
-        Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>> hglocalLoader,
         CancellationToken cancellationToken,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>>? hghighLoader = null,
-        Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>>? mapleleafLoader = null,
         Func<CancellationToken, Task<IReadOnlyList<DramaSearchItem>>>? downloaderLoader = null)
     {
         var source = ResolveSelectedService(settings.DramaSourceChain, NewReleaseServices);
         return source switch
         {
             "hgnew" => await hgnewLoader(cancellationToken),
-            "hglocal" => await hglocalLoader(cancellationToken),
             "hghigh" => hghighLoader is null ? [] : await hghighLoader(cancellationToken),
-            "mapleleaf" => mapleleafLoader is null ? [] : await mapleleafLoader(cancellationToken),
             "downloader" => downloaderLoader is null ? [] : await downloaderLoader(cancellationToken),
             _ => []
         };
@@ -878,61 +831,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetDownloaderEpisodesAsync(downloaderBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetDownloaderVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: DownloaderGatewayApiService.BookPrefix,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("downloader"),
                 downloadFileSegments: Math.Max(downloadFileSegments, 8),
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
                 separateResolveConcurrency: Math.Min(4, Math.Clamp(request.Concurrent, 1, 10)));
         }
 
-        if (bookId.StartsWith(MapleleafApiService.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
-            bookId.StartsWith(MapleleafApiService.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(settings.DramaSourceChain?.Trim(), "mapleleaf", StringComparison.OrdinalIgnoreCase))
-        {
-            var mapleleafBookId = MapleleafApiService.EnsureBookPrefix(bookId);
-            var mapleleafTimeoutSeconds = ResolveProviderDownloadTimeoutSeconds(
-                "mapleleaf",
-                downloadTimeoutSeconds);
-            var mapleleafPlayUrlTimeoutSeconds = ResolvePlayUrlTimeoutSeconds(downloadTimeoutSeconds);
-            if (mapleleafTimeoutSeconds > downloadTimeoutSeconds)
-            {
-                progress?.Report(
-                    $"Mapleleaf 慢速 CDN 保护：整集下载时限由 {downloadTimeoutSeconds} 秒" +
-                    $"延长到 {mapleleafTimeoutSeconds} 秒；继续使用最多 16 路分块。");
-            }
-            return await DownloadWithProviderAsync(
-                request,
-                progress,
-                cancellationToken,
-                resolveEpisodes: ct => GetMapleleafEpisodesAsync(mapleleafBookId, settings, ct),
-                resolveVideo: (videoId, quality, ct) => GetMapleleafVideoUrlAsync(
-                    videoId,
-                    quality,
-                    settings,
-                    mapleleafPlayUrlTimeoutSeconds,
-                    ct),
-                posterPrefix: MapleleafApiService.BookPrefix,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("mapleleaf"),
-                downloadFileSegments: Math.Max(downloadFileSegments, 16),
-                downloadTimeoutSeconds: mapleleafTimeoutSeconds,
-                downloadAttempts: downloadAttempts,
-                separateResolveConcurrency: DefaultPlayUrlResolveConcurrency);
-        }
-
-        if (bookId.StartsWith(HongguoLocalBookPrefix, StringComparison.OrdinalIgnoreCase))
-        {
-            return await DownloadWithProviderAsync(
-                request,
-                progress,
-                cancellationToken,
-                resolveEpisodes: ct => GetLocalEpisodesAsync(bookId, settings, ct),
-                resolveVideo: (videoId, quality, ct) => GetLocalVideoUrlAsync(videoId, quality, settings, ct),
-                posterPrefix: HongguoLocalBookPrefix,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("hglocal"),
-                downloadFileSegments: downloadFileSegments,
-                downloadTimeoutSeconds: downloadTimeoutSeconds,
-                downloadAttempts: downloadAttempts);
-        }
 
         if (bookId.StartsWith(HongguoHighCrypto.BookPrefix, StringComparison.OrdinalIgnoreCase) ||
             bookId.StartsWith(HongguoHighCrypto.EpisodePrefix, StringComparison.OrdinalIgnoreCase) ||
@@ -951,7 +855,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetHghighEpisodesAsync(highBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetHghighVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: HongguoHighCrypto.BookPrefix,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("hghigh"),
                 downloadFileSegments: Math.Max(downloadFileSegments, 8),
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
@@ -986,7 +889,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetDramaBoxEpisodesAsync(dramaBoxBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetDramaBoxVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: DramaBoxApiService.BookPrefix,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("dramabox"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
@@ -1007,7 +909,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetForeignEpisodesAsync(foreignBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetForeignVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: ForeignPlayletClient.BookPrefix,
-                validateVideoEncoding: false,
                 downloadFileSegments: 1,
                 downloadTimeoutSeconds: Math.Max(downloadTimeoutSeconds, 180),
                 downloadAttempts: downloadAttempts);
@@ -1035,7 +936,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                     playbackModels,
                     lockDefinition: true),
                 posterPrefix: HongguoAppBookPrefix,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("hongguoapp"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts,
@@ -1061,7 +961,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetPlayletEpisodesAsync(playletBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetPlayletVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: PlayletDramaClient.BookPrefix,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("playlet"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
@@ -1078,7 +977,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetPikachuEpisodesAsync(pikachuBookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetPikachuVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: PikachuBookPrefix,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("pikachu"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
@@ -1093,7 +991,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 resolveEpisodes: ct => GetHgnewEpisodesAsync(bookId, settings, ct),
                 resolveVideo: (videoId, quality, ct) => GetHgnewVideoUrlAsync(videoId, quality, settings, ct),
                 posterPrefix: string.Empty,
-                validateVideoEncoding: ShouldValidateVideoEncodingForSource("hgnew"),
                 downloadFileSegments: downloadFileSegments,
                 downloadTimeoutSeconds: downloadTimeoutSeconds,
                 downloadAttempts: downloadAttempts);
@@ -1113,25 +1010,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
             return await _hgnewDownloader.DownloadAsync(request, progress, cancellationToken);
         }
-    }
-
-    internal static int ResolveProviderDownloadTimeoutSeconds(
-        string? source,
-        int configuredTimeoutSeconds)
-    {
-        var configured = Math.Clamp(configuredTimeoutSeconds, 10, 600);
-        return string.Equals(
-            (source ?? string.Empty).Trim(),
-            "mapleleaf",
-            StringComparison.OrdinalIgnoreCase)
-            ? Math.Max(configured, MapleleafMinimumDownloadTimeoutSeconds)
-            : configured;
-    }
-
-    internal static int ResolvePlayUrlTimeoutSeconds(int configuredSeconds)
-    {
-        var configured = configuredSeconds <= 0 ? DefaultPlayUrlTimeoutSeconds : configuredSeconds;
-        return Math.Clamp(configured, 5, DefaultPlayUrlTimeoutSeconds);
     }
 
     internal static Task<DramaDownloadResult?> TryBuildSuccessfulResultWhenVideosExistAsync(
@@ -1177,7 +1055,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         Func<CancellationToken, Task<IReadOnlyList<SourceEpisode>>> resolveEpisodes,
         Func<string, string, CancellationToken, Task<SourceVideoDetail>> resolveVideo,
         string posterPrefix,
-        bool validateVideoEncoding,
         int downloadFileSegments,
         int downloadTimeoutSeconds,
         int downloadAttempts,
@@ -1235,22 +1112,17 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             }
         }
 
-        var validateReplacement = RequiresVideoEncodingValidation(
-            validateVideoEncoding,
-            existingVideoPolicy);
         var plannedVideoIds = new List<string>(tasks.Count);
         if (registerResolvePlan is not null)
         {
             foreach (var task in tasks)
             {
-                var existing = await FindExistingEpisodeVideoAsync(
+                var existing = FindExistingEpisodeVideo(
                     request.OutputDir,
                     task.EpisodeNumber,
                     report: null,
-                    validateReplacement,
                     existingVideoPolicy,
-                    replacementCandidates: null,
-                    cancellationToken);
+                    replacementCandidates: null);
                 if (string.IsNullOrWhiteSpace(existing))
                     plannedVideoIds.Add(task.VideoId);
             }
@@ -1273,7 +1145,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             downloadSemaphore,
             resolveSemaphore,
             failures,
-            validateReplacement,
             existingVideoPolicy,
             downloadFileSegments,
             downloadTimeoutSeconds,
@@ -1339,13 +1210,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return result;
     }
 
-    internal static bool RequiresVideoEncodingValidation(
-        bool sourceDefault,
-        ExistingVideoPolicy existingVideoPolicy) => sourceDefault;
-
-    internal static bool ShouldValidateVideoEncodingForSource(string? source) =>
-        string.Equals(source?.Trim(), "hglocal", StringComparison.OrdinalIgnoreCase);
-
     private async Task DownloadEpisodeAsync(
         string outputDir,
         string quality,
@@ -1356,7 +1220,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         SemaphoreSlim downloadSemaphore,
         SemaphoreSlim? resolveSemaphore,
         ICollection<string> failures,
-        bool validateVideoEncoding,
         ExistingVideoPolicy existingVideoPolicy,
         int downloadFileSegments,
         int downloadTimeoutSeconds,
@@ -1379,14 +1242,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             var finalPath = Path.Combine(outputDir, BuildEpisodeFileName(task));
             var tempPath = $"{finalPath}.part";
             var replacementCandidates = new List<string>();
-            var existingVideo = await FindExistingEpisodeVideoAsync(
+            var existingVideo = FindExistingEpisodeVideo(
                 outputDir,
                 task.EpisodeNumber,
                 message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"),
-                validateVideoEncoding,
                 existingVideoPolicy,
-                replacementCandidates,
-                cancellationToken);
+                replacementCandidates);
             if (!string.IsNullOrWhiteSpace(existingVideo))
             {
                 if (!string.Equals(Path.GetFullPath(existingVideo), Path.GetFullPath(finalPath), StringComparison.OrdinalIgnoreCase) &&
@@ -1449,10 +1310,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         cancellationToken,
                         detail.PikachuDecryptKey,
                         detail.HongguoCdn,
-                        validateVideoEncoding,
                         downloadFileSegments,
-                        detail.EnsureWindowsCompatible,
-                        detail.TranscodeEngine,
                         message => progress?.Report($"[{task.Order:00}/{totalCount:00}] {message}"),
                         pieceSize,
                         pieceWorkers,
@@ -1540,10 +1398,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             cancellationToken,
             pikachuDecryptKey: null,
             hongguoCdn: null,
-            validateVideoEncoding: false,
             downloadFileSegments: DefaultDownloadFileSegments,
-            ensureWindowsCompatible: false,
-            transcodeEngine: "auto",
             report: null);
 
     private async Task<DownloadFileStats> DownloadVideoFileOnceAsync(
@@ -1555,10 +1410,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         CancellationToken cancellationToken,
         string? pikachuDecryptKey,
         HongguoCdnDownload? hongguoCdn,
-        bool validateVideoEncoding,
         int downloadFileSegments,
-        bool ensureWindowsCompatible,
-        string transcodeEngine,
         Action<string>? report,
         int pieceSize = 0,
         int pieceWorkers = 0,
@@ -1666,23 +1518,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 throw new InvalidDataException("下载内容不是有效的视频文件。");
             }
 
-            VideoProcessingResult? processing = null;
-            if (validateVideoEncoding && ensureWindowsCompatible)
-            {
-                processing = await EnsureWindowsCompatibleMp4Async(
-                    tempPath,
-                    timeoutSeconds,
-                    cancellationToken,
-                    transcodeEngine,
-                    report);
-            }
-            else if (validateVideoEncoding)
-            {
-                var codec = await ProbePrimaryVideoCodecAsync(tempPath, cancellationToken).ConfigureAwait(false);
-                processing = new VideoProcessingResult(codec, Transcoded: false, TranscodeEngine: null);
-                report?.Invoke($"视频校验通过，编码 {codec.ToUpperInvariant()}，快速模式保留原文件");
-            }
-
             await DownloadFileOperations.DelayAfterWriteAsync(cancellationToken);
             await DownloadFileOperations.SafeReplaceAsync(tempPath, finalPath, cancellationToken);
 
@@ -1692,11 +1527,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                 finalBytes,
                 stopwatch.Elapsed,
                 finalBytes / Math.Max(stopwatch.Elapsed.TotalSeconds, 0.001d),
-                processing is null
-                    ? "保留源文件"
-                    : processing.Transcoded
-                    ? $"{processing.TranscodeEngine} 已转为 H.264"
-                    : $"视频编码 {processing.Codec.ToUpperInvariant()}，无需转码");
+                "保留源文件");
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
         {
@@ -2307,194 +2138,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    private static async Task<VideoProcessingResult> EnsureWindowsCompatibleMp4Async(
-        string path,
-        int timeoutSeconds,
-        CancellationToken cancellationToken,
-        string transcodeEngine,
-        Action<string>? report)
-    {
-        var codec = await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(codec, "hevc", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(codec, "h265", StringComparison.OrdinalIgnoreCase))
-        {
-            report?.Invoke($"视频校验通过，编码 {codec.ToUpperInvariant()}，无需转码");
-            return new VideoProcessingResult(codec, Transcoded: false, TranscodeEngine: null);
-        }
-
-        var ffmpegPath = ResolveFfmpegBinaryForTests.Value?.Invoke() ?? ResolveFfmpegBinary();
-        var outputPath = $"{path}.h264.mp4";
-        DeleteIfExists(outputPath);
-
-        var clampedTimeoutSeconds = Math.Clamp(timeoutSeconds + 300, 300, 1800);
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutCts.CancelAfter(TimeSpan.FromSeconds(clampedTimeoutSeconds));
-
-        try
-        {
-            var runner = RunProcessAsyncForTests.Value ?? RunProcessAsyncDefault;
-            var plans = await ResolveH264TranscodePlansAsync(
-                ffmpegPath,
-                path,
-                outputPath,
-                NormalizeHongguoLocalTranscodeEngine(transcodeEngine),
-                runner,
-                timeoutCts.Token).ConfigureAwait(false);
-
-            for (var index = 0; index < plans.Count; index++)
-            {
-                DeleteIfExists(outputPath);
-                var plan = plans[index];
-                try
-                {
-                    report?.Invoke($"检测到 HEVC，开始使用 {plan.Name} 转码为 H.264");
-                    var result = await runner(plan.StartInfo, timeoutCts.Token).ConfigureAwait(false);
-                    if (result.ExitCode != 0)
-                    {
-                        throw new InvalidOperationException($"{plan.Name} HEVC to H.264 transcode failed: {TrimProcessOutput(result.StandardError)}");
-                    }
-
-                    var outputCodec = await ProbePrimaryVideoCodecAsync(outputPath, timeoutCts.Token).ConfigureAwait(false);
-                    if (!string.Equals(outputCodec, "h264", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(outputCodec, "avc", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(outputCodec, "avc1", StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new InvalidDataException($"{plan.Name} 转码结果编码异常：{outputCodec}。");
-                    }
-
-                    await DownloadFileOperations.SafeReplaceAsync(outputPath, path, cancellationToken).ConfigureAwait(false);
-                    report?.Invoke($"{plan.Name} 转码完成，输出编码 H.264");
-                    return new VideoProcessingResult("h264", Transcoded: true, TranscodeEngine: plan.Name);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException && index + 1 < plans.Count)
-                {
-                    report?.Invoke($"{plan.Name} 转码失败，改用下一转码引擎：{ex.Message}");
-                    // Auto mode falls back from NVENC to CPU when the local driver/runtime rejects hardware transcode.
-                }
-            }
-        }
-        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
-        {
-            throw new TimeoutException($"HEVC to H.264 transcode timed out after {clampedTimeoutSeconds} seconds.", ex);
-        }
-        finally
-        {
-            DeleteIfExists(outputPath);
-        }
-
-        throw new InvalidOperationException("HEVC 转码失败：没有可用的转码方案。");
-    }
-
-    private static async Task<IReadOnlyList<H264TranscodePlan>> ResolveH264TranscodePlansAsync(
-        string ffmpegPath,
-        string inputPath,
-        string outputPath,
-        string transcodeEngine,
-        Func<ProcessStartInfo, CancellationToken, Task<ProcessRunResult>> runner,
-        CancellationToken cancellationToken)
-    {
-        if (transcodeEngine == "cpu")
-        {
-            return [BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)];
-        }
-
-        if (transcodeEngine == "nvenc")
-        {
-            if (await FfmpegSupportsEncoderAsync(ffmpegPath, "h264_nvenc", runner, cancellationToken).ConfigureAwait(false))
-            {
-                return
-                [
-                    BuildNvencH264TranscodePlan(ffmpegPath, inputPath, outputPath),
-                    BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)
-                ];
-            }
-
-            return [BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)];
-        }
-
-        if (await FfmpegSupportsEncoderAsync(ffmpegPath, "h264_nvenc", runner, cancellationToken).ConfigureAwait(false))
-        {
-            return
-            [
-                BuildNvencH264TranscodePlan(ffmpegPath, inputPath, outputPath),
-                BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)
-            ];
-        }
-
-        return [BuildCpuH264TranscodePlan(ffmpegPath, inputPath, outputPath)];
-    }
-
-    private static H264TranscodePlan BuildNvencH264TranscodePlan(string ffmpegPath, string inputPath, string outputPath) =>
-        new("NVIDIA NVENC", CreateFfmpegStartInfo(ffmpegPath,
-        [
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-hwaccel",
-            "cuda",
-            "-hwaccel_output_format",
-            "cuda",
-            "-c:v",
-            "hevc_cuvid",
-            "-i",
-            inputPath,
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a?",
-            "-c:v",
-            "h264_nvenc",
-            "-preset",
-            "p4",
-            "-cq",
-            "26",
-            "-b:v",
-            "0",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            "-f",
-            "mp4",
-            outputPath
-        ]));
-
-    private static H264TranscodePlan BuildCpuH264TranscodePlan(string ffmpegPath, string inputPath, string outputPath) =>
-        new("CPU libx264", CreateFfmpegStartInfo(ffmpegPath,
-        [
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-xerror",
-            "-i",
-            inputPath,
-            "-map",
-            "0:v:0",
-            "-map",
-            "0:a?",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "20",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-movflags",
-            "+faststart",
-            "-f",
-            "mp4",
-            outputPath
-        ]));
-
     private static ProcessStartInfo CreateFfmpegStartInfo(string ffmpegPath, IReadOnlyList<string> arguments)
     {
         var startInfo = new ProcessStartInfo
@@ -2512,30 +2155,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
 
         return startInfo;
-    }
-
-    private static async Task<bool> FfmpegSupportsEncoderAsync(
-        string ffmpegPath,
-        string encoderName,
-        Func<ProcessStartInfo, CancellationToken, Task<ProcessRunResult>> runner,
-        CancellationToken cancellationToken)
-    {
-        var startInfo = CreateFfmpegStartInfo(ffmpegPath, ["-hide_banner", "-encoders"]);
-        try
-        {
-            var result = await runner(startInfo, cancellationToken).ConfigureAwait(false);
-            if (result.ExitCode != 0)
-            {
-                return false;
-            }
-
-            var output = $"{result.StandardOutput}\n{result.StandardError}";
-            return output.Contains(encoderName, StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static async Task<string> ProbePrimaryVideoCodecAsync(string path, CancellationToken cancellationToken)
@@ -3057,33 +2676,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return false;
     }
 
-    private static IReadOnlyList<DramaSearchItem> MapLocalItems(IEnumerable<JsonElement> items)
-    {
-        return items
-            .Select(item => new DramaSearchItem(
-                BookId: EnsurePrefixed(GetString(item, "series_id") ?? GetString(item, "book_id") ?? GetString(item, "id"), HongguoLocalBookPrefix),
-                Title: GetString(item, "title") ?? GetString(item, "name") ?? string.Empty,
-                Category: GetString(item, "category") ?? GetString(item, "type") ?? string.Empty,
-                EpisodeTotal: GetInt(item, "episode_cnt") ?? GetInt(item, "episode_total") ?? GetInt(item, "total") ?? 0,
-                Intro: GetString(item, "intro") ?? GetString(item, "description") ?? GetString(item, "desc") ?? string.Empty,
-                PosterUrl: GetString(item, "cover") ?? GetString(item, "poster") ?? GetString(item, "poster_url") ?? string.Empty,
-                Author: GetString(item, "author") ?? GetString(item, "producer") ?? GetString(item, "copyright") ?? string.Empty,
-                PublishTime: GetString(item, "publish_time") ?? GetString(item, "first_seen") ?? GetString(item, "created_at") ?? string.Empty,
-                FavoriteCount: GetInt(item, "favorite_count") ?? GetInt(item, "collect_count") ?? 0,
-                PlayCount: DramaPlayCount.Read(item, GetInt)))
-            .Where(item => !string.IsNullOrWhiteSpace(item.BookId))
-            .ToArray();
-    }
-
-    private Task<IReadOnlyList<DramaSearchItem>> SearchLocalAsync(
-        string keyword,
-        int page,
-        DramaSourceSettings settings,
-        CancellationToken cancellationToken)
-    {
-        return _hglocalApiService.SearchAsync(settings, keyword, page, cancellationToken);
-    }
-
     private async Task<IReadOnlyList<SourceEpisode>> GetDramaBoxEpisodesAsync(
         string bookId, DramaSourceSettings settings, CancellationToken cancellationToken)
     {
@@ -3115,50 +2707,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         return new SourceVideoDetail(
             detail.Url,
             HongguoCdn: new HongguoCdnDownload([detail.Url], detail.SpadeA, detail.Encrypted));
-    }
-
-    private Task<IReadOnlyList<DramaSearchItem>> GetLocalTodayAsync(
-        DramaSourceSettings settings,
-        CancellationToken cancellationToken)
-    {
-        return _hglocalApiService.GetTodayNewAsync(settings, "short_play", cancellationToken);
-    }
-
-    private Task<IReadOnlyList<DramaSearchItem>> GetLatestByGenreAsync(
-        DramaSourceSettings settings,
-        string genre,
-        int days,
-        CancellationToken cancellationToken)
-    {
-        return _hglocalApiService.GetLatestByGenreAsync(settings, genre, days, cancellationToken);
-    }
-
-    private async Task<IReadOnlyList<SourceEpisode>> GetLocalEpisodesAsync(
-        string prefixedBookId,
-        DramaSourceSettings settings,
-        CancellationToken cancellationToken)
-    {
-        var episodes = await _hglocalApiService.GetEpisodesAsync(settings, prefixedBookId, cancellationToken);
-        return episodes
-            .Select(item => new SourceEpisode(
-                item.EpisodeNumber,
-                item.Title,
-                item.VideoId,
-                item.PosterUrl))
-            .ToArray();
-    }
-
-    private async Task<SourceVideoDetail> GetLocalVideoUrlAsync(
-        string prefixedVideoId,
-        string quality,
-        DramaSourceSettings settings,
-        CancellationToken cancellationToken)
-    {
-        var detail = await _hglocalApiService.GetVideoPlaybackAsync(settings, prefixedVideoId, quality, cancellationToken);
-        return new SourceVideoDetail(
-            detail.Url,
-            EnsureWindowsCompatible: IsHongguoLocalCompatibleMode(settings.HongguoLocalDownloadMode),
-            TranscodeEngine: NormalizeHongguoLocalTranscodeEngine(settings.HongguoLocalTranscodeEngine));
     }
 
     private async Task<IReadOnlyList<SourceEpisode>> GetPikachuEpisodesAsync(string prefixedBookId, DramaSourceSettings settings, CancellationToken cancellationToken)
@@ -3418,39 +2966,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             detail.Url,
             HongguoCdn: new HongguoCdnDownload(detail.EncryptedUrls, detail.SpadeA, detail.Encrypted),
             ExpectedSize: detail.Size);
-    }
-
-    private async Task<IReadOnlyList<SourceEpisode>> GetMapleleafEpisodesAsync(
-        string bookId,
-        DramaSourceSettings settings,
-        CancellationToken cancellationToken)
-    {
-        var items = await _mapleleafApiService.GetEpisodesAsync(settings, bookId, cancellationToken);
-        return items.Select(item => new SourceEpisode(
-            item.EpisodeNumber,
-            item.Title,
-            item.VideoId,
-            item.PosterUrl)).ToArray();
-    }
-
-    private async Task<SourceVideoDetail> GetMapleleafVideoUrlAsync(
-        string videoId,
-        string quality,
-        DramaSourceSettings settings,
-        int playUrlTimeoutSeconds,
-        CancellationToken cancellationToken)
-    {
-        var detail = await _mapleleafApiService.GetVideoPlaybackAsync(
-            settings,
-            videoId,
-            quality,
-            playUrlTimeoutSeconds,
-            cancellationToken).ConfigureAwait(false);
-        return new SourceVideoDetail(
-            detail.Url,
-            PikachuDecryptKey: detail.CencDecryptKey,
-            HongguoCdn: new HongguoCdnDownload(detail.CdnUrls, detail.SpadeA, detail.Encrypted),
-            ExpectedSize: string.IsNullOrWhiteSpace(detail.CencDecryptKey) ? 0 : detail.Size);
     }
 
     private async Task<SourceVideoDetail> GetPikachuVideoUrlAsync(string prefixedVideoId, string quality, DramaSourceSettings settings, CancellationToken cancellationToken)
@@ -4077,14 +3592,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     private static string BuildEpisodeFileName(EpisodeTask task) => $"第{task.EpisodeNumber}集.mp4";
 
-    private static async Task<string?> FindExistingEpisodeVideoAsync(
+    private static string? FindExistingEpisodeVideo(
         string outputDir,
         int outputEpisodeNumber,
         Action<string>? report,
-        bool validateVideoEncoding,
         ExistingVideoPolicy existingVideoPolicy,
-        ICollection<string>? replacementCandidates,
-        CancellationToken cancellationToken)
+        ICollection<string>? replacementCandidates)
     {
         foreach (var directory in new[] { outputDir, Path.Combine(outputDir, "videos") })
         {
@@ -4117,30 +3630,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
                         continue;
                     }
 
-                    if (!validateVideoEncoding)
-                    {
-                        return path;
-                    }
-
-                    if (ContainsEncryptedMp4SampleEntry(path))
-                    {
-                        replacementCandidates?.Add(path);
-                        report?.Invoke(
-                            $"发现旧版加密 MP4，将重新获取明文直链并替换：{Path.GetFileName(path)}");
-                        continue;
-                    }
-
-                    try
-                    {
-                        await ProbePrimaryVideoCodecAsync(path, cancellationToken).ConfigureAwait(false);
-                        return path;
-                    }
-                    catch (InvalidDataException ex)
-                    {
-                        replacementCandidates?.Add(path);
-                        report?.Invoke(
-                            $"发现无效的已有视频，将重新下载并在成功后替换：{Path.GetFileName(path)}（{ex.Message}）");
-                    }
+                    return path;
                 }
             }
         }
@@ -4337,19 +3827,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         }
     }
 
-    private static string NormalizeLocalBaseUrl(string value)
-    {
-        var baseUrl = (value ?? string.Empty).Trim().TrimEnd('/');
-        if (string.IsNullOrWhiteSpace(baseUrl))
-        {
-            return string.Empty;
-        }
-
-        return baseUrl.EndsWith("/api/hongguo", StringComparison.OrdinalIgnoreCase)
-            ? baseUrl
-            : $"{baseUrl}/api/hongguo";
-    }
-
     private static string NormalizeServerUrl(string value)
     {
         var normalized = (value ?? string.Empty).Trim().TrimEnd('/');
@@ -4372,17 +3849,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             : DefaultDownloadFileSegments;
     }
 
-    private static bool IsHongguoLocalCompatibleMode(string? value)
-    {
-        return string.Equals((value ?? "fast").Trim(), "compatible", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizeHongguoLocalTranscodeEngine(string? value)
-    {
-        var normalized = (value ?? "auto").Trim().ToLowerInvariant();
-        return normalized is "auto" or "nvenc" or "cpu" ? normalized : "auto";
-    }
-
     private static void ThrowIfForeignCatalogUnsupported(DramaSourceSettings settings)
     {
         if (string.Equals(settings.DramaSourceChain?.Trim(), "foreign", StringComparison.OrdinalIgnoreCase))
@@ -4392,6 +3858,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
     private static string? ResolveSelectedService(string selected, IReadOnlyList<string> supportedServices)
     {
         var normalized = (selected ?? "hgnew").Trim().ToLowerInvariant();
+        if (normalized is "hglocal" or "mapleleaf")
+            normalized = DramaDownloadSourceSelector.DefaultChain;
         if (string.IsNullOrWhiteSpace(normalized))
         {
             normalized = "hgnew";
@@ -4554,8 +4022,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string Url,
         string? PikachuDecryptKey = null,
         HongguoCdnDownload? HongguoCdn = null,
-        bool EnsureWindowsCompatible = false,
-        string TranscodeEngine = "auto",
         long ExpectedSize = 0,
         int SelectedDefinition = 0);
 
@@ -4566,12 +4032,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
     internal sealed record ProcessRunResult(int ExitCode, string StandardOutput, string StandardError);
 
-    private sealed record H264TranscodePlan(string Name, ProcessStartInfo StartInfo);
-
-    private sealed record VideoProcessingResult(
-        string Codec,
-        bool Transcoded,
-        string? TranscodeEngine);
 
     private sealed record EpisodeTask(
         int Order,
@@ -4588,8 +4048,6 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         double BytesPerSecond,
         string MediaSummary);
 
-    private const string HongguoLocalBookPrefix = "hglocal:";
-    private const string HongguoLocalEpisodePrefix = "hglocal_ep:";
     private const string PikachuBookPrefix = "pikachu:";
     private const string PikachuEpisodePrefix = "pikachu_ep:";
     private const string PikachuPassId = "start-prod-api";

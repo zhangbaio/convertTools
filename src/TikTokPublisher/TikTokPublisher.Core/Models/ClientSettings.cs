@@ -40,14 +40,7 @@ public sealed class ClientSettings
 
     public static string NormalizeHongguoAppPlan(string? plan) =>
         string.Equals(plan?.Trim(), "2", StringComparison.Ordinal) ? "2" : "1";
-    public string MapleleafAccount { get; set; } = "";
-    public string MapleleafPassword { get; set; } = "";
-    public string MapleleafUdid { get; set; } = "";
 
-    public string HongguoLocalBaseUrl { get; set; } = "";
-    public string HongguoLocalApiKey { get; set; } = "";
-    public string HongguoLocalDownloadMode { get; set; } = "fast";
-    public string HongguoLocalTranscodeEngine { get; set; } = "auto";
 
     public string PikachuServerUrl { get; set; } = "https://startvlog.cn/start-prod-api";
     public string PikachuFanqieCookie { get; set; } = "";
@@ -258,13 +251,6 @@ public sealed class ClientSettings
         HongguoAppPlan = NormalizeHongguoAppPlan(HongguoAppPlan),
         HongguoAppStreamLink1 = HongguoAppStreamLink1,
         HongguoAppStreamLink2 = HongguoAppStreamLink2,
-        MapleleafAccount = MapleleafAccount,
-        MapleleafPassword = MapleleafPassword,
-        MapleleafUdid = MapleleafUdid,
-        HongguoLocalBaseUrl = HongguoLocalBaseUrl,
-        HongguoLocalApiKey = HongguoLocalApiKey,
-        HongguoLocalDownloadMode = HongguoLocalDownloadMode,
-        HongguoLocalTranscodeEngine = HongguoLocalTranscodeEngine,
         PikachuServerUrl = PikachuServerUrl,
         PikachuFanqieCookie = PikachuFanqieCookie,
         PikachuDramaType = PikachuDramaType,

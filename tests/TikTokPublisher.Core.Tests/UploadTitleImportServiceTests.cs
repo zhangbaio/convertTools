@@ -11,7 +11,6 @@ public sealed class UploadTitleImportServiceTests
     {
         UploadTitleImportService.BookIdForSeries("hongguoapp", "731").Should().Be("hongguoapp:731");
         UploadTitleImportService.BookIdForSeries("hgoffline", "731").Should().Be("hongguoapp:731");
-        UploadTitleImportService.BookIdForSeries("hglocal", "731").Should().Be("hglocal:731");
         UploadTitleImportService.BookIdForSeries("unknown", "731").Should().Be("");
     }
 
