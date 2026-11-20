@@ -103,12 +103,6 @@ public static class KuaishouFormChoices
         new("保持", "keep"),
     ];
 
-    public static IReadOnlyList<KuaishouFormChoice> AliasPositions { get; } =
-    [
-        new("后缀", "suffix"),
-        new("前缀", "prefix"),
-    ];
-
     public static IReadOnlyList<KuaishouFormChoice> SubmitPreWaits { get; } =
     [
         new("自动（根据集数和视频大小计算）", "-1"),

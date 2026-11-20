@@ -60,8 +60,6 @@ public sealed class KuaishouPersonalConfig
     public string ProductionYear { get; set; } = DateTime.Now.Year.ToString();
     public string ProductionCost { get; set; } = "1";
     public string AverageEpisodeMinutes { get; set; } = "1";
-    public bool Finished { get; set; } = true;
-    public bool HasRecordNumber { get; set; }
     public string BroadcastPlatform { get; set; } = "快手";
     public string BroadcastChannel { get; set; } = "小屏APP";
     public string BroadcastDate { get; set; } = DateTime.Today.ToString("yyyy-MM-dd");
@@ -71,7 +69,7 @@ public sealed class KuaishouPersonalConfig
     public string EpisodePrice { get; set; } = "0.11";
     public string SeriesPrice { get; set; } = "1";
     public string Actors { get; set; } = "演员A:男:男主;演员B:女:女主";
-    public string ActorInfoJson { get; set; } = "[{\"name\":\"\",\"gender\":\"男\",\"role\":\"\"},{\"name\":\"\",\"gender\":\"女\",\"role\":\"\"}]";
+    [JsonIgnore] public string ActorInfoJson => """[{"name":"","gender":"男","role":""},{"name":"","gender":"女","role":""}]""";
     public string ActorLibraryText { get; set; } =
         "顾承宇|男|陆沉,顾言,沈砚\n陆景深|男|周临川,霍景川,程砚\n沈墨川|男|林修远,裴知珩,韩屿\n周叙白|男|陆执,顾廷川,谢临舟\n林砚舟|男|傅景川,商砚,纪承安\n苏晚晴|女|苏念,温晚,顾安宁\n沈清禾|女|许初夏,林清禾,宋雨桐\n温知意|女|江念初,沈知微,陆星晚\n宋雨桐|女|苏清妍,顾星辞,许念安\n江念初|女|林晚乔,温予柔,沈听雪";
     public string Directors { get; set; } = string.Empty;
@@ -99,10 +97,9 @@ public sealed class KuaishouPersonalConfig
     public string UploadTransport { get; set; } = "api";
     public string BroadcastTimeMode { get; set; } = "today";
     public string SpecialTheme { get; set; } = string.Empty;
-    public bool SmallAmountUnlock { get; set; }
-    public bool NewTitleAliasEnabled { get; set; }
-    public string NewTitleAliasPosition { get; set; } = "suffix";
-    public string NewTitleAliasValue { get; set; } = string.Empty;
+    [JsonIgnore] public bool Finished => true;
+    [JsonIgnore] public bool HasRecordNumber => false;
+    [JsonIgnore] public bool SmallAmountUnlock => false;
     public int AuthorBackfillConcurrent { get; set; } = 8;
     public string FormOptionsJson { get; set; } = string.Empty;
     public string DefaultFieldsJson { get; set; } = string.Empty;
@@ -128,7 +125,6 @@ public sealed class KuaishouPersonalConfig
     public string VideoStorageProvider { get; set; } = "aliyun_oss";
     public int PublicStorageUploadConcurrency { get; set; } = 2;
     public int PublicStorageUploadRetryCount { get; set; } = 5;
-    public string ProjectImageTemplateRoot { get; set; } = string.Empty;
     public string ProjectImageTemplateId { get; set; } = "image-template-project-image-10";
     public string UploadProjectImageTemplateId { get; set; } = "image-template-project-image-10";
     public string PersonalProjectImageTemplateId { get; set; } = "image-template-project-image-10";

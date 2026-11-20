@@ -80,8 +80,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         TokenHeaderBox.Text = _config.TokenHeader;
 
         CommitmentRecipientBox.Text = _config.CommitmentRecipientCompanyName;
-        CommitmentSealBox.Text = _config.CommitmentSealPath;
-        CommitmentTemplateBox.Text = _config.CommitmentTemplateDocxPath;
 
         FillChoice(ContentTypeBox, KuaishouFormChoices.ContentTypes, _config.ContentType, "漫剧");
         FillChoice(ComicMethodBox, KuaishouFormChoices.ComicMethods, _config.ProductionMethod, "3");
@@ -93,12 +91,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         FillChoice(SaleTypeBox, KuaishouFormChoices.SaleTypes, NormalizeSaleType(_config.SaleType), "3");
         FreeEpisodeCountBox.Text = _config.FreeEpisodeCount.ToString();
         UnlockEpisodeCountBox.Text = _config.UnlockEpisodeCount.ToString();
-        SmallAmountUnlockBox.IsChecked = _config.SmallAmountUnlock;
         EpisodePriceBox.Text = _config.EpisodePrice;
         SeriesPriceBox.Text = _config.SeriesPrice;
         FillChoice(CopyrightProofTypeBox, KuaishouFormChoices.CopyrightProofTypes, _config.CopyrightProofType, "1");
-        FinishedBox.IsChecked = _config.Finished;
-        HasRecordNumberBox.IsChecked = _config.HasRecordNumber;
         UpdateSaleTypeRows();
 
         BroadcastPlatformBox.Text = _config.BroadcastPlatform;
@@ -109,17 +104,12 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         BroadcastDateBox.Text = fixedDate ? broadcastMode : _config.BroadcastDate;
         BroadcastDateField.IsVisible = fixedDate;
         ActorLibraryBox.Text = _config.ActorLibraryText;
-        ActorInfoBox.Text = _config.ActorInfoJson;
 
-        NewTitleAliasEnabledBox.IsChecked = _config.NewTitleAliasEnabled;
-        FillChoice(NewTitleAliasPositionBox, KuaishouFormChoices.AliasPositions, _config.NewTitleAliasPosition, "suffix");
-        NewTitleAliasValueBox.Text = _config.NewTitleAliasValue;
         QueueParallelBox.Text = _config.QueueMaxParallelProjects.ToString();
         SeriesBaseInfoPathBox.Text = _config.SeriesBaseInfoPath;
         OnlineOfflinePathBox.Text = _config.OnlineOfflinePath;
         FillChoice(SubmitPreCheckBox, KuaishouFormChoices.SubmitPreWaits, _config.SubmitPreCheckWaitSeconds.ToString(), "0");
 
-        ProjectImageRootBox.Text = _config.ProjectImageTemplateRoot;
         FillTemplate(PersonalTemplateBox, FirstNonEmpty(
             _config.PersonalProjectImageTemplateId,
             _config.EnterpriseProjectImageTemplateId,
@@ -144,7 +134,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         LoginTimeoutBox.Text = _config.LoginTimeoutSeconds.ToString();
         FillChoice(UploadTransportBox, KuaishouFormChoices.UploadTransports, _config.UploadTransport, KuaishouUploadTransport.Api);
         FillChoice(RevenueShareBrowserModeBox, KuaishouFormChoices.BrowserModes, _config.RevenueShareHeadless ? "true" : "false", "false");
-        RevenueShareFullSceneBox.IsChecked = _config.RevenueShareFullSceneDisplay;
         KeepBrowserBox.IsChecked = _config.KeepBrowserOpenOnFailure;
         LoadSubmissionTargets(GetSubmissionTarget());
 
@@ -185,35 +174,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             FileTypeFilter = [new FilePickerFileType("PDF 文件") { Patterns = ["*.pdf"] }],
         });
         if (files.Count > 0) CommitmentPdfBox.Text = files[0].Path.LocalPath;
-    }
-
-    private async void PickCommitmentTemplate_Click(object? sender, RoutedEventArgs e)
-    {
-        var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择快手承诺函 Word 模板",
-            AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("Word 模板") { Patterns = ["*.docx"] }],
-        });
-        if (files.Count > 0) CommitmentTemplateBox.Text = files[0].Path.LocalPath;
-    }
-
-    private async void PickCommitmentSeal_Click(object? sender, RoutedEventArgs e)
-    {
-        var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择承诺函印章图片",
-            AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("图片") { Patterns = ["*.png", "*.jpg", "*.jpeg"] }],
-        });
-        if (files.Count > 0) CommitmentSealBox.Text = files[0].Path.LocalPath;
-    }
-
-    private async void PickProjectImageRoot_Click(object? sender, RoutedEventArgs e)
-    {
-        var folders = await Files.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择快手工程图模板根目录", AllowMultiple = false });
-        if (folders.Count == 0) return;
-        ProjectImageRootBox.Text = folders[0].Path.LocalPath;
     }
 
     private async void ImportLegacy_Click(object? sender, RoutedEventArgs e)
@@ -320,8 +280,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.TokenHeader = TokenHeaderBox.Text?.Trim() ?? "Access-Token";
 
         _config.CommitmentRecipientCompanyName = CommitmentRecipientBox.Text?.Trim() ?? string.Empty;
-        _config.CommitmentSealPath = CommitmentSealBox.Text?.Trim() ?? string.Empty;
-        _config.CommitmentTemplateDocxPath = CommitmentTemplateBox.Text?.Trim() ?? string.Empty;
 
         _config.ContentType = ChoiceValue(ContentTypeBox, "漫剧");
         _config.ProductionMethod = ChoiceValue(ComicMethodBox, "3");
@@ -333,12 +291,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.SaleType = ChoiceValue(SaleTypeBox, "3");
         _config.FreeEpisodeCount = free;
         _config.UnlockEpisodeCount = unlock;
-        _config.SmallAmountUnlock = SmallAmountUnlockBox.IsChecked == true;
         _config.EpisodePrice = EpisodePriceBox.Text?.Trim() ?? string.Empty;
         _config.SeriesPrice = SeriesPriceBox.Text?.Trim() ?? string.Empty;
         _config.CopyrightProofType = ChoiceValue(CopyrightProofTypeBox, "1");
-        _config.Finished = FinishedBox.IsChecked == true;
-        _config.HasRecordNumber = HasRecordNumberBox.IsChecked == true;
 
         _config.BroadcastPlatform = BroadcastPlatformBox.Text?.Trim() ?? string.Empty;
         _config.BroadcastChannel = ChoiceValue(BroadcastChannelBox, "小屏APP");
@@ -349,17 +304,12 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         if (timeMode == "fixed" && !string.IsNullOrWhiteSpace(BroadcastDateBox.Text))
             _config.BroadcastDate = BroadcastDateBox.Text.Trim();
         _config.ActorLibraryText = ActorLibraryBox.Text ?? string.Empty;
-        _config.ActorInfoJson = ActorInfoBox.Text ?? string.Empty;
 
-        _config.NewTitleAliasEnabled = NewTitleAliasEnabledBox.IsChecked == true;
-        _config.NewTitleAliasPosition = ChoiceValue(NewTitleAliasPositionBox, "suffix");
-        _config.NewTitleAliasValue = NewTitleAliasValueBox.Text?.Trim() ?? string.Empty;
         _config.QueueMaxParallelProjects = Math.Clamp(Positive(QueueParallelBox.Text, 1), 1, 5);
         _config.SeriesBaseInfoPath = SeriesBaseInfoPathBox.Text?.Trim() ?? string.Empty;
         _config.OnlineOfflinePath = OnlineOfflinePathBox.Text?.Trim() ?? string.Empty;
         _config.SubmitPreCheckWaitSeconds = int.TryParse(ChoiceValue(SubmitPreCheckBox, "0"), out var preWait) ? preWait : 0;
 
-        _config.ProjectImageTemplateRoot = ProjectImageRootBox.Text?.Trim() ?? string.Empty;
         var settlementTemplate = TemplateValue(PersonalTemplateBox);
         _config.PersonalProjectImageTemplateId = settlementTemplate;
         _config.EnterpriseProjectImageTemplateId = settlementTemplate;
@@ -384,7 +334,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.UploadTransport = ChoiceValue(UploadTransportBox, KuaishouUploadTransport.Api);
         _config.RevenueShareHeadless = ChoiceValue(RevenueShareBrowserModeBox, "false") == "true";
         _config.Headless = _config.RevenueShareHeadless;
-        _config.RevenueShareFullSceneDisplay = RevenueShareFullSceneBox.IsChecked == true;
         _config.KeepBrowserOpenOnFailure = KeepBrowserBox.IsChecked == true;
         ApplySubmissionTarget();
 
@@ -489,7 +438,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         var code = KuaishouFormChoices.SaleTypeCode(ChoiceValue(SaleTypeBox, "3"));
         var adUnlock = code == 3;
         UnlockCountField.IsVisible = adUnlock;
-        SmallAmountField.IsVisible = adUnlock;
         EpisodePriceField.IsVisible = code == 2;
         SeriesPriceField.IsVisible = code is 0 or 2;
     }

@@ -84,10 +84,6 @@ public sealed class KuaishouPublishInfoService
         if (IsMissingSynopsis(sourceSynopsis))
             throw new InvalidOperationException("缺少有效的原始简介，不能只凭剧名生成快手发布信息。");
 
-        var budget = TitleBudget(config);
-        if (rewrite && budget < TitleMinLength)
-            throw new InvalidOperationException("快手新剧名别名过长，标题主体至少要留 2 个字。");
-
         var existingTitle = First(info, "新剧名");
         var compliance = BuildCompliance(config);
         string? retry = null;
@@ -101,8 +97,8 @@ public sealed class KuaishouPublishInfoService
                 ? "快手发布信息：一次请求生成剧名、简介、标签、观众、分类和情节"
                 : $"快手发布信息：第 {attempt} 次重试，{retry}");
             var payload = await RequestAsync(ai, BuildUserPrompt(
-                originalTitle, sourceSynopsis, First(info, "集数"), budget, rewrite, existingTitle, compliance, retry), cancellationToken);
-            issues = Validate(payload, config, originalTitle, sourceSynopsis, budget, rewrite, autoFill, existingTitle);
+                originalTitle, sourceSynopsis, First(info, "集数"), rewrite, existingTitle, compliance, retry), cancellationToken);
+            issues = Validate(payload, config, originalTitle, sourceSynopsis, rewrite, autoFill, existingTitle);
             var hits = PolicyHits(payload, config, rewrite);
             if (issues.Count == 0)
             {
@@ -121,15 +117,14 @@ public sealed class KuaishouPublishInfoService
         var draft = ReadDraft(accepted.Value);
         if (rewrite)
         {
-            var title = ApplyAlias(draft.Title, config);
             WriteInfo(infoPath, WithOriginalSynopsis(new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["新剧名"] = title,
+                ["新剧名"] = draft.Title,
                 ["短标题"] = draft.ShortTitle,
                 ["简介"] = draft.Description,
                 ["标签"] = string.Join(' ', draft.Tags),
             }, sourceSynopsis), ["推荐语"]);
-            progress?.Report($"快手发布信息已写入：新剧名={title}，短标题={draft.ShortTitle}");
+            progress?.Report($"快手发布信息已写入：新剧名={draft.Title}，短标题={draft.ShortTitle}");
         }
         else if (autoFill)
         {
@@ -149,32 +144,11 @@ public sealed class KuaishouPublishInfoService
         }
     }
 
-    public static int TitleBudget(KuaishouPersonalConfig config)
-    {
-        if (!config.NewTitleAliasEnabled)
-            return TitleMaxLength;
-        var alias = config.NewTitleAliasValue?.Trim() ?? "";
-        return alias.Length == 0 ? TitleMaxLength : Math.Max(0, TitleMaxLength - alias.Length);
-    }
-
-    public static string ApplyAlias(string title, KuaishouPersonalConfig config)
-    {
-        if (!config.NewTitleAliasEnabled)
-            return title;
-        var alias = config.NewTitleAliasValue?.Trim() ?? "";
-        if (alias.Length == 0)
-            return title;
-        return string.Equals(config.NewTitleAliasPosition?.Trim(), "prefix", StringComparison.OrdinalIgnoreCase)
-            ? alias + title
-            : title + alias;
-    }
-
     public static IReadOnlyList<string> Validate(
         JsonElement payload,
         KuaishouPersonalConfig config,
         string originalTitle,
         string sourceSynopsis,
-        int titleBudget,
         bool rewrite,
         bool autoFill,
         string existingTitle)
@@ -186,8 +160,8 @@ public sealed class KuaishouPublishInfoService
         var tags = Texts(payload, "tags");
         if (rewrite)
         {
-            if (title.Length < TitleMinLength || title.Length > titleBudget || title.Any(char.IsWhiteSpace))
-                issues.Add($"新剧名必须是 {TitleMinLength}-{titleBudget} 个字且不含空格，当前「{title}」");
+            if (title.Length < TitleMinLength || title.Length > TitleMaxLength || title.Any(char.IsWhiteSpace))
+                issues.Add($"新剧名必须是 {TitleMinLength}-{TitleMaxLength} 个字且不含空格，当前「{title}」");
             else if (SameText(title, originalTitle))
                 issues.Add("新剧名不能与原剧名相同");
             if (shortTitle.Length < ShortTitleMinLength || shortTitle.Length > ShortTitleMaxLength || shortTitle.Any(char.IsWhiteSpace))
@@ -357,7 +331,6 @@ public sealed class KuaishouPublishInfoService
         string originalTitle,
         string synopsis,
         string episodeCount,
-        int titleBudget,
         bool rewrite,
         string existingTitle,
         JsonObject compliance,
@@ -369,7 +342,7 @@ public sealed class KuaishouPublishInfoService
             ["original_title"] = originalTitle,
             ["synopsis"] = synopsis,
             ["episode_count"] = episodeCount,
-            ["title_max_length"] = titleBudget,
+            ["title_max_length"] = TitleMaxLength,
             ["keep_existing_title"] = rewrite ? "" : existingTitle,
             ["audience_options"] = new JsonArray(KuaishouFormCatalog.Audience.Select(item => JsonValue.Create(item.Label)).ToArray()),
             ["category_options"] = new JsonArray(KuaishouFormCatalog.Categories.Select(item => JsonValue.Create(item.Label)).ToArray()),

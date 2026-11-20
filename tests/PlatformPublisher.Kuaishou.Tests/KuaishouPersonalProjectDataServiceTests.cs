@@ -108,7 +108,6 @@ public sealed class KuaishouPersonalProjectDataServiceTests
     {
         var actors = KuaishouPersonalFormResolver.ResolveUploadActors(null, new KuaishouPersonalConfig
         {
-            ActorInfoJson = """[{"name":"","gender":"男","role":""}]""",
             ActorLibraryText = "顾承宇|男|陆沉\n江念初|女|林晚乔",
         });
 

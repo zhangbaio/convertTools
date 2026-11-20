@@ -50,6 +50,42 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
     }
 
     [Fact]
+    public void FixedSeriesDefaultsIgnoreSavedAndImportedOverrides()
+    {
+        var config = JsonSerializer.Deserialize<KuaishouPersonalConfig>(
+            """{"Finished":false,"HasRecordNumber":true,"SmallAmountUnlock":true}""")!;
+        using var legacy = JsonDocument.Parse(
+            """{"kuaishou_is_finished":false,"kuaishou_has_record_number":true,"kuaishou_small_amount_unlock":true}""");
+
+        var import = KuaishouLegacyConfigImporter.ImportElement(
+            legacy.RootElement, config, PublishPlatform.KuaishouPersonalRevenue);
+        var form = KuaishouPersonalFormResolver.Resolve(config);
+
+        Assert.Equal(0, import.ImportedFields);
+        Assert.True(form.Finished);
+        Assert.False(form.HasRecordNumber);
+        Assert.False(form.SmallAmountUnlock);
+    }
+
+    [Fact]
+    public void ActorJsonAndTemplateRootCannotBeOverriddenByAccountConfiguration()
+    {
+        var config = JsonSerializer.Deserialize<KuaishouPersonalConfig>(
+            """{"ActorInfoJson":"[]","ProjectImageTemplateRoot":"old-template-root"}""")!;
+        using var legacy = JsonDocument.Parse(
+            """{"kuaishou_actor_info_json":"[]","kuaishou_project_image_template_root":"new-template-root"}""");
+
+        var import = KuaishouLegacyConfigImporter.ImportElement(
+            legacy.RootElement, config, PublishPlatform.KuaishouPersonalRevenue);
+        var saved = JsonSerializer.Serialize(config);
+
+        Assert.Equal(0, import.ImportedFields);
+        Assert.Equal("""[{"name":"","gender":"男","role":""},{"name":"","gender":"女","role":""}]""", config.ActorInfoJson);
+        Assert.DoesNotContain("ActorInfoJson", saved);
+        Assert.DoesNotContain("ProjectImageTemplateRoot", saved);
+    }
+
+    [Fact]
     public async Task SecretsAreExcludedFromJsonAndRoundTripThroughSecureStore()
     {
         Directory.CreateDirectory(_root);

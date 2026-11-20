@@ -3168,8 +3168,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ConfigPath = configPath ?? SelectedAccount?.Model.BaseConfigPath ?? DraftConfigPath,
             ProjectDirectory = projectDirectory,
         });
-        if (!string.IsNullOrWhiteSpace(config.ProjectImageTemplateRoot))
-            settings.TiktokProjectImageTemplateRoot = config.ProjectImageTemplateRoot.Trim();
         var templateId = selectedPlatform == PublishPlatform.KuaishouEnterpriseRevenue
             ? config.EnterpriseProjectImageTemplateId
             : config.PersonalProjectImageTemplateId;

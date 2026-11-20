@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PlatformPublisher.Common.Models;
 using PlatformPublisher.Kuaishou.Publishing;
 using Xunit;
 
@@ -15,17 +16,20 @@ public sealed class KuaishouPublishInfoServiceTests
     }
 
     [Fact]
-    public void Title_budget_reserves_room_for_the_alias()
+    public void Legacy_title_alias_settings_are_ignored()
     {
-        var config = new KuaishouPersonalConfig
-        {
-            NewTitleAliasEnabled = true,
-            NewTitleAliasValue = "短剧",
-            NewTitleAliasPosition = "prefix",
-        };
+        var config = JsonSerializer.Deserialize<KuaishouPersonalConfig>(
+            """{"NewTitleAliasEnabled":true,"NewTitleAliasPosition":"prefix","NewTitleAliasValue":"旧别名"}""")!;
+        using var legacy = JsonDocument.Parse(
+            """{"kuaishou_new_title_alias_enabled":true,"kuaishou_new_title_alias_position":"prefix","kuaishou_new_title_alias_value":"导入别名"}""");
 
-        Assert.Equal(8, KuaishouPublishInfoService.TitleBudget(config));
-        Assert.Equal("短剧归途", KuaishouPublishInfoService.ApplyAlias("归途", config));
+        var import = KuaishouLegacyConfigImporter.ImportElement(
+            legacy.RootElement, config, PublishPlatform.KuaishouPersonalRevenue);
+
+        Assert.Equal(0, import.ImportedFields);
+        Assert.DoesNotContain("NewTitleAlias", JsonSerializer.Serialize(config));
+        Assert.False(KuaishouPersonalFormResolver.SettingsOverlay(config, enterprise: false)
+            .ContainsKey("kuaishou_new_title_alias_enabled"));
     }
 
     [Fact]
@@ -36,12 +40,12 @@ public sealed class KuaishouPublishInfoServiceTests
             {"title":"归途灯火","short_title":"灯火再亮起来","description":"DESCRIPTION","tags":["家庭","误会","团圆"],"audience":"女频","categories":["家庭"],"plots":["守护家人"]}
             """.Replace("DESCRIPTION", Synopsis()));
 
-        Assert.Empty(KuaishouPublishInfoService.Validate(valid, config, "原来的剧名", "原来的简介。", 10, true, true, ""));
+        Assert.Empty(KuaishouPublishInfoService.Validate(valid, config, "原来的剧名", "原来的简介。", true, true, ""));
 
         var shortSynopsis = Json("""
             {"title":"归途灯火","short_title":"灯火再亮起来","description":"太短了。","tags":["家庭","误会","团圆"],"audience":"女","categories":["不存在"],"plots":["守护家人"]}
             """);
-        var issues = KuaishouPublishInfoService.Validate(shortSynopsis, config, "原来的剧名", "原来的简介。", 10, true, true, "");
+        var issues = KuaishouPublishInfoService.Validate(shortSynopsis, config, "原来的剧名", "原来的简介。", true, true, "");
         Assert.Contains(issues, issue => issue.Contains("简介", StringComparison.Ordinal));
         Assert.Contains(issues, issue => issue.Contains("短剧分类", StringComparison.Ordinal));
     }

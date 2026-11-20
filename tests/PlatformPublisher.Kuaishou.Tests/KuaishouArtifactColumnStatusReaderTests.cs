@@ -258,7 +258,7 @@ public sealed class KuaishouFormChoicesTests
             UnlockEpisodeCount = 0,
             EpisodePrice = "0.11",
             SpecialTheme = "false",
-            ActorInfoJson = """[{"name":"顾承宇","gender":"男","role":"男主"}]""",
+            ActorLibraryText = "顾承宇|男|男主",
         };
 
         var form = KuaishouPersonalFormResolver.Resolve(config, videoWidth: 1080, videoHeight: 1920, today: new DateTime(2026, 10, 19));

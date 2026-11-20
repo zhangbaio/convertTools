@@ -127,10 +127,6 @@
                                 </StackPanel>
                             </UniformGrid>
                             <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
-                                <ToggleSwitch x:Name="FinishedBox" OnContent="完结" OffContent="完结" AutomationProperties.Name="完结" />
-                                <ToggleSwitch x:Name="HasRecordNumberBox" OnContent="有备案号" OffContent="有备案号" AutomationProperties.Name="有备案号" />
-                            </UniformGrid>
-                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
                                 <StackPanel Spacing="5">
                                     <TextBlock Classes="configurationLabel" Text="售卖类型" />
                                     <ComboBox x:Name="SaleTypeBox" Classes="configurationInput" AutomationProperties.Name="售卖类型" SelectionChanged="SaleTypeBox_SelectionChanged" />
@@ -142,9 +138,6 @@
                                 <StackPanel Spacing="5" x:Name="UnlockCountField">
                                     <TextBlock Classes="configurationLabel" Text="广告解锁集数" />
                                     <TextBox x:Name="UnlockEpisodeCountBox" Classes="configurationInput" AutomationProperties.Name="广告解锁集数" Watermark="1 至 8" />
-                                </StackPanel>
-                                <StackPanel Spacing="10" x:Name="SmallAmountField" VerticalAlignment="Bottom">
-                                    <ToggleSwitch x:Name="SmallAmountUnlockBox" OnContent="小额解锁" OffContent="小额解锁" AutomationProperties.Name="小额解锁" />
                                 </StackPanel>
                                 <StackPanel Spacing="5" x:Name="EpisodePriceField">
                                     <TextBlock Classes="configurationLabel" Text="单集价格（元）" />
@@ -192,21 +185,13 @@
                                 <TextBlock Classes="configurationLabel" Text="演员库" />
                                 <TextBox x:Name="ActorLibraryBox" Classes="configurationInput" AutomationProperties.Name="演员库" AcceptsReturn="True" MinHeight="108" TextWrapping="Wrap" Watermark="格式：姓名|性别|角色1,角色2&#10;例如：沈清秋|女|许初夏,林晚意" />
                             </StackPanel>
-                            <Expander Header="高级人员设置" HorizontalContentAlignment="Stretch">
-                                <StackPanel Spacing="10">
-                                    <StackPanel Spacing="5">
-                                        <TextBlock Classes="configurationLabel" Text="演员 JSON" />
-                                        <TextBox x:Name="ActorInfoBox" Classes="configurationInput" AutomationProperties.Name="演员 JSON" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                </StackPanel>
-                            </Expander>
                             <Border Height="1" Background="#E4E9F0" Margin="0,4" />
 
                             <TextBlock Classes="configurationHeading" Text="承诺函与工程图" />
                             <StackPanel Spacing="5">
                                 <TextBlock Classes="configurationLabel" Text="固定承诺函 PDF" />
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                    <TextBox x:Name="CommitmentPdfBox" Classes="configurationInput" AutomationProperties.Name="固定承诺函 PDF" Watermark="有 PDF 时优先使用，缺少时可用模板生成" />
+                                    <TextBox x:Name="CommitmentPdfBox" Classes="configurationInput" AutomationProperties.Name="固定承诺函 PDF" Watermark="项目没有承诺函 PDF 时，使用此账号的固定 PDF" />
                                     <Button Grid.Column="1" Content="选择" Click="PickCommitmentPdf_Click" AutomationProperties.Name="选择固定承诺函 PDF" VerticalAlignment="Stretch" />
                                 </Grid>
                             </StackPanel>
@@ -220,49 +205,9 @@
                                     <ComboBox x:Name="PersonalTemplateBox" Classes="configurationInput" AutomationProperties.Name="分账工程图模板" />
                                 </StackPanel>
                             </UniformGrid>
-                            <Expander Header="承诺函生成设置" HorizontalContentAlignment="Stretch">
-                                <StackPanel Spacing="10">
-                                    <StackPanel Spacing="5">
-                                        <TextBlock Classes="configurationLabel" Text="承诺函模板" />
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                            <TextBox x:Name="CommitmentTemplateBox" Classes="configurationInput" AutomationProperties.Name="承诺函模板" />
-                                            <Button Grid.Column="1" Content="选择" Click="PickCommitmentTemplate_Click" AutomationProperties.Name="选择承诺函模板" VerticalAlignment="Stretch" />
-                                        </Grid>
-                                    </StackPanel>
-                                    <StackPanel Spacing="5">
-                                        <TextBlock Classes="configurationLabel" Text="盖章图片" />
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                            <TextBox x:Name="CommitmentSealBox" Classes="configurationInput" AutomationProperties.Name="盖章图片" Watermark="留空则使用成本报表的印章地址" />
-                                            <Button Grid.Column="1" Content="选择" Click="PickCommitmentSeal_Click" AutomationProperties.Name="选择盖章图片" VerticalAlignment="Stretch" />
-                                        </Grid>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Expander>
-                            <Expander Header="工程图高级设置" HorizontalContentAlignment="Stretch">
-                                <StackPanel Spacing="10">
-                                    <StackPanel Spacing="5">
-                                        <TextBlock Classes="configurationLabel" Text="模板根目录" />
-                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                            <TextBox x:Name="ProjectImageRootBox" Classes="configurationInput" AutomationProperties.Name="模板根目录" Watermark="留空时使用系统模板目录和内置模板" />
-                                            <Button Grid.Column="1" Content="浏览" Click="PickProjectImageRoot_Click" AutomationProperties.Name="浏览模板根目录" VerticalAlignment="Stretch" />
-                                        </Grid>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Expander>
                             <Border Height="1" Background="#E4E9F0" Margin="0,4" />
 
                             <TextBlock Classes="configurationHeading" Text="剧名与合规" />
-                            <ToggleSwitch x:Name="NewTitleAliasEnabledBox" OnContent="启用新剧名别名" OffContent="启用新剧名别名" AutomationProperties.Name="启用新剧名别名" />
-                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10" IsVisible="{Binding #NewTitleAliasEnabledBox.IsChecked}">
-                                <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="别名位置" />
-                                    <ComboBox x:Name="NewTitleAliasPositionBox" Classes="configurationInput" AutomationProperties.Name="别名位置" />
-                                </StackPanel>
-                                <StackPanel Spacing="5">
-                                    <TextBlock Classes="configurationLabel" Text="别名值" />
-                                    <TextBox x:Name="NewTitleAliasValueBox" Classes="configurationInput" AutomationProperties.Name="别名值" Watermark="例如 2" />
-                                </StackPanel>
-                            </UniformGrid>
                             <Expander Header="内容合规词库" HorizontalContentAlignment="Stretch">
                                 <StackPanel Spacing="10">
                                     <TextBlock Text="下方展示当前完整有效词库，可直接增加、修改或删除词语。每行格式：分类：词1、词2。保存后会写进生成新剧名、短标题和简介的提示词，由 AI 生成时直接避开；生成后若仍命中会自动重写，上传时不再拦截。软件升级新增的系统词会自动合并。"
@@ -280,11 +225,6 @@
                                     <TextBlock Text="每行格式：风险分类：概念组1+概念组2；删除整行即可停用该组合。" Foreground="#64748B" TextWrapping="Wrap" />
                                     <TextBox Classes="configurationInput" x:Name="CombinationRulesBox" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
                                     <Button Content="恢复系统默认词库" Click="RestoreContentPolicy_Click" HorizontalAlignment="Left" />
-                                </StackPanel>
-                            </Expander>
-                            <Expander Header="项目资料高级设置" HorizontalContentAlignment="Stretch">
-                                <StackPanel Spacing="10">
-                                    <ToggleSwitch x:Name="RevenueShareFullSceneBox" OnContent="全场景展示" OffContent="全场景展示" AutomationProperties.Name="全场景展示" />
                                 </StackPanel>
                             </Expander>
                         </StackPanel>
