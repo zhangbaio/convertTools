@@ -258,7 +258,6 @@ public partial class TikTokAccountAnalyticsView : UserControl
                 cts.Token.ThrowIfCancellationRequested();
                 var displayName = account.DisplayName;
                 await Dispatcher.UIThread.InvokeAsync(() => StatusText.Text = $"正在更新 {displayName}");
-                var synced = false;
                 try
                 {
                     await TikTokAccountAnalyticsSyncService.SyncAsync(
@@ -270,7 +269,6 @@ public partial class TikTokAccountAnalyticsView : UserControl
                             _log?.Invoke(message);
                         }),
                         cts.Token);
-                    synced = true;
                 }
                 catch (OperationCanceledException)
                 {
@@ -283,14 +281,13 @@ public partial class TikTokAccountAnalyticsView : UserControl
                     await Dispatcher.UIThread.InvokeAsync(() => _log?.Invoke(message));
                 }
 
-                if (synced)
-                    await Dispatcher.UIThread.InvokeAsync(() => RefreshAccount(account));
+                await Dispatcher.UIThread.InvokeAsync(() => RefreshAccount(account));
             }
 
             var finishedAt = DateTime.Now.ToString("HH:mm");
             var status = failures.Count == 0
                 ? single ? $"{pending[0].DisplayName} 已更新 {finishedAt}" : $"全部账号已更新 {finishedAt}"
-                : single ? $"{pending[0].DisplayName} 更新失败" : $"已更新，{failures.Count} 个账号被跳过";
+                : single ? $"{pending[0].DisplayName} 更新失败" : $"已更新，{failures.Count} 个账号更新有错误";
             var error = string.Join("\n", failures);
             await Dispatcher.UIThread.InvokeAsync(() =>
             {

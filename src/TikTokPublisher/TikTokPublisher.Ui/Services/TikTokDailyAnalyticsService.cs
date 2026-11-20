@@ -2,12 +2,30 @@ using System.Text.Json;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Abstractions;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services;
 
 public static class TikTokDailyAnalyticsService
 {
     private const string DailyStatsPath = "/api/content-partner/analytics/institution/daily-stats";
+
+    public static async Task<TikTokDailyAnalyticsReport> FetchViaApiAsync(
+        TikTokAccountProfile account,
+        DateOnly requestedStart,
+        DateOnly requestedEnd,
+        CancellationToken ct)
+    {
+        if (requestedEnd < requestedStart)
+            throw new ArgumentException("结束日期不能早于开始日期。");
+
+        var name = string.IsNullOrWhiteSpace(account.DisplayName) ? account.Id : account.DisplayName;
+        var (cookie, proxy) = TikTokAccountAnalyticsSyncService.ReadConnection(account, name);
+        var client = new TikTokAccountAnalyticsClient();
+        var json = await client.PostDailyStatsAsync(cookie, proxy, requestedStart, requestedEnd, ct)
+            .ConfigureAwait(false);
+        return Parse(json, requestedStart, requestedEnd);
+    }
 
     public static async Task<TikTokDailyAnalyticsReport> FetchAsync(
         IEmbeddedBrowser embeddedBrowser,

@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 using TikTokPublisher.Ui.Services;
 using TikTokPublisher.Ui.ViewModels;
@@ -130,7 +131,7 @@ public partial class TikTokBrowserView : UserControl
     private async void OnExportAnalyticsClick(object? sender, RoutedEventArgs e)
     {
         var account = _vm?.SelectedAccount;
-        if (account is null || _browserHost is null)
+        if (account is null)
         {
             if (_vm is not null) _vm.StatusMessage = "请先在左侧选择账号";
             return;
@@ -156,14 +157,28 @@ public partial class TikTokBrowserView : UserControl
         AnalyticsStatusText.Text = "正在获取...";
         try
         {
-            var host = _browserHost.GetOrCreateHost(account);
-            _browserHost.ShowAccount(account);
-            var report = await TikTokDailyAnalyticsService.FetchAsync(
-                host,
-                start,
-                end,
-                message => Avalonia.Threading.Dispatcher.UIThread.Post(() => AnalyticsStatusText.Text = message),
-                CancellationToken.None);
+            TikTokDailyAnalyticsReport report;
+            if (TikTokUploadChannels.IsApi(account.Model.TiktokUploadStrategy))
+            {
+                AnalyticsStatusText.Text = "正在通过接口获取每日播放...";
+                report = await TikTokDailyAnalyticsService.FetchViaApiAsync(
+                    account.Model, start, end, CancellationToken.None);
+            }
+            else
+            {
+                if (_browserHost is null)
+                    throw new InvalidOperationException("浏览器尚未初始化。");
+
+                var host = _browserHost.GetOrCreateHost(account);
+                _browserHost.ShowAccount(account);
+                report = await TikTokDailyAnalyticsService.FetchAsync(
+                    host,
+                    start,
+                    end,
+                    message => Avalonia.Threading.Dispatcher.UIThread.Post(() => AnalyticsStatusText.Text = message),
+                    CancellationToken.None);
+            }
+
             var outputPath = TikTokDailyAnalyticsExcelService.Export(account.DisplayName, report);
             AnalyticsStatusText.Text = $"已获取 {report.Rows.Count} 天，最新数据 {report.LatestEventDate:M.d}";
             var owner = TopLevel.GetTopLevel(this) as Window;
