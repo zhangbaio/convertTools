@@ -11,7 +11,6 @@ using ShortDrama.Infrastructure.Media;
 using ShortDrama.Infrastructure.Office;
 using ShortDrama.Infrastructure.Parsing;
 using ShortDrama.Infrastructure.Process;
-using ShortDrama.Infrastructure.Notifications;
 using ShortDrama.Infrastructure.Workflow;
 using System.Net;
 using System.Net.Http.Headers;
@@ -73,8 +72,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICostReportBuilder, CostReportBuilder>();
         services.AddSingleton<IWorkflowDefinitionLoader, JsonWorkflowDefinitionLoader>();
         services.AddSingleton<IWorkflowRunner, WorkflowRunner>();
-        services.AddSingleton<IFeishuNotificationService, FeishuNotificationService>();
-        services.AddSingleton<IWeixinLoginNotificationService, NoopWeixinLoginNotificationService>();
 
         return services;
     }

@@ -188,23 +188,10 @@ public sealed class ClientSettings
     public int TiktokMinimumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMinimumEpisodeCount;
     public int TiktokMaximumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMaximumEpisodeCount;
     public int TiktokOverLimitDownloadEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount;
-    public bool FeishuCommandEnabled { get; set; }
-    public string FeishuCommandAppId { get; set; } = "";
-    public string FeishuCommandAppSecret { get; set; } = "";
-    public string FeishuCommandBotName { get; set; } = "";
-    public string FeishuCommandBotAliases { get; set; } = "";
-    public bool FeishuCommandRequireBotMention { get; set; } = true;
-    public string FeishuCommandAllowedChatIds { get; set; } = "";
-    public bool FeishuCommandDirectMessageEnabled { get; set; } = true;
-    public string FeishuCommandAllowedUserIds { get; set; } = "";
-    public string FeishuCommandDefaultWorkspace { get; set; } = "";
-    public bool FeishuCommandReplyEnabled { get; set; } = true;
-    public int FeishuCommandCommandTtlSeconds { get; set; } = 60;
-    public string FeishuCommandHelpText { get; set; } = ClientSettingsDefaults.FeishuCommandHelpText;
-    public string FeishuTiktokUploadEnabledStepsJson { get; set; } = "";
-    public bool FeishuTiktokUploadAutoArchiveAfterUpload { get; set; }
-    public bool FeishuTiktokUploadForceRerunCompletedSteps { get; set; }
-    public bool FeishuTiktokUploadPreferUploadWhenReady { get; set; }
+    public string RemoteTiktokUploadEnabledStepsJson { get; set; } = "";
+    public bool RemoteTiktokUploadAutoArchiveAfterUpload { get; set; }
+    public bool RemoteTiktokUploadForceRerunCompletedSteps { get; set; }
+    public bool RemoteTiktokUploadPreferUploadWhenReady { get; set; }
     public bool XingeRemoteEnabled { get; set; }
     public string XingeServerUrl { get; set; } = "";
     public string XingeAccount { get; set; } = "";
@@ -374,23 +361,10 @@ public sealed class ClientSettings
         TiktokMinimumEpisodeCount = TiktokMinimumEpisodeCount,
         TiktokMaximumEpisodeCount = TiktokMaximumEpisodeCount,
         TiktokOverLimitDownloadEpisodeCount = TiktokOverLimitDownloadEpisodeCount,
-        FeishuCommandEnabled = FeishuCommandEnabled,
-        FeishuCommandAppId = FeishuCommandAppId,
-        FeishuCommandAppSecret = FeishuCommandAppSecret,
-        FeishuCommandBotName = FeishuCommandBotName,
-        FeishuCommandBotAliases = FeishuCommandBotAliases,
-        FeishuCommandRequireBotMention = FeishuCommandRequireBotMention,
-        FeishuCommandAllowedChatIds = FeishuCommandAllowedChatIds,
-        FeishuCommandDirectMessageEnabled = FeishuCommandDirectMessageEnabled,
-        FeishuCommandAllowedUserIds = FeishuCommandAllowedUserIds,
-        FeishuCommandDefaultWorkspace = FeishuCommandDefaultWorkspace,
-        FeishuCommandReplyEnabled = FeishuCommandReplyEnabled,
-        FeishuCommandCommandTtlSeconds = FeishuCommandCommandTtlSeconds,
-        FeishuCommandHelpText = FeishuCommandHelpText,
-        FeishuTiktokUploadEnabledStepsJson = FeishuTiktokUploadEnabledStepsJson,
-        FeishuTiktokUploadAutoArchiveAfterUpload = FeishuTiktokUploadAutoArchiveAfterUpload,
-        FeishuTiktokUploadForceRerunCompletedSteps = FeishuTiktokUploadForceRerunCompletedSteps,
-        FeishuTiktokUploadPreferUploadWhenReady = FeishuTiktokUploadPreferUploadWhenReady,
+        RemoteTiktokUploadEnabledStepsJson = RemoteTiktokUploadEnabledStepsJson,
+        RemoteTiktokUploadAutoArchiveAfterUpload = RemoteTiktokUploadAutoArchiveAfterUpload,
+        RemoteTiktokUploadForceRerunCompletedSteps = RemoteTiktokUploadForceRerunCompletedSteps,
+        RemoteTiktokUploadPreferUploadWhenReady = RemoteTiktokUploadPreferUploadWhenReady,
         XingeRemoteEnabled = XingeRemoteEnabled,
         XingeServerUrl = XingeServerUrl,
         XingeAccount = XingeAccount,

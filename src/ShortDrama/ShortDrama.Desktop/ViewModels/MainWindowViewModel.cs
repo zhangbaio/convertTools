@@ -83,7 +83,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly XingeRemoteControlService _xingeRemoteControlService;
     private readonly IWorkflowInteractionService _interactionService;
     private readonly IWeixinBrowserSessionLauncher _weixinBrowserSessionLauncher;
-    private readonly IFeishuNotificationService _feishuNotificationService;
     private readonly List<ActivityLogEntry> _allActivityLogs = [];
     private static readonly string[] DownloadVideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".avi", ".flv", ".wmv", ".webm"];
     private static readonly Regex DownloadEpisodeNameRegex = new(@"第\s*0*(\d+)\s*集", RegexOptions.Compiled);
@@ -123,8 +122,7 @@ public partial class MainWindowViewModel : ViewModelBase
         MaterialHighlightGenerationService materialHighlightGenerationService,
         XingeRemoteControlService xingeRemoteControlService,
         IWorkflowInteractionService interactionService,
-        IWeixinBrowserSessionLauncher weixinBrowserSessionLauncher,
-        IFeishuNotificationService feishuNotificationService)
+        IWeixinBrowserSessionLauncher weixinBrowserSessionLauncher)
     {
         _projectScanner = projectScanner;
         _projectArchiveService = projectArchiveService;
@@ -145,7 +143,6 @@ public partial class MainWindowViewModel : ViewModelBase
         _xingeRemoteControlService = xingeRemoteControlService;
         _interactionService = interactionService;
         _weixinBrowserSessionLauncher = weixinBrowserSessionLauncher;
-        _feishuNotificationService = feishuNotificationService;
 
         ScanCommand = new AsyncRelayCommand(ScanAsync, CanScan);
         RunSelectedProjectCommand = new AsyncRelayCommand(RunSelectedProjectAsync, CanRunSelectedProject);
@@ -1396,7 +1393,6 @@ public partial class MainWindowViewModel : ViewModelBase
             await RefreshProjectListAsync();
             StatusMessage = $"勾选队列执行完成，共处理 {selectedProjects.Length} 个项目。";
             AppendLog(StatusMessage);
-            await TryNotifyFeishuQueueSummaryAsync(selectedProjects, "勾选队列", cancellationToken);
         });
     }
 
@@ -1412,7 +1408,6 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             await ExecuteQueueSelectionForProjectAsync(SelectedProject, 1, 1, cancellationToken);
             await RefreshAfterExecutionAsync(SelectedProject.ProjectKey);
-            await TryNotifyFeishuQueueSummaryAsync([SelectedProject], "当前任务", cancellationToken);
         });
     }
 
@@ -1538,7 +1533,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 await MaybeAutoFillProjectInfoBeforeRewriteAsync(SelectedProject, cancellationToken);
             }
 
-            await TryNotifyFeishuStepAsync(SelectedProject, stepKey, stepLabel, "before", null, null, cancellationToken);
             var progress = CreateBufferedProgress();
             var result = await _workService.RunProjectStepAsync(
                 SelectedProject.SourceProjectDir,
@@ -1549,7 +1543,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 cancellationToken);
 
             AppendLog($"步骤完成: {stepLabel}，结果={(result.Ok ? "成功" : "失败")}");
-            await TryNotifyFeishuStepAsync(SelectedProject, stepKey, stepLabel, "after", result.Ok, result.Message, cancellationToken);
             await RefreshAfterExecutionAsync(result.ProjectKey);
         });
     }
@@ -2180,7 +2173,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         await RunBusyAsync($"正在执行步骤：{stepLabel}", async cancellationToken =>
         {
-            await TryNotifyFeishuStepAsync(project, "weixin-upload", stepLabel, "before", null, null, cancellationToken);
             string? overrideConfigPath = null;
             try
             {
@@ -2243,7 +2235,6 @@ public partial class MainWindowViewModel : ViewModelBase
                     "weixin-upload",
                     "微信上传剧集",
                     !result.Ok);
-                await TryNotifyFeishuStepAsync(project, "weixin-upload", stepLabel, "after", result.Ok, result.Message, cancellationToken);
 
                 await RefreshAfterExecutionAsync(result.ProjectKey);
                 if (SelectedProject is not null)
@@ -2423,7 +2414,6 @@ public partial class MainWindowViewModel : ViewModelBase
                     ? $"批量全流程执行完成，共处理 {selectedProjects.Length} 个项目。"
                     : $"批量{stepLabel}完成，共处理 {selectedProjects.Length} 个项目。";
                 AppendLog(StatusMessage);
-                await TryNotifyFeishuQueueSummaryAsync(selectedProjects, stepKey is null ? "批量全流程" : $"批量{stepLabel}", cancellationToken);
             });
     }
 
@@ -2468,7 +2458,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 continue;
             }
 
-            await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "before", null, null, cancellationToken);
             if (string.Equals(stepKey, "rewrite", StringComparison.Ordinal) ||
                 string.Equals(stepKey, "rewrite_info", StringComparison.Ordinal))
             {
@@ -2490,7 +2479,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 stepKey,
                 stepLabel,
                 !result.Ok);
-            await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "after", result.Ok, result.Message, cancellationToken);
 
             if (!result.Ok)
             {
@@ -2607,7 +2595,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 return;
             }
 
-            await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "before", null, null, cancellationToken);
             if (string.Equals(stepKey, "rewrite", StringComparison.Ordinal) ||
                 string.Equals(stepKey, "rewrite_info", StringComparison.Ordinal))
             {
@@ -2631,7 +2618,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 project.MarkFailed();
             }
 
-            await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "after", stepResult.Ok, stepResult.Message, cancellationToken);
             AppendLog($"[{index}/{total}] 步骤完成: {project.DisplayName} · {stepLabel}，结果={(stepResult.Ok ? "成功" : "失败")}");
 
             if (stepResult.Ok && string.Equals(stepKey, "weixin-upload", StringComparison.Ordinal))
@@ -2681,7 +2667,6 @@ public partial class MainWindowViewModel : ViewModelBase
             cancellationToken.ThrowIfCancellationRequested();
             var (stepKey, stepLabel) = ProjectMaterialPipelineSteps[index];
             project.MarkRunning(stepLabel);
-            await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "before", null, null, cancellationToken);
             AppendLog(
                 $"{prefix}项目素材流程 {index + 1}/{ProjectMaterialPipelineSteps.Length}: {stepLabel}",
                 project.ProjectKey,
@@ -2705,7 +2690,6 @@ public partial class MainWindowViewModel : ViewModelBase
                 stepKey,
                 stepLabel,
                 !result.Ok);
-            await TryNotifyFeishuStepAsync(project, stepKey, stepLabel, "after", result.Ok, result.Message, cancellationToken);
 
             if (!result.Ok)
             {

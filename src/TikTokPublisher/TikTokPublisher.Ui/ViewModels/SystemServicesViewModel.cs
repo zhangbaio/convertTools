@@ -27,20 +27,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     [ObservableProperty] private string _loginStatus = "";
     [ObservableProperty] private bool _isBusy;
     [ObservableProperty] private bool _cloudConfigSyncEnabled;
-    [ObservableProperty] private bool _feishuCommandEnabled;
-    [ObservableProperty] private string _feishuCommandAppId = "";
-    [ObservableProperty] private string _feishuCommandAppSecret = "";
-    [ObservableProperty] private string _feishuCommandBotName = "";
-    [ObservableProperty] private string _feishuCommandBotAliases = "";
-    [ObservableProperty] private bool _feishuCommandRequireBotMention = true;
-    [ObservableProperty] private string _feishuCommandAllowedChatIds = "";
-    [ObservableProperty] private bool _feishuCommandDirectMessageEnabled = true;
-    [ObservableProperty] private string _feishuCommandAllowedUserIds = "";
-    [ObservableProperty] private string _feishuCommandDefaultWorkspace = "";
-    [ObservableProperty] private bool _feishuCommandReplyEnabled = true;
-    [ObservableProperty] private int _feishuCommandCommandTtlSeconds = 60;
-    [ObservableProperty] private string _feishuCommandHelpText = ClientSettingsDefaults.FeishuCommandHelpText;
-    [ObservableProperty] private string _feishuCommandStatus = "未启用";
     [ObservableProperty] private bool _xingeRemoteEnabled;
     [ObservableProperty] private string _xingeServerUrl = "";
     [ObservableProperty] private string _xingeAccount = "";
@@ -86,21 +72,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         AuthServerUrl = FirstNonEmpty(settings.AuthServerUrl, state.ServerUrl);
         LoginAccount = settings.AuthAccount ?? "";
         LoginPassword = settings.AuthPassword ?? "";
-        FeishuCommandEnabled = settings.FeishuCommandEnabled;
-        FeishuCommandAppId = settings.FeishuCommandAppId ?? "";
-        FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";
-        FeishuCommandBotName = settings.FeishuCommandBotName ?? "";
-        FeishuCommandBotAliases = settings.FeishuCommandBotAliases ?? "";
-        FeishuCommandRequireBotMention = settings.FeishuCommandRequireBotMention;
-        FeishuCommandAllowedChatIds = settings.FeishuCommandAllowedChatIds ?? "";
-        FeishuCommandDirectMessageEnabled = settings.FeishuCommandDirectMessageEnabled;
-        FeishuCommandAllowedUserIds = settings.FeishuCommandAllowedUserIds ?? "";
-        FeishuCommandDefaultWorkspace = settings.FeishuCommandDefaultWorkspace ?? "";
-        FeishuCommandReplyEnabled = settings.FeishuCommandReplyEnabled;
-        FeishuCommandCommandTtlSeconds = Math.Clamp(settings.FeishuCommandCommandTtlSeconds, 10, 3600);
-        FeishuCommandHelpText = string.IsNullOrWhiteSpace(settings.FeishuCommandHelpText)
-            ? ClientSettingsDefaults.FeishuCommandHelpText
-            : settings.FeishuCommandHelpText;
         XingeRemoteEnabled = settings.XingeRemoteEnabled;
         XingeServerUrl = FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl, state.ServerUrl);
         XingeAccount = FirstNonEmpty(settings.XingeAccount, settings.AuthAccount);
@@ -111,9 +82,9 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         XingeClientToken = settings.XingeClientToken ?? "";
         XingeClientName = string.IsNullOrWhiteSpace(settings.XingeClientName) ? "TikTokPublisher" : settings.XingeClientName;
         XingePollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
-        RemoteAutoArchiveAfterUpload = settings.FeishuTiktokUploadAutoArchiveAfterUpload;
-        RemoteForceRerunCompletedSteps = settings.FeishuTiktokUploadForceRerunCompletedSteps;
-        RemotePreferUploadWhenReady = settings.FeishuTiktokUploadPreferUploadWhenReady;
+        RemoteAutoArchiveAfterUpload = settings.RemoteTiktokUploadAutoArchiveAfterUpload;
+        RemoteForceRerunCompletedSteps = settings.RemoteTiktokUploadForceRerunCompletedSteps;
+        RemotePreferUploadWhenReady = settings.RemoteTiktokUploadPreferUploadWhenReady;
         VideoTranslateEngine = settings.VideoTranslateEngine;
         VideoTranslateSourceLanguage = settings.VideoTranslateSourceLanguage;
         VideoTranslateTargetLanguage = settings.VideoTranslateTargetLanguage;
@@ -126,8 +97,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         VideoTranslateFontSize = settings.VideoTranslateFontSize;
         VideoTranslateMarginV = settings.VideoTranslateMarginV;
         VideoTranslateBilingual = settings.VideoTranslateBilingual;
-        ApplyRemoteSteps(TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
-        FeishuCommandStatus = FeishuCommandEnabled ? "已启用" : "未启用";
+        ApplyRemoteSteps(TikTokRemoteRunOptions.LoadTikTokUploadEnabledSteps(settings));
         XingeRemoteStatus = XingeRemoteEnabled ? "等待连接" : "未启用";
         CopyXingeToConnection();
         RefreshLicenseSummary();
@@ -245,7 +215,6 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         var settings = ClientSettingsStore.Load();
         ApplyUiToSettings(settings);
         ClientSettingsStore.Save(settings);
-        FeishuCommandStatus = settings.FeishuCommandEnabled ? "已启用" : "未启用";
         XingeRemoteStatus = settings.XingeRemoteEnabled ? "等待连接" : "未启用";
         StatusRequested?.Invoke("系统服务配置已保存");
         SettingsSaved?.Invoke();
@@ -290,7 +259,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     {
         var settings = ClientSettingsStore.Load();
         ApplyUiToSettings(settings);
-        return TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(settings, command);
+        return TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(settings, command);
     }
 
     private void ApplyUiToSettings(ClientSettings settings)
@@ -298,26 +267,11 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         settings.AuthServerUrl = AuthServerUrl.Trim();
         settings.AuthAccount = LoginAccount.Trim();
         settings.AuthPassword = LoginPassword;
-        settings.FeishuCommandEnabled = FeishuCommandEnabled;
-        settings.FeishuCommandAppId = FeishuCommandAppId.Trim();
-        settings.FeishuCommandAppSecret = FeishuCommandAppSecret;
-        settings.FeishuCommandBotName = FeishuCommandBotName.Trim();
-        settings.FeishuCommandBotAliases = FeishuCommandBotAliases.Trim();
-        settings.FeishuCommandRequireBotMention = FeishuCommandRequireBotMention;
-        settings.FeishuCommandAllowedChatIds = FeishuCommandAllowedChatIds.Trim();
-        settings.FeishuCommandDirectMessageEnabled = FeishuCommandDirectMessageEnabled;
-        settings.FeishuCommandAllowedUserIds = FeishuCommandAllowedUserIds.Trim();
-        settings.FeishuCommandDefaultWorkspace = FeishuCommandDefaultWorkspace.Trim();
-        settings.FeishuCommandReplyEnabled = FeishuCommandReplyEnabled;
-        settings.FeishuCommandCommandTtlSeconds = Math.Clamp(FeishuCommandCommandTtlSeconds, 10, 3600);
-        settings.FeishuCommandHelpText = string.IsNullOrWhiteSpace(FeishuCommandHelpText)
-            ? ClientSettingsDefaults.FeishuCommandHelpText
-            : FeishuCommandHelpText.Trim();
-        settings.FeishuTiktokUploadEnabledStepsJson =
-            TikTokRemoteRunOptions.DumpFeishuTikTokUploadEnabledSteps(ReadRemoteSteps());
-        settings.FeishuTiktokUploadAutoArchiveAfterUpload = RemoteAutoArchiveAfterUpload;
-        settings.FeishuTiktokUploadForceRerunCompletedSteps = RemoteForceRerunCompletedSteps;
-        settings.FeishuTiktokUploadPreferUploadWhenReady = RemotePreferUploadWhenReady;
+        settings.RemoteTiktokUploadEnabledStepsJson =
+            TikTokRemoteRunOptions.DumpTikTokUploadEnabledSteps(ReadRemoteSteps());
+        settings.RemoteTiktokUploadAutoArchiveAfterUpload = RemoteAutoArchiveAfterUpload;
+        settings.RemoteTiktokUploadForceRerunCompletedSteps = RemoteForceRerunCompletedSteps;
+        settings.RemoteTiktokUploadPreferUploadWhenReady = RemotePreferUploadWhenReady;
         settings.VideoTranslateEngine = VideoTranslateEngine == "llm" ? "llm" : "volc";
         settings.VideoTranslateSourceLanguage = VideoTranslateSourceLanguage.Trim();
         settings.VideoTranslateTargetLanguage = VideoTranslateTargetLanguage.Trim();

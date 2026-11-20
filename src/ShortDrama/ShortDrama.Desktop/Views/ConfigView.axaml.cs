@@ -132,7 +132,6 @@ public partial class ConfigView : UserControl
             new TabItem { Header = "成本报表", Content = new CostReportSettingsTab { DataContext = viewModel } },
             new TabItem { Header = "AI 文本", Content = new AiTextSettingsTab { DataContext = viewModel } },
             new TabItem { Header = "AI 图片", Content = new AiImageSettingsTab { DataContext = viewModel } },
-            new TabItem { Header = "飞书通知", Content = new FeishuSettingsTab { DataContext = viewModel } },
         };
     }
 }

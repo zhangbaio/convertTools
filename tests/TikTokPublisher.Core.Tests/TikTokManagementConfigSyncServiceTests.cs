@@ -149,7 +149,7 @@ public sealed class TikTokManagementConfigSyncServiceTests
         accounts.Single(account => account.Id == "acct-a").Name.Should().Be("来自电脑A");
         accounts.Single(account => account.Id == "acct-a").TiktokLoginPassword.Should().Be("secret-a");
         accounts.Single(account => account.Id == "acct-local").Name.Should().Be("只在本机");
-        ClientSettingsStore.Load().FeishuCommandAppId.Should().Be("cli-from-a");
+        ClientSettingsStore.Load().AiTextModel.Should().Be("cli-from-a");
         ReadSetting(Path.Combine(targetRoot, "app.db"), "custom_marker").Should().Be("\"keep\"");
         CountEvents(Path.Combine(targetRoot, "app.db")).Should().Be(1);
         File.ReadAllBytes(queuePath).Should().Equal(queueBefore);
@@ -222,12 +222,12 @@ public sealed class TikTokManagementConfigSyncServiceTests
         string accountId,
         string name,
         string password,
-        string feishuAppId,
+        string aiTextModel,
         string licenseText,
         string queueText)
     {
         Directory.CreateDirectory(root);
-        ClientSettingsStore.Save(new ClientSettings { FeishuCommandAppId = feishuAppId });
+        ClientSettingsStore.Save(new ClientSettings { AiTextModel = aiTextModel });
         WriteAccount(Path.Combine(root, "accounts.json"), accountId, name, password, append: false);
         File.WriteAllText(
             Path.Combine(root, "active-account.json"),
@@ -284,8 +284,9 @@ public sealed class TikTokManagementConfigSyncServiceTests
             INSERT INTO app_settings (key, value_json, updated_at)
             VALUES ('custom_marker', '"keep"', '2026-10-18T00:00:00');
             INSERT INTO upload_task_events (event_id, payload_json, created_at)
-            VALUES ('evt-local', '{}', '2026-10-18T00:00:00');
+            VALUES ('evt-local', '{}', $createdAt);
             """;
+        command.Parameters.AddWithValue("$createdAt", DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss"));
         command.ExecuteNonQuery();
     }
 

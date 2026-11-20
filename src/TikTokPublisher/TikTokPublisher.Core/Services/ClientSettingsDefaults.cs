@@ -95,16 +95,13 @@ public static class ClientSettingsDefaults
     public const string TiktokProofPdfRenderer = "wps";
     public const bool TiktokProofKeepDocx = false;
 
-    public const string FeishuCommandHelpText = """
-        【飞书 TikTok 上传命令教程】
+    public const string RemoteCommandHelpText = """
+        【TikTok 远程上传命令教程】
 
-        群聊规则：默认必须先 @机器人，再写命令；普通群消息不会识别。
-        私聊规则：启用私聊后，可直接发送命令，也支持 @机器人 命令。
-        连接规则：一个飞书机器人建议只连接一台电脑，避免多设备同时处理同一条命令。
 
         一、上传 TikTok 剧集
-        @机器人 上传剧集 剧名A
-        @机器人 上传TikTok
+        上传剧集 剧名A
+        上传TikTok
         剧名A
         剧名B
 
@@ -116,18 +113,18 @@ public static class ClientSettingsDefaults
         步骤: download,rewrite_info,generate_poster,generate_project_images,generate_proof_material,upload_series
         自动执行: 是
 
-        多账号说明：多账号执行时使用每个账号「基础设置」中保存的工作目录。
+        多账号说明：多账号执行时使用每个账号「发布配置 → 工作目录」中保存的工作目录。
 
         二、队列与状态
-        @机器人 执行队列
-        @机器人 执行队列
+        执行队列
+        执行队列
         账号: 全部
-        @机器人 停止队列
-        @机器人 状态
+        停止队列
+        状态
 
         三、教程命令
-        @机器人 教程 / 帮助 / help：回复文本教程
-        @机器人 菜单 / 卡片教程：回复按钮卡片教程
+        教程 / 帮助 / help：回复文本教程
+        菜单 / 卡片教程：回复按钮卡片教程
         """;
 
     public const string AiPublishInfoPrompt = """

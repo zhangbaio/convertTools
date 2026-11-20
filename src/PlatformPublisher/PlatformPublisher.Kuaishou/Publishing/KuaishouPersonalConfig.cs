@@ -168,7 +168,6 @@ public sealed class KuaishouPersonalConfig
     public int DistributionLoginTimeoutSeconds { get; set; } = 300;
     public bool DistributionManualInterventionEnabled { get; set; }
     public bool DistributionLoginNotifyEnabled { get; set; } = true;
-    public bool DistributionFeishuNotifyEnabled { get; set; }
     public bool AutoOnlineEnabled { get; set; } = true;
     public bool ScheduledShelfEnabled { get; set; }
     public string ScheduledShelfMode { get; set; } = "interval";

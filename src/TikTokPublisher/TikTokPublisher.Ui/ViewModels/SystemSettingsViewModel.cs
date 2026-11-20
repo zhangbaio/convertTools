@@ -358,7 +358,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     /// <summary>
     /// 只写入系统设置页上的字段。必须落在已加载的配置上，
-    /// 否则未出现在本页的 XINGE、飞书和授权字段会被默认空值覆盖。
+    /// 否则未出现在本页的 XINGE 和授权字段会被默认空值覆盖。
     /// </summary>
     private ClientSettings ApplySystemSettingsForm(ClientSettings settings)
     {

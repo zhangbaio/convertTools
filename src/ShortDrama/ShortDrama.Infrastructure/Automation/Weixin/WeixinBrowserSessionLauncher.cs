@@ -2,7 +2,6 @@ using Microsoft.Playwright;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation.Weixin.Pages;
-using ShortDrama.Infrastructure.Notifications;
 
 namespace ShortDrama.Infrastructure.Automation.Weixin;
 
@@ -12,20 +11,17 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
     private readonly IWeixinAuthStateService _authStateService;
     private readonly WeixinBrowserRuntimeService _browserRuntimeService;
     private readonly WeixinHomePage _homePage;
-    private readonly IWeixinLoginNotificationService _loginNotificationService;
 
     public WeixinBrowserSessionLauncher(
         IWeixinAutomationConfigLoader configLoader,
         IWeixinAuthStateService authStateService,
         WeixinBrowserRuntimeService browserRuntimeService,
-        WeixinHomePage homePage,
-        IWeixinLoginNotificationService? loginNotificationService = null)
+        WeixinHomePage homePage)
     {
         _configLoader = configLoader;
         _authStateService = authStateService;
         _browserRuntimeService = browserRuntimeService;
         _homePage = homePage;
-        _loginNotificationService = loginNotificationService ?? NoopWeixinLoginNotificationService.Instance;
     }
 
     public async Task OpenHomeAsync(
@@ -71,21 +67,10 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
 
         if (!await _homePage.IsLoggedInAsync(page, cancellationToken))
         {
-            var screenshotPath = await _homePage.SaveLoginQrScreenshotAsync(
+            await _homePage.SaveLoginQrScreenshotAsync(
                 page,
                 config.OutputDirectory,
                 "weixin-login-qr.png",
-                cancellationToken);
-
-            await TryNotifyLoginQrRequiredAsync(
-                new WeixinLoginNotificationRequest(
-                    ProjectKey: Path.GetFileName(projectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
-                    DisplayName: Path.GetFileName(projectDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
-                    ProjectDirectory: projectDir,
-                    BaseUrl: config.BaseUrl,
-                    AuthFilePath: config.AuthFilePath,
-                    ScreenshotPath: screenshotPath,
-                    Message: "浏览器已打开，请使用微信扫码登录视频号后台。"),
                 cancellationToken);
         }
 
@@ -187,17 +172,4 @@ public sealed class WeixinBrowserSessionLauncher : IWeixinBrowserSessionLauncher
         }
     }
 
-    private async Task TryNotifyLoginQrRequiredAsync(
-        WeixinLoginNotificationRequest request,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _loginNotificationService.NotifyLoginRequiredAsync(request, cancellationToken);
-        }
-        catch
-        {
-            // Manual browser helper should stay resilient even when notification delivery fails.
-        }
-    }
 }

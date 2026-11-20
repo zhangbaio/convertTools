@@ -1012,7 +1012,6 @@ public partial class MainWindowViewModel
             await RefreshProjectListAsync();
             StatusMessage = $"素材上传完成，共处理 {targets.Length} 个项目。";
             AppendLog(StatusMessage);
-            await TryNotifyFeishuQueueSummaryAsync(targets, "素材上传队列", cancellationToken);
         });
         OnPropertyChanged(nameof(MaterialUploadQueueButtonText));
         OnPropertyChanged(nameof(MaterialUploadSummary));

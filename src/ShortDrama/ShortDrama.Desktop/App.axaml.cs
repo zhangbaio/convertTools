@@ -69,7 +69,6 @@ public partial class App : Application
         services.AddSingleton<MaterialSystemHighlightScheduleService>();
         services.AddSingleton<MaterialHighlightGenerationService>();
         services.AddSingleton<WeixinMaterialChannelVideoDeleteService>();
-        services.AddSingleton<IWeixinLoginNotificationService, DesktopWeixinLoginNotificationService>();
         services.AddSingleton<XingeRemoteControlService>();
         services.AddSingleton<IDramaSettingsProvider, GlobalDramaSettingsProvider>();
         services.AddSingleton<HongguoNewApiService>();

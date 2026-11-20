@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
@@ -40,7 +41,9 @@ public static class PublisherConfigTransfer
             {
                 if (File.Exists(AppPaths.AppDatabaseFile))
                 {
-                    BackupSqlite(AppPaths.AppDatabaseFile, Path.Combine(tempRoot, "app.db"));
+                    var backupPath = Path.Combine(tempRoot, "app.db");
+                    BackupSqlite(AppPaths.AppDatabaseFile, backupPath);
+                    SanitizeSettingsDatabase(backupPath);
                     manifest.HasAppDatabase = true;
                 }
             }
@@ -130,7 +133,11 @@ public static class PublisherConfigTransfer
             if (applyData)
             {
                 if (manifest.HasAppDatabase)
-                    RestoreAppDatabase(Path.Combine(tempRoot, "app.db"));
+                {
+                    var databasePath = Path.Combine(tempRoot, "app.db");
+                    SanitizeSettingsDatabase(databasePath);
+                    RestoreAppDatabase(databasePath);
+                }
             }
             else
             {
@@ -436,6 +443,37 @@ public static class PublisherConfigTransfer
 
     private static List<AppSettingRow> ReadAppSettings(string databasePath)
     {
+    private static string SanitizeSettingsRow(string key, string json)
+    {
+        if (key != ClientSettingsStore.SettingsKey || JsonNode.Parse(json) is not JsonObject settings)
+            return json;
+
+        ClientSettingsStore.MigrateRemoteUploadSettings(settings);
+        return settings.ToJsonString();
+    }
+
+    private static void SanitizeSettingsDatabase(string databasePath)
+    {
+        if (!File.Exists(databasePath))
+            return;
+
+        using var connection = new SqliteConnection($"Data Source={databasePath};Pooling=False");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT value_json FROM app_settings WHERE key = $key";
+        command.Parameters.AddWithValue("$key", ClientSettingsStore.SettingsKey);
+        if (command.ExecuteScalar() is not string existing)
+            return;
+
+        var sanitized = SanitizeSettingsRow(ClientSettingsStore.SettingsKey, existing);
+        if (sanitized == existing)
+            return;
+
+        command.CommandText = "UPDATE app_settings SET value_json = $value WHERE key = $key";
+        command.Parameters.AddWithValue("$value", sanitized);
+        command.ExecuteNonQuery();
+    }
+
         if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
             return [];
         var rows = new List<AppSettingRow>();
@@ -449,7 +487,7 @@ public static class PublisherConfigTransfer
             rows.Add(new AppSettingRow
             {
                 Key = reader.GetString(0),
-                ValueJson = reader.GetString(1),
+                ValueJson = SanitizeSettingsRow(reader.GetString(0), reader.GetString(1)),
                 UpdatedAt = reader.GetString(2),
             });
         }
@@ -469,6 +507,7 @@ public static class PublisherConfigTransfer
             using var command = connection.CreateCommand();
             command.Transaction = tx;
             command.CommandText =
+            var json = SanitizeSettingsRow(row.Key, row.ValueJson);
                 """
                 INSERT INTO app_settings (key, value_json, updated_at)
                 VALUES ($key, $value, $updated)
@@ -477,7 +516,7 @@ public static class PublisherConfigTransfer
                     updated_at = excluded.updated_at
                 """;
             command.Parameters.AddWithValue("$key", row.Key);
-            command.Parameters.AddWithValue("$value", row.ValueJson);
+            command.Parameters.AddWithValue("$value", json);
             command.Parameters.AddWithValue("$updated", row.UpdatedAt);
             command.ExecuteNonQuery();
         }

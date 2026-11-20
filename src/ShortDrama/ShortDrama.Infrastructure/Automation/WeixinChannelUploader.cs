@@ -3,7 +3,6 @@ using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation.Weixin;
 using ShortDrama.Infrastructure.Automation.Weixin.Pages;
-using ShortDrama.Infrastructure.Notifications;
 using System.Globalization;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -54,7 +53,6 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
     private readonly WeixinNewDramaMountService _newDramaMountService;
     private readonly WeixinMaterialPublishDescriptionService _materialPublishDescriptionService;
     private readonly WeixinPublishOriginalityService _publishOriginalityService;
-    private readonly IWeixinLoginNotificationService _loginNotificationService;
 
     public WeixinChannelUploader(
         IWeixinAutomationConfigLoader configLoader,
@@ -68,8 +66,7 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         WeixinSystemHighlightPublishPage systemHighlightPublishPage,
         WeixinNewDramaMountService newDramaMountService,
         WeixinMaterialPublishDescriptionService materialPublishDescriptionService,
-        WeixinPublishOriginalityService publishOriginalityService,
-        IWeixinLoginNotificationService? loginNotificationService = null)
+        WeixinPublishOriginalityService publishOriginalityService)
     {
         _configLoader = configLoader;
         _authStateService = authStateService;
@@ -83,7 +80,6 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         _newDramaMountService = newDramaMountService;
         _materialPublishDescriptionService = materialPublishDescriptionService;
         _publishOriginalityService = publishOriginalityService;
-        _loginNotificationService = loginNotificationService ?? NoopWeixinLoginNotificationService.Instance;
     }
 
     public async Task<WeixinUploadResult> UploadAsync(
@@ -194,16 +190,10 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
 
         if (!isLoggedIn)
         {
-            var loginQrScreenshotPath = await _homePage.SaveLoginQrScreenshotAsync(
+            await _homePage.SaveLoginQrScreenshotAsync(
                 page,
                 config.OutputDirectory,
                 "weixin-login-qr.png",
-                cancellationToken);
-            await TryNotifyLoginQrRequiredAsync(
-                request,
-                config,
-                loginQrScreenshotPath,
-                progress,
                 cancellationToken);
             if (isMaterialPublishTask)
             {
@@ -2240,33 +2230,6 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             progress?.Report($"微信上传：登录态文件读取失败，改用全新会话：{ex.Message}");
             contextOptions.StorageStatePath = null;
             return await browser.NewContextAsync(contextOptions);
-        }
-    }
-
-    private async Task TryNotifyLoginQrRequiredAsync(
-        WeixinUploadRequest request,
-        WeixinAutomationConfig config,
-        string? screenshotPath,
-        IProgress<string>? progress,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _loginNotificationService.NotifyLoginRequiredAsync(
-                new WeixinLoginNotificationRequest(
-                    ProjectKey: request.ProjectKey,
-                    DisplayName: request.DisplayName,
-                    ProjectDirectory: request.ProjectDir,
-                    BaseUrl: config.BaseUrl,
-                    AuthFilePath: config.AuthFilePath,
-                    ScreenshotPath: screenshotPath,
-                    Message: "检测到当前登录态不可复用，请在浏览器中扫码登录视频号后台后继续执行。"),
-                cancellationToken);
-            progress?.Report("微信上传：已发送登录二维码提醒。");
-        }
-        catch (Exception ex)
-        {
-            progress?.Report($"微信上传：登录二维码提醒发送失败：{ex.Message}");
         }
     }
 

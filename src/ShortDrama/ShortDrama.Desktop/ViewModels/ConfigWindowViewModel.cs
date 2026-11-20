@@ -80,13 +80,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
         "manga"
     ];
 
-    public IReadOnlyList<string> FeishuReceiveIdTypeOptions { get; } =
-    [
-        "chat_id",
-        "open_id",
-        "user_id",
-        "email"
-    ];
     public IRelayCommand ReloadConfigCommand { get; }
     public IRelayCommand OpenConfigFileCommand { get; }
     public IRelayCommand OpenGlobalSettingsFileCommand { get; }
@@ -368,39 +361,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
     private string posterNameUserPrompt = string.Empty;
 
     [ObservableProperty]
-    private bool feishuNotificationEnabled;
-
-    [ObservableProperty]
-    private string feishuAppId = string.Empty;
-
-    [ObservableProperty]
-    private string feishuAppSecret = string.Empty;
-
-    [ObservableProperty]
-    private string feishuReceiveId = string.Empty;
-
-    [ObservableProperty]
-    private string feishuReceiveIdType = "chat_id";
-
-    [ObservableProperty]
-    private bool feishuNotifyOnStepStart;
-
-    [ObservableProperty]
-    private bool feishuNotifyOnStepSuccess = true;
-
-    [ObservableProperty]
-    private bool feishuNotifyOnStepFailure = true;
-
-    [ObservableProperty]
-    private bool feishuNotifyOnQueueSummary = true;
-
-    [ObservableProperty]
-    private bool feishuNotifyOnLoginQr = true;
-
-    [ObservableProperty]
-    private string feishuNotifyStepKeysText = string.Empty;
-
-    [ObservableProperty]
     private string projectImageTemplateRoot = string.Empty;
 
     [ObservableProperty]
@@ -664,19 +624,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
         PosterGenerationSafeRetryPrompt = merged.PosterGenerationSafeRetryPrompt;
         PosterNameSystemPrompt = merged.PosterNameSystemPrompt;
         PosterNameUserPrompt = merged.PosterNameUserPrompt;
-        FeishuNotificationEnabled = _loadedGlobalConfig.FeishuNotificationEnabled;
-        FeishuAppId = _loadedGlobalConfig.FeishuAppId;
-        FeishuAppSecret = _loadedGlobalConfig.FeishuAppSecret;
-        FeishuReceiveId = _loadedGlobalConfig.FeishuReceiveId;
-        FeishuReceiveIdType = string.IsNullOrWhiteSpace(_loadedGlobalConfig.FeishuReceiveIdType) ? "chat_id" : _loadedGlobalConfig.FeishuReceiveIdType;
-        FeishuNotifyOnStepStart = _loadedGlobalConfig.FeishuNotifyOnStepStart;
-        FeishuNotifyOnStepSuccess = _loadedGlobalConfig.FeishuNotifyOnStepSuccess;
-        FeishuNotifyOnStepFailure = _loadedGlobalConfig.FeishuNotifyOnStepFailure;
-        FeishuNotifyOnQueueSummary = _loadedGlobalConfig.FeishuNotifyOnQueueSummary;
-        FeishuNotifyOnLoginQr = _loadedGlobalConfig.FeishuNotifyOnLoginQr;
-        FeishuNotifyStepKeysText = string.IsNullOrWhiteSpace(_loadedGlobalConfig.FeishuNotifyStepKeysText)
-            ? "download\ntranscode\nrewrite\nposter-rename\nproject-image\ncost-report\nbatch-file-rename\nmaterial-convert\nweixin-upload\nweixin-material-upload"
-            : _loadedGlobalConfig.FeishuNotifyStepKeysText;
         ProjectImageCount = string.IsNullOrWhiteSpace(_loadedProjectConfig.ProjectImageCount) ? "4" : _loadedProjectConfig.ProjectImageCount;
         ProjectImageTemplateRoot = ResolveInitialTemplateRoot();
         RefreshProjectImageTemplateOptions(_loadedProjectConfig.ProjectImageTemplateId);
@@ -777,17 +724,6 @@ public partial class ConfigWindowViewModel : ViewModelBase
             PosterGenerationSafeRetryPrompt = PosterGenerationSafeRetryPrompt.Trim(),
             PosterNameSystemPrompt = PosterNameSystemPrompt.Trim(),
             PosterNameUserPrompt = PosterNameUserPrompt.Trim(),
-            FeishuNotificationEnabled = FeishuNotificationEnabled,
-            FeishuAppId = FeishuAppId.Trim(),
-            FeishuAppSecret = FeishuAppSecret.Trim(),
-            FeishuReceiveId = FeishuReceiveId.Trim(),
-            FeishuReceiveIdType = FeishuReceiveIdType.Trim(),
-            FeishuNotifyOnStepStart = FeishuNotifyOnStepStart,
-            FeishuNotifyOnStepSuccess = FeishuNotifyOnStepSuccess,
-            FeishuNotifyOnStepFailure = FeishuNotifyOnStepFailure,
-            FeishuNotifyOnQueueSummary = FeishuNotifyOnQueueSummary,
-            FeishuNotifyOnLoginQr = FeishuNotifyOnLoginQr,
-            FeishuNotifyStepKeysText = FeishuNotifyStepKeysText.Trim()
         };
 
         _configService.Save(project, global);

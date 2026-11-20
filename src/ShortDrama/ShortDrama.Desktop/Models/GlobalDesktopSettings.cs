@@ -65,17 +65,6 @@ public sealed class GlobalDesktopSettings
     public string PosterGenerationSafeRetryPrompt { get; set; } = string.Empty;
     public string PosterNameSystemPrompt { get; set; } = string.Empty;
     public string PosterNameUserPrompt { get; set; } = string.Empty;
-    public bool FeishuNotificationEnabled { get; set; }
-    public string FeishuAppId { get; set; } = string.Empty;
-    public string FeishuAppSecret { get; set; } = string.Empty;
-    public string FeishuReceiveId { get; set; } = string.Empty;
-    public string FeishuReceiveIdType { get; set; } = "chat_id";
-    public bool FeishuNotifyOnStepStart { get; set; }
-    public bool FeishuNotifyOnStepSuccess { get; set; } = true;
-    public bool FeishuNotifyOnStepFailure { get; set; } = true;
-    public bool FeishuNotifyOnQueueSummary { get; set; } = true;
-    public bool FeishuNotifyOnLoginQr { get; set; } = true;
-    public string FeishuNotifyStepKeysText { get; set; } = string.Empty;
     public string LastMaterialClipWorkspace { get; set; } = string.Empty;
     public string MaterialClipAsrProvider { get; set; } = "volcengine_stt";
     public string MaterialClipAsrLanguage { get; set; } = "zh-CN";

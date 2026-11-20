@@ -122,6 +122,7 @@ public static class ClientSettingsStore
             return new ClientSettings();
         }
 
+        MigrateRemoteUploadSettings(raw);
         MigrateSharedAsrSettings(raw);
         MigrateProjectImageRenderEpisodeLimitDefault(raw);
         MigrateImageModelDefault(raw);
@@ -138,6 +139,7 @@ public static class ClientSettingsStore
         AppDatabaseInitializer.EnsureInitialized(path);
 
         var existing = LoadRawObject(path) ?? new JsonObject();
+        MigrateRemoteUploadSettings(existing);
         var incoming = JsonSerializer.SerializeToNode(normalized, JsonOptions)?.AsObject() ?? new JsonObject();
 
         foreach (var property in incoming)
@@ -208,6 +210,22 @@ public static class ClientSettingsStore
 
     private static void MigrateSharedAsrSettings(JsonObject settings)
     {
+    internal static void MigrateRemoteUploadSettings(JsonObject settings)
+    {
+        const string legacyUploadPrefix = "feishu_tiktok_upload_";
+        foreach (var key in settings.Select(property => property.Key).ToArray())
+        {
+            if (key.StartsWith(legacyUploadPrefix, StringComparison.Ordinal))
+            {
+                var currentKey = "remote_tiktok_upload_" + key[legacyUploadPrefix.Length..];
+                if (!settings.ContainsKey(currentKey))
+                    settings[currentKey] = settings[key]?.DeepClone();
+            }
+            if (key.StartsWith("feishu_", StringComparison.Ordinal))
+                settings.Remove(key);
+        }
+    }
+
         CopyLegacyValue("tiktok_silence_local_model_dir", "tiktok_asr_local_model_dir");
         CopyLegacyValue("tiktok_silence_local_vad_path", "tiktok_asr_local_vad_path");
         CopyLegacyValue("tiktok_silence_asr_app_id", "tiktok_asr_app_id");
@@ -597,17 +615,8 @@ public static class ClientSettingsStore
                 settings.TiktokMinimumEpisodeCount,
                 settings.TiktokMaximumEpisodeCount);
         settings.TiktokOverLimitDownloadEpisodeCount = settings.TiktokMaximumEpisodeCount;
-        settings.FeishuCommandAppId = (settings.FeishuCommandAppId ?? "").Trim();
-        settings.FeishuCommandAppSecret = settings.FeishuCommandAppSecret ?? "";
-        settings.FeishuCommandBotName = (settings.FeishuCommandBotName ?? "").Trim();
-        settings.FeishuCommandBotAliases = (settings.FeishuCommandBotAliases ?? "").Trim();
-        settings.FeishuCommandAllowedChatIds = (settings.FeishuCommandAllowedChatIds ?? "").Trim();
-        settings.FeishuCommandAllowedUserIds = (settings.FeishuCommandAllowedUserIds ?? "").Trim();
-        settings.FeishuCommandDefaultWorkspace = (settings.FeishuCommandDefaultWorkspace ?? "").Trim();
-        settings.FeishuCommandCommandTtlSeconds = Math.Clamp(settings.FeishuCommandCommandTtlSeconds, 10, 3600);
-        settings.FeishuCommandHelpText = DefaultIfBlank(settings.FeishuCommandHelpText, ClientSettingsDefaults.FeishuCommandHelpText);
-        settings.FeishuTiktokUploadEnabledStepsJson = TikTokRemoteRunOptions.DumpFeishuTikTokUploadEnabledSteps(
-            TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings));
+        settings.RemoteTiktokUploadEnabledStepsJson = TikTokRemoteRunOptions.DumpTikTokUploadEnabledSteps(
+            TikTokRemoteRunOptions.LoadTikTokUploadEnabledSteps(settings));
         settings.XingeServerUrl = (settings.XingeServerUrl ?? "").Trim().TrimEnd('/');
         settings.XingeAccount = (settings.XingeAccount ?? "").Trim();
         settings.XingePassword ??= "";

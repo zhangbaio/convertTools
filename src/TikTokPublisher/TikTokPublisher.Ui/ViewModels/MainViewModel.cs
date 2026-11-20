@@ -610,7 +610,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         if (assignment.EnabledSteps is not { Count: > 0 })
             return null;
-        return TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(
+        return TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(
             ClientSettingsStore.Load(),
             new TikTokRemoteCommand(
                 TikTokRemoteCommandNames.UploadSeries,
@@ -3047,11 +3047,11 @@ public sealed partial class MainViewModel : ViewModelBase
             return command.Command switch
             {
                 TikTokRemoteCommandNames.ShowHelpText =>
-                    TikTokRemoteCommandResult.Success(command.Command, ClientSettingsStore.Load().FeishuCommandHelpText),
+                    TikTokRemoteCommandResult.Success(command.Command, ClientSettingsDefaults.RemoteCommandHelpText),
                 TikTokRemoteCommandNames.ShowHelpCard =>
                     TikTokRemoteCommandResult.SuccessCard(
                         command.Command,
-                        "飞书 TikTok 上传命令卡片教程",
+                        "TikTok 远程上传命令卡片教程",
                         TikTokRemoteHelpCardBuilder.BuildCommandTutorialCardJson()),
                 TikTokRemoteCommandNames.QueryStatus =>
                     TikTokRemoteCommandResult.Success(command.Command, BuildRemoteRuntimeStatusText()),
@@ -4587,7 +4587,7 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             return TikTokRemoteCommandResult.Accepted(
                 command.Command,
-                $"飞书多账号上传任务已导入：{totalAppended} 个项目已追加到运行中的目标队列。"
+                $"远程多账号上传任务已导入：{totalAppended} 个项目已追加到运行中的目标队列。"
                 + (string.IsNullOrWhiteSpace(multiAuthorExcludeNotice) ? "" : $" {multiAuthorExcludeNotice}"));
         }
 
@@ -4600,7 +4600,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return TikTokRemoteCommandResult.Failed(command.Command, "TikTok 多账号剧集已导入，但目标队列未启动，请查看运行日志。");
         return TikTokRemoteCommandResult.Accepted(
             command.Command,
-            $"飞书多账号上传任务已导入并启动队列：{runTargets.Count} 个工作目录，加入执行 {totalQueued} 个，已追加 {totalAppended} 个，未导入 {totalFailed} 个。"
+            $"远程多账号上传任务已导入并启动队列：{runTargets.Count} 个工作目录，加入执行 {totalQueued} 个，已追加 {totalAppended} 个，未导入 {totalFailed} 个。"
             + (string.IsNullOrWhiteSpace(multiAuthorExcludeNotice) ? "" : $" {multiAuthorExcludeNotice}"));
     }
 
@@ -4751,20 +4751,17 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private bool TryResolveRemoteWorkspace(TikTokRemoteCommand command, out string workspace, out string error)
     {
-        var settings = ClientSettingsStore.Load();
         var selectedAccountWorkspace = SelectedAccount?.Model.ResolveWorkspacePath() ?? "";
         var candidates = command.HasExplicitAccountSelection
             ? new[]
             {
                 command.WorkspacePath,
                 selectedAccountWorkspace,
-                settings.FeishuCommandDefaultWorkspace,
                 WorkspacePath,
             }
             : new[]
             {
                 command.WorkspacePath,
-                settings.FeishuCommandDefaultWorkspace,
                 WorkspacePath,
                 selectedAccountWorkspace,
             };
@@ -4791,7 +4788,7 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         workspace = "";
-        error = "未找到可用工作目录，请先在系统服务中配置飞书默认工作目录，或在命令中指定工作目录。";
+        error = "未找到可用工作目录，请先配置账号的上传工作目录，或在命令中指定工作目录。";
         return false;
     }
 

@@ -6,14 +6,14 @@ namespace TikTokPublisher.Core.Remote;
 
 public static class TikTokRemoteRunOptions
 {
-    public static QueueRunOptions BuildFeishuTikTokUploadRunOptions(
+    public static QueueRunOptions BuildTikTokUploadRunOptions(
         ClientSettings settings,
         TikTokRemoteCommand? command = null)
     {
         var commandSteps = command?.EnabledSteps is { Count: > 0 }
             ? command.EnabledSteps
             : null;
-        var enabledSteps = commandSteps ?? LoadFeishuTikTokUploadEnabledSteps(settings);
+        var enabledSteps = commandSteps ?? LoadTikTokUploadEnabledSteps(settings);
         var queueOptions = command?.QueueOptions;
 
         return new QueueRunOptions
@@ -22,15 +22,15 @@ public static class TikTokRemoteRunOptions
             AutoArchiveAfterUpload = RemoteOptionBool(
                 queueOptions,
                 "auto_archive_after_upload",
-                settings.FeishuTiktokUploadAutoArchiveAfterUpload),
+                settings.RemoteTiktokUploadAutoArchiveAfterUpload),
             ForceRerunCompletedSteps = RemoteOptionBool(
                 queueOptions,
                 "force_rerun_completed_steps",
-                settings.FeishuTiktokUploadForceRerunCompletedSteps),
+                settings.RemoteTiktokUploadForceRerunCompletedSteps),
             PreferUploadWhenReady = RemoteOptionBool(
                 queueOptions,
                 "prefer_upload_when_ready",
-                settings.FeishuTiktokUploadPreferUploadWhenReady),
+                settings.RemoteTiktokUploadPreferUploadWhenReady),
             SyncManagementAfterUpload =
                 RemoteOptionBool(queueOptions, "sync_management_on_upload_success", false) ||
                 RemoteOptionBool(queueOptions, "sync_management_after_upload", false),
@@ -38,9 +38,9 @@ public static class TikTokRemoteRunOptions
         };
     }
 
-    public static IReadOnlyList<string> LoadFeishuTikTokUploadEnabledSteps(ClientSettings settings)
+    public static IReadOnlyList<string> LoadTikTokUploadEnabledSteps(ClientSettings settings)
     {
-        var raw = (settings.FeishuTiktokUploadEnabledStepsJson ?? "").Trim();
+        var raw = (settings.RemoteTiktokUploadEnabledStepsJson ?? "").Trim();
         if (string.IsNullOrWhiteSpace(raw))
             return TikTokRemoteCommandStepDefaults.FullUploadDefaultEnabledSteps;
 
@@ -63,7 +63,7 @@ public static class TikTokRemoteRunOptions
         }
     }
 
-    public static string DumpFeishuTikTokUploadEnabledSteps(IEnumerable<string>? enabledSteps)
+    public static string DumpTikTokUploadEnabledSteps(IEnumerable<string>? enabledSteps)
     {
         var normalized = QueueStepRegistry.OrderUserSelectableSteps(
                 NormalizeSteps(enabledSteps))

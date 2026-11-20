@@ -113,7 +113,6 @@ public static class KuaishouLegacyConfigImporter
         [nameof(KuaishouPersonalConfig.DistributionLoginTimeoutSeconds)] = "kuaishou_distribution_login_timeout_seconds",
         [nameof(KuaishouPersonalConfig.DistributionManualInterventionEnabled)] = "kuaishou_distribution_manual_intervention_enabled",
         [nameof(KuaishouPersonalConfig.DistributionLoginNotifyEnabled)] = "kuaishou_distribution_login_notify_enabled",
-        [nameof(KuaishouPersonalConfig.DistributionFeishuNotifyEnabled)] = "kuaishou_distribution_feishu_notify_enabled",
         [nameof(KuaishouPersonalConfig.AutoOnlineEnabled)] = "kuaishou_auto_online_enabled",
         [nameof(KuaishouPersonalConfig.AutoOnlineIntervalMinutes)] = "kuaishou_auto_online_interval_minutes",
         [nameof(KuaishouPersonalConfig.AutoOnlineMaxItemsPerRound)] = "kuaishou_auto_online_max_items_per_round",

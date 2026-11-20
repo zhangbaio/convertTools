@@ -146,7 +146,7 @@ public sealed class TikTokRemoteCommandParserTests
     [Fact]
     public void Build_upload_run_options_uses_python_remote_defaults()
     {
-        var options = TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(new ClientSettings());
+        var options = TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(new ClientSettings());
 
         options.EnabledSteps.Should().Equal(
             QueueStepRegistry.Download,
@@ -166,11 +166,11 @@ public sealed class TikTokRemoteCommandParserTests
     {
         var settings = new ClientSettings
         {
-            FeishuTiktokUploadEnabledStepsJson =
+            RemoteTiktokUploadEnabledStepsJson =
                 """["download","generate_project_images","generate_proof_material","upload_series"]""",
         };
 
-        var steps = TikTokRemoteRunOptions.LoadFeishuTikTokUploadEnabledSteps(settings);
+        var steps = TikTokRemoteRunOptions.LoadTikTokUploadEnabledSteps(settings);
 
         steps.Should().Equal(
             QueueStepRegistry.Download,
@@ -183,10 +183,10 @@ public sealed class TikTokRemoteCommandParserTests
     {
         var settings = new ClientSettings
         {
-            FeishuTiktokUploadEnabledStepsJson = """["download","rewrite_info","upload_series"]""",
-            FeishuTiktokUploadAutoArchiveAfterUpload = false,
-            FeishuTiktokUploadForceRerunCompletedSteps = false,
-            FeishuTiktokUploadPreferUploadWhenReady = false,
+            RemoteTiktokUploadEnabledStepsJson = """["download","rewrite_info","upload_series"]""",
+            RemoteTiktokUploadAutoArchiveAfterUpload = false,
+            RemoteTiktokUploadForceRerunCompletedSteps = false,
+            RemoteTiktokUploadPreferUploadWhenReady = false,
         };
         var command = new TikTokRemoteCommand(
             TikTokRemoteCommandNames.UploadSeries,
@@ -204,7 +204,7 @@ public sealed class TikTokRemoteCommandParserTests
                 ["sync_management_on_upload_success"] = true,
             });
 
-        var options = TikTokRemoteRunOptions.BuildFeishuTikTokUploadRunOptions(settings, command);
+        var options = TikTokRemoteRunOptions.BuildTikTokUploadRunOptions(settings, command);
 
         options.EnabledSteps.Should().Equal(
             QueueStepRegistry.GenerateProofMaterial,
