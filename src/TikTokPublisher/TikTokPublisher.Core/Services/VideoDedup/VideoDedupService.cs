@@ -157,7 +157,39 @@ public static class VideoDedupService
         var choice = await ResolveEncoderAsync(preset, ct).ConfigureAwait(false);
         var encoder = choice.Encoder;
         var softwareEncoder = VideoDedupPlanner.IsHevcEncoder(encoder) ? "libx265" : "libx264";
-        var hardwareFailed = 0;
+        var currentEncoder = encoder;
+        var failedEncoders = new HashSet<string>(StringComparer.Ordinal);
+        using var encoderSwitch = new SemaphoreSlim(1);
+
+        async Task<string> SwitchEncoderAsync(string failedEncoder, string failure, CancellationToken token)
+        {
+            await encoderSwitch.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                if (!string.Equals(failedEncoder, currentEncoder, StringComparison.Ordinal))
+                    return currentEncoder;
+
+                failedEncoders.Add(failedEncoder);
+                var replacement = softwareEncoder;
+                foreach (var candidate in HardwareCandidates(preset, VideoDedupPlanner.IsHevcEncoder(encoder)))
+                {
+                    if (!failedEncoders.Contains(candidate)
+                        && await EncoderWorksAsync(candidate, preset, token).ConfigureAwait(false))
+                    {
+                        replacement = candidate;
+                        break;
+                    }
+                }
+
+                Volatile.Write(ref currentEncoder, replacement);
+                Write($"{failedEncoder} 硬件编码不可用（{FirstLine(failure)}），本次剩余剧集改用 {replacement}。");
+                return replacement;
+            }
+            finally
+            {
+                encoderSwitch.Release();
+            }
+        }
         var logicalProcessors = Environment.ProcessorCount;
         var encodeParallel = ApplyGlobalConcurrency();
         var cpuPercent = VideoDedupCpuBudget.CurrentCpuPercent;
@@ -166,7 +198,7 @@ public static class VideoDedupService
         Write(string.IsNullOrWhiteSpace(choice.Note)
             ? $"视频编码器：{encoder}（{choice.Device}），全机并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。"
             : $"视频编码器：{encoder}（{choice.Device}），全机并发 {encodeParallel.ToString(CultureInfo.InvariantCulture)}。{choice.Note}");
-        Write($"本机 {logicalProcessors.ToString(CultureInfo.InvariantCulture)} 个逻辑处理器，CPU 占用 {cpuPercent.ToString(CultureInfo.InvariantCulture)}%，可用 {processorBudget.ToString(CultureInfo.InvariantCulture)} 个，全机同时 {encodeParallel.ToString(CultureInfo.InvariantCulture)} 路，每路编码 {threadSplit.EncoderThreads.ToString(CultureInfo.InvariantCulture)} 线程、滤镜 {threadSplit.FilterThreads.ToString(CultureInfo.InvariantCulture)} 线程。");
+        Write($"本机 {logicalProcessors.ToString(CultureInfo.InvariantCulture)} 个逻辑处理器，CPU 占用 {cpuPercent.ToString(CultureInfo.InvariantCulture)}%，可用 {processorBudget.ToString(CultureInfo.InvariantCulture)} 个，全机同时 {encodeParallel.ToString(CultureInfo.InvariantCulture)} 路，每路解码 {threadSplit.DecoderThreads.ToString(CultureInfo.InvariantCulture)} 线程、编码 {threadSplit.EncoderThreads.ToString(CultureInfo.InvariantCulture)} 线程、滤镜 {threadSplit.FilterThreads.ToString(CultureInfo.InvariantCulture)} 线程。");
         if (renumber && preset.TransitionsEnabled && plan.Any(group => group.Count > 1))
             Write("并集接缝使用转场；短于 0.8 秒的成片改为直接拼接。");
         var totalEpisodes = jobs.Count.ToString(CultureInfo.InvariantCulture);
@@ -210,30 +242,25 @@ public static class VideoDedupService
                     VideoDedupCpuBudget.UseLane(lane);
                     try
                     {
-                        var jobEncoder = Volatile.Read(ref hardwareFailed) == 1 ? softwareEncoder : encoder;
-                        var arguments = VideoDedupPlanner.BuildArguments(
-                            preset,
-                            clips,
-                            entry.job.Slices,
-                            temp,
-                            jobEncoder,
-                            seed);
+                        var jobEncoder = Volatile.Read(ref currentEncoder);
                         Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(clips, entry.job.Slices, entry.job.Destination, preset)}");
                         try
                         {
-                            try
+                            while (true)
                             {
-                                await RunFfmpegAsync(arguments, token).ConfigureAwait(false);
-                            }
-                            catch (InvalidOperationException ex) when (
-                                AllowsCpuFallback(preset) && UsesHardwareEncoder(arguments))
-                            {
-                                if (Interlocked.Exchange(ref hardwareFailed, 1) == 0)
-                                    Write($"{encoder} 编码失败（{FirstLine(ex.Message)}），本次剩余剧集改用 {softwareEncoder}。");
-                                Write($"第 {episode}/{totalEpisodes} 集改用 {softwareEncoder} 重新去重。");
-                                await RunFfmpegAsync(
-                                    VideoDedupPlanner.BuildArguments(preset, clips, entry.job.Slices, temp, softwareEncoder, seed),
-                                    token).ConfigureAwait(false);
+                                var arguments = VideoDedupPlanner.BuildArguments(
+                                    preset, clips, entry.job.Slices, temp, jobEncoder, seed);
+                                try
+                                {
+                                    await RunFfmpegAsync(arguments, token).ConfigureAwait(false);
+                                    break;
+                                }
+                                catch (InvalidOperationException ex) when (
+                                    AllowsCpuFallback(preset) && IsHardwareEncoderFailure(jobEncoder, ex.Message))
+                                {
+                                    jobEncoder = await SwitchEncoderAsync(jobEncoder, ex.Message, token).ConfigureAwait(false);
+                                    Write($"第 {episode}/{totalEpisodes} 集改用 {jobEncoder} 重新去重。");
+                                }
                             }
                             if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
                                 throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
@@ -609,6 +636,7 @@ public static class VideoDedupService
         var height = 0;
         var hasAudio = false;
         var audioBitrateKbps = 0;
+        var averageFramesPerSecond = 0d;
         if (root.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
         {
             foreach (var stream in streams.EnumerateArray())
@@ -618,6 +646,8 @@ public static class VideoDedupService
                 {
                     width = stream.TryGetProperty("width", out var widthElement) ? widthElement.GetInt32() : 0;
                     height = stream.TryGetProperty("height", out var heightElement) ? heightElement.GetInt32() : 0;
+                    if (stream.TryGetProperty("avg_frame_rate", out var rate))
+                        averageFramesPerSecond = ParseFrameRate(rate.GetString());
                 }
                 else if (string.Equals(codecType, "audio", StringComparison.Ordinal))
                 {
@@ -628,7 +658,18 @@ public static class VideoDedupService
             }
         }
 
-        return new VideoDedupProbe(duration, width, height, hasAudio, audioBitrateKbps);
+        return new VideoDedupProbe(duration, width, height, hasAudio, audioBitrateKbps, averageFramesPerSecond);
+    }
+
+    private static double ParseFrameRate(string? rate)
+    {
+        var parts = rate?.Split('/');
+        if (parts is not { Length: 2 }
+            || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var numerator)
+            || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var denominator)
+            || numerator <= 0 || denominator <= 0)
+            return 0;
+        return (double)numerator / denominator;
     }
 
     private static int ReadAudioBitrateKbps(JsonElement stream)
@@ -795,10 +836,26 @@ public static class VideoDedupService
         return line.Length > 160 ? line[..160] + "…" : line;
     }
 
-    private static bool UsesHardwareEncoder(IReadOnlyList<string> arguments) =>
-        arguments.Any(argument =>
-            argument is "h264_nvenc" or "hevc_nvenc" or "h264_qsv" or "hevc_qsv" or "h264_amf" or "hevc_amf"
-                or "h264_videotoolbox" or "hevc_videotoolbox");
+    internal static bool IsHardwareEncoderFailure(string encoder, string message)
+    {
+        if (!VideoDedupPlanner.IsHardwareEncoder(encoder))
+            return false;
+
+        return message.Split('\n').Any(line =>
+            line.Contains(encoder + " @", StringComparison.OrdinalIgnoreCase)
+            && (line.Contains("Cannot load", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("No capable devices", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("No NVENC capable devices", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("CUDA_ERROR_", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("OpenEncodeSessionEx failed", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("required nvenc API version", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("CreateComponent", StringComparison.OrdinalIgnoreCase)
+                   && line.Contains("failed", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("initializing an internal MFX session", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("Error creating a MFX session", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("No device available for encoder", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("cannot create compression session", StringComparison.OrdinalIgnoreCase)));
+    }
 
     private static void SyncEpisodeCount(
         QueueProjectItem item,

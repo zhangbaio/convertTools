@@ -10,7 +10,8 @@ internal sealed record VideoDedupProbe(
     int Width,
     int Height,
     bool HasAudio,
-    int AudioBitrateKbps = 0);
+    int AudioBitrateKbps = 0,
+    double AverageFramesPerSecond = 0);
 
 internal sealed record VideoDedupClip(string Path, VideoDedupProbe Probe);
 
@@ -425,9 +426,14 @@ internal static class VideoDedupPlanner
         VideoDedupEffectFilters.Validate(preset);
         var opened = OpenInputs(slices);
         var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error" };
-        AppendThreadLimits(args, videoEncoder);
-        foreach (var input in opened.Inputs)
+        var threads = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, IsHardwareEncoder(videoEncoder));
+        AppendFilterThreadLimits(args, threads);
+        for (var index = 0; index < opened.Inputs.Count; index++)
         {
+            var input = opened.Inputs[index];
+            var decoderThreads = threads.DecoderThreads / opened.Inputs.Count
+                + (index < threads.DecoderThreads % opened.Inputs.Count ? 1 : 0);
+            args.AddRange(["-threads:v", Math.Max(1, decoderThreads).ToString(CultureInfo.InvariantCulture)]);
             if (input.SeekSeconds > 0.001)
                 args.AddRange(["-ss", Num(input.SeekSeconds), "-t", Num(input.ReadSeconds)]);
             args.AddRange(["-i", clips[input.ClipIndex].Path]);
@@ -454,7 +460,8 @@ internal static class VideoDedupPlanner
         {
             var slice = slices[0];
             var video = CombineFilters(
-                BuildVideoFilter(clips[slice.ClipIndex], slice, preset, seed, opened.Origin[0]),
+                BuildVideoFilter(clips[slice.ClipIndex], slice, preset, seed, opened.Origin[0],
+                    reduceFramesBeforeScaling: preset.FrameDropPercent <= 0),
                 VideoDedupEffectFilters.LinearFilters(preset));
             if (video.Length > 0)
                 args.AddRange(["-vf", video]);
@@ -480,6 +487,7 @@ internal static class VideoDedupPlanner
             }
         }
 
+        args.AddRange(["-threads:v", threads.EncoderThreads.ToString(CultureInfo.InvariantCulture)]);
         AppendEncoder(args, preset, videoEncoder, hasAudio, ResolveSourceAudioBitrateKbps(clips, slices));
         args.AddRange(["-movflags", "+faststart", outputPath]);
         return args;
@@ -538,10 +546,11 @@ internal static class VideoDedupPlanner
     public static IReadOnlyList<string> BuildProbeArguments(VideoDedupPreset preset, string videoEncoder)
     {
         var args = new List<string> { "-hide_banner", "-loglevel", "error" };
-        AppendThreadLimits(args, videoEncoder);
+        var threads = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, IsHardwareEncoder(videoEncoder));
+        AppendFilterThreadLimits(args, threads);
         args.AddRange([
             "-f", "lavfi", "-i", "testsrc=size=1080x1920:rate=30:duration=0.3",
-            "-frames:v", "5",
+            "-frames:v", "5", "-threads:v", threads.EncoderThreads.ToString(CultureInfo.InvariantCulture),
         ]);
         AppendEncoder(args, preset, videoEncoder, includeAudio: false);
         args.AddRange(["-f", "null", "-"]);
@@ -672,14 +681,10 @@ internal static class VideoDedupPlanner
             args.AddRange(["-x264-params", $"threads={threads.EncoderThreads.ToString(CultureInfo.InvariantCulture)}:lookahead-threads=1"]);
     }
 
-    private static void AppendThreadLimits(List<string> args, string videoEncoder)
+    private static void AppendFilterThreadLimits(List<string> args, VideoDedupCpuBudget.EncodeThreads threads)
     {
-        var hardware = IsHardwareEncoder(videoEncoder);
-        var threads = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, hardware);
-        var encoder = threads.EncoderThreads.ToString(CultureInfo.InvariantCulture);
         var filter = threads.FilterThreads.ToString(CultureInfo.InvariantCulture);
         args.AddRange([
-            "-threads", encoder,
             "-filter_threads", filter,
             "-filter_complex_threads", filter,
         ]);
@@ -887,7 +892,8 @@ internal static class VideoDedupPlanner
         VideoDedupPreset preset,
         int seed,
         double originSeconds,
-        UploadFrame? sharedFrame = null)
+        UploadFrame? sharedFrame = null,
+        bool reduceFramesBeforeScaling = false)
     {
         var filters = new List<string>();
         var start = slice.StartSeconds - originSeconds;
@@ -905,6 +911,11 @@ internal static class VideoDedupPlanner
         }
 
         var frame = sharedFrame ?? ResolveUploadFrame(clip.Probe.Width, clip.Probe.Height, preset);
+        var downsampleBeforeScale = reduceFramesBeforeScaling && frame.Scaled
+            && clip.Probe.AverageFramesPerSecond * preset.SpeedFactor > preset.Fps;
+        if (downsampleBeforeScale)
+            AppendFrameRateFilters(filters, preset);
+
         if (sharedFrame is not null || frame.Scaled)
         {
             filters.Add(
@@ -913,16 +924,21 @@ internal static class VideoDedupPlanner
 
         filters.Add("format=yuv420p,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709");
 
-        // 变速必须在 fps 之前：抽帧后的 setpts=N/FRAME_RATE/TB 会按固定帧率重排时间戳，放在 fps 之后的变速会被抹掉。
-        if (Math.Abs(preset.SpeedFactor - 1) > 0.0001)
-            filters.Add($"setpts=PTS/{Num(preset.SpeedFactor)}");
-
-        filters.Add($"fps={preset.Fps.ToString(CultureInfo.InvariantCulture)}");
+        if (!downsampleBeforeScale)
+            AppendFrameRateFilters(filters, preset);
 
         if (preset.FrameDropPercent > 0)
             filters.Add(FrameDropFilter(preset.FrameDropPercent, seed));
 
         return string.Join(",", filters);
+    }
+
+    private static void AppendFrameRateFilters(List<string> filters, VideoDedupPreset preset)
+    {
+        // Convert frame rate after changing speed so the FPS filter sees the final timestamps.
+        if (Math.Abs(preset.SpeedFactor - 1) > 0.0001)
+            filters.Add($"setpts=PTS/{Num(preset.SpeedFactor)}");
+        filters.Add($"fps={preset.Fps.ToString(CultureInfo.InvariantCulture)}");
     }
 
     internal static int FrameDropInterval(double percent) =>

@@ -197,7 +197,7 @@ public sealed class VideoDedupTests
 
         var joined = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], slices, "out.mp4", "libx264", seed: 1));
 
-        joined.Should().Contain("-i long.mp4 -ss 130 -t 51 -i long.mp4");
+        joined.Should().MatchRegex(@"-i long\.mp4 -threads:v \d+ -ss 130 -t 51 -i long\.mp4");
         joined.Should().Contain("[0:v]");
         joined.Should().Contain("[1:v]");
         joined.Should().NotContain("trim=start=130");
@@ -1201,8 +1201,8 @@ public sealed class VideoDedupTests
         {
             var threads = VideoDedupCpuBudget.ThreadsFor(logicalProcessors, lanes, 100, lane, hardware);
             var perProcess = hardware
-                ? threads.FilterThreads
-                : threads.EncoderThreads + threads.FilterThreads;
+                ? threads.DecoderThreads + threads.FilterThreads
+                : threads.DecoderThreads + threads.EncoderThreads + threads.FilterThreads;
             perProcess.Should().BeGreaterThan(0);
             if (hardware)
                 threads.EncoderThreads.Should().Be(1);
@@ -1240,9 +1240,10 @@ public sealed class VideoDedupTests
 
         var hardware = VideoDedupCpuBudget.ThreadsFor(16, 2, 90, 0, hardwareEncoder: true);
         hardware.EncoderThreads.Should().Be(1);
-        hardware.FilterThreads.Should().Be(7);
+        hardware.DecoderThreads.Should().Be(2);
+        hardware.FilterThreads.Should().Be(5);
         var software = VideoDedupCpuBudget.ThreadsFor(8, 2, 90, 1, hardwareEncoder: false);
-        (software.EncoderThreads + software.FilterThreads).Should().Be(3);
+        (software.DecoderThreads + software.EncoderThreads + software.FilterThreads).Should().Be(3);
     }
 
     [Fact]
@@ -1297,17 +1298,78 @@ public sealed class VideoDedupTests
         var clip = new VideoDedupClip("episode-1.mp4", new VideoDedupProbe(12, 1080, 1920, true));
         var software = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, hardwareEncoder: false);
         var cpu = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
-        cpu.Should().Contain($"-threads {software.EncoderThreads}");
+        cpu.Should().Contain($"-threads:v {software.DecoderThreads} -i episode-1.mp4");
+        cpu.Should().Contain($"-threads:v {software.EncoderThreads} -r 30 -c:v libx264");
         cpu.Should().Contain($"-filter_threads {software.FilterThreads}");
         cpu.Should().Contain($"-filter_complex_threads {software.FilterThreads}");
         cpu.Should().Contain($"threads={software.EncoderThreads}:lookahead-threads=1");
 
         var hardware = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, hardwareEncoder: true);
         var amf = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "h264_amf", seed: 1));
-        amf.Should().Contain($"-threads {hardware.EncoderThreads}");
+        amf.Should().Contain($"-threads:v {hardware.DecoderThreads} -i episode-1.mp4");
+        amf.Should().Contain($"-threads:v {hardware.EncoderThreads} -r 30 -c:v h264_amf");
         amf.Should().Contain($"-filter_threads {hardware.FilterThreads}");
         amf.Should().NotContain("x264-params");
     }
+
+    [Fact]
+    public async Task Reducing_encode_concurrency_counts_slots_above_the_new_limit()
+    {
+        if (Environment.ProcessorCount < 2)
+            return;
+
+        VideoDedupEncodeGate.Configure(2);
+        var first = await VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+        var second = await VideoDedupEncodeGate.WaitAsync(CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        try
+        {
+            VideoDedupEncodeGate.Configure(1);
+            VideoDedupEncodeGate.Release(first);
+            var waiting = VideoDedupEncodeGate.WaitAsync(cancellation.Token);
+            waiting.IsCompleted.Should().BeFalse();
+            VideoDedupEncodeGate.Release(second);
+            var next = await waiting.WaitAsync(TimeSpan.FromSeconds(2));
+            VideoDedupEncodeGate.Release(next);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            VideoDedupEncodeGate.Release(first);
+            VideoDedupEncodeGate.Release(second);
+            VideoDedupEncodeGate.Configure(VideoDedupCpuBudget.DefaultConcurrency);
+        }
+    }
+
+    [Theory]
+    [InlineData(60, true)]
+    [InlineData(24, false)]
+    [InlineData(0, false)]
+    public void Only_downsampling_a_simple_clip_moves_fps_before_scale(double sourceFps, bool downsample)
+    {
+        var preset = VideoDedupPreset.CreateDefault().NormalizedCopy();
+        preset.FrameDropPercent = 0;
+        preset.Fps = 30;
+        preset.SpeedFactor = 1.1;
+        var clip = new VideoDedupClip("episode.mp4", new VideoDedupProbe(
+            12, 720, 1280, true, AverageFramesPerSecond: sourceFps));
+        var command = string.Join(" ", VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1));
+        var fps = command.IndexOf("fps=30", StringComparison.Ordinal);
+        var scale = command.IndexOf("scale=1080:1920", StringComparison.Ordinal);
+        scale.Should().BeGreaterThanOrEqualTo(0);
+        fps.Should().BeGreaterThanOrEqualTo(0);
+        (fps < scale).Should().Be(downsample);
+    }
+
+    [Theory]
+    [InlineData("h264_nvenc", "[h264_nvenc @ 1] OpenEncodeSessionEx failed: out of memory", true)]
+    [InlineData("hevc_qsv", "[hevc_qsv @ 1] Error initializing an internal MFX session", true)]
+    [InlineData("h264_amf", "[h264_amf @ 1] CreateComponent(AMFVideoEncoderVCE_AVC) failed", true)]
+    [InlineData("h264_nvenc", "[out#0/mp4 @ 1] Error opening output: Permission denied", false)]
+    [InlineData("h264_nvenc", "[vf#0:0 @ 1] Error reinitializing filters", false)]
+    [InlineData("libx264", "[libx264 @ 1] Cannot load device", false)]
+    public void Only_encoder_device_errors_trigger_hardware_fallback(string encoder, string error, bool recoverable) =>
+        VideoDedupService.IsHardwareEncoderFailure(encoder, error).Should().Be(recoverable);
 
     [Fact]
     public void Auto_encoder_tries_the_detected_vendor_before_the_others()

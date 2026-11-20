@@ -8,7 +8,7 @@ internal static class VideoDedupCpuBudget
     public const int DefaultConcurrency = 2;
     public const int DefaultCpuPercent = 90;
 
-    public readonly record struct EncodeThreads(int EncoderThreads, int FilterThreads);
+    public readonly record struct EncodeThreads(int DecoderThreads, int EncoderThreads, int FilterThreads);
 
     private static int _concurrency = DefaultConcurrency;
     private static int _cpuPercent = DefaultCpuPercent;
@@ -84,10 +84,15 @@ internal static class VideoDedupCpuBudget
     {
         var share = ShareForLane(logicalProcessors, concurrency, percent, laneIndex);
         if (hardwareEncoder)
-            return new EncodeThreads(1, share);
+        {
+            var decoder = Math.Clamp(share / 3, 1, 4);
+            return new EncodeThreads(decoder, 1, Math.Max(1, share - decoder));
+        }
 
-        var filter = Math.Max(1, (share + 1) / 2);
-        return new EncodeThreads(Math.Max(1, share - filter), filter);
+        var softwareDecoder = Math.Clamp(share / 4, 1, 4);
+        var remaining = share - softwareDecoder;
+        var filter = Math.Max(1, (remaining + 1) / 2);
+        return new EncodeThreads(softwareDecoder, Math.Max(1, remaining - filter), filter);
     }
 }
 
@@ -162,14 +167,7 @@ internal static class VideoDedupEncodeGate
 
     private static int? TryTakeSlot()
     {
-        var used = 0;
-        for (var i = 0; i < _limit; i++)
-        {
-            if (Slots.Contains(i))
-                used++;
-        }
-
-        if (used >= _limit)
+        if (Slots.Count >= _limit)
             return null;
 
         for (var i = 0; i < _limit; i++)
