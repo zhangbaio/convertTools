@@ -139,6 +139,8 @@ public partial class VideoDedupPresetEditor : UserControl
         HighGainBox.Value = (decimal)value.AudioHighGainDb;
     }
 
+    internal void SetReadOnly() => DedupForm.IsEnabled = false;
+
     public VideoDedupPreset Read()
     {
         var resolution = SelectedResolution();

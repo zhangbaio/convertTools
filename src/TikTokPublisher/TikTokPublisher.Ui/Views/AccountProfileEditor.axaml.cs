@@ -571,6 +571,8 @@ public partial class AccountProfileEditor : UserControl
 
     private void UpdateDedupTemplateSummary()
     {
+        if (EditDedupTemplateButton is not null)
+            EditDedupTemplateButton.IsEnabled = SelectedDedupTemplate is { IsUnavailable: false };
         if (DedupTemplateSummary is null || SelectedDedupTemplate is not { } selected)
             return;
         if (_dedupLibraryError is not null)
@@ -608,8 +610,8 @@ public partial class AccountProfileEditor : UserControl
         var choice = SelectedDedupTemplate;
         var draft = choice?.Preset ?? VideoDedupPreset.CreateDefault();
         var name = choice?.Preset is not null ? choice.Name + " 副本" : "";
-        var editor = new VideoDedupTemplateEditorWindow(null, draft, name, () => 0);
-        var saved = await editor.ShowDialog<VideoDedupTemplate?>(owner);
+        var editor = new VideoDedupTemplateEditorWindow(null, draft, name);
+        var saved = await editor.ShowDialog<VideoDedupTemplateEditResult?>(owner);
         if (saved is not null && ReferenceEquals(_vm.SelectedAccount?.Model, account))
         {
             LoadDedupTemplates(account, saved.Id);
@@ -617,24 +619,37 @@ public partial class AccountProfileEditor : UserControl
         }
     }
 
-    private async void OnManageDedupTemplatesClick(object? sender, RoutedEventArgs e)
+    private async void OnEditDedupTemplateClick(object? sender, RoutedEventArgs e)
     {
-        if (_vm?.SelectedAccount?.Model is not { } account || TopLevel.GetTopLevel(this) is not Window owner)
+        if (_vm?.SelectedAccount?.Model is not { } account || TopLevel.GetTopLevel(this) is not Window owner ||
+            SelectedDedupTemplate is not { IsUnavailable: false } selected)
             return;
 
-        var selectedId = SelectedDedupTemplate?.Id ?? "";
         try
         {
-            var manager = new VideoDedupTemplateManagerWindow(
-                () => _vm.Accounts.Select(item => item.Model).ToArray(), selectedId);
-            await manager.ShowDialog(owner);
+            var editor = selected.Id == VideoDedupTemplateStore.SystemId
+                ? new VideoDedupTemplateEditorWindow(null, VideoDedupPreset.CreateDefault(), selected.Name, readOnly: true)
+                : CreateCustomDedupTemplateEditor(selected.Id);
+            var result = await editor.ShowDialog<VideoDedupTemplateEditResult?>(owner);
             if (ReferenceEquals(_vm.SelectedAccount?.Model, account))
-                LoadDedupTemplates(account, selectedId);
+            {
+                LoadDedupTemplates(account, result?.Id ?? selected.Id);
+                if (result?.Deleted == true)
+                    _vm.StatusMessage = "模板已删除。";
+            }
         }
         catch (Exception ex)
         {
-            _vm.StatusMessage = $"无法打开视频去重模板库：{ex.Message}";
+            _vm.StatusMessage = $"无法打开视频去重模板：{ex.Message}";
         }
+    }
+
+    private VideoDedupTemplateEditorWindow CreateCustomDedupTemplateEditor(string id)
+    {
+        var template = VideoDedupTemplateStore.Load().FirstOrDefault(item => item.Id == id)
+            ?? throw new InvalidOperationException("所选模板已不存在。");
+        return new VideoDedupTemplateEditorWindow(template, template.Preset, template.Name,
+            () => _vm?.Accounts.Select(item => item.Model).ToArray() ?? []);
     }
 
     private sealed record DedupTemplateChoice(string Id, string Name, VideoDedupPreset? Preset, bool IsUnavailable = false)
