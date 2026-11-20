@@ -213,7 +213,7 @@ public partial class AccountProfileEditor : UserControl
         ExcelReportBox.Text = profile.TiktokExcelReportPath;
         DeleteVideosOnArchiveBox.IsChecked = profile.TiktokDeleteVideosOnArchive;
 
-        SelectByTag(LoginBrowserModeCombo, profile.TiktokLoginBrowserMode, "embedded");
+        LegacyCdpSettings.IsVisible = string.Equals(profile.TiktokLoginBrowserMode, "cdp", StringComparison.OrdinalIgnoreCase);
         CdpEndpointBox.Text = profile.TiktokExternalBrowserCdpEndpoint;
 
         ContractIdBox.Text = profile.TiktokContractId;
@@ -359,8 +359,8 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokDeleteVideosOnArchive = DeleteVideosOnArchiveBox.IsChecked == true;
             profile.TiktokDeleteVideosOnArchiveConfigured = true;
 
-            profile.TiktokLoginBrowserMode = TagOf(LoginBrowserModeCombo, "embedded");
-            profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
+            if (LegacyCdpSettings.IsVisible)
+                profile.TiktokExternalBrowserCdpEndpoint = CdpEndpointBox.Text?.Trim() ?? "";
 
             profile.TiktokContractId = ContractIdBox.Text?.Trim() ?? "";
             profile.TiktokContractIdMode = TikTokPublishConstants.ContractIdModeManual;
@@ -1052,6 +1052,7 @@ public partial class AccountProfileEditor : UserControl
         ExcelReportBox.Text = "";
         DeleteVideosOnArchiveBox.IsChecked = true;
         RemoteDispatchBox.IsChecked = false;
+        LegacyCdpSettings.IsVisible = false;
         CdpEndpointBox.Text = "";
         ContractIdBox.Text = "";
         ProofTemplatePathBox.Text = "";
@@ -1312,7 +1313,7 @@ public partial class AccountProfileEditor : UserControl
             return;
 
         PublishForm.Width = Math.Min(width, PublishForm.MaxWidth);
-        foreach (var row in PublishForm.Children.OfType<UniformGrid>())
+        foreach (var row in PublishForm.Children.Concat(ProxySettings.Children).OfType<UniformGrid>())
         {
             var columns = width < 580 ? 1 : 2;
             if (row.Columns != columns)

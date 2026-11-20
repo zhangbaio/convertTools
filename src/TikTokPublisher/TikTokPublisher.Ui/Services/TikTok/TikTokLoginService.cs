@@ -373,7 +373,7 @@ public static class TikTokLoginService
         var endpoint = (account.TiktokExternalBrowserCdpEndpoint ?? "").Trim();
         var normalized = NormalizeCdpEndpoint(endpoint);
         if (string.IsNullOrEmpty(normalized))
-            throw new InvalidOperationException("请在账号网络/IP 中填写外部浏览器 CDP 地址。");
+            throw new InvalidOperationException("请在「账号配置 → 发布配置 → 网络 / IP」中填写外部浏览器 CDP 地址。");
         return normalized;
     }
 
