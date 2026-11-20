@@ -1539,7 +1539,7 @@ public sealed class TikTokProofMaterialServiceTests
     }
 
     [Fact]
-    public void Queue_request_uses_account_template_and_falls_back_to_global()
+    public void Queue_request_uses_system_template_for_accounts_with_legacy_overrides()
     {
         using var fixture = new ProofTemplateFixture();
         var accountTemplate = fixture.CreateTemplate();
@@ -1553,25 +1553,31 @@ public sealed class TikTokProofMaterialServiceTests
             TiktokProofAccountConfigMigrated = true,
         };
 
-        var own = TikTokProofMaterialService.CreateQueueRequest(
-            item, settings, account, fixture.DirectoryPath, new DateOnly(2026, 11, 10));
-        own.TemplateDocxPath.Should().Be(Path.GetFullPath(accountTemplate));
-
-        account.TiktokProofTemplateDocxPath = "";
         var shared = TikTokProofMaterialService.CreateQueueRequest(
             item, settings, account, fixture.DirectoryPath, new DateOnly(2026, 11, 10));
         shared.TemplateDocxPath.Should().Be(Path.GetFullPath(globalTemplate));
 
         account.TiktokProofTemplateDocxPath = Path.Combine(fixture.DirectoryPath, "missing.docx");
-        var missing = () => TikTokProofMaterialService.CreateQueueRequest(
+        var withMissingLegacyTemplate = TikTokProofMaterialService.CreateQueueRequest(
             item, settings, account, fixture.DirectoryPath, new DateOnly(2026, 11, 10));
-        missing.Should().Throw<InvalidOperationException>().WithMessage("*张莉*证明材料模板不存在*");
+        withMissingLegacyTemplate.TemplateDocxPath.Should().Be(Path.GetFullPath(globalTemplate));
+    }
 
-        account.TiktokProofTemplateDocxPath = Path.Combine(fixture.DirectoryPath, "template.txt");
-        File.WriteAllText(account.TiktokProofTemplateDocxPath, "not a docx");
-        var wrongType = () => TikTokProofMaterialService.CreateQueueRequest(
-            item, settings, account, fixture.DirectoryPath, new DateOnly(2026, 11, 10));
-        wrongType.Should().Throw<InvalidOperationException>().WithMessage("*张莉*必须是 .docx*");
+    [Fact]
+    public void Queue_request_uses_built_in_template_when_system_template_is_blank()
+    {
+        using var fixture = new ProofTemplateFixture();
+        var account = new TikTokAccountProfile
+        {
+            TiktokProofTemplateDocxPath = fixture.CreateTemplate(),
+            TiktokProofAccountConfigMigrated = true,
+        };
+
+        var request = TikTokProofMaterialService.CreateQueueRequest(
+            new QueueProjectItem { NewTitle = "内置模板" }, new ClientSettings(), account,
+            fixture.DirectoryPath, new DateOnly(2026, 11, 10));
+
+        Path.GetFileName(request.TemplateDocxPath).Should().Be(TikTokProofMaterialTemplateProvider.BuiltInTemplateFileName);
     }
 
     private static TikTokProofMaterialRequest CreateRequest(string templatePath, string outputPath) =>

@@ -19,10 +19,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private KuaishouPersonalConfig _config = new();
     private PublishPlatform _platform = PublishPlatform.KuaishouPersonalRevenue;
     private ChannelsAccount? _account;
-    private string _cleanJson = "";
-    private string _cleanEdition = "";
-    private bool _cleanRemoteDispatch;
-    private bool _suspendDirty;
+    private readonly Control[] _editableFields;
+    private string[] _cleanValues = [];
+    private bool _legacyImportPending;
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
     public event Func<ChannelsAccount, string, Task<bool>>? ConfirmAccountEdition;
     public event Func<ChannelsAccount, string, Task>? AccountEditionApplied;
@@ -33,6 +32,12 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     {
         DataContext = this;
         InitializeComponent();
+        _editableFields = ConfigurationTabs.Items.OfType<TabItem>()
+            .SelectMany(tab => tab.GetLogicalDescendants())
+            .OfType<Control>()
+            .Where(control => control.Name is not null &&
+                (control is TextBox { IsReadOnly: false } or ComboBox or ToggleButton))
+            .ToArray();
         LoadValues();
         CaptureClean();
         UpdateHeading();
@@ -69,9 +74,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             ? PublishPlatform.KuaishouEnterpriseRevenue
             : PublishPlatform.KuaishouPersonalRevenue;
         _config = LoadStoredConfig();
-        _suspendDirty = true;
         LoadValues();
-        _suspendDirty = false;
         CaptureClean();
         UpdateHeading();
     }
@@ -202,7 +205,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
         try
         {
+            var beforeImport = JsonSerializer.Serialize(_config);
             var result = KuaishouLegacyConfigImporter.Import(path, _config, _platform);
+            _legacyImportPending |= beforeImport != JsonSerializer.Serialize(_config);
             LoadValues();
             ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
             ValidationText.Text = $"已从旧版配置导入 {result.ImportedFields} 个字段，其中 {result.ImportedSensitiveFields} 个凭据字段将在保存时加密。";
@@ -565,7 +570,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         if (ConfigSaved is not null) await ConfigSaved(_account.Id, _platform, path);
         if (editionChanged && AccountEditionApplied is not null)
             await AccountEditionApplied(_account, edition);
-        _cleanEdition = edition;
         return true;
     }
 
@@ -602,23 +606,22 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         : EditionPersonalBox.IsChecked == true ? "personal"
         : "";
 
-    private bool HasUnsavedChanges()
-    {
-        if (_suspendDirty) return false;
-        if (!string.Equals(SelectedEdition(), _cleanEdition, StringComparison.OrdinalIgnoreCase))
-            return true;
-        if ((RemoteDispatchBox.IsChecked == true) != _cleanRemoteDispatch)
-            return true;
-        if (!ApplyToConfig()) return true;
-        return JsonSerializer.Serialize(_config) != _cleanJson;
-    }
+    // Compare the editable values as loaded. Validation and legacy value normalization belong to saving.
+    private bool HasUnsavedChanges() => _legacyImportPending || !CaptureFormValues().SequenceEqual(_cleanValues);
 
     private void CaptureClean()
     {
-        _cleanJson = JsonSerializer.Serialize(_config);
-        _cleanEdition = SelectedEdition();
-        _cleanRemoteDispatch = RemoteDispatchBox.IsChecked == true;
+        _cleanValues = CaptureFormValues().ToArray();
+        _legacyImportPending = false;
     }
+
+    private IEnumerable<string> CaptureFormValues() => _editableFields.Select(control => control switch
+    {
+        TextBox text => text.Text ?? "",
+        ComboBox { SelectedItem: KuaishouFormChoice choice } => choice.Value,
+        ToggleButton toggle => toggle.IsChecked == true ? "true" : "false",
+        _ => "",
+    });
 
     private void UpdateHeading()
     {

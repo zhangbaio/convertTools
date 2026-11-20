@@ -91,7 +91,6 @@ public partial class AccountSettingsDialog : Window
             p.TiktokUploadAiScriptOutlineWithScreenshots,
             p.TiktokUploadSourceInfoRoleVector,
             p.TiktokUploadSourceInfoRoleSceneScreenshot);
-        CopyrightMaterials.ProofTemplatePathBox.Text = p.TiktokProofTemplateDocxPath;
         CopyrightMaterials.ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
         CopyrightMaterials.TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
         CopyrightMaterials.ProofSealPathBox.Text = p.TiktokProofSealPath;
@@ -250,8 +249,6 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
         p.TiktokUploadSourceInfoRoleVector = CopyrightMaterials.UploadSourceInfoRoleVector;
         p.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
-        p.TiktokProofTemplateDocxPath = CopyrightMaterials.ProofTemplatePathBox.Text?.Trim() ?? "";
-        p.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.ChineseLanguage;
         p.TiktokProofDeclarantCompanyName = CopyrightMaterials.ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokTimestampApplicantName = CopyrightMaterials.TimestampApplicantNameBox.Text?.Trim() ?? "";
         p.TiktokProofSealPath = CopyrightMaterials.ProofSealPathBox.Text?.Trim() ?? "";

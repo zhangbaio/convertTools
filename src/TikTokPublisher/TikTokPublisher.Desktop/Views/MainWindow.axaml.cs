@@ -1,5 +1,6 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Layout;
@@ -19,8 +20,6 @@ namespace TikTokPublisher.Desktop.Views;
 public partial class MainWindow : Window
 {
 
-    private const double ModuleNavWidth = 136;
-
     private readonly AccountStore _accountStore = new();
     private readonly BrowserSessionHost _browserHost = new();
     private readonly MainViewModel _viewModel;
@@ -32,6 +31,7 @@ public partial class MainWindow : Window
     private bool _tikTokAnalyticsEnabled;
     private bool _historyKuaishou;
     private readonly HashSet<string> _collapsedAccountPanels = [];
+    private bool _moduleRailCollapsed;
     private bool _compactLayout;
     private bool _startupLayoutApplied;
     private bool _suspendPlacementTracking;
@@ -132,7 +132,6 @@ public partial class MainWindow : Window
         _accountInventorySync.StatusChanged += _viewModel.AppendLog;
         _accountInventorySync.Start();
         _viewModel.AccountProfileNetworkChanged += profile => _browserHost.InvalidateHostIfNetworkChanged(profile);
-        AccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
         _viewModel.AccountSwitchRequested += OnAccountSwitchRequested;
         _viewModel.DailyLimitReached += message =>
             _ = ConfirmDialog.ShowAsync(
@@ -239,6 +238,16 @@ public partial class MainWindow : Window
         ApplyAccountPanelLayout();
     }
 
+    private void OnModuleRailToggleClick(object? sender, RoutedEventArgs e)
+    {
+        _moduleRailCollapsed = !_moduleRailCollapsed;
+        WindowLayout.ColumnDefinitions[0].Width = new GridLength(_moduleRailCollapsed ? 52 : 148);
+        ModuleRail.Classes.Set("moduleRailCollapsed", _moduleRailCollapsed);
+        var label = _moduleRailCollapsed ? "展开全局导航" : "收起全局导航";
+        ToolTip.SetTip(ModuleRailToggleButton, label);
+        Avalonia.Automation.AutomationProperties.SetName(ModuleRailToggleButton, label);
+    }
+
     private async void OnTikTokSubPageClick(object? sender, RoutedEventArgs e)
     {
         if (sender is Button { Tag: string page })
@@ -250,12 +259,11 @@ public partial class MainWindow : Window
         var hasAccounts = _activeNavTag is "queue" or "kuaishou" or "browser";
         var collapsed = _collapsedAccountPanels.Contains(_activeNavTag);
         var showAccounts = hasAccounts && !collapsed;
-        WindowLayout.ColumnDefinitions[0].Width = new GridLength(showAccounts ? ExpandedSidebarWidth : ModuleNavWidth);
+        WindowLayout.ColumnDefinitions[1].Width = new GridLength(showAccounts ? ExpandedSidebarWidth : 0);
         AccountPanelHost.IsVisible = showAccounts;
         AccountSidebar.IsVisible = showAccounts && (_activeNavTag is "queue" or "browser");
         KuaishouWorkspace.SetAccountPanelVisible(showAccounts && _activeNavTag == "kuaishou");
 
-        BrandLabel.Text = showAccounts ? "TikTok 短剧助手" : "短剧助手";
         SidebarToggleButton.IsVisible = hasAccounts;
         SidebarToggleButton.Content = collapsed ? "›" : "‹";
         var toggleLabel = collapsed ? "展开账号栏" : "收起账号栏";
@@ -733,9 +741,9 @@ public partial class MainWindow : Window
 
     private void OnAnalyticsPlatformChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_activeNavTag != "analytics" || sender is not ComboBox { SelectedItem: ComboBoxItem option })
+        if (_activeNavTag != "analytics" || sender is not TabStrip { SelectedItem: TabStripItem tab })
             return;
-        var showKuaishou = ReferenceEquals(option, KuaishouAnalyticsOption);
+        var showKuaishou = ReferenceEquals(tab, KuaishouAnalyticsTab);
         if (_historyKuaishou == showKuaishou)
             return;
         _historyKuaishou = showKuaishou;
@@ -753,9 +761,9 @@ public partial class MainWindow : Window
         var showTikTok = _tikTokAnalyticsEnabled;
         var showKuaishou = _historyKuaishou || !showTikTok;
         _historyKuaishou = showKuaishou;
-        TikTokAnalyticsOption.IsVisible = showTikTok;
-        AnalyticsPlatformPicker.IsEnabled = showTikTok;
-        AnalyticsPlatformPicker.SelectedItem = showKuaishou ? KuaishouAnalyticsOption : TikTokAnalyticsOption;
+        TikTokAnalyticsTab.IsEnabled = showTikTok;
+        ToolTip.SetTip(TikTokAnalyticsTab, showTikTok ? null : "TikTok 数据统计未启用");
+        AnalyticsPlatformTabs.SelectedItem = showKuaishou ? KuaishouAnalyticsTab : TikTokAnalyticsTab;
         var kuaishouReady = showKuaishou &&
             KuaishouWorkspace.BindAnalytics(KuaishouAnalyticsView);
         HistoryUnavailable.IsVisible = showKuaishou && !kuaishouReady;

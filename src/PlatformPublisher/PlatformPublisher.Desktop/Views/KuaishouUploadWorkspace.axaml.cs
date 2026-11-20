@@ -282,9 +282,6 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         }
     }
 
-    private async void OpenConfiguration_Click(object? sender, RoutedEventArgs e) =>
-        await ShowPageAsync("config");
-
     private void AccountSearch_TextChanged(object? sender, TextChangedEventArgs e) => RefreshSidebar();
 
     private void RefreshSidebar()

@@ -162,7 +162,7 @@ public sealed class TikTokAccountProfile
     public int TiktokRoleVectorMinimumCharacterCount { get; set; } = DefaultRoleVectorMinimumCharacterCount;
     /// <summary>与本公司名称匹配的印章图片；留空时仅允许保留模板固定公司的印章。</summary>
     public string TiktokProofSealPath { get; set; } = "";
-    /// <summary>本账号的权利声明 Word 模板。留空时使用系统设置中的模板，系统设置也留空时使用内置中文模板。</summary>
+    /// <summary>兼容旧版账号数据。权利声明使用系统模板。</summary>
     public string TiktokProofTemplateDocxPath { get; set; } = "";
     /// <summary>证明材料内置模板语言。界面不再提供选择，固定为中文。</summary>
     public string TiktokProofTemplateLanguage { get; set; } = "zh";

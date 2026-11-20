@@ -6,7 +6,6 @@ namespace TikTokPublisher.Ui.Views;
 
 public partial class AccountSidebarView : UserControl
 {
-    public event EventHandler? NavigatePageRequested;
     public Func<Task<bool>>? CanChangeAccountAsync { get; set; }
     private bool _changingAccount;
 
@@ -14,9 +13,6 @@ public partial class AccountSidebarView : UserControl
     {
         InitializeComponent();
     }
-
-    private void OnAccountSettingsClick(object? sender, RoutedEventArgs e) =>
-        NavigatePageRequested?.Invoke(this, EventArgs.Empty);
 
     private Task<bool> ConfirmAccountChangeAsync() =>
         CanChangeAccountAsync?.Invoke() ?? Task.FromResult(true);
@@ -46,23 +42,6 @@ public partial class AccountSidebarView : UserControl
         {
             _changingAccount = false;
         }
-    }
-
-    private async void OnRenameClick(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is not MainViewModel vm || vm.SelectedAccount is null)
-            return;
-
-        var owner = TopLevel.GetTopLevel(this) as Window;
-        var name = await TextPromptDialog.ShowAsync(
-            owner,
-            "重命名账号",
-            "请输入新的账号名称",
-            vm.SelectedAccount.Name);
-        if (string.IsNullOrWhiteSpace(name))
-            return;
-
-        vm.RenameAccount(name.Trim());
     }
 
     private async void OnDeleteClick(object? sender, RoutedEventArgs e)

@@ -12,46 +12,113 @@
     <Window.Styles>
         <Style Selector="Button.moduleNavItem">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-            <Setter Property="MinHeight" Value="30" />
-            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="Padding" Value="7,6,10,6" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="#253C56" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="3,0,0,0" />
+            <Setter Property="CornerRadius" Value="7" />
+        </Style>
+        <Style Selector="Button.moduleNavItem PathIcon">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Foreground" Value="#377BCC" />
+            <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <Style Selector="Button.moduleNavItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#F0F7FF" />
+            <Setter Property="Background" Value="#E5EFFA" />
         </Style>
         <Style Selector="Button.moduleNavItem.moduleNavActive">
-            <Setter Property="Background" Value="#EAF4FF" />
-            <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Background" Value="#CFE4FF" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonPrimaryBrush}" />
+            <Setter Property="Foreground" Value="#064A90" />
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+        <Style Selector="Button.moduleNavItem.moduleNavActive:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#C6DEFC" />
+            <Setter Property="BorderBrush" Value="{StaticResource PythonPrimaryBrush}" />
+            <Setter Property="Foreground" Value="#064A90" />
+        </Style>
+        <Style Selector="Button.moduleNavItem.moduleNavActive PathIcon">
+            <Setter Property="Foreground" Value="#075FAF" />
+        </Style>
+        <Style Selector="Grid.moduleRailCollapsed TextBlock.moduleRailLabel">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="Grid.moduleRailCollapsed Grid#ModuleHeader">
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,6" />
+        </Style>
+        <Style Selector="Grid.moduleRailCollapsed Button.moduleNavItem">
+            <Setter Property="Padding" Value="5,6,8,6" />
         </Style>
     </Window.Styles>
 
-    <Grid x:Name="WindowLayout" RowDefinitions="*,Auto" ColumnDefinitions="198,*">
-        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Background="{StaticResource PythonPanelBgBrush}">
-            <Grid ColumnDefinitions="*,Auto" Margin="12,8,8,8">
-                <TextBlock x:Name="BrandLabel" Text="TikTok 短剧助手" Classes="topBrandLabel"
-                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                <Button x:Name="SidebarToggleButton" Grid.Column="1" Content="‹"
-                        Width="28" Height="28" MinHeight="28" Padding="0" Margin="5,0,0,0"
-                        FontSize="16" FontWeight="Bold" VerticalAlignment="Center"
-                        ToolTip.Tip="收起账号栏" AutomationProperties.Name="收起账号栏" Click="OnSidebarToggleClick" />
+    <Grid x:Name="WindowLayout" RowDefinitions="*,Auto" ColumnDefinitions="148,198,*">
+        <Grid x:Name="ModuleRail" RowDefinitions="Auto,*,Auto" Background="#EEF4FC">
+            <Grid x:Name="ModuleHeader" ColumnDefinitions="*,Auto" MinHeight="44" Margin="12,6,8,6">
+                <TextBlock Text="TikTok 短剧助手" Classes="topBrandLabel moduleRailLabel"
+                           Margin="0,0,5,0" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button x:Name="ModuleRailToggleButton" Grid.Column="1"
+                        Width="28" Height="28" MinHeight="28" Padding="0" VerticalAlignment="Center"
+                        ToolTip.Tip="收起全局导航" AutomationProperties.Name="收起全局导航"
+                        Click="OnModuleRailToggleClick">
+                    <PathIcon Width="16" Height="16" Data="F0 M2,4 H22 V20 H2 Z M4,6 V18 H8 V6 Z M10,6 V18 H20 V6 Z" />
+                </Button>
             </Grid>
-            <StackPanel Grid.Row="1" x:Name="ModuleNav" Margin="8,0,8,8" Spacing="2">
-                <Button Content="浏览器" Tag="browser" Classes="moduleNavItem" Click="OnNavItemClick" />
-                <Button Content="短剧下载" Tag="download" Classes="moduleNavItem" Click="OnNavItemClick" />
-                <Button Content="TikTok 上传" Tag="queue" Classes="moduleNavItem" Click="OnNavItemClick" />
-                <Button Content="快手上传" Tag="kuaishou" Classes="moduleNavItem" Click="OnNavItemClick" />
-                <Button Content="数据统计" Tag="analytics" Classes="moduleNavItem" Click="OnNavItemClick" />
-                <Button Content="系统设置" Tag="settings" Classes="moduleNavItem" Click="OnNavItemClick" />
+            <StackPanel Grid.Row="1" x:Name="ModuleNav" Margin="7,5,7,8" Spacing="4" VerticalAlignment="Top">
+                <Button Tag="browser" Classes="moduleNavItem" AutomationProperties.Name="浏览器" ToolTip.Tip="浏览器" Click="OnNavItemClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="F0 M2,3 H22 V21 H2 Z M4,5 V8 H20 V5 Z M4,10 V19 H20 V10 Z M6,6 H8 V7 H6 Z" />
+                        <TextBlock Text="浏览器" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="download" Classes="moduleNavItem" AutomationProperties.Name="短剧下载" ToolTip.Tip="短剧下载" Click="OnNavItemClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="M11,2 H13 V11 L16,8 L17.4,9.4 L12,15 L6.6,9.4 L8,8 L11,11 Z M3,15 H5 V20 H19 V15 H21 V22 H3 Z" />
+                        <TextBlock Text="短剧下载" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="queue" Classes="moduleNavItem" AutomationProperties.Name="TikTok 上传" ToolTip.Tip="TikTok 上传" Click="OnNavItemClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="M11,2 H20 V6 H14 V17 A5,5 0 1 1 11,12.4 Z" />
+                        <TextBlock Text="TikTok 上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="kuaishou" Classes="moduleNavItem" AutomationProperties.Name="快手上传" ToolTip.Tip="快手上传" Click="OnNavItemClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="F0 M2,6 H16 V10 L22,7 V17 L16,14 V18 H2 Z M4,8 V16 H14 V8 Z" />
+                        <TextBlock Text="快手上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="analytics" Classes="moduleNavItem" AutomationProperties.Name="数据统计" ToolTip.Tip="数据统计" Click="OnNavItemClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="M3,14 H7 V21 H3 Z M10,9 H14 V21 H10 Z M17,3 H21 V21 H17 Z" />
+                        <TextBlock Text="数据统计" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="settings" Classes="moduleNavItem" AutomationProperties.Name="系统设置" ToolTip.Tip="系统设置" Click="OnNavItemClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="M3,5 H8 V3 H12 V5 H21 V7 H12 V9 H8 V7 H3 Z M3,11 H15 V9 H19 V11 H21 V13 H19 V15 H15 V13 H3 Z M3,17 H6 V15 H10 V17 H21 V19 H10 V21 H6 V19 H3 Z" />
+                        <TextBlock Text="系统设置" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
             </StackPanel>
-            <Panel x:Name="AccountPanelHost" Grid.Row="2" ClipToBounds="True">
-                <views:AccountSidebarView x:Name="AccountSidebar" />
-            </Panel>
+            <Button x:Name="SidebarToggleButton" Grid.Row="2" Content="‹"
+                    Width="30" Height="30" MinHeight="30" Padding="0" Margin="0,6,0,8"
+                    FontSize="16" FontWeight="Bold" HorizontalAlignment="Center"
+                    ToolTip.Tip="收起账号栏" AutomationProperties.Name="收起账号栏" Click="OnSidebarToggleClick" />
         </Grid>
 
-        <Panel x:Name="ContentHostPanel" Grid.Column="1" Background="{StaticResource PythonPageBgBrush}">
+        <Panel x:Name="AccountPanelHost" Grid.Column="1" ClipToBounds="True">
+            <views:AccountSidebarView x:Name="AccountSidebar" />
+        </Panel>
+
+        <Panel x:Name="ContentHostPanel" Grid.Column="2" Background="{StaticResource PythonPageBgBrush}">
             <Panel x:Name="BrowserHostMount"
                    IsHitTestVisible="False"
                    ClipToBounds="True"
@@ -90,14 +157,21 @@
             <kuaishou:KuaishouUploadWorkspace x:Name="KuaishouWorkspace" IsVisible="False" />
             <views:SystemSettingsView x:Name="SettingsView" IsVisible="False" />
             <Grid x:Name="HistoryWorkspace" RowDefinitions="Auto,*" IsVisible="False">
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,10,16,4">
-                    <TextBlock Text="平台" VerticalAlignment="Center" />
-                    <ComboBox x:Name="AnalyticsPlatformPicker" MinWidth="120"
-                              AutomationProperties.Name="统计平台" SelectionChanged="OnAnalyticsPlatformChanged">
-                        <ComboBoxItem x:Name="TikTokAnalyticsOption" Content="TikTok" />
-                        <ComboBoxItem x:Name="KuaishouAnalyticsOption" Content="快手" />
-                    </ComboBox>
-                </StackPanel>
+                <TabStrip x:Name="AnalyticsPlatformTabs" Margin="10,5,10,3"
+                          AutomationProperties.Name="统计平台" SelectionChanged="OnAnalyticsPlatformChanged">
+                    <TabStrip.Styles>
+                        <Style Selector="TabStripItem">
+                            <Setter Property="Padding" Value="18,8" />
+                            <Setter Property="FontSize" Value="16" />
+                        </Style>
+                        <Style Selector="TabStripItem:selected">
+                            <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+                            <Setter Property="FontWeight" Value="SemiBold" />
+                        </Style>
+                    </TabStrip.Styles>
+                    <TabStripItem x:Name="TikTokAnalyticsTab" Content="TikTok" />
+                    <TabStripItem x:Name="KuaishouAnalyticsTab" Content="快手" />
+                </TabStrip>
                 <Panel Grid.Row="1">
                     <views:TikTokAccountAnalyticsView x:Name="AnalyticsView" IsVisible="False" />
                     <kuaishou:AnalyticsView x:Name="KuaishouAnalyticsView" IsVisible="False" />
@@ -106,7 +180,7 @@
             </Grid>
         </Panel>
 
-        <Border Grid.Row="1" Grid.ColumnSpan="2" Classes="statusBarFrame" Height="28">
+        <Border Grid.Row="1" Grid.ColumnSpan="3" Classes="statusBarFrame" Height="28">
             <Grid ColumnDefinitions="*,*,*,Auto,Auto" Margin="12,0">
                 <TextBlock Grid.Column="0"
                            VerticalAlignment="Center"

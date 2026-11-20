@@ -601,11 +601,11 @@
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="TikTok 证明材料" FontWeight="Bold" />
-                        <TextBlock Text="以 Word 模板生成权利声明 PDF；PDF 渲染器默认使用 WPS。Word 模板留空时使用内置中文模板。公司、印章和账号自己的模板在账号配置里设置。" Classes="pageSummary" TextWrapping="Wrap" />
+                        <TextBlock Text="所有账号共用这里的 Word 模板生成权利声明 PDF。留空时使用内置中文模板。PDF 默认由 WPS 渲染，公司和印章在各账号配置中填写。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Word 模板" VerticalAlignment="Center" />
                             <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto">
-                                <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="账号未单独指定时使用，留空则使用内置中文模板" />
+                                <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="留空则使用内置中文模板" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofTemplateClick" Margin="8,0,0,0" />
                             </Grid>
 

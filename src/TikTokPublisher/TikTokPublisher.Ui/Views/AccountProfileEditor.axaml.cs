@@ -309,7 +309,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadAiScriptOutlineWithScreenshots,
             profile.TiktokUploadSourceInfoRoleVector,
             profile.TiktokUploadSourceInfoRoleSceneScreenshot);
-        CopyrightMaterials.ProofTemplatePathBox.Text = profile.TiktokProofTemplateDocxPath;
         CopyrightMaterials.ProofDeclarantCompanyNameBox.Text = profile.TiktokProofDeclarantCompanyName;
         CopyrightMaterials.TimestampApplicantNameBox.Text = profile.TiktokTimestampApplicantName;
         CopyrightMaterials.ProofSealPathBox.Text = profile.TiktokProofSealPath;
@@ -450,8 +449,6 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
             profile.TiktokUploadSourceInfoRoleVector = CopyrightMaterials.UploadSourceInfoRoleVector;
             profile.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
-            profile.TiktokProofTemplateDocxPath = CopyrightMaterials.ProofTemplatePathBox.Text?.Trim() ?? "";
-            profile.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.ChineseLanguage;
             profile.TiktokProofDeclarantCompanyName = CopyrightMaterials.ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
             profile.TiktokTimestampApplicantName = CopyrightMaterials.TimestampApplicantNameBox.Text?.Trim() ?? "";
             profile.TiktokProofSealPath = CopyrightMaterials.ProofSealPathBox.Text?.Trim() ?? "";
@@ -1116,7 +1113,6 @@ public partial class AccountProfileEditor : UserControl
         LegacyCdpSettings.IsVisible = false;
         CdpEndpointBox.Text = "";
         ContractIdBox.Text = "";
-        CopyrightMaterials.ProofTemplatePathBox.Text = "";
         CopyrightMaterials.ProofDeclarantCompanyNameBox.Text = "";
         CopyrightMaterials.ProofSealPathBox.Text = "";
         CopyrightMaterials.ProofCopyrightCompanyNameBox.Text = "";

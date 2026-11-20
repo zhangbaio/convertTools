@@ -9,20 +9,10 @@
             <StackPanel DockPanel.Dock="Top" Spacing="7" Margin="0,0,0,10">
                 <TextBlock Text="账号" Classes="pageSummary" />
 
-                <Grid ColumnDefinitions="*,*">
-                    <Button Grid.Column="0" Content="+ 添加账号"
-                            Click="OnAddClick" Margin="0,0,3,0" />
-                    <Button Grid.Column="1" Content="账号配置"
-                            Click="OnAccountSettingsClick" Margin="3,0,0,0" />
-                </Grid>
-
-                <Grid ColumnDefinitions="*,*">
-                    <Button Grid.Column="0" Content="重命名"
-                            Click="OnRenameClick" Margin="0,0,3,0" />
-                    <Button Grid.Column="1" Content="删除"
-                            Classes="dangerAction"
-                            Click="OnDeleteClick" Margin="3,0,0,0" />
-                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Content="添加账号" Click="OnAddClick" />
+                    <Button Content="删除" Classes="dangerAction" Click="OnDeleteClick" />
+                </StackPanel>
             </StackPanel>
 
             <TextBox DockPanel.Dock="Top"

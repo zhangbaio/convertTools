@@ -17,11 +17,10 @@
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="7">
                     <TextBlock Text="快手账号" Classes="pageSummary" />
-                    <WrapPanel>
-                        <Button Content="添加账号" Click="AddAccount_Click" Margin="0,0,6,6" />
-                        <Button Content="账号配置" Click="OpenConfiguration_Click" Margin="0,0,6,6" />
-                        <Button Content="删除" Classes="dangerAction" Click="RemoveAccount_Click" Margin="0,0,6,0" />
-                    </WrapPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Button Content="添加账号" Click="AddAccount_Click" />
+                        <Button Content="删除" Classes="dangerAction" Click="RemoveAccount_Click" />
+                    </StackPanel>
                     <TextBox x:Name="AccountSearch" Watermark="昵称 / ID" TextChanged="AccountSearch_TextChanged" />
                 </StackPanel>
                 <ListBox x:Name="AccountList" Classes="uploadAccountList" SelectionChanged="AccountList_SelectionChanged">

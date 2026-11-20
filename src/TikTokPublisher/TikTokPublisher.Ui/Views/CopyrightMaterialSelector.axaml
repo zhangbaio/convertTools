@@ -70,13 +70,6 @@
                             <StackPanel Classes="materialContents"
                                         IsVisible="{Binding IsChecked, ElementName=ProductionAgreementMaterialBox}">
                                 <TextBlock Classes="materialHint" Text="上传：证明材料.pdf（自动生成）" />
-                                <StackPanel Spacing="5">
-                                    <TextBlock Classes="materialFieldLabel" Text="Word 模板" TextWrapping="Wrap" />
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                        <TextBox Classes="configurationInput" x:Name="ProofTemplatePathBox" Watermark="留空使用系统设置中的模板" />
-                                        <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofTemplateClick" VerticalAlignment="Stretch" />
-                                    </Grid>
-                                </StackPanel>
                                 <UniformGrid x:Name="AgreementPeopleRow" Columns="2">
                                     <StackPanel Spacing="5">
                                         <TextBlock Classes="materialFieldLabel" Text="本公司／声明人" TextWrapping="Wrap" />
@@ -94,7 +87,7 @@
                                         <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofSealClick" VerticalAlignment="Stretch" />
                                     </Grid>
                                 </StackPanel>
-                                <TextBlock Classes="materialHint" Text="Word 模板优先使用本账号设置，其次使用系统设置，均为空时使用内置中文模板。" />
+                                <TextBlock Classes="materialHint" Text="Word 模板在系统设置中统一配置，留空时使用内置中文模板。" />
                             </StackPanel>
                         </StackPanel>
                     </Border>

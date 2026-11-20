@@ -163,26 +163,6 @@ public partial class CopyrightMaterialSelector : UserControl
             ProofSealPathBox.Text = path;
     }
 
-    private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e)
-    {
-        if (Storage is null) return;
-        var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择证明材料 Word 模板",
-            AllowMultiple = false,
-            FileTypeFilter =
-            [
-                new FilePickerFileType("Word 模板")
-                {
-                    Patterns = ["*.docx"],
-                },
-            ],
-        });
-        var path = files.FirstOrDefault()?.TryGetLocalPath();
-        if (!string.IsNullOrWhiteSpace(path))
-            ProofTemplatePathBox.Text = path;
-    }
-
     private void OnMaterialSelectionChanged(object? sender, RoutedEventArgs e)
     {
         if (_isLoading)
