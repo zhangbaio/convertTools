@@ -7,6 +7,7 @@ using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -24,6 +25,7 @@ public partial class AccountProfileEditor : UserControl
     private MainViewModel? _vm;
     private SystemServicesViewModel? _systemServices;
     private bool _isReloadingFromSelectedAccount;
+    private string _cleanDraft = "";
     private bool _persistedRemoteDispatch;
     private bool _suppressUploadedSeriesSearch;
     private int _uploadedSeriesGeneration;
@@ -66,6 +68,62 @@ public partial class AccountProfileEditor : UserControl
     }
 
     public void RefreshSelectedAccount() => ReloadFromSelectedAccount();
+
+    public void UseWorkspaceNavigation()
+    {
+        foreach (var tab in AccountTabs.Items.OfType<TabItem>())
+            tab.IsVisible = false;
+    }
+
+    public bool HasWorkspacePage(string header) => FindWorkspacePage(header) is not null;
+
+    public void SelectWorkspacePage(string header) => AccountTabs.SelectedItem = FindWorkspacePage(header);
+
+    private TabItem? FindWorkspacePage(string header) => AccountTabs.Items.OfType<TabItem>()
+        .FirstOrDefault(tab => Equals(tab.Header, header));
+
+    public async Task<bool> TryLeaveAsync(Window owner)
+    {
+        if (_vm?.SelectedAccount is null || CaptureDraft() == _cleanDraft)
+            return true;
+
+        var save = await ConfirmDialog.ShowSaveChangesAsync(owner, "保存 TikTok 账号配置",
+            $"「{_vm.SelectedAccount.DisplayName}」有未保存的修改。是否保存？");
+        if (save is null)
+            return false;
+        if (save == true)
+            return SaveToProfile();
+        ReloadFromSelectedAccount();
+        return true;
+    }
+
+    private string CaptureDraft()
+    {
+        var values = AccountTabs.Items.OfType<TabItem>()
+            .Where(tab => tab.Header is "发布配置" or "上传材料" or "基础设置")
+            .SelectMany(tab => tab.GetLogicalDescendants())
+            .OfType<Control>()
+            .Select(control => control switch
+            {
+                TextBox text => text.Text ?? "",
+                ComboBox { SelectedItem: ComboBoxItem item } => item.Tag?.ToString() ?? "",
+                ComboBox combo => combo.SelectedIndex.ToString(),
+                NumericUpDown numeric => numeric.Value?.ToString() ?? "",
+                ToggleButton toggle => toggle.IsChecked?.ToString() ?? "",
+                _ => null,
+            }).OfType<string>().ToArray();
+        var publishAccounts = new TikTokAccountProfile();
+        PublishAccounts.WriteTo(publishAccounts);
+        return JsonSerializer.Serialize(new
+        {
+            Values = values,
+            Materials = CopyrightMaterials.GetSelectedMaterialTypes(),
+            Dedup = VideoDedupEditor.Read(),
+            publishAccounts.TiktokCustomPublishAccountsEnabled,
+            publishAccounts.TiktokSelectedPublishAccountKeys,
+            Ai = AccountAi.CaptureDraftState(),
+        });
+    }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -179,6 +237,7 @@ public partial class AccountProfileEditor : UserControl
         try
         {
             ReloadFromSelectedAccountCore();
+            _cleanDraft = _vm?.SelectedAccount is null ? "" : CaptureDraft();
         }
         finally
         {

@@ -241,6 +241,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ? projects
             : Array.Empty<KuaishouLogProject>();
     public event EventHandler? KuaishouLogProjectsChanged;
+    public string? KuaishouLogAccountKey => CurrentKuaishouRunKey();
     private string _activityLogProject = "";
     private static readonly AsyncLocal<string?> ActivityLogProjectScope = new();
     private static readonly AsyncLocal<string?> ActivityLogAccountScope = new();
@@ -402,6 +403,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty] private bool _kuaishouArchiveIsPersonal = true;
     [ObservableProperty] private string _kuaishouArchiveRootText = "";
     [ObservableProperty] private string _kuaishouArchiveFilterText = "";
+    [ObservableProperty] private bool _kuaishouArchiveAllAccounts;
+    public bool UseKuaishouArchiveAccountScope { get; set; }
     [ObservableProperty] private string _workflowFilterText = string.Empty;
     [ObservableProperty] private string _draftNewProjectName = string.Empty;
     [ObservableProperty] private int _workflowPageSize = 20;
@@ -4064,6 +4067,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _scheduleTimer.Stop();
         _interactionService.RequestChanged -= OnInteractionRequestChanged;
         Stop();
+        lock (_kuaishouRunGate)
+        {
+            foreach (var run in _kuaishouAccountRuns.Values.ToArray())
+                run.Cancel();
+        }
     }
 
     private void OnInteractionRequestChanged(WorkflowInteractionRequest? request)
@@ -4698,6 +4706,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Text = $"[{DateTime.Now:HH:mm:ss}] {message}",
             ProjectName = project,
             Platform = ActivityLogPlatformScope.Value ?? SelectedPlatform.Value,
+            AccountKey = accountKey ?? CurrentKuaishouRunKey(),
         };
         EnqueueActivityLog(accountKey, record);
     }
@@ -4922,6 +4931,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task SaveKuaishouArchiveRootAsync(string directory)
     {
+        if (KuaishouArchiveAllAccounts)
+            return;
         if (_activeGlobalAccount is null)
         {
             StatusMessage = "请先在左侧选择账号。";
@@ -4950,52 +4961,50 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var selectedKey = SelectedArchivedProject?.ProjectKey;
         var account = _activeGlobalAccount;
         var platform = KuaishouArchivePlatform();
-        var personal = KuaishouArchiveIsPersonal;
         var workspaceDraft = DraftProjectDirectory;
-        var accountName = account?.Name ?? "";
-        if (account is null)
+        var all = KuaishouArchiveAllAccounts;
+        var scoped = UseKuaishouArchiveAccountScope;
+        if (account is null && !all)
         {
             ApplyKuaishouArchivedProjects(generation, selectedKey, "", []);
             return;
         }
 
-        var configJob = CreateKuaishouArchiveJob(platform, "已归档");
+        var targets = _globalAccounts
+            .Select(candidate => (Account: candidate, Platform: KuaishouAccountEdition.TryGetPlatform(
+                candidate.KuaishouAccountEdition, out var edition) ? (PublishPlatform?)edition : null))
+            .Where(target => target.Platform.HasValue)
+            .Select(target => CreateArchiveTarget(target.Account, target.Platform!.Value,
+                ResolveKuaishouWorkRoot(target.Account, target.Platform.Value))).ToArray();
+        var current = account is null ? null : CreateArchiveTarget(account, platform, workspaceDraft);
+        if (scoped)
+        {
+            _kuaishouArchivedRows = [];
+            ShowKuaishouArchivedProjects(null);
+        }
         _ = Task.Run(() =>
         {
             string archiveRoot;
             IReadOnlyList<ArchivedProjectRowViewModel> rows;
             try
             {
-                var config = KuaishouPersonalConfig.Load(configJob);
-                archiveRoot = config.ArchiveRootDirectory?.Trim() ?? "";
-                if (string.IsNullOrWhiteSpace(archiveRoot) || !Directory.Exists(archiveRoot))
+                archiveRoot = all || current is null ? "" : ReadArchiveRoot(current);
+                if (all)
                 {
-                    rows = [];
-                }
-                else
-                {
-                    var workspace = Directory.Exists(workspaceDraft) ? Path.GetFullPath(workspaceDraft) : archiveRoot;
-                    var source = personal ? "kuaishou_personal" : "kuaishou_enterprise";
-                    rows = TikTokArchivedProjectService.ListBySource(workspace, archiveRoot, source)
-                        .Select(item =>
-                        {
-                            DateTimeOffset? archivedAt = DateTimeOffset.TryParse(item.ArchivedAt, out var parsed) ? parsed : null;
-                            var title = FirstArchiveTitle(item);
-                            return new ArchivedProjectRowViewModel(
-                                item.ProjectKey,
-                                title,
-                                item.MetadataPath,
-                                item.ArchivedSourceDir,
-                                item.ArchivedWorkflowDir,
-                                archivedAt,
-                                0,
-                                0,
-                                item.OriginalTitle,
-                                string.IsNullOrWhiteSpace(item.NewTitle) ? title : item.NewTitle,
-                                string.IsNullOrWhiteSpace(item.AccountProfileName) ? accountName : item.AccountProfileName);
-                        })
+                    rows = targets.SelectMany(target => ReadArchiveRows(target, ReadArchiveRoot(target), false, true))
+                        .DistinctBy(row => row.ArchiveProjectDirectory, StringComparer.OrdinalIgnoreCase)
+                        .OrderByDescending(row => row.ArchivedAt)
                         .ToArray();
                 }
+                else if (current is not null)
+                {
+                    var shared = scoped && targets.Any(target => target.Job.Platform == platform &&
+                        target.Job.AccountId != current.Job.AccountId &&
+                        string.Equals(ReadArchiveRoot(target), archiveRoot, StringComparison.OrdinalIgnoreCase));
+                    rows = ReadArchiveRows(current, archiveRoot, scoped, !shared).ToArray();
+                }
+                else
+                    rows = [];
             }
             catch (Exception ex)
             {
@@ -5006,6 +5015,41 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             PostUi(() => ApplyKuaishouArchivedProjects(generation, selectedKey, archiveRoot, rows));
         });
+    }
+
+    private sealed record KuaishouArchiveTarget(PublishJob Job, string Name);
+
+    private KuaishouArchiveTarget CreateArchiveTarget(GlobalAccount account, PublishPlatform platform, string workspace) =>
+        new(new PublishJob
+        {
+            Platform = platform,
+            AccountId = account.Id,
+            ConfigPath = ResolveGlobalConfigPath(account, platform),
+            ProjectDirectory = workspace,
+            ProjectName = "已归档",
+        }, account.Name);
+
+    private static string ReadArchiveRoot(KuaishouArchiveTarget target) =>
+        KuaishouPersonalConfig.Load(target.Job).ArchiveRootDirectory?.Trim() ?? "";
+
+    private static IEnumerable<ArchivedProjectRowViewModel> ReadArchiveRows(
+        KuaishouArchiveTarget target, string root, bool scoped, bool allowUnassigned)
+    {
+        if (!Directory.Exists(root))
+            yield break;
+        var workspace = Directory.Exists(target.Job.ProjectDirectory) ? target.Job.ProjectDirectory : root;
+        var source = target.Job.Platform == PublishPlatform.KuaishouEnterpriseRevenue ? "kuaishou_enterprise" : "kuaishou_personal";
+        foreach (var item in TikTokArchivedProjectService.ListBySource(workspace, root, source))
+        {
+            if (scoped && !TikTokArchivedProjectService.MatchesAccount(item, target.Job.AccountId, target.Name, allowUnassigned))
+                continue;
+            DateTimeOffset? archivedAt = DateTimeOffset.TryParse(item.ArchivedAt, out var parsed) ? parsed : null;
+            var title = FirstArchiveTitle(item);
+            yield return new ArchivedProjectRowViewModel(item.ProjectKey, title, item.MetadataPath,
+                item.ArchivedSourceDir, item.ArchivedWorkflowDir, archivedAt, 0, 0, item.OriginalTitle,
+                string.IsNullOrWhiteSpace(item.NewTitle) ? title : item.NewTitle,
+                string.IsNullOrWhiteSpace(item.AccountProfileName) ? target.Name : item.AccountProfileName);
+        }
     }
 
     private void ApplyKuaishouArchivedProjects(
@@ -5063,7 +5107,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public async Task RestoreSelectedKuaishouArchiveAsync()
     {
-        if (!IsKuaishouPlatform || SelectedArchivedProject is not { } row)
+        if (KuaishouArchiveAllAccounts || !IsKuaishouPlatform || SelectedArchivedProject is not { } row)
         {
             StatusMessage = "请先选择要回退的归档项目。";
             return;

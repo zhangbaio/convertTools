@@ -18,6 +18,7 @@ namespace TikTokPublisher.Ui.ViewModels;
 
 public static class DramaQueuePlatforms
 {
+    public const string TikTok = "tiktok";
     public const string Kuaishou = "kuaishou";
     public const string KuaishouPersonal = "kuaishou-personal";
     public const string KuaishouEnterprise = "kuaishou-enterprise";
@@ -1057,40 +1058,29 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         await StartDownloadQueueAsync();
     }
 
-    private string? _activePlatformKey;
-
     private async Task AddSelectedToPlatformQueueAsync(string key)
     {
         var action = PlatformQueueActions.FirstOrDefault(item => item.Key == key);
-        if (action is null) return;
-        var previous = QueuePlatformLabel;
-        _activePlatformKey = key;
-        QueuePlatformLabel = action.PlatformLabel;
-        try
-        {
-            await AddSelectedToTikTokQueueAsync();
-        }
-        finally
-        {
-            _activePlatformKey = null;
-            QueuePlatformLabel = previous;
-        }
+        if (action is not null)
+            await AddSelectedToQueueAsync(action.Key, action.PlatformLabel);
     }
 
     [RelayCommand]
-    private async Task AddSelectedToTikTokQueueAsync()
+    private Task AddSelectedToTikTokQueueAsync() => AddSelectedToQueueAsync(null, QueuePlatformLabel);
+
+    private async Task AddSelectedToQueueAsync(string? platformKey, string platformLabel)
     {
         var selected = SelectedSearchItems();
         if (selected.Count == 0)
         {
-            LogRequested?.Invoke($"请先勾选要加入 {QueuePlatformLabel} 队列的短剧");
+            LogRequested?.Invoke($"请先勾选要加入 {platformLabel} 队列的短剧");
             return;
         }
 
-        selected = FilterAuthorExcludedItems(selected, $"{QueuePlatformLabel} 队列");
+        selected = FilterAuthorExcludedItems(selected, $"{platformLabel} 队列");
         if (selected.Count == 0) return;
 
-        var target = CaptureTikTokQueueTarget();
+        var target = CaptureTikTokQueueTarget(platformKey, platformLabel);
         if (target is null)
         {
             return;
@@ -1099,7 +1089,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
 
         if (!await Task.Run(() => Directory.Exists(uploadWorkspace)))
         {
-            LogRequested?.Invoke($"{QueuePlatformLabel}工作目录不存在：{uploadWorkspace}");
+            LogRequested?.Invoke($"{platformLabel}工作目录不存在：{uploadWorkspace}");
             return;
         }
 
@@ -1128,15 +1118,25 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 .ConfigureAwait(true);
             MarkOverLimitProject(projectDir, item, overLimitSettings);
             dirs.Add(projectDir);
-            ClearSearchItemSelection(item);
-            LogRequested?.Invoke($"已准备{QueuePlatformLabel}队列项目：{item.Title}");
+            LogRequested?.Invoke($"已准备{platformLabel}队列项目：{item.Title}");
         }
 
-        UpdateSelectedCount();
         var importHandler = ImportToQueueRequested;
-        if (importHandler is not null)
+        if (importHandler is null)
+            return;
+        try
+        {
             await importHandler(new TikTokQueueImportRequest(target, dirs));
-        LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」{QueuePlatformLabel}队列");
+        }
+        catch (Exception ex)
+        {
+            LogRequested?.Invoke($"加入{platformLabel}队列失败：{ex.Message}");
+            return;
+        }
+        foreach (var item in selected)
+            ClearSearchItemSelection(item);
+        UpdateSelectedCount();
+        LogRequested?.Invoke($"已加入 {dirs.Count} 个剧目到「{target.AccountProfileName}」{platformLabel}队列");
     }
 
     [RelayCommand]
@@ -1175,6 +1175,12 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var currentId = TikTokQueueTargetRequested?.Invoke()?.AccountProfileId;
         var picked = await picker(targets, currentId);
         if (picked is null || picked.Count == 0) return;
+        if (picked.GroupBy(target => Path.TrimEndingDirectorySeparator(Path.GetFullPath(target.WorkspaceRoot)),
+                StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
+        {
+            LogRequested?.Invoke("多个目标账号使用了同一工作目录。请为各账号设置独立目录后再加入队列。");
+            return;
+        }
 
         var importHandler = ImportToQueueRequested;
         if (importHandler is null) return;
@@ -1264,9 +1270,13 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         var titles = items.Select(item => item.Title).Where(title => !string.IsNullOrWhiteSpace(title)).ToList();
         foreach (var account in accounts)
         {
-            var profile = AccountProfileRequested?.Invoke(account.AccountProfileId);
-            var existence = await DramaDownloadExistenceService.CheckAsync(titles, profile, CancellationToken.None);
-            var archiveKeys = new HashSet<string>(existence.ArchiveKeys, StringComparer.Ordinal);
+            var isTikTok = account.PlatformKey is "" or DramaQueuePlatforms.TikTok;
+            var profile = isTikTok ? AccountProfileRequested?.Invoke(account.AccountProfileId) : null;
+            var existence = isTikTok
+                ? await DramaDownloadExistenceService.CheckAsync(titles, profile, CancellationToken.None)
+                : null;
+            var archiveKeys = new HashSet<string>(
+                (IEnumerable<string>?)existence?.ArchiveKeys ?? [], StringComparer.Ordinal);
             if (profile is not null && !string.IsNullOrWhiteSpace(account.WorkspaceRoot))
             {
                 try
@@ -1300,7 +1310,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
                 LogRequested?.Invoke($"「{account.AccountProfileName}」工作目录核对失败：{ex.Message}");
             }
 
-            if (!existence.ManagementChecked && !string.IsNullOrWhiteSpace(existence.ManagementMessage))
+            if (existence is { ManagementChecked: false } && !string.IsNullOrWhiteSpace(existence.ManagementMessage))
                 LogRequested?.Invoke($"「{account.AccountProfileName}」管理系统未核对：{existence.ManagementMessage}");
 
             var archiveCount = 0;
@@ -1311,8 +1321,8 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             {
                 var key = AiRewriteHistoryService.NormalizeTitleKey(item.Title);
                 if (key.Length == 0) continue;
-                var inArchive = existence.ArchiveChecked && archiveKeys.Contains(key);
-                var inManagement = existence.ManagementChecked && existence.ManagementKeys.Contains(key);
+                var inArchive = existence?.ArchiveChecked == true && archiveKeys.Contains(key);
+                var inManagement = existence?.ManagementChecked == true && existence.ManagementKeys.Contains(key);
                 var inWorkspace = workspaceKeys.Contains(key);
                 if (!inArchive && !inManagement && !inWorkspace) continue;
                 blocked.Add(item.Title);
@@ -1767,15 +1777,15 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             ? target.AccountProfileId
             : target.PlatformKey + "\u001f" + target.AccountProfileId;
 
-    private TikTokQueueImportTarget? CaptureTikTokQueueTarget()
+    private TikTokQueueImportTarget? CaptureTikTokQueueTarget(string? platformKey = null, string? platformLabel = null)
     {
-        var target = string.IsNullOrEmpty(_activePlatformKey)
+        var target = string.IsNullOrEmpty(platformKey)
             ? TikTokQueueTargetRequested?.Invoke()
-            : PlatformQueueTargetRequested?.Invoke(_activePlatformKey) ?? TikTokQueueTargetRequested?.Invoke();
-        if (string.IsNullOrEmpty(_activePlatformKey))
+            : PlatformQueueTargetRequested?.Invoke(platformKey);
+        if (string.IsNullOrEmpty(platformKey))
             UpdateTikTokQueueTarget(target);
         if (target is not null) return target;
-        LogRequested?.Invoke($"请先为左侧所选账号配置有效的{QueuePlatformLabel}上传工作目录");
+        LogRequested?.Invoke($"请先在{platformLabel ?? QueuePlatformLabel}上传页为目标账号设置有效的工作目录");
         return null;
     }
 

@@ -441,8 +441,6 @@ public static class PublisherConfigTransfer
         return "";
     }
 
-    private static List<AppSettingRow> ReadAppSettings(string databasePath)
-    {
     private static string SanitizeSettingsRow(string key, string json)
     {
         if (key != ClientSettingsStore.SettingsKey || JsonNode.Parse(json) is not JsonObject settings)
@@ -474,6 +472,8 @@ public static class PublisherConfigTransfer
         command.ExecuteNonQuery();
     }
 
+    private static List<AppSettingRow> ReadAppSettings(string databasePath)
+    {
         if (string.IsNullOrWhiteSpace(databasePath) || !File.Exists(databasePath))
             return [];
         var rows = new List<AppSettingRow>();
@@ -506,8 +506,8 @@ public static class PublisherConfigTransfer
         {
             using var command = connection.CreateCommand();
             command.Transaction = tx;
-            command.CommandText =
             var json = SanitizeSettingsRow(row.Key, row.ValueJson);
+            command.CommandText =
                 """
                 INSERT INTO app_settings (key, value_json, updated_at)
                 VALUES ($key, $value, $updated)

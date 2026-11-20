@@ -13,6 +13,7 @@ public sealed class LogEntry
     public string Level { get; init; } = "info";
     public string ProjectName { get; init; } = "";
     public string ProjectPath { get; init; } = "";
+    public string? AccountId { get; init; }
     public DateTime CreatedAt { get; init; } = DateTime.Now;
     public IBrush Foreground => LogService.BrushForLevel(Level);
 }
@@ -63,6 +64,8 @@ public sealed class LogService
     private bool _changedScheduled;
     private string _selectedProjectPath = "";
     private bool _problemsOnly;
+    private string? _accountId;
+    private bool _scopeConfigured;
 
     public ObservableCollection<LogProjectItem> Projects { get; } = new();
     public ObservableCollection<LogEntry> RenderedEntries { get; } = new();
@@ -104,7 +107,18 @@ public sealed class LogService
 
     public event Action? Changed;
 
-    public void Append(string text)
+    public void SetAccountScope(string? accountId)
+    {
+        if (_scopeConfigured && string.Equals(_accountId, accountId, StringComparison.OrdinalIgnoreCase))
+            return;
+        _scopeConfigured = true;
+        _accountId = accountId;
+        _selectedProjectPath = "";
+        RefreshRendered();
+        ScheduleChanged();
+    }
+
+    public void Append(string text, string? accountId = null)
     {
         var line = (text ?? "").Replace("\r\n", "\n").TrimEnd();
         if (string.IsNullOrWhiteSpace(line)) return;
@@ -120,7 +134,10 @@ public sealed class LogService
             Text = normalizedLine,
             Level = level,
             ProjectName = project,
-            ProjectPath = ResolveProjectPath(project),
+            ProjectPath = !_scopeConfigured || accountId is null || string.Equals(accountId, _accountId, StringComparison.OrdinalIgnoreCase)
+                ? ResolveProjectPath(project)
+                : "",
+            AccountId = accountId,
             CreatedAt = now,
         };
         _entries.Add(entry);
@@ -141,7 +158,8 @@ public sealed class LogService
     /// </summary>
     public int ClearProjectEntries(
         IEnumerable<QueueProjectItem> items,
-        DateTime? preserveEntriesSince = null)
+        DateTime? preserveEntriesSince = null,
+        string? accountId = null)
     {
         ArgumentNullException.ThrowIfNull(items);
 
@@ -164,6 +182,10 @@ public sealed class LogService
 
         var removed = _entries.RemoveAll(entry =>
         {
+            if (accountId is not null && entry.AccountId is not null &&
+                !string.Equals(entry.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
+                return false;
+
             if (preserveEntriesSince.HasValue &&
                 entry.CreatedAt >= preserveEntriesSince.Value)
             {
@@ -222,7 +244,9 @@ public sealed class LogService
     public void UpdateSnapshot(IEnumerable<QueueProjectRowViewModel> rows, string? workspacePath, bool queueRunning)
     {
         IsRunning = queueRunning;
-        WorkspaceLabel = string.IsNullOrWhiteSpace(workspacePath)
+        WorkspaceLabel = _scopeConfigured && _accountId is null
+            ? "全部 TikTok 账号的近期日志"
+            : string.IsNullOrWhiteSpace(workspacePath)
             ? "TikTok队列工作目录：未选择"
             : $"TikTok队列工作目录：{workspacePath}";
 
@@ -262,7 +286,7 @@ public sealed class LogService
                 Projects.Add(project);
         }
 
-        if (AutoFollowActiveProject)
+        if (AutoFollowActiveProject && (!_scopeConfigured || _accountId is not null))
         {
             var active = list.FirstOrDefault(IsUploadRunning)
                          ?? list.FirstOrDefault(r => r.StatusText == QueueStepStatus.Running)
@@ -346,12 +370,14 @@ public sealed class LogService
         if (!string.IsNullOrWhiteSpace(entry.ProjectPath))
             return "path:" + NormalizeProjectPath(entry.ProjectPath);
         if (!string.IsNullOrWhiteSpace(entry.ProjectName))
-            return "name:" + entry.ProjectName.Trim();
+            return "name:" + entry.AccountId + ":" + entry.ProjectName.Trim();
         return null;
     }
 
     private bool EntryMatchesFilter(LogEntry entry)
     {
+        if (_accountId is not null && !string.Equals(entry.AccountId, _accountId, StringComparison.OrdinalIgnoreCase))
+            return false;
         if (ProblemsOnly)
         {
             if (!IsProblemLevel(entry.Level)
@@ -371,28 +397,7 @@ public sealed class LogService
                    && string.Equals(path, SelectedProjectPath, StringComparison.OrdinalIgnoreCase));
     }
 
-    private IEnumerable<LogEntry> FilterEntries()
-    {
-        IEnumerable<LogEntry> query = _entries;
-        if (!string.IsNullOrWhiteSpace(SelectedProjectPath))
-        {
-            query = query.Where(e =>
-                string.Equals(e.ProjectPath, SelectedProjectPath, StringComparison.OrdinalIgnoreCase)
-                || (string.IsNullOrWhiteSpace(e.ProjectPath)
-                    && !string.IsNullOrWhiteSpace(e.ProjectName)
-                    && _nameIndex.TryGetValue(e.ProjectName, out var path)
-                    && string.Equals(path, SelectedProjectPath, StringComparison.OrdinalIgnoreCase)));
-        }
-
-        if (ProblemsOnly)
-        {
-            query = query.Where(e =>
-                IsProblemLevel(e.Level)
-                || ContainsProblemKeyword(e.Text));
-        }
-
-        return query;
-    }
+    private IEnumerable<LogEntry> FilterEntries() => _entries.Where(EntryMatchesFilter);
 
     private void ScheduleChanged()
     {

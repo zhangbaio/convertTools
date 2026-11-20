@@ -244,6 +244,8 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
     [ObservableProperty] private string _rootSummary = "归档根目录: 未选择工作目录";
     [ObservableProperty] private ArchivedProjectRowViewModel? _selectedRow;
     [ObservableProperty] private bool _isMigratingLegacyArchive;
+    [ObservableProperty] private bool _showAllAccounts;
+    public bool UseAccountScope { get; set; }
 
     public event Action<string>? StatusRequested;
     public event Action? Restored;
@@ -267,6 +269,8 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public void SetArchiveRootDir(string? archiveRootDir)
     {
+        if (ShowAllAccounts)
+            return;
         var account = AccountProvider?.Invoke();
         if (account is null)
         {
@@ -297,7 +301,7 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
             ? "归档根目录: 未选择工作目录"
             : $"归档根目录: {ArchiveRootDir}";
         var workspace = WorkspaceForAction();
-        if (workspace is null || !Directory.Exists(workspace))
+        if (!ShowAllAccounts && (workspace is null || !Directory.Exists(workspace)))
         {
             Rows.Clear();
             FilteredRows.Clear();
@@ -306,13 +310,41 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
         }
 
         var archiveRoot = ArchiveRootDir;
+        var account = AccountProvider?.Invoke();
+        var scopeAccounts = AccountsProvider?.Invoke() ?? [];
+        var archiveLocations = scopeAccounts
+            .Select(profile => (Workspace: profile.ResolveWorkspacePath(), Root: profile.ResolveArchiveRootPath()))
+            .Where(location => !string.IsNullOrWhiteSpace(location.Root))
+            .ToArray();
+        var all = ShowAllAccounts;
+        var scoped = UseAccountScope;
+        var allowUnassigned = archiveLocations.Count(location =>
+            string.Equals(location.Root, archiveRoot, StringComparison.OrdinalIgnoreCase)) <= 1;
+        if (scoped)
+        {
+            SelectedRow = null;
+            Rows.Clear();
+            FilteredRows.Clear();
+        }
         List<ArchivedProjectRowViewModel> loaded;
         try
         {
             loaded = await Task.Run(() =>
-                TikTokArchivedProjectService.List(workspace, archiveRoot)
+            {
+                var items = all
+                    ? archiveLocations.SelectMany(location => TikTokArchivedProjectService.List(
+                        Directory.Exists(location.Workspace) ? location.Workspace : location.Root, location.Root))
+                        .DistinctBy(item => string.IsNullOrWhiteSpace(item.MetadataPath)
+                            ? item.ArchiveProjectDir : item.MetadataPath, StringComparer.OrdinalIgnoreCase)
+                        .OrderByDescending(item => item.ArchivedAt, StringComparer.Ordinal)
+                    : TikTokArchivedProjectService.List(workspace!, archiveRoot).Where(item =>
+                        !scoped || (account is not null && TikTokArchivedProjectService.MatchesAccount(
+                            item, account.Id, account.DisplayName, allowUnassigned)));
+                return items
+                    .Where(item => !scoped || string.Equals(item.ArchiveSource, "tiktok", StringComparison.OrdinalIgnoreCase))
                     .Select(item => new ArchivedProjectRowViewModel(item))
-                    .ToList()).ConfigureAwait(true);
+                    .ToList();
+            }).ConfigureAwait(true);
         }
         catch (Exception ex)
         {
@@ -330,6 +362,8 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
         foreach (var row in loaded)
             Rows.Add(row);
         ApplySearchFilter();
+        if (all)
+            RootSummary = "全部账号归档。切回单个账号可管理归档。";
     }
 
     public void SelectAll()
@@ -381,6 +415,8 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public async Task RestoreSelectedAsync()
     {
+        if (ShowAllAccounts)
+            return;
         var targets = TargetRowsForAction();
         if (targets.Length == 0)
         {
@@ -428,6 +464,8 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public async Task DeleteSelectedAsync()
     {
+        if (ShowAllAccounts)
+            return;
         var targets = TargetRowsForAction();
         if (targets.Length == 0)
         {
@@ -481,6 +519,8 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public async Task<AccountArchiveMigrationPreview?> PrepareLegacyArchiveMigrationAsync()
     {
+        if (ShowAllAccounts)
+            return null;
         if (IsMigratingLegacyArchive)
             return null;
 
@@ -603,6 +643,8 @@ public sealed partial class ArchivedProjectsViewModel : ViewModelBase
 
     public async Task SyncCheckedToManagementAsync()
     {
+        if (ShowAllAccounts)
+            return;
         var targets = Rows.Where(row => row.Selected).ToArray();
         if (targets.Length == 0)
         {

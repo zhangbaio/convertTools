@@ -16,6 +16,9 @@ public partial class KuaishouQueueLogView : UserControl
     private readonly ObservableCollection<LogProjectRow> _projects = [];
     private MainWindowViewModel? _vm;
     private bool _syncingSelection;
+    private bool _useAccountScope;
+    private bool _allAccounts;
+    private string? _accountKey;
     private string _selectedProject = "";
     private string _logText = "";
 
@@ -88,15 +91,26 @@ public partial class KuaishouQueueLogView : UserControl
         }, Avalonia.Threading.DispatcherPriority.Background);
     }
 
+    public void SetAccountScope(bool all)
+    {
+        var nextKey = _vm?.KuaishouLogAccountKey;
+        if (!_useAccountScope || _allAccounts != all || _accountKey != nextKey)
+            _selectedProject = "";
+        _useAccountScope = true;
+        _allAccounts = all;
+        _accountKey = nextKey;
+        Refresh();
+    }
+
     public void Refresh()
     {
         if (_vm is null) return;
-        TitleLabel.Text = _vm.KuaishouEditionHeading;
+        TitleLabel.Text = _allAccounts ? "快手运行日志 · 全部账号" : _vm.KuaishouEditionHeading;
         ReturnButton.Content = "返回快手分账";
-        WorkspaceLabel.Text = string.IsNullOrWhiteSpace(_vm.DraftProjectDirectory)
+        WorkspaceLabel.Text = _allAccounts ? "全部快手账号的近期日志" : string.IsNullOrWhiteSpace(_vm.DraftProjectDirectory)
             ? "工作目录：未选择"
             : $"工作目录：{_vm.DraftProjectDirectory}";
-        StopButton.IsEnabled = _vm.IsCurrentWorkStoppable;
+        StopButton.IsEnabled = !_allAccounts && _vm.IsCurrentWorkStoppable;
         RebuildProjects();
         RefreshLog();
     }
@@ -112,7 +126,7 @@ public partial class KuaishouQueueLogView : UserControl
 
     private List<PublishJobRowViewModel> CheckedJobs()
     {
-        if (_vm is null)
+        if (_vm is null || _allAccounts)
             return [];
         return WhereChecked(
             _vm.VisibleJobs,
@@ -285,6 +299,10 @@ public partial class KuaishouQueueLogView : UserControl
     {
         if (_vm is null)
             return [];
+        if (_allAccounts)
+            return _vm.ActivityLogRecords.Where(record => record.Platform is
+                PlatformPublisher.Common.Models.PublishPlatform.KuaishouPersonalRevenue or
+                PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue).Select(record => record.Text);
         var jobs = CheckedJobs();
         if (!string.IsNullOrEmpty(_selectedProject))
         {
@@ -294,6 +312,8 @@ public partial class KuaishouQueueLogView : UserControl
             return LinesFor(job);
         }
 
+        if (_useAccountScope)
+            return jobs.SelectMany(LinesFor).Concat(ActivityLines("")).Distinct(StringComparer.Ordinal);
         return jobs.SelectMany(LinesFor);
     }
 
@@ -320,6 +340,7 @@ public partial class KuaishouQueueLogView : UserControl
         var platform = _vm.SelectedPlatform.Value;
         return _vm.ActivityLogRecords
             .Where(record => record.Platform == platform)
+            .Where(record => !_useAccountScope || (_accountKey is not null && record.AccountKey == _accountKey))
             .Where(record => string.IsNullOrEmpty(projectName) ||
                              string.Equals(record.ProjectName, projectName, StringComparison.Ordinal) ||
                              record.Text.Contains(projectName, StringComparison.Ordinal))

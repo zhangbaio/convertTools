@@ -19,7 +19,6 @@ public partial class LogView : UserControl
     private readonly List<int> _renderedInlineCounts = [];
 
     public event EventHandler? ReturnRequested;
-    public event EventHandler? StopRequested;
 
     public LogView()
     {
@@ -261,8 +260,8 @@ public partial class LogView : UserControl
 
     private void OnStopClick(object? sender, RoutedEventArgs e)
     {
-        StopRequested?.Invoke(this, EventArgs.Empty);
-        _vm?.RequestStopQueue();
+        if (_vm?.SelectedAccount?.Model.ResolveWorkspacePath() is { Length: > 0 } workspace)
+            _vm.RequestStopQueue(workspace);
     }
 
     private async void OnCopyClick(object? sender, RoutedEventArgs e)

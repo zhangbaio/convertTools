@@ -84,6 +84,8 @@ public partial class App : Application
 
     private void StartMainWindow(IClassicDesktopStyleApplicationLifetime desktop)
     {
+            var workspaceLease = KuaishouWorkspaceLease.Acquire();
+            desktop.Exit += (_, _) => workspaceLease.Dispose();
             ShortDramaDramaServices.UseSettingsDatabase(PlatformPublisherPaths.SettingsDatabasePath);
             _services = BuildServices();
             _ = _services.GetRequiredService<AnalyticsRepository>();
@@ -145,7 +147,7 @@ public partial class App : Application
             mainWindow.StartYunfanLicenseVerifyTimer();
     }
 
-    private static ServiceProvider BuildServices()
+    internal static ServiceProvider BuildServices(DramaSourceRouter? sharedDramaRouter = null)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information));
@@ -156,8 +158,13 @@ public partial class App : Application
         services.AddSingleton<HongguoMemoryReaderService>();
         services.AddSingleton<HongguoDramaSearchService>();
         services.AddSingleton<HongguoDramaDownloader>();
-        services.AddSingleton<IDramaSettingsProvider, YunfanDramaSettingsProvider>();
-        services.AddSingleton<DramaSourceRouter>();
+        if (sharedDramaRouter is null)
+        {
+            services.AddSingleton<IDramaSettingsProvider, YunfanDramaSettingsProvider>();
+            services.AddSingleton<DramaSourceRouter>();
+        }
+        else
+            services.AddSingleton(sharedDramaRouter);
         services.AddSingleton<IDramaSearchService>(provider => provider.GetRequiredService<DramaSourceRouter>());
         services.AddSingleton<IDramaDownloader>(provider => provider.GetRequiredService<DramaSourceRouter>());
         services.AddSingleton<IDocumentRenderService, LibreOfficeDocumentRenderService>();
@@ -247,7 +254,9 @@ public partial class App : Application
         services.AddSingleton<KuaishouOnlineQueueStore>();
         services.AddSingleton<KuaishouOnlineQueueProcessor>();
         services.AddSingleton<IKuaishouAccountEditionCatalog>(provider =>
-            new GlobalKuaishouAccountEditionCatalog(provider.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>()));
+            new GlobalKuaishouAccountEditionCatalog(
+                provider.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>(),
+                excludeRemovedWorkspaceAccounts: sharedDramaRouter is not null));
         services.AddSingleton<KuaishouOnlineQueueWorker>();
         services.AddSingleton<KuaishouScheduledShelfService>();
         services.AddSingleton<KuaishouPersonalUploadService>();

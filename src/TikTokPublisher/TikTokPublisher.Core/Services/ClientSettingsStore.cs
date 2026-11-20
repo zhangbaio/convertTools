@@ -216,14 +216,14 @@ public static class ClientSettingsStore
                 key.StartsWith("remote_tiktok_upload_", StringComparison.Ordinal))
             {
                 settings.Remove(key);
+            }
         }
     }
-            }
 
-        CopyLegacyValue("tiktok_silence_local_model_dir", "tiktok_asr_local_model_dir");
-        CopyLegacyValue("tiktok_silence_local_vad_path", "tiktok_asr_local_vad_path");
     private static void MigrateSharedAsrSettings(JsonObject settings)
     {
+        CopyLegacyValue("tiktok_silence_local_model_dir", "tiktok_asr_local_model_dir");
+        CopyLegacyValue("tiktok_silence_local_vad_path", "tiktok_asr_local_vad_path");
         CopyLegacyValue("tiktok_silence_asr_app_id", "tiktok_asr_app_id");
         CopyLegacyValue("tiktok_silence_asr_access_token", "tiktok_asr_access_token");
         CopyLegacyValue("tiktok_silence_asr_language", "tiktok_asr_language");

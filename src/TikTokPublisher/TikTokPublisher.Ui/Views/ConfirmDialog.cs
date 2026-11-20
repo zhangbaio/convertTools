@@ -7,9 +7,10 @@ namespace TikTokPublisher.Ui.Views;
 
 public sealed class ConfirmDialog : Window
 {
-    private bool _accepted;
+    private bool? _accepted;
 
-    private ConfirmDialog(string title, string message, double width, double height, string confirmText, string cancelText)
+    private ConfirmDialog(string title, string message, double width, double height, string confirmText, string cancelText,
+        string? discardText = null)
     {
         Title = title;
         Width = width;
@@ -39,6 +40,16 @@ public sealed class ConfirmDialog : Window
         };
         cancel.Click += (_, _) => Close();
         buttons.Children.Add(ok);
+        if (discardText is not null)
+        {
+            var discard = new Button { Content = discardText, MinWidth = 88 };
+            discard.Click += (_, _) =>
+            {
+                _accepted = false;
+                Close();
+            };
+            buttons.Children.Add(discard);
+        }
         buttons.Children.Add(cancel);
         root.Children.Add(buttons);
         Content = root;
@@ -58,6 +69,13 @@ public sealed class ConfirmDialog : Window
             await dialog.ShowDialog(owner);
         else
             await dialog.ShowDialog(new Window());
+        return dialog._accepted == true;
+    }
+
+    public static async Task<bool?> ShowSaveChangesAsync(Window owner, string title, string message)
+    {
+        var dialog = new ConfirmDialog(title, message, 440, 170, "保存", "取消", "放弃修改");
+        await dialog.ShowDialog(owner);
         return dialog._accepted;
     }
 }

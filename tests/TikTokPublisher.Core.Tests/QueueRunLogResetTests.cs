@@ -9,6 +9,23 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class QueueRunLogResetTests
 {
     [Fact]
+    public void Account_scope_and_project_reset_keep_other_accounts_with_the_same_project_title()
+    {
+        var logs = new LogService();
+        logs.Append("[10:00:00] INFO [同名剧] 甲账号进度", "a");
+        logs.Append("[10:00:01] INFO [同名剧] 乙账号进度", "b");
+
+        logs.SetAccountScope("a");
+        logs.BuildCopyText().Should().Contain("甲账号进度").And.NotContain("乙账号进度");
+        logs.ClearProjectEntries([new QueueProjectItem { OriginalTitle = "同名剧" }], accountId: "a")
+            .Should().Be(1);
+        logs.BuildCopyText().Should().BeEmpty();
+
+        logs.SetAccountScope(null);
+        logs.BuildCopyText().Should().Contain("乙账号进度").And.NotContain("甲账号进度");
+    }
+
+    [Fact]
     public void New_standalone_run_clears_the_previous_log_view()
     {
         var logs = new LogService();

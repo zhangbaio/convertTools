@@ -1010,17 +1010,30 @@ public sealed partial class MainViewModel : ViewModelBase
         IsQueueRunning = _queueRunActive || _queueOrchestrator.AnyRunning;
     }
 
-    public void AppendLog(string text)
+    private readonly AsyncLocal<string?> _queueLogAccount = new();
+    private bool _showAllLogAccounts;
+    private bool _logScopeEnabled;
+
+    public void AppendLog(string text) => AppendLog(text, _queueLogAccount.Value ?? SelectedAccount?.Id);
+
+    private void AppendLog(string text, string? accountId)
     {
         if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => AppendLog(text));
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => AppendLog(text, accountId));
             return;
         }
 
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
         var level = LogService.InferLevel(text);
-        Logs.Append($"[{timestamp}] {LogService.FormatLevel(level)} {text}");
+        Logs.Append($"[{timestamp}] {LogService.FormatLevel(level)} {text}", accountId);
+    }
+
+    public void SetLogAccountScope(bool all)
+    {
+        _logScopeEnabled = true;
+        _showAllLogAccounts = all;
+        RefreshLogSnapshot(force: true);
     }
 
     public void RefreshLogSnapshot(bool force = false)
@@ -1028,7 +1041,21 @@ public sealed partial class MainViewModel : ViewModelBase
         if (!force && (DateTime.UtcNow - _lastLogSnapshotUtc).TotalMilliseconds < 1500)
             return;
         _lastLogSnapshotUtc = DateTime.UtcNow;
-        Logs.UpdateSnapshot(QueueProjectRows, WorkspacePath, IsQueueRunning);
+        if (!_logScopeEnabled)
+        {
+            Logs.UpdateSnapshot(QueueProjectRows, WorkspacePath, IsQueueRunning);
+            return;
+        }
+
+        var account = SelectedAccount;
+        Logs.SetAccountScope(_showAllLogAccounts ? null : account?.Id ?? "");
+        var workspace = account?.Model.ResolveWorkspacePath();
+        var rows = QueueProjectRows.Where(row =>
+            string.Equals(row.Item.AccountProfileId, account?.Id, StringComparison.OrdinalIgnoreCase) ||
+            (string.IsNullOrWhiteSpace(row.Item.AccountProfileId) &&
+             string.Equals(workspace, WorkspacePath, StringComparison.OrdinalIgnoreCase)));
+        Logs.UpdateSnapshot(_showAllLogAccounts ? [] : rows, _showAllLogAccounts ? null : workspace,
+            !_showAllLogAccounts && !string.IsNullOrWhiteSpace(workspace) && IsWorkspaceQueueRunning(workspace));
     }
 
     public void RequestNavigate(string pageTag) => NavigatePageRequested?.Invoke(pageTag);
@@ -2517,6 +2544,7 @@ public sealed partial class MainViewModel : ViewModelBase
         }
 
         var effectiveAccount = targetAccount ?? (isDisplayedWorkspace ? SelectedAccount : null);
+        _queueLogAccount.Value = effectiveAccount?.Id;
 
         var runOptions = optionsOverride?.Clone() ?? (isDisplayedWorkspace
             ? BuildQueueRunOptionsFromUi()
@@ -2582,7 +2610,7 @@ public sealed partial class MainViewModel : ViewModelBase
         preparation.ValidationError?.Throw();
         var selectedRunCount = preparation.SelectedRunCount;
 
-        Logs.ClearProjectEntries(runItems, preserveProjectLogsSince);
+        Logs.ClearProjectEntries(runItems, preserveProjectLogsSince, effectiveAccount?.Id);
         RefreshRunningWorkspacesSummary();
         var batchId = TikTokExecutionHistoryService.NewBatchId();
         var totalCount = selectedRunCount;
@@ -5653,6 +5681,23 @@ public sealed partial class MainViewModel : ViewModelBase
         return target;
     }
 
+    private Func<IReadOnlyList<TikTokQueueImportTarget>>? _kuaishouDownloadTargets;
+    private Func<TikTokQueueImportRequest, Task>? _importKuaishouDownloads;
+
+    public void BindKuaishouDownloadQueue(Func<TikTokQueueImportTarget?> selectedTarget,
+        Func<IReadOnlyList<TikTokQueueImportTarget>> targets, Func<TikTokQueueImportRequest, Task> import)
+    {
+        _kuaishouDownloadTargets = targets;
+        _importKuaishouDownloads = import;
+        DramaDownload.ConfigurePlatformQueues([(DramaQueuePlatforms.TikTok, "TikTok"), (DramaQueuePlatforms.Kuaishou, "快手")]);
+        DramaDownload.PlatformQueueTargetRequested += key => key switch
+        {
+            DramaQueuePlatforms.TikTok => CaptureSelectedAccountQueueImportTarget(),
+            DramaQueuePlatforms.Kuaishou => selectedTarget(),
+            _ => null,
+        };
+    }
+
     private IReadOnlyList<TikTokQueueImportTarget> ListTikTokQueueImportTargets()
     {
         var targets = new List<TikTokQueueImportTarget>();
@@ -5661,9 +5706,13 @@ public sealed partial class MainViewModel : ViewModelBase
             var workspace = NormalizeWorkspacePath(account.Model.ResolveWorkspacePath());
             if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
                 continue;
-            targets.Add(new TikTokQueueImportTarget(account.Id, account.DisplayName, workspace));
+            targets.Add(new TikTokQueueImportTarget(account.Id, account.DisplayName, workspace,
+                _kuaishouDownloadTargets is null ? "" : DramaQueuePlatforms.TikTok,
+                _kuaishouDownloadTargets is null ? "" : "TikTok"));
         }
 
+        if (_kuaishouDownloadTargets is { } kuaishouTargets)
+            targets.AddRange(kuaishouTargets());
         return targets;
     }
 
@@ -5763,6 +5812,13 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(request);
         var target = request.Target;
+        if (target.PlatformKey == DramaQueuePlatforms.Kuaishou)
+        {
+            if (_importKuaishouDownloads is null)
+                throw new InvalidOperationException("快手上传工作区未就绪。");
+            await _importKuaishouDownloads(request);
+            return;
+        }
         if (!ValidateTikTokQueueImportTarget(target, out var error))
         {
             StatusMessage = error;

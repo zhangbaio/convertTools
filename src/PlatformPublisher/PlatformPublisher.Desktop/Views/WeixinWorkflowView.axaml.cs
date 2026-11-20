@@ -23,6 +23,8 @@ public partial class WeixinWorkflowView : UserControl
     private int _kuaishouResizeColumn = -1;
     private double _kuaishouResizeStartX;
     private double _kuaishouResizeStartWidth;
+    private bool _embeddedUploadLayout;
+    private bool _kuaishouColumnsAdjusted;
     private Func<PublishAccount?>? _accountProvider;
     private bool _isKuaishouMode;
     public event EventHandler? SettingsRequested;
@@ -53,6 +55,42 @@ public partial class WeixinWorkflowView : UserControl
         };
     }
 
+    internal void UseEmbeddedUploadLayout()
+    {
+        _embeddedUploadLayout = true;
+        Classes.Add("embeddedUploadQueue");
+        WorkflowLayout.Classes.Add("pageRoot");
+        KuaishouChrome.Classes.Remove("panel");
+        KuaishouChrome.Classes.Add("controlsFrame");
+        KuaishouChrome.ClearValue(Border.PaddingProperty);
+        WorkflowTableFrame.Classes.Remove("panel");
+        WorkflowTableFrame.Classes.Add("queueTableFrame");
+        WorkflowStatus.IsVisible = false;
+        WorkflowQueueScroll.AllowAutoHide = false;
+    }
+
+    private void OnWorkflowQueueViewportSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (_embeddedUploadLayout)
+            ApplyKuaishouColumnWidths(e.NewSize.Width);
+    }
+
+    private void ApplyKuaishouColumnWidths(double viewportWidth)
+    {
+        var widths = _kuaishouColumnWidths.ToArray();
+        if (_embeddedUploadLayout)
+        {
+            KuaishouTableRoot.MinWidth = viewportWidth;
+            if (!_kuaishouColumnsAdjusted)
+            {
+                var titleExtra = Math.Max(0, viewportWidth - widths.Sum()) / 2;
+                widths[2] += titleExtra;
+                widths[3] += titleExtra;
+            }
+        }
+        QueueTableGrid.SetColumnWidths(KuaishouTableRoot, widths);
+    }
+
     private void OnKuaishouColumnResizerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Control control ||
@@ -62,7 +100,8 @@ public partial class WeixinWorkflowView : UserControl
             return;
         _kuaishouResizeColumn = column;
         _kuaishouResizeStartX = e.GetPosition(KuaishouQueueHeaderGrid).X;
-        _kuaishouResizeStartWidth = _kuaishouColumnWidths[column];
+        _kuaishouResizeStartWidth = QueueTableGrid.GetColumnWidths(KuaishouTableRoot)?[column] ??
+            _kuaishouColumnWidths[column];
         e.Pointer.Capture(control);
         e.Handled = true;
     }
@@ -74,10 +113,16 @@ public partial class WeixinWorkflowView : UserControl
         var width = Math.Max(
             KuaishouColumnMinWidths[_kuaishouResizeColumn],
             _kuaishouResizeStartWidth + e.GetPosition(KuaishouQueueHeaderGrid).X - _kuaishouResizeStartX);
-        if (Math.Abs(width - _kuaishouColumnWidths[_kuaishouResizeColumn]) < 0.5)
+        var visibleWidths = QueueTableGrid.GetColumnWidths(KuaishouTableRoot) ?? _kuaishouColumnWidths;
+        if (Math.Abs(width - visibleWidths[_kuaishouResizeColumn]) < 0.5)
             return;
+        if (!_kuaishouColumnsAdjusted)
+        {
+            visibleWidths.CopyTo(_kuaishouColumnWidths, 0);
+            _kuaishouColumnsAdjusted = true;
+        }
         _kuaishouColumnWidths[_kuaishouResizeColumn] = width;
-        QueueTableGrid.SetColumnWidths(KuaishouTableRoot, _kuaishouColumnWidths.ToArray());
+        ApplyKuaishouColumnWidths(WorkflowQueueScroll.Bounds.Width);
         e.Handled = true;
     }
 

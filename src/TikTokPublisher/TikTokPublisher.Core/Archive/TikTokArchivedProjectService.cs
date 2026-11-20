@@ -30,6 +30,15 @@ public sealed record ArchivedProjectItem(
 
 public static partial class TikTokArchivedProjectService
 {
+    public static bool MatchesAccount(ArchivedProjectItem item, string accountId, string accountName, bool allowUnassigned)
+    {
+        if (!string.IsNullOrWhiteSpace(item.AccountProfileId))
+            return string.Equals(item.AccountProfileId, accountId, StringComparison.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(item.AccountProfileName))
+            return string.Equals(item.AccountProfileName, accountName, StringComparison.OrdinalIgnoreCase);
+        return allowUnassigned;
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,

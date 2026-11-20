@@ -40,12 +40,21 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     public void UseAccountStore(AccountStore accountStore) => _accountStore = accountStore;
 
+    public void UseWorkspaceNavigation()
+    {
+        foreach (var tab in ConfigurationTabs.Items.OfType<TabItem>())
+            tab.IsVisible = false;
+    }
+
+    public void SelectWorkspacePage(bool shelf) => ConfigurationTabs.SelectedIndex = shelf ? 1 : 0;
+
     public async Task<bool> TryLeaveAsync(Window owner)
     {
         if (!HasUnsavedChanges()) return true;
-        var save = await ConfirmDialog.ShowAsync(owner, "保存快手分账配置",
+        var save = await ConfirmDialog.ShowSaveChangesAsync(owner, "保存快手分账配置",
             $"「{_account?.Name ?? "当前账号"}」的快手分账配置已修改，是否保存？");
-        if (!save)
+        if (save is null) return false;
+        if (save == false)
         {
             LoadAccount(_account, _platform);
             return true;

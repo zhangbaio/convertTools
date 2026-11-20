@@ -99,6 +99,15 @@ public sealed class AccountAiEditor : UserControl
         Read(_imageKey) == _shownImageKey || SelectedImage() is not { } image
             ? _savedKeys.Image : new(image.Endpoint, Read(_imageKey)));
 
+    internal object CaptureDraftState() => new
+    {
+        Draft = _draft,
+        Keys = ReadKeys(),
+        TextPresets = _textEdits.Values.ToArray(),
+        ImagePresets = _imageEdits.Values.ToArray(),
+        PublishPrompt = Read(_publish),
+    };
+
     private TikTokAiTextPreset? SelectedText()
     {
         var id = SelectedId(_textPresets);

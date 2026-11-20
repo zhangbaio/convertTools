@@ -72,7 +72,7 @@
         <TextBlock DockPanel.Dock="Top" Text="账号配置" Classes="pageTitle" Margin="0,0,0,10" />
 
         <Border Classes="configurationPanel">
-            <TabControl Classes="accountTabs">
+            <TabControl x:Name="AccountTabs" Classes="accountTabs">
             <TabItem Header="发布配置">
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                     <Grid Margin="2,4,2,8" SizeChanged="OnPublishFormSizeChanged">

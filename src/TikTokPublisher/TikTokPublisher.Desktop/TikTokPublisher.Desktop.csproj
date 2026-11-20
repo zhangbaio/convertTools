@@ -27,6 +27,7 @@
   <ItemGroup>
     <!-- 素材发布视图/控件/VM/自动化已抽到 TikTokPublisher.Ui 库 -->
     <ProjectReference Include="..\TikTokPublisher.Ui\TikTokPublisher.Ui.csproj" />
+    <ProjectReference Include="..\..\PlatformPublisher\PlatformPublisher.Desktop\PlatformPublisher.Desktop.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="$(MSBuildThisFileDirectory)..\..\ShortDrama\ShortDrama.Infrastructure\Tools\hongguo-high\provision_startup_masters.py">
@@ -54,6 +55,14 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
+  <Target Name="RemoveStandaloneYunfanLauncher" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.RelativePath)' == 'YunfanPlatformPublisher.exe'
+                                     Or '%(ResolvedFileToPublish.RelativePath)' == 'YunfanPlatformPublisher.deps.json'
+                                     Or '%(ResolvedFileToPublish.RelativePath)' == 'YunfanPlatformPublisher.runtimeconfig.json'" />
+    </ItemGroup>
+  </Target>
   <!-- PreserveNewest keeps leftover Frida 17 files when the cache is pinned back to 16.7.19. -->
   <Target Name="ResetStaleBundledFrida17" BeforeTargets="BeforeBuild">
     <PropertyGroup>

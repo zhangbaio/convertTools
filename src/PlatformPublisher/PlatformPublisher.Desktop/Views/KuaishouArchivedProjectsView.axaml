@@ -28,10 +28,11 @@
                 </StackPanel>
                 <Button Grid.Column="1" x:Name="ReturnButton" Content="返回快手分账" Click="OnReturnClick" Classes="secondaryAction" />
                 <Button Grid.Column="2" Content="刷新" Click="OnRefreshClick" Classes="secondaryAction" />
-                <Button Grid.Column="3" Content="回退归档项目" Click="OnRestoreClick" Classes="primaryAction" />
+                <Button Grid.Column="3" Content="回退归档项目" Click="OnRestoreClick" Classes="primaryAction"
+                        IsEnabled="{Binding !KuaishouArchiveAllAccounts}" />
             </Grid>
         </Border>
-        <Border Grid.Row="1" Classes="panel" Padding="12">
+        <Border Grid.Row="1" Classes="panel" Padding="12" IsVisible="{Binding !KuaishouArchiveAllAccounts}">
             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                 <TextBlock Text="归档目录" VerticalAlignment="Center" FontWeight="SemiBold" />
                 <TextBox Grid.Column="1" Text="{Binding KuaishouArchiveRootText}" IsReadOnly="True" Watermark="请为当前版本选择归档目录" />
@@ -39,7 +40,7 @@
             </Grid>
         </Border>
         <Border Grid.Row="2" Classes="panel" Padding="10">
-            <TextBlock Text="归档目录跟当前账号类型走。目录结构为 source、workflow、meta。回退会把目录移回原来的工作区，原位置已有同名目录时不会覆盖。"
+            <TextBlock Text="切回单个账号可设置归档目录或回退项目。回退会把目录移回原工作区，原位置已有同名目录时不会覆盖。"
                        TextWrapping="Wrap" Foreground="#64748B" />
         </Border>
         <Border Grid.Row="3" Classes="panel" Padding="12">

@@ -7,8 +7,13 @@ namespace PlatformPublisher.Desktop.Services;
 public sealed class GlobalKuaishouAccountEditionCatalog : IKuaishouAccountEditionCatalog
 {
     private readonly AccountStore _store;
+    private readonly bool _excludeRemovedWorkspaceAccounts;
 
-    public GlobalKuaishouAccountEditionCatalog(AccountStore store) => _store = store;
+    public GlobalKuaishouAccountEditionCatalog(AccountStore store, bool excludeRemovedWorkspaceAccounts = false)
+    {
+        _store = store;
+        _excludeRemovedWorkspaceAccounts = excludeRemovedWorkspaceAccounts;
+    }
 
     public IReadOnlyList<string> AccountIds =>
         _store.Accounts.Select(account => account.Id).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -23,7 +28,8 @@ public sealed class GlobalKuaishouAccountEditionCatalog : IKuaishouAccountEditio
             return false;
         }
 
-        if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var resolved))
+        if ((_excludeRemovedWorkspaceAccounts && account.KuaishouRemovedFromWorkspace) ||
+            !KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var resolved))
         {
             platform = null;
             return true;

@@ -89,8 +89,33 @@
 
     <Style Selector="Border.accountSidebarFrame">
         <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
-        <Setter Property="BorderBrush" Value="#D8E2EC" />
-        <Setter Property="BorderThickness" Value="0,0,1,0" />
+    </Style>
+
+    <Style Selector="ListBox.uploadAccountList ListBoxItem">
+        <Setter Property="Padding" Value="10,9" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Margin" Value="0,3" />
+    </Style>
+    <Style Selector="ListBox.uploadAccountList ListBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#F0F7FF" />
+    </Style>
+    <Style Selector="ListBox.uploadAccountList ListBoxItem:selected /template/ ContentPresenter, ListBox.uploadAccountList ListBoxItem:selected:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#DDEEFF" />
+    </Style>
+    <Style Selector="ListBox.uploadAccountList ListBoxItem:selected TextBlock">
+        <Setter Property="Foreground" Value="#0F63C7" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Window.compact ListBox.uploadAccountList ListBoxItem">
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="Margin" Value="0,1" />
+    </Style>
+
+    <Style Selector="Border.queueTableFrame">
+        <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+        <Setter Property="BorderBrush" Value="#C9D8EA" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource PythonPanelRadius}" />
     </Style>
 
     <Style Selector="Border.topNavFrame">
@@ -349,7 +374,7 @@
         <Setter Property="Foreground" Value="{StaticResource PythonPendingText}" />
     </Style>
 
-    <Style Selector="DockPanel.pageRoot, ScrollViewer.pageRoot">
+    <Style Selector="DockPanel.pageRoot, ScrollViewer.pageRoot, Grid.pageRoot">
         <Setter Property="Margin" Value="16,14,16,16" />
     </Style>
 
@@ -396,7 +421,7 @@
         <Setter Property="Padding" Value="10,8" />
     </Style>
 
-    <Style Selector="Window.compact DockPanel.pageRoot, Window.compact ScrollViewer.pageRoot">
+    <Style Selector="Window.compact DockPanel.pageRoot, Window.compact ScrollViewer.pageRoot, Window.compact Grid.pageRoot">
         <Setter Property="Margin" Value="10,8,10,10" />
     </Style>
 

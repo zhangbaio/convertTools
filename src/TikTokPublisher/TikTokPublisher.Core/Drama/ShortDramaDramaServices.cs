@@ -24,6 +24,7 @@ public static class ShortDramaDramaServices
 
     public static IDramaSearchService Search => Router.Value;
     public static IDramaDownloader Downloader => Router.Value;
+    public static DramaSourceRouter SharedRouter => Router.Value;
 
     public static void UseSettingsDatabase(string? databasePath) =>
         SettingsProvider.Value.UseDatabase(databasePath);

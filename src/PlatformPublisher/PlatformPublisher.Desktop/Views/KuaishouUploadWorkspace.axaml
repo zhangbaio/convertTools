@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:PlatformPublisher.Desktop.Views"
+             Background="{StaticResource PythonPageBgBrush}"
+             x:Class="PlatformPublisher.Desktop.Views.KuaishouUploadWorkspace">
+    <Grid x:Name="WorkspaceLayout" RowDefinitions="Auto,*" ColumnDefinitions="198,*">
+        <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="SubNavigation" Margin="10,5,10,3" Orientation="Horizontal" Spacing="5">
+                <Button Content="任务队列" Tag="queue" Classes="topNavItem" Click="SubPage_Click" />
+                <Button Content="发布配置" Tag="config" Classes="topNavItem" Click="SubPage_Click" />
+                <Button Content="剧集上架" Tag="shelf" Classes="topNavItem" Click="SubPage_Click" />
+                <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="SubPage_Click" />
+                <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="SubPage_Click" />
+            </StackPanel>
+        </ScrollViewer>
+        <Border x:Name="Sidebar" Grid.RowSpan="2" Classes="accountSidebarFrame" Padding="8,10">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="7">
+                    <TextBlock Text="快手账号" Classes="pageSummary" />
+                    <WrapPanel>
+                        <Button Content="添加账号" Click="AddAccount_Click" Margin="0,0,6,6" />
+                        <Button Content="账号配置" Click="OpenConfiguration_Click" Margin="0,0,6,6" />
+                        <Button Content="删除" Classes="dangerAction" Click="RemoveAccount_Click" Margin="0,0,6,0" />
+                    </WrapPanel>
+                    <TextBox x:Name="AccountSearch" Watermark="昵称 / ID" TextChanged="AccountSearch_TextChanged" />
+                </StackPanel>
+                <ListBox x:Name="AccountList" Classes="uploadAccountList" SelectionChanged="AccountList_SelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Summary}" Classes="pageSummary" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Row="1" Grid.Column="1" RowDefinitions="Auto,*,Auto">
+            <CheckBox x:Name="AllHistoryAccounts" Content="全部账号" Margin="12,4" IsVisible="False"
+                      IsCheckedChanged="OnHistoryScopeChanged" />
+            <Panel Grid.Row="1">
+                <views:WeixinWorkflowView x:Name="Workflow" Background="{StaticResource PythonPageBgBrush}" IsKuaishouMode="True" IsVisible="False" />
+                <views:KuaishouPersonalConfigDialog x:Name="Configuration" IsVisible="False" />
+                <views:KuaishouQueueLogView x:Name="LogView" IsVisible="False" />
+                <views:KuaishouArchivedProjectsView x:Name="ArchiveView" IsVisible="False" />
+                <StackPanel x:Name="Unavailable" Margin="20" Spacing="10" IsVisible="False">
+                    <TextBlock x:Name="StartupError" TextWrapping="Wrap" />
+                    <Button Content="重试" Click="Retry_Click" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Panel>
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="16,0,16,5" ColumnSpacing="10">
+                <TextBlock Text="{Binding StatusMessage}" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
+                <TextBlock Grid.Column="1" Text="{Binding KuaishouTodayUploadText}" Classes="pageSummary" />
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

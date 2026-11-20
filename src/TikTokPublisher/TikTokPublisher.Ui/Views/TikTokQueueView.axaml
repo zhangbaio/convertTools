@@ -132,12 +132,6 @@
             <Setter Property="Background" Value="{StaticResource PythonTableHeaderStep}" />
             <Setter Property="Foreground" Value="#0F4F86" />
         </Style>
-        <Style Selector="Border.queueTableFrame">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#C9D8EA" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="8" />
-        </Style>
         <Style Selector="Border.queueTableRow">
             <Setter Property="BorderBrush" Value="#DCE7F3" />
             <Setter Property="BorderThickness" Value="0,0,0,1" />

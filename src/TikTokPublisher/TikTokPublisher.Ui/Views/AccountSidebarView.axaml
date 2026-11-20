@@ -4,32 +4,6 @@
              x:Class="TikTokPublisher.Ui.Views.AccountSidebarView"
              x:DataType="vm:MainViewModel">
 
-    <UserControl.Styles>
-        <Style Selector="ListBox#AccountList ListBoxItem">
-            <Setter Property="Padding" Value="10,9" />
-            <Setter Property="CornerRadius" Value="6" />
-            <Setter Property="Margin" Value="0,3" />
-        </Style>
-
-        <Style Selector="ListBox#AccountList ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#F0F7FF" />
-        </Style>
-
-        <Style Selector="ListBox#AccountList ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="#DDEEFF" />
-        </Style>
-
-        <Style Selector="ListBox#AccountList ListBoxItem:selected TextBlock">
-            <Setter Property="Foreground" Value="#0F63C7" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-
-        <Style Selector="Window.compact ListBox#AccountList ListBoxItem">
-            <Setter Property="Padding" Value="8,6" />
-            <Setter Property="Margin" Value="0,1" />
-        </Style>
-    </UserControl.Styles>
-
     <Border Classes="accountSidebarFrame" Padding="8,10">
         <DockPanel>
             <StackPanel DockPanel.Dock="Top" Spacing="7" Margin="0,0,0,10">
@@ -37,7 +11,7 @@
 
                 <Grid ColumnDefinitions="*,*">
                     <Button Grid.Column="0" Content="+ 添加账号"
-                            Command="{Binding AddAccountCommand}" Margin="0,0,3,0" />
+                            Click="OnAddClick" Margin="0,0,3,0" />
                     <Button Grid.Column="1" Content="账号配置"
                             Click="OnAccountSettingsClick" Margin="3,0,0,0" />
                 </Grid>
@@ -63,8 +37,10 @@
                        Text="{Binding SelectedAccount.DisplayName, TargetNullValue='未选择账号', StringFormat='当前：{0}'}" />
 
             <ListBox x:Name="AccountList"
+                     Classes="uploadAccountList"
                      ItemsSource="{Binding FilteredAccounts}"
-                     SelectedItem="{Binding SidebarSelectedAccount, Mode=TwoWay}">
+                     SelectedItem="{Binding SidebarSelectedAccount, Mode=OneWay}"
+                     SelectionChanged="OnAccountSelectionChanged">
                 <ListBox.Styles>
                     <Style Selector="ListBox#AccountList">
                         <Setter Property="Background" Value="Transparent" />

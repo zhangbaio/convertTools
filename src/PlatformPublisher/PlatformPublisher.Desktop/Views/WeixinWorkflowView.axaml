@@ -17,6 +17,26 @@
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="BorderThickness" Value="1" />
         </Style>
+        <Style Selector="Border.sourceGroup">
+            <Setter Property="Background" Value="#F8FBFF" />
+            <Setter Property="BorderBrush" Value="#D6E8FA" />
+        </Style>
+        <Style Selector="Border.executionGroup">
+            <Setter Property="Background" Value="#F3F8FF" />
+            <Setter Property="BorderBrush" Value="#B9D7F5" />
+        </Style>
+        <Style Selector="Border.selectionGroup">
+            <Setter Property="Background" Value="#F7F8FF" />
+            <Setter Property="BorderBrush" Value="#D9DEF8" />
+        </Style>
+        <Style Selector="Border.archiveGroup">
+            <Setter Property="Background" Value="#FFF5F5" />
+            <Setter Property="BorderBrush" Value="#F3C7C3" />
+        </Style>
+        <Style Selector="Border.recordGroup">
+            <Setter Property="Background" Value="#F3FBF6" />
+            <Setter Property="BorderBrush" Value="#C6E8D4" />
+        </Style>
         <Style Selector="Button.contentAction">
             <Setter Property="Background" Value="#EAF4FF" />
             <Setter Property="Foreground" Value="#0F63C7" />
@@ -199,6 +219,23 @@
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Padding" Value="8,6" />
         </Style>
+        <Style Selector=":is(UserControl).embeddedUploadQueue Border.kuaishouButtonGroup">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector=":is(UserControl).embeddedUploadQueue Border.kuaishouStepFrame">
+            <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
+        </Style>
+        <Style Selector=":is(UserControl).embeddedUploadQueue Border#KuaishouQueueHeader">
+            <Setter Property="MinHeight" Value="36" />
+        </Style>
+        <Style Selector=":is(UserControl).embeddedUploadQueue ListBox#KuaishouQueueList ListBoxItem, :is(UserControl).embeddedUploadQueue Border.queueTableRow">
+            <Setter Property="Height" Value="42" />
+        </Style>
+        <Style Selector=":is(UserControl).embeddedUploadQueue Border.stepStatusBadge">
+            <Setter Property="MinHeight" Value="24" />
+        </Style>
         <Style Selector="Border.stepStatusBadge">
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="5" />
@@ -216,7 +253,7 @@
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
     </UserControl.Styles>
-    <Grid RowDefinitions="Auto,Auto,Auto,*,30" RowSpacing="8">
+    <Grid x:Name="WorkflowLayout" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="8">
         <Border x:Name="KuaishouChrome" Grid.Row="0" Grid.RowSpan="3" Classes="panel" Padding="8" IsVisible="False">
             <StackPanel Spacing="8">
                 <Border Background="#FFF7ED" BorderBrush="#FDBA74" BorderThickness="1" CornerRadius="6" Padding="10"
@@ -236,7 +273,7 @@
                     </StackPanel>
                 </Grid>
                 <WrapPanel Orientation="Horizontal">
-                    <Border Classes="kuaishouButtonGroup" Background="#F8FBFF" BorderBrush="#D6E8FA">
+                    <Border Classes="kuaishouButtonGroup sourceGroup">
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="neutralAction compactAction" Margin="0,0,6,0"
                                     ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
@@ -246,13 +283,13 @@
                             <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="contentAction compactAction" />
                         </WrapPanel>
                     </Border>
-                    <Border Classes="kuaishouButtonGroup" Background="#F3F8FF" BorderBrush="#B9D7F5">
+                    <Border Classes="kuaishouButtonGroup executionGroup">
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                             <Button Content="停止" Command="{Binding StopCommand}" Classes="stopAction compactAction" />
                         </WrapPanel>
                     </Border>
-                    <Border Classes="kuaishouButtonGroup" Background="#F7F8FF" BorderBrush="#D9DEF8">
+                    <Border Classes="kuaishouButtonGroup selectionGroup">
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="勾选待执行" Command="{Binding CheckPendingCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
                             <Button Content="勾选到当前项目" Command="{Binding CheckToCurrentCommand}" Classes="selectionAction compactAction" Margin="0,0,6,0" />
@@ -263,13 +300,13 @@
                                     ToolTip.Tip="从队列移出，并删除工作目录中对应的项目文件夹" />
                         </WrapPanel>
                     </Border>
-                    <Border Classes="kuaishouButtonGroup" Background="#FFF5F5" BorderBrush="#F3C7C3">
+                    <Border Classes="kuaishouButtonGroup archiveGroup">
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="归档勾选" Click="OnArchiveCheckedClick" Classes="dangerSoftAction compactAction"
                                     ToolTip.Tip="按快手分账规则归档勾选项目：移动 source/workflow，并删除原视频、转码视频和素材视频。" />
                         </WrapPanel>
                     </Border>
-                    <Border Classes="kuaishouButtonGroup" Background="#F3FBF6" BorderBrush="#C6E8D4">
+                    <Border Classes="kuaishouButtonGroup recordGroup">
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="导出上传记录" Click="OnExportUploadReportClick" Classes="fileAction compactAction" Margin="0,0,6,0"
                                     ToolTip.Tip="把快手分账上传记录导出到本软件数据目录中的 Excel。个人版和企业版分开保存。" />
@@ -474,7 +511,7 @@
         </Grid>
         </Border>
 
-        <Border Grid.Row="3" Classes="panel" ClipToBounds="True">
+        <Border x:Name="WorkflowTableFrame" Grid.Row="3" Classes="panel" ClipToBounds="True">
             <Grid RowDefinitions="Auto,*">
                 <Border Background="#F5F3FF" BorderBrush="#C4B5FD" BorderThickness="0,0,0,1" Padding="10"
                         IsVisible="{Binding HasInteractionRequest}">
@@ -492,7 +529,8 @@
                         </WrapPanel>
                     </Grid>
                 </Border>
-                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <ScrollViewer x:Name="WorkflowQueueScroll" Grid.Row="1" HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled" SizeChanged="OnWorkflowQueueViewportSizeChanged">
                     <Grid x:Name="KuaishouTableRoot" RowDefinitions="Auto,*" HorizontalAlignment="Left">
                         <Border x:Name="KuaishouQueueHeader" Background="#EDF3F9" BorderBrush="#DCE7F3" BorderThickness="0,0,0,1" Padding="0" IsVisible="False">
                             <views:QueueTableGrid x:Name="KuaishouQueueHeaderGrid" ColumnDefinitions="44,48,168,168,56,100,72,84,84,92,76,84">
@@ -526,7 +564,7 @@
                                  Background="#FFFFFF" BorderThickness="0" IsVisible="False">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
-                                    <Border Classes="queueTableRow" Height="32">
+                                    <Border Classes="queueTableRow">
                                         <views:QueueTableGrid ColumnDefinitions="44,48,168,168,56,100,72,84,84,92,76,84">
                                             <TextBlock Text="{Binding QueueIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center" />
                                             <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" />
@@ -631,7 +669,7 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="4" Background="#EEF3F8" BorderBrush="#D9E2EC" BorderThickness="1,0,1,1">
+        <Border x:Name="WorkflowStatus" Grid.Row="4" Height="30" Background="#EEF3F8" BorderBrush="#D9E2EC" BorderThickness="1,0,1,1">
             <TextBlock Text="{Binding StatusMessage}" Margin="10,0" VerticalAlignment="Center" FontSize="12" Foreground="#64748B" />
         </Border>
     </Grid>

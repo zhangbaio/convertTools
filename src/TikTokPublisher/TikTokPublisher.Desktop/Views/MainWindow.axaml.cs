@@ -18,18 +18,15 @@ namespace TikTokPublisher.Desktop.Views;
 
 public partial class MainWindow : Window
 {
-    private const double CollapsedSidebarWidth = 44;
 
     private static readonly Dictionary<string, (string Full, string Short)> NavLabels = new(StringComparer.Ordinal)
     {
         ["browser"] = ("浏览器", "浏览器"),
         ["download"] = ("短剧下载", "下载"),
-        ["queue"] = ("TikTok 上传", "上传"),
-        ["accounts"] = ("账号管理", "账号"),
-        ["logs"] = ("运行日志", "日志"),
+        ["queue"] = ("TikTok 上传", "TikTok"),
+        ["kuaishou"] = ("快手上传", "快手"),
         ["settings"] = ("系统设置", "设置"),
         ["analytics"] = ("数据统计", "统计"),
-        ["archived"] = ("已归档项目", "归档"),
     };
 
     private readonly AccountStore _accountStore = new();
@@ -38,7 +35,11 @@ public partial class MainWindow : Window
     private readonly TikTokAccountInventorySyncCoordinator _accountInventorySync;
     private readonly HashSet<string> _externalLoginsInProgress = new(StringComparer.Ordinal);
     private string _activeNavTag = "queue";
-    private bool _isSidebarCollapsed;
+    private string _tikTokSubPage = "queue";
+    private bool _navigationPending;
+    private bool _tikTokAnalyticsEnabled;
+    private bool _historyKuaishou;
+    private readonly HashSet<string> _collapsedAccountPanels = [];
     private bool _compactLayout;
     private bool _startupLayoutApplied;
     private bool _suspendPlacementTracking;
@@ -77,11 +78,21 @@ public partial class MainWindow : Window
                 SyncBrowserHostMountLayout();
         };
         AccountSidebar.DataContext = _viewModel;
+        AccountSidebar.CanChangeAccountAsync = ConfirmTikTokAccountChangeAsync;
+        BrowserAccountSidebar.DataContext = _viewModel;
         AccountsView.Bind(_viewModel);
+        AccountsView.UseWorkspaceNavigation();
+        TikTokBasicSettingsButton.IsVisible = AccountsView.HasWorkspacePage("基础设置");
+        KuaishouWorkspace.SettingsRequested += () => NavigateTo("settings");
+        KuaishouWorkspace.RuntimeChanged += () =>
+        {
+            if (HistoryWorkspace.IsVisible)
+                ApplyHistoryPage(_activeNavTag);
+        };
         LogView.Bind(_viewModel, _viewModel.Logs);
         SettingsView.Bind(_viewModel.SystemSettings);
         SettingsView.BindServices(_viewModel.SystemServices);
-        ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning);
+        ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning || KuaishouWorkspace.HasActiveUploads);
         _viewModel.SystemServices.ConfirmClientUpdate = message =>
             ConfirmDialog.ShowAsync(this, "客户端升级", message);
         _viewModel.SystemServices.ConfigImported += () =>
@@ -92,6 +103,8 @@ public partial class MainWindow : Window
             ApplyAccountAnalytics(_viewModel.SystemSettings.TiktokAccountAnalyticsEnabled);
         };
         ArchivedView.Bind(_viewModel.ArchivedProjects);
+        _viewModel.BindKuaishouDownloadQueue(() => KuaishouWorkspace.SelectedDownloadTarget,
+            KuaishouWorkspace.GetDownloadTargets, KuaishouWorkspace.ImportDownloadedProjectsAsync);
         DownloadView.Bind(_viewModel.DramaDownload, _viewModel.AppendLog);
         AnalyticsView.Bind(_viewModel.Accounts, _viewModel.AppendLog);
         AnalyticsView.SearchOriginalRequested += keyword =>
@@ -110,7 +123,7 @@ public partial class MainWindow : Window
                 _viewModel.SelectedAccount = account;
             NavigateTo("browser");
         };
-        QueueView.OpenLogsRequested += (_, _) => NavigateTo("logs");
+        QueueView.OpenLogsRequested += (_, _) => _ = NavigateAsync("queue", "logs");
         AccountsView.LoginRequested += (_, _) => BeginAccountLogin(forceRelogin: false);
         AccountsView.ReloginRequested += (_, _) => BeginAccountLogin(forceRelogin: true);
         AccountsView.LogoutRequested += (_, _) => _ = LogoutSelectedTikTokAccountAsync();
@@ -118,8 +131,7 @@ public partial class MainWindow : Window
         _browserHost.AuthSaved += args => _viewModel.HandleEmbeddedAuthSaved(args.Account, args.Result);
         _browserHost.AuthSaveFailed += _viewModel.HandleEmbeddedAuthSaveFailed;
         _browserHost.AuthStatusChanged += _viewModel.HandleEmbeddedAuthStatusChanged;
-        LogView.ReturnRequested += (_, _) => NavigateTo("queue");
-        LogView.StopRequested += (_, _) => _viewModel.RequestStopQueue();
+        LogView.ReturnRequested += (_, _) => _ = NavigateAsync("queue", "queue");
         _viewModel.NavigatePageRequested += NavigateTo;
         _viewModel.RemoteQueueRunRequested += QueueView.StartQueueRunFromRemoteAsync;
         _viewModel.RemoteAllQueueRunRequested += QueueView.StartAllQueueRunFromRemoteAsync;
@@ -129,6 +141,7 @@ public partial class MainWindow : Window
         _accountInventorySync.Start();
         _viewModel.AccountProfileNetworkChanged += profile => _browserHost.InvalidateHostIfNetworkChanged(profile);
         AccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
+        BrowserAccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
         _viewModel.AccountSwitchRequested += OnAccountSwitchRequested;
         _viewModel.DailyLimitReached += message =>
             _ = ConfirmDialog.ShowAsync(
@@ -136,7 +149,7 @@ public partial class MainWindow : Window
                 "单日创建剧集已达上限",
                 $"{message}\n\n任务队列已自动停止，请明天再继续上传。");
 
-        SetSidebarCollapsed(false);
+        ApplyAccountPanelLayout();
         NavigateTo("queue");
         Closed += OnWindowClosed;
         ApplyStartupLayout();
@@ -150,6 +163,7 @@ public partial class MainWindow : Window
         if (!_startupLayoutApplied)
             ApplyStartupLayout();
         StartResourceMonitor();
+        _ = KuaishouWorkspace.PrepareAsync();
     }
 
     private void StartResourceMonitor()
@@ -215,12 +229,10 @@ public partial class MainWindow : Window
 
     private void ApplyAccountAnalytics(bool enabled)
     {
-        AnalyticsNavButton.IsVisible = enabled;
+        _tikTokAnalyticsEnabled = enabled;
         AnalyticsView.SetEnabled(enabled);
-        if (!enabled && string.Equals(_activeNavTag, "analytics", StringComparison.OrdinalIgnoreCase))
-            NavigateTo("queue");
-        else if (!enabled)
-            AnalyticsView.IsVisible = false;
+        if (_activeNavTag == "analytics")
+            ApplyHistoryPage("analytics");
     }
 
     private void OnNavItemClick(object? sender, RoutedEventArgs e)
@@ -229,28 +241,34 @@ public partial class MainWindow : Window
             NavigateTo(tag);
     }
 
-    private void OnSidebarToggleClick(object? sender, RoutedEventArgs e) =>
-        SetSidebarCollapsed(!_isSidebarCollapsed);
-
-    private void SetSidebarCollapsed(bool collapsed)
+    private void OnSidebarToggleClick(object? sender, RoutedEventArgs e)
     {
-        _isSidebarCollapsed = collapsed;
+        if (!_collapsedAccountPanels.Remove(_activeNavTag))
+            _collapsedAccountPanels.Add(_activeNavTag);
+        ApplyAccountPanelLayout();
+    }
 
-        var width = collapsed ? CollapsedSidebarWidth : ExpandedSidebarWidth;
-        TopLayout.ColumnDefinitions[0].Width = new GridLength(width);
-        MainLayout.ColumnDefinitions[0].Width = new GridLength(width);
+    private async void OnTikTokSubPageClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string page })
+            await NavigateAsync("queue", page);
+    }
 
-        AccountSidebar.IsVisible = !collapsed;
-        CollapsedSidebarRail.IsVisible = collapsed;
-        BrandLabel.IsVisible = !collapsed;
-        BrandPane.Padding = collapsed
-            ? new Avalonia.Thickness(4, 0)
-            : _compactLayout
-                ? new Avalonia.Thickness(8, 0, 6, 0)
-                : new Avalonia.Thickness(12, 0, 10, 0);
+    private void ApplyAccountPanelLayout()
+    {
+        var tikTokCollapsed = _collapsedAccountPanels.Contains("queue");
+        TikTokWorkspace.ColumnDefinitions[0].Width = new GridLength(tikTokCollapsed ? 0 : ExpandedSidebarWidth);
+        AccountSidebar.IsVisible = !tikTokCollapsed;
+        var browserCollapsed = _collapsedAccountPanels.Contains("browser");
+        BrowserWorkspace.ColumnDefinitions[0].Width = new GridLength(browserCollapsed ? 0 : ExpandedSidebarWidth);
+        BrowserAccountSidebar.IsVisible = !browserCollapsed;
+        KuaishouWorkspace.SetSidebarLayout(ExpandedSidebarWidth, _collapsedAccountPanels.Contains("kuaishou"));
 
+        SidebarToggleButton.IsVisible = _activeNavTag is "queue" or "kuaishou" or "browser";
+        var collapsed = _collapsedAccountPanels.Contains(_activeNavTag);
+        BrandPane.Padding = _compactLayout ? new Thickness(8, 0, 6, 0) : new Thickness(12, 0, 10, 0);
         SidebarToggleButton.Content = collapsed ? "›" : "‹";
-        ToolTip.SetTip(SidebarToggleButton, collapsed ? "展开左侧面板" : "收起左侧面板");
+        ToolTip.SetTip(SidebarToggleButton, collapsed ? "展开账号栏" : "收起账号栏");
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)
@@ -262,6 +280,7 @@ public partial class MainWindow : Window
         _viewModel.StopXingeRemoteCommandService();
         _accountInventorySync.StatusChanged -= _viewModel.AppendLog;
         _accountInventorySync.Dispose();
+        KuaishouWorkspace.Dispose();
         _browserHost.CloseAll();
         try
         {
@@ -494,8 +513,8 @@ public partial class MainWindow : Window
     {
         if (_activeNavTag == "browser")
             ScheduleBrowserHostMountLayout();
-        else if (_activeNavTag == "archived")
-            _viewModel.ArchivedProjects.RefreshCommand.Execute(null);
+        else if (_activeNavTag == "queue" && _tikTokSubPage is "archived" or "logs")
+            RefreshTikTokHistory();
     }
 
     private void EnsureBrowserHostMounted()
@@ -521,7 +540,7 @@ public partial class MainWindow : Window
 
     private void SyncBrowserHostMountLayout()
     {
-        if (_activeNavTag != "browser" || !BrowserView.IsVisible)
+        if (_activeNavTag != "browser" || !BrowserWorkspace.IsVisible)
         {
             CollapseBrowserHostMount();
             return;
@@ -591,14 +610,46 @@ public partial class MainWindow : Window
         }, DispatcherPriority.Background);
     }
 
-    private void NavigateTo(string tag)
-    {
-        if (string.Equals(tag, "analytics", StringComparison.OrdinalIgnoreCase) && !AnalyticsNavButton.IsVisible)
-            tag = "queue";
+    private void NavigateTo(string tag) => _ = NavigateAsync(tag);
 
-        _activeNavTag = tag;
-        UpdateNavHighlight();
-        ShowPage(tag);
+    private Task<bool> ConfirmTikTokAccountChangeAsync() =>
+        _activeNavTag == "queue" && IsTikTokConfigurationPage(_tikTokSubPage)
+            ? AccountsView.TryLeaveAsync(this)
+            : Task.FromResult(true);
+
+    private static bool IsTikTokConfigurationPage(string page) =>
+        page is "accounts" or "materials" or "basics" or "dedup" or "series";
+
+    private async Task NavigateAsync(string tag, string? tikTokSubPage = null)
+    {
+        if (_navigationPending)
+            return;
+        if (tag == "accounts")
+        {
+            tag = "queue";
+            tikTokSubPage = "accounts";
+        }
+        _navigationPending = true;
+        try
+        {
+            if (_activeNavTag == "kuaishou" && tag != "kuaishou" &&
+                !await KuaishouWorkspace.TryLeaveAsync(this))
+                return;
+            if ((tag != "queue" || (tikTokSubPage is not null && !IsTikTokConfigurationPage(tikTokSubPage))) &&
+                !await ConfirmTikTokAccountChangeAsync())
+                return;
+            if (tikTokSubPage is not null)
+                _tikTokSubPage = tikTokSubPage;
+            if (tag == "analytics" && _activeNavTag is "queue" or "kuaishou")
+                _historyKuaishou = _activeNavTag == "kuaishou";
+            _activeNavTag = tag;
+            UpdateNavHighlight();
+            ShowPage(tag);
+        }
+        finally
+        {
+            _navigationPending = false;
+        }
     }
 
     private void UpdateNavHighlight()
@@ -621,26 +672,53 @@ public partial class MainWindow : Window
         const int inactiveZ = 0;
 
         DownloadView.IsVisible = tag == "download";
-        AnalyticsView.IsVisible = tag == "analytics";
-        QueueView.IsVisible = tag == "queue";
-        AccountsView.IsVisible = tag == "accounts";
-        LogView.IsVisible = tag == "logs";
+        TikTokWorkspace.IsVisible = tag == "queue";
+        KuaishouWorkspace.IsVisible = tag == "kuaishou";
+        ApplyAccountPanelLayout();
+        if (KuaishouWorkspace.IsVisible)
+            _ = KuaishouWorkspace.ActivateAsync();
+        else
+            KuaishouWorkspace.Deactivate();
+        if (TikTokWorkspace.IsVisible)
+        {
+            QueueView.IsVisible = _tikTokSubPage == "queue";
+            AccountsView.IsVisible = IsTikTokConfigurationPage(_tikTokSubPage);
+            LogView.IsVisible = _tikTokSubPage == "logs";
+            ArchivedView.IsVisible = _tikTokSubPage == "archived";
+            TikTokAllHistoryAccounts.IsVisible = LogView.IsVisible || ArchivedView.IsVisible;
+            if (TikTokAllHistoryAccounts.IsVisible)
+                RefreshTikTokHistory();
+            var editorPage = _tikTokSubPage switch
+            {
+                "materials" => "上传材料",
+                "basics" => "基础设置",
+                "dedup" => "视频去重",
+                "series" => "剧集列表",
+                _ => "发布配置",
+            };
+            if (AccountsView.IsVisible)
+                AccountsView.SelectWorkspacePage(editorPage);
+            foreach (var button in TikTokSubNavigation.Children.OfType<Button>())
+            {
+                var active = Equals(button.Tag, _tikTokSubPage);
+                button.Classes.Set("topNavItemActive", active);
+                if (active && button.IsLoaded)
+                    button.BringIntoView();
+            }
+        }
         SettingsView.IsVisible = tag == "settings";
-        ArchivedView.IsVisible = tag == "archived";
+        ApplyHistoryPage(tag);
 
         DownloadView.ZIndex = tag == "download" ? activeZ : inactiveZ;
-        AnalyticsView.ZIndex = tag == "analytics" ? activeZ : inactiveZ;
-        QueueView.ZIndex = tag == "queue" ? activeZ : inactiveZ;
-        AccountsView.ZIndex = tag == "accounts" ? activeZ : inactiveZ;
-        LogView.ZIndex = tag == "logs" ? activeZ : inactiveZ;
+        TikTokWorkspace.ZIndex = tag == "queue" ? activeZ : inactiveZ;
+        KuaishouWorkspace.ZIndex = tag == "kuaishou" ? activeZ : inactiveZ;
         SettingsView.ZIndex = tag == "settings" ? activeZ : inactiveZ;
-        ArchivedView.ZIndex = tag == "archived" ? activeZ : inactiveZ;
+        HistoryWorkspace.ZIndex = HistoryWorkspace.IsVisible ? activeZ : inactiveZ;
 
         if (browserActive)
         {
-            BrowserView.IsVisible = true;
+            BrowserWorkspace.IsVisible = true;
             BrowserView.IsHitTestVisible = true;
-            BrowserView.ZIndex = activeZ;
             _browserHost.ShowAccount(_viewModel.SelectedAccount);
             SyncBrowserHostMountLayout();
             _browserHost.SetPresentationVisible(true);
@@ -648,21 +726,63 @@ public partial class MainWindow : Window
         }
         else
         {
-            BrowserView.IsVisible = false;
-            BrowserView.ZIndex = inactiveZ;
+            BrowserWorkspace.IsVisible = false;
             CollapseBrowserHostMount();
             _browserHost.SetPresentationVisible(false);
         }
 
-        if (tag == "analytics" && AnalyticsNavButton.IsVisible)
-            AnalyticsView.Activate();
-        if (tag == "logs")
-            _viewModel.RefreshLogSnapshot();
-        if (tag == "archived")
-            _viewModel.ArchivedProjects.RefreshCommand.Execute(null);
+        if (tag == "download")
+            _ = KuaishouWorkspace.PrepareAsync();
         if (tag == "settings")
         {
             _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
+        }
+    }
+
+    private void OnHistoryPlatformClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string platform })
+            return;
+        _historyKuaishou = platform == "kuaishou";
+        ApplyHistoryPage(_activeNavTag);
+        if (_historyKuaishou)
+            _ = KuaishouWorkspace.PrepareAsync();
+    }
+
+    private void ApplyHistoryPage(string tag)
+    {
+        HistoryWorkspace.IsVisible = tag == "analytics";
+        if (!HistoryWorkspace.IsVisible)
+            return;
+
+        var showTikTok = _tikTokAnalyticsEnabled;
+        var showKuaishou = _historyKuaishou || !showTikTok;
+        var kuaishouReady = showKuaishou &&
+            KuaishouWorkspace.BindAnalytics(KuaishouAnalyticsView);
+        TikTokHistoryButton.IsVisible = showTikTok;
+        TikTokHistoryButton.Classes.Set("topNavItemActive", !showKuaishou);
+        KuaishouHistoryButton.Classes.Set("topNavItemActive", showKuaishou);
+        HistoryUnavailable.IsVisible = showKuaishou && !kuaishouReady;
+        AnalyticsView.IsVisible = !showKuaishou;
+        KuaishouAnalyticsView.IsVisible = kuaishouReady;
+
+        if (AnalyticsView.IsVisible) AnalyticsView.Activate();
+    }
+
+    private void OnTikTokHistoryScopeChanged(object? sender, RoutedEventArgs e) => RefreshTikTokHistory();
+
+    private void RefreshTikTokHistory()
+    {
+        if (!TikTokWorkspace.IsVisible)
+            return;
+        var all = TikTokAllHistoryAccounts.IsChecked == true;
+        if (_tikTokSubPage == "logs")
+            _viewModel.SetLogAccountScope(all);
+        if (_tikTokSubPage == "archived")
+        {
+            _viewModel.ArchivedProjects.UseAccountScope = true;
+            _viewModel.ArchivedProjects.ShowAllAccounts = all;
+            _viewModel.ArchivedProjects.RefreshCommand.Execute(null);
         }
     }
 
@@ -746,7 +866,7 @@ public partial class MainWindow : Window
         _compactLayout = compact;
         Classes.Set("compact", compact);
         ApplyNavLabels(shortenNav);
-        SetSidebarCollapsed(_isSidebarCollapsed);
+        ApplyAccountPanelLayout();
         LogView.SetCompactLayout(compact);
         QueueView.SetCompactLayout(compact);
     }

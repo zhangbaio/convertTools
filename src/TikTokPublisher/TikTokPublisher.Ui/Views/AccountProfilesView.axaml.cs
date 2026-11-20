@@ -20,4 +20,12 @@ public partial class AccountProfilesView : UserControl
     public void Bind(MainViewModel vm) => Editor.Bind(vm);
 
     public void RefreshSelectedAccount() => Editor.RefreshSelectedAccount();
+
+    public void UseWorkspaceNavigation() => Editor.UseWorkspaceNavigation();
+
+    public bool HasWorkspacePage(string header) => Editor.HasWorkspacePage(header);
+
+    public void SelectWorkspacePage(string header) => Editor.SelectWorkspacePage(header);
+
+    public Task<bool> TryLeaveAsync(Window owner) => Editor.TryLeaveAsync(owner);
 }
