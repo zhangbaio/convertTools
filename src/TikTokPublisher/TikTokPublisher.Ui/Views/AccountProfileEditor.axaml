@@ -393,6 +393,7 @@
                                 <TextBlock Classes="formLabel" Text="CDP 地址" />
                                 <TextBox Classes="configurationInput" x:Name="CdpEndpointBox" />
                             </StackPanel>
+                            <views:AccountAiEditor x:Name="AccountAi" />
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>

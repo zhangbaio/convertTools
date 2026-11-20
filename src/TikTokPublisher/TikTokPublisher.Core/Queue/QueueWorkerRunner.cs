@@ -2025,7 +2025,8 @@ public sealed class QueueWorkerRunner
         Action<string> log,
         CancellationToken ct)
     {
-        var settings = VisibleDramaSource.SettingsFor(ClientSettingsStore.Load(), account?.TiktokDramaMarket);
+        var settings = VisibleDramaSource.SettingsFor(
+            TikTokAccountAiSettings.Apply(ClientSettingsStore.Load(), account), account?.TiktokDramaMarket);
         QueueWorkloadResourceScheduler.Configure(settings);
         var materialOptions = TikTokMaterialValidationService.Options.FromAccount(
             account,
@@ -2278,7 +2279,7 @@ public sealed class QueueWorkerRunner
         TikTokAccountProfile? account = null,
         Lazy<ClientSettings>? settings = null)
     {
-        ClientSettings LoadSettings() => settings?.Value ?? ClientSettingsStore.Load();
+        ClientSettings LoadSettings() => TikTokAccountAiSettings.Apply(settings?.Value ?? ClientSettingsStore.Load(), account);
 
         if (stepKey == QueueStepRegistry.UploadSeries && options.IsCopyrightProofOnlyRun())
             return true;

@@ -226,6 +226,8 @@ public sealed class TikTokAccountProfile
     public bool ManagementDedupEnabled { get; set; }
     public string ManagementDedupScope { get; set; } = "tiktok_username";
 
+    public TikTokAccountAiOptions? AiOptions { get; set; }
+
     /// <summary>账号自己的视频去重方案。为空时去重步骤使用内置默认方案。</summary>
     public VideoDedupPreset? VideoDedupPreset { get; set; }
 

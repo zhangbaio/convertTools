@@ -304,6 +304,7 @@ public partial class AccountProfileEditor : UserControl
         ProxyPasswordBox.Text = profile.TiktokProxyPassword;
         ProxyLabelBox.Text = profile.TiktokProxyLabel;
         StaticIpNoteBox.Text = profile.TiktokStaticIpNote;
+        AccountAi.Load(profile, ClientSettingsStore.Load());
         VideoDedupEditor.Load(profile.VideoDedupPreset);
         RequestUploadedSeriesReload();
     }
@@ -445,6 +446,7 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokProxyLabel = ProxyLabelBox.Text?.Trim() ?? "";
             profile.TiktokStaticIpNote = StaticIpNoteBox.Text?.Trim() ?? "";
             profile.VideoDedupPreset = VideoDedupEditor.Read();
+            AccountAi.Save(profile);
 
             _vm.SaveAccountProfile(profile);
             _vm.SelectedAccount?.RefreshFromModel();
@@ -1069,6 +1071,7 @@ public partial class AccountProfileEditor : UserControl
         DayZeroRoiBox.Value = (decimal)TikTokPublishOptions.DefaultDayZeroRoi;
         SelectByTag(SubmitActionCombo, "submit", "submit");
         ExpectedPriceValueBox.Text = "";
+        AccountAi.Clear();
         VideoDedupEditor.Load(null);
         ProxyHostBox.Text = "";
         ProxyUsernameBox.Text = "";

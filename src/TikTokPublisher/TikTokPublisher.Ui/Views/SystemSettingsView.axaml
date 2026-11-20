@@ -375,7 +375,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="AI文本">
+            <TabItem Header="AI文本" IsVisible="{Binding ShowsKuaishouPublishPrompt}">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="文本接口" FontWeight="Bold" />
@@ -433,7 +433,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem Header="AI图片">
+            <TabItem Header="AI图片" IsVisible="{Binding ShowsKuaishouPublishPrompt}">
                 <ScrollViewer>
                     <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
