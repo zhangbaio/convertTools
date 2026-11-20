@@ -1,221 +1,294 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="PlatformPublisher.Desktop.Views.KuaishouPersonalConfigDialog"
-             Background="#F3F6FA">
-    <Grid RowDefinitions="Auto,*,Auto" Margin="16" RowSpacing="12">
-        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-            <StackPanel Spacing="3">
-                <TextBlock x:Name="AccountHeading" Text="快手分账配置" FontSize="20" FontWeight="Bold" Foreground="#0B74D1" />
-                <TextBlock x:Name="AccountHint" Text="每个账号只保存一份快手分账配置。账号类型决定生成产物和上传走个人版还是企业版。" Foreground="#64748B" TextWrapping="Wrap" />
-            </StackPanel>
-        </Grid>
+             Background="White">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/ConfigurationFormStyles.axaml" />
+        <Style Selector="ComboBox.configurationInput">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="TabControl.publishTabs">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="TabControl.publishTabs TabItem">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </UserControl.Styles>
 
-        <TabControl Grid.Row="1">
-            <TabItem Header="账号与上传">
-                <ScrollViewer>
-                    <StackPanel Margin="16" Spacing="18">
-                        <StackPanel Spacing="6">
-                            <TextBlock Text="账号类型" FontWeight="SemiBold" />
-                            <StackPanel Orientation="Horizontal" Spacing="18">
-                                <RadioButton x:Name="EditionPersonalBox" Content="个人版" GroupName="KuaishouAccountEdition" />
-                                <RadioButton x:Name="EditionEnterpriseBox" Content="企业版" GroupName="KuaishouAccountEdition" />
+    <Grid RowDefinitions="Auto,*,Auto" Margin="12,10,12,0" RowSpacing="10">
+        <TextBlock x:Name="AccountHeading" Text="快手分账配置" FontSize="18" FontWeight="SemiBold" />
+
+        <TabControl Grid.Row="1" Classes="publishTabs">
+            <TabItem Header="发布配置">
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                    <Grid Margin="2,4,14,12" SizeChanged="PublishViewport_SizeChanged">
+                        <StackPanel Spacing="10" x:Name="PublishForm" MaxWidth="1080" HorizontalAlignment="Left">
+                            <TextBlock Classes="configurationHeading" Text="账号与上传" />
+                            <TextBlock x:Name="LoginStatusText" Foreground="#64748B" TextWrapping="Wrap" />
+                            <StackPanel Spacing="5">
+                                <TextBlock Classes="configurationLabel" Text="账号类型" />
+                                <StackPanel Spacing="18" Orientation="Horizontal">
+                                    <RadioButton x:Name="EditionPersonalBox" Content="个人版" GroupName="KuaishouAccountEdition" />
+                                    <RadioButton x:Name="EditionEnterpriseBox" Content="企业版" GroupName="KuaishouAccountEdition" />
+                                </StackPanel>
                             </StackPanel>
-                            <TextBlock Text="未选择时不能生成产物或上传。改成另一种类型会删除另一版本的任务记录，不删除项目文件。"
-                                       Foreground="#64748B" TextWrapping="Wrap" />
-                        </StackPanel>
-
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="账号资料" FontWeight="SemiBold" />
-                            <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                                <TextBlock Text="用户快手号 ID" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" x:Name="AdvertiserIdBox" />
-                                <TextBlock Grid.Row="1" Text="快手昵称" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" x:Name="NicknameBox" Watermark="个人分账制作机构使用快手昵称和快手号 ID" />
-                            </Grid>
-                        </StackPanel>
-
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="上传与提交" FontWeight="SemiBold" />
-                            <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                                <TextBlock Text="上传方式" VerticalAlignment="Center" />
-                                <ComboBox Grid.Column="1" x:Name="UploadTransportBox" SelectionChanged="UploadTransportBox_SelectionChanged" />
-                                <TextBlock Grid.Row="1" Text="任务执行到" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="SubmissionTargetBox" SelectionChanged="SubmissionTargetBox_SelectionChanged" />
-                                <TextBlock Grid.Row="2" Text="任务队列并发数" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" x:Name="QueueParallelBox" ToolTip.Tip="当前账号同时执行的项目数，范围 1 到 5" />
-                            </Grid>
-                            <CheckBox x:Name="RemoteDispatchBox" Content="远程分发" />
-                            <TextBlock Text="启用远程分发后，账号可接收服务端派发的剧集。" Foreground="#64748B" TextWrapping="Wrap" />
-                        </StackPanel>
-
-                        <Expander Header="高级上传设置" HorizontalContentAlignment="Stretch">
-                            <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                                    <TextBlock Text="入口 URL" VerticalAlignment="Center" />
-                                    <TextBox Grid.Column="1" x:Name="EntryUrlBox" />
-                                    <TextBlock Grid.Row="1" Text="登录超时（秒）" VerticalAlignment="Center" />
-                                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="LoginTimeoutBox" Watermark="登录等待秒数，默认 300" />
-                                    <TextBlock Grid.Row="2" Text="浏览器模式" VerticalAlignment="Center" />
-                                    <ComboBox Grid.Row="2" Grid.Column="1" x:Name="RevenueShareBrowserModeBox" />
-                                </Grid>
-                                <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="12" x:Name="PageUploadOptions">
-                                    <TextBlock Text="出错时手工介入" VerticalAlignment="Center" />
-                                    <CheckBox Grid.Column="1" x:Name="KeepBrowserBox" Content="启用" />
-                                    <TextBlock x:Name="SubmitPreCheckLabel" Grid.Row="1" Text="提交前预等待" VerticalAlignment="Center" />
-                                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="SubmitPreCheckBox" />
-                                </Grid>
-                            </StackPanel>
-                        </Expander>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="剧集资料">
-                <ScrollViewer>
-                    <StackPanel Margin="16" Spacing="18">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="内容与售卖" FontWeight="SemiBold" />
-                            <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                                <TextBlock Text="内容类型" VerticalAlignment="Center" />
-                                <ComboBox x:Name="ContentTypeBox" Grid.Column="1" />
-                                <TextBlock Grid.Row="1" Text="漫剧制作方式" VerticalAlignment="Center" />
-                                <ComboBox x:Name="ComicMethodBox" Grid.Row="1" Grid.Column="1" />
-                                <TextBlock Grid.Row="2" Text="作者声明" VerticalAlignment="Center" />
-                                <ComboBox x:Name="AuthorDeclarationBox" Grid.Row="2" Grid.Column="1" />
-                                <TextBlock Grid.Row="3" Text="制作形式" VerticalAlignment="Center" />
-                                <ComboBox x:Name="ProductionFormBox" Grid.Row="3" Grid.Column="1" />
-                                <TextBlock Grid.Row="4" Text="出品年份" VerticalAlignment="Center" />
-                                <TextBox x:Name="ProductionYearBox" Grid.Row="4" Grid.Column="1" />
-                                <TextBlock Grid.Row="5" Text="单集平均时长" VerticalAlignment="Center" />
-                                <TextBox x:Name="AverageDurationBox" Grid.Row="5" Grid.Column="1" />
-                                <TextBlock Grid.Row="6" Text="制作成本（万元）" VerticalAlignment="Center" />
-                                <TextBox x:Name="ProductionCostBox" Grid.Row="6" Grid.Column="1" Watermark="单位：万元，例如 1.0" />
-                                <TextBlock Grid.Row="7" Text="售卖类型" VerticalAlignment="Center" />
-                                <ComboBox x:Name="SaleTypeBox" Grid.Row="7" Grid.Column="1" SelectionChanged="SaleTypeBox_SelectionChanged" />
-                                <TextBlock x:Name="FreeEpisodeLabel" Grid.Row="8" Text="免费集数" VerticalAlignment="Center" />
-                                <TextBox x:Name="FreeEpisodeCountBox" Grid.Row="8" Grid.Column="1" Watermark="默认 1，如 3" />
-                                <TextBlock x:Name="UnlockCountLabel" Grid.Row="9" Text="广告解锁集数" VerticalAlignment="Center" />
-                                <TextBox x:Name="UnlockEpisodeCountBox" Grid.Row="9" Grid.Column="1" Watermark="默认 1，限制 1~8；saleType 为 3 时有效" />
-                                <TextBlock x:Name="SmallAmountLabel" Grid.Row="10" Text="小额解锁" VerticalAlignment="Center" />
-                                <CheckBox x:Name="SmallAmountUnlockBox" Grid.Row="10" Grid.Column="1" Content="是" />
-                                <TextBlock x:Name="EpisodePriceLabel" Grid.Row="11" Text="单集价格（元）" VerticalAlignment="Center" />
-                                <TextBox x:Name="EpisodePriceBox" Grid.Row="11" Grid.Column="1" Watermark="saleType=2 时有效，单位：元，例如 0.11" />
-                                <TextBlock x:Name="SeriesPriceLabel" Grid.Row="12" Text="整剧价格（元）" VerticalAlignment="Center" />
-                                <TextBox x:Name="SeriesPriceBox" Grid.Row="12" Grid.Column="1" Watermark="saleType=0/2 时必填，单位：元，例如 1.00" />
-                                <TextBlock Grid.Row="13" Text="版权证明类型" VerticalAlignment="Center" />
-                                <ComboBox x:Name="CopyrightProofTypeBox" Grid.Row="13" Grid.Column="1" />
-                                <TextBlock Grid.Row="14" Text="完结" VerticalAlignment="Center" />
-                                <CheckBox x:Name="FinishedBox" Grid.Row="14" Grid.Column="1" Content="是" />
-                                <TextBlock Grid.Row="15" Text="备案号" VerticalAlignment="Center" />
-                                <CheckBox x:Name="HasRecordNumberBox" Grid.Row="15" Grid.Column="1" Content="是" />
-                            </Grid>
-                        </StackPanel>
-
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="播出与人员" FontWeight="SemiBold" />
-                            <StackPanel Spacing="10">
-                                <Grid ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                                    <TextBlock Text="播出平台" VerticalAlignment="Center" />
-                                    <TextBox x:Name="BroadcastPlatformBox" Grid.Column="1" />
-                                    <TextBlock Grid.Row="1" Text="播出途径" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="BroadcastChannelBox" Grid.Row="1" Grid.Column="1" />
-                                    <TextBlock Grid.Row="2" Text="播出时间模式" VerticalAlignment="Center" />
-                                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                        <ComboBox x:Name="BroadcastTimeModeBox" Width="140" SelectionChanged="BroadcastTimeModeBox_SelectionChanged" />
-                                        <TextBox x:Name="BroadcastDateBox" Width="160" Watermark="yyyy-MM-dd" />
+                            <TextBlock Text="切换账号类型时，需要确认是否删除另一版本的任务记录。" Foreground="#64748B" TextWrapping="Wrap" />
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="快手昵称" />
+                                    <TextBox x:Name="NicknameBox" Classes="configurationInput" AutomationProperties.Name="快手昵称" Watermark="个人版制作机构使用快手昵称和快手号 ID" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="用户快手号 ID" />
+                                    <TextBox x:Name="AdvertiserIdBox" Classes="configurationInput" AutomationProperties.Name="用户快手号 ID" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="上传方式" />
+                                    <ComboBox x:Name="UploadTransportBox" Classes="configurationInput" AutomationProperties.Name="上传方式" SelectionChanged="UploadTransportBox_SelectionChanged" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="任务执行到" />
+                                    <ComboBox x:Name="SubmissionTargetBox" Classes="configurationInput" AutomationProperties.Name="任务执行到" SelectionChanged="SubmissionTargetBox_SelectionChanged" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="任务队列并发数" />
+                                    <TextBox x:Name="QueueParallelBox" Classes="configurationInput" AutomationProperties.Name="任务队列并发数" ToolTip.Tip="当前账号同时执行的项目数，范围 1 到 5" />
+                                </StackPanel>
+                                <StackPanel VerticalAlignment="Bottom">
+                                    <ToggleSwitch x:Name="RemoteDispatchBox" OnContent="远程分发" OffContent="远程分发" AutomationProperties.Name="远程分发" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <Expander Header="高级上传设置" HorizontalContentAlignment="Stretch">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="configurationLabel" Text="入口 URL" />
+                                        <TextBox x:Name="EntryUrlBox" Classes="configurationInput" AutomationProperties.Name="入口 URL" />
                                     </StackPanel>
-                                    <TextBlock Grid.Row="3" Text="演员库" VerticalAlignment="Top" />
-                                    <TextBox x:Name="ActorLibraryBox" Grid.Row="3" Grid.Column="1" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap"
-                                             Watermark="格式：姓名|性别|角色1,角色2&#10;例如：沈清秋|女|许初夏,林晚意" />
-                                    <TextBlock Grid.Row="4" Text="演员 JSON" VerticalAlignment="Top" />
-                                    <TextBox x:Name="ActorInfoBox" Grid.Row="4" Grid.Column="1" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap"
-                                             Watermark='[{"name":"演员A","gender":"男","role":"男主"}]' />
-                                </Grid>
-                                <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                                    <TextBlock Text="用户名" VerticalAlignment="Center" />
-                                    <TextBox Grid.Column="1" x:Name="UsernameBox" Watermark="用于人员署名和承诺函" />
-                                    <TextBlock Grid.Row="1" Text="性别" VerticalAlignment="Center" />
-                                    <ComboBox Grid.Row="1" Grid.Column="1" x:Name="GenderBox" />
+                                    <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                        <StackPanel Spacing="5">
+                                            <TextBlock Classes="configurationLabel" Text="登录超时（秒）" />
+                                            <TextBox x:Name="LoginTimeoutBox" Classes="configurationInput" AutomationProperties.Name="登录超时（秒）" Watermark="默认 300" />
+                                        </StackPanel>
+                                        <StackPanel Spacing="5">
+                                            <TextBlock Classes="configurationLabel" Text="浏览器模式" />
+                                            <ComboBox x:Name="RevenueShareBrowserModeBox" Classes="configurationInput" AutomationProperties.Name="浏览器模式" />
+                                        </StackPanel>
+                                    </UniformGrid>
+                                    <StackPanel Spacing="10" x:Name="PageUploadOptions">
+                                        <ToggleSwitch x:Name="KeepBrowserBox" OnContent="出错时手工介入" OffContent="出错时手工介入" AutomationProperties.Name="出错时手工介入" />
+                                        <StackPanel Spacing="5" x:Name="SubmitPreCheckOptions">
+                                            <TextBlock Classes="configurationLabel" Text="提交前预等待" />
+                                            <ComboBox x:Name="SubmitPreCheckBox" Classes="configurationInput" AutomationProperties.Name="提交前预等待" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Expander>
+                            <Border Height="1" Background="#E4E9F0" Margin="0,4" />
+
+                            <TextBlock Classes="configurationHeading" Text="剧集与售卖" />
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="内容类型" />
+                                    <ComboBox x:Name="ContentTypeBox" Classes="configurationInput" AutomationProperties.Name="内容类型" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="漫剧制作方式" />
+                                    <ComboBox x:Name="ComicMethodBox" Classes="configurationInput" AutomationProperties.Name="漫剧制作方式" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="作者声明" />
+                                    <ComboBox x:Name="AuthorDeclarationBox" Classes="configurationInput" AutomationProperties.Name="作者声明" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="制作形式" />
+                                    <ComboBox x:Name="ProductionFormBox" Classes="configurationInput" AutomationProperties.Name="制作形式" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="出品年份" />
+                                    <TextBox x:Name="ProductionYearBox" Classes="configurationInput" AutomationProperties.Name="出品年份" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="制作成本（万元）" />
+                                    <TextBox x:Name="ProductionCostBox" Classes="configurationInput" AutomationProperties.Name="制作成本（万元）" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="单集平均时长" />
+                                    <TextBox x:Name="AverageDurationBox" Classes="configurationInput" AutomationProperties.Name="单集平均时长" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="版权证明类型" />
+                                    <ComboBox x:Name="CopyrightProofTypeBox" Classes="configurationInput" AutomationProperties.Name="版权证明类型" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <ToggleSwitch x:Name="FinishedBox" OnContent="完结" OffContent="完结" AutomationProperties.Name="完结" />
+                                <ToggleSwitch x:Name="HasRecordNumberBox" OnContent="有备案号" OffContent="有备案号" AutomationProperties.Name="有备案号" />
+                            </UniformGrid>
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="售卖类型" />
+                                    <ComboBox x:Name="SaleTypeBox" Classes="configurationInput" AutomationProperties.Name="售卖类型" SelectionChanged="SaleTypeBox_SelectionChanged" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="免费集数" />
+                                    <TextBox x:Name="FreeEpisodeCountBox" Classes="configurationInput" AutomationProperties.Name="免费集数" Watermark="例如 3" />
+                                </StackPanel>
+                                <StackPanel Spacing="5" x:Name="UnlockCountField">
+                                    <TextBlock Classes="configurationLabel" Text="广告解锁集数" />
+                                    <TextBox x:Name="UnlockEpisodeCountBox" Classes="configurationInput" AutomationProperties.Name="广告解锁集数" Watermark="1 至 8" />
+                                </StackPanel>
+                                <StackPanel Spacing="10" x:Name="SmallAmountField" VerticalAlignment="Bottom">
+                                    <ToggleSwitch x:Name="SmallAmountUnlockBox" OnContent="小额解锁" OffContent="小额解锁" AutomationProperties.Name="小额解锁" />
+                                </StackPanel>
+                                <StackPanel Spacing="5" x:Name="EpisodePriceField">
+                                    <TextBlock Classes="configurationLabel" Text="单集价格（元）" />
+                                    <TextBox x:Name="EpisodePriceBox" Classes="configurationInput" AutomationProperties.Name="单集价格（元）" Watermark="例如 0.11" />
+                                </StackPanel>
+                                <StackPanel Spacing="5" x:Name="SeriesPriceField">
+                                    <TextBlock Classes="configurationLabel" Text="整剧价格（元）" />
+                                    <TextBox x:Name="SeriesPriceBox" Classes="configurationInput" AutomationProperties.Name="整剧价格（元）" Watermark="例如 1.00" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <Border Height="1" Background="#E4E9F0" Margin="0,4" />
+
+                            <TextBlock Classes="configurationHeading" Text="播出与人员" />
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="播出平台" />
+                                    <TextBox x:Name="BroadcastPlatformBox" Classes="configurationInput" AutomationProperties.Name="播出平台" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="播出途径" />
+                                    <ComboBox x:Name="BroadcastChannelBox" Classes="configurationInput" AutomationProperties.Name="播出途径" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="播出时间模式" />
+                                    <ComboBox x:Name="BroadcastTimeModeBox" Classes="configurationInput" AutomationProperties.Name="播出时间模式" SelectionChanged="BroadcastTimeModeBox_SelectionChanged" />
+                                </StackPanel>
+                                <StackPanel Spacing="5" x:Name="BroadcastDateField">
+                                    <TextBlock Classes="configurationLabel" Text="播出日期" />
+                                    <TextBox x:Name="BroadcastDateBox" Classes="configurationInput" AutomationProperties.Name="播出日期" Watermark="yyyy-MM-dd" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="用户名" />
+                                    <TextBox x:Name="UsernameBox" Classes="configurationInput" AutomationProperties.Name="用户名" Watermark="用于人员署名和承诺函" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="性别" />
+                                    <ComboBox x:Name="GenderBox" Classes="configurationInput" AutomationProperties.Name="性别" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <StackPanel Spacing="5">
+                                <TextBlock Classes="configurationLabel" Text="演员库" />
+                                <TextBox x:Name="ActorLibraryBox" Classes="configurationInput" AutomationProperties.Name="演员库" AcceptsReturn="True" MinHeight="108" TextWrapping="Wrap" Watermark="格式：姓名|性别|角色1,角色2&#10;例如：沈清秋|女|许初夏,林晚意" />
+                            </StackPanel>
+                            <Expander Header="高级人员设置" HorizontalContentAlignment="Stretch">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="configurationLabel" Text="演员 JSON" />
+                                        <TextBox x:Name="ActorInfoBox" Classes="configurationInput" AutomationProperties.Name="演员 JSON" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Expander>
+                            <Border Height="1" Background="#E4E9F0" Margin="0,4" />
+
+                            <TextBlock Classes="configurationHeading" Text="承诺函与工程图" />
+                            <StackPanel Spacing="5">
+                                <TextBlock Classes="configurationLabel" Text="固定承诺函 PDF" />
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                    <TextBox x:Name="CommitmentPdfBox" Classes="configurationInput" AutomationProperties.Name="固定承诺函 PDF" Watermark="有 PDF 时优先使用，缺少时可用模板生成" />
+                                    <Button Grid.Column="1" Content="选择" Click="PickCommitmentPdf_Click" AutomationProperties.Name="选择固定承诺函 PDF" VerticalAlignment="Stretch" />
                                 </Grid>
                             </StackPanel>
-                        </StackPanel>
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="制作机构" />
+                                    <TextBox x:Name="CommitmentRecipientBox" Classes="configurationInput" AutomationProperties.Name="制作机构" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="分账工程图模板" />
+                                    <ComboBox x:Name="PersonalTemplateBox" Classes="configurationInput" AutomationProperties.Name="分账工程图模板" />
+                                </StackPanel>
+                            </UniformGrid>
+                            <Expander Header="承诺函生成设置" HorizontalContentAlignment="Stretch">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="configurationLabel" Text="承诺函模板" />
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <TextBox x:Name="CommitmentTemplateBox" Classes="configurationInput" AutomationProperties.Name="承诺函模板" />
+                                            <Button Grid.Column="1" Content="选择" Click="PickCommitmentTemplate_Click" AutomationProperties.Name="选择承诺函模板" VerticalAlignment="Stretch" />
+                                        </Grid>
+                                    </StackPanel>
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="configurationLabel" Text="盖章图片" />
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <TextBox x:Name="CommitmentSealBox" Classes="configurationInput" AutomationProperties.Name="盖章图片" Watermark="留空则使用成本报表的印章地址" />
+                                            <Button Grid.Column="1" Content="选择" Click="PickCommitmentSeal_Click" AutomationProperties.Name="选择盖章图片" VerticalAlignment="Stretch" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Expander>
+                            <Expander Header="工程图高级设置" HorizontalContentAlignment="Stretch">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Classes="configurationLabel" Text="模板根目录" />
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <TextBox x:Name="ProjectImageRootBox" Classes="configurationInput" AutomationProperties.Name="模板根目录" Watermark="留空时使用系统模板目录和内置模板" />
+                                            <Button Grid.Column="1" Content="浏览" Click="PickProjectImageRoot_Click" AutomationProperties.Name="浏览模板根目录" VerticalAlignment="Stretch" />
+                                        </Grid>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Expander>
+                            <Border Height="1" Background="#E4E9F0" Margin="0,4" />
 
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="剧名与合规" FontWeight="SemiBold" />
-                            <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                                <TextBlock Text="新剧名别名" VerticalAlignment="Center" />
-                                <CheckBox Grid.Column="1" x:Name="NewTitleAliasEnabledBox" Content="启用" />
-                                <TextBlock Grid.Row="1" Text="别名位置" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="NewTitleAliasPositionBox" />
-                                <TextBlock Grid.Row="2" Text="别名值" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" x:Name="NewTitleAliasValueBox" Watermark="例如 2" />
-                            </Grid>
+                            <TextBlock Classes="configurationHeading" Text="剧名与合规" />
+                            <ToggleSwitch x:Name="NewTitleAliasEnabledBox" OnContent="启用新剧名别名" OffContent="启用新剧名别名" AutomationProperties.Name="启用新剧名别名" />
+                            <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10" IsVisible="{Binding #NewTitleAliasEnabledBox.IsChecked}">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="别名位置" />
+                                    <ComboBox x:Name="NewTitleAliasPositionBox" Classes="configurationInput" AutomationProperties.Name="别名位置" />
+                                </StackPanel>
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="configurationLabel" Text="别名值" />
+                                    <TextBox x:Name="NewTitleAliasValueBox" Classes="configurationInput" AutomationProperties.Name="别名值" Watermark="例如 2" />
+                                </StackPanel>
+                            </UniformGrid>
                             <Expander Header="内容合规词库" HorizontalContentAlignment="Stretch">
                                 <StackPanel Spacing="10">
                                     <TextBlock Text="下方展示当前完整有效词库，可直接增加、修改或删除词语。每行格式：分类：词1、词2。保存后会写进生成新剧名、短标题和简介的提示词，由 AI 生成时直接避开；生成后若仍命中会自动重写，上传时不再拦截。软件升级新增的系统词会自动合并。"
                                                TextWrapping="Wrap" Foreground="#64748B" />
                                     <TextBlock Text="快手新剧名敏感词（普通上传、分账个人版、分账企业版）" FontWeight="SemiBold" />
                                     <TextBlock x:Name="TitlePolicySummary" Foreground="#64748B" />
-                                    <TextBox x:Name="TitlePolicyBox" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap" />
+                                    <TextBox Classes="configurationInput" x:Name="TitlePolicyBox" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap" />
                                     <TextBlock Text="快手简介敏感词（普通上传、分账个人版、分账企业版）" FontWeight="SemiBold" />
                                     <TextBlock x:Name="SynopsisTermsSummary" Foreground="#64748B" />
-                                    <TextBox x:Name="SynopsisTermsBox" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap" />
+                                    <TextBox Classes="configurationInput" x:Name="SynopsisTermsBox" AcceptsReturn="True" MinHeight="140" TextWrapping="Wrap" />
                                     <TextBlock Text="快手简介语义概念组（用于识别同义词和跨句组合）" FontWeight="SemiBold" />
                                     <TextBlock x:Name="ConceptGroupsSummary" Foreground="#64748B" />
-                                    <TextBox x:Name="ConceptGroupsBox" AcceptsReturn="True" MinHeight="120" TextWrapping="Wrap" />
+                                    <TextBox Classes="configurationInput" x:Name="ConceptGroupsBox" AcceptsReturn="True" MinHeight="120" TextWrapping="Wrap" />
                                     <TextBlock Text="快手简介组合语义规则" FontWeight="SemiBold" />
                                     <TextBlock Text="每行格式：风险分类：概念组1+概念组2；删除整行即可停用该组合。" Foreground="#64748B" TextWrapping="Wrap" />
-                                    <TextBox x:Name="CombinationRulesBox" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
+                                    <TextBox Classes="configurationInput" x:Name="CombinationRulesBox" AcceptsReturn="True" MinHeight="100" TextWrapping="Wrap" />
                                     <Button Content="恢复系统默认词库" Click="RestoreContentPolicy_Click" HorizontalAlignment="Left" />
                                 </StackPanel>
                             </Expander>
                             <Expander Header="项目资料高级设置" HorizontalContentAlignment="Stretch">
-                                <Grid ColumnDefinitions="180,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="12">
-                                    <TextBlock Text="全场景展示" VerticalAlignment="Center" />
-                                    <CheckBox Grid.Column="1" x:Name="RevenueShareFullSceneBox" Content="是" />
-                                </Grid>
+                                <StackPanel Spacing="10">
+                                    <ToggleSwitch x:Name="RevenueShareFullSceneBox" OnContent="全场景展示" OffContent="全场景展示" AutomationProperties.Name="全场景展示" />
+                                </StackPanel>
                             </Expander>
                         </StackPanel>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-
-            <TabItem Header="证明材料">
-                <ScrollViewer>
-                    <StackPanel Margin="16" Spacing="18">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="承诺函" FontWeight="SemiBold" />
-                            <TextBlock Text="上传优先使用已有的承诺函 PDF，缺少 PDF 时可用模板生成。" Foreground="#64748B" TextWrapping="Wrap" />
-                            <Grid ColumnDefinitions="180,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="12">
-                                <TextBlock Text="固定 PDF" VerticalAlignment="Center" />
-                                <TextBox Grid.Column="1" x:Name="CommitmentPdfBox" />
-                                <Button Grid.Column="2" Content="选择" Click="PickCommitmentPdf_Click" />
-                                <TextBlock Grid.Row="1" Text="制作机构" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="CommitmentRecipientBox" />
-                                <TextBlock Grid.Row="2" Text="承诺函模板" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" x:Name="CommitmentTemplateBox" />
-                                <Button Grid.Row="2" Grid.Column="2" Content="选择" Click="PickCommitmentTemplate_Click" />
-                                <TextBlock Grid.Row="3" Text="盖章图片" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="3" Grid.Column="1" x:Name="CommitmentSealBox" Watermark="留空则使用成本报表的印章地址" />
-                                <Button Grid.Row="3" Grid.Column="2" Content="选择" Click="PickCommitmentSeal_Click" />
-                            </Grid>
-                        </StackPanel>
-
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="工程图" FontWeight="SemiBold" />
-                            <Grid ColumnDefinitions="180,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="12">
-                                <TextBlock Text="分账工程图模板" VerticalAlignment="Center" />
-                                <ComboBox Grid.Column="1" x:Name="PersonalTemplateBox" />
-                            </Grid>
-                            <Expander Header="工程图高级设置" HorizontalContentAlignment="Stretch">
-                                <Grid ColumnDefinitions="180,*,Auto" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="12">
-                                    <TextBlock Text="模板根目录" VerticalAlignment="Center" />
-                                    <TextBox Grid.Column="1" x:Name="ProjectImageRootBox" Watermark="留空时使用系统工程图模板根目录和内置模板" />
-                                    <Button Grid.Column="2" Content="浏览" Click="PickProjectImageRoot_Click" />
-                                </Grid>
-                            </Expander>
-                        </StackPanel>
-                    </StackPanel>
+                    </Grid>
                 </ScrollViewer>
             </TabItem>
 
@@ -274,18 +347,20 @@
             </TabItem>
         </TabControl>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
-            <TextBlock x:Name="ValidationText" Foreground="#DC2626" VerticalAlignment="Center" TextWrapping="Wrap" />
-            <Button Grid.Column="1" Content="导入配置">
-                <Button.Flyout>
-                    <MenuFlyout>
-                        <MenuItem Header="导入微信工具配置" Click="ImportExportedSettings_Click" />
-                        <MenuItem Header="导入旧版配置" Click="ImportLegacy_Click" />
-                    </MenuFlyout>
-                </Button.Flyout>
-            </Button>
-            <Button Grid.Column="2" Content="放弃修改" Click="Cancel_Click" />
-            <Button Grid.Column="3" Classes="primary" Content="保存配置" Click="Save_Click" />
-        </Grid>
+        <Border Grid.Row="2" BorderBrush="#E5E7EB" BorderThickness="1,1,1,0" CornerRadius="8,8,0,0" Padding="12,10">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <Button Content="导入配置">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="导入微信工具配置" Click="ImportExportedSettings_Click" />
+                            <MenuItem Header="导入旧版配置" Click="ImportLegacy_Click" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+                <TextBlock Grid.Column="1" x:Name="ValidationText" Foreground="#DC2626" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button Grid.Column="2" Content="放弃修改" Click="Cancel_Click" />
+                <Button Grid.Column="3" Classes="primaryAction" Content="保存配置" Click="Save_Click" />
+            </Grid>
+        </Border>
     </Grid>
 </UserControl>

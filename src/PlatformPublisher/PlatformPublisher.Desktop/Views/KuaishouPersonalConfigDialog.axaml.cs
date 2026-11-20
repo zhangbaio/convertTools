@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Platform.Storage;
 using ChannelsAccount = ChannelsPublisher.Core.Models.PublishAccount;
 using PlatformPublisher.Common.Models;
@@ -105,7 +107,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         var fixedDate = !string.Equals(broadcastMode, "today", StringComparison.OrdinalIgnoreCase);
         FillChoice(BroadcastTimeModeBox, KuaishouFormChoices.BroadcastTimeModes, fixedDate ? "fixed" : "today", "today");
         BroadcastDateBox.Text = fixedDate ? broadcastMode : _config.BroadcastDate;
-        BroadcastDateBox.IsVisible = fixedDate;
+        BroadcastDateField.IsVisible = fixedDate;
         ActorLibraryBox.Text = _config.ActorLibraryText;
         ActorInfoBox.Text = _config.ActorInfoJson;
 
@@ -397,6 +399,18 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void SaleTypeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateSaleTypeRows();
 
+    private void PublishViewport_SizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (PublishForm is null || e.NewSize.Width <= 0)
+            return;
+
+        var width = Math.Min(e.NewSize.Width, PublishForm.MaxWidth);
+        PublishForm.Width = width;
+        var columns = width < 580 ? 1 : 2;
+        foreach (var row in PublishForm.GetLogicalDescendants().OfType<UniformGrid>())
+            row.Columns = columns;
+    }
+
     private void UploadTransportBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (SubmissionTargetBox is not null)
@@ -440,13 +454,13 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void UpdateSubmissionOptions()
     {
-        if (PageUploadOptions is null || LegacyOnlineOptions is null || SubmitPreCheckLabel is null)
+        if (PageUploadOptions is null || LegacyOnlineOptions is null || SubmitPreCheckOptions is null)
             return;
 
         var pageUpload = UsesPageUpload();
         PageUploadOptions.IsVisible = pageUpload;
         LegacyOnlineOptions.IsVisible = pageUpload;
-        SubmitPreCheckLabel.IsVisible = SubmitPreCheckBox.IsVisible =
+        SubmitPreCheckOptions.IsVisible =
             pageUpload && ChoiceValue(SubmissionTargetBox, "submit_review") == "submit_review";
     }
 
@@ -469,21 +483,21 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void UpdateSaleTypeRows()
     {
+        if (SeriesPriceField is null)
+            return;
+
         var code = KuaishouFormChoices.SaleTypeCode(ChoiceValue(SaleTypeBox, "3"));
-        var paidSeries = code is 0 or 2;
-        var singleEpisode = code == 2;
         var adUnlock = code == 3;
-        SetRowVisible(UnlockCountLabel, UnlockEpisodeCountBox, adUnlock);
-        SmallAmountLabel.IsVisible = adUnlock;
-        SmallAmountUnlockBox.IsVisible = adUnlock;
-        SetRowVisible(EpisodePriceLabel, EpisodePriceBox, singleEpisode);
-        SetRowVisible(SeriesPriceLabel, SeriesPriceBox, paidSeries);
+        UnlockCountField.IsVisible = adUnlock;
+        SmallAmountField.IsVisible = adUnlock;
+        EpisodePriceField.IsVisible = code == 2;
+        SeriesPriceField.IsVisible = code is 0 or 2;
     }
 
     private void BroadcastTimeModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (BroadcastDateBox is null || BroadcastTimeModeBox is null) return;
-        BroadcastDateBox.IsVisible = ChoiceValue(BroadcastTimeModeBox, "today") == "fixed";
+        if (BroadcastDateField is null || BroadcastTimeModeBox is null) return;
+        BroadcastDateField.IsVisible = ChoiceValue(BroadcastTimeModeBox, "today") == "fixed";
     }
 
     private void ScheduledShelfModeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e) =>
@@ -534,12 +548,6 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         if (text.Contains("单集", StringComparison.Ordinal)) return "2";
         if (text.Contains("全剧", StringComparison.Ordinal)) return "0";
         return text;
-    }
-
-    private static void SetRowVisible(TextBlock label, TextBox box, bool visible)
-    {
-        label.IsVisible = visible;
-        box.IsVisible = visible;
     }
 
     private static string FirstNonEmpty(params string?[] values) =>
@@ -658,6 +666,9 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private void UpdateHeading()
     {
         AccountHeading.Text = _account is null ? "快手分账配置" : _account.Name;
+        LoginStatusText.Text = _account is null ? "请选择发布账号" : File.Exists(_config.AuthStatePath)
+            ? "已保存快手授权文件（可能已登录）"
+            : "尚未保存快手授权文件";
     }
 
     private IStorageProvider Files =>
