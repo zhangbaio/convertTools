@@ -9,51 +9,49 @@
         Icon="/Assets/tiktok-shortdrama-logo.ico"
         Background="{StaticResource PythonPageBgBrush}">
 
-    <Grid RowDefinitions="Auto,*,Auto">
-        <!-- 顶部：品牌 + 水平一级 TAB -->
-        <Border Grid.Row="0" Classes="topNavFrame">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+    <Window.Styles>
+        <Style Selector="Button.moduleNavItem">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="MinHeight" Value="30" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Button.moduleNavItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#F0F7FF" />
+        </Style>
+        <Style Selector="Button.moduleNavItem.moduleNavActive">
+            <Setter Property="Background" Value="#EAF4FF" />
+            <Setter Property="Foreground" Value="{StaticResource PythonPrimaryBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </Window.Styles>
 
-                <Border x:Name="BrandPane" Grid.Column="0" Padding="12,0,10,0">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock x:Name="BrandLabel" Grid.Column="0" Text="TikTok 短剧助手" Classes="topBrandLabel" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                        <Button x:Name="SidebarToggleButton"
-                                Grid.Column="1"
-                                Content="‹"
-                                Width="30"
-                                Height="30"
-                                MinHeight="30"
-                                Padding="0"
-                                Margin="8,0,0,0"
-                                FontSize="16"
-                                FontWeight="Bold"
-                                VerticalAlignment="Center"
-                                ToolTip.Tip="收起左侧面板"
-                                Click="OnSidebarToggleClick" />
-                    </Grid>
-                </Border>
-                <ScrollViewer Grid.Column="1"
-                              HorizontalScrollBarVisibility="Auto"
-                              VerticalScrollBarVisibility="Disabled"
-                              AllowAutoHide="True">
-                    <StackPanel x:Name="ModuleNav" Orientation="Horizontal"
-                                VerticalAlignment="Center" Margin="8,0,8,0">
-                        <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnNavItemClick" />
-                        <Button Content="短剧下载" Tag="download" Classes="topNavItem" Click="OnNavItemClick" />
-                        <Button Content="TikTok 上传" Tag="queue" Classes="topNavItem" Click="OnNavItemClick" />
-                        <Button Content="快手上传" Tag="kuaishou" Classes="topNavItem" Click="OnNavItemClick" />
-                        <Button Content="系统设置" Tag="settings" Classes="topNavItem" Click="OnNavItemClick" />
-                        <Button Content="数据统计" Tag="analytics" Classes="topNavItem" Click="OnNavItemClick" />
-                    </StackPanel>
-                </ScrollViewer>
+    <Grid x:Name="WindowLayout" RowDefinitions="*,Auto" ColumnDefinitions="198,*">
+        <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" Background="{StaticResource PythonPanelBgBrush}">
+            <Grid ColumnDefinitions="*,Auto" Margin="12,8,8,8">
+                <TextBlock x:Name="BrandLabel" Text="TikTok 短剧助手" Classes="topBrandLabel"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <Button x:Name="SidebarToggleButton" Grid.Column="1" Content="‹"
+                        Width="28" Height="28" MinHeight="28" Padding="0" Margin="5,0,0,0"
+                        FontSize="16" FontWeight="Bold" VerticalAlignment="Center"
+                        ToolTip.Tip="收起账号栏" AutomationProperties.Name="收起账号栏" Click="OnSidebarToggleClick" />
             </Grid>
-        </Border>
+            <StackPanel Grid.Row="1" x:Name="ModuleNav" Margin="8,0,8,8" Spacing="2">
+                <Button Content="浏览器" Tag="browser" Classes="moduleNavItem" Click="OnNavItemClick" />
+                <Button Content="短剧下载" Tag="download" Classes="moduleNavItem" Click="OnNavItemClick" />
+                <Button Content="TikTok 上传" Tag="queue" Classes="moduleNavItem" Click="OnNavItemClick" />
+                <Button Content="快手上传" Tag="kuaishou" Classes="moduleNavItem" Click="OnNavItemClick" />
+                <Button Content="数据统计" Tag="analytics" Classes="moduleNavItem" Click="OnNavItemClick" />
+                <Button Content="系统设置" Tag="settings" Classes="moduleNavItem" Click="OnNavItemClick" />
+            </StackPanel>
+            <Panel x:Name="AccountPanelHost" Grid.Row="2" ClipToBounds="True">
+                <views:AccountSidebarView x:Name="AccountSidebar" />
+            </Panel>
+        </Grid>
 
-        <Panel x:Name="ContentHostPanel" Grid.Row="1" Background="{StaticResource PythonPageBgBrush}">
+        <Panel x:Name="ContentHostPanel" Grid.Column="1" Background="{StaticResource PythonPageBgBrush}">
             <Panel x:Name="BrowserHostMount"
                    IsHitTestVisible="False"
                    ClipToBounds="True"
@@ -62,13 +60,10 @@
                    HorizontalAlignment="Left"
                    VerticalAlignment="Top"
                    ZIndex="5" />
-            <Grid x:Name="BrowserWorkspace" ColumnDefinitions="198,*" IsVisible="False" ZIndex="10">
-                <views:AccountSidebarView x:Name="BrowserAccountSidebar" />
-                <views:TikTokBrowserView x:Name="BrowserView" Grid.Column="1" />
-            </Grid>
+            <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" ZIndex="10" />
             <views:DramaDownloadView x:Name="DownloadView" IsVisible="False" />
-            <Grid x:Name="TikTokWorkspace" RowDefinitions="Auto,*" ColumnDefinitions="198,*">
-                <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <Grid x:Name="TikTokWorkspace" RowDefinitions="Auto,*">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="TikTokSubNavigation" Orientation="Horizontal" Spacing="5" Margin="10,5,10,3">
                         <Button Content="任务队列" Tag="queue" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="发布配置" Tag="accounts" Classes="topNavItem" Click="OnTikTokSubPageClick" />
@@ -81,8 +76,7 @@
                         <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                     </StackPanel>
                 </ScrollViewer>
-                <views:AccountSidebarView x:Name="AccountSidebar" Grid.RowSpan="2" />
-                <Grid Grid.Row="1" Grid.Column="1" RowDefinitions="Auto,*">
+                <Grid Grid.Row="1" RowDefinitions="Auto,*">
                     <CheckBox x:Name="TikTokAllHistoryAccounts" Content="全部账号" Margin="12,4" IsVisible="False"
                               IsCheckedChanged="OnTikTokHistoryScopeChanged" />
                     <Panel Grid.Row="1">
@@ -96,9 +90,13 @@
             <kuaishou:KuaishouUploadWorkspace x:Name="KuaishouWorkspace" IsVisible="False" />
             <views:SystemSettingsView x:Name="SettingsView" IsVisible="False" />
             <Grid x:Name="HistoryWorkspace" RowDefinitions="Auto,*" IsVisible="False">
-                <StackPanel Orientation="Horizontal" Spacing="5" Margin="10,5,10,3">
-                    <Button x:Name="TikTokHistoryButton" Content="TikTok" Tag="tiktok" Classes="topNavItem" Click="OnHistoryPlatformClick" />
-                    <Button x:Name="KuaishouHistoryButton" Content="快手" Tag="kuaishou" Classes="topNavItem" Click="OnHistoryPlatformClick" />
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="16,10,16,4">
+                    <TextBlock Text="平台" VerticalAlignment="Center" />
+                    <ComboBox x:Name="AnalyticsPlatformPicker" MinWidth="120"
+                              AutomationProperties.Name="统计平台" SelectionChanged="OnAnalyticsPlatformChanged">
+                        <ComboBoxItem x:Name="TikTokAnalyticsOption" Content="TikTok" />
+                        <ComboBoxItem x:Name="KuaishouAnalyticsOption" Content="快手" />
+                    </ComboBox>
                 </StackPanel>
                 <Panel Grid.Row="1">
                     <views:TikTokAccountAnalyticsView x:Name="AnalyticsView" IsVisible="False" />
@@ -108,7 +106,7 @@
             </Grid>
         </Panel>
 
-        <Border Grid.Row="2" Classes="statusBarFrame" Height="28">
+        <Border Grid.Row="1" Grid.ColumnSpan="2" Classes="statusBarFrame" Height="28">
             <Grid ColumnDefinitions="*,*,*,Auto,Auto" Margin="12,0">
                 <TextBlock Grid.Column="0"
                            VerticalAlignment="Center"

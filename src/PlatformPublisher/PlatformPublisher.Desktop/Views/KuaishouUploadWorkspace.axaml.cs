@@ -60,11 +60,14 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
 
     private Window? Owner => TopLevel.GetTopLevel(this) as Window;
 
-    public void SetSidebarLayout(double width, bool collapsed)
+    public void MountAccountPanel(Panel host)
     {
-        WorkspaceLayout.ColumnDefinitions[0].Width = new Avalonia.Controls.GridLength(collapsed ? 0 : width);
-        Sidebar.IsVisible = !collapsed;
+        WorkspaceLayout.Children.Remove(Sidebar);
+        WorkspaceLayout.ColumnDefinitions[0].Width = new GridLength(0);
+        host.Children.Add(Sidebar);
     }
+
+    public void SetAccountPanelVisible(bool visible) => Sidebar.IsVisible = visible;
 
     public async Task ActivateAsync()
     {
@@ -178,6 +181,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             viewModel = null;
 
             DataContext = _viewModel;
+            Sidebar.DataContext = _viewModel;
             Workflow.Bind(() => _selectedAccount);
             Configuration.UseWorkspaceNavigation();
             Configuration.UseAccountStore(accounts);

@@ -19,15 +19,7 @@ namespace TikTokPublisher.Desktop.Views;
 public partial class MainWindow : Window
 {
 
-    private static readonly Dictionary<string, (string Full, string Short)> NavLabels = new(StringComparer.Ordinal)
-    {
-        ["browser"] = ("浏览器", "浏览器"),
-        ["download"] = ("短剧下载", "下载"),
-        ["queue"] = ("TikTok 上传", "TikTok"),
-        ["kuaishou"] = ("快手上传", "快手"),
-        ["settings"] = ("系统设置", "设置"),
-        ["analytics"] = ("数据统计", "统计"),
-    };
+    private const double ModuleNavWidth = 136;
 
     private readonly AccountStore _accountStore = new();
     private readonly BrowserSessionHost _browserHost = new();
@@ -79,7 +71,7 @@ public partial class MainWindow : Window
         };
         AccountSidebar.DataContext = _viewModel;
         AccountSidebar.CanChangeAccountAsync = ConfirmTikTokAccountChangeAsync;
-        BrowserAccountSidebar.DataContext = _viewModel;
+        KuaishouWorkspace.MountAccountPanel(AccountPanelHost);
         AccountsView.Bind(_viewModel);
         AccountsView.UseWorkspaceNavigation();
         TikTokBasicSettingsButton.IsVisible = AccountsView.HasWorkspacePage("基础设置");
@@ -141,7 +133,6 @@ public partial class MainWindow : Window
         _accountInventorySync.Start();
         _viewModel.AccountProfileNetworkChanged += profile => _browserHost.InvalidateHostIfNetworkChanged(profile);
         AccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
-        BrowserAccountSidebar.NavigatePageRequested += (_, _) => NavigateTo("accounts");
         _viewModel.AccountSwitchRequested += OnAccountSwitchRequested;
         _viewModel.DailyLimitReached += message =>
             _ = ConfirmDialog.ShowAsync(
@@ -256,19 +247,20 @@ public partial class MainWindow : Window
 
     private void ApplyAccountPanelLayout()
     {
-        var tikTokCollapsed = _collapsedAccountPanels.Contains("queue");
-        TikTokWorkspace.ColumnDefinitions[0].Width = new GridLength(tikTokCollapsed ? 0 : ExpandedSidebarWidth);
-        AccountSidebar.IsVisible = !tikTokCollapsed;
-        var browserCollapsed = _collapsedAccountPanels.Contains("browser");
-        BrowserWorkspace.ColumnDefinitions[0].Width = new GridLength(browserCollapsed ? 0 : ExpandedSidebarWidth);
-        BrowserAccountSidebar.IsVisible = !browserCollapsed;
-        KuaishouWorkspace.SetSidebarLayout(ExpandedSidebarWidth, _collapsedAccountPanels.Contains("kuaishou"));
-
-        SidebarToggleButton.IsVisible = _activeNavTag is "queue" or "kuaishou" or "browser";
+        var hasAccounts = _activeNavTag is "queue" or "kuaishou" or "browser";
         var collapsed = _collapsedAccountPanels.Contains(_activeNavTag);
-        BrandPane.Padding = _compactLayout ? new Thickness(8, 0, 6, 0) : new Thickness(12, 0, 10, 0);
+        var showAccounts = hasAccounts && !collapsed;
+        WindowLayout.ColumnDefinitions[0].Width = new GridLength(showAccounts ? ExpandedSidebarWidth : ModuleNavWidth);
+        AccountPanelHost.IsVisible = showAccounts;
+        AccountSidebar.IsVisible = showAccounts && (_activeNavTag is "queue" or "browser");
+        KuaishouWorkspace.SetAccountPanelVisible(showAccounts && _activeNavTag == "kuaishou");
+
+        BrandLabel.Text = showAccounts ? "TikTok 短剧助手" : "短剧助手";
+        SidebarToggleButton.IsVisible = hasAccounts;
         SidebarToggleButton.Content = collapsed ? "›" : "‹";
-        ToolTip.SetTip(SidebarToggleButton, collapsed ? "展开账号栏" : "收起账号栏");
+        var toggleLabel = collapsed ? "展开账号栏" : "收起账号栏";
+        ToolTip.SetTip(SidebarToggleButton, toggleLabel);
+        Avalonia.Automation.AutomationProperties.SetName(SidebarToggleButton, toggleLabel);
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)
@@ -540,7 +532,7 @@ public partial class MainWindow : Window
 
     private void SyncBrowserHostMountLayout()
     {
-        if (_activeNavTag != "browser" || !BrowserWorkspace.IsVisible)
+        if (_activeNavTag != "browser" || !BrowserView.IsVisible)
         {
             CollapseBrowserHostMount();
             return;
@@ -659,7 +651,7 @@ public partial class MainWindow : Window
             if (child is not Button btn) continue;
             var tag = btn.Tag?.ToString() ?? "";
             var isActive = string.Equals(tag, _activeNavTag, StringComparison.OrdinalIgnoreCase);
-            btn.Classes.Set("topNavItemActive", isActive);
+            btn.Classes.Set("moduleNavActive", isActive);
             if (isActive && btn.IsLoaded)
                 btn.BringIntoView();
         }
@@ -717,7 +709,7 @@ public partial class MainWindow : Window
 
         if (browserActive)
         {
-            BrowserWorkspace.IsVisible = true;
+            BrowserView.IsVisible = true;
             BrowserView.IsHitTestVisible = true;
             _browserHost.ShowAccount(_viewModel.SelectedAccount);
             SyncBrowserHostMountLayout();
@@ -726,12 +718,12 @@ public partial class MainWindow : Window
         }
         else
         {
-            BrowserWorkspace.IsVisible = false;
+            BrowserView.IsVisible = false;
             CollapseBrowserHostMount();
             _browserHost.SetPresentationVisible(false);
         }
 
-        if (tag == "download")
+        if (tag == "download" || (tag == "analytics" && _historyKuaishou))
             _ = KuaishouWorkspace.PrepareAsync();
         if (tag == "settings")
         {
@@ -739,13 +731,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnHistoryPlatformClick(object? sender, RoutedEventArgs e)
+    private void OnAnalyticsPlatformChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (sender is not Button { Tag: string platform })
+        if (_activeNavTag != "analytics" || sender is not ComboBox { SelectedItem: ComboBoxItem option })
             return;
-        _historyKuaishou = platform == "kuaishou";
+        var showKuaishou = ReferenceEquals(option, KuaishouAnalyticsOption);
+        if (_historyKuaishou == showKuaishou)
+            return;
+        _historyKuaishou = showKuaishou;
         ApplyHistoryPage(_activeNavTag);
-        if (_historyKuaishou)
+        if (showKuaishou)
             _ = KuaishouWorkspace.PrepareAsync();
     }
 
@@ -757,11 +752,12 @@ public partial class MainWindow : Window
 
         var showTikTok = _tikTokAnalyticsEnabled;
         var showKuaishou = _historyKuaishou || !showTikTok;
+        _historyKuaishou = showKuaishou;
+        TikTokAnalyticsOption.IsVisible = showTikTok;
+        AnalyticsPlatformPicker.IsEnabled = showTikTok;
+        AnalyticsPlatformPicker.SelectedItem = showKuaishou ? KuaishouAnalyticsOption : TikTokAnalyticsOption;
         var kuaishouReady = showKuaishou &&
             KuaishouWorkspace.BindAnalytics(KuaishouAnalyticsView);
-        TikTokHistoryButton.IsVisible = showTikTok;
-        TikTokHistoryButton.Classes.Set("topNavItemActive", !showKuaishou);
-        KuaishouHistoryButton.Classes.Set("topNavItemActive", showKuaishou);
         HistoryUnavailable.IsVisible = showKuaishou && !kuaishouReady;
         AnalyticsView.IsVisible = !showKuaishou;
         KuaishouAnalyticsView.IsVisible = kuaishouReady;
@@ -823,7 +819,7 @@ public partial class MainWindow : Window
             MinWidth = fit.MinWidth;
             MinHeight = fit.MinHeight;
 
-            ApplyCompactLayout(LaptopLayout.IsCompact(workWidth, workHeight), LaptopLayout.ShouldShortenNav(workWidth));
+            ApplyCompactLayout(LaptopLayout.IsCompact(workWidth, workHeight));
             WindowStartupLocation = WindowStartupLocation.Manual;
 
             var restoreSaved = saved is not null
@@ -861,29 +857,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ApplyCompactLayout(bool compact, bool shortenNav)
+    private void ApplyCompactLayout(bool compact)
     {
         _compactLayout = compact;
         Classes.Set("compact", compact);
-        ApplyNavLabels(shortenNav);
         ApplyAccountPanelLayout();
         LogView.SetCompactLayout(compact);
         QueueView.SetCompactLayout(compact);
-    }
-
-    private void ApplyNavLabels(bool shorten)
-    {
-        foreach (var child in ModuleNav.Children)
-        {
-            if (child is not Button button || button.Tag is not string tag)
-                continue;
-            if (!NavLabels.TryGetValue(tag, out var labels))
-                continue;
-
-            var useShort = shorten && !string.Equals(labels.Short, labels.Full, StringComparison.Ordinal);
-            button.Content = useShort ? labels.Short : labels.Full;
-            ToolTip.SetTip(button, useShort ? labels.Full : null);
-        }
     }
 
     private void RememberNormalPlacement()
