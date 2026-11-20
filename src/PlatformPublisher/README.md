@@ -54,22 +54,22 @@ PlatformPublisher.Desktop
 ## 启动
 
 ```powershell
-& "D:\code\convertTools-main\.dotnet\dotnet.exe" run --project "D:\code\convertTools-main\src\PlatformPublisher\PlatformPublisher.Desktop\PlatformPublisher.Desktop.csproj" -c Release
+& ./.dotnet/dotnet.exe run --project ./src/PlatformPublisher/PlatformPublisher.Desktop/PlatformPublisher.Desktop.csproj -c Release
 ```
 
 源码启动、任务栏、发布 EXE、安装程序和安装后的快捷方式统一使用
-`PlatformPublisher.Desktop/Assets/jushu-assistant-logo-v2.ico`。
+`PlatformPublisher.Desktop/Assets/yunfan-logo.ico`，窗口品牌区显示同源的 `yunfan-logo.png`。
 
 ## 打包
 
 ```powershell
-& "D:\code\convertTools-main\packaging\package-platform-installer.ps1" -Version "1.0.0"
+& ./packaging/package-platform-installer.ps1 -Version "1.0.0"
 ```
 
 仅生成发布目录、不编译安装程序：
 
 ```powershell
-& "D:\code\convertTools-main\packaging\package-platform-installer.ps1" -Version "1.0.0" -SkipInstallerCompile
+& ./packaging/package-platform-installer.ps1 -Version "1.0.0" -SkipInstallerCompile
 ```
 
 发布目录为 `artifacts/publish/YunfanPlatformPublisher`，安装包输出到 `artifacts/INSTALL`。

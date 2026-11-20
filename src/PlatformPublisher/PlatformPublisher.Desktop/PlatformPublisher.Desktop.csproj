@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets\jushu-assistant-logo-v2.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\yunfan-logo.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <AssemblyName>YunfanPlatformPublisher</AssemblyName>
     <Product>云帆多平台发布助手</Product>

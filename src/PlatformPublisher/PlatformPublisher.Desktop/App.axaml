@@ -5,6 +5,9 @@
     <Application.Styles>
         <FluentTheme />
         <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/PythonAppTheme.axaml" />
+        <Style Selector=":is(Window)">
+            <Setter Property="Icon" Value="/Assets/yunfan-logo.ico" />
+        </Style>
         <Style Selector="Grid.platformPipeline Button">
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Padding" Value="12,7" />
