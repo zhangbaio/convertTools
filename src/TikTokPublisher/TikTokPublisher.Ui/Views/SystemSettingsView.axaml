@@ -4,6 +4,10 @@
              x:Class="TikTokPublisher.Ui.Views.SystemSettingsView"
              x:DataType="vm:SystemSettingsViewModel"
              Background="{StaticResource PythonPageBgBrush}">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/ConfigurationFormStyles.axaml" />
+    </UserControl.Styles>
+
 
     <DockPanel Classes="pageRoot">
         <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
@@ -16,7 +20,7 @@
         <TabControl Classes="secondaryTabs">
             <TabItem Header="登录设置">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4">
+                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="{Binding LoginSettingsHint}"
                                    TextWrapping="Wrap" Classes="pageSummary" />
 
@@ -26,7 +30,7 @@
                         <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
                             <TextBlock Grid.Column="0" Text="同步工作根目录" VerticalAlignment="Center" />
                             <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0" Text="{Binding TiktokSyncWorkspaceRoot}" Watermark="例如 D:\TikTok工作目录" />
+                                <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokSyncWorkspaceRoot}" Watermark="例如 D:\TikTok工作目录" />
                                 <Button Grid.Column="1" Content="浏览" Click="OnBrowseSyncWorkspaceRootClick" MinWidth="72" />
                             </Grid>
                         </Grid>
@@ -35,28 +39,28 @@
                         <TextBlock Text="本土剧和海外剧各自选择来源。清晰度、并发和超时两条链路共用。账号按剧集类型使用对应链路。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本土剧数据链路" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="DramaSourceCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" x:Name="DramaSourceCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="海外剧数据链路" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="OverseasDramaSourceCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" x:Name="OverseasDramaSourceCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="默认清晰度" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="DramaQualityCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="DramaQualityCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="分集下载并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding DramaDownloadConcurrent}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="3" Grid.Column="1" Value="{Binding DramaDownloadConcurrent}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="同时下载剧数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding DramaDownloadMaxParallelProjects}" Minimum="1" Maximum="4" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="4" Grid.Column="1" Value="{Binding DramaDownloadMaxParallelProjects}" Minimum="1" Maximum="4" Width="120" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="单集分块连接数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding DownloadFileSegments}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="5" Grid.Column="1" Value="{Binding DownloadFileSegments}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="下载超时(秒)" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="6" Grid.Column="1" Value="{Binding HongguoDownloadTimeoutSeconds}" Minimum="10" Maximum="300" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="6" Grid.Column="1" Value="{Binding HongguoDownloadTimeoutSeconds}" Minimum="10" Maximum="300" Width="120" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="单集重试次数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="7" Grid.Column="1" Value="{Binding HongguoEpisodeDownloadAttempts}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="7" Grid.Column="1" Value="{Binding HongguoEpisodeDownloadAttempts}" Minimum="1" Maximum="10" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
                         <Separator Margin="0,4" />
@@ -65,14 +69,14 @@
                         <TextBlock Text="用于红果新接口搜索和下载；设备唯一标识需要与登录设备保持一致。" Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="红果账号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HgnewAccount}" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding HgnewAccount}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="红果密码" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HgnewPassword}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding HgnewPassword}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="设备唯一标识" VerticalAlignment="Center" />
                             <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
+                                <TextBox Classes="configurationInput" Grid.Column="0"
                                          Text="{Binding HgnewUdid, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
                                 <Button Grid.Column="1" Content="读取设备标识" Command="{Binding ReadHgnewUdidCommand}" MinWidth="120" />
                                 <Button Grid.Column="2" Content="生成新设备标识" Command="{Binding GenerateHgnewUdidCommand}" MinWidth="110" />
@@ -80,7 +84,7 @@
                             </Grid>
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="客户端版本" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1"
+                            <TextBox Classes="configurationInput" Grid.Row="3" Grid.Column="1"
                                      Text="{Binding HgnewClientVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      Watermark="仅支持 1.4.x（带连字符大写 GUID）" />
 
@@ -95,9 +99,9 @@
                                    Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地 API 地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DownloaderApiBaseUrl}" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding DownloaderApiBaseUrl}" />
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="API Key" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DownloaderApiKey}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding DownloaderApiKey}" PasswordChar="●" RevealPassword="False" />
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="连接测试" VerticalAlignment="Center" />
                             <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="8">
                                 <Button Content="测试连接" Command="{Binding ProbeDownloaderCommand}" MinWidth="96" />
@@ -110,24 +114,24 @@
                         <TextBlock Text="红果短剧助手" FontWeight="Bold" />
                         <TextBlock Text="使用标准版。账号、密码、设备 ID 和启动密钥保存在这里。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
-                        <ComboBox x:Name="HghighEditionCombo" IsVisible="False" />
+                        <ComboBox Classes="configurationInput" x:Name="HghighEditionCombo" IsVisible="False" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding HghighClientVersionLabel}" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1"
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1"
                                      Text="{Binding HghighActiveClientVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      Watermark="例如 2.2.1，留空则使用内置默认版本"
                                      HorizontalAlignment="Left"
                                      MinWidth="220" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="红果账号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HghighAccount}" Watermark="登录邮箱" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding HghighAccount}" Watermark="登录邮箱" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="红果密码" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding HghighPassword}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" Text="{Binding HghighPassword}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="{Binding HghighDeviceLabel}" VerticalAlignment="Center" />
                             <Grid Grid.Row="3" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
+                                <TextBox Classes="configurationInput" Grid.Column="0"
                                          Text="{Binding HghighActiveDeviceId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Watermark="24 位十六进制 DeviceId" />
                                 <Button Grid.Column="1" Content="读取 DeviceId" Command="{Binding ReadHghighDeviceIdCommand}" MinWidth="110" />
@@ -136,7 +140,7 @@
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding HghighClientExeLabel}" VerticalAlignment="Center" />
                             <Grid Grid.Row="4" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
+                                <TextBox Classes="configurationInput" Grid.Column="0"
                                          Text="{Binding HghighActiveClientExe, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Watermark="选择当前版本的 HG 短剧下载器 exe" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseHghighClientExeClick" MinWidth="88" />
@@ -144,7 +148,7 @@
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="Enc Master" VerticalAlignment="Center" />
                             <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
+                                <TextBox Classes="configurationInput" Grid.Column="0"
                                          Text="{Binding HghighEncMaster, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          PasswordChar="●"
                                          RevealPassword="{Binding HghighRevealEnc}" />
@@ -160,7 +164,7 @@
 
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="Sign Master" VerticalAlignment="Center" />
                             <Grid Grid.Row="6" Grid.Column="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
+                                <TextBox Classes="configurationInput" Grid.Column="0"
                                          Text="{Binding HghighSignMaster, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          PasswordChar="●"
                                          RevealPassword="{Binding HghighRevealSign}" />
@@ -188,7 +192,7 @@
 
                             <TextBlock Grid.Row="9" Grid.Column="0" Text="标准版播放" VerticalAlignment="Center"
                                        IsVisible="{Binding IsHghighStandardEdition}" />
-                            <ComboBox Grid.Row="9" Grid.Column="1" x:Name="HghighStandardPlaybackCombo"
+                            <ComboBox Classes="configurationInput" Grid.Row="9" Grid.Column="1" x:Name="HghighStandardPlaybackCombo"
                                       HorizontalAlignment="Left" MinWidth="220"
                                       IsVisible="{Binding IsHghighStandardEdition}" />
                         </Grid>
@@ -200,14 +204,14 @@
                                    Classes="pageSummary" TextWrapping="Wrap" IsVisible="False" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10" IsVisible="False">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Mapleleaf 账号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MapleleafAccount}" Watermark="邮箱或手机号" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding MapleleafAccount}" Watermark="邮箱或手机号" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Mapleleaf 密码" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding MapleleafPassword}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding MapleleafPassword}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="DeviceUDID" VerticalAlignment="Center" />
                             <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
+                                <TextBox Classes="configurationInput" Grid.Column="0"
                                          Text="{Binding MapleleafUdid, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                          Watermark="GUID 或 32 位设备号" />
                                 <Button Grid.Column="1" Content="读取 DeviceUDID" Command="{Binding ReadMapleleafUdidCommand}" MinWidth="120" />
@@ -224,19 +228,19 @@
                         <TextBlock Text="本地直连链路（自建红果接口服务）" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地链路地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding HongguoLocalBaseUrl}" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding HongguoLocalBaseUrl}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="本地链路密钥" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HongguoLocalApiKey}" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding HongguoLocalApiKey}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="下载模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="2" Grid.Column="1"
+                            <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1"
                                       x:Name="HongguoLocalDownloadModeCombo"
                                       Width="180"
                                       HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="转码引擎" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="3" Grid.Column="1"
+                            <ComboBox Classes="configurationInput" Grid.Row="3" Grid.Column="1"
                                       x:Name="HongguoLocalTranscodeEngineCombo"
                                       Width="180"
                                       HorizontalAlignment="Left" />
@@ -253,14 +257,14 @@
                         <TextBlock Text="红果短剧搜索需要番茄 Cookie；红果漫剧类型13免 Cookie。详情与视频解析走皮卡丘代理。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="搜索内容类型" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="PikachuTypeCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" x:Name="PikachuTypeCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="皮卡丘服务地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PikachuServerUrl}" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding PikachuServerUrl}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="番茄 Cookie" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <Grid Grid.Row="2" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                <TextBox Grid.Column="0"
+                                <TextBox Classes="configurationInput" Grid.Column="0"
                                          Text="{Binding PikachuFanqieCookie}"
                                          AcceptsReturn="True"
                                          TextWrapping="Wrap"
@@ -295,7 +299,7 @@
                                    TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="设备ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DramaBoxDeviceId}" Watermark="d001277c5c31829ceba9d49c" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding DramaBoxDeviceId}" Watermark="d001277c5c31829ceba9d49c" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <StackPanel Grid.Row="1" Grid.Column="1" Spacing="8">
@@ -316,10 +320,10 @@
                                    TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="服务地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding PlayletServerUrl}" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding PlayletServerUrl}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="设备号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1"
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1"
                                      Text="{Binding PlayletDeviceId}"
                                      Watermark="下载器软件设置中的设备信息" />
 
@@ -348,8 +352,8 @@
                             </StackPanel>
                         </Grid>
                         <StackPanel IsVisible="False">
-                            <TextBox Text="{Binding HongguoAppDeviceId}" />
-                            <TextBox Text="{Binding HongguoAppInstallId}" />
+                            <TextBox Classes="configurationInput" Text="{Binding HongguoAppDeviceId}" />
+                            <TextBox Classes="configurationInput" Text="{Binding HongguoAppInstallId}" />
                         </StackPanel>
 
                         <Separator Margin="0,4" />
@@ -360,18 +364,18 @@
                                    TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="服务地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ForeignServerUrl}" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding ForeignServerUrl}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="设备号" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1"
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1"
                                      Text="{Binding ForeignDeviceId}"
                                      Watermark="下载器软件设置中的设备信息" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="搜索源" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ForeignSourceCombo" HorizontalAlignment="Left" MinWidth="220" />
+                            <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ForeignSourceCombo" HorizontalAlignment="Left" MinWidth="220" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="搜索语言" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ForeignLanguageCombo" HorizontalAlignment="Left" MinWidth="220" />
+                            <ComboBox Classes="configurationInput" Grid.Row="3" Grid.Column="1" x:Name="ForeignLanguageCombo" HorizontalAlignment="Left" MinWidth="220" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="链路测试" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <StackPanel Grid.Row="4" Grid.Column="1" Spacing="8">
@@ -389,7 +393,7 @@
 
             <TabItem Header="ASR配置">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4">
+                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="ASR 配置" FontWeight="Bold" />
                         <TextBlock Text="系统默认使用本地 Paraformer ASR。火山 ASR 凭据仅用于视频翻译。"
                                    TextWrapping="Wrap" />
@@ -400,50 +404,50 @@
                         </StackPanel>
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本地模型目录" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokAsrLocalModelDir}" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding TiktokAsrLocalModelDir}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="本地VAD路径" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokAsrLocalVadPath}" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding TiktokAsrLocalVadPath}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="识别语言" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TiktokAsrLanguage}" Width="140" HorizontalAlignment="Left" />
+                            <TextBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" Text="{Binding TiktokAsrLanguage}" Width="140" HorizontalAlignment="Left" />
                         </Grid>
 
                         <TextBlock Text="ASR 凭据" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="ASR AppID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokAsrAppId}" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding TiktokAsrAppId}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="ASR AccessToken" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding TiktokAsrAccessToken}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding TiktokAsrAccessToken}" PasswordChar="●" RevealPassword="False" />
                         </Grid>
 
                         <TextBlock Text="素材校验" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="素材校验并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokMaterialValidateConcurrency}" Minimum="1" Maximum="16" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokMaterialValidateConcurrency}" Minimum="1" Maximum="16" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
                         <TextBlock Text="生成任务并发" FontWeight="Bold" />
                         <TextBlock Text="多个项目共享全局资源上限；检测到接口限流时会自动退避。" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,120,140,120" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="单项目生成并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGenerationPerProjectConcurrency}" Minimum="1" Maximum="4" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGenerationPerProjectConcurrency}" Minimum="1" Maximum="4" />
                             <TextBlock Grid.Row="0" Grid.Column="2" Text="AI文本并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="3" Value="{Binding TiktokAiTextConcurrency}" Minimum="1" Maximum="12" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="3" Value="{Binding TiktokAiTextConcurrency}" Minimum="1" Maximum="12" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="ASR并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokAsrConcurrency}" Minimum="1" Maximum="8" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokAsrConcurrency}" Minimum="1" Maximum="8" />
                             <TextBlock Grid.Row="1" Grid.Column="2" Text="FFmpeg并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="1" Grid.Column="3" Value="{Binding TiktokFfmpegConcurrency}" Minimum="1" Maximum="8" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="3" Value="{Binding TiktokFfmpegConcurrency}" Minimum="1" Maximum="8" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="AI图片并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding TiktokImageGenerationConcurrency}" Minimum="1" Maximum="8" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="2" Grid.Column="1" Value="{Binding TiktokImageGenerationConcurrency}" Minimum="1" Maximum="8" />
                             <TextBlock Grid.Row="2" Grid.Column="2" Text="视觉处理并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="3" Value="{Binding TiktokVisualConcurrency}" Minimum="1" Maximum="8" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="2" Grid.Column="3" Value="{Binding TiktokVisualConcurrency}" Minimum="1" Maximum="8" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="文档渲染并发" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding TiktokDocumentConcurrency}" Minimum="1" Maximum="8" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="3" Grid.Column="1" Value="{Binding TiktokDocumentConcurrency}" Minimum="1" Maximum="8" />
                         </Grid>
 
                         <TextBlock Text="上传异常处理" FontWeight="Bold" />
@@ -455,11 +459,11 @@
 
             <TabItem Header="AI文本">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4">
+                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="网络线路" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
                             <TextBlock Grid.Column="0" Text="AI 接口网络" VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1" x:Name="NetworkAddressPreferenceCombo" Width="240" HorizontalAlignment="Left" />
+                            <ComboBox Classes="configurationInput" Grid.Column="1" x:Name="NetworkAddressPreferenceCombo" Width="240" HorizontalAlignment="Left" />
                         </Grid>
                         <TextBlock x:Name="NetworkAddressPreferenceHintText"
                                    Foreground="#666"
@@ -473,7 +477,7 @@
                         <TextBlock Text="角色参考图筛选" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="筛选方式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="RoleReferenceSelectionModeCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" x:Name="RoleReferenceSelectionModeCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="失败处理" VerticalAlignment="Center" />
                             <CheckBox Grid.Row="1" Grid.Column="1"
@@ -484,21 +488,21 @@
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="接口地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding AiTextEndpoint}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="API Key" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding AiTextApiKey}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding AiTextApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型名称" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" />
+                            <TextBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" Text="{Binding AiTextModel}" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="请求超时" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding AiTextTimeoutSeconds}" Minimum="10" Maximum="600" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="3" Grid.Column="1" Value="{Binding AiTextTimeoutSeconds}" Minimum="10" Maximum="600" Width="120" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="发布信息提示词" VerticalAlignment="Top" Margin="0,4,0,0"
                                        IsVisible="{Binding ShowsTikTokPublishPrompt}" />
                             <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6" IsVisible="{Binding ShowsTikTokPublishPrompt}">
-                                <TextBox Text="{Binding AiPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
+                                <TextBox Classes="configurationInput" Text="{Binding AiPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                     <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetAiPublishInfoPromptCommand}" />
                                     <TextBlock Grid.Column="1" Text="一次请求同时生成新剧名、简介、题材和目标观众，不再生成推荐语。剧名占用查重、字数校验和不合格重试由程序处理。"
@@ -508,7 +512,7 @@
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="快手发布信息提示词" VerticalAlignment="Top" Margin="0,4,0,0"
                                        IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
                             <StackPanel Grid.Row="4" Grid.Column="1" Spacing="6" IsVisible="{Binding ShowsKuaishouPublishPrompt}">
-                                <TextBox Text="{Binding KuaishouPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
+                                <TextBox Classes="configurationInput" Text="{Binding KuaishouPublishInfoPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="260" />
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                     <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPublishInfoPromptCommand}" />
                                     <TextBlock Grid.Column="1" Text="一次请求同时生成新剧名、短标题、简介、标签、观众、短剧分类和情节，不再生成推荐语。字数、选项和禁用词由程序校验，不合格会带上原因重试。"
@@ -522,53 +526,53 @@
 
             <TabItem Header="AI图片">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4">
+                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="海报模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="PosterModeCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" x:Name="PosterModeCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="图片提供商" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ImageProviderCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" x:Name="ImageProviderCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="模型 ID" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ImageModelCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ImageModelCombo" HorizontalAlignment="Stretch" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="模型 API Key" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ImageModelApiKey}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="3" Grid.Column="1" Text="{Binding ImageModelApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="模型 Endpoint" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ImageModelEndpoint}" />
+                            <TextBox Classes="configurationInput" Grid.Row="4" Grid.Column="1" Text="{Binding ImageModelEndpoint}" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="豆包分辨率" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding DoubaoImageResolution}" />
+                            <TextBox Classes="configurationInput" Grid.Row="5" Grid.Column="1" Text="{Binding DoubaoImageResolution}" />
 
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="豆包比例" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding DoubaoImageRatio}" />
+                            <TextBox Classes="configurationInput" Grid.Row="6" Grid.Column="1" Text="{Binding DoubaoImageRatio}" />
 
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="Ofox 模型 ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding OfoxImage2ModelId}" IsReadOnly="True" />
+                            <TextBox Classes="configurationInput" Grid.Row="7" Grid.Column="1" Text="{Binding OfoxImage2ModelId}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="Ofox API Key" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding OfoxImage2ApiKey}" PasswordChar="●" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="8" Grid.Column="1" Text="{Binding OfoxImage2ApiKey}" PasswordChar="●" RevealPassword="False" />
 
                             <TextBlock Grid.Row="9" Grid.Column="0" Text="Ofox Endpoint" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding OfoxImage2Endpoint}" IsReadOnly="True" />
+                            <TextBox Classes="configurationInput" Grid.Row="9" Grid.Column="1" Text="{Binding OfoxImage2Endpoint}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="10" Grid.Column="0" Text="Ofox 质量" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="10" Grid.Column="1" Text="{Binding OfoxImage2Quality}" />
+                            <TextBox Classes="configurationInput" Grid.Row="10" Grid.Column="1" Text="{Binding OfoxImage2Quality}" />
 
                             <TextBlock Grid.Row="11" Grid.Column="0" Text="Ofox 尺寸" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="11" Grid.Column="1" Text="{Binding OfoxImage2Size}" />
+                            <TextBox Classes="configurationInput" Grid.Row="11" Grid.Column="1" Text="{Binding OfoxImage2Size}" />
 
                             <TextBlock Grid.Row="12" Grid.Column="0" Text="标题校验" VerticalAlignment="Center" />
                             <StackPanel Grid.Row="12" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                <CheckBox IsChecked="{Binding PosterTitleVerifyEnabled}" Content="启用海报标题校验" />
-                                <ComboBox x:Name="PosterTitleVerifyModeCombo" Width="180" />
+                                <ToggleSwitch IsChecked="{Binding PosterTitleVerifyEnabled}" OnContent="启用海报标题校验" OffContent="启用海报标题校验" />
+                                <ComboBox Classes="configurationInput" x:Name="PosterTitleVerifyModeCombo" Width="180" />
                             </StackPanel>
 
                             <TextBlock Grid.Row="13" Grid.Column="0" Text="AI 修复重试" VerticalAlignment="Center" />
                             <StackPanel Grid.Row="13" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                <NumericUpDown Value="{Binding PosterTitleVerifyAiRetryCount}"
+                                <NumericUpDown Classes="configurationInput" Value="{Binding PosterTitleVerifyAiRetryCount}"
                                                Minimum="0"
                                                Maximum="3"
                                                Increment="1"
@@ -582,7 +586,7 @@
                         <TextBlock Text="角色定妆视图" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
                             <TextBlock Grid.Column="0" Text="视图模式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1" x:Name="RoleVectorViewModeCombo" HorizontalAlignment="Stretch" />
+                            <ComboBox Classes="configurationInput" Grid.Column="1" x:Name="RoleVectorViewModeCombo" HorizontalAlignment="Stretch" />
                         </Grid>
                         <TextBlock Text="多角度模式会为每个角色额外生成一张2×2转面表，并拆分为正面、侧面、后侧和背面；失败时自动回退单图。"
                                    Foreground="#666" TextWrapping="Wrap" />
@@ -604,7 +608,7 @@
                                       RowSpacing="10"
                                       ColumnSpacing="10">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="抽帧集数" VerticalAlignment="Center" />
-                                    <NumericUpDown Grid.Row="0"
+                                    <NumericUpDown Classes="configurationInput" Grid.Row="0"
                                                    Grid.Column="1"
                                                    Value="{Binding FrameExtractEpisodeIndex}"
                                                    Minimum="1"
@@ -615,7 +619,7 @@
 
                                     <TextBlock Grid.Row="1" Grid.Column="0" Text="首选抽帧时间" VerticalAlignment="Center" />
                                     <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                        <NumericUpDown Value="{Binding FrameExtractTime}"
+                                        <NumericUpDown Classes="configurationInput" Value="{Binding FrameExtractTime}"
                                                        Minimum="0.1"
                                                        Maximum="600"
                                                        Increment="0.1"
@@ -624,13 +628,13 @@
                                     </StackPanel>
 
                                     <TextBlock Grid.Row="2" Grid.Column="0" Text="邻近补充秒数" VerticalAlignment="Center" />
-                                    <TextBox Grid.Row="2"
+                                    <TextBox Classes="configurationInput" Grid.Row="2"
                                              Grid.Column="1"
                                              Text="{Binding FrameExtractNeighborOffsetsSeconds}"
                                              Watermark="例如：2,4" />
 
                                     <TextBlock Grid.Row="3" Grid.Column="0" Text="兜底时间百分比" VerticalAlignment="Center" />
-                                    <TextBox Grid.Row="3"
+                                    <TextBox Classes="configurationInput" Grid.Row="3"
                                              Grid.Column="1"
                                              Text="{Binding FrameExtractFallbackPercents}"
                                              Watermark="例如：10,25,50,75" />
@@ -644,7 +648,7 @@
                         <Grid ColumnDefinitions="140,*" ColumnSpacing="10" IsVisible="{Binding ShowsTikTokPublishPrompt}">
                             <TextBlock Grid.Column="0" Text="海报 Agent 提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <StackPanel Grid.Column="1" Spacing="6">
-                                <TextBox Text="{Binding PosterAgentPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220" />
+                                <TextBox Classes="configurationInput" Text="{Binding PosterAgentPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="220" />
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                     <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetPosterAgentPromptCommand}" />
                                     <TextBlock Grid.Column="1" Text="切换海报模式时显示该模式自己的提示词。直接生成用 {title} 表示新剧名，缺少时会自动追加；去字模式只清除文字，新剧名由程序写入。安全重试、布局检测、标题校验和修复使用内置提示词。"
@@ -655,7 +659,7 @@
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="12" ColumnSpacing="10" IsVisible="{Binding ShowsKuaishouPublishPrompt}">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="竖屏海报提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <StackPanel Grid.Row="0" Grid.Column="1" Spacing="6">
-                                <TextBox Text="{Binding KuaishouPosterVerticalPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
+                                <TextBox Classes="configurationInput" Text="{Binding KuaishouPosterVerticalPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                     <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPosterVerticalPromptCommand}" />
                                     <TextBlock Grid.Column="1" Text="切换海报模式时换成该模式的竖屏提示词。直接生成会重做竖屏海报并写一次 {title}；去字模式只清除文字，剧名由程序写入。"
@@ -664,7 +668,7 @@
                             </StackPanel>
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="横屏封面提示词" FontWeight="Bold" VerticalAlignment="Top" Margin="0,4,0,0" />
                             <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6">
-                                <TextBox Text="{Binding KuaishouPosterHorizontalPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
+                                <TextBox Classes="configurationInput" Text="{Binding KuaishouPosterHorizontalPrompt}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                     <Button Grid.Column="0" Content="恢复默认" Command="{Binding ResetKuaishouPosterHorizontalPromptCommand}" />
                                     <TextBlock Grid.Column="1" Text="直接生成把完成的竖屏海报扩成 16:10 并写一次剧名。去字模式从无文字底图扩成横屏，再由程序写入剧名。AI 失败时改为居中裁成 1600×1000。"
@@ -678,25 +682,25 @@
 
             <TabItem Header="工程图">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4">
+                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="TikTok 工程图" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="生成方式" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="0" Grid.Column="1" x:Name="ProjectImageGenerationModeCombo" Width="260" HorizontalAlignment="Left" />
+                            <ComboBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" x:Name="ProjectImageGenerationModeCombo" Width="260" HorizontalAlignment="Left" />
 
                             <Grid Grid.Row="1" Grid.ColumnSpan="2"
                                   ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto"
                                   RowSpacing="10" ColumnSpacing="10"
                                   IsVisible="{Binding IsProjectImageTemplateMode}">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="模板根目录" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokProjectImageTemplateRoot}" Watermark="留空使用内置模板" />
+                                <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding TiktokProjectImageTemplateRoot}" Watermark="留空使用内置模板" />
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="截图模板" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ProjectImageTemplateCombo"
+                                <ComboBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" x:Name="ProjectImageTemplateCombo"
                                           Width="460" HorizontalAlignment="Left" />
 
                                 <TextBlock Grid.Row="2" Grid.Column="0" Text="工程图AI台词" VerticalAlignment="Center" />
-                                <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ProjectImageSubtitleAiModeCombo" Width="180" HorizontalAlignment="Left" />
+                                <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ProjectImageSubtitleAiModeCombo" Width="180" HorizontalAlignment="Left" />
                             </Grid>
 
                             <Grid Grid.Row="1" Grid.ColumnSpan="2"
@@ -704,23 +708,23 @@
                                   RowSpacing="10" ColumnSpacing="10"
                                   IsVisible="{Binding IsProjectImageFableCutMode}">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="FableCut目录" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding TiktokProjectImageFableCutRoot}" Watermark="留空使用内置 FableCut" />
+                                <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding TiktokProjectImageFableCutRoot}" Watermark="留空使用内置 FableCut" />
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="时间线片段数" VerticalAlignment="Center" />
-                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokProjectImageFableCutClipCount}" Minimum="12" Maximum="36" Width="120" HorizontalAlignment="Left" />
+                                <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokProjectImageFableCutClipCount}" Minimum="12" Maximum="36" Width="120" HorizontalAlignment="Left" />
 
                                 <TextBlock Grid.Row="2" Grid.Column="0" Text="截图样式" VerticalAlignment="Center" />
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="标准工程图" IsReadOnly="True" />
+                                <TextBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" Text="标准工程图" IsReadOnly="True" />
                             </Grid>
 
                             <Grid Grid.Row="2" Grid.ColumnSpan="2"
                                   ColumnDefinitions="140,*" RowDefinitions="Auto,Auto"
                                   RowSpacing="10" ColumnSpacing="10">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="工程图数量" VerticalAlignment="Center" />
-                                <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokProjectImageCount}" Minimum="1" Maximum="20" Width="120" HorizontalAlignment="Left" />
+                                <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokProjectImageCount}" Minimum="1" Maximum="20" Width="120" HorizontalAlignment="Left" />
 
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="工程图导入集数" VerticalAlignment="Center" />
-                                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokProjectImageRenderEpisodeLimit}" Minimum="1" Maximum="200" Width="120" HorizontalAlignment="Left" />
+                                <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokProjectImageRenderEpisodeLimit}" Minimum="1" Maximum="200" Width="120" HorizontalAlignment="Left" />
                             </Grid>
                         </Grid>
                     </StackPanel>
@@ -729,27 +733,27 @@
 
             <TabItem Header="证明材料">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4">
+                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="TikTok 证明材料" FontWeight="Bold" />
                         <TextBlock Text="以 Word 模板生成权利声明 PDF；PDF 渲染器默认使用 WPS。Word 模板留空时使用内置中文模板。公司、印章和账号自己的模板在账号配置里设置。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Word 模板" VerticalAlignment="Center" />
                             <Grid Grid.Row="0" Grid.Column="1" ColumnDefinitions="*,Auto">
-                                <TextBox Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="账号未单独指定时使用，留空则使用内置中文模板" />
+                                <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokProofTemplateDocxPath}" Watermark="账号未单独指定时使用，留空则使用内置中文模板" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofTemplateClick" Margin="8,0,0,0" />
                             </Grid>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="WPS 路径" VerticalAlignment="Center" />
                             <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto">
-                                <TextBox Grid.Column="0" Text="{Binding TiktokProofWpsPath}" Watermark="留空自动检测 WPS 程序" />
+                                <TextBox Classes="configurationInput" Grid.Column="0" Text="{Binding TiktokProofWpsPath}" Watermark="留空自动检测 WPS 程序" />
                                 <Button Grid.Column="1" Content="浏览…" Click="OnBrowseProofWpsClick" Margin="8,0,0,0" />
                             </Grid>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="PDF 渲染器" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ProofPdfRendererCombo" Width="220" HorizontalAlignment="Left" />
+                            <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ProofPdfRendererCombo" Width="220" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="中间文件" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokProofKeepDocx}" Content="保留生成后的 DOCX" />
+                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokProofKeepDocx}" OnContent="保留生成后的 DOCX" OffContent="保留生成后的 DOCX" />
                         </Grid>
                         <TextBlock Text="本公司/声明人、印章图片和致贵方名称请在账号管理的“证明材料”页签配置；改写后剧名和当天日期由队列自动填入。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
@@ -759,16 +763,16 @@
 
             <TabItem Header="数据存储">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4">
+                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="数据库位置" FontWeight="Bold" />
                         <TextBlock Text="主数据库保存账号、共享设置、执行历史和 AI 改写历史；工作区数据库保存当前上传队列和归档记录。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="主数据库" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MainDatabasePath}" IsReadOnly="True" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding MainDatabasePath}" IsReadOnly="True" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="工作区数据库" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding WorkspaceDatabasePath}" IsReadOnly="True" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding WorkspaceDatabasePath}" IsReadOnly="True" />
                         </Grid>
 
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -783,55 +787,55 @@
                         <TextBlock Text="TikTok 队列与管理系统" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Excel 自动导出" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="0" Grid.Column="1" IsChecked="{Binding TiktokExcelAutoExportEnabled}" Content="队列状态变化后自动导出 Excel" />
+                            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding TiktokExcelAutoExportEnabled}" OnContent="队列状态变化后自动导出 Excel" OffContent="队列状态变化后自动导出 Excel" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="管理系统去重" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="1" Grid.Column="1" IsChecked="{Binding ManagementDedupEnabled}" Content="上传短剧批量导入前检查原剧名重复" />
+                            <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding ManagementDedupEnabled}" OnContent="上传短剧批量导入前检查原剧名重复" OffContent="上传短剧批量导入前检查原剧名重复" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="去重范围" VerticalAlignment="Center" />
-                            <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ManagementDedupScopeCombo" Width="220" HorizontalAlignment="Left" />
+                            <ComboBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" x:Name="ManagementDedupScopeCombo" Width="220" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="超长剧入队" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokAllowOverLimitUploadImport}" Content="超过设定集数仍加入队列，下载和本地导入都只使用前 N 集" />
+                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding TiktokAllowOverLimitUploadImport}" OnContent="超过设定集数仍加入队列，下载和本地导入都只使用前 N 集" OffContent="超过设定集数仍加入队列，下载和本地导入都只使用前 N 集" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="剧集最小集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding TiktokMinimumEpisodeCount}" Minimum="1" Maximum="9999" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="4" Grid.Column="1" Value="{Binding TiktokMinimumEpisodeCount}" Minimum="1" Maximum="9999" Width="120" HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="剧集最大集数" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding TiktokMaximumEpisodeCount}" Minimum="1" Maximum="9999" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="5" Grid.Column="1" Value="{Binding TiktokMaximumEpisodeCount}" Minimum="1" Maximum="9999" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
                         <TextBlock Text="账号数据统计" FontWeight="Bold" />
-                        <CheckBox IsChecked="{Binding TiktokAccountAnalyticsEnabled}" Content="在顶栏显示数据统计，并允许拉取账号播放数据" />
+                        <ToggleSwitch IsChecked="{Binding TiktokAccountAnalyticsEnabled}" OnContent="在顶栏显示数据统计，并允许拉取账号播放数据" OffContent="在顶栏显示数据统计，并允许拉取账号播放数据" />
 
                         <TextBlock Text="数据统计" FontWeight="Bold" />
-                        <TextBox Text="{Binding DatabaseStatsText}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
+                        <TextBox Classes="configurationInput" Text="{Binding DatabaseStatsText}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="180" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
 
             <TabItem Header="全局账号配置">
                 <ScrollViewer>
-                    <StackPanel Spacing="14" Margin="4">
+                    <StackPanel Spacing="14" Margin="4" MaxWidth="1080">
                         <TextBlock Text="剧集名额" FontWeight="Bold" />
                         <Grid ColumnDefinitions="160,*" RowDefinitions="Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="同时并发项目数量" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGlobalProjectConcurrency}" Minimum="1" Maximum="12" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokGlobalProjectConcurrency}" Minimum="1" Maximum="12" Width="120" HorizontalAlignment="Left" />
                         </Grid>
 
                         <TextBlock Text="全局步骤配置" FontWeight="Bold" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU 占用 %" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
-                            <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupCpuPercent}" Minimum="50" Maximum="100" Increment="5" FormatString="0" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupCpuPercent}" Minimum="50" Maximum="100" Increment="5" FormatString="0" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="视频去重并发" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
-                            <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
-                            <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding KuaishouProjectImageConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="2" Grid.Column="1" Value="{Binding KuaishouProjectImageConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="同时上传剧集" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
+                            <NumericUpDown Classes="configurationInput" Grid.Row="3" Grid.Column="1" Value="{Binding TiktokUploadConcurrency}" Minimum="1" Maximum="8" Width="120" HorizontalAlignment="Left" />
                         </Grid>
                     </StackPanel>
                 </ScrollViewer>

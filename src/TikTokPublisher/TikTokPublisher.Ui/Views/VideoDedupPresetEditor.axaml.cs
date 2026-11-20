@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services.VideoDedup;
@@ -79,6 +80,18 @@ public partial class VideoDedupPresetEditor : UserControl
         foreach (var number in new[] { FrameMixCountBox, FrameMixWeightBox, ReframeKeepBox,
                      ReframeHorizontalBox, ReframeVerticalBox, NaturalColorBox })
             number.ValueChanged += (_, _) => RefreshEffectsSummary();
+    }
+
+    private void OnDedupFormSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        var width = e.NewSize.Width;
+        if (width <= 0)
+            return;
+
+        DedupForm.Width = Math.Min(width, DedupForm.MaxWidth);
+        var columns = width < 580 ? 1 : 2;
+        foreach (var row in DedupForm.Children.OfType<UniformGrid>())
+            row.Columns = columns;
     }
 
     private void OnApplyToAllAccountsClick(object? sender, RoutedEventArgs e)

@@ -5,6 +5,10 @@
              x:Class="TikTokPublisher.Ui.Views.SystemServicesView"
              x:DataType="vm:SystemServicesViewModel"
              Background="{StaticResource PythonPageBgBrush}">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/ConfigurationFormStyles.axaml" />
+    </UserControl.Styles>
+
 
     <ScrollViewer Classes="pageRoot">
         <StackPanel Spacing="12">
@@ -15,13 +19,13 @@
 
             <TabControl Classes="secondaryTabs">
                 <TabItem Header="软件授权">
-                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1080">
                         <Grid ColumnDefinitions="120,*"
                               RowDefinitions="Auto,Auto,Auto"
                               RowSpacing="10"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="授权状态" VerticalAlignment="Top" Margin="0,6,0,0" />
-                            <TextBox Grid.Row="0"
+                            <TextBox Classes="configurationInput" Grid.Row="0"
                                      Grid.Column="1"
                                      Text="{Binding LicenseSummary}"
                                      IsReadOnly="True"
@@ -30,12 +34,12 @@
                                      Height="120" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="服务器地址" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1"
+                            <TextBox Classes="configurationInput" Grid.Row="1"
                                      Grid.Column="1"
                                      Text="{Binding AuthServerUrl}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="联网校验间隔" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="2"
+                            <NumericUpDown Classes="configurationInput" Grid.Row="2"
                                            Grid.Column="1"
                                            Value="{Binding LicenseVerifyIntervalHours, Mode=OneWay}"
                                            Minimum="1"
@@ -73,32 +77,32 @@
                 </TabItem>
 
                 <TabItem Header="飞书命令">
-                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1080">
                         <TextBlock Text="{Binding FeishuCommandStatus}" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*"
                               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                               RowSpacing="9"
                               ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="监听开关" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="0" Grid.Column="1" IsChecked="{Binding FeishuCommandEnabled}" Content="启用飞书命令监听" />
+                            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding FeishuCommandEnabled}" OnContent="启用飞书命令监听" OffContent="启用飞书命令监听" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="App ID" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding FeishuCommandAppId}" Watermark="cli_xxx" />
+                            <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding FeishuCommandAppId}" Watermark="cli_xxx" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="App Secret" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding FeishuCommandAppSecret}" PasswordChar="*" RevealPassword="False" />
+                            <TextBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" Text="{Binding FeishuCommandAppSecret}" PasswordChar="*" RevealPassword="False" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="机器人名称" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding FeishuCommandBotName}" Watermark="群里 @ 的机器人名称" />
+                            <TextBox Classes="configurationInput" Grid.Row="3" Grid.Column="1" Text="{Binding FeishuCommandBotName}" Watermark="群里 @ 的机器人名称" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="机器人别名" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding FeishuCommandBotAliases}" Watermark="多个别名可用逗号分隔" />
+                            <TextBox Classes="configurationInput" Grid.Row="4" Grid.Column="1" Text="{Binding FeishuCommandBotAliases}" Watermark="多个别名可用逗号分隔" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="群聊规则" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="5" Grid.Column="1" IsChecked="{Binding FeishuCommandRequireBotMention}" Content="群聊必须 @ 机器人后才处理" />
+                            <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding FeishuCommandRequireBotMention}" OnContent="群聊必须 @ 机器人后才处理" OffContent="群聊必须 @ 机器人后才处理" />
 
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="允许群 ID" VerticalAlignment="Top" Margin="0,6,0,0" />
-                            <TextBox Grid.Row="6" Grid.Column="1"
+                            <TextBox Classes="configurationInput" Grid.Row="6" Grid.Column="1"
                                      Text="{Binding FeishuCommandAllowedChatIds}"
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
@@ -106,10 +110,10 @@
                                      Watermark="每行一个 chat_id，例如：oc_xxx" />
 
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="私聊开关" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="7" Grid.Column="1" IsChecked="{Binding FeishuCommandDirectMessageEnabled}" Content="允许机器人私聊命令" />
+                            <ToggleSwitch Grid.Row="7" Grid.Column="1" IsChecked="{Binding FeishuCommandDirectMessageEnabled}" OnContent="允许机器人私聊命令" OffContent="允许机器人私聊命令" />
 
                             <TextBlock Grid.Row="8" Grid.Column="0" Text="允许私聊 ID" VerticalAlignment="Top" Margin="0,6,0,0" />
-                            <TextBox Grid.Row="8" Grid.Column="1"
+                            <TextBox Classes="configurationInput" Grid.Row="8" Grid.Column="1"
                                      Text="{Binding FeishuCommandAllowedUserIds}"
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
@@ -117,15 +121,15 @@
                                      Watermark="可选，每行一个私聊 chat_id；也兼容 open_id / user_id" />
 
                             <TextBlock Grid.Row="9" Grid.Column="0" Text="默认工作目录" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="9" Grid.Column="1"
+                            <TextBox Classes="configurationInput" Grid.Row="9" Grid.Column="1"
                                      Text="{Binding FeishuCommandDefaultWorkspace}"
                                      Watermark="未在命令里指定时，默认使用这个工作目录" />
 
                             <TextBlock Grid.Row="10" Grid.Column="0" Text="结果回传" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="10" Grid.Column="1" IsChecked="{Binding FeishuCommandReplyEnabled}" Content="执行结果自动回复到飞书" />
+                            <ToggleSwitch Grid.Row="10" Grid.Column="1" IsChecked="{Binding FeishuCommandReplyEnabled}" OnContent="执行结果自动回复到飞书" OffContent="执行结果自动回复到飞书" />
 
                             <TextBlock Grid.Row="11" Grid.Column="0" Text="命令有效期" VerticalAlignment="Center" />
-                            <NumericUpDown Grid.Row="11" Grid.Column="1"
+                            <NumericUpDown Classes="configurationInput" Grid.Row="11" Grid.Column="1"
                                            Value="{Binding FeishuCommandCommandTtlSeconds}"
                                            Minimum="10"
                                            Maximum="3600"
@@ -134,7 +138,7 @@
                                            HorizontalAlignment="Left" />
 
                             <TextBlock Grid.Row="12" Grid.Column="0" Text="帮助文案" VerticalAlignment="Top" Margin="0,6,0,0" />
-                            <TextBox Grid.Row="12" Grid.Column="1"
+                            <TextBox Classes="configurationInput" Grid.Row="12" Grid.Column="1"
                                      Text="{Binding FeishuCommandHelpText}"
                                      AcceptsReturn="True"
                                      TextWrapping="Wrap"
@@ -144,7 +148,7 @@
                         <Border BorderBrush="{StaticResource PythonBorderBrush}" BorderThickness="1" CornerRadius="6" Padding="10">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="本地命令测试" FontWeight="SemiBold" />
-                                <TextBox Text="{Binding RemoteCommandPreviewText}"
+                                <TextBox Classes="configurationInput" Text="{Binding RemoteCommandPreviewText}"
                                          AcceptsReturn="True"
                                          TextWrapping="Wrap"
                                          Height="86"
@@ -168,24 +172,24 @@
                         <TextBlock Text="识别凭据沿用“系统设置”中的火山 ASR；这里配置翻译引擎和字幕样式。" Classes="compactHint" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                             <TextBlock Grid.Row="0" Text="翻译引擎" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding VideoTranslateEngine}" Watermark="volc 或 llm" />
-                            <TextBlock Grid.Row="1" Text="源语言" VerticalAlignment="Center" /><TextBox Grid.Row="1" Grid.Column="1" Text="{Binding VideoTranslateSourceLanguage}" Watermark="en" />
-                            <TextBlock Grid.Row="2" Text="目标语言" VerticalAlignment="Center" /><TextBox Grid.Row="2" Grid.Column="1" Text="{Binding VideoTranslateTargetLanguage}" Watermark="zh" />
-                            <TextBlock Grid.Row="3" Text="火山 AccessKeyId" VerticalAlignment="Center" /><TextBox Grid.Row="3" Grid.Column="1" Text="{Binding VideoTranslateVolcAccessKeyId}" />
-                            <TextBlock Grid.Row="4" Text="火山 SecretAccessKey" VerticalAlignment="Center" /><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding VideoTranslateVolcSecretAccessKey}" PasswordChar="●" />
-                            <TextBlock Grid.Row="5" Text="大模型 Base URL" VerticalAlignment="Center" /><TextBox Grid.Row="5" Grid.Column="1" Text="{Binding VideoTranslateLlmBaseUrl}" />
-                            <TextBlock Grid.Row="6" Text="大模型 API Key" VerticalAlignment="Center" /><TextBox Grid.Row="6" Grid.Column="1" Text="{Binding VideoTranslateLlmApiKey}" PasswordChar="●" />
-                            <TextBlock Grid.Row="7" Text="大模型名称" VerticalAlignment="Center" /><TextBox Grid.Row="7" Grid.Column="1" Text="{Binding VideoTranslateLlmModel}" />
-                            <TextBlock Grid.Row="8" Text="字幕字体" VerticalAlignment="Center" /><TextBox Grid.Row="8" Grid.Column="1" Text="{Binding VideoTranslateFont}" />
-                            <TextBlock Grid.Row="9" Text="字幕字号" VerticalAlignment="Center" /><NumericUpDown Grid.Row="9" Grid.Column="1" Value="{Binding VideoTranslateFontSize}" Minimum="12" Maximum="120" Width="120" HorizontalAlignment="Left" />
-                            <TextBlock Grid.Row="10" Text="底部边距" VerticalAlignment="Center" /><NumericUpDown Grid.Row="10" Grid.Column="1" Value="{Binding VideoTranslateMarginV}" Minimum="0" Maximum="600" Width="120" HorizontalAlignment="Left" />
-                            <TextBlock Grid.Row="11" Text="双语字幕" VerticalAlignment="Center" /><CheckBox Grid.Row="11" Grid.Column="1" IsChecked="{Binding VideoTranslateBilingual}" Content="译文下方保留原文" />
+                            <TextBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" Text="{Binding VideoTranslateEngine}" Watermark="volc 或 llm" />
+                            <TextBlock Grid.Row="1" Text="源语言" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding VideoTranslateSourceLanguage}" Watermark="en" />
+                            <TextBlock Grid.Row="2" Text="目标语言" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="2" Grid.Column="1" Text="{Binding VideoTranslateTargetLanguage}" Watermark="zh" />
+                            <TextBlock Grid.Row="3" Text="火山 AccessKeyId" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="3" Grid.Column="1" Text="{Binding VideoTranslateVolcAccessKeyId}" />
+                            <TextBlock Grid.Row="4" Text="火山 SecretAccessKey" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="4" Grid.Column="1" Text="{Binding VideoTranslateVolcSecretAccessKey}" PasswordChar="●" />
+                            <TextBlock Grid.Row="5" Text="大模型 Base URL" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="5" Grid.Column="1" Text="{Binding VideoTranslateLlmBaseUrl}" />
+                            <TextBlock Grid.Row="6" Text="大模型 API Key" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="6" Grid.Column="1" Text="{Binding VideoTranslateLlmApiKey}" PasswordChar="●" />
+                            <TextBlock Grid.Row="7" Text="大模型名称" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="7" Grid.Column="1" Text="{Binding VideoTranslateLlmModel}" />
+                            <TextBlock Grid.Row="8" Text="字幕字体" VerticalAlignment="Center" /><TextBox Classes="configurationInput" Grid.Row="8" Grid.Column="1" Text="{Binding VideoTranslateFont}" />
+                            <TextBlock Grid.Row="9" Text="字幕字号" VerticalAlignment="Center" /><NumericUpDown Classes="configurationInput" Grid.Row="9" Grid.Column="1" Value="{Binding VideoTranslateFontSize}" Minimum="12" Maximum="120" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="10" Text="底部边距" VerticalAlignment="Center" /><NumericUpDown Classes="configurationInput" Grid.Row="10" Grid.Column="1" Value="{Binding VideoTranslateMarginV}" Minimum="0" Maximum="600" Width="120" HorizontalAlignment="Left" />
+                            <TextBlock Grid.Row="11" Text="双语字幕" VerticalAlignment="Center" /><ToggleSwitch Grid.Row="11" Grid.Column="1" IsChecked="{Binding VideoTranslateBilingual}" OnContent="译文下方保留原文" OffContent="译文下方保留原文" />
                         </Grid>
                     </StackPanel>
                 </TabItem>
 
                 <TabItem Header="远程命令">
-                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1080">
                         <TextBlock Text="飞书上传 TikTok 剧集" FontWeight="SemiBold" />
                         <TextBlock Text="配置飞书命令触发“上传 TikTok 剧集”时默认执行的步骤。命令文本里单独传“步骤”时会优先使用命令里的步骤；下面的队列选项仍按这里的配置生效。"
                                    Classes="pageSummary"
@@ -222,7 +226,7 @@
                 </TabItem>
 
                 <TabItem Header="客户端更新">
-                    <StackPanel Spacing="12" Margin="12" MaxWidth="1180">
+                    <StackPanel Spacing="12" Margin="12" MaxWidth="1080">
                         <TextBlock Text="{Binding ClientUpdateStatus}" Classes="pageSummary" TextWrapping="Wrap" />
                         <TextBlock Text="{Binding ClientUpdateDetail}" Classes="compactHint" TextWrapping="Wrap" />
                         <TextBlock Text="已用自动升级包装过的程序会从管理系统拿到阿里云 OSS 目录并下载新版本。队列运行时只下载，不重启。"

@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="TikTokPublisher.Ui.Views.VideoDedupPresetEditor">
     <UserControl.Styles>
+        <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/ConfigurationFormStyles.axaml" />
         <Style Selector="TextBlock.dedupLabel">
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Foreground" Value="#374151" />
@@ -12,154 +13,200 @@
             <Setter Property="FontSize" Value="12" />
         </Style>
     </UserControl.Styles>
-    <ScrollViewer>
-        <StackPanel Spacing="14" Margin="2,4,2,8">
-            <StackPanel Spacing="4">
-                <TextBlock Text="视频去重" FontWeight="SemiBold" FontSize="16" />
-                <TextBlock Classes="dedupHint"
-                           Text="只作用于当前账号。下载完成后按这里的方案处理，改写、剧本、证明材料和上传都使用去重后的成片。原片保留在项目的 source-originals 目录。" />
-                <Button Content="同步到所有账号"
-                        Classes="secondaryAction"
-                        HorizontalAlignment="Left"
-                        MinWidth="140"
-                        Margin="0,6,0,0"
-                        Click="OnApplyToAllAccountsClick" />
-            </StackPanel>
-
-            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
-                <TextBlock Classes="dedupLabel" Text="编码器" />
-                <StackPanel Grid.Column="1" Spacing="4">
-                    <WrapPanel Orientation="Horizontal">
-                        <RadioButton x:Name="EncoderAutoBox" GroupName="DedupEncoder" Content="自动选择" IsChecked="True" Margin="0,0,16,4" />
-                        <RadioButton x:Name="EncoderSoftwareBox" GroupName="DedupEncoder" Content="CPU" Margin="0,0,16,4" />
-                        <RadioButton x:Name="EncoderNvencBox" GroupName="DedupEncoder" Content="NVIDIA" Margin="0,0,16,4" />
-                        <RadioButton x:Name="EncoderAmfBox" GroupName="DedupEncoder" Content="AMD" Margin="0,0,16,4" />
-                        <RadioButton x:Name="EncoderQsvBox" GroupName="DedupEncoder" Content="Intel" Margin="0,0,16,4" />
-                    </WrapPanel>
-                    <TextBlock Classes="dedupHint" Text="自动选择会按本机显卡试编码，检测到的 NVIDIA、AMD 或 Intel 优先，都不可用时用 CPU。指定某一张显卡时，不可用就失败，不会改用别的显卡。" />
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <Grid Margin="2,4,14,8" SizeChanged="OnDedupFormSizeChanged">
+            <StackPanel x:Name="DedupForm" Spacing="12" MaxWidth="1080" HorizontalAlignment="Left">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="视频去重" FontWeight="SemiBold" FontSize="16" />
+                    <TextBlock Classes="dedupHint"
+                               Text="只作用于当前账号。下载完成后按这里的方案处理，改写、剧本、证明材料和上传都使用去重后的成片。原片保留在项目的 source-originals 目录。" />
+                    <Button Content="同步到所有账号"
+                            Classes="secondaryAction"
+                            HorizontalAlignment="Left"
+                            MinWidth="140"
+                            Margin="0,6,0,0"
+                            Click="OnApplyToAllAccountsClick" />
                 </StackPanel>
-            </Grid>
 
-            <TextBlock Text="单集时长" FontWeight="SemiBold" />
-            <TextBlock Classes="dedupHint" Text="两个都留空表示不重新分集。都填写时把全部原片接成一条，按总时长平均切开，每集长度靠近最短和最长的中间。相邻原片可以合进同一集。每一集再做开头、结尾裁剪和变速。转场让某一集超出范围时，向相邻集借一点时长。没有任何分法能落在最短和最长之内时，去重直接失败，不会开始编码。" />
-            <Grid ColumnDefinitions="140,*,140,*" ColumnSpacing="10">
-                <TextBlock Classes="dedupLabel" Text="单集最小时长" />
-                <NumericUpDown x:Name="MinDurationBox" Grid.Column="1" Minimum="1" Maximum="3600" Increment="1" FormatString="0" Watermark="留空不重新分集" />
-                <TextBlock Grid.Column="2" Classes="dedupLabel" Text="单集最大时长" />
-                <NumericUpDown x:Name="MaxDurationBox" Grid.Column="3" Minimum="1" Maximum="7200" Increment="1" FormatString="0" Watermark="留空不重新分集" />
-            </Grid>
-
-            <TextBlock Text="拼接转场" FontWeight="SemiBold" />
-            <CheckBox x:Name="TransitionsEnabledBox" Content="启用转场" />
-            <WrapPanel Orientation="Horizontal">
-                <CheckBox x:Name="FadeBlackBox" Content="淡黑" Margin="0,0,16,6" />
-                <CheckBox x:Name="DissolveBox" Content="交叉溶解" Margin="0,0,16,6" />
-                <CheckBox x:Name="PushBox" Content="推拉" Margin="0,0,16,6" />
-                <CheckBox x:Name="SlideBox" Content="滑动" Margin="0,0,16,6" />
-                <CheckBox x:Name="ZoomBox" Content="缩放" Margin="0,0,16,6" />
-            </WrapPanel>
-            <TextBlock Classes="dedupHint" Text="只在不同原片拼成一集时使用，每处 0.3 到 0.6 秒。启用时至少选一种。短于 0.8 秒的片段改为直接拼接。" />
-
-            <TextBlock Text="画面" FontWeight="SemiBold" />
-            <Grid ColumnDefinitions="140,*,140,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-                <TextBlock Classes="dedupLabel" Text="开头裁剪（秒）" />
-                <NumericUpDown x:Name="TrimStartBox" Grid.Column="1" Minimum="0" Maximum="30" Increment="0.1" FormatString="0.0" />
-                <TextBlock Grid.Column="2" Classes="dedupLabel" Text="结尾裁剪（秒）" />
-                <NumericUpDown x:Name="TrimEndBox" Grid.Column="3" Minimum="0" Maximum="30" Increment="0.1" FormatString="0.0" />
-
-                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="上下裁边 %" />
-                <NumericUpDown x:Name="CropVerticalBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="39" Increment="1" FormatString="0" />
-                <TextBlock Grid.Row="1" Grid.Column="2" Classes="dedupLabel" Text="左右裁边 %" />
-                <NumericUpDown x:Name="CropHorizontalBox" Grid.Row="1" Grid.Column="3" Minimum="0" Maximum="39" Increment="1" FormatString="0" />
-
-                <TextBlock Grid.Row="2" Classes="dedupLabel" Text="分辨率" />
-                <ComboBox x:Name="ResolutionBox" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" />
-                <TextBlock Grid.Row="2" Grid.Column="2" Grid.ColumnSpan="2" Classes="dedupHint" Text="裁边后短边小于 1080 会放大到可上传尺寸。横屏自动对调宽高。" VerticalAlignment="Center" />
-
-                <TextBlock Grid.Row="3" Classes="dedupLabel" Text="视频变速" />
-                <NumericUpDown x:Name="SpeedBox" Grid.Row="3" Grid.Column="1" Minimum="0.5" Maximum="2" Increment="0.1" FormatString="0.00" />
-                <TextBlock Grid.Row="3" Grid.Column="2" Classes="dedupLabel" Text="随机抽帧 %" />
-                <NumericUpDown x:Name="FrameDropBox" Grid.Row="3" Grid.Column="3" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
-            </Grid>
-
-            <TextBlock Text="帧混合与构图" FontWeight="SemiBold" />
-            <StackPanel Spacing="8">
-                <Button Content="应用帧混合＋重取景＋自然调色预设" Click="OnCompositionPresetClick" />
-                <CheckBox x:Name="FrameMixEnabledBox" Content="启用相邻帧混合" />
-                <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="8">
-                    <TextBlock Classes="dedupLabel" Text="混合帧数" />
-                    <NumericUpDown x:Name="FrameMixCountBox" Grid.Column="1" Minimum="2" Maximum="5" Increment="1" />
-                    <TextBlock Grid.Row="1" Classes="dedupLabel" Text="当前帧权重" />
-                    <NumericUpDown x:Name="FrameMixWeightBox" Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="10" Increment="0.5" />
+                <Grid ColumnDefinitions="140,*" RowDefinitions="Auto" ColumnSpacing="10">
+                    <TextBlock Classes="dedupLabel" Text="编码器" />
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <WrapPanel Orientation="Horizontal">
+                            <RadioButton x:Name="EncoderAutoBox" GroupName="DedupEncoder" Content="自动选择" IsChecked="True" Margin="0,0,16,4" />
+                            <RadioButton x:Name="EncoderSoftwareBox" GroupName="DedupEncoder" Content="CPU" Margin="0,0,16,4" />
+                            <RadioButton x:Name="EncoderNvencBox" GroupName="DedupEncoder" Content="NVIDIA" Margin="0,0,16,4" />
+                            <RadioButton x:Name="EncoderAmfBox" GroupName="DedupEncoder" Content="AMD" Margin="0,0,16,4" />
+                            <RadioButton x:Name="EncoderQsvBox" GroupName="DedupEncoder" Content="Intel" Margin="0,0,16,4" />
+                        </WrapPanel>
+                        <TextBlock Classes="dedupHint" Text="自动选择会按本机显卡试编码，检测到的 NVIDIA、AMD 或 Intel 优先，都不可用时用 CPU。指定某一张显卡时，不可用就失败，不会改用别的显卡。" />
+                    </StackPanel>
                 </Grid>
-                <CheckBox x:Name="ReframeEnabledBox" Content="启用构图重取景" />
-                <CheckBox x:Name="ReframeVaryBox" Content="按源片改变偏移（重复处理同一片段时使用相同偏移）" />
-                <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
-                    <TextBlock Classes="dedupLabel" Text="保留画面 %" />
-                    <NumericUpDown x:Name="ReframeKeepBox" Grid.Column="1" Minimum="90" Maximum="100" Increment="1" />
-                    <TextBlock Grid.Row="1" Classes="dedupLabel" Text="水平偏移 %" />
-                    <NumericUpDown x:Name="ReframeHorizontalBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" />
-                    <TextBlock Grid.Row="2" Classes="dedupLabel" Text="垂直偏移 %" />
-                    <NumericUpDown x:Name="ReframeVerticalBox" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" />
-                    <TextBlock Grid.Row="3" Classes="dedupLabel" Text="自然调色强度 %" />
-                    <NumericUpDown x:Name="NaturalColorBox" Grid.Row="3" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" />
-                </Grid>
-                <TextBlock Classes="dedupHint" Text="自然调色强度为 0 时关闭。启用重取景后请预览底部字幕和边缘内容。" />
-            </StackPanel>
 
-            <Button Content="画面滤镜与预览..." HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnOpenEffectsClick" />
-            <TextBlock x:Name="FilterSummaryText" Classes="dedupHint" Text="未启用。数值为 0 时不参与去重。" />
+                <TextBlock Text="单集时长" Classes="configurationHeading" />
+                <TextBlock Classes="dedupHint" Text="两个都留空表示不重新分集。都填写时把全部原片接成一条，按总时长平均切开，每集长度靠近最短和最长的中间。相邻原片可以合进同一集。每一集再做开头、结尾裁剪和变速。转场让某一集超出范围时，向相邻集借一点时长。没有任何分法能落在最短和最长之内时，去重直接失败，不会开始编码。" />
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="单集最小时长" />
+                        <NumericUpDown Classes="configurationInput" x:Name="MinDurationBox" Minimum="1" Maximum="3600" Increment="1" FormatString="0" Watermark="留空不重新分集" />
+                    </StackPanel>
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="单集最大时长" />
+                        <NumericUpDown Classes="configurationInput" x:Name="MaxDurationBox" Minimum="1" Maximum="7200" Increment="1" FormatString="0" Watermark="留空不重新分集" />
+                    </StackPanel>
+                </UniformGrid>
 
-            <TextBlock Text="视频编码" FontWeight="SemiBold" />
-            <WrapPanel Orientation="Horizontal">
-                <RadioButton x:Name="CodecDefaultBox" GroupName="DedupVideoCodec" Content="默认" Margin="0,0,16,6" />
-                <RadioButton x:Name="CodecH264Box" GroupName="DedupVideoCodec" Content="H.264" Margin="0,0,16,6" IsChecked="True" />
-                <RadioButton x:Name="CodecHevcBox" GroupName="DedupVideoCodec" Content="HEVC" Margin="0,0,16,6" />
-                <RadioButton x:Name="CodecH265Box" GroupName="DedupVideoCodec" Content="H.265" Margin="0,0,16,6" />
-            </WrapPanel>
-            <Grid ColumnDefinitions="140,*,140,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
-                <TextBlock Classes="dedupLabel" Text="帧率" />
-                <NumericUpDown x:Name="FpsBox" Grid.Column="1" Minimum="15" Maximum="60" Increment="1" FormatString="0" />
-                <TextBlock Grid.Column="2" Classes="dedupLabel" Text="码率模式" />
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12">
-                    <RadioButton x:Name="RateCbrBox" GroupName="DedupRate" Content="CBR" />
-                    <RadioButton x:Name="RateVbrBox" GroupName="DedupRate" Content="VBR" IsChecked="True" />
-                    <RadioButton x:Name="RateCrfBox" GroupName="DedupRate" Content="CRF" />
+                <TextBlock Text="拼接转场" Classes="configurationHeading" />
+                <ToggleSwitch x:Name="TransitionsEnabledBox" OnContent="启用转场" OffContent="启用转场" />
+                <WrapPanel Orientation="Horizontal" IsVisible="{Binding IsChecked, ElementName=TransitionsEnabledBox}">
+                    <CheckBox x:Name="FadeBlackBox" Content="淡黑" Margin="0,0,16,6" />
+                    <CheckBox x:Name="DissolveBox" Content="交叉溶解" Margin="0,0,16,6" />
+                    <CheckBox x:Name="PushBox" Content="推拉" Margin="0,0,16,6" />
+                    <CheckBox x:Name="SlideBox" Content="滑动" Margin="0,0,16,6" />
+                    <CheckBox x:Name="ZoomBox" Content="缩放" Margin="0,0,16,6" />
+                </WrapPanel>
+                <TextBlock Classes="dedupHint" Text="只在不同原片拼成一集时使用，每处 0.3 到 0.6 秒。启用时至少选一种。短于 0.8 秒的片段改为直接拼接。" />
+
+                <TextBlock Text="画面" Classes="configurationHeading" />
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="开头裁剪（秒）" />
+                        <NumericUpDown Classes="configurationInput" x:Name="TrimStartBox" Minimum="0" Maximum="30" Increment="0.1" FormatString="0.0" />
+                    </StackPanel>
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="结尾裁剪（秒）" />
+                        <NumericUpDown Classes="configurationInput" x:Name="TrimEndBox" Minimum="0" Maximum="30" Increment="0.1" FormatString="0.0" />
+                    </StackPanel>
+                </UniformGrid>
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="上下裁边 %" />
+                        <NumericUpDown Classes="configurationInput" x:Name="CropVerticalBox" Minimum="0" Maximum="39" Increment="1" FormatString="0" />
+                    </StackPanel>
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="左右裁边 %" />
+                        <NumericUpDown Classes="configurationInput" x:Name="CropHorizontalBox" Minimum="0" Maximum="39" Increment="1" FormatString="0" />
+                    </StackPanel>
+                </UniformGrid>
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="分辨率" />
+                        <ComboBox Classes="configurationInput" x:Name="ResolutionBox" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                    <TextBlock Classes="dedupHint" Text="裁边后短边小于 1080 会放大到可上传尺寸。横屏自动对调宽高。" VerticalAlignment="Center" />
+                </UniformGrid>
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="视频变速" />
+                        <NumericUpDown Classes="configurationInput" x:Name="SpeedBox" Minimum="0.5" Maximum="2" Increment="0.1" FormatString="0.00" />
+                    </StackPanel>
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="随机抽帧 %" />
+                        <NumericUpDown Classes="configurationInput" x:Name="FrameDropBox" Minimum="0" Maximum="40" Increment="1" FormatString="0" />
+                    </StackPanel>
+                </UniformGrid>
+
+                <TextBlock Text="帧混合与构图" Classes="configurationHeading" />
+                <StackPanel Spacing="8">
+                    <Button Content="应用帧混合＋重取景＋自然调色预设" Click="OnCompositionPresetClick" />
+                    <ToggleSwitch x:Name="FrameMixEnabledBox" OnContent="启用相邻帧混合" OffContent="启用相邻帧混合" />
+                    <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" RowSpacing="8" IsVisible="{Binding IsChecked, ElementName=FrameMixEnabledBox}">
+                        <TextBlock Classes="dedupLabel" Text="混合帧数" />
+                        <NumericUpDown Classes="configurationInput" x:Name="FrameMixCountBox" Grid.Column="1" Minimum="2" Maximum="5" Increment="1" />
+                        <TextBlock Grid.Row="1" Classes="dedupLabel" Text="当前帧权重" />
+                        <NumericUpDown Classes="configurationInput" x:Name="FrameMixWeightBox" Grid.Row="1" Grid.Column="1" Minimum="1" Maximum="10" Increment="0.5" />
+                    </Grid>
+                    <ToggleSwitch x:Name="ReframeEnabledBox" OnContent="启用构图重取景" OffContent="启用构图重取景" />
+                    <StackPanel Spacing="8" IsVisible="{Binding IsChecked, ElementName=ReframeEnabledBox}">
+                        <ToggleSwitch x:Name="ReframeVaryBox" OnContent="按源片改变偏移" OffContent="按源片改变偏移"
+                                  ToolTip.Tip="重复处理同一片段时使用相同偏移。" />
+                        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                            <TextBlock Classes="dedupLabel" Text="保留画面 %" />
+                            <NumericUpDown Classes="configurationInput" x:Name="ReframeKeepBox" Grid.Column="1" Minimum="90" Maximum="100" Increment="1" />
+                            <TextBlock Grid.Row="1" Classes="dedupLabel" Text="水平偏移 %" />
+                            <NumericUpDown Classes="configurationInput" x:Name="ReframeHorizontalBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" />
+                            <TextBlock Grid.Row="2" Classes="dedupLabel" Text="垂直偏移 %" />
+                            <NumericUpDown Classes="configurationInput" x:Name="ReframeVerticalBox" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" />
+                        </Grid>
+                    </StackPanel>
+                    <StackPanel Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="自然调色强度 %" />
+                        <NumericUpDown Classes="configurationInput" x:Name="NaturalColorBox" Minimum="0" Maximum="100" Increment="1" />
+                    </StackPanel>
+                    <TextBlock Classes="dedupHint" Text="自然调色强度为 0 时关闭。启用重取景后请预览底部字幕和边缘内容。" />
                 </StackPanel>
-                <TextBlock Grid.Row="1" Classes="dedupLabel" Text="视频码率 Mbps" />
-                <NumericUpDown x:Name="VideoBitrateBox" Grid.Row="1" Grid.Column="1" Minimum="0.5" Maximum="20" Increment="0.1" FormatString="0.0" />
-                <TextBlock Grid.Row="1" Grid.Column="2" Classes="dedupLabel" Text="CRF 质量" />
-                <NumericUpDown x:Name="CrfBox" Grid.Row="1" Grid.Column="3" Minimum="18" Maximum="32" Increment="1" FormatString="0" />
-            </Grid>
 
-            <TextBlock Text="音频" FontWeight="SemiBold" />
-            <StackPanel Orientation="Horizontal" Spacing="12">
-                <RadioButton x:Name="AudioDefaultBox" GroupName="DedupAudio" Content="默认" />
-                <RadioButton x:Name="AudioAacBox" GroupName="DedupAudio" Content="AAC" IsChecked="True" />
+                <Button Content="画面滤镜与预览..." HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="OnOpenEffectsClick" />
+                <TextBlock x:Name="FilterSummaryText" Classes="dedupHint" Text="未启用。数值为 0 时不参与去重。" />
+
+                <TextBlock Text="视频编码" Classes="configurationHeading" />
+                <WrapPanel Orientation="Horizontal">
+                    <RadioButton x:Name="CodecDefaultBox" GroupName="DedupVideoCodec" Content="默认" Margin="0,0,16,6" />
+                    <RadioButton x:Name="CodecH264Box" GroupName="DedupVideoCodec" Content="H.264" Margin="0,0,16,6" IsChecked="True" />
+                    <RadioButton x:Name="CodecHevcBox" GroupName="DedupVideoCodec" Content="HEVC" Margin="0,0,16,6" />
+                    <RadioButton x:Name="CodecH265Box" GroupName="DedupVideoCodec" Content="H.265" Margin="0,0,16,6" />
+                </WrapPanel>
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="帧率" />
+                        <NumericUpDown Classes="configurationInput" x:Name="FpsBox" Minimum="15" Maximum="60" Increment="1" FormatString="0" />
+                    </StackPanel>
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="码率模式" />
+                        <WrapPanel>
+                            <RadioButton x:Name="RateCbrBox" GroupName="DedupRate" Content="CBR" Margin="0,0,12,4" />
+                            <RadioButton x:Name="RateVbrBox" GroupName="DedupRate" Content="VBR" IsChecked="True" Margin="0,0,12,4" />
+                            <RadioButton x:Name="RateCrfBox" GroupName="DedupRate" Content="CRF" Margin="0,0,12,4" />
+                        </WrapPanel>
+                    </StackPanel>
+                </UniformGrid>
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="视频码率 Mbps" />
+                        <NumericUpDown Classes="configurationInput" x:Name="VideoBitrateBox" Minimum="0.5" Maximum="20" Increment="0.1" FormatString="0.0" />
+                    </StackPanel>
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="CRF 质量" />
+                        <NumericUpDown Classes="configurationInput" x:Name="CrfBox" Minimum="18" Maximum="32" Increment="1" FormatString="0" />
+                    </StackPanel>
+                </UniformGrid>
+
+                <TextBlock Text="音频" Classes="configurationHeading" />
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <RadioButton x:Name="AudioDefaultBox" GroupName="DedupAudio" Content="默认" />
+                    <RadioButton x:Name="AudioAacBox" GroupName="DedupAudio" Content="AAC" IsChecked="True" />
+                </StackPanel>
+                <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
+                    <TextBlock Classes="dedupLabel" Text="音频码率" />
+                    <Panel Grid.Column="1">
+                        <NumericUpDown Classes="configurationInput" x:Name="AudioBitrateBox" Minimum="64" Maximum="320" Increment="16" FormatString="0" Watermark="留空表示原码率" />
+                        <TextBlock Text="Kbps"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,32,0"
+                                   Foreground="#6B7280"
+                                   IsHitTestVisible="False" />
+                    </Panel>
+                </Grid>
+                <TextBlock Classes="dedupHint" Text="音频码率留空表示使用源码率，单位 Kbps。填写后按该码率重新编码。变速、抽帧、裁剪或均衡开启时会重新编码音频。" />
+
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="低频 100 Hz" />
+                        <NumericUpDown Classes="configurationInput" x:Name="LowGainBox" Minimum="-12" Maximum="12" Increment="1" FormatString="0" />
+                    </StackPanel>
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="中频 1 kHz" />
+                        <NumericUpDown Classes="configurationInput" x:Name="MidGainBox" Minimum="-12" Maximum="12" Increment="1" FormatString="0" />
+                    </StackPanel>
+                </UniformGrid>
+                <UniformGrid Classes="dedupFields" Columns="2">
+                    <StackPanel Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="高频 8 kHz" />
+                        <NumericUpDown Classes="configurationInput" x:Name="HighGainBox" Minimum="-12" Maximum="12" Increment="1" FormatString="0" />
+                    </StackPanel>
+                </UniformGrid>
+                <Button Content="均衡器归零" HorizontalAlignment="Left" Click="OnResetEqualizerClick" />
             </StackPanel>
-            <Grid ColumnDefinitions="140,*" ColumnSpacing="10">
-                <TextBlock Classes="dedupLabel" Text="音频码率" />
-                <Panel Grid.Column="1">
-                    <NumericUpDown x:Name="AudioBitrateBox" Minimum="64" Maximum="320" Increment="16" FormatString="0" Watermark="留空表示原码率" />
-                    <TextBlock Text="Kbps"
-                               HorizontalAlignment="Right"
-                               VerticalAlignment="Center"
-                               Margin="0,0,32,0"
-                               Foreground="#6B7280"
-                               IsHitTestVisible="False" />
-                </Panel>
-            </Grid>
-            <TextBlock Classes="dedupHint" Text="音频码率留空表示使用源码率，单位 Kbps。填写后按该码率重新编码。变速、抽帧、裁剪或均衡开启时会重新编码音频。" />
-
-            <Grid ColumnDefinitions="140,*,140,*,140,*" ColumnSpacing="10">
-                <TextBlock Classes="dedupLabel" Text="低频 100 Hz" />
-                <NumericUpDown x:Name="LowGainBox" Grid.Column="1" Minimum="-12" Maximum="12" Increment="1" FormatString="0" />
-                <TextBlock Grid.Column="2" Classes="dedupLabel" Text="中频 1 kHz" />
-                <NumericUpDown x:Name="MidGainBox" Grid.Column="3" Minimum="-12" Maximum="12" Increment="1" FormatString="0" />
-                <TextBlock Grid.Column="4" Classes="dedupLabel" Text="高频 8 kHz" />
-                <NumericUpDown x:Name="HighGainBox" Grid.Column="5" Minimum="-12" Maximum="12" Increment="1" FormatString="0" />
-            </Grid>
-            <Button Content="均衡器归零" HorizontalAlignment="Left" Click="OnResetEqualizerClick" />
-        </StackPanel>
+        </Grid>
     </ScrollViewer>
 </UserControl>

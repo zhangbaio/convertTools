@@ -1,0 +1,85 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Styles.Resources>
+        <SolidColorBrush x:Key="ToggleSwitchFillOff">#8897AA</SolidColorBrush>
+        <SolidColorBrush x:Key="ToggleSwitchStrokeOff">#738297</SolidColorBrush>
+        <SolidColorBrush x:Key="ToggleSwitchKnobFillOff">#FFFFFF</SolidColorBrush>
+        <SolidColorBrush x:Key="ToggleSwitchFillOffPointerOver">#73859B</SolidColorBrush>
+        <SolidColorBrush x:Key="ToggleSwitchStrokeOffPointerOver">#657991</SolidColorBrush>
+        <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPointerOver">#FFFFFF</SolidColorBrush>
+        <SolidColorBrush x:Key="ToggleSwitchFillOffPressed">#64758A</SolidColorBrush>
+        <SolidColorBrush x:Key="ToggleSwitchStrokeOffPressed">#5B6D82</SolidColorBrush>
+        <SolidColorBrush x:Key="ToggleSwitchKnobFillOffPressed">#FFFFFF</SolidColorBrush>
+        <SolidColorBrush x:Key="ConfigurationInputBackground">#F1F5FA</SolidColorBrush>
+        <SolidColorBrush x:Key="ConfigurationInputBorder">#A7B6CA</SolidColorBrush>
+        <SolidColorBrush x:Key="ConfigurationInputHoverBackground">#E8F0F9</SolidColorBrush>
+        <SolidColorBrush x:Key="ConfigurationInputHoverBorder">#879EB9</SolidColorBrush>
+        <SolidColorBrush x:Key="ConfigurationInputFocusBorder">#0078D4</SolidColorBrush>
+        <SolidColorBrush x:Key="ConfigurationInputDisabledBackground">#F0F1F3</SolidColorBrush>
+        <SolidColorBrush x:Key="ConfigurationInputDisabledBorder">#D0D5DD</SolidColorBrush>
+        <SolidColorBrush x:Key="ConfigurationInputDisabledForeground">#667085</SolidColorBrush>
+
+        <StaticResource x:Key="TextControlBackgroundPointerOver" ResourceKey="ConfigurationInputHoverBackground" />
+        <StaticResource x:Key="TextControlBorderBrushPointerOver" ResourceKey="ConfigurationInputHoverBorder" />
+        <StaticResource x:Key="TextControlBackgroundFocused" ResourceKey="ConfigurationInputBackground" />
+        <StaticResource x:Key="TextControlBorderBrushFocused" ResourceKey="ConfigurationInputFocusBorder" />
+        <Thickness x:Key="TextControlBorderThemeThicknessFocused">1.5</Thickness>
+        <StaticResource x:Key="TextControlBackgroundDisabled" ResourceKey="ConfigurationInputDisabledBackground" />
+        <StaticResource x:Key="TextControlBorderBrushDisabled" ResourceKey="ConfigurationInputDisabledBorder" />
+        <StaticResource x:Key="TextControlForegroundDisabled" ResourceKey="ConfigurationInputDisabledForeground" />
+
+        <StaticResource x:Key="ComboBoxBackgroundPointerOver" ResourceKey="ConfigurationInputHoverBackground" />
+        <StaticResource x:Key="ComboBoxBorderBrushPointerOver" ResourceKey="ConfigurationInputHoverBorder" />
+        <StaticResource x:Key="ComboBoxBackgroundPressed" ResourceKey="ConfigurationInputHoverBackground" />
+        <StaticResource x:Key="ComboBoxBorderBrushPressed" ResourceKey="ConfigurationInputFocusBorder" />
+        <StaticResource x:Key="ComboBoxBackgroundBorderBrushFocused" ResourceKey="ConfigurationInputFocusBorder" />
+        <StaticResource x:Key="ComboBoxBackgroundDisabled" ResourceKey="ConfigurationInputDisabledBackground" />
+        <StaticResource x:Key="ComboBoxBorderBrushDisabled" ResourceKey="ConfigurationInputDisabledBorder" />
+        <StaticResource x:Key="ComboBoxForegroundDisabled" ResourceKey="ConfigurationInputDisabledForeground" />
+
+        <StaticResource x:Key="RepeatButtonBackgroundPointerOver" ResourceKey="ConfigurationInputHoverBackground" />
+        <SolidColorBrush x:Key="RepeatButtonBackgroundPressed">#DBE8F7</SolidColorBrush>
+        <StaticResource x:Key="RepeatButtonBackgroundDisabled" ResourceKey="ConfigurationInputDisabledBackground" />
+    </Styles.Resources>
+
+    <Style Selector="TextBox.configurationInput, ComboBox.configurationInput, NumericUpDown.configurationInput">
+        <Setter Property="Background" Value="{StaticResource ConfigurationInputBackground}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ConfigurationInputBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="7" />
+    </Style>
+    <Style Selector="ComboBox.configurationInput:focus-within:not(:error) /template/ Border#Background">
+        <Setter Property="BorderBrush" Value="{StaticResource ConfigurationInputFocusBorder}" />
+    </Style>
+    <Style Selector="NumericUpDown.configurationInput:pointerover">
+        <Setter Property="Background" Value="{StaticResource ConfigurationInputHoverBackground}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ConfigurationInputHoverBorder}" />
+    </Style>
+    <Style Selector="NumericUpDown.configurationInput:focus-within:not(:error)">
+        <Setter Property="Background" Value="{StaticResource ConfigurationInputBackground}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ConfigurationInputFocusBorder}" />
+    </Style>
+    <Style Selector="NumericUpDown.configurationInput:disabled">
+        <Setter Property="Background" Value="{StaticResource ConfigurationInputDisabledBackground}" />
+        <Setter Property="BorderBrush" Value="{StaticResource ConfigurationInputDisabledBorder}" />
+        <Setter Property="Foreground" Value="{StaticResource ConfigurationInputDisabledForeground}" />
+    </Style>
+    <Style Selector="NumericUpDown.configurationInput /template/ TextBox#PART_TextBox /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="TextBlock.configurationLabel">
+        <Setter Property="Foreground" Value="#1F2937" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.configurationHeading">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Margin" Value="0,8,0,0" />
+    </Style>
+    <Style Selector="StackPanel.configurationField">
+        <Setter Property="Margin" Value="0,0,12,6" />
+    </Style>
+</Styles>

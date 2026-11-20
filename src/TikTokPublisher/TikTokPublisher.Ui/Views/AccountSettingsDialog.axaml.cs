@@ -91,35 +91,35 @@ public partial class AccountSettingsDialog : Window
             p.TiktokUploadAiScriptOutlineWithScreenshots,
             p.TiktokUploadSourceInfoRoleVector,
             p.TiktokUploadSourceInfoRoleSceneScreenshot);
-        ProofTemplatePathBox.Text = p.TiktokProofTemplateDocxPath;
-        ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
-        TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
-        ProofSealPathBox.Text = p.TiktokProofSealPath;
-        ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
-        EpisodeScriptEpisodeCountBox.Value = Math.Clamp(
+        CopyrightMaterials.ProofTemplatePathBox.Text = p.TiktokProofTemplateDocxPath;
+        CopyrightMaterials.ProofDeclarantCompanyNameBox.Text = p.TiktokProofDeclarantCompanyName;
+        CopyrightMaterials.TimestampApplicantNameBox.Text = p.TiktokTimestampApplicantName;
+        CopyrightMaterials.ProofSealPathBox.Text = p.TiktokProofSealPath;
+        CopyrightMaterials.ProofCopyrightCompanyNameBox.Text = p.TiktokProofCopyrightCompanyName;
+        CopyrightMaterials.EpisodeScriptEpisodeCountBox.Value = Math.Clamp(
             p.TiktokEpisodeScriptEpisodeCount > 0
                 ? p.TiktokEpisodeScriptEpisodeCount
                 : TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount,
             1,
             120);
-        AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
+        CopyrightMaterials.AiScriptOutlineEpisodeCountBox.Value = Math.Clamp(
             p.TiktokAiScriptOutlineEpisodeCount > 0
                 ? p.TiktokAiScriptOutlineEpisodeCount
                 : TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount,
             1,
             120);
-        RoleVectorCharacterCountBox.Value = Math.Clamp(
+        CopyrightMaterials.RoleVectorCharacterCountBox.Value = Math.Clamp(
             p.TiktokRoleVectorCharacterCount > 0
                 ? p.TiktokRoleVectorCharacterCount
                 : TikTokAccountProfile.DefaultRoleVectorCharacterCount,
             2,
             6);
-        RoleVectorMinimumCharacterCountBox.Value = Math.Clamp(
+        CopyrightMaterials.RoleVectorMinimumCharacterCountBox.Value = Math.Clamp(
             p.TiktokRoleVectorMinimumCharacterCount > 0
                 ? p.TiktokRoleVectorMinimumCharacterCount
                 : TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount,
             2,
-            (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
+            (int)(CopyrightMaterials.RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount));
         AiRewriteSynopsisBox.IsChecked = p.TiktokAiRewriteSynopsis;
         SelectNewTitleRandomness(AiNewTitleRandomnessCombo, p.TiktokAiNewTitleRandomness);
         ConsignmentBox.IsChecked = p.TiktokConsignmentEnabled;
@@ -250,26 +250,26 @@ public partial class AccountSettingsDialog : Window
         p.TiktokUploadAiScriptOutlineWithScreenshots = CopyrightMaterials.UploadAiScriptOutlineWithScreenshots;
         p.TiktokUploadSourceInfoRoleVector = CopyrightMaterials.UploadSourceInfoRoleVector;
         p.TiktokUploadSourceInfoRoleSceneScreenshot = CopyrightMaterials.UploadSourceInfoRoleSceneScreenshot;
-        p.TiktokProofTemplateDocxPath = ProofTemplatePathBox.Text?.Trim() ?? "";
+        p.TiktokProofTemplateDocxPath = CopyrightMaterials.ProofTemplatePathBox.Text?.Trim() ?? "";
         p.TiktokProofTemplateLanguage = TikTokProofMaterialTemplateProvider.ChineseLanguage;
-        p.TiktokProofDeclarantCompanyName = ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
-        p.TiktokTimestampApplicantName = TimestampApplicantNameBox.Text?.Trim() ?? "";
-        p.TiktokProofSealPath = ProofSealPathBox.Text?.Trim() ?? "";
-        p.TiktokProofCopyrightCompanyName = ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokProofDeclarantCompanyName = CopyrightMaterials.ProofDeclarantCompanyNameBox.Text?.Trim() ?? "";
+        p.TiktokTimestampApplicantName = CopyrightMaterials.TimestampApplicantNameBox.Text?.Trim() ?? "";
+        p.TiktokProofSealPath = CopyrightMaterials.ProofSealPathBox.Text?.Trim() ?? "";
+        p.TiktokProofCopyrightCompanyName = CopyrightMaterials.ProofCopyrightCompanyNameBox.Text?.Trim() ?? "";
         p.TiktokEpisodeScriptEpisodeCount = Math.Clamp(
-            (int)(EpisodeScriptEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount),
+            (int)(CopyrightMaterials.EpisodeScriptEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultEpisodeScriptEpisodeCount),
             1,
             120);
         p.TiktokAiScriptOutlineEpisodeCount = Math.Clamp(
-            (int)(AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
+            (int)(CopyrightMaterials.AiScriptOutlineEpisodeCountBox.Value ?? TikTokAccountProfile.DefaultAiScriptOutlineEpisodeCount),
             1,
             120);
         p.TiktokRoleVectorCharacterCount = Math.Clamp(
-            (int)(RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
+            (int)(CopyrightMaterials.RoleVectorCharacterCountBox.Value ?? TikTokAccountProfile.DefaultRoleVectorCharacterCount),
             2,
             6);
         p.TiktokRoleVectorMinimumCharacterCount = Math.Clamp(
-            (int)(RoleVectorMinimumCharacterCountBox.Value ??
+            (int)(CopyrightMaterials.RoleVectorMinimumCharacterCountBox.Value ??
                   TikTokAccountProfile.DefaultRoleVectorMinimumCharacterCount),
             2,
             p.TiktokRoleVectorCharacterCount);
@@ -356,46 +356,6 @@ public partial class AccountSettingsDialog : Window
         var folder = folders.FirstOrDefault();
         if (folder is null) return;
         ArchiveRootBox.Text = folder.Path.LocalPath;
-    }
-
-    private async void OnBrowseProofSealClick(object? sender, RoutedEventArgs e)
-    {
-        if (Storage is null) return;
-        var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择公司印章图片",
-            AllowMultiple = false,
-            FileTypeFilter =
-            [
-                new FilePickerFileType("印章图片")
-                {
-                    Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp"],
-                },
-            ],
-        });
-        var path = files.FirstOrDefault()?.TryGetLocalPath();
-        if (!string.IsNullOrWhiteSpace(path))
-            ProofSealPathBox.Text = path;
-    }
-
-    private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e)
-    {
-        if (Storage is null) return;
-        var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "选择证明材料 Word 模板",
-            AllowMultiple = false,
-            FileTypeFilter =
-            [
-                new FilePickerFileType("Word 模板")
-                {
-                    Patterns = ["*.docx"],
-                },
-            ],
-        });
-        var path = files.FirstOrDefault()?.TryGetLocalPath();
-        if (!string.IsNullOrWhiteSpace(path))
-            ProofTemplatePathBox.Text = path;
     }
 
     private async void OnDramaMarketSelectionChanged(object? sender, SelectionChangedEventArgs e)

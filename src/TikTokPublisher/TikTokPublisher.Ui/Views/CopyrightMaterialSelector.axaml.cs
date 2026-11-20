@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Platform.Storage;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using TikTokPublisher.Core.Publishing;
@@ -128,18 +129,65 @@ public partial class CopyrightMaterialSelector : UserControl
         }
     }
 
+    private IStorageProvider? Storage => TopLevel.GetTopLevel(this)?.StorageProvider;
+
+    private void OnMaterialFormSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        var width = e.NewSize.Width;
+        if (width <= 0)
+            return;
+
+        MaterialForm.Width = Math.Min(width, MaterialForm.MaxWidth);
+        var columns = width < 580 ? 1 : 2;
+        AgreementPeopleRow.Columns = columns;
+        RoleVectorPeopleRow.Columns = columns;
+    }
+
+    private async void OnBrowseProofSealClick(object? sender, RoutedEventArgs e)
+    {
+        if (Storage is null) return;
+        var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择公司印章图片",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("印章图片")
+                {
+                    Patterns = ["*.png", "*.jpg", "*.jpeg", "*.bmp"],
+                },
+            ],
+        });
+        var path = files.FirstOrDefault()?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(path))
+            ProofSealPathBox.Text = path;
+    }
+
+    private async void OnBrowseProofTemplateClick(object? sender, RoutedEventArgs e)
+    {
+        if (Storage is null) return;
+        var files = await Storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "选择证明材料 Word 模板",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Word 模板")
+                {
+                    Patterns = ["*.docx"],
+                },
+            ],
+        });
+        var path = files.FirstOrDefault()?.TryGetLocalPath();
+        if (!string.IsNullOrWhiteSpace(path))
+            ProofTemplatePathBox.Text = path;
+    }
+
     private void OnMaterialSelectionChanged(object? sender, RoutedEventArgs e)
     {
         if (_isLoading)
             return;
 
-        if (AiScreenshotsMaterialBox.IsChecked != true)
-            UploadAiScriptOutlineWithScreenshotsBox.IsChecked = false;
-        if (SourceInfoMaterialBox.IsChecked != true)
-        {
-            UploadSourceInfoRoleVectorBox.IsChecked = false;
-            UploadSourceInfoRoleSceneScreenshotBox.IsChecked = false;
-        }
         UpdateMinimumStatus();
     }
 

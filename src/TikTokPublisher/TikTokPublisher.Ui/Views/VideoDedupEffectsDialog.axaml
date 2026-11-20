@@ -6,6 +6,7 @@
         WindowStartupLocation="CenterOwner"
         Title="画面滤镜与预览">
     <Window.Styles>
+        <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/ConfigurationFormStyles.axaml" />
         <Style Selector="TextBlock.effectHint">
             <Setter Property="Foreground" Value="#6B7280" />
             <Setter Property="FontSize" Value="12" />
@@ -26,12 +27,12 @@
                 <StackPanel DockPanel.Dock="Top" Spacing="8">
                     <TextBlock Classes="effectHint" Text="选择一个本地视频和时间点，对照这一帧应用滤镜前后的画面。数值或强度为 0 时不应用。" />
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                        <TextBox x:Name="PreviewPathBox" Watermark="预览视频" />
+                        <TextBox Classes="configurationInput" x:Name="PreviewPathBox" Watermark="预览视频" />
                         <Button Grid.Column="1" Content="选择视频" Click="OnPickPreviewClick" />
                     </Grid>
                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                         <TextBlock Classes="effectLabel" Text="源时间（秒）" />
-                        <NumericUpDown x:Name="PreviewTimeBox" Grid.Column="1" Minimum="0" Maximum="7200" Increment="0.1" FormatString="0.000" />
+                        <NumericUpDown Classes="configurationInput" x:Name="PreviewTimeBox" Grid.Column="1" Minimum="0" Maximum="7200" Increment="0.1" FormatString="0.000" />
                         <Button Grid.Column="2" Content="生成预览" Click="OnPreviewClick" />
                     </Grid>
                     <TextBlock x:Name="PreviewStatusText" Classes="effectHint" Text="" />
@@ -59,24 +60,24 @@
                             <TextBlock Classes="effectHint" Text="锐化为负值时变成柔化。灰度会去掉颜色。" />
                             <Grid ColumnDefinitions="110,*,110,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="色温" />
-                                <NumericUpDown x:Name="TemperatureBox" Grid.Column="1" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="TemperatureBox" Grid.Column="1" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Column="2" Classes="effectLabel" Text="色调" />
-                                <NumericUpDown x:Name="TintBox" Grid.Column="3" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="TintBox" Grid.Column="3" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="1" Classes="effectLabel" Text="饱和度" />
-                                <NumericUpDown x:Name="SaturationBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="2" Increment="0.01" FormatString="0.00" />
+                                <NumericUpDown Classes="configurationInput" x:Name="SaturationBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="2" Increment="0.01" FormatString="0.00" />
                                 <TextBlock Grid.Row="1" Grid.Column="2" Classes="effectLabel" Text="自然饱和度" />
-                                <NumericUpDown x:Name="VibranceBox" Grid.Row="1" Grid.Column="3" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="VibranceBox" Grid.Row="1" Grid.Column="3" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="2" Classes="effectLabel" Text="亮度" />
-                                <NumericUpDown x:Name="BrightnessBox" Grid.Row="2" Grid.Column="1" Minimum="-0.3" Maximum="0.3" Increment="0.01" FormatString="0.00" />
+                                <NumericUpDown Classes="configurationInput" x:Name="BrightnessBox" Grid.Row="2" Grid.Column="1" Minimum="-0.3" Maximum="0.3" Increment="0.01" FormatString="0.00" />
                                 <TextBlock Grid.Row="2" Grid.Column="2" Classes="effectLabel" Text="对比度" />
-                                <NumericUpDown x:Name="ContrastBox" Grid.Row="2" Grid.Column="3" Minimum="0.5" Maximum="1.5" Increment="0.01" FormatString="0.00" />
+                                <NumericUpDown Classes="configurationInput" x:Name="ContrastBox" Grid.Row="2" Grid.Column="3" Minimum="0.5" Maximum="1.5" Increment="0.01" FormatString="0.00" />
                                 <TextBlock Grid.Row="3" Classes="effectLabel" Text="曝光" />
-                                <NumericUpDown x:Name="ExposureBox" Grid.Row="3" Grid.Column="1" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="ExposureBox" Grid.Row="3" Grid.Column="1" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="3" Grid.Column="2" Classes="effectLabel" Text="中间调" />
-                                <NumericUpDown x:Name="GammaBox" Grid.Row="3" Grid.Column="3" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="GammaBox" Grid.Row="3" Grid.Column="3" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="4" Classes="effectLabel" Text="锐化 / 柔化" />
-                                <NumericUpDown x:Name="SharpnessBox" Grid.Row="4" Grid.Column="1" Minimum="-2" Maximum="2" Increment="0.1" FormatString="0.0" />
-                                <CheckBox x:Name="GrayscaleBox" Grid.Row="4" Grid.Column="3" Content="灰度" />
+                                <NumericUpDown Classes="configurationInput" x:Name="SharpnessBox" Grid.Row="4" Grid.Column="1" Minimum="-2" Maximum="2" Increment="0.1" FormatString="0.0" />
+                                <ToggleSwitch x:Name="GrayscaleBox" Grid.Row="4" Grid.Column="3" OnContent="灰度" OffContent="灰度" />
                             </Grid>
                         </StackPanel>
                     </ScrollViewer>
@@ -87,16 +88,16 @@
                             <TextBlock Classes="effectHint" Text="曲线强度为 0 时不应用。点的格式是 x,y，从左到右，例如 0,0 0.5,0.7 1,1。直线不改变画面。" />
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="曲线强度 %" />
-                                <NumericUpDown x:Name="CurveAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="CurveAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                             </Grid>
                             <TextBlock Text="主通道" />
-                            <TextBox x:Name="MasterCurveBox" />
+                            <TextBox Classes="configurationInput" x:Name="MasterCurveBox" />
                             <TextBlock Text="红" />
-                            <TextBox x:Name="RedCurveBox" />
+                            <TextBox Classes="configurationInput" x:Name="RedCurveBox" />
                             <TextBlock Text="绿" />
-                            <TextBox x:Name="GreenCurveBox" />
+                            <TextBox Classes="configurationInput" x:Name="GreenCurveBox" />
                             <TextBlock Text="蓝" />
-                            <TextBox x:Name="BlueCurveBox" />
+                            <TextBox Classes="configurationInput" x:Name="BlueCurveBox" />
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
@@ -106,36 +107,36 @@
                             <TextBlock Text="色阶" FontWeight="SemiBold" />
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8" RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="强度 %" />
-                                <NumericUpDown x:Name="LevelsAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="LevelsAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="1" Classes="effectLabel" Text="输入黑 / 白" />
                                 <WrapPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
-                                    <NumericUpDown x:Name="InputBlackBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
-                                    <NumericUpDown x:Name="InputWhiteBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="InputBlackBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="InputWhiteBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
                                 </WrapPanel>
                                 <TextBlock Grid.Row="2" Classes="effectLabel" Text="中间调 / 输出" />
                                 <WrapPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
-                                    <NumericUpDown x:Name="LevelsGammaBox" Width="136" Margin="0,0,8,4" Minimum="0.1" Maximum="3" Increment="0.01" FormatString="0.00" />
-                                    <NumericUpDown x:Name="OutputBlackBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
-                                    <NumericUpDown x:Name="OutputWhiteBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="LevelsGammaBox" Width="136" Margin="0,0,8,4" Minimum="0.1" Maximum="3" Increment="0.01" FormatString="0.00" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="OutputBlackBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="OutputWhiteBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="1" Increment="0.01" FormatString="0.00" />
                                 </WrapPanel>
                             </Grid>
                             <TextBlock Text="分离色调" FontWeight="SemiBold" />
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="强度 %" />
-                                <NumericUpDown x:Name="SplitAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="SplitAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="1" Classes="effectLabel" Text="阴影 / 高光 / 平衡" />
                                 <WrapPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal">
-                                    <TextBox x:Name="ShadowColorBox" Width="90" Margin="0,0,8,4" />
-                                    <TextBox x:Name="HighlightColorBox" Width="90" Margin="0,0,8,4" />
-                                    <NumericUpDown x:Name="SplitBalanceBox" Width="136" Margin="0,0,8,4" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
+                                    <TextBox Classes="configurationInput" x:Name="ShadowColorBox" Width="90" Margin="0,0,8,4" />
+                                    <TextBox Classes="configurationInput" x:Name="HighlightColorBox" Width="90" Margin="0,0,8,4" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="SplitBalanceBox" Width="136" Margin="0,0,8,4" Minimum="-100" Maximum="100" Increment="1" FormatString="0" />
                                 </WrapPanel>
                             </Grid>
                             <TextBlock Text="3D LUT" FontWeight="SemiBold" />
                             <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="强度 %" />
-                                <NumericUpDown x:Name="LutAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="LutAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="1" Classes="effectLabel" Text="文件" />
-                                <TextBox x:Name="LutPathBox" Grid.Row="1" Grid.Column="1" />
+                                <TextBox Classes="configurationInput" x:Name="LutPathBox" Grid.Row="1" Grid.Column="1" />
                                 <Button Grid.Row="1" Grid.Column="2" Content="选择" Click="OnPickLutClick" />
                             </Grid>
                             <TextBlock Classes="effectHint" Text="只保存 LUT 和图片的原路径。文件移动后需要重新选择，否则去重会失败。" />
@@ -147,25 +148,25 @@
                         <StackPanel Spacing="8" Margin="4">
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="模糊" />
-                                <NumericUpDown x:Name="BlurBox" Grid.Column="1" Minimum="0" Maximum="20" Increment="0.1" FormatString="0.0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="BlurBox" Grid.Column="1" Minimum="0" Maximum="20" Increment="0.1" FormatString="0.0" />
                                 <TextBlock Grid.Row="1" Classes="effectLabel" Text="暗角 %" />
-                                <NumericUpDown x:Name="VignetteAmountBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="VignetteAmountBox" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="2" Classes="effectLabel" Text="暗角范围 / 羽化" />
                                 <WrapPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal">
-                                    <NumericUpDown x:Name="VignetteRadiusBox" Width="136" Margin="0,0,8,4" Minimum="1" Maximum="100" Increment="1" FormatString="0" />
-                                    <NumericUpDown x:Name="VignetteFeatherBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="VignetteRadiusBox" Width="136" Margin="0,0,8,4" Minimum="1" Maximum="100" Increment="1" FormatString="0" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="VignetteFeatherBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 </WrapPanel>
                                 <TextBlock Grid.Row="3" Classes="effectLabel" Text="颗粒 %" />
-                                <NumericUpDown x:Name="GrainAmountBox" Grid.Row="3" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="GrainAmountBox" Grid.Row="3" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 <TextBlock Grid.Row="4" Classes="effectLabel" Text="颗粒大小 / 数量" />
                                 <WrapPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal">
-                                    <NumericUpDown x:Name="GrainSizeBox" Width="136" Margin="0,0,8,4" Minimum="1" Maximum="40" Increment="1" FormatString="0" />
-                                    <NumericUpDown x:Name="GrainDensityBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="GrainSizeBox" Width="136" Margin="0,0,8,4" Minimum="1" Maximum="40" Increment="1" FormatString="0" />
+                                    <NumericUpDown Classes="configurationInput" x:Name="GrainDensityBox" Width="136" Margin="0,0,8,4" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                                 </WrapPanel>
                             </Grid>
                             <Grid ColumnDefinitions="110,*" ColumnSpacing="8">
                                 <TextBlock Classes="effectLabel" Text="局部马赛克 %" />
-                                <NumericUpDown x:Name="MosaicAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
+                                <NumericUpDown Classes="configurationInput" x:Name="MosaicAmountBox" Grid.Column="1" Minimum="0" Maximum="100" Increment="1" FormatString="0" />
                             </Grid>
                             <TextBlock Classes="effectHint" Text="每个区域用画面百分比：X、Y、宽、高，再加马赛克块大小。" />
                             <StackPanel x:Name="MosaicRows" Spacing="6" />
