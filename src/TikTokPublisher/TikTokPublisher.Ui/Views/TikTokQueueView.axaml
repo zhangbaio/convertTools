@@ -192,13 +192,6 @@
         <!-- 顶部控制区：紧凑保留高频操作，低频操作收进菜单 -->
         <Border DockPanel.Dock="Top" Classes="controlsFrame" Margin="0,0,0,8">
             <StackPanel Spacing="8">
-                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
-                    <TextBlock Grid.Column="0" Text="工作目录" VerticalAlignment="Center" Margin="0,0,10,0" />
-                    <TextBox Grid.Column="1" Text="{Binding WorkspacePath}" IsReadOnly="True" Watermark="选择工作目录" />
-                    <Button Grid.Column="2" Content="选择工作目录" Click="OnPickWorkspaceClick" Classes="toolAction compactAction" />
-                    <Button Grid.Column="3" Content="合并工作目录" Click="OnMergeWorkspacesClick" Classes="toolAction compactAction" />
-                </Grid>
-
                 <WrapPanel Orientation="Horizontal">
                     <Button Content="刷新项目" Click="OnScanWorkspaceClick" Classes="neutralAction compactAction" Margin="0,0,8,8" />
                     <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
@@ -217,14 +210,12 @@
                     <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
                     <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
-                    <Button Content="全选已完成" Click="OnSelectCompletedQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                 </WrapPanel>
 
                 <WrapPanel Orientation="Horizontal">
                     <Button Content="生成注册PDF" Click="OnGenerateArticlesPdfClick" Classes="fileAction compactAction" Margin="0,0,8,0" IsVisible="False" />
                     <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="查询原剧" Click="OnLookupOriginalDramaClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="角色素材" Click="OnConfigureRoleMaterialClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开外部浏览器" Click="OnOpenBrowserClick" Classes="browserAction compactAction" Margin="0,0,8,0" />
                     <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" Margin="0,0,8,0" />

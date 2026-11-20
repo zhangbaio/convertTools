@@ -1527,23 +1527,6 @@ public sealed partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void Relogin() => BeginAccountLogin(forceRelogin: true);
 
-    public void SetWorkspacePath(string path)
-    {
-        var workspace = NormalizeWorkspacePath(path);
-        var active = SelectedAccount?.Model;
-        if (active is null || string.IsNullOrWhiteSpace(workspace))
-        {
-            WorkspacePath = workspace;
-            RefreshWorkspaceProjects(workspace);
-            return;
-        }
-
-        active.LastWorkspace = workspace;
-        active.TiktokUploadProfilePath = workspace;
-        SaveAccountProfile(active);
-        StatusMessage = $"工作目录已同步到「{active.DisplayName}」基础设置并自动保存：{workspace}";
-    }
-
     private static string NormalizeWorkspacePath(string path)
     {
         var workspace = (path ?? "").Trim();
@@ -2323,58 +2306,6 @@ public sealed partial class MainViewModel : ViewModelBase
             : $"已取消勾选 {visibleRows.Length} 个项目";
     }
 
-    public IReadOnlyList<QueueProjectRowViewModel> SetFilteredCompletedQueueRowsEnabled()
-    {
-        var root = WorkspacePath.Trim();
-        if (string.IsNullOrEmpty(root)) return Array.Empty<QueueProjectRowViewModel>();
-
-        var visibleRows = FilteredQueueProjectRows.ToArray();
-        if (visibleRows.Length == 0)
-        {
-            StatusMessage = "没有可勾选的项目";
-            return Array.Empty<QueueProjectRowViewModel>();
-        }
-
-        var visibleDirs = visibleRows
-            .Select(row => NormalizeProjectDir(row.Item.ProjectDir))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var completedDirs = visibleRows
-            .Where(row => row.Item.IsUploadCompleted)
-            .Select(row => NormalizeProjectDir(row.Item.ProjectDir))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var changed = 0;
-        foreach (var item in _queueItems)
-        {
-            var normalized = NormalizeProjectDir(item.ProjectDir);
-            if (!visibleDirs.Contains(normalized)) continue;
-
-            var enabled = completedDirs.Contains(normalized);
-            if (item.Enabled == enabled) continue;
-
-            item.Enabled = enabled;
-            changed++;
-        }
-
-        if (changed > 0)
-        {
-            PersistQueueItems();
-        }
-        else
-        {
-            RefreshQueueRowViewModels();
-        }
-
-        UpdateQueueSummaryText(refreshTodayUploadCount: false);
-        StatusMessage = completedDirs.Count == 0
-            ? "当前筛选结果中没有已完成项目"
-            : $"已勾选 {completedDirs.Count} 个已完成项目";
-
-        return FilteredQueueProjectRows
-            .Where(row => completedDirs.Contains(NormalizeProjectDir(row.Item.ProjectDir)))
-            .ToArray();
-    }
-
     public int SetQueueRowsEnabled(IEnumerable<QueueProjectRowViewModel> rows, bool enabled)
     {
         var root = WorkspacePath.Trim();
@@ -2452,7 +2383,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrWhiteSpace(root))
-            throw new InvalidOperationException("请先选择工作目录。");
+            throw new InvalidOperationException("请先在「账号管理 → 发布配置」设置上传工作目录。");
         if (IsCurrentWorkspaceQueueRunning())
             throw new InvalidOperationException("当前工作目录队列正在运行，请停止后再修改上传状态。");
 
@@ -5379,7 +5310,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var root = WorkspacePath.Trim();
         if (string.IsNullOrWhiteSpace(root))
-            throw new InvalidOperationException("请先选择工作目录。");
+            throw new InvalidOperationException("请先在「账号管理 → 发布配置」设置上传工作目录。");
         if (row is null || string.IsNullOrWhiteSpace(row.Item.ProjectDir))
             throw new InvalidOperationException("请先选择要修改的项目。");
         if (IsCurrentWorkspaceQueueRunning())
@@ -6374,7 +6305,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root))
         {
-            StatusMessage = "请先选择工作目录";
+            StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
             return;
         }
 
@@ -6457,7 +6388,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root))
         {
-            StatusMessage = "请先选择工作目录";
+            StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
             return;
         }
 
@@ -6834,7 +6765,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = target.WorkspaceRoot.Trim();
         if (string.IsNullOrWhiteSpace(root))
         {
-            StatusMessage = "请先选择工作目录";
+            StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
             return null;
         }
 
@@ -6868,7 +6799,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var target = CaptureCurrentWorkspaceQueueTarget();
         if (target is null)
         {
-            StatusMessage = "请先选择工作目录";
+            StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
             return null;
         }
 
@@ -7112,7 +7043,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var root = WorkspacePath.Trim();
         if (string.IsNullOrEmpty(root))
         {
-            StatusMessage = "请先选择工作目录";
+            StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
             return;
         }
 
@@ -7336,7 +7267,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private string ExportQueueExcelCore(ExcelExportSnapshotContext context)
     {
         if (string.IsNullOrEmpty(context.ActiveWorkspace))
-            throw new InvalidOperationException("请先选择工作目录");
+            throw new InvalidOperationException("请先在「账号管理 → 发布配置」设置上传工作目录");
         var settings = ClientSettingsStore.Load();
         var snapshot = BuildExcelExportSnapshot(context);
         if (snapshot.Items.Count == 0)
