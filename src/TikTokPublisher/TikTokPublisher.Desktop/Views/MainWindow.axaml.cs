@@ -618,7 +618,7 @@ public partial class MainWindow : Window
             : Task.FromResult(true);
 
     private static bool IsTikTokConfigurationPage(string page) =>
-        page is "accounts" or "materials" or "basics" or "dedup" or "series";
+        page is "accounts" or "basics" or "series";
 
     private async Task NavigateAsync(string tag, string? tikTokSubPage = null)
     {
@@ -690,9 +690,7 @@ public partial class MainWindow : Window
                 RefreshTikTokHistory();
             var editorPage = _tikTokSubPage switch
             {
-                "materials" => "上传材料",
                 "basics" => "基础设置",
-                "dedup" => "视频去重",
                 "series" => "剧集列表",
                 _ => "发布配置",
             };

@@ -2,6 +2,7 @@
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -101,7 +102,8 @@ public sealed class AccountStore
             EnsureProfileDirs(account);
         }
 
-        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig || migratedArchiveConfig) &&
+        var migratedDedupConfig = VideoDedupTemplateStore.MigrateAccounts(_accounts);
+        if ((!File.Exists(AppPaths.AccountsFile) || migratedProofConfig || migratedArchiveConfig || migratedDedupConfig) &&
             _accounts.Count > 0)
             SaveAccounts();
         BumpGeneration();
@@ -129,6 +131,7 @@ public sealed class AccountStore
         else
             _activeAccountId = selected;
 
+        VideoDedupTemplateStore.MigrateAccounts(_accounts);
         SaveAccounts();
         SaveActivePointer();
         NotifyAccountsChanged();

@@ -16,6 +16,7 @@ using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Core.Services.VideoDedup;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
@@ -26,6 +27,7 @@ public partial class AccountProfileEditor : UserControl
     private SystemServicesViewModel? _systemServices;
     private bool _isReloadingFromSelectedAccount;
     private string _cleanDraft = "";
+    private string? _dedupLibraryError;
     private bool _persistedRemoteDispatch;
     private bool _suppressUploadedSeriesSearch;
     private int _uploadedSeriesGeneration;
@@ -43,7 +45,12 @@ public partial class AccountProfileEditor : UserControl
         PublishForm.Children.Remove(OriginalRightsHolderBox);
         PublishAccounts.UseInlineLayout(OriginalRightsHolderBox);
         PublishAccounts.FetchRequested += (_, _) => _ = FetchPublishAccountsAsync();
-        VideoDedupEditor.ApplyToAllAccountsRequested += (_, _) => _ = ApplyDedupPresetToAllAccountsAsync();
+        CopyrightMaterials.MinimumStatusChanged += (status, foreground) =>
+        {
+            MaterialStatus.Text = status;
+            MaterialStatus.Foreground = foreground;
+        };
+        CopyrightMaterials.UseExternalOverview();
         DataContextChanged += (_, _) => ReloadFromSelectedAccount();
     }
 
@@ -100,9 +107,10 @@ public partial class AccountProfileEditor : UserControl
     private string CaptureDraft()
     {
         var values = AccountTabs.Items.OfType<TabItem>()
-            .Where(tab => tab.Header is "发布配置" or "上传材料" or "基础设置")
+            .Where(tab => tab.Header is "发布配置" or "基础设置")
             .SelectMany(tab => tab.GetLogicalDescendants())
             .OfType<Control>()
+            .Where(control => !ReferenceEquals(control, DedupTemplatePicker))
             .Select(control => control switch
             {
                 TextBox text => text.Text ?? "",
@@ -118,7 +126,7 @@ public partial class AccountProfileEditor : UserControl
         {
             Values = values,
             Materials = CopyrightMaterials.GetSelectedMaterialTypes(),
-            Dedup = VideoDedupEditor.Read(),
+            DedupTemplateId = SelectedDedupTemplate?.Id ?? "",
             publishAccounts.TiktokCustomPublishAccountsEnabled,
             publishAccounts.TiktokSelectedPublishAccountKeys,
             Ai = AccountAi.CaptureDraftState(),
@@ -363,7 +371,7 @@ public partial class AccountProfileEditor : UserControl
         ProxyLabelBox.Text = profile.TiktokProxyLabel;
         StaticIpNoteBox.Text = profile.TiktokStaticIpNote;
         AccountAi.Load(profile, ClientSettingsStore.Load());
-        VideoDedupEditor.Load(profile.VideoDedupPreset);
+        LoadDedupTemplates(profile);
         RequestUploadedSeriesReload();
     }
 
@@ -501,7 +509,11 @@ public partial class AccountProfileEditor : UserControl
             profile.TiktokProxyPassword = ProxyPasswordBox.Text ?? "";
             profile.TiktokProxyLabel = ProxyLabelBox.Text?.Trim() ?? "";
             profile.TiktokStaticIpNote = StaticIpNoteBox.Text?.Trim() ?? "";
-            profile.VideoDedupPreset = VideoDedupEditor.Read();
+            if (SelectedDedupTemplate is { } dedup)
+            {
+                profile.VideoDedupTemplateId = dedup.Id;
+                profile.VideoDedupPreset = dedup.Preset?.Clone();
+            }
             AccountAi.Save(profile);
 
             _vm.SaveAccountProfile(profile);
@@ -519,44 +531,115 @@ public partial class AccountProfileEditor : UserControl
         }
     }
 
-    private async Task ApplyDedupPresetToAllAccountsAsync()
-    {
-        if (_vm is null)
-            return;
+    private DedupTemplateChoice? SelectedDedupTemplate => DedupTemplatePicker.SelectedItem as DedupTemplateChoice;
 
-        var accounts = _vm.Accounts.Select(item => item.Model).ToList();
-        if (accounts.Count == 0)
+    private void LoadDedupTemplates(TikTokAccountProfile? profile, string? preferredId = null)
+    {
+        DedupTemplateSection.IsEnabled = profile is not null;
+        _dedupLibraryError = null;
+        var choices = new List<DedupTemplateChoice> { new(VideoDedupTemplateStore.SystemId, "系统默认", null) };
+        if (profile is not null)
         {
-            _vm.StatusMessage = "没有账号可以同步视频去重方案。";
+            try
+            {
+                choices.AddRange(VideoDedupTemplateStore.Load()
+                    .OrderBy(template => template.Name, StringComparer.CurrentCultureIgnoreCase)
+                    .Select(template => new DedupTemplateChoice(template.Id, template.Name, template.Preset)));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                _dedupLibraryError = $"读取视频去重模板失败：{ex.Message}";
+            }
+        }
+
+        var currentId = preferredId ?? profile?.VideoDedupTemplateId ?? "";
+        var selected = choices.FirstOrDefault(choice => choice.Id == currentId);
+        var savedPreset = profile?.VideoDedupPreset;
+        if (selected is null && profile is not null && (!string.IsNullOrWhiteSpace(currentId) || savedPreset is not null))
+        {
+            var name = string.IsNullOrWhiteSpace(currentId) ? "原账号参数" : "原模板不可用";
+            selected = new DedupTemplateChoice(currentId, name, savedPreset, IsUnavailable: true);
+            choices.Add(selected);
+        }
+
+        DedupTemplatePicker.ItemsSource = choices;
+        DedupTemplatePicker.SelectedItem = selected ?? choices[0];
+        UpdateDedupTemplateSummary();
+    }
+
+    private void OnDedupTemplateSelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateDedupTemplateSummary();
+
+    private void UpdateDedupTemplateSummary()
+    {
+        if (DedupTemplateSummary is null || SelectedDedupTemplate is not { } selected)
+            return;
+        if (_dedupLibraryError is not null)
+        {
+            DedupTemplateSummary.Text = _dedupLibraryError;
             return;
         }
 
-        VideoDedupPreset preset;
+        var preset = selected.Preset ?? VideoDedupPreset.CreateDefault();
+        var encoder = preset.EncodingPreference switch
+        {
+            VideoDedupPreset.EncodingSoftwareOnly => "CPU",
+            VideoDedupPreset.EncodingNvenc => "NVIDIA",
+            VideoDedupPreset.EncodingAmf => "AMD",
+            VideoDedupPreset.EncodingQsv => "Intel",
+            _ => "自动选择编码器",
+        };
+        var episodes = preset.HasDurationLimit
+            ? $"每集 {preset.MinimumDurationSeconds:g}–{preset.MaximumDurationSeconds:g} 秒"
+            : "保留原分集";
+        var unavailable = selected.IsUnavailable
+            ? selected.Preset is null ? "原模板不可用，使用系统默认 · " : "使用账号保存的参数 · "
+            : "";
+        DedupTemplateSummary.Text = $"{unavailable}{encoder} · {episodes}";
+    }
+
+    private void OnSelectMinimumMaterialsClick(object? sender, RoutedEventArgs e) =>
+        CopyrightMaterials.SelectMinimumStandard();
+
+    private async void OnNewDedupTemplateClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm?.SelectedAccount?.Model is not { } account || TopLevel.GetTopLevel(this) is not Window owner)
+            return;
+
+        var choice = SelectedDedupTemplate;
+        var draft = choice?.Preset ?? VideoDedupPreset.CreateDefault();
+        var name = choice?.Preset is not null ? choice.Name + " 副本" : "";
+        var editor = new VideoDedupTemplateEditorWindow(null, draft, name, () => 0);
+        var saved = await editor.ShowDialog<VideoDedupTemplate?>(owner);
+        if (saved is not null && ReferenceEquals(_vm.SelectedAccount?.Model, account))
+        {
+            LoadDedupTemplates(account, saved.Id);
+            _vm.StatusMessage = "模板已新建，保存账号配置后生效。";
+        }
+    }
+
+    private async void OnManageDedupTemplatesClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm?.SelectedAccount?.Model is not { } account || TopLevel.GetTopLevel(this) is not Window owner)
+            return;
+
+        var selectedId = SelectedDedupTemplate?.Id ?? "";
         try
         {
-            preset = VideoDedupEditor.Read();
+            var manager = new VideoDedupTemplateManagerWindow(
+                () => _vm.Accounts.Select(item => item.Model).ToArray(), selectedId);
+            await manager.ShowDialog(owner);
+            if (ReferenceEquals(_vm.SelectedAccount?.Model, account))
+                LoadDedupTemplates(account, selectedId);
         }
         catch (Exception ex)
         {
-            _vm.StatusMessage = $"读取视频去重方案失败：{ex.Message}";
-            return;
+            _vm.StatusMessage = $"无法打开视频去重模板库：{ex.Message}";
         }
+    }
 
-        var owner = TopLevel.GetTopLevel(this) as Window;
-        var confirmed = await ConfirmDialog.ShowAsync(
-            owner,
-            "同步视频去重",
-            $"把当前视频去重方案写到全部 {accounts.Count} 个账号？登录、代理、发布和上传配置不变。已经去重过的成片不会马上重做。",
-            520,
-            220);
-        if (!confirmed)
-            return;
-
-        preset.CopyOnto(accounts);
-        foreach (var account in accounts)
-            _vm.SaveAccountProfile(account);
-
-        _vm.StatusMessage = $"已把视频去重方案同步到 {accounts.Count} 个账号。";
+    private sealed record DedupTemplateChoice(string Id, string Name, VideoDedupPreset? Preset, bool IsUnavailable = false)
+    {
+        public override string ToString() => Name;
     }
 
     private async void OnDramaMarketSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -1127,7 +1210,7 @@ public partial class AccountProfileEditor : UserControl
         SelectByTag(SubmitActionCombo, "submit", "submit");
         ExpectedPriceValueBox.Text = "";
         AccountAi.Clear();
-        VideoDedupEditor.Load(null);
+        LoadDedupTemplates(null);
         ProxyHostBox.Text = "";
         ProxyUsernameBox.Text = "";
         ProxyPasswordBox.Text = "";

@@ -648,6 +648,10 @@ public sealed class QueueWorkerRunner
         var projectConcurrency = Math.Clamp(options.ProjectConcurrency, 1, ProjectConcurrencyHardMax);
         var orderedSteps = options.OrderedEnabledSteps();
         var preUploadSteps = orderedSteps.Where(s => s != QueueStepRegistry.UploadSeries).ToList();
+        var dedupPresets = preUploadSteps.Contains(QueueStepRegistry.VideoDedup)
+            ? VideoDedupTemplateStore.CaptureRunPresets(accountStore.Accounts.ToArray(),
+                message => Report(onProgress, workspace, null, message, QueueStepRegistry.VideoDedup))
+            : new Dictionary<string, VideoDedupPreset?>();
 
         var candidates = BuildInitialCandidates(items, options, accountStore, filterOrder, orderedSteps);
         EnsureExplicitFilterMatched(filterOrder, candidates.Count);
@@ -841,6 +845,7 @@ public sealed class QueueWorkerRunner
                                 options,
                                 host,
                                 accountStore,
+                                dedupPresets,
                                 onProgress,
                                 ct,
                                 Mutate),
@@ -1348,6 +1353,7 @@ public sealed class QueueWorkerRunner
         QueueRunOptions options,
         IQueuePublishHost host,
         AccountStore accountStore,
+        IReadOnlyDictionary<string, VideoDedupPreset?> dedupPresets,
         Action<QueueWorkerProgress>? onProgress,
         CancellationToken ct,
         Action<Action> mutate)
@@ -1483,6 +1489,9 @@ public sealed class QueueWorkerRunner
                             stepKey,
                             options,
                             stepAccount,
+                            stepAccount is not null && dedupPresets.TryGetValue(stepAccount.Id, out var capturedPreset)
+                                ? capturedPreset
+                                : stepAccount?.VideoDedupPreset?.Clone(),
                             host,
                             stepLog,
                             ct),
@@ -2021,6 +2030,7 @@ public sealed class QueueWorkerRunner
         string stepKey,
         QueueRunOptions options,
         TikTokAccountProfile? account,
+        VideoDedupPreset? dedupPreset,
         IQueuePublishHost host,
         Action<string> log,
         CancellationToken ct)
@@ -2052,9 +2062,10 @@ public sealed class QueueWorkerRunner
             case QueueStepRegistry.VideoDedup:
                 if (account is null || string.IsNullOrWhiteSpace(account.Id))
                     throw new InvalidOperationException("项目没有绑定账号，无法读取视频去重预设。");
-                await VideoDedupService.RunAsync(
+                await VideoDedupService.RunWithPresetAsync(
                     item,
                     account,
+                    dedupPreset,
                     options.ForceRerunCompletedSteps,
                     log,
                     ct).ConfigureAwait(false);

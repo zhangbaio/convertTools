@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Services;
 
@@ -37,6 +38,7 @@ public static class PublisherConfigTransfer
                 File.Copy(AppPaths.AccountsFile, Path.Combine(tempRoot, "accounts.json"), overwrite: true);
             if (File.Exists(AppPaths.ActiveAccountFile))
                 File.Copy(AppPaths.ActiveAccountFile, Path.Combine(tempRoot, "active-account.json"), overwrite: true);
+            VideoDedupTemplateStore.Export(Path.Combine(tempRoot, VideoDedupTemplateStore.FileName), accounts);
             if (includeRunData)
             {
                 if (File.Exists(AppPaths.AppDatabaseFile))
@@ -145,6 +147,7 @@ public static class PublisherConfigTransfer
             }
 
             var importedAccounts = ReadAccounts(Path.Combine(tempRoot, "accounts.json"));
+            VideoDedupTemplateStore.Import(Path.Combine(tempRoot, VideoDedupTemplateStore.FileName), importedAccounts);
             var current = ReadAccounts(AppPaths.AccountsFile);
             foreach (var account in importedAccounts)
             {

@@ -37,7 +37,7 @@
 
     <Grid SizeChanged="OnMaterialFormSizeChanged">
         <StackPanel x:Name="MaterialForm" Spacing="10" MaxWidth="1080" HorizontalAlignment="Left">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+            <Grid x:Name="MaterialOverview" ColumnDefinitions="*,Auto" ColumnSpacing="12">
                 <StackPanel Spacing="2">
                     <TextBlock Text="材料上传类型" FontSize="14" FontWeight="SemiBold" />
                     <TextBlock Text="平台要求：至少选择 1 项核心材料；若无法提供，则至少选择 2 项辅助材料"

@@ -106,7 +106,17 @@ public partial class CopyrightMaterialSelector : UserControl
         return result;
     }
 
-    private void OnSelectMinimumStandardClick(object? sender, RoutedEventArgs e)
+    public event Action<string, IBrush?>? MinimumStatusChanged;
+
+    public void UseExternalOverview()
+    {
+        MaterialOverview.IsVisible = false;
+        UpdateMinimumStatus();
+    }
+
+    private void OnSelectMinimumStandardClick(object? sender, RoutedEventArgs e) => SelectMinimumStandard();
+
+    public void SelectMinimumStandard()
     {
         _isLoading = true;
         try
@@ -177,23 +187,12 @@ public partial class CopyrightMaterialSelector : UserControl
         var coreCount = selected.Count(TikTokPublishConstants.CoreCopyrightMaterialTypes.Contains);
         var auxiliaryCount = selected.Count(TikTokPublishConstants.AuxiliaryCopyrightMaterialTypes.Contains);
 
-        if (coreCount > 0)
-        {
-            MinimumStatusText.Text = $"✓ 已满足最低标准：已选择 {coreCount} 项核心材料";
-            MinimumStatusText.Foreground = Brush.Parse("#16803C");
-            return;
-        }
-
-        if (auxiliaryCount >= 2)
-        {
-            MinimumStatusText.Text = $"✓ 已满足最低标准：已选择 {auxiliaryCount} 项辅助材料";
-            MinimumStatusText.Foreground = Brush.Parse("#16803C");
-            return;
-        }
-
-        MinimumStatusText.Text = auxiliaryCount == 1
-            ? "尚未满足最低标准：还需选择 1 项辅助材料"
+        var status = coreCount > 0 ? $"✓ 已满足最低标准：已选择 {coreCount} 项核心材料"
+            : auxiliaryCount >= 2 ? $"✓ 已满足最低标准：已选择 {auxiliaryCount} 项辅助材料"
+            : auxiliaryCount == 1 ? "尚未满足最低标准：还需选择 1 项辅助材料"
             : "尚未满足最低标准：请选择 1 项核心材料或 2 项辅助材料";
-        MinimumStatusText.Foreground = Brush.Parse("#C2410C");
+        MinimumStatusText.Text = status;
+        MinimumStatusText.Foreground = Brush.Parse(coreCount > 0 || auxiliaryCount >= 2 ? "#16803C" : "#C2410C");
+        MinimumStatusChanged?.Invoke(status, MinimumStatusText.Foreground);
     }
 }

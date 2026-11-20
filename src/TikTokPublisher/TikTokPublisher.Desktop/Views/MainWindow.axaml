@@ -134,10 +134,8 @@
                     <StackPanel x:Name="TikTokSubNavigation" Orientation="Horizontal" Spacing="5" Margin="10,5,10,3">
                         <Button Content="任务队列" Tag="queue" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="发布配置" Tag="accounts" Classes="topNavItem" Click="OnTikTokSubPageClick" />
-                        <Button Content="上传材料" Tag="materials" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button x:Name="TikTokBasicSettingsButton" Content="基础设置" Tag="basics" Classes="topNavItem"
                                 IsVisible="False" Click="OnTikTokSubPageClick" />
-                        <Button Content="视频去重" Tag="dedup" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="剧集列表" Tag="series" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnTikTokSubPageClick" />

@@ -4,7 +4,7 @@ using System.Text;
 
 namespace TikTokPublisher.Core.Models;
 
-/// <summary>账号级视频去重方案。字段对齐短剧处理软件的 video_presets。</summary>
+/// <summary>视频去重方案。字段对齐短剧处理软件的 video_presets。</summary>
 public sealed class VideoDedupPreset
 {
     public const string EncodingHardwareFirst = "HardwareFirst";

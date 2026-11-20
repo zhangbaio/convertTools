@@ -57,9 +57,18 @@ public static class VideoDedupService
         WriteFingerprint(fingerprintPath, fingerprint.Preset, fingerprint.Outputs);
     }
 
-    public static async Task RunAsync(
+    public static Task RunAsync(
         QueueProjectItem item,
         TikTokAccountProfile account,
+        bool force,
+        Action<string>? log,
+        CancellationToken ct) =>
+        RunWithPresetAsync(item, account, VideoDedupTemplateStore.CaptureRunPresets([account], log)[account.Id], force, log, ct);
+
+    internal static async Task RunWithPresetAsync(
+        QueueProjectItem item,
+        TikTokAccountProfile account,
+        VideoDedupPreset? runPreset,
         bool force,
         Action<string>? log,
         CancellationToken ct)
@@ -67,8 +76,8 @@ public static class VideoDedupService
         if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
             throw new InvalidOperationException("项目目录不存在，无法执行视频去重。");
 
-        var preset = account.VideoDedupPreset?.NormalizedCopy() ?? VideoDedupPreset.CreateDefault().NormalizedCopy();
-        if (account.VideoDedupPreset is null)
+        var preset = (runPreset ?? VideoDedupPreset.CreateDefault()).NormalizedCopy();
+        if (runPreset is null)
             log?.Invoke($"账号「{account.DisplayName}」尚未保存视频去重预设，使用内置默认方案。");
 
         var project = Path.GetFullPath(item.ProjectDir);

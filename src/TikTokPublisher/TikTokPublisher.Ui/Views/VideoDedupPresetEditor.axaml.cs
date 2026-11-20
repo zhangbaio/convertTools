@@ -36,12 +36,6 @@ public partial class VideoDedupPresetEditor : UserControl
             return;
         }
 
-        if (Math.Min(width, height) < 1080)
-        {
-            width = 1080;
-            height = 1920;
-        }
-
         var selected = FormatResolution(width, height);
         if (!ResolutionBox.Items.Contains(selected))
             ResolutionBox.Items.Add(selected);
@@ -69,8 +63,6 @@ public partial class VideoDedupPresetEditor : UserControl
     private static string FormatResolution(int width, int height) =>
         $"{width.ToString(System.Globalization.CultureInfo.InvariantCulture)}×{height.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
-    public event EventHandler? ApplyToAllAccountsRequested;
-
     public VideoDedupPresetEditor()
     {
         InitializeComponent();
@@ -92,12 +84,6 @@ public partial class VideoDedupPresetEditor : UserControl
         var columns = width < 580 ? 1 : 2;
         foreach (var row in DedupForm.Children.OfType<UniformGrid>())
             row.Columns = columns;
-    }
-
-    private void OnApplyToAllAccountsClick(object? sender, RoutedEventArgs e)
-    {
-        e.Handled = true;
-        ApplyToAllAccountsRequested?.Invoke(this, EventArgs.Empty);
     }
 
     public void Load(VideoDedupPreset? preset)
@@ -155,6 +141,7 @@ public partial class VideoDedupPresetEditor : UserControl
 
     public VideoDedupPreset Read()
     {
+        var resolution = SelectedResolution();
         var preset = new VideoDedupPreset
         {
             Name = _presetName,
@@ -182,10 +169,10 @@ public partial class VideoDedupPresetEditor : UserControl
             CropBottomPercent = (double)(CropVerticalBox.Value ?? 0),
             CropLeftPercent = (double)(CropHorizontalBox.Value ?? 0),
             CropRightPercent = (double)(CropHorizontalBox.Value ?? 0),
-            PortraitWidth = SelectedResolution().Width,
-            PortraitHeight = SelectedResolution().Height,
-            LandscapeWidth = SelectedResolution().Height,
-            LandscapeHeight = SelectedResolution().Width,
+            PortraitWidth = resolution.Width,
+            PortraitHeight = resolution.Height,
+            LandscapeWidth = resolution.Height,
+            LandscapeHeight = resolution.Width,
             SpeedFactor = (double)(SpeedBox.Value ?? 1),
             FrameDropPercent = (double)(FrameDropBox.Value ?? 0),
             Brightness = _brightness,
