@@ -85,13 +85,29 @@
                 </Button>
                 <Button Tag="queue" Classes="moduleNavItem" AutomationProperties.Name="TikTok 上传" ToolTip.Tip="TikTok 上传" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <PathIcon Data="M11,2 H20 V6 H14 V17 A5,5 0 1 1 11,12.4 Z" />
+                        <PathIcon Data="M17.8,4.81 C16.51,3.97 15.58,2.62 15.29,1.05 C15.22,0.71 15.19,0.36 15.19,0
+                                        H11.06 V16.54 C10.99,18.39 9.46,19.87 7.59,19.87 C7.01,19.87 6.47,19.73 5.99,19.48
+                                        C4.88,18.89 4.13,17.74 4.13,16.41 C4.13,14.49 5.68,12.94 7.59,12.94 C7.95,12.94 8.29,13 8.62,13.1
+                                        V8.89 C8.28,8.84 7.94,8.81 7.59,8.81 C3.41,8.81 0,12.22 0,16.41 C0,18.97 1.28,21.25 3.24,22.62
+                                        C4.48,23.49 5.98,24 7.59,24 C11.78,24 15.19,20.59 15.19,16.41 V8.02
+                                        C16.81,9.18 18.79,9.87 20.93,9.87 V5.74 C19.78,5.74 18.7,5.4 17.8,4.81 Z" />
                         <TextBlock Text="TikTok 上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
                 <Button Tag="kuaishou" Classes="moduleNavItem" AutomationProperties.Name="快手上传" ToolTip.Tip="快手上传" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <PathIcon Data="F0 M2,6 H16 V10 L22,7 V17 L16,14 V18 H2 Z M4,8 V16 H14 V8 Z" />
+                        <PathIcon Data="F0 M12.65,2.9 C11.61,1.15 9.74,0 7.6,0 C4.5,0 2,2.5 2,5.6
+                                        C2,8.7 4.5,11.2 7.6,11.2 C9.39,11.2 11.03,10.35 12.07,9.28
+                                        C13,10.54 14.43,11.2 15.97,11.2 C18.65,11.2 20.84,9.04 20.84,6.37
+                                        C20.84,3.7 18.65,1.55 15.97,1.55 C14.72,1.55 13.55,2.01 12.65,2.9 Z
+                                        M4.25,5.6 A3.35,3.35 0 1 0 10.95,5.6 A3.35,3.35 0 1 0 4.25,5.6 Z
+                                        M13.37,6.37 A2.6,2.6 0 1 0 18.57,6.37 A2.6,2.6 0 1 0 13.37,6.37 Z
+                                        M6.6,15.2 L2.7,13.35 Q0,12.1 0,15.1 V21.25 Q0,24.1 2.7,22.95 L6.6,21.1
+                                        C7.4,23 8.85,24 10.65,24 H16.7 C19,24 20.84,22.2 20.84,19.9 V16.45
+                                        C20.84,14.2 19,12.35 16.7,12.35 H10.65 C8.85,12.35 7.4,13.35 6.6,15.2 Z
+                                        M2.6,15.7 L6.35,17.45 V18.8 L2.6,20.6 Q2.1,20.85 2.1,20.3 V16 Q2.1,15.45 2.6,15.7 Z
+                                        M10.65,14.55 H16.7 A1.94,1.94 0 0 1 18.64,16.49 V19.85 A1.94,1.94 0 0 1 16.7,21.79
+                                        H10.65 A1.94,1.94 0 0 1 8.71,19.85 V16.49 A1.94,1.94 0 0 1 10.65,14.55 Z" />
                         <TextBlock Text="快手上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
