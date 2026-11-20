@@ -9,16 +9,13 @@ public sealed class KuaishouOnlineQueueProcessor
 {
     private readonly HttpClient _httpClient;
     private readonly KuaishouOnlineQueueStore _queueStore;
-    private readonly KuaishouDistributionService _distributionService;
 
     public KuaishouOnlineQueueProcessor(
         HttpClient httpClient,
-        KuaishouOnlineQueueStore queueStore,
-        KuaishouDistributionService distributionService)
+        KuaishouOnlineQueueStore queueStore)
     {
         _httpClient = httpClient;
         _queueStore = queueStore;
-        _distributionService = distributionService;
     }
 
     public async Task<int> ProcessDueAsync(
@@ -96,9 +93,6 @@ public sealed class KuaishouOnlineQueueProcessor
                         onlineCount++;
                         progress?.Report($"{platform.DisplayName()}：短剧《{item.Title}》已自动上架。 ");
                     }
-
-                    if (item.Status == "online" && config.OnlineAutoDistributionEnabled)
-                        await _distributionService.ApplyAsync(item.MiniSeriesId, config, progress, cancellationToken);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {

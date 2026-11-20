@@ -125,12 +125,6 @@ public static class KuaishouFormChoices
         new("七牛云 Kodo", "qiniu_kodo"),
     ];
 
-    public static IReadOnlyList<KuaishouFormChoice> DistributionModes { get; } =
-    [
-        new("官方 API（推荐）", "api"),
-        new("网页自动化（原方案）", "browser"),
-    ];
-
     public static IReadOnlyList<KuaishouFormChoice> ScheduledShelfModes { get; } =
     [
         new("固定时间间隔", "interval"),

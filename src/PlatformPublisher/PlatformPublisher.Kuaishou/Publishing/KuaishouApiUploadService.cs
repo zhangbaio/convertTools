@@ -7,7 +7,6 @@ public sealed class KuaishouApiUploadService
     private readonly KuaishouPersonalProjectDataService _projectDataService;
     private readonly KuaishouPersonalUploadStateStore _stateStore;
     private readonly KuaishouCommitmentService _commitmentService;
-    private readonly KuaishouDistributionService _distributionService;
     private readonly KuaishouOnlineQueueStore _onlineQueueStore;
     private readonly KuaishouApiVideoUploader _videos = new();
 
@@ -15,13 +14,11 @@ public sealed class KuaishouApiUploadService
         KuaishouPersonalProjectDataService projectDataService,
         KuaishouPersonalUploadStateStore stateStore,
         KuaishouCommitmentService commitmentService,
-        KuaishouDistributionService distributionService,
         KuaishouOnlineQueueStore onlineQueueStore)
     {
         _projectDataService = projectDataService;
         _stateStore = stateStore;
         _commitmentService = commitmentService;
-        _distributionService = distributionService;
         _onlineQueueStore = onlineQueueStore;
     }
 
@@ -181,11 +178,6 @@ public sealed class KuaishouApiUploadService
                 else if (config.AutoOnlineEnabled || config.StepOnlineSeries)
                     progress?.Report($"{label}：未取得短剧 ID，无法加入自动上架队列，请在视频管理中补录。 ");
             }
-            if (config.OnlineAutoDistributionEnabled &&
-                (config.AutoOnlineEnabled || config.StepOnlineSeries))
-                progress?.Report($"{label}：分销已设置为上架成功后执行。 ");
-            else
-                await _distributionService.ApplyAsync(state.MiniSeriesId, config, progress, cancellationToken);
         }
         catch (KuaishouExistingSeriesNotEditableException ex)
         {

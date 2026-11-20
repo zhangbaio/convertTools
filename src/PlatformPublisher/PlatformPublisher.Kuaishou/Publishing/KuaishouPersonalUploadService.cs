@@ -13,7 +13,6 @@ public sealed class KuaishouPersonalUploadService
     private readonly KuaishouPersonalEpisodeUploadService _episodeUploadService;
     private readonly KuaishouPersonalUploadStateStore _stateStore;
     private readonly KuaishouCommitmentService _commitmentService;
-    private readonly KuaishouDistributionService _distributionService;
     private readonly KuaishouOnlineQueueStore _onlineQueueStore;
 
     public KuaishouPersonalUploadService(
@@ -23,7 +22,6 @@ public sealed class KuaishouPersonalUploadService
         KuaishouPersonalEpisodeUploadService episodeUploadService,
         KuaishouPersonalUploadStateStore stateStore,
         KuaishouCommitmentService commitmentService,
-        KuaishouDistributionService distributionService,
         KuaishouOnlineQueueStore onlineQueueStore)
     {
         _sessionService = sessionService;
@@ -32,7 +30,6 @@ public sealed class KuaishouPersonalUploadService
         _episodeUploadService = episodeUploadService;
         _stateStore = stateStore;
         _commitmentService = commitmentService;
-        _distributionService = distributionService;
         _onlineQueueStore = onlineQueueStore;
     }
 
@@ -167,11 +164,6 @@ public sealed class KuaishouPersonalUploadService
                     else if (effectiveConfig.AutoOnlineEnabled || effectiveConfig.StepOnlineSeries)
                         progress?.Report($"{label}：未取得短剧 ID，无法加入自动上架队列，请在视频管理中补录。 ");
                 }
-                if (effectiveConfig.OnlineAutoDistributionEnabled &&
-                    (effectiveConfig.AutoOnlineEnabled || effectiveConfig.StepOnlineSeries))
-                    progress?.Report($"{label}：分销已设置为上架成功后执行。 ");
-                else
-                    await _distributionService.ApplyAsync(state.MiniSeriesId, effectiveConfig, progress, ct);
             }, cancellationToken, progress, holdUntilClosed: string.Equals(config.FirstPageAction, "keep", StringComparison.OrdinalIgnoreCase));
         }
         catch (KuaishouExistingSeriesNotEditableException ex)
@@ -239,7 +231,7 @@ public sealed class KuaishouPersonalUploadService
         ApiUpload().ReplaceDraftAsync(job, seriesId, platformTitle, progress, cancellationToken);
 
     private KuaishouApiUploadService ApiUpload() =>
-        new(_projectDataService, _stateStore, _commitmentService, _distributionService, _onlineQueueStore);
+        new(_projectDataService, _stateStore, _commitmentService, _onlineQueueStore);
 
     private bool TryBoundReplaceSeries(PublishJob job, out string seriesId)
     {

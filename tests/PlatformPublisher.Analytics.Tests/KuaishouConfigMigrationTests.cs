@@ -102,7 +102,7 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
     }
 
     [Fact]
-    public void ConfigurationValidatorRejectsInvalidDistributionSettings()
+    public void ConfigurationValidatorIgnoresRetiredDistributionSettings()
     {
         var config = new KuaishouPersonalConfig
         {
@@ -117,27 +117,7 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
 
         var issues = KuaishouConfigurationValidator.Validate(config);
 
-        Assert.Contains(issues, issue => issue.Contains("分销比例", StringComparison.Ordinal));
-        Assert.Contains(issues, issue => issue.Contains("JSON", StringComparison.Ordinal));
-        Assert.Contains(issues, issue => issue.Contains("API Base URL", StringComparison.Ordinal));
-        Assert.Contains(issues, issue => issue.Contains("Access Token", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task DistributionDryRunDoesNotCallRemoteEndpoint()
-    {
-        var handler = new CountingHttpHandler();
-        var service = new KuaishouDistributionService(new HttpClient(handler));
-        var config = new KuaishouPersonalConfig
-        {
-            DistributionEnabled = true,
-            StepDistributionSeries = true,
-            DistributionSubmitEnabled = false,
-        };
-
-        await service.ApplyAsync("series-1", config, null, CancellationToken.None);
-
-        Assert.Equal(0, handler.RequestCount);
+        Assert.Empty(issues);
     }
 
     [Fact]
@@ -206,7 +186,7 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
     }
 
     [Fact]
-    public async Task OnlineProcessorChecksAuditBeforeCallingOnlineEndpoint()
+    public async Task OnlineProcessorChecksAuditAndIgnoresRetiredDistributionSettings()
     {
         Directory.CreateDirectory(_root);
         var database = new PlatformDatabase(Path.Combine(_root, "processor.db"));
@@ -216,6 +196,10 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
         var job = new PublishJob { AccountId = "processor-account", Platform = PublishPlatform.KuaishouPersonalRevenue };
         var config = KuaishouPersonalConfig.Load(job);
         config.AutoOnlineEnabled = true;
+        config.OnlineAutoDistributionEnabled = true;
+        config.DistributionEnabled = true;
+        config.StepDistributionSeries = true;
+        config.DistributionSubmitEnabled = true;
         config.ApiBaseUrl = "https://example.test";
         config.AccessToken = "token";
         config.AdvertiserId = "67890";
@@ -233,10 +217,7 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
             """{"data":{"audit_status":3,"selling_status":2}}""",
             """{"code":0,"message":"ok"}""");
         var httpClient = new HttpClient(handler);
-        var processor = new KuaishouOnlineQueueProcessor(
-            httpClient,
-            queue,
-            new KuaishouDistributionService(httpClient));
+        var processor = new KuaishouOnlineQueueProcessor(httpClient, queue);
 
         var count = await processor.ProcessDueAsync(job.AccountId, job.Platform, null, CancellationToken.None);
 
@@ -256,19 +237,6 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
     {
         public byte[] Protect(byte[] value) => value.ToArray();
         public byte[] Unprotect(byte[] value) => value.ToArray();
-    }
-
-    private sealed class CountingHttpHandler : HttpMessageHandler
-    {
-        public int RequestCount { get; private set; }
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            RequestCount++;
-            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
-        }
     }
 
     private sealed class SequenceHttpHandler(params string[] responses) : HttpMessageHandler
