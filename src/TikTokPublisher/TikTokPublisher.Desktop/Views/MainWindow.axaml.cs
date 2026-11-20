@@ -233,8 +233,8 @@ public partial class MainWindow : Window
 
     private void OnSidebarToggleClick(object? sender, RoutedEventArgs e)
     {
-        if (!_collapsedAccountPanels.Remove(_activeNavTag))
-            _collapsedAccountPanels.Add(_activeNavTag);
+        if (!_collapsedAccountPanels.Remove(AccountPanelLayoutKey))
+            _collapsedAccountPanels.Add(AccountPanelLayoutKey);
         ApplyAccountPanelLayout();
     }
 
@@ -254,10 +254,12 @@ public partial class MainWindow : Window
             await NavigateAsync("queue", page);
     }
 
+    private string AccountPanelLayoutKey => _activeNavTag == "kuaishou" ? "queue" : _activeNavTag;
+
     private void ApplyAccountPanelLayout()
     {
         var hasAccounts = _activeNavTag is "queue" or "kuaishou" or "browser";
-        var collapsed = _collapsedAccountPanels.Contains(_activeNavTag);
+        var collapsed = _collapsedAccountPanels.Contains(AccountPanelLayoutKey);
         var showAccounts = hasAccounts && !collapsed;
         WindowLayout.ColumnDefinitions[1].Width = new GridLength(showAccounts ? ExpandedSidebarWidth : 0);
         AccountPanelHost.IsVisible = showAccounts;
@@ -675,20 +677,24 @@ public partial class MainWindow : Window
     private void ShowPage(string tag)
     {
         var browserActive = tag == "browser";
+        var tikTokActive = tag == "queue";
+        var kuaishouActive = tag == "kuaishou";
+        var showUploadWorkspaces = tikTokActive || kuaishouActive;
         const int activeZ = 10;
         const int inactiveZ = 0;
 
         DownloadView.IsVisible = tag == "download";
-        TikTokWorkspace.IsVisible = tag == "queue";
-        KuaishouWorkspace.IsVisible = tag == "kuaishou";
+        SetUploadWorkspacePresentation(TikTokWorkspace, showUploadWorkspaces, tikTokActive);
+        SetUploadWorkspacePresentation(KuaishouWorkspace, showUploadWorkspaces, kuaishouActive);
         ApplyAccountPanelLayout();
-        if (KuaishouWorkspace.IsVisible)
+        if (kuaishouActive)
             _ = KuaishouWorkspace.ActivateAsync();
         else
             KuaishouWorkspace.Deactivate();
-        if (TikTokWorkspace.IsVisible)
+        if (tikTokActive)
         {
             QueueView.IsVisible = _tikTokSubPage == "queue";
+            TikTokQueueFooter.IsVisible = QueueView.IsVisible;
             LogView.IsVisible = _tikTokSubPage == "logs";
             TikTokAllLogAccounts.IsVisible = LogView.IsVisible;
             if (LogView.IsVisible)
@@ -706,8 +712,8 @@ public partial class MainWindow : Window
         ApplyHistoryPage(tag);
 
         DownloadView.ZIndex = tag == "download" ? activeZ : inactiveZ;
-        TikTokWorkspace.ZIndex = tag == "queue" ? activeZ : inactiveZ;
-        KuaishouWorkspace.ZIndex = tag == "kuaishou" ? activeZ : inactiveZ;
+        TikTokWorkspace.ZIndex = tikTokActive ? activeZ : inactiveZ;
+        KuaishouWorkspace.ZIndex = kuaishouActive ? activeZ : inactiveZ;
         SettingsView.ZIndex = tag == "settings" ? activeZ : inactiveZ;
         HistoryWorkspace.ZIndex = HistoryWorkspace.IsVisible ? activeZ : inactiveZ;
 
@@ -733,6 +739,15 @@ public partial class MainWindow : Window
         {
             _viewModel.SystemServices.RefreshLicenseSummaryDisplay();
         }
+    }
+
+    private static void SetUploadWorkspacePresentation(Control workspace, bool visible, bool active)
+    {
+        // Both upload queues contribute their toolbar height while either workspace is open.
+        workspace.IsVisible = visible;
+        workspace.Opacity = active ? 1 : 0;
+        workspace.IsHitTestVisible = active;
+        workspace.IsEnabled = active;
     }
 
     private void OnAnalyticsPlatformChanged(object? sender, SelectionChangedEventArgs e)

@@ -134,7 +134,7 @@
             <views:AccountSidebarView x:Name="AccountSidebar" />
         </Panel>
 
-        <Panel x:Name="ContentHostPanel" Grid.Column="2" Background="{StaticResource PythonPageBgBrush}">
+        <Panel x:Name="ContentHostPanel" Grid.Column="2" Grid.IsSharedSizeScope="True" Background="{StaticResource PythonPageBgBrush}">
             <Panel x:Name="BrowserHostMount"
                    IsHitTestVisible="False"
                    ClipToBounds="True"
@@ -145,7 +145,11 @@
                    ZIndex="5" />
             <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" ZIndex="10" />
             <views:DramaDownloadView x:Name="DownloadView" IsVisible="False" />
-            <Grid x:Name="TikTokWorkspace" RowDefinitions="Auto,*">
+            <Grid x:Name="TikTokWorkspace">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" SharedSizeGroup="UploadTabs" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="TikTokSubNavigation" Orientation="Horizontal" Spacing="5" Margin="10,5,10,3">
                         <Button Content="任务队列" Tag="queue" Classes="topNavItem" Click="OnTikTokSubPageClick" />
@@ -156,7 +160,7 @@
                         <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                     </StackPanel>
                 </ScrollViewer>
-                <Grid Grid.Row="1" RowDefinitions="Auto,*">
+                <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto">
                     <CheckBox x:Name="TikTokAllLogAccounts" Content="全部账号" Margin="12,4" IsVisible="False"
                               IsCheckedChanged="OnTikTokLogScopeChanged" />
                     <Grid x:Name="TikTokSeriesHeader" ColumnDefinitions="*,Auto" Margin="16,4,16,2" IsVisible="False">
@@ -174,6 +178,9 @@
                         <views:LogView x:Name="LogView" IsVisible="False" />
                         <views:ArchivedProjectsView x:Name="ArchivedView" IsVisible="False" />
                     </Panel>
+                    <Grid x:Name="TikTokQueueFooter" Grid.Row="2" Classes="uploadQueueFooter">
+                        <TextBlock Text="{Binding QueueSummaryText}" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
+                    </Grid>
                 </Grid>
             </Grid>
             <kuaishou:KuaishouUploadWorkspace x:Name="KuaishouWorkspace" IsVisible="False" />

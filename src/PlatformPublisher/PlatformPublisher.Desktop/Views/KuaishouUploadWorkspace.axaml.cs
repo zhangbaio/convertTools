@@ -49,6 +49,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
     {
         InitializeComponent();
         Workflow.UseEmbeddedUploadLayout();
+        Configuration.UseWorkspaceNavigation(Workflow.DetachWorkDirectoryEditor());
         Workflow.KuaishouConfigRequested += async (_, _) => await ShowPageAsync("config");
         Workflow.SettingsRequested += (_, _) => SettingsRequested?.Invoke();
         Workflow.ViewLogsRequested += async (_, _) => await ShowPageAsync("logs");
@@ -72,9 +73,11 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
     public async Task ActivateAsync()
     {
         _active = true;
-        await EnsureInitializedAsync();
-        if (_active && !_disposed)
-            ApplyPage();
+        if (await EnsureInitializedAsync() && _active && !_disposed)
+        {
+            _viewModel?.SetKuaishouQueueStatusVisible(Workflow.IsVisible);
+            RefreshHistory();
+        }
     }
 
     public void Deactivate()
@@ -183,7 +186,6 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             DataContext = _viewModel;
             Sidebar.DataContext = _viewModel;
             Workflow.Bind(() => _selectedAccount);
-            Configuration.UseWorkspaceNavigation();
             Configuration.UseAccountStore(accounts);
             Configuration.ConfigSaved += OnConfigSavedAsync;
             Configuration.ConfirmAccountEdition += ConfirmEditionAsync;
@@ -196,6 +198,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             _dispatch = new YunfanXingeDispatchService(_viewModel);
             _viewModel.KuaishouDailyUploadLimitReached += OnDailyLimitReached;
             _dispatch.Start();
+            ApplyPage();
             RuntimeChanged?.Invoke();
         }
         catch (Exception ex)
@@ -203,6 +206,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             StartupError.Text = $"快手工作区加载失败：{ex.Message}";
             Trace.TraceError(ex.ToString());
             ReleaseRuntime();
+            ApplyPage();
             RuntimeChanged?.Invoke();
         }
         finally
@@ -257,7 +261,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         {
             var active = Equals(button.Tag, _page);
             button.Classes.Set("topNavItemActive", active);
-            if (active && button.IsLoaded)
+            if (active && _active && button.IsLoaded)
                 button.BringIntoView();
         }
         if (Configuration.IsVisible)

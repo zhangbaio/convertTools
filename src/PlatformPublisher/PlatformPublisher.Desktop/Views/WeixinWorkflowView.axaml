@@ -253,26 +253,33 @@
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
     </UserControl.Styles>
-    <Grid x:Name="WorkflowLayout" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="8">
-        <Border x:Name="KuaishouChrome" Grid.Row="0" Grid.RowSpan="3" Classes="panel" Padding="8" IsVisible="False">
-            <StackPanel Spacing="8">
-                <Border Background="#FFF7ED" BorderBrush="#FDBA74" BorderThickness="1" CornerRadius="6" Padding="10"
+    <Grid x:Name="WorkflowLayout" RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" SharedSizeGroup="UploadQueueToolbar" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Border x:Name="KuaishouChrome" Classes="panel" Padding="8" IsVisible="False">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <Grid x:Name="KuaishouQueueControls" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
+                <Border Background="#FFF7ED" BorderBrush="#FDBA74" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8"
                         IsVisible="{Binding ShowKuaishouEditionPrompt}">
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock Text="请先在快手分账配置中选择账号类型。" VerticalAlignment="Center" TextWrapping="Wrap" />
                         <Button Grid.Column="1" Content="去配置" Click="OnKuaishouConfigClick" Margin="12,0,0,0" Classes="primaryAction compactAction" />
                     </Grid>
                 </Border>
-                <TextBlock Text="{Binding KuaishouEditionHeading}" FontWeight="SemiBold" Foreground="#0B74D1" />
-                <Grid ColumnDefinitions="64,*,Auto" ColumnSpacing="8">
+                <TextBlock x:Name="KuaishouQueueHeading" Grid.Row="1" Text="{Binding KuaishouEditionHeading}"
+                           FontWeight="SemiBold" Foreground="#0B74D1" Margin="0,0,0,8" />
+                <Grid x:Name="KuaishouWorkDirectoryEditor" Grid.Row="2" ColumnDefinitions="64,*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
                     <TextBlock Text="工作目录" VerticalAlignment="Center" FontWeight="SemiBold" />
-                    <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}" Watermark="选择快手分账工作目录" />
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                    <TextBox Grid.Column="1" Text="{Binding DraftProjectDirectory}" Watermark="选择快手分账工作目录" AutomationProperties.Name="工作目录" />
+                    <StackPanel x:Name="KuaishouWorkDirectoryActions" Grid.Column="2" Orientation="Horizontal" Spacing="6">
                         <Button Content="选择工作目录" Click="OnPickProjectDirectoryClick" Classes="secondaryAction compactAction" />
-                        <Button Content="重置" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" />
+                        <Button x:Name="KuaishouResetJobButton" Content="重置" Command="{Binding ResetSelectedJobCommand}" Classes="secondaryAction compactAction" />
                     </StackPanel>
                 </Grid>
-                <WrapPanel Orientation="Horizontal">
+                <WrapPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
                     <Border Classes="kuaishouButtonGroup sourceGroup">
                         <WrapPanel Orientation="Horizontal">
                             <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="neutralAction compactAction" Margin="0,0,6,0"
@@ -284,7 +291,7 @@
                         </WrapPanel>
                     </Border>
                     <Border Classes="kuaishouButtonGroup executionGroup">
-                        <WrapPanel Orientation="Horizontal">
+                        <WrapPanel x:Name="KuaishouExecutionActions" Orientation="Horizontal">
                             <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                             <Button Content="停止" Command="{Binding StopCommand}" Classes="stopAction compactAction" />
                         </WrapPanel>
@@ -329,7 +336,7 @@
                         <Button Content="发布ADX素材" Click="OnKuaishouAdxPublishClick" />
                     </StackPanel>
                 </WrapPanel>
-                <Grid ColumnDefinitions="48,*,Auto" ColumnSpacing="8">
+                <Grid Grid.Row="4" ColumnDefinitions="48,*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
                     <TextBlock Text="搜索" VerticalAlignment="Center" FontWeight="SemiBold" />
                     <TextBox Grid.Column="1" Text="{Binding WorkflowFilterText}" Watermark="搜索原剧名 / 新剧名 / 账号 / 状态 / 问题" />
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
@@ -340,8 +347,8 @@
                         <Button Content="›" Command="{Binding NextWorkflowPageCommand}" Classes="secondaryAction compactAction" />
                     </StackPanel>
                 </Grid>
-                <Border Classes="kuaishouStepFrame">
-                    <WrapPanel Orientation="Horizontal">
+                <Border Grid.Row="5" Classes="kuaishouStepFrame">
+                    <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock Text="启用步骤" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
                         <CheckBox Content="下载" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,2" />
@@ -354,9 +361,10 @@
                                   ToolTip.Tip="上传剧集成功后按快手分账规则归档：移动 source/workflow，并删除原视频、转码视频和素材视频。需要先配置归档目录。" />
                     </WrapPanel>
                 </Border>
-            </StackPanel>
+              </Grid>
+            </ScrollViewer>
         </Border>
-        <Border x:Name="WeixinChrome" Grid.Row="0" Grid.RowSpan="3" IsVisible="True">
+        <Border x:Name="WeixinChrome" IsVisible="True">
         <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
         <Border Grid.Row="0" Classes="panel" Padding="10">
             <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
@@ -511,7 +519,7 @@
         </Grid>
         </Border>
 
-        <Border x:Name="WorkflowTableFrame" Grid.Row="3" Classes="panel" ClipToBounds="True">
+        <Border x:Name="WorkflowTableFrame" Grid.Row="1" Classes="panel" ClipToBounds="True">
             <Grid RowDefinitions="Auto,*">
                 <Border Background="#F5F3FF" BorderBrush="#C4B5FD" BorderThickness="0,0,0,1" Padding="10"
                         IsVisible="{Binding HasInteractionRequest}">
@@ -669,7 +677,7 @@
             </Grid>
         </Border>
 
-        <Border x:Name="WorkflowStatus" Grid.Row="4" Height="30" Background="#EEF3F8" BorderBrush="#D9E2EC" BorderThickness="1,0,1,1">
+        <Border x:Name="WorkflowStatus" Grid.Row="2" Height="30" Background="#EEF3F8" BorderBrush="#D9E2EC" BorderThickness="1,0,1,1">
             <TextBlock Text="{Binding StatusMessage}" Margin="10,0" VerticalAlignment="Center" FontSize="12" Foreground="#64748B" />
         </Border>
     </Grid>

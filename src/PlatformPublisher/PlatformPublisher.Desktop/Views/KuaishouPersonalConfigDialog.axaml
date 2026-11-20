@@ -26,6 +26,7 @@
                     <Grid Margin="2,4,14,12" SizeChanged="PublishViewport_SizeChanged">
                         <StackPanel Spacing="10" x:Name="PublishForm" MaxWidth="1080" HorizontalAlignment="Left">
                             <TextBlock Classes="configurationHeading" Text="账号与上传" />
+                            <ContentControl x:Name="WorkDirectoryHost" IsVisible="False" />
                             <TextBlock x:Name="LoginStatusText" Foreground="#64748B" TextWrapping="Wrap" />
                             <StackPanel Spacing="5">
                                 <TextBlock Classes="configurationLabel" Text="账号类型" />

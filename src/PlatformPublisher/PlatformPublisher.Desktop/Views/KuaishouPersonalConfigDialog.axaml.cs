@@ -45,10 +45,12 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     public void UseAccountStore(AccountStore accountStore) => _accountStore = accountStore;
 
-    public void UseWorkspaceNavigation()
+    internal void UseWorkspaceNavigation(Control workDirectoryEditor)
     {
         foreach (var tab in ConfigurationTabs.Items.OfType<TabItem>())
             tab.IsVisible = false;
+        WorkDirectoryHost.Content = workDirectoryEditor;
+        WorkDirectoryHost.IsVisible = true;
     }
 
     public void SelectWorkspacePage(bool shelf) => ConfigurationTabs.SelectedIndex = shelf ? 1 : 0;

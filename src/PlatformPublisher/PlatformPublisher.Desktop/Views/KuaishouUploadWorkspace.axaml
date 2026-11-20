@@ -3,9 +3,13 @@
              xmlns:views="using:PlatformPublisher.Desktop.Views"
              Background="{StaticResource PythonPageBgBrush}"
              x:Class="PlatformPublisher.Desktop.Views.KuaishouUploadWorkspace">
-    <Grid x:Name="WorkspaceLayout" RowDefinitions="Auto,*" ColumnDefinitions="198,*">
+    <Grid x:Name="WorkspaceLayout" ColumnDefinitions="198,*">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" SharedSizeGroup="UploadTabs" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
         <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-            <StackPanel x:Name="SubNavigation" Margin="10,5,10,3" Orientation="Horizontal" Spacing="5">
+            <StackPanel x:Name="SubNavigation" Margin="10,5,10,3" Orientation="Horizontal" Spacing="5" IsEnabled="False">
                 <Button Content="任务队列" Tag="queue" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="发布配置" Tag="config" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="剧集上架" Tag="shelf" Classes="topNavItem" Click="SubPage_Click" />
@@ -13,10 +17,10 @@
                 <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="SubPage_Click" />
             </StackPanel>
         </ScrollViewer>
-        <Border x:Name="Sidebar" Grid.RowSpan="2" Classes="accountSidebarFrame" Padding="8,10">
+        <Border x:Name="Sidebar" Grid.RowSpan="2" Classes="accountSidebarFrame" Padding="8,10" IsEnabled="False">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="7">
-                    <TextBlock Text="快手账号" Classes="pageSummary" />
+                    <TextBlock Text="账号" Classes="pageSummary" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Button Content="添加账号" Click="AddAccount_Click" />
                         <Button Content="删除" Classes="dangerAction" Click="RemoveAccount_Click" />
@@ -49,7 +53,7 @@
                     <Button Content="重试" Click="Retry_Click" HorizontalAlignment="Left" />
                 </StackPanel>
             </Panel>
-            <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="16,0,16,5" ColumnSpacing="10">
+            <Grid Grid.Row="2" Classes="uploadQueueFooter" ColumnDefinitions="*,Auto" ColumnSpacing="10">
                 <TextBlock Text="{Binding StatusMessage}" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
                 <TextBlock Grid.Column="1" Text="{Binding KuaishouTodayUploadText}" Classes="pageSummary" />
             </Grid>

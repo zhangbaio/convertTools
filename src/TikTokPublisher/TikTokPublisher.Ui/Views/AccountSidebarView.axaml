@@ -13,12 +13,8 @@
                     <Button Content="添加账号" Click="OnAddClick" />
                     <Button Content="删除" Classes="dangerAction" Click="OnDeleteClick" />
                 </StackPanel>
+                <TextBox Watermark="昵称/ID/邮箱" Text="{Binding AccountSearchText, Mode=TwoWay}" />
             </StackPanel>
-
-            <TextBox DockPanel.Dock="Top"
-                     Margin="0,0,0,10"
-                     Watermark="昵称/ID/邮箱"
-                     Text="{Binding AccountSearchText, Mode=TwoWay}" />
 
             <TextBlock DockPanel.Dock="Bottom"
                        Classes="pageSummary"
@@ -31,12 +27,6 @@
                      ItemsSource="{Binding FilteredAccounts}"
                      SelectedItem="{Binding SidebarSelectedAccount, Mode=OneWay}"
                      SelectionChanged="OnAccountSelectionChanged">
-                <ListBox.Styles>
-                    <Style Selector="ListBox#AccountList">
-                        <Setter Property="Background" Value="Transparent" />
-                        <Setter Property="BorderThickness" Value="0" />
-                    </Style>
-                </ListBox.Styles>
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:AccountItemViewModel">
                         <StackPanel Spacing="2">

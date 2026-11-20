@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -60,13 +61,28 @@ public partial class WeixinWorkflowView : UserControl
         _embeddedUploadLayout = true;
         Classes.Add("embeddedUploadQueue");
         WorkflowLayout.Classes.Add("pageRoot");
+        WorkflowLayout.RowSpacing = 0;
         KuaishouChrome.Classes.Remove("panel");
-        KuaishouChrome.Classes.Add("controlsFrame");
+        KuaishouChrome.Classes.AddRange(["controlsFrame", "uploadQueueToolbar"]);
+        KuaishouChrome.Margin = new Thickness(0, 0, 0, 8);
         KuaishouChrome.ClearValue(Border.PaddingProperty);
+        KuaishouQueueHeading.IsVisible = false;
+        KuaishouWorkDirectoryActions.Children.Remove(KuaishouResetJobButton);
+        KuaishouResetJobButton.Content = "重置当前任务";
+        KuaishouResetJobButton.Margin = new Thickness(6, 0, 0, 0);
+        KuaishouExecutionActions.Children.Add(KuaishouResetJobButton);
         WorkflowTableFrame.Classes.Remove("panel");
         WorkflowTableFrame.Classes.Add("queueTableFrame");
         WorkflowStatus.IsVisible = false;
         WorkflowQueueScroll.AllowAutoHide = false;
+    }
+
+    internal Control DetachWorkDirectoryEditor()
+    {
+        KuaishouQueueControls.Children.Remove(KuaishouWorkDirectoryEditor);
+        KuaishouWorkDirectoryEditor.ClearValue(MarginProperty);
+        KuaishouWorkDirectoryEditor.Bind(DataContextProperty, this.GetObservable(DataContextProperty));
+        return KuaishouWorkDirectoryEditor;
     }
 
     private void OnWorkflowQueueViewportSizeChanged(object? sender, SizeChangedEventArgs e)
