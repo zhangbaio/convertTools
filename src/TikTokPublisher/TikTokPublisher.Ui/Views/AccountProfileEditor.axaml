@@ -57,7 +57,7 @@
     </UserControl.Styles>
 
     <DockPanel Classes="pageRoot">
-        <Border DockPanel.Dock="Bottom" Classes="accountActionBar" Margin="0,12,0,0">
+        <Border x:Name="AccountActions" DockPanel.Dock="Bottom" Classes="accountActionBar" Margin="0,12,0,0">
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
                     <Button Content="同步账号配置" Click="OnSyncAccountsClick" Classes="secondaryAction" />
@@ -69,7 +69,7 @@
             </Grid>
         </Border>
 
-        <TextBlock DockPanel.Dock="Top" Text="账号配置" Classes="pageTitle" Margin="0,0,0,10" />
+        <TextBlock x:Name="AccountPageHeading" DockPanel.Dock="Top" Text="账号配置" Classes="pageTitle" Margin="0,0,0,10" />
 
         <Border Classes="configurationPanel">
             <TabControl x:Name="AccountTabs" Classes="accountTabs">

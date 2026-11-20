@@ -29,7 +29,6 @@ public partial class AccountProfileEditor : UserControl
     private string _cleanDraft = "";
     private string? _dedupLibraryError;
     private bool _persistedRemoteDispatch;
-    private bool _suppressUploadedSeriesSearch;
     private int _uploadedSeriesGeneration;
     private int _contractLookupGeneration;
     private int _profileReloadSuppressions;
@@ -84,7 +83,13 @@ public partial class AccountProfileEditor : UserControl
 
     public bool HasWorkspacePage(string header) => FindWorkspacePage(header) is not null;
 
-    public void SelectWorkspacePage(string header) => AccountTabs.SelectedItem = FindWorkspacePage(header);
+    public void SelectWorkspacePage(string header)
+    {
+        AccountTabs.SelectedItem = FindWorkspacePage(header);
+        var showAccountControls = header != "剧集列表";
+        AccountActions.IsVisible = showAccountControls;
+        AccountPageHeading.IsVisible = showAccountControls;
+    }
 
     private TabItem? FindWorkspacePage(string header) => AccountTabs.Items.OfType<TabItem>()
         .FirstOrDefault(tab => Equals(tab.Header, header));
@@ -1343,12 +1348,8 @@ public partial class AccountProfileEditor : UserControl
     private void OnRefreshUploadedSeriesClick(object? sender, RoutedEventArgs e) =>
         RequestUploadedSeriesReload();
 
-    private void OnUploadedSeriesSearchChanged(object? sender, TextChangedEventArgs e)
-    {
-        if (_suppressUploadedSeriesSearch)
-            return;
+    private void OnUploadedSeriesSearchChanged(object? sender, TextChangedEventArgs e) =>
         ApplyUploadedSeriesFilter();
-    }
 
     private void OnOpenUploadedSeriesDirectoryClick(object? sender, RoutedEventArgs e)
     {
@@ -1373,9 +1374,6 @@ public partial class AccountProfileEditor : UserControl
     {
         var generation = ++_uploadedSeriesGeneration;
         var profile = _vm?.SelectedAccount?.Model;
-        _suppressUploadedSeriesSearch = true;
-        UploadedSeriesSearchBox.Text = "";
-        _suppressUploadedSeriesSearch = false;
         _uploadedSeriesRows = Array.Empty<AccountUploadedSeriesRow>();
         UploadedSeriesList.ItemsSource = null;
 

@@ -513,8 +513,13 @@ public partial class MainWindow : Window
     {
         if (_activeNavTag == "browser")
             ScheduleBrowserHostMountLayout();
-        else if (_activeNavTag == "queue" && _tikTokSubPage is "archived" or "logs")
-            RefreshTikTokHistory();
+        else if (_activeNavTag == "queue")
+        {
+            if (_tikTokSubPage == "logs")
+                RefreshTikTokLogScope();
+            else if (IsTikTokArchiveVisible)
+                RefreshTikTokArchiveScope();
+        }
     }
 
     private void EnsureBrowserHostMounted()
@@ -618,7 +623,7 @@ public partial class MainWindow : Window
             : Task.FromResult(true);
 
     private static bool IsTikTokConfigurationPage(string page) =>
-        page is "accounts" or "basics" or "series";
+        page is "accounts" or "basics";
 
     private async Task NavigateAsync(string tag, string? tikTokSubPage = null)
     {
@@ -638,6 +643,8 @@ public partial class MainWindow : Window
             if ((tag != "queue" || (tikTokSubPage is not null && !IsTikTokConfigurationPage(tikTokSubPage))) &&
                 !await ConfirmTikTokAccountChangeAsync())
                 return;
+            if (tikTokSubPage == "series" && _tikTokSubPage != "series")
+                TikTokSeriesViewTabs.SelectedIndex = 0;
             if (tikTokSubPage is not null)
                 _tikTokSubPage = tikTokSubPage;
             if (tag == "analytics" && _activeNavTag is "queue" or "kuaishou")
@@ -682,20 +689,11 @@ public partial class MainWindow : Window
         if (TikTokWorkspace.IsVisible)
         {
             QueueView.IsVisible = _tikTokSubPage == "queue";
-            AccountsView.IsVisible = IsTikTokConfigurationPage(_tikTokSubPage);
             LogView.IsVisible = _tikTokSubPage == "logs";
-            ArchivedView.IsVisible = _tikTokSubPage == "archived";
-            TikTokAllHistoryAccounts.IsVisible = LogView.IsVisible || ArchivedView.IsVisible;
-            if (TikTokAllHistoryAccounts.IsVisible)
-                RefreshTikTokHistory();
-            var editorPage = _tikTokSubPage switch
-            {
-                "basics" => "基础设置",
-                "series" => "剧集列表",
-                _ => "发布配置",
-            };
-            if (AccountsView.IsVisible)
-                AccountsView.SelectWorkspacePage(editorPage);
+            TikTokAllLogAccounts.IsVisible = LogView.IsVisible;
+            if (LogView.IsVisible)
+                RefreshTikTokLogScope();
+            ApplyTikTokSeriesView();
             foreach (var button in TikTokSubNavigation.Children.OfType<Button>())
             {
                 var active = Equals(button.Tag, _tikTokSubPage);
@@ -771,21 +769,49 @@ public partial class MainWindow : Window
         if (AnalyticsView.IsVisible) AnalyticsView.Activate();
     }
 
-    private void OnTikTokHistoryScopeChanged(object? sender, RoutedEventArgs e) => RefreshTikTokHistory();
+    private bool IsTikTokArchiveVisible =>
+        _activeNavTag == "queue" && _tikTokSubPage == "series" && TikTokSeriesViewTabs.SelectedIndex == 1;
 
-    private void RefreshTikTokHistory()
+    private void OnTikTokSeriesViewChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (!TikTokWorkspace.IsVisible)
-            return;
-        var all = TikTokAllHistoryAccounts.IsChecked == true;
-        if (_tikTokSubPage == "logs")
-            _viewModel.SetLogAccountScope(all);
-        if (_tikTokSubPage == "archived")
-        {
-            _viewModel.ArchivedProjects.UseAccountScope = true;
-            _viewModel.ArchivedProjects.ShowAllAccounts = all;
-            _viewModel.ArchivedProjects.RefreshCommand.Execute(null);
-        }
+        if (_activeNavTag == "queue" && _tikTokSubPage == "series")
+            ApplyTikTokSeriesView();
+    }
+
+    private void ApplyTikTokSeriesView()
+    {
+        var showSeries = _tikTokSubPage == "series";
+        var showArchive = IsTikTokArchiveVisible;
+        TikTokSeriesHeader.IsVisible = showSeries;
+        TikTokAllArchiveAccounts.IsVisible = showArchive;
+        ArchivedView.IsVisible = showArchive;
+        AccountsView.IsVisible = IsTikTokConfigurationPage(_tikTokSubPage) || (showSeries && !showArchive);
+        if (AccountsView.IsVisible)
+            AccountsView.SelectWorkspacePage(showSeries ? "剧集列表" : _tikTokSubPage == "basics" ? "基础设置" : "发布配置");
+        if (showArchive)
+            RefreshTikTokArchiveScope();
+    }
+
+    private void OnTikTokLogScopeChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_activeNavTag == "queue" && _tikTokSubPage == "logs")
+            RefreshTikTokLogScope();
+    }
+
+    private void RefreshTikTokLogScope() =>
+        _viewModel.SetLogAccountScope(TikTokAllLogAccounts.IsChecked == true);
+
+    private void OnTikTokArchiveScopeChanged(object? sender, RoutedEventArgs e)
+    {
+        if (IsTikTokArchiveVisible)
+            RefreshTikTokArchiveScope();
+    }
+
+    private void RefreshTikTokArchiveScope()
+    {
+        _viewModel.ArchivedProjects.UseAccountScope = true;
+        _viewModel.ArchivedProjects.ShowAllAccounts = TikTokAllArchiveAccounts.IsChecked == true;
+        _viewModel.ArchivedProjects.RefreshCommand.Execute(null);
     }
 
     private void ApplyStartupLayout()
