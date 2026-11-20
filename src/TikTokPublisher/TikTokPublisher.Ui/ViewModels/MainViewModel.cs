@@ -115,7 +115,22 @@ public sealed partial class MainViewModel : ViewModelBase
     private bool _queueExcelExportDebounceScheduled;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
-    public ObservableCollection<AccountItemViewModel> FilteredAccounts { get; } = new();
+    public IReadOnlyList<AccountItemViewModel> FilteredAccounts { get; private set; } = [];
+    private Avalonia.Threading.DispatcherTimer? _accountSearchTimer;
+    private bool _refreshingFilteredAccounts;
+    private bool _accountWorkspaceRefreshPending;
+
+    public AccountItemViewModel? SidebarSelectedAccount
+    {
+        get => SelectedAccount is { } account && FilteredAccounts.Contains(account) ? account : null;
+        set
+        {
+            if (!_refreshingFilteredAccounts && value is not null && FilteredAccounts.Contains(value))
+                SelectedAccount = value;
+        }
+    }
+
+    public void FlushActiveAccountSelection() => _store.FlushActivePointer();
     public ObservableCollection<PublishTaskItemViewModel> Tasks { get; } = new();
     public RangeObservableCollection<QueueProjectRowViewModel> QueueProjectRows { get; } = new();
     public RangeObservableCollection<QueueProjectRowViewModel> FilteredQueueProjectRows { get; } = new();
@@ -1021,7 +1036,20 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void RequestNavigate(string pageTag) => NavigatePageRequested?.Invoke(pageTag);
 
-    partial void OnAccountSearchTextChanged(string value) => RefreshFilteredAccounts();
+    partial void OnAccountSearchTextChanged(string value)
+    {
+        if (_accountSearchTimer is null)
+        {
+            _accountSearchTimer = new Avalonia.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(200)
+            };
+            _accountSearchTimer.Tick += (_, _) => RefreshFilteredAccounts();
+        }
+
+        _accountSearchTimer.Stop();
+        _accountSearchTimer.Start();
+    }
 
     partial void OnQueueSearchTextChanged(string value)
     {
@@ -1067,6 +1095,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     partial void OnSelectedAccountChanged(AccountItemViewModel? value)
     {
+        OnPropertyChanged(nameof(SidebarSelectedAccount));
         DramaDownload.UseAccountMarket(value?.Model.TiktokDramaMarket);
         UpdateDramaDownloadQueueTarget();
         if (value is null)
@@ -1081,13 +1110,22 @@ public sealed partial class MainViewModel : ViewModelBase
             return;
         }
 
-        _context.SwitchTo(value.Id);
+        _context.SwitchTo(value.Id, deferPersistence: true);
         RestoreQueueSearchTextForSelectedAccount();
-        // 账号高亮先画出来。工作目录换表放到后台优先级，避免这次刷新插在渲染前面把点击卡住。
-        Avalonia.Threading.Dispatcher.UIThread.Post(
-            RefreshWorkspaceFromActiveAccount,
-            Avalonia.Threading.DispatcherPriority.Background);
-        AccountSwitchRequested?.Invoke(value);
+        Interlocked.Increment(ref _workspaceRefreshGeneration);
+        if (_accountWorkspaceRefreshPending)
+            return;
+
+        _accountWorkspaceRefreshPending = true;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            _accountWorkspaceRefreshPending = false;
+            if (SelectedAccount is not { } current)
+                return;
+
+            RefreshWorkspaceFromActiveAccount();
+            AccountSwitchRequested?.Invoke(current);
+        }, Avalonia.Threading.DispatcherPriority.Background);
     }
 
     private string GetQueueSearchAccountKey()
@@ -1369,26 +1407,28 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void RefreshFilteredAccounts()
     {
-        var selectedId = SelectedAccount?.Id ?? _store.ActiveAccountId;
-        FilteredAccounts.Clear();
+        _accountSearchTimer?.Stop();
         var query = (AccountSearchText ?? "").Trim();
-        foreach (var account in Accounts)
-        {
-            if (string.IsNullOrEmpty(query)
-                || account.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || account.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || account.LoginEmail.Contains(query, StringComparison.OrdinalIgnoreCase)
-                || account.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase))
-                FilteredAccounts.Add(account);
-        }
+        var matches = Accounts.Where(account =>
+            query.Length == 0
+            || account.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || account.Id.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || account.LoginEmail.Contains(query, StringComparison.OrdinalIgnoreCase)
+            || account.Subtitle.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (FilteredAccounts.SequenceEqual(matches))
+            return;
 
-        var restored = FilteredAccounts.FirstOrDefault(a => a.Id == selectedId)
-                       ?? FilteredAccounts.FirstOrDefault(a => a.Id == _store.ActiveAccountId)
-                       ?? FilteredAccounts.FirstOrDefault();
-        if (restored is not null && SelectedAccount?.Id != restored.Id)
-            SelectedAccount = restored;
-        else if (restored is null && SelectedAccount is not null)
-            SelectedAccount = null;
+        _refreshingFilteredAccounts = true;
+        try
+        {
+            FilteredAccounts = matches;
+            OnPropertyChanged(nameof(FilteredAccounts));
+            OnPropertyChanged(nameof(SidebarSelectedAccount));
+        }
+        finally
+        {
+            _refreshingFilteredAccounts = false;
+        }
     }
 
     private void UpdateWorkspaceBindingSummary(string root)
@@ -1592,6 +1632,9 @@ public sealed partial class MainViewModel : ViewModelBase
         // queue database first (normally tens of milliseconds) and reconcile filesystem
         // artifacts in the slower scan below. This avoids presenting an empty workspace
         // for the entire duration of a cold disk scan.
+        if (generation != Volatile.Read(ref _workspaceRefreshGeneration))
+            return;
+
         if (!showedData)
         {
             var persistedSnapshot = await Task.Run(() => WorkspaceQueueService.LoadPersistedSnapshot(root))
@@ -1626,6 +1669,9 @@ public sealed partial class MainViewModel : ViewModelBase
             });
             return;
         }
+
+        if (generation != Volatile.Read(ref _workspaceRefreshGeneration))
+            return;
 
         var scanResult = await Task.Run(() =>
         {

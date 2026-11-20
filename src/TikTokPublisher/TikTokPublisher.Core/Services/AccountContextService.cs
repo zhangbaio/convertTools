@@ -15,10 +15,10 @@ public sealed class AccountContextService
 
     public event Action<TikTokAccountProfile?>? ActiveAccountChanged;
 
-    public void SwitchTo(string accountId)
+    public void SwitchTo(string accountId, bool deferPersistence = false)
     {
         if (_store.ActiveAccountId == accountId) return;
-        _store.SetActive(accountId);
+        _store.SetActive(accountId, deferPersistence);
         ActiveAccountChanged?.Invoke(_store.ActiveAccount);
     }
 

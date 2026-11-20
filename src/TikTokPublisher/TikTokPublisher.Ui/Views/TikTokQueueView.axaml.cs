@@ -36,6 +36,12 @@ public partial class TikTokQueueView : UserControl
     private bool _ready;
     private TikTokPublishConfig _publishConfig = TikTokPublishConfig.Load();
     private CancellationTokenSource? _publishCts;
+
+    public bool IsBrowserInUse(string accountId) =>
+        _vm?.SelectedAccount?.Id == accountId
+        || _publishCts is not null
+        || _copyrightProofPreparationRuns.Count > 0
+        || _vm?.IsAccountQueueBusy(accountId) == true;
     private readonly PublishRunStateStore _runState = PublishRunStateStore.Load();
     private readonly object _autoLoginLocksGate = new();
     private readonly Dictionary<string, SemaphoreSlim> _autoLoginLocks = new(StringComparer.Ordinal);

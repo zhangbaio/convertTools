@@ -64,7 +64,7 @@
 
             <ListBox x:Name="AccountList"
                      ItemsSource="{Binding FilteredAccounts}"
-                     SelectedItem="{Binding SelectedAccount, Mode=TwoWay}">
+                     SelectedItem="{Binding SidebarSelectedAccount, Mode=TwoWay}">
                 <ListBox.Styles>
                     <Style Selector="ListBox#AccountList">
                         <Setter Property="Background" Value="Transparent" />

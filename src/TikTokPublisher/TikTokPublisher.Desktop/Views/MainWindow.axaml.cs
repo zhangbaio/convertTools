@@ -70,6 +70,7 @@ public partial class MainWindow : Window
                 ScheduleBrowserHostMountLayout();
         };
         QueueView.Initialize(_viewModel, _browserHost, EnsureBrowserHostMounted);
+        _browserHost.IsAccountInUse = QueueView.IsBrowserInUse;
         BrowserView.Initialize(_browserHost, _viewModel);
         BrowserView.LayoutUpdated += (_, _) =>
         {
@@ -263,6 +264,14 @@ public partial class MainWindow : Window
         _accountInventorySync.StatusChanged -= _viewModel.AppendLog;
         _accountInventorySync.Dispose();
         _browserHost.CloseAll();
+        try
+        {
+            _viewModel.FlushActiveAccountSelection();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("保存当前账号失败：{0}", ex.Message);
+        }
     }
 
     public void StartLicenseVerifyTimer()

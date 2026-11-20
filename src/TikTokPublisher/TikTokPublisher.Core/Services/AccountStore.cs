@@ -16,6 +16,9 @@ public sealed class AccountStore
 
     private readonly List<TikTokAccountProfile> _accounts = new();
     private string _activeAccountId = "";
+    private readonly object _activePointerWriteLock = new();
+    private int _activePointerVersion;
+    private int _savedActivePointerVersion;
     private static string AccountSnapshotQuarantineFile =>
         AppPaths.AccountsFile + ".sync-quarantine";
 
@@ -33,6 +36,10 @@ public sealed class AccountStore
 
     public void Load()
     {
+        // Reload uses the imported/on-disk selection, including when a local write is pending.
+        lock (_activePointerWriteLock)
+            _savedActivePointerVersion = Interlocked.Increment(ref _activePointerVersion);
+
         _accounts.Clear();
         _activeAccountId = "";
         CanSyncAccountSnapshot = !File.Exists(AccountSnapshotQuarantineFile);
@@ -183,11 +190,18 @@ public sealed class AccountStore
         return true;
     }
 
-    public void SetActive(string accountId)
+    public void SetActive(string accountId, bool deferPersistence = false)
     {
         if (_accounts.All(a => a.Id != accountId)) return;
         _activeAccountId = accountId;
-        SaveActivePointer();
+        if (!deferPersistence)
+        {
+            SaveActivePointer();
+            return;
+        }
+
+        var version = Interlocked.Increment(ref _activePointerVersion);
+        _ = PersistActivePointerAsync(accountId, version);
     }
 
     public TikTokAccountProfile? FindByNameOrId(string nameOrId)
@@ -230,9 +244,38 @@ public sealed class AccountStore
 
     private void SaveActivePointer()
     {
-        Directory.CreateDirectory(AppPaths.DataRoot);
-        var payload = new ActiveAccountPointer { ActiveAccountId = _activeAccountId };
-        File.WriteAllText(AppPaths.ActiveAccountFile, JsonSerializer.Serialize(payload, JsonOptions));
+        var version = Interlocked.Increment(ref _activePointerVersion);
+        WriteActivePointer(_activeAccountId, version);
+    }
+
+    public void FlushActivePointer() =>
+        WriteActivePointer(_activeAccountId, Volatile.Read(ref _activePointerVersion));
+
+    private async Task PersistActivePointerAsync(string accountId, int version)
+    {
+        await Task.Delay(150).ConfigureAwait(false);
+        try
+        {
+            WriteActivePointer(accountId, version);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Trace.TraceWarning("保存当前账号失败：{0}", ex.Message);
+        }
+    }
+
+    private void WriteActivePointer(string accountId, int version)
+    {
+        lock (_activePointerWriteLock)
+        {
+            if (version != Volatile.Read(ref _activePointerVersion) || version == _savedActivePointerVersion)
+                return;
+
+            Directory.CreateDirectory(AppPaths.DataRoot);
+            var payload = new ActiveAccountPointer { ActiveAccountId = accountId };
+            File.WriteAllText(AppPaths.ActiveAccountFile, JsonSerializer.Serialize(payload, JsonOptions));
+            _savedActivePointerVersion = version;
+        }
     }
 
     private static TikTokAccountProfile CreateProfileSkeleton(string id, string name)

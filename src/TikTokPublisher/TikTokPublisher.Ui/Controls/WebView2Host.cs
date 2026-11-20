@@ -31,6 +31,11 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     private CoreWebView2Controller? _controller;
     private int _automationLeases;
+    private long _lastUsedAt = Environment.TickCount64;
+
+    internal long LastUsedAt => Interlocked.Read(ref _lastUsedAt);
+    internal void MarkUsed() => Interlocked.Exchange(ref _lastUsedAt, Environment.TickCount64);
+    internal bool CanRecycle => IsIdle && (IsEngineReady || !string.IsNullOrWhiteSpace(LastInitError));
     private DispatcherTimer? _idleSuspendTimer;
     private readonly EventHandler<SizeChangedEventArgs> _sizeChangedHandler;
     private int _lifecycleGeneration;
@@ -113,6 +118,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
         _presentationApplied = true;
         _presentationRendered = rendered;
+        MarkUsed();
         return true;
     }
 
@@ -163,6 +169,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     public IDisposable AcquireAutomation()
     {
         _automationLeases++;
+        MarkUsed();
         ApplyRenderedState();
         return new AutomationLease(this);
     }
@@ -173,6 +180,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
         {
             if (_automationLeases > 0)
                 _automationLeases--;
+            MarkUsed();
             ApplyRenderedState();
         });
     }

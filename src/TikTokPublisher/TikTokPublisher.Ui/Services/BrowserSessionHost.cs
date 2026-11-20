@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Threading;
@@ -12,12 +13,17 @@ public sealed record EmbeddedAuthSavedEventArgs(
     AccountItemViewModel Account,
     EmbeddedAuthSaveResult Result);
 
-/// <summary>每账号独立 WebView2，切换仅改可见性（对齐 Python 多账号会话策略）。</summary>
+/// <summary>管理各账号独立的 WebView2 会话及空闲缓存。</summary>
 public sealed class BrowserSessionHost
 {
     private const int LoginAutofillMaxAttempts = 6;
+    private const int RetainedHostCount = 3;
+    private static readonly TimeSpan RecycleIdleAge = TimeSpan.FromMinutes(2);
+    private DispatcherTimer? _recycleTimer;
 
-    private readonly Dictionary<string, WebView2Host> _hosts = new();
+    public Func<string, bool>? IsAccountInUse { get; set; }
+
+    private readonly ConcurrentDictionary<string, WebView2Host> _hosts = new();
     private readonly Dictionary<string, LoginAutofillState> _autofillStates = new();
     private readonly Dictionary<string, bool> _wasOnLoginPage = new();
     private readonly int[] _autofillDelaysMs = [1200, 2200, 3500, 5000, 6500, 8000];
@@ -130,9 +136,13 @@ public sealed class BrowserSessionHost
 
     private async Task OnHostReadyAsync(AccountItemViewModel account, WebView2Host host)
     {
+        using var lease = host.AcquireAutomation();
         await ImportAuthStateCoreAsync(account, host).ConfigureAwait(true);
         Dispatcher.UIThread.Post(() =>
         {
+            if (!_hosts.TryGetValue(account.Id, out var current) || !ReferenceEquals(current, host))
+                return;
+
             if (!_presentationVisible ||
                 !string.Equals(_activeAccountId, account.Id, StringComparison.Ordinal))
             {
@@ -221,6 +231,7 @@ public sealed class BrowserSessionHost
 
         if (_hosts.TryGetValue(account.Id, out var existing))
         {
+            existing.MarkUsed();
             if (_presentationVisible)
             {
                 // 该账号的内置浏览器因缺少运行时初始化失败：显示安装引导覆盖层，不渲染黑色宿主。
@@ -461,7 +472,10 @@ public sealed class BrowserSessionHost
         {
             SyncProxySettings(existing, account.Model);
             if (_hosts.TryGetValue(account.Id, out existing))
+            {
+                existing.MarkUsed();
                 return existing;
+            }
         }
 
         if (_container is null)
@@ -483,6 +497,19 @@ public sealed class BrowserSessionHost
         host.ProcessFailed += message => OnHostProcessFailed(account, message);
         host.RuntimeMissing += () => OnHostRuntimeMissing(account, host);
         _hosts[account.Id] = host;
+        if (_hosts.Count > RetainedHostCount)
+        {
+            if (_recycleTimer is null)
+            {
+                _recycleTimer = new DispatcherTimer(DispatcherPriority.Background)
+                {
+                    Interval = TimeSpan.FromSeconds(15)
+                };
+                _recycleTimer.Tick += (_, _) => RecycleIdleHosts();
+            }
+
+            _recycleTimer.Start();
+        }
         _container.Children.Add(host);
         ApplyHostVisibility(
             host,
@@ -531,9 +558,33 @@ public sealed class BrowserSessionHost
         return host;
     }
 
+    private void RecycleIdleHosts()
+    {
+        var now = Environment.TickCount64;
+        var candidates = _hosts.OrderBy(entry => entry.Value.LastUsedAt).ToArray();
+        foreach (var (accountId, host) in candidates)
+        {
+            if (_hosts.Count <= RetainedHostCount)
+                break;
+
+            if (now - host.LastUsedAt < RecycleIdleAge.TotalMilliseconds
+                || !host.CanRecycle
+                || _autofillStates.ContainsKey(accountId)
+                || EmbeddedBrowserLoginHelper.IsLoginUrl(host.CurrentUrl)
+                || IsAccountInUse?.Invoke(accountId) == true)
+                continue;
+
+            RemoveHostCore(accountId);
+            _wasOnLoginPage.Remove(accountId);
+        }
+
+        if (_hosts.Count <= RetainedHostCount)
+            _recycleTimer?.Stop();
+    }
+
     private void RemoveHostCore(string accountId)
     {
-        if (_hosts.Remove(accountId, out var existing))
+        if (_hosts.TryRemove(accountId, out var existing))
         {
             existing.CloseBrowser();
             _container?.Children.Remove(existing);
@@ -545,6 +596,7 @@ public sealed class BrowserSessionHost
 
     public void CloseAll()
     {
+        _recycleTimer?.Stop();
         foreach (var host in _hosts.Values.ToArray())
         {
             host.CloseBrowser();
@@ -582,8 +634,12 @@ public sealed class BrowserSessionHost
         InvalidateHostIfNetworkChanged(account);
     }
 
-    public WebView2Host? TryGetHost(string accountId) =>
-        _hosts.TryGetValue(accountId, out var host) ? host : null;
+    public WebView2Host? TryGetHost(string accountId)
+    {
+        var host = _hosts.GetValueOrDefault(accountId);
+        host?.MarkUsed();
+        return host;
+    }
 
     public async Task<string> ResetAccountAsync(AccountItemViewModel account, CancellationToken ct = default)
     {
@@ -593,7 +649,7 @@ public sealed class BrowserSessionHost
                 .ConfigureAwait(false);
         }
 
-        if (_hosts.Remove(account.Id, out var existing))
+        if (_hosts.TryRemove(account.Id, out var existing))
         {
             existing.CloseBrowser();
             _container?.Children.Remove(existing);
@@ -720,11 +776,18 @@ public sealed class BrowserSessionHost
         Dispatcher.UIThread.InvokeAsync(() => host.LastInitError).GetTask();
 
     private static Task<string?> ReadCdpEndpointOnUiThreadAsync(WebView2Host host) =>
-        Dispatcher.UIThread.InvokeAsync(() => host.CdpEndpoint).GetTask();
+        Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            host.MarkUsed();
+            return host.CdpEndpoint;
+        }).GetTask();
 
     private static Task<HostSnapshot> ReadHostSnapshotOnUiThreadAsync(WebView2Host host) =>
         Dispatcher.UIThread.InvokeAsync(() =>
-            new HostSnapshot(host.CdpEndpoint, host.CurrentUrl, host.IsEngineReady, host.LastProcessFailure)).GetTask();
+        {
+            host.MarkUsed();
+            return new HostSnapshot(host.CdpEndpoint, host.CurrentUrl, host.IsEngineReady, host.LastProcessFailure);
+        }).GetTask();
 
     private sealed record HostSnapshot(string? CdpEndpoint, string? CurrentUrl, bool IsEngineReady, string? ProcessFailure);
 
@@ -809,6 +872,7 @@ public sealed class BrowserSessionHost
             return null;
         }
 
+        using var lease = host.AcquireAutomation();
         if (notifyFailure)
             AuthStatusChanged?.Invoke(auto ? "检测到登录成功，正在保存授权..." : "正在读取授权...");
         try
