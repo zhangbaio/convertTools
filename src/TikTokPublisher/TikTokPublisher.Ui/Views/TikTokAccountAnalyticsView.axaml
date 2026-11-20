@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="using:TikTokPublisher.Ui.Controls"
              x:Class="TikTokPublisher.Ui.Views.TikTokAccountAnalyticsView"
-             Background="#F8FAFC">
+             Background="{StaticResource PythonPanelBgBrush}">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
     <Grid RowDefinitions="Auto,Auto,250,Auto,Auto,Auto" Margin="16">
         <Grid ColumnDefinitions="*,Auto,Auto">

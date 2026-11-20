@@ -77,6 +77,9 @@ public static class ProjectImageTemplateCatalog
             {
                 var templateDirectory = Path.GetDirectoryName(manifestPath)!;
                 var manifest = ProjectImageTemplateManifest.Load(templateDirectory);
+                if (IsRetiredBuiltInId(manifest.Id))
+                    continue;
+
                 result.Add(new ProjectImageTemplateDescriptor(
                     manifest.Id,
                     manifest.Name,
@@ -105,6 +108,12 @@ public static class ProjectImageTemplateCatalog
 
     public static string ResolveTemplateDirectory(string templateRoot, string templateId, string fallbackDirectory, string? projectRoot = null)
     {
+        if (IsRetiredBuiltInId(templateId))
+        {
+            templateId = "image-template-project-image-10";
+            fallbackDirectory = string.Empty;
+        }
+
         var directDirectory = TryResolveTemplateDirectory(fallbackDirectory);
         if (!string.IsNullOrWhiteSpace(directDirectory))
         {
@@ -146,6 +155,14 @@ public static class ProjectImageTemplateCatalog
 
         return results;
     }
+
+    private static bool IsRetiredBuiltInId(string? templateId) =>
+        templateId?.Trim().ToLowerInvariant() is
+            "image-template-project-image-1" or "image-template-project-image-2" or
+            "image-template-project-image-3" or "image-template-project-image-4" or
+            "image-template-project-image-5" or "image-template-project-image-6" or
+            "image-template-project-image-7" or "image-template-project-image-8" or
+            "image-template-project-image-9" or "image-template-project-image-12";
 
     private static string? TryResolveTemplateDirectoryFromRoot(string templateRoot, string templateId)
     {

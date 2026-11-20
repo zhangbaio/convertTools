@@ -92,17 +92,6 @@ if (!download.Ok) throw new InvalidOperationException(download.Message ?? "下�
 Log($"下载完成：{download.VideoCount} 集");
 
 var runtimeConfig = ClientSettingsWorkflowConfigWriter.WriteTempConfig(settings);
-var runtimePayload = ReadObject(runtimeConfig);
-var referenceProjectTemplate = @"D:\code\weixin-channel-tool\assets\project_image\image_template_project_image_3";
-if (File.Exists(Path.Combine(referenceProjectTemplate, "template.json")))
-{
-    runtimePayload["ProjectImageGenerationMode"] = "image_template";
-    runtimePayload["ProjectImageTemplateId"] = "image-template-project-image-3";
-    runtimePayload["ProjectImageTemplateName"] = "图片模板工程图3";
-    runtimePayload["ProjectImageTemplateDir"] = referenceProjectTemplate;
-    runtimePayload["ProjectImageCount"] = "4";
-    await File.WriteAllTextAsync(runtimeConfig, runtimePayload.ToJsonString(JsonDefaults.Options));
-}
 var services = new ServiceCollection();
 services.AddLogging();
 services.AddShortDramaServices();

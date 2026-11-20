@@ -17,13 +17,6 @@ public static class TikTokProjectImageTemplateCatalog
                 new(
                     ClientSettingsDefaults.TiktokProjectImageTemplateId,
                     ClientSettingsDefaults.TiktokProjectImageTemplateName),
-                new("image-template-project-image-4", "图片模板工程图4"),
-                new("image-template-project-image-5", "图片模板工程图5"),
-                new("image-template-project-image-6", "图片模板工程图6"),
-                new("image-template-project-image-7", "图片模板工程图7"),
-                new("image-template-project-image-8", "图片模板工程图8"),
-                new("image-template-project-image-9", "图片模板工程图9"),
-                new("image-template-project-image-10", "图片模板工程图10"),
                 new("image-template-project-image-11", "图片模板工程图11"),
                 new("image-template-project-image-13", "图片模板工程图13"),
             });
@@ -35,7 +28,7 @@ public static class TikTokProjectImageTemplateCatalog
 
     public static bool TryGet(string? templateId, out TikTokProjectImageTemplateOption option)
     {
-        var normalizedId = (templateId ?? string.Empty).Trim();
+        var normalizedId = (templateId ?? string.Empty).Trim().Replace('_', '-');
         if (OptionsById.TryGetValue(normalizedId, out var resolved))
         {
             option = resolved;
@@ -46,25 +39,11 @@ public static class TikTokProjectImageTemplateCatalog
         return false;
     }
 
-    public static string ResolveName(string? templateId)
-    {
-        var normalizedId = (templateId ?? string.Empty).Trim();
-        if (normalizedId.Length == 0)
-            normalizedId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
+    public static string NormalizeId(string? templateId) =>
+        TryGet(templateId, out var option)
+            ? option.Id
+            : ClientSettingsDefaults.TiktokProjectImageTemplateId;
 
-        return TryGet(normalizedId, out var option)
-            ? option.Name
-            : normalizedId;
-    }
-
-    public static string CreateSelectionLabel(string? templateId)
-    {
-        var normalizedId = (templateId ?? string.Empty).Trim();
-        if (normalizedId.Length == 0)
-            normalizedId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
-
-        return TryGet(normalizedId, out var option)
-            ? option.SelectionLabel
-            : $"未内置模板（保留原值）：{normalizedId}";
-    }
+    public static string ResolveName(string? templateId) =>
+        OptionsById[NormalizeId(templateId)].Name;
 }

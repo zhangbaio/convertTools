@@ -556,9 +556,8 @@ public static class ClientSettingsStore
         settings.PosterNameSystemPrompt = DefaultIfBlank(settings.PosterNameSystemPrompt, ClientSettingsDefaults.PosterNameSystemPrompt);
         settings.PosterNameUserPrompt = DefaultIfBlank(settings.PosterNameUserPrompt, ClientSettingsDefaults.PosterNameUserPrompt);
         settings.TiktokProjectImageTemplateRoot = (settings.TiktokProjectImageTemplateRoot ?? "").Trim();
-        settings.TiktokProjectImageTemplateId = DefaultIfBlank(
-            settings.TiktokProjectImageTemplateId,
-            ClientSettingsDefaults.TiktokProjectImageTemplateId);
+        settings.TiktokProjectImageTemplateId = TikTokProjectImageTemplateCatalog.NormalizeId(
+            settings.TiktokProjectImageTemplateId);
         settings.TiktokProjectImageCount = Math.Clamp(
             settings.TiktokProjectImageCount <= 0
                 ? ClientSettingsDefaults.TiktokProjectImageCount

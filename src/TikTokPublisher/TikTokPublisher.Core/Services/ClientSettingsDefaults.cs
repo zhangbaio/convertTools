@@ -83,8 +83,8 @@ public static class ClientSettingsDefaults
     public const int TiktokMinimumEpisodeCount = 30;
     public const int TiktokMaximumEpisodeCount = 120;
     public const int TiktokOverLimitDownloadEpisodeCount = TiktokMaximumEpisodeCount;
-    public const string TiktokProjectImageTemplateId = "image-template-project-image-3";
-    public const string TiktokProjectImageTemplateName = "图片模板工程图3";
+    public const string TiktokProjectImageTemplateId = "image-template-project-image-10";
+    public const string TiktokProjectImageTemplateName = "图片模板工程图10";
     public const int TiktokProjectImageCount = 4;
     public const int TiktokProjectImageRenderEpisodeLimit = 6;
     public const string TiktokProjectImageSubtitleAiMode = "fast";

@@ -26,7 +26,7 @@ public sealed class ClientSettingsProjectImageSettingsTests
                 databasePath);
 
             var settings = ClientSettingsStore.Load(databasePath);
-            settings.TiktokProjectImageTemplateId.Should().Be("image_template_project_image_13");
+            settings.TiktokProjectImageTemplateId.Should().Be("image-template-project-image-13");
             ClientSettingsStore.Save(settings, databasePath);
 
             AppSettingStore.TryLoadJson<Dictionary<string, JsonElement>>(
@@ -52,7 +52,7 @@ public sealed class ClientSettingsProjectImageSettingsTests
             using var document = JsonDocument.Parse(File.ReadAllText(path));
             var root = document.RootElement;
 
-            root.GetProperty("ProjectImageTemplateId").GetString().Should().Be(settings.TiktokProjectImageTemplateId);
+            root.GetProperty("ProjectImageTemplateId").GetString().Should().Be("image-template-project-image-13");
             root.GetProperty("ProjectImageSubtitleAiMode").GetString().Should().Be("off");
             root.TryGetProperty("ProjectImageGenerationMode", out _).Should().BeFalse();
         }

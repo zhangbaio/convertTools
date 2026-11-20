@@ -7,23 +7,17 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class ProjectImageTemplateBundlingTests
 {
     [Fact]
-    public void Build_output_contains_templates_3_through_11_and_all_manifest_pages()
+    public void Build_output_contains_templates_10_11_13_and_all_manifest_pages()
     {
         var templateRoot = Path.Combine(AppContext.BaseDirectory, "templates", "project-image");
         var expectedVersions = new Dictionary<int, long>
         {
-            [3] = 2026060104,
-            [4] = 2026060103,
-            [5] = 2026060103,
-            [6] = 2026060103,
-            [7] = 2026073102,
-            [8] = 2026080101,
-            [9] = 2026080504,
             [10] = 2026080603,
             [11] = 2026081204,
+            [13] = 2026091310,
         };
 
-        foreach (var number in Enumerable.Range(3, 9))
+        foreach (var number in expectedVersions.Keys)
         {
             var templateDirectory = Path.Combine(templateRoot, $"image_template_project_image_{number}");
             var rootManifestPath = Path.Combine(templateDirectory, "template.json");
@@ -41,10 +35,10 @@ public sealed class ProjectImageTemplateBundlingTests
                 var extractDialogue = rootManifest.RootElement.TryGetProperty("extract_dialogue", out var extractElement)
                     ? extractElement.GetBoolean()
                     : true;
-                extractDialogue.Should().Be(number < 8);
+                extractDialogue.Should().Be(number == 13);
                 var timelineOverlay = rootManifest.RootElement.TryGetProperty("render_timeline_overlay", out var overlayElement) &&
                                       overlayElement.GetBoolean();
-                timelineOverlay.Should().Be(number == 5);
+                timelineOverlay.Should().BeFalse();
             }
 
             var templateBoundary = Path.GetFullPath(templateDirectory)
@@ -77,7 +71,7 @@ public sealed class ProjectImageTemplateBundlingTests
                     var imageInfo = Image.Identify(pagePath);
                     imageInfo.Should().NotBeNull();
                     imageInfo!.Width.Should().Be(1920);
-                    imageInfo.Height.Should().BeOneOf(1032, 1080);
+                    imageInfo.Height.Should().Be(number == 13 ? 1040 : 1032);
                 }
             }
 

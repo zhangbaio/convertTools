@@ -496,7 +496,7 @@
                             <Grid DockPanel.Dock="Top"
                                   ColumnDefinitions="200,200,70,80,170,*,72"
                                   Height="36"
-                                  Background="#F8F5F1">
+                                  Background="{StaticResource PythonPanelBgBrush}">
                                 <TextBlock Grid.Column="0" Text="原剧名" Classes="tableHeader" />
                                 <TextBlock Grid.Column="1" Text="新剧名" Classes="tableHeader" />
                                 <TextBlock Grid.Column="2" Text="集数" Classes="tableHeader" />

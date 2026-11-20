@@ -734,9 +734,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         var options = TikTokProjectImageTemplateCatalog.BuiltInOptions
             .Select(option => new KuaishouFormChoice(option.SelectionLabel, option.Id))
             .ToList();
-        var value = string.IsNullOrWhiteSpace(templateId) ? options[0].Value : templateId.Trim();
-        if (options.All(option => !string.Equals(option.Value, value, StringComparison.OrdinalIgnoreCase)))
-            options.Add(new KuaishouFormChoice($"已保存：{value}", value));
+        var value = TikTokProjectImageTemplateCatalog.NormalizeId(templateId);
         box.ItemsSource = options;
         box.SelectedItem = options.First(option => string.Equals(option.Value, value, StringComparison.OrdinalIgnoreCase));
     }

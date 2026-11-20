@@ -209,7 +209,6 @@
                     <Button Content="补全AI大纲（仅PDF）" Click="OnCompleteAiScriptOutlineClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="补全勾选证明材料" Click="OnResumeSelectedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="手动补已删除证明" Click="OnManualDeletedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
-                    <Button Content="匹配已发布剧集" Click="OnMatchPublishedSeriesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="检查未补版权证明" Click="OnAuditPublishedCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="删除版权辅助材料" Click="OnCleanupCopyrightProofMaterialsClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" IsVisible="False" />
                     <Button Content="改新剧名" Click="OnRenameNewTitleClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
@@ -217,7 +216,6 @@
                     <Button Content="勾选到当前项目" Click="OnSelectToCurrentProjectClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="取消全选" Click="OnClearQueueSelectionClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                     <Button Content="归档勾选" Click="OnArchiveSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
-                    <Button Content="移动到账号" Click="OnMoveSelectedProjectsClick" Classes="toolAction compactAction" Margin="0,0,8,8" />
                     <Button Content="删除勾选" Click="OnDeleteSelectedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,8" />
                     <Button Content="全选已完成" Click="OnSelectCompletedQueueClick" Classes="selectionAction compactAction" Margin="0,0,8,8" />
                 </WrapPanel>

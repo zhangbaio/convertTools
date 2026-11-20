@@ -153,14 +153,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                 throw new InvalidOperationException($"工程图数量必须大于 0，当前值为 {count}。");
             }
 
-            var waveformData = manifest.RenderTimelineOverlay
-                ? await ProjectImageAudioWaveformRenderer.DecodeAsync(
-                    _processRunner,
-                    ffmpeg,
-                    sourceVideos,
-                    episodeDurations,
-                    cancellationToken)
-                : null;
             var outputs = new List<string>(count);
 
             for (var index = 0; index < count; index++)
@@ -202,7 +194,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                     episodeDurations,
                     episodeFrames,
                     ffmpeg,
-                    waveformData,
                     count,
                     index + 1,
                     portrait,
@@ -338,7 +329,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         IReadOnlyList<double> episodeDurations,
         IReadOnlyList<Image<Rgba32>> episodeFrames,
         string ffmpeg,
-        ProjectImageAudioWaveformData? waveformData,
         int outputCount,
         int currentIndex,
         bool portrait,
@@ -417,15 +407,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             RenderPlayer(canvas, page, previewFrame, portrait);
             RenderRightSubtitle(canvas, page, portrait, subtitleText);
             RenderAspectRatioLabels(canvas, page, portrait);
-            RenderMaterialPanel(
-                canvas,
-                page,
-                episodeFrames,
-                episodeNames,
-                episodeDurations,
-                projectInfo.Title,
-                materialFrames,
-                trackEpisodeIndex);
             RenderMaterialVideoImages(canvas, page, materialFrames);
             RenderVideoTrackImages(
                 canvas,
@@ -435,16 +416,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
                 trackEpisodeFrames,
                 materialFrames);
             RenderTrackTexts(canvas, page, pageIndex, currentIndex, episodeNames, episodeDurations, projectInfo.Title, episodeFrames.Count, videoTrackRects, subtitleText);
-            if (manifest.RenderTimelineOverlay && waveformData is not null)
-            {
-                ProjectImageAudioWaveformRenderer.Render(
-                    canvas,
-                    waveformData,
-                    trackEpisodeIndex,
-                    videoTrackRects.Count > 0 ? ResolveConfiguredPlayheadX(videoTrackRects[0]) : null,
-                    cancellationToken);
-            }
-
             return canvas;
             }
             finally
@@ -694,76 +665,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
             false,
             "left",
             "top");
-    }
-
-    private static void RenderMaterialPanel(
-        Image<Rgba32> canvas,
-        ProjectImageTemplatePage page,
-        IReadOnlyList<Image<Rgba32>> episodeFrames,
-        IReadOnlyList<string> episodeNames,
-        IReadOnlyList<double> episodeDurations,
-        string projectTitle,
-        IReadOnlyList<Image<Rgba32>> trackFrames,
-        int trackEpisodeIndex)
-    {
-        var rect = page.GetRegion("material_panel");
-        if (rect is null || episodeFrames.Count == 0)
-        {
-            return;
-        }
-
-        var sourceMode = (NoteValue(rect, "source") ?? string.Empty).Trim().ToLowerInvariant();
-        var useTrackFrames = sourceMode is ("track" or "track_frames" or "current_episode") && trackFrames.Count > 0;
-        if (useTrackFrames && ProjectImageTrackMaterialPanelRenderer.TryRender(
-                canvas,
-                rect,
-                trackFrames,
-                trackEpisodeIndex >= 0 && trackEpisodeIndex < episodeDurations.Count
-                    ? episodeDurations[trackEpisodeIndex]
-                    : 0d))
-        {
-            return;
-        }
-
-        var frames = useTrackFrames ? trackFrames : episodeFrames;
-        var requestedItems = NoteInt(rect, "item_count", useTrackFrames ? Math.Min(16, frames.Count) : Math.Min(6, frames.Count), 1, 16);
-        var itemCount = Math.Min(frames.Count, requestedItems);
-        if (itemCount <= 0)
-            return;
-
-        var panelRect = useTrackFrames
-            ? InsetRect(canvas, ExpandRect(canvas, rect, top: 20, bottom: 18, left: 8), top: 18, bottom: 18)
-            : rect;
-        FillRect(canvas, panelRect, SampleRectColor(canvas, panelRect));
-
-        var columns = useTrackFrames ? 4 : panelRect.Width >= panelRect.Height ? 2 : 1;
-        var rows = Math.Max(1, Math.Min(useTrackFrames ? 4 : 3, (int)Math.Ceiling(itemCount / (double)columns)));
-        const int gap = 8;
-        var cellWidth = Math.Max(1, (panelRect.Width - gap * (columns + 1)) / columns);
-        var cellHeight = Math.Max(1, (panelRect.Height - gap * (rows + 1)) / rows);
-        itemCount = Math.Min(itemCount, rows * columns);
-
-        for (var index = 0; index < itemCount; index++)
-        {
-            var row = index / columns;
-            var col = index % columns;
-            var x = panelRect.X + gap + col * (cellWidth + gap);
-            var y = panelRect.Y + gap + row * (cellHeight + gap) + (row == 0 ? 2 : 0);
-
-            var name = useTrackFrames
-                ? $"素材{index + 1}.mp4"
-                : ResolveTrackEpisodeTextWithDuration(index, episodeNames, episodeDurations, projectTitle);
-            var duration = useTrackFrames && trackEpisodeIndex < episodeDurations.Count
-                ? Math.Max(0, Math.Min(10, episodeDurations[trackEpisodeIndex] - index * 10d))
-                : index < episodeDurations.Count ? episodeDurations[index] : 0d;
-
-            using var card = BuildTrackThumbnailCard(
-                frames[index],
-                useTrackFrames ? $"{name}  {FormatTrackTimecode(duration)}" : name,
-                cellWidth,
-                cellHeight);
-            canvas.Mutate(ctx => ctx.DrawImage(card, new Point(x, y), 1f));
-        }
     }
 
     internal static void RenderAspectRatioLabels(
@@ -2938,29 +2839,6 @@ public sealed class ProjectImageGenerator : IProjectImageGenerator
         using var resized = source.Clone(ctx => ctx.Resize(scaledWidth, scaledHeight));
         canvas.Mutate(ctx => ctx.DrawImage(resized, new Point((width - scaledWidth) / 2, (height - scaledHeight) / 2), 1f));
         return canvas;
-    }
-
-    private static Image<Rgba32> BuildTrackThumbnailCard(Image<Rgba32> sourceFrame, string title, int width, int height)
-    {
-        var card = new Image<Rgba32>(width, height, new Rgba32(38, 38, 38, 255));
-        var previewHeight = Math.Max(1, (int)Math.Round(height * 0.72));
-        using var preview = ResizeCrop(sourceFrame, width, previewHeight);
-        card.Mutate(ctx =>
-        {
-            ctx.DrawImage(preview, Point.Empty, 1f);
-            ctx.Fill(new Rgba32(20, 20, 20, 220), new RectangleF(0, previewHeight, width, height - previewHeight));
-        });
-
-        DrawWrappedText(
-            card,
-            new ProjectImageTemplateRegion(8, previewHeight + 6, Math.Max(1, width - 16), Math.Max(1, height - previewHeight - 8)),
-            title,
-            new Rgba32(226, 226, 226, 255),
-            12,
-            false,
-            "left",
-            "top");
-        return card;
     }
 
     private static int? LoadProjectImageCount(string? configFile)

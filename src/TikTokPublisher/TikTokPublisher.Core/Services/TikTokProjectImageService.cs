@@ -341,9 +341,7 @@ public static class TikTokProjectImageService
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        var selectedId = (settings.TiktokProjectImageTemplateId ?? string.Empty).Trim();
-        if (selectedId.Length == 0)
-            selectedId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
+        var selectedId = TikTokProjectImageTemplateCatalog.NormalizeId(settings.TiktokProjectImageTemplateId);
 
         var explicitRoot = (settings.TiktokProjectImageTemplateRoot ?? string.Empty).Trim();
         var explicitDirectory = FindSelectedTemplateDirectory(explicitRoot, selectedId);
@@ -420,9 +418,8 @@ public static class TikTokProjectImageService
     private static ClientSettings NormalizeProjectImageSettings(ClientSettings settings)
     {
         settings.TiktokProjectImageTemplateRoot = (settings.TiktokProjectImageTemplateRoot ?? "").Trim();
-        settings.TiktokProjectImageTemplateId = string.IsNullOrWhiteSpace(settings.TiktokProjectImageTemplateId)
-            ? ClientSettingsDefaults.TiktokProjectImageTemplateId
-            : settings.TiktokProjectImageTemplateId.Trim();
+        settings.TiktokProjectImageTemplateId = TikTokProjectImageTemplateCatalog.NormalizeId(
+            settings.TiktokProjectImageTemplateId);
         settings.TiktokProjectImageCount = ResolveCount(settings);
         settings.TiktokProjectImageRenderEpisodeLimit = ResolveRenderEpisodeLimit(settings);
         return settings;

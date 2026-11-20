@@ -12,11 +12,11 @@ public sealed class ProjectImageTemplateCatalogTests
     {
         using var tempDir = new TempDir();
         var projectRoot = tempDir.Path;
-        var templateDir = CreateTemplatePackage(projectRoot, "image-template-project-image-3");
+        var templateDir = CreateTemplatePackage(projectRoot, "image-template-project-image-10");
 
         var resolved = ProjectImageTemplateCatalog.ResolveTemplateDirectory(
             Path.Combine(projectRoot, "missing-root"),
-            "image-template-project-image-3",
+            "image-template-project-image-10",
             Path.Combine(projectRoot, "missing-dir"),
             projectRoot);
 
@@ -28,7 +28,7 @@ public sealed class ProjectImageTemplateCatalogTests
     {
         using var tempDir = new TempDir();
         var projectRoot = tempDir.Path;
-        var templateDir = CreateTemplatePackage(projectRoot, "image-template-project-image-5");
+        var templateDir = CreateTemplatePackage(projectRoot, "image-template-project-image-11");
 
         var resolved = ProjectImageTemplateCatalog.ResolveTemplateRoot(
             Path.Combine(projectRoot, "stale-root"),
@@ -42,13 +42,13 @@ public sealed class ProjectImageTemplateCatalogTests
     public void Manifest_should_support_region_arrays_with_note_metadata()
     {
         using var tempDir = new TempDir();
-        var root = Path.Combine(tempDir.Path, "templates", "project-image", "image-template-project-image-3");
+        var root = Path.Combine(tempDir.Path, "templates", "project-image", "image-template-project-image-10");
         Directory.CreateDirectory(root);
 
         var payload = """
         {
-          "id": "image-template-project-image-3",
-          "name": "template-3",
+          "id": "image-template-project-image-10",
+          "name": "template-10",
           "count": 1,
           "templates": [
             {

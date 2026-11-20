@@ -69,7 +69,7 @@ public static class ClientSettingsWorkflowConfigWriter
             ["FrameExtractFallbackPercents"] = settings.FrameExtractFallbackPercents,
             ["FrameCoverPrompt"] = settings.FrameCoverPrompt,
             ["ProjectImageTemplateRoot"] = settings.TiktokProjectImageTemplateRoot,
-            ["ProjectImageTemplateId"] = settings.TiktokProjectImageTemplateId,
+            ["ProjectImageTemplateId"] = TikTokProjectImageTemplateCatalog.NormalizeId(settings.TiktokProjectImageTemplateId),
             ["ProjectImageTemplateName"] = TikTokProjectImageTemplateCatalog.ResolveName(
                 settings.TiktokProjectImageTemplateId),
             ["ProjectImageCount"] = settings.TiktokProjectImageCount,

@@ -40,13 +40,13 @@
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="8" Margin="0,12,0,0">
                     <StackPanel Spacing="4">
                         <TextBlock Text="原始画面" />
-                        <Border BorderBrush="#E5E7EB" BorderThickness="1" Background="#F8FAFC" Height="280">
+                        <Border BorderBrush="#E5E7EB" BorderThickness="1" Background="{StaticResource PythonPanelBgBrush}" Height="280">
                             <Image x:Name="OriginalView" Stretch="Uniform" />
                         </Border>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Spacing="4">
                         <TextBlock Text="应用效果后" />
-                        <Border BorderBrush="#E5E7EB" BorderThickness="1" Background="#F8FAFC" Height="280">
+                        <Border BorderBrush="#E5E7EB" BorderThickness="1" Background="{StaticResource PythonPanelBgBrush}" Height="280">
                             <Image x:Name="FilteredView" Stretch="Uniform" />
                         </Border>
                     </StackPanel>

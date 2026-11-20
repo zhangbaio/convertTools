@@ -36,7 +36,6 @@ public sealed record ProjectImageTemplateManifest(
     string Name,
     int Count,
     IReadOnlyList<ProjectImageTemplatePage> Templates,
-    bool RenderTimelineOverlay = false,
     long AssetVersion = 0,
     bool ExtractDialogue = true,
     bool RequirePlayerSubtitle = false,
@@ -55,7 +54,6 @@ public sealed record ProjectImageTemplateManifest(
         var id = GetString(root, "id") ?? Path.GetFileName(templateDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         var name = GetString(root, "name") ?? id;
         var count = GetInt(root, "count") ?? 0;
-        var renderTimelineOverlay = GetBool(root, "render_timeline_overlay");
         var assetVersion = GetLong(root, "asset_version") ?? GetLong(root, "version") ?? 0;
         var extractDialogue = GetBool(root, "extract_dialogue", defaultValue: true);
         var requirePlayerSubtitle = GetBool(root, "require_player_subtitle");
@@ -101,7 +99,6 @@ public sealed record ProjectImageTemplateManifest(
             name,
             resolvedCount,
             pages,
-            renderTimelineOverlay,
             assetVersion,
             extractDialogue,
             requirePlayerSubtitle,

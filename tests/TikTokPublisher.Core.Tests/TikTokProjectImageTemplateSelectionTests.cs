@@ -10,10 +10,9 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokProjectImageTemplateSelectionTests
 {
     [Fact]
-    public void Built_in_options_cover_templates_3_through_13_with_ui_labels_and_ids()
+    public void Built_in_options_only_include_templates_10_11_and_13()
     {
-        var expected = Enumerable.Range(3, 9)
-            .Append(13)
+        var expected = new[] { 10, 11, 13 }
             .Select(number => new
             {
                 Id = $"image-template-project-image-{number}",
@@ -30,23 +29,12 @@ public sealed class TikTokProjectImageTemplateSelectionTests
                 option.SelectionLabel.Contains(option.Id, StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void Unknown_legacy_template_keeps_its_id_in_name_and_ui_label()
-    {
-        const string legacyId = "legacy-private-template";
-
-        TikTokProjectImageTemplateCatalog.ResolveName(legacyId).Should().Be(legacyId);
-        TikTokProjectImageTemplateCatalog.CreateSelectionLabel(legacyId)
-            .Should().Contain(legacyId)
-            .And.Contain("保留原值");
-    }
-
     [Theory]
-    [InlineData("image-template-project-image-4", "图片模板工程图4")]
+    [InlineData("image-template-project-image-4", "图片模板工程图10")]
     [InlineData("image-template-project-image-10", "图片模板工程图10")]
     [InlineData("image-template-project-image-11", "图片模板工程图11")]
     [InlineData("image-template-project-image-13", "图片模板工程图13")]
-    [InlineData("legacy-private-template", "legacy-private-template")]
+    [InlineData("legacy-private-template", "图片模板工程图10")]
     public void Workflow_config_writes_the_selected_template_name(string templateId, string expectedName)
     {
         var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(new ClientSettings
@@ -57,7 +45,8 @@ public sealed class TikTokProjectImageTemplateSelectionTests
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(path));
-            document.RootElement.GetProperty("ProjectImageTemplateId").GetString().Should().Be(templateId);
+            document.RootElement.GetProperty("ProjectImageTemplateId").GetString().Should().Be(
+                TikTokProjectImageTemplateCatalog.BuiltInOptions.Single(option => option.Name == expectedName).Id);
             document.RootElement.GetProperty("ProjectImageTemplateName").GetString().Should().Be(expectedName);
         }
         finally
@@ -67,18 +56,18 @@ public sealed class TikTokProjectImageTemplateSelectionTests
     }
 
     [Fact]
-    public void Settings_store_preserves_an_unknown_non_blank_template_id()
+    public void Settings_store_migrates_a_removed_template_to_template_10()
     {
         WithTemporaryDirectory(tempDirectory =>
         {
             var databasePath = Path.Combine(tempDirectory, "app.db");
             ClientSettingsStore.Save(new ClientSettings
             {
-                TiktokProjectImageTemplateId = "  legacy-private-template  ",
+                TiktokProjectImageTemplateId = " image-template-project-image-3 ",
             }, databasePath);
 
             ClientSettingsStore.Load(databasePath).TiktokProjectImageTemplateId
-                .Should().Be("legacy-private-template");
+                .Should().Be("image-template-project-image-10");
             SqliteConnection.ClearAllPools();
         });
     }

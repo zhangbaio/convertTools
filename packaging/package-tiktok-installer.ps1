@@ -813,7 +813,7 @@ Invoke-Checked -FilePath $dotnet -Arguments @(
     "/p:IncludeNativeLibrariesForSelfExtract=true"
 )
 
-Assert-ProjectImageTemplatesPublished -PublishDirectory $PublishDir -TemplateNumbers (3..11)
+Assert-ProjectImageTemplatesPublished -PublishDirectory $PublishDir -TemplateNumbers @(10, 11, 13)
 Assert-ArticlesOfIncorporationPublished -PublishDirectory $PublishDir
 
 $publishTools = Join-Path $PublishDir "tools"

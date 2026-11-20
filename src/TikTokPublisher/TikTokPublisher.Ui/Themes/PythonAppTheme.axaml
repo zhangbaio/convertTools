@@ -3,10 +3,10 @@
 
     <Styles.Resources>
     <!-- 对齐 Python tiktok_uploader_client/theme.py -->
-    <Color x:Key="PythonBg">#F5F7FA</Color>
-    <Color x:Key="PythonPageBg">#F3F6FA</Color>
+    <Color x:Key="PythonBg">#FFFFFF</Color>
+    <Color x:Key="PythonPageBg">#FFFFFF</Color>
     <Color x:Key="PythonPanelBg">#FFFFFF</Color>
-    <Color x:Key="PythonPanelSubtleBg">#FBFCFE</Color>
+    <Color x:Key="PythonPanelSubtleBg">#FFFFFF</Color>
     <Color x:Key="PythonPanelBorder">#D9E2EC</Color>
     <Color x:Key="PythonText">#111827</Color>
     <Color x:Key="PythonMuted">#64748B</Color>
@@ -23,7 +23,7 @@
     <Color x:Key="PythonInputBg">#FFFFFF</Color>
     <Color x:Key="PythonInputBorder">#CBD5E1</Color>
     <Color x:Key="PythonInputFocus">#7CB9F2</Color>
-    <Color x:Key="PythonStatusBar">#EEF3F8</Color>
+    <Color x:Key="PythonStatusBar">#FFFFFF</Color>
     <Color x:Key="PythonNavSelectedBg">#EAF4FF</Color>
     <Color x:Key="PythonSuccessText">#047857</Color>
     <Color x:Key="PythonPendingText">#B45309</Color>
@@ -61,7 +61,7 @@
     </Style>
 
     <Style Selector="Border.taskStepFrame">
-        <Setter Property="Background" Value="#F8FBFF" />
+        <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
         <Setter Property="BorderBrush" Value="#CFE2F6" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="6" />
@@ -88,7 +88,7 @@
     </Style>
 
     <Style Selector="Border.accountSidebarFrame">
-        <Setter Property="Background" Value="#FBFCFE" />
+        <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
         <Setter Property="BorderBrush" Value="#D8E2EC" />
         <Setter Property="BorderThickness" Value="0,0,1,0" />
     </Style>

@@ -230,9 +230,7 @@ public partial class SystemSettingsView : UserControl
         if (_vm is null || _syncingProjectImageTemplateCombo)
             return;
 
-        var selectedId = (_vm.TiktokProjectImageTemplateId ?? string.Empty).Trim();
-        if (selectedId.Length == 0)
-            selectedId = ClientSettingsDefaults.TiktokProjectImageTemplateId;
+        var selectedId = TikTokProjectImageTemplateCatalog.NormalizeId(_vm.TiktokProjectImageTemplateId);
 
         _syncingProjectImageTemplateCombo = true;
         try
@@ -247,14 +245,6 @@ public partial class SystemSettingsView : UserControl
                     item.Tag as string,
                     selectedId,
                     StringComparison.OrdinalIgnoreCase));
-            if (selectedItem is null)
-            {
-                selectedItem = CreateItem(
-                    TikTokProjectImageTemplateCatalog.CreateSelectionLabel(selectedId),
-                    selectedId);
-                ProjectImageTemplateCombo.Items.Add(selectedItem);
-            }
-
             ProjectImageTemplateCombo.SelectedItem = selectedItem;
         }
         finally
