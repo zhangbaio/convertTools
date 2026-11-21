@@ -102,16 +102,19 @@ public sealed class MachineResourceMathTests
     {
         OperatingSystem.IsWindows().Should().BeTrue();
 
-        MachineResourceSnapshot? latest = null;
+        var sampled = new TaskCompletionSource<MachineResourceSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var monitor = new MachineResourceMonitor();
-        monitor.Updated += snapshot => latest = snapshot;
+        monitor.Updated += snapshot =>
+        {
+            if (snapshot.CpuPercent is not null && snapshot.MemoryPercent is not null)
+                sampled.TrySetResult(snapshot);
+        };
         monitor.Start();
-        await Task.Delay(TimeSpan.FromSeconds(3));
+        var latest = await sampled.Task.WaitAsync(TimeSpan.FromSeconds(20));
 
-        latest.Should().NotBeNull();
-        latest!.Value.MemoryPercent.Should().BeInRange(1, 100);
-        latest.Value.CpuPercent.Should().BeInRange(0, 100);
-        if (latest.Value.GpuPercent is int gpu)
+        latest.MemoryPercent.Should().BeInRange(1, 100);
+        latest.CpuPercent.Should().BeInRange(0, 100);
+        if (latest.GpuPercent is int gpu)
             gpu.Should().BeInRange(0, 100);
     }
 

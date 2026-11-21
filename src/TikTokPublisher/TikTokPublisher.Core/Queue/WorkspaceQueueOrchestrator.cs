@@ -1,10 +1,9 @@
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
-namespace TikTokPublisher.Ui.Services;
+namespace TikTokPublisher.Core.Queue;
 
 public sealed record WorkspaceQueueRunInfo(
     string WorkspaceRoot,
@@ -26,6 +25,7 @@ public sealed class WorkspaceQueueOrchestrator
     public WorkspaceQueueOrchestrator(XingeUploadTaskReporter? uploadTaskReporter = null) =>
         _uploadTaskReporter = uploadTaskReporter ?? XingeUploadTaskReporter.Shared;
     private readonly Dictionary<string, ActiveRun> _runs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _projectDeletionWorkspaces = new(StringComparer.OrdinalIgnoreCase);
 
     public event Action<QueueProjectItem, string, string>? ManualInterventionPending;
 
@@ -36,6 +36,13 @@ public sealed class WorkspaceQueueOrchestrator
             lock (_lock)
                 return _runs.Values.Any(run => !run.Task.IsCompleted);
         }
+    }
+
+    internal bool IsWorkspaceOccupied(string workspaceRoot)
+    {
+        lock (_lock)
+            return _projectDeletionWorkspaces.Contains(workspaceRoot) ||
+                   (_runs.TryGetValue(workspaceRoot, out var run) && !run.Task.IsCompleted);
     }
 
     public IReadOnlyList<WorkspaceQueueRunInfo> Snapshot()
@@ -86,8 +93,17 @@ public sealed class WorkspaceQueueOrchestrator
         ActiveRun run;
         lock (_lock)
         {
+            if (_projectDeletionWorkspaces.Contains(Path.TrimEndingDirectorySeparator(root)))
+                throw new InvalidOperationException($"工作目录正在删除项目：{root}");
             if (_runs.TryGetValue(root, out var existing) && !existing.Task.IsCompleted)
                 throw new InvalidOperationException($"工作目录队列已在运行：{root}");
+
+            var visible = WorkspaceQueueService.WithoutDeletedProjects(root, items);
+            if (visible.Count != items.Count)
+            {
+                QueueWorkerRunner.ValidateRunSelection(visible, options, store, projectDirFilter);
+                items = visible;
+            }
 
             linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var runner = new QueueWorkerRunner(_sharedUploadSlots, _sharedProjectSlots);
@@ -291,6 +307,34 @@ public sealed class WorkspaceQueueOrchestrator
         return 0;
     }
 
+    public IDisposable? TryReserveWorkspaceForDeletion(string workspaceRoot)
+    {
+        var key = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workspaceRoot));
+        lock (_lock)
+        {
+            if (_runs.Any(pair => !pair.Value.Task.IsCompleted &&
+                string.Equals(Path.TrimEndingDirectorySeparator(pair.Key), key, StringComparison.OrdinalIgnoreCase)))
+                return null;
+            if (!_projectDeletionWorkspaces.Add(key))
+                return null;
+            return new DeletionReservation(this, key);
+        }
+    }
+
+    private sealed class DeletionReservation(WorkspaceQueueOrchestrator owner, string key) : IDisposable
+    {
+        private WorkspaceQueueOrchestrator? _owner = owner;
+
+        public void Dispose()
+        {
+            var orchestrator = Interlocked.Exchange(ref _owner, null);
+            if (orchestrator is null)
+                return;
+            lock (orchestrator._lock)
+                orchestrator._projectDeletionWorkspaces.Remove(key);
+        }
+    }
+
     public int UncheckRunningProjectsExcept(string workspaceRoot, IReadOnlyCollection<string> keepProjectDirs)
     {
         var root = Path.GetFullPath(workspaceRoot);
@@ -312,6 +356,16 @@ public sealed class WorkspaceQueueOrchestrator
                 return run.Runner.AddItems(items);
         }
 
+        return 0;
+    }
+
+    internal int TryAppendRetryItemsToRunningWorkspace(string workspaceRoot, IEnumerable<QueueProjectItem> items)
+    {
+        lock (_lock)
+        {
+            if (_runs.TryGetValue(workspaceRoot, out var run) && !run.Task.IsCompleted && !run.Options.ForceRerunCompletedSteps)
+                return run.Runner.AddItems(items);
+        }
         return 0;
     }
 
@@ -423,4 +477,5 @@ public sealed record WorkspaceQueueTarget(
     string? AccountProfileId,
     IReadOnlyCollection<string>? ProjectDirFilter = null,
     FinalAction? FinalActionOverride = null,
-    bool PreferPersistedQueueSnapshot = false);
+    bool PreferPersistedQueueSnapshot = false,
+    bool PreserveCompletedSteps = false);

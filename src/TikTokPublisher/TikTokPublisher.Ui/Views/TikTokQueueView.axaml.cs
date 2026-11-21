@@ -67,7 +67,6 @@ public partial class TikTokQueueView : UserControl
     private double _queueResizeStartWidth;
     private bool _lockingQueueListHorizontalOffset;
     private readonly HashSet<string> _queueStopRequestedWorkspaces = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _activeQueueRunWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CancellationTokenSource> _copyrightProofPreparationRuns =
         new(StringComparer.OrdinalIgnoreCase);
     private bool _uploadTitleImportActive;
@@ -157,7 +156,7 @@ public partial class TikTokQueueView : UserControl
             return false;
 
         var workspace = NormalizeQueueWorkspaceRoot(_vm.WorkspacePath ?? "");
-        return !string.IsNullOrWhiteSpace(workspace) && _activeQueueRunWorkspaces.Contains(workspace);
+        return _vm.IsWorkspaceQueueCommandActive(workspace);
     }
 
     private bool IsUploadTitleImportActiveForCurrentWorkspace()
@@ -3712,8 +3711,7 @@ public partial class TikTokQueueView : UserControl
         }
 
         var runWorkspaceRoot = NormalizeQueueWorkspaceRoot(runTarget.WorkspaceRoot);
-        if (_activeQueueRunWorkspaces.Contains(runWorkspaceRoot) ||
-            vm.IsWorkspaceQueueBusy(runWorkspaceRoot))
+        if (vm.IsWorkspaceQueueBusy(runWorkspaceRoot))
         {
             vm.StatusMessage = "目标工作目录队列正在启动、运行或安全收尾，本次启动未生效；请等待结束后再执行";
             vm.AppendLog(vm.StatusMessage);
@@ -3768,19 +3766,6 @@ public partial class TikTokQueueView : UserControl
             optionsOverride = confirmedOptions;
         }
 
-        if (!_activeQueueRunWorkspaces.Add(runWorkspaceRoot))
-        {
-            vm.StatusMessage = "目标工作目录已有启动请求正在处理，本次启动未生效";
-            vm.AppendLog(vm.StatusMessage);
-            return false;
-        }
-        if (vm.IsWorkspaceQueueBusy(runWorkspaceRoot))
-        {
-            _activeQueueRunWorkspaces.Remove(runWorkspaceRoot);
-            vm.StatusMessage = "目标工作目录在确认期间已被其它任务启动，本次启动未生效";
-            vm.AppendLog(vm.StatusMessage);
-            return false;
-        }
         _queueStopRequestedWorkspaces.Remove(runWorkspaceRoot);
         RefreshQueueRunButtons();
 
@@ -3822,7 +3807,7 @@ public partial class TikTokQueueView : UserControl
         try
         {
             var host = CreateQueuePublishHost();
-            var ct = vm.BeginQueueRun();
+            vm.BeginQueueRun();
             queueRunStarted = true;
             if (localCheckedQueue)
             {
@@ -3834,16 +3819,18 @@ public partial class TikTokQueueView : UserControl
                 : "开始新一轮 TikTok 队列执行。");
             RefreshQueueRunButtons();
 
-            var summary = await vm.RunQueueWorkerAsync(
+            var runTask = vm.RunQueueWorkerAsync(
                 host,
                 p => _queueProgressSink?.Post(p),
                 (root, items) => vm.EnqueuePersistedQueueItems(root, items),
-                ct,
+                CancellationToken.None,
                 optionsOverride,
                 orderedProjectDirFilter,
                 OnQueueWorkerStarted,
                 runTarget,
                 preserveProjectLogsSince);
+            RefreshQueueRunButtons();
+            var summary = await runTask;
             workerReturnedSummary = summary is not null;
             if (summary is null)
                 vm.StatusMessage = "目标工作目录队列为空，未启动执行";
@@ -3865,7 +3852,6 @@ public partial class TikTokQueueView : UserControl
         {
             if (notedLocalCheckedQueue)
                 vm.NoteLocalCheckedQueue(runWorkspaceRoot, false);
-            _activeQueueRunWorkspaces.Remove(runWorkspaceRoot);
             if (queueRunStarted)
                 vm.EndQueueRun();
             RefreshQueueRunButtons();
@@ -3895,7 +3881,7 @@ public partial class TikTokQueueView : UserControl
 
         try
         {
-            return Path.GetFullPath(root);
+            return Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         }
         catch
         {
@@ -3934,47 +3920,28 @@ public partial class TikTokQueueView : UserControl
             .Select(target => NormalizeQueueWorkspaceRoot(target.WorkspaceRoot))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        if (targetRoots.Length != targets.Count)
-        {
-            vm.StatusMessage = "执行目标中包含重复工作目录，已取消启动";
-            vm.AppendLog(vm.StatusMessage);
-            return false;
-        }
-
-        var occupiedTarget = targets.FirstOrDefault(target =>
-        {
-            var root = NormalizeQueueWorkspaceRoot(target.WorkspaceRoot);
-            return _activeQueueRunWorkspaces.Contains(root) || vm.IsWorkspaceQueueBusy(root);
-        });
-        if (occupiedTarget is not null)
-        {
-            vm.StatusMessage = $"目标工作目录队列正在启动、运行或安全收尾：{occupiedTarget.WorkspaceRoot}";
-            vm.AppendLog(vm.StatusMessage);
-            return false;
-        }
-
-        foreach (var root in targetRoots)
-            _activeQueueRunWorkspaces.Add(root);
 
         var completed = false;
         var queueRunBegun = false;
         try
         {
             var host = CreateQueuePublishHost();
-            var ct = vm.BeginQueueRun();
+            vm.BeginQueueRun();
             queueRunBegun = true;
             foreach (var root in targetRoots)
                 _queueStopRequestedWorkspaces.Remove(root);
             RefreshQueueRunButtons();
             vm.StatusMessage = $"并行执行 {targets.Count} 个工作目录队列…";
 
-            var summaries = await vm.RunAllAccountWorkspaceQueuesAsync(
+            var runTask = vm.RunAllAccountWorkspaceQueuesAsync(
                 host,
                 p => _queueProgressSink?.Post(p),
                 (root, items) => vm.EnqueuePersistedQueueItems(root, items),
-                ct,
+                CancellationToken.None,
                 targetsOverride,
                 optionsOverride);
+            RefreshQueueRunButtons();
+            var summaries = await runTask;
 
             var success = summaries.Sum(s => s?.SuccessCount ?? 0);
             var failed = summaries.Sum(s => s?.FailedCount ?? 0);
@@ -4000,8 +3967,6 @@ public partial class TikTokQueueView : UserControl
         {
             if (queueRunBegun)
                 vm.EndQueueRun();
-            foreach (var root in targetRoots)
-                _activeQueueRunWorkspaces.Remove(root);
             RefreshQueueRunButtons();
         }
 
@@ -4020,10 +3985,12 @@ public partial class TikTokQueueView : UserControl
                 _queueStopRequestedWorkspaces.Add(root);
                 preparationCancelled = CancelCopyrightProofPreparation(root);
             }
-            vm.RequestStopQueue(root);
+            var stopped = vm.RequestStopQueue(root);
             vm.StatusMessage = preparationCancelled
                 ? "正在停止补全版权证明…"
-                : "正在停止队列…";
+                : stopped ? "正在停止队列…" : "当前账号没有可停止的队列";
+            if (!preparationCancelled && !stopped)
+                _queueStopRequestedWorkspaces.Remove(root);
         }
         RefreshQueueRunButtons();
     }

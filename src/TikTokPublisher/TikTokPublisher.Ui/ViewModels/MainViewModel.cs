@@ -79,6 +79,8 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly AccountStore _store;
     private readonly AccountContextService _context;
     private readonly WorkspaceQueueOrchestrator _queueOrchestrator = new();
+    private readonly QueueExecutionUseCase _queueExecution;
+    private readonly QueueRetryUseCase _queueRetry;
     private readonly QueueStatePersistService _queueStatePersist = new();
     private readonly XingeRemoteCommandService _xingeRemoteCommandService = new();
     private readonly TikTokDispatchQueueScheduler _dispatchScheduler = new();
@@ -88,9 +90,6 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly object _xingeUploadScanSync = new();
     private bool _xingeUploadScanRunning;
     private IReadOnlyDictionary<string, IReadOnlyList<TikTokUploadedDrama>?>? _lastXingeUploadedToday;
-    private CancellationTokenSource? _queueCts;
-    private readonly Dictionary<string, CancellationTokenSource> _workspaceQueueRunCancellations =
-        new(StringComparer.OrdinalIgnoreCase);
     private readonly object _localCheckedQueueLock = new();
     private readonly HashSet<string> _localCheckedQueueWorkspaces = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _checkedQueueFollowUpLock = new();
@@ -104,9 +103,6 @@ public sealed partial class MainViewModel : ViewModelBase
     private string _displayedWorkspaceRoot = "";
     private readonly object _workspaceQueueSnapshotsLock = new();
     private readonly Dictionary<string, WorkspaceQueueSnapshot> _workspaceQueueSnapshots =
-        new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _workspaceQueueRunLifecyclesLock = new();
-    private readonly Dictionary<string, HashSet<WorkspaceQueueRunLifecycle>> _workspaceQueueRunLifecycles =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly object _queueExcelExportLock = new();
     private readonly HashSet<string> _pendingQueueExcelExportWorkspaces =
@@ -265,6 +261,8 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public MainViewModel(AccountStore store, AccountContextService context)
     {
+        _queueExecution = new QueueExecutionUseCase(_queueOrchestrator);
+        _queueRetry = new QueueRetryUseCase(_queueExecution, _queueOrchestrator);
         _store = store;
         _context = context;
         _store.Load();
@@ -317,6 +315,8 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public MainViewModel()
     {
+        _queueExecution = new QueueExecutionUseCase(_queueOrchestrator);
+        _queueRetry = new QueueRetryUseCase(_queueExecution, _queueOrchestrator);
         var store = new AccountStore();
         _store = store;
         _context = new AccountContextService(store);
@@ -1825,10 +1825,10 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public bool IsWorkspaceQueueRunning(string workspaceRoot)
     {
-        var normalized = Path.GetFullPath(workspaceRoot);
+        var normalized = NormalizeWorkspaceRootKey(workspaceRoot);
         return _queueOrchestrator.Snapshot().Any(item =>
             item.IsRunning &&
-            string.Equals(Path.GetFullPath(item.WorkspaceRoot), normalized, StringComparison.OrdinalIgnoreCase));
+            string.Equals(NormalizeWorkspaceRootKey(item.WorkspaceRoot), normalized, StringComparison.OrdinalIgnoreCase));
     }
 
     public void NoteLocalCheckedQueue(string workspace, bool active)
@@ -1872,8 +1872,8 @@ public sealed partial class MainViewModel : ViewModelBase
             return _localCheckedQueueWorkspaces.Contains(root);
     }
 
-    public bool IsWorkspaceQueueBusy(string workspaceRoot) =>
-        IsWorkspaceQueueRunning(workspaceRoot) || IsWorkspaceQueueRunLifecycleActive(workspaceRoot);
+    public bool IsWorkspaceQueueBusy(string workspaceRoot) => _queueExecution.IsBusy(workspaceRoot);
+    public bool IsWorkspaceQueueCommandActive(string workspaceRoot) => _queueExecution.IsActive(workspaceRoot);
 
     private void ClearWorkspaceProjectCollections()
     {
@@ -2018,7 +2018,7 @@ public sealed partial class MainViewModel : ViewModelBase
     }
 
     private static string NormalizeWorkspaceRootKey(string workspaceRoot) =>
-        string.IsNullOrWhiteSpace(workspaceRoot) ? "" : SafeFullPath(workspaceRoot.Trim());
+        string.IsNullOrWhiteSpace(workspaceRoot) ? "" : Path.TrimEndingDirectorySeparator(SafeFullPath(workspaceRoot.Trim()));
 
     private void SetWorkspaceQueueExecutionContext(
         string workspaceRoot,
@@ -2473,116 +2473,50 @@ public sealed partial class MainViewModel : ViewModelBase
         if (target is null || string.IsNullOrWhiteSpace(target.WorkspaceRoot))
             return null;
 
-        // 后台准备期间 runner 尚未注册到编排器，停止请求需通过该工作目录专属的取消源送达。
-        var root = Path.GetFullPath(target.WorkspaceRoot);
-        using var workspaceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        _workspaceQueueRunCancellations[root] = workspaceCts;
-        try
-        {
-            return await RunQueueWorkerCoreAsync(
-                    host,
-                    onProgress,
-                    onPersist,
-                    workspaceCts.Token,
-                    optionsOverride,
-                    projectDirFilter,
-                    onStarted,
-                    target,
-                    preserveProjectLogsSince)
-                .ConfigureAwait(true);
-        }
-        finally
-        {
-            if (_workspaceQueueRunCancellations.TryGetValue(root, out var registered) &&
-                ReferenceEquals(registered, workspaceCts))
-            {
-                _workspaceQueueRunCancellations.Remove(root);
-            }
-        }
+        target = target with { ProjectDirFilter = target.ProjectDirFilter ?? projectDirFilter };
+        return await _queueExecution.InSessionAsync([target], _store,
+            (executions, token) => RunQueueWorkerCoreAsync(
+                host, onProgress, onPersist, token, optionsOverride,
+                onStarted, executions[0], preserveProjectLogsSince), ct).ConfigureAwait(true);
     }
-
     private async Task<QueueWorkerSummary?> RunQueueWorkerCoreAsync(
         IQueuePublishHost host,
         Action<QueueWorkerProgress> onProgress,
         Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
         CancellationToken ct,
         QueueRunOptions? optionsOverride,
-        IReadOnlyCollection<string>? projectDirFilter,
         Action? onStarted,
-        WorkspaceQueueTarget? targetOverride,
+        QueueExecutionTarget execution,
         DateTime? preserveProjectLogsSince)
     {
-        var target = targetOverride ?? CaptureCurrentWorkspaceQueueTarget();
-        if (target is null || string.IsNullOrWhiteSpace(target.WorkspaceRoot))
-            return null;
-
-        var root = Path.GetFullPath(target.WorkspaceRoot);
-        var displayedWorkspace = WorkspacePath.Trim();
-        var isDisplayedWorkspace = !string.IsNullOrWhiteSpace(displayedWorkspace) &&
+        var target = execution.Target;
+        var root = target.WorkspaceRoot;
+        var isDisplayedWorkspace = IsActiveWorkspace(root) &&
             string.Equals(
-                Path.GetFullPath(displayedWorkspace),
-                root,
-                StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(
-                SafeFullPath(_displayedWorkspaceRoot),
+                NormalizeWorkspaceRootKey(_displayedWorkspaceRoot),
                 root,
                 StringComparison.OrdinalIgnoreCase);
-        projectDirFilter = target.ProjectDirFilter ?? projectDirFilter;
         // 后台准备阶段只能读取列表副本，界面集合仍可能被 UI 线程增删。
         var displayedSnapshot = isDisplayedWorkspace && _queueItems.Count > 0
             ? _queueItems.ToList()
             : null;
 
-        // 并行多账号时 SelectedAccount 会随 UI 切换，故优先使用本次执行目标账号；
-        // 只有当前页面直接执行时才回退到当前选中账号。
-        var requestedTargetAccountId = (target.AccountProfileId ?? "").Trim();
-        var targetAccount = FindAccountById(requestedTargetAccountId);
-        if (!string.IsNullOrWhiteSpace(requestedTargetAccountId) && targetAccount is null)
-        {
-            throw new InvalidOperationException(
-                $"本次队列指定的账号已删除或不存在：{requestedTargetAccountId}。请重新选择账号后执行。");
-        }
-
-        var effectiveAccount = targetAccount ?? (isDisplayedWorkspace ? SelectedAccount : null);
-        _queueLogAccount.Value = effectiveAccount?.Id;
+        var effectiveAccount = execution.Account;
+        _queueLogAccount.Value = effectiveAccount.Id;
 
         var runOptions = optionsOverride?.Clone() ?? (isDisplayedWorkspace
             ? BuildQueueRunOptionsFromUi()
-            : LoadQueueRunOptionsForAccountWorkspace(root, effectiveAccount?.Model));
+            : LoadQueueRunOptionsForAccountWorkspace(root, effectiveAccount));
 
-        IReadOnlyList<string>? normalizedProjectFilter = null;
-        HashSet<string>? normalizedProjectFilterSet = null;
-        if (projectDirFilter is not null)
-        {
-            normalizedProjectFilter = projectDirFilter
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            if (normalizedProjectFilter.Count == 0)
-                throw new InvalidOperationException("执行项目筛选为空，已取消启动队列。");
-            normalizedProjectFilterSet = normalizedProjectFilter.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        }
-
-        var preparation = await Task.Run(
-                () => PrepareQueueRun(
-                    root,
-                    displayedSnapshot,
-                    target.PreferPersistedQueueSnapshot,
-                    projectDirFilter is not null,
-                    normalizedProjectFilter,
-                    normalizedProjectFilterSet,
-                    effectiveAccount?.Model,
-                    runOptions,
-                    _store),
-                ct)
+        var preparation = await _queueExecution.PrepareAsync(execution, runOptions, _store, displayedSnapshot, ct)
             .ConfigureAwait(true);
         if (preparation is null)
             return null;
         ct.ThrowIfCancellationRequested();
+        runOptions = preparation.Options;
 
         var queueItemsForRun = preparation.Items;
-        var runItems = preparation.RunItems;
+        var runItems = preparation.SelectedItems;
         var repairedAccountBindingCount = preparation.RepairedItems.Count;
         if (repairedAccountBindingCount > 0)
         {
@@ -2610,18 +2544,15 @@ public sealed partial class MainViewModel : ViewModelBase
         preparation.ValidationError?.Throw();
         var selectedRunCount = preparation.SelectedRunCount;
 
-        Logs.ClearProjectEntries(runItems, preserveProjectLogsSince, effectiveAccount?.Id);
+        Logs.ClearProjectEntries(runItems, preserveProjectLogsSince, effectiveAccount.Id);
         RefreshRunningWorkspacesSummary();
         var batchId = TikTokExecutionHistoryService.NewBatchId();
         var totalCount = selectedRunCount;
         var enabledSteps = runOptions.OrderedEnabledSteps();
         var projectConcurrency = runOptions.ProjectConcurrency;
         var uploadEntryMode = runOptions.UploadEntryMode;
-        var account = effectiveAccount?.Model;
+        var account = effectiveAccount;
         var finalAction = target.FinalActionOverride ?? SelectedFinalAction?.Value ?? FinalAction.None;
-        var label = string.IsNullOrWhiteSpace(target.DisplayLabel)
-            ? $"{effectiveAccount?.DisplayName ?? "当前账号"} · {root}"
-            : target.DisplayLabel;
         SetWorkspaceQueueExecutionContext(root, batchId, account, uploadEntryMode);
         _ = Task.Run(() => TikTokExecutionHistoryService.AppendEvent(
             "run_started",
@@ -2637,17 +2568,13 @@ public sealed partial class MainViewModel : ViewModelBase
                 ["upload_entry_mode"] = uploadEntryMode,
             },
             account: account));
-        var runLifecycle = RegisterWorkspaceQueueRunLifecycle(root);
         try
         {
-            var summary = await _queueOrchestrator.RunWorkspaceAsync(
-                root,
-                queueItemsForRun,
-                runOptions,
-                host,
+            var summary = await _queueExecution.StartPreparedAsync(
+                preparation,
                 _store,
+                host,
                 finalAction,
-                label,
                 progress =>
                 {
                     onProgress(progress);
@@ -2659,9 +2586,7 @@ public sealed partial class MainViewModel : ViewModelBase
                         onPersist(workspaceRoot, items);
                 },
                 ct,
-                normalizedProjectFilter,
-                onStarted,
-                selectionValidated: true);
+                onStarted);
             TikTokExecutionHistoryService.AppendEvent(
                 "run_finished",
                 summary?.Stopped == true ? "stopped" : "completed",
@@ -2703,86 +2628,12 @@ public sealed partial class MainViewModel : ViewModelBase
             {
                 // orchestrator 会先把 IsRunning 置为 false；必须等最终快照刷新/落盘完成后，
                 // 才允许远程导入按 idle 路径 Scan + Save。
-                CompleteWorkspaceQueueRunLifecycle(runLifecycle);
                 RemoveWorkspaceQueueExecutionContext(root, batchId);
             }
         }
     }
 
-    private sealed record QueueRunPreparation(
-        List<QueueProjectItem> Items,
-        QueueProjectItem[] RunItems,
-        IReadOnlyList<QueueProjectItem> RepairedItems,
-        int SelectedRunCount,
-        System.Runtime.ExceptionServices.ExceptionDispatchInfo? ValidationError);
-
-    /// <summary>
-    /// 启动前的磁盘扫描、账号绑定修复与可执行性校验，在线程池执行，不得访问界面集合或绑定属性。
-    /// </summary>
-    private static QueueRunPreparation? PrepareQueueRun(
-        string root,
-        IReadOnlyList<QueueProjectItem>? displayedSnapshot,
-        bool preferPersistedSnapshot,
-        bool hasProjectFilter,
-        IReadOnlyList<string>? normalizedProjectFilter,
-        HashSet<string>? normalizedProjectFilterSet,
-        TikTokAccountProfile? effectiveAccount,
-        QueueRunOptions runOptions,
-        AccountStore store)
-    {
-        var queueItemsForRun = WorkspaceQueueService.ResolveExecutionSnapshot(
-            root,
-            displayedSnapshot,
-            preferPersistedSnapshot).ToList();
-        if (queueItemsForRun.Count == 0)
-        {
-            if (hasProjectFilter)
-                throw new InvalidOperationException($"目标工作目录队列为空，未匹配到本次导入项目：{root}");
-            return null;
-        }
-
-        var runItems = queueItemsForRun.Where(item =>
-            item.Enabled &&
-            !item.Archived &&
-            (normalizedProjectFilterSet is null || normalizedProjectFilterSet.Contains(Path.GetFullPath(item.ProjectDir))))
-            .ToArray();
-        if (runItems.Length == 0)
-            throw new InvalidOperationException($"目标工作目录未匹配到可执行项目，已取消启动队列：{root}");
-
-        // 只有拥有明确执行账号的编排层才允许迁移失效绑定；Core Runner 本身保持严格，
-        // 不会把找不到的账号静默回退到当前活动账号。并且只修复本次实际执行的项目。
-        var repairedItems = new List<QueueProjectItem>();
-        if (effectiveAccount is not null)
-        {
-            foreach (var item in runItems)
-            {
-                if (QueueAccountBindingResolver.RepairForWorkspaceDefault(store, item, effectiveAccount))
-                    repairedItems.Add(item);
-            }
-        }
-
-        // 校验失败也要先让调用方落盘已修复的绑定，因此异常延后到 UI 线程抛出。
-        try
-        {
-            var selectedRunCount = QueueWorkerRunner.ValidateRunSelection(
-                queueItemsForRun,
-                runOptions,
-                store,
-                normalizedProjectFilter);
-            return new QueueRunPreparation(queueItemsForRun, runItems, repairedItems, selectedRunCount, null);
-        }
-        catch (Exception ex)
-        {
-            return new QueueRunPreparation(
-                queueItemsForRun,
-                runItems,
-                repairedItems,
-                0,
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex));
-        }
-    }
-
-    public async Task<IReadOnlyList<QueueWorkerSummary?>> RunAllAccountWorkspaceQueuesAsync(
+    public Task<IReadOnlyList<QueueWorkerSummary?>> RunAllAccountWorkspaceQueuesAsync(
         IQueuePublishHost host,
         Action<QueueWorkerProgress> onProgress,
         Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
@@ -2792,11 +2643,25 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         var targets = targetsOverride ?? BuildAccountWorkspaceTargets();
         if (targets.Count == 0)
-            return Array.Empty<QueueWorkerSummary?>();
+            return Task.FromResult<IReadOnlyList<QueueWorkerSummary?>>([]);
 
+        return _queueExecution.InSessionAsync(targets, _store, (executions, token) =>
+            RunAccountWorkspaceBatchAsync(executions, host, onProgress, onPersist, optionsOverride,
+                targetsOverride is null, token), ct);
+    }
+
+    private async Task<IReadOnlyList<QueueWorkerSummary?>> RunAccountWorkspaceBatchAsync(
+        IReadOnlyList<QueueExecutionTarget> executions,
+        IQueuePublishHost host,
+        Action<QueueWorkerProgress> onProgress,
+        Action<string, IReadOnlyList<QueueProjectItem>> onPersist,
+        QueueRunOptions? optionsOverride,
+        bool saveVisibleOptions,
+        CancellationToken ct)
+    {
         if (!_queueOrchestrator.AnyRunning)
             Logs.ClearAllEntries();
-        if (targetsOverride is null)
+        if (saveVisibleOptions)
         {
             SyncEnabledStepsFromUi();
             if (CanWriteDisplayedQueue(WorkspacePath))
@@ -2804,104 +2669,95 @@ public sealed partial class MainViewModel : ViewModelBase
             PersistAccountQueueSettings();
         }
 
-        var targetOptionsByRoot = new Dictionary<string, QueueRunOptions>(StringComparer.OrdinalIgnoreCase);
-        foreach (var target in targets)
+        var preparedRuns = new List<PreparedQueueExecution>();
+        var stoppedBeforeStart = 0;
+        foreach (var execution in executions)
         {
-            var account = FindAccountById(target.AccountProfileId)?.Model;
-            QueueRunOptions targetOptions;
+            var root = execution.Target.WorkspaceRoot;
+            var account = execution.Account;
+            QueueRunOptions options;
             if (optionsOverride is not null)
             {
-                targetOptions = optionsOverride.Clone();
-                targetOptions.ProjectConcurrency = Math.Clamp(
-                    account?.TiktokProjectConcurrency ?? targetOptions.ProjectConcurrency,
-                    1,
-                    20);
+                options = optionsOverride.Clone();
+                options.ProjectConcurrency = Math.Clamp(account.TiktokProjectConcurrency, 1, 20);
             }
-            else if (account?.Id == SelectedAccount?.Id &&
-                     string.Equals(
-                         Path.GetFullPath(target.WorkspaceRoot),
-                         Path.GetFullPath(WorkspacePath),
-                         StringComparison.OrdinalIgnoreCase))
+            else if (account.Id == SelectedAccount?.Id && IsActiveWorkspace(root))
             {
-                targetOptions = BuildQueueRunOptionsFromUi();
+                options = BuildQueueRunOptionsFromUi();
             }
             else
             {
-                targetOptions = LoadQueueRunOptionsForAccountWorkspace(target.WorkspaceRoot, account);
+                options = LoadQueueRunOptionsForAccountWorkspace(root, account);
             }
 
-            var items = WorkspaceQueueService.ScanProjects(target.WorkspaceRoot);
-            QueueWorkerRunner.ValidateRunSelection(items, targetOptions, _store, target.ProjectDirFilter);
-            CacheWorkspaceQueueOptions(target.WorkspaceRoot, targetOptions);
-            targetOptionsByRoot[Path.GetFullPath(target.WorkspaceRoot)] = targetOptions;
-        }
-
-        foreach (var target in targets)
-            MarkQueueExcelExportPending(target.WorkspaceRoot);
-        RefreshRunningWorkspacesSummary();
-        var batchId = TikTokExecutionHistoryService.NewBatchId();
-        foreach (var target in targets)
-        {
-            var account = FindAccountById(target.AccountProfileId)?.Model;
-            var targetOptions = targetOptionsByRoot[Path.GetFullPath(target.WorkspaceRoot)];
-            SetWorkspaceQueueExecutionContext(
-                target.WorkspaceRoot,
-                batchId,
-                account,
-                targetOptions.UploadEntryMode);
-            TikTokExecutionHistoryService.AppendEvent(
-                "run_started",
-                "running",
-                target.WorkspaceRoot,
-                batchId: batchId,
-                message: "多工作目录队列开始执行",
-                metadata: new Dictionary<string, object?> { ["display_label"] = target.DisplayLabel },
-                account: account);
-        }
-
-        var runLifecycles = targets
-            .Select(target => RegisterWorkspaceQueueRunLifecycle(target.WorkspaceRoot))
-            .ToArray();
-        try
-        {
-            var fallbackFinalAction = SelectedFinalAction?.Value ?? FinalAction.None;
-            return await _queueOrchestrator.RunWorkspacesAsync(
-                targets,
-                host,
-                _store,
-                fallbackFinalAction,
-                target => targetOptionsByRoot[Path.GetFullPath(target.WorkspaceRoot)].Clone(),
-                progress =>
-                {
-                    onProgress(progress);
-                    RefreshRunningWorkspacesSummary();
-                },
-                onPersist,
-                ct);
-        }
-        finally
-        {
+            PreparedQueueExecution? prepared;
             try
             {
-                RefreshRunningWorkspacesSummary();
-                await RefreshWorkspaceProjectsAfterQueueRunAsync(WorkspacePath)
-                    .ConfigureAwait(true);
-                RefreshLogSnapshot();
+                prepared = await _queueExecution.PrepareAsync(execution, options, _store, null, ct,
+                    skipIdleWorkspace: true).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                stoppedBeforeStart++;
+                continue;
+            }
+            if (prepared is null)
+                continue;
+            if (prepared.RepairedItems.Count > 0)
+                _queueStatePersist.Enqueue(root, prepared.Items, options);
+            prepared.ValidationError?.Throw();
+            CacheWorkspaceQueueOptions(root, options);
+            preparedRuns.Add(prepared);
+        }
+
+        if (preparedRuns.Count == 0 && stoppedBeforeStart == 0)
+            throw new InvalidOperationException("没有可执行的工作目录队列，请勾选项目并核对执行步骤。");
+
+        var batchId = TikTokExecutionHistoryService.NewBatchId();
+        var fallbackFinalAction = SelectedFinalAction?.Value ?? FinalAction.None;
+        var summaries = await Task.WhenAll(preparedRuns.Select(RunPreparedAsync)).ConfigureAwait(true);
+        return summaries.Concat(Enumerable.Range(0, stoppedBeforeStart).Select(_ => new QueueWorkerSummary { Stopped = true })).ToArray();
+
+        async Task<QueueWorkerSummary?> RunPreparedAsync(PreparedQueueExecution prepared)
+        {
+            var execution = prepared.Execution;
+            var root = execution.Target.WorkspaceRoot;
+            MarkQueueExcelExportPending(root);
+            SetWorkspaceQueueExecutionContext(root, batchId, execution.Account, prepared.Options.UploadEntryMode);
+            TikTokExecutionHistoryService.AppendEvent(
+                "run_started", "running", root, batchId: batchId, message: "多工作目录队列开始执行",
+                metadata: new Dictionary<string, object?> { ["display_label"] = execution.Target.DisplayLabel },
+                account: execution.Account);
+            try
+            {
+                return await _queueExecution.StartPreparedAsync(prepared, _store, host, fallbackFinalAction,
+                    progress =>
+                    {
+                        onProgress(progress);
+                        RefreshRunningWorkspacesSummary();
+                    },
+                    onPersist, ct).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                return new QueueWorkerSummary { Stopped = true };
             }
             finally
             {
-                await Task.WhenAll(runLifecycles.Select(lifecycle =>
-                        WaitForWorkspaceQueueStatePersistAsync(lifecycle.WorkspaceRoot)))
-                    .ConfigureAwait(true);
-                foreach (var lifecycle in runLifecycles)
+                try
                 {
-                    CompleteWorkspaceQueueRunLifecycle(lifecycle);
-                    RemoveWorkspaceQueueExecutionContext(lifecycle.WorkspaceRoot, batchId);
+                    RefreshRunningWorkspacesSummary();
+                    await RefreshWorkspaceProjectsAfterQueueRunAsync(root, prepared.Items, prepared.Options)
+                        .ConfigureAwait(true);
+                }
+                finally
+                {
+                    try { await WaitForWorkspaceQueueStatePersistAsync(root).ConfigureAwait(true); }
+                    finally { RemoveWorkspaceQueueExecutionContext(root, batchId); }
                 }
             }
         }
     }
-
     public IReadOnlyList<WorkspaceQueueTarget> BuildAccountWorkspaceTargets()
         => BuildAccountWorkspaceTargets(_store.Accounts, skipMissingWorkspace: true, out _);
 
@@ -2911,11 +2767,10 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(workspace))
             return null;
 
-        var root = Path.GetFullPath(workspace);
         var account = SelectedAccount;
         return new WorkspaceQueueTarget(
-            root,
-            $"{account?.DisplayName ?? "当前账号"} · {root}",
+            workspace,
+            $"{account?.DisplayName ?? "当前账号"} · {workspace}",
             account?.Id,
             FinalActionOverride: SelectedFinalAction?.Value ?? FinalAction.None);
     }
@@ -2965,37 +2820,17 @@ public sealed partial class MainViewModel : ViewModelBase
     public bool IsCurrentWorkspaceQueueRunning()
     {
         var root = WorkspacePath.Trim();
-        if (string.IsNullOrEmpty(root))
-            return false;
-
-        var normalized = Path.GetFullPath(root);
-        return _queueOrchestrator.Snapshot().Any(item =>
-            item.IsRunning &&
-            string.Equals(Path.GetFullPath(item.WorkspaceRoot), normalized, StringComparison.OrdinalIgnoreCase));
+        return !string.IsNullOrEmpty(root) && IsWorkspaceQueueRunning(root);
     }
 
-    public void RequestStopQueue(string? workspaceRoot = null)
+    public bool RequestStopQueue(string? workspaceRoot = null)
     {
         var root = (workspaceRoot ?? WorkspacePath).Trim();
-        if (!string.IsNullOrEmpty(root))
-        {
-            // 先交还派单并清掉「本轮结束后再执行」，再取消队列，避免停止收尾时又被拉起来。
-            ReleaseUserStoppedAutoPublish(root);
-            if (_workspaceQueueRunCancellations.TryGetValue(SafeFullPath(root), out var workspaceCts))
-                workspaceCts.Cancel();
-            _queueOrchestrator.StopWorkspace(root);
-        }
-        else
-        {
-            ReleaseUserStoppedAutoPublish(null);
-            _queueOrchestrator.StopAll();
-            _queueCts?.Cancel();
-        }
-
-        // 各次运行的 finally 会调用 EndQueueRun 做引用计数清理，这里只需刷新状态展示。
+        var stopped = _queueExecution.TryStopWorkspace(root, SelectedAccount?.Id,
+            () => ReleaseUserStoppedAutoPublish(root));
         RefreshRunningWorkspacesSummary();
+        return stopped;
     }
-
     public async Task<TikTokRemoteCommandResult> ExecuteRemoteCommandAsync(TikTokRemoteCommand command)
     {
         try
@@ -3028,12 +2863,8 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private TikTokRemoteCommandResult ExecuteRemoteStopQueue(TikTokRemoteCommand command)
     {
-        if (!IsQueueRunning)
+        if (!_queueExecution.TryStopAll(() => ReleaseUserStoppedAutoPublish(null)))
             return TikTokRemoteCommandResult.Success(command.Command, "当前没有运行中的 TikTok 队列。");
-
-        ReleaseUserStoppedAutoPublish(null);
-        _queueOrchestrator.StopAll();
-        _queueCts?.Cancel();
         RefreshRunningWorkspacesSummary();
         StatusMessage = "已接收远程停止队列命令，正在等待所有运行中的队列安全结束。";
         AppendLog(StatusMessage);
@@ -3086,203 +2917,32 @@ public sealed partial class MainViewModel : ViewModelBase
         return TikTokRemoteCommandResult.Accepted(command.Command, $"TikTok 队列已启动，工作目录：{workspace}");
     }
 
-    // XINGE 监控屏下发的手动重试：等同在账号工作目录勾选这些项目后点「执行勾选队列」。
-    // 不重置步骤状态，失败/已停止的步骤由队列重新执行，已完成的跳过；步骤沿用本机界面配置。
     private async Task<TikTokRemoteCommandResult> ExecuteRemoteRetryQueueAsync(TikTokRemoteCommand command)
     {
-        var retryItems = command.RetryItems ?? [];
-        if (retryItems.Count == 0)
-            return TikTokRemoteCommandResult.Failed(command.Command, "重试命令没有指定剧集。");
-
-        var account = FindAccountById(command.AccountProfileId)?.Model;
-        if (account is null)
-        {
-            return TikTokRemoteCommandResult.Failed(
-                command.Command,
-                $"未找到远程命令指定的 TikTok 账号：{FirstNonEmptyText(command.AccountProfileName, command.AccountProfileId)}");
-        }
-
-        var workspace = NormalizeWorkspacePath(account.ResolveWorkspacePath());
-        if (string.IsNullOrWhiteSpace(workspace) || !Directory.Exists(workspace))
-            return TikTokRemoteCommandResult.Failed(command.Command, $"账号「{account.DisplayName}」没有配置有效工作目录。");
-        var root = Path.GetFullPath(workspace);
-        if (IsLocalCheckedQueueRunning(root))
-            return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, root);
-
-        var projectDirs = new List<string>();
-        var missing = new List<string>();
-        foreach (var item in retryItems)
-        {
-            if (!TryResolveRetryProjectDir(root, item.ProjectPath, out var projectDir))
-            {
-                missing.Add(item.ProjectPath);
-                continue;
-            }
-
-            if (item.AutoPublishAssignmentId > 0)
-                RefreshAutoPublishMarkerForRetry(projectDir, item.AutoPublishAssignmentId, account.Id);
-            projectDirs.Add(projectDir);
-        }
-
-        var ordered = BuildOrderedDistinctProjectDirs(projectDirs);
-        if (ordered.Count == 0)
-        {
-            return TikTokRemoteCommandResult.Failed(
-                command.Command,
-                $"要重试的项目不在账号「{account.DisplayName}」的工作目录中或已删除：{string.Join("、", missing.Select(Path.GetFileName).Take(5))}");
-        }
-
-        var skippedText = missing.Count > 0 ? $"，{missing.Count} 个项目已不存在，已跳过" : "";
-        TikTokRemoteCommandResult Accepted(string text)
-        {
-            text += skippedText + "。";
-            StatusMessage = text;
-            AppendLog(text);
-            return TikTokRemoteCommandResult.Accepted(command.Command, text);
-        }
-
-        if (IsWorkspaceQueueRunning(root))
-        {
-            var appended = _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, BuildRetryAppendCandidates(root, ordered, account));
-            if (appended > 0)
-                return Accepted($"已把 {appended} 部重试剧集追加到「{account.DisplayName}」运行中的队列末尾");
-        }
-
-        if ((IsWorkspaceQueueRunning(root) || IsWorkspaceQueueRunLifecycleActive(root)) &&
-            !await WaitForWorkspaceQueueToFinishClosingAsync(root, TimeSpan.FromSeconds(3)))
-        {
-            return TikTokRemoteCommandResult.Failed(command.Command, "目标队列正在收尾，暂不能接纳重试，请稍后再试。");
-        }
-
-        var preparation = PrepareRemoteRetryProjectsWhenIdle(root, ordered, account);
-        if (preparation.AppendCandidates.Count == 0)
-            return TikTokRemoteCommandResult.Failed(command.Command, "要重试的项目没有出现在队列中。");
-        ApplyRemoteUploadIdlePreparationToDisplayedWorkspace(root, preparation);
-
         var runQueueRequested = RemoteQueueRunRequested;
         if (runQueueRequested is null)
             return TikTokRemoteCommandResult.Failed(command.Command, "队列视图尚未初始化，无法执行重试。");
 
-        var target = new WorkspaceQueueTarget(root, $"{account.DisplayName} · {root}", account.Id, ordered);
-        bool started;
-        try
-        {
-            started = await runQueueRequested.Invoke(target, null);
-        }
-        catch (Exception ex)
-        {
-            return TikTokRemoteCommandResult.Failed(command.Command, $"重试队列未启动：{ex.Message}");
-        }
+        var projects = (command.RetryItems ?? [])
+            .Select(item => new QueueRetryProject(item.ProjectPath, item.AutoPublishAssignmentId)).ToArray();
+        var result = await _queueRetry.ExecuteAsync(command.AccountProfileId, _store, projects,
+            IsLocalCheckedQueueRunning,
+            target => runQueueRequested(target, null),
+            (workspace, prepared) =>
+            {
+                if (IsActiveWorkspace(workspace))
+                    ApplyWorkspaceScanResult(workspace, prepared.AllItems.ToList(), prepared.RunOptions);
+            },
+            AppendLog);
+        if (result.Deferred)
+            return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, result.WorkspaceRoot);
+        if (!result.Accepted)
+            return TikTokRemoteCommandResult.Failed(command.Command, result.Message);
 
-        if (!started)
-        {
-            var appended = _queueOrchestrator.TryAppendItemsToRunningWorkspace(root, preparation.AppendCandidates);
-            if (appended > 0)
-                return Accepted($"已把 {appended} 部重试剧集追加到「{account.DisplayName}」运行中的队列末尾");
-            return TikTokRemoteCommandResult.Failed(command.Command, "重试队列未启动：没有可执行的步骤，或工作目录已被其它任务占用。");
-        }
-
-        return Accepted($"已按「执行勾选队列」重新执行「{account.DisplayName}」的 {preparation.AppendCandidates.Count} 部剧");
+        StatusMessage = result.Message;
+        AppendLog(result.Message);
+        return TikTokRemoteCommandResult.Accepted(command.Command, result.Message);
     }
-
-    private static bool TryResolveRetryProjectDir(string root, string projectPath, out string projectDir)
-    {
-        projectDir = "";
-        try
-        {
-            projectDir = Path.GetFullPath(projectPath);
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return false;
-        }
-
-        var prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        return projectDir.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && Directory.Exists(projectDir);
-    }
-
-    // 服务端为重试重新占用了派单时，项目标记换成新派单，后续上报才会计入新派单。
-    private void RefreshAutoPublishMarkerForRetry(string projectDir, long assignmentId, string accountId)
-    {
-        try
-        {
-            var marker = XingeAutoPublishMarkerStore.TryRead(projectDir);
-            if (marker is { IsActive: true } && marker.AssignmentId == assignmentId)
-                return;
-            var createdAt = marker is not null && marker.AssignmentId == assignmentId && marker.CreatedAt != default
-                ? marker.CreatedAt
-                : (DateTimeOffset?)null;
-            XingeAutoPublishMarkerStore.Write(projectDir, new XingeAutoPublishAssignment(
-                assignmentId,
-                $"{XingeAutoPublishProgressReporter.DefaultProgressPathPrefix}{assignmentId}/progress",
-                marker?.SeriesId ?? "",
-                FirstNonEmptyText(marker?.AccountProfileId, accountId),
-                marker?.Title ?? ""), createdAt);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            AppendLog($"更新自动上新标记失败：{projectDir}：{ex.Message}");
-        }
-    }
-
-    private static List<QueueProjectItem> BuildRetryAppendCandidates(
-        string workspaceRoot,
-        IReadOnlyList<string> orderedProjectDirs,
-        TikTokAccountProfile account)
-    {
-        var byProjectDir = WorkspaceQueueService.ScanProjects(workspaceRoot)
-            .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
-            .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        var candidates = new List<QueueProjectItem>();
-        foreach (var projectDir in orderedProjectDirs)
-        {
-            if (!byProjectDir.TryGetValue(projectDir, out var item))
-                continue;
-            MarkRetryCandidate(item, account);
-            candidates.Add(item);
-        }
-
-        return candidates;
-    }
-
-    private static RemoteUploadIdlePreparation PrepareRemoteRetryProjectsWhenIdle(
-        string workspaceRoot,
-        IReadOnlyList<string> orderedProjectDirs,
-        TikTokAccountProfile account)
-    {
-        WorkspaceQueueService.AddProjectsToQueue(workspaceRoot, orderedProjectDirs);
-        var items = WorkspaceQueueService.ScanProjects(workspaceRoot).ToList();
-        var runOptions = WorkspaceQueueService.LoadRunOptions(workspaceRoot);
-        var byProjectDir = items
-            .Where(item => !string.IsNullOrWhiteSpace(item.ProjectDir))
-            .GroupBy(item => Path.GetFullPath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-        var candidates = new List<QueueProjectItem>();
-        foreach (var projectDir in orderedProjectDirs)
-        {
-            if (!byProjectDir.TryGetValue(projectDir, out var item))
-                continue;
-            MarkRetryCandidate(item, account);
-            candidates.Add(item);
-        }
-
-        if (candidates.Count > 0)
-            WorkspaceQueueService.SaveRunOptions(workspaceRoot, items, runOptions);
-        return new RemoteUploadIdlePreparation(items, candidates, runOptions);
-    }
-
-    private static void MarkRetryCandidate(QueueProjectItem item, TikTokAccountProfile account)
-    {
-        item.Enabled = true;
-        item.Archived = false;
-        if (string.IsNullOrWhiteSpace(item.AccountProfileId))
-        {
-            item.AccountProfileId = account.Id;
-            item.AccountProfileName = account.DisplayName;
-        }
-    }
-
     private static string FirstNonEmptyText(params string?[] values) =>
         values.Select(value => value?.Trim() ?? "").FirstOrDefault(value => value.Length > 0) ?? "";
 
@@ -3409,9 +3069,9 @@ public sealed partial class MainViewModel : ViewModelBase
         }
         else
         {
-            foreach (var run in _queueOrchestrator.Snapshot())
+            foreach (var workspace in _queueExecution.ActiveWorkspaces())
             {
-                if (TryNormalizeWorkspace(run.WorkspaceRoot, out var running) &&
+                if (TryNormalizeWorkspace(workspace, out var running) &&
                     !roots.Contains(running, StringComparer.OrdinalIgnoreCase))
                     roots.Add(running);
             }
@@ -3699,7 +3359,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var located = FindAutoPublishProject(autoPublish.Assignment.AssignmentId, CaptureXingeAccountSeeds());
         if (located.ProjectExists && Directory.Exists(located.ProjectDir))
         {
-            RefreshAutoPublishMarkerForRetry(located.ProjectDir, autoPublish.Assignment.AssignmentId, accountId);
+            QueueRetryUseCase.RefreshAssignment(located.ProjectDir, autoPublish.Assignment.AssignmentId, accountId, AppendLog);
             ensured.Add(Path.GetFullPath(located.ProjectDir));
             AppendLog($"自动上新派单重新执行勾选队列：{located.ProjectDir}");
         }
@@ -4206,7 +3866,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return false;
         try
         {
-            root = Path.GetFullPath(workspace);
+            root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workspace));
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
@@ -4788,38 +4448,6 @@ public sealed partial class MainViewModel : ViewModelBase
         ArchivedProjects.SetWorkspace(full);
     }
 
-    private WorkspaceQueueRunLifecycle RegisterWorkspaceQueueRunLifecycle(string workspace)
-    {
-        var lifecycle = new WorkspaceQueueRunLifecycle(NormalizeWorkspacePath(workspace));
-        lock (_workspaceQueueRunLifecyclesLock)
-        {
-            if (!_workspaceQueueRunLifecycles.TryGetValue(lifecycle.WorkspaceRoot, out var active))
-            {
-                active = [];
-                _workspaceQueueRunLifecycles[lifecycle.WorkspaceRoot] = active;
-            }
-
-            active.Add(lifecycle);
-        }
-
-        return lifecycle;
-    }
-
-    private void CompleteWorkspaceQueueRunLifecycle(WorkspaceQueueRunLifecycle lifecycle)
-    {
-        lock (_workspaceQueueRunLifecyclesLock)
-        {
-            if (_workspaceQueueRunLifecycles.TryGetValue(lifecycle.WorkspaceRoot, out var active))
-            {
-                active.Remove(lifecycle);
-                if (active.Count == 0)
-                    _workspaceQueueRunLifecycles.Remove(lifecycle.WorkspaceRoot);
-            }
-        }
-
-        lifecycle.Completion.TrySetResult(true);
-    }
-
     private async Task WaitForWorkspaceQueueStatePersistAsync(string workspace)
     {
         var waitingLogged = false;
@@ -4837,46 +4465,10 @@ public sealed partial class MainViewModel : ViewModelBase
         }
     }
 
-    private Task[] SnapshotWorkspaceQueueRunLifecycleTasks(string workspace)
-    {
-        var root = NormalizeWorkspacePath(workspace);
-        lock (_workspaceQueueRunLifecyclesLock)
-        {
-            return _workspaceQueueRunLifecycles.TryGetValue(root, out var active)
-                ? active.Select(lifecycle => lifecycle.Completion.Task).ToArray()
-                : [];
-        }
-    }
+    private bool IsWorkspaceQueueRunLifecycleActive(string workspace) => _queueExecution.IsBusy(workspace);
 
-    private bool IsWorkspaceQueueRunLifecycleActive(string workspace) =>
-        SnapshotWorkspaceQueueRunLifecycleTasks(workspace).Length > 0;
-
-    private async Task<bool> WaitForWorkspaceQueueToFinishClosingAsync(string workspace, TimeSpan timeout)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (true)
-        {
-            var lifecycleTasks = SnapshotWorkspaceQueueRunLifecycleTasks(workspace);
-            if (!IsWorkspaceQueueRunning(workspace) && lifecycleTasks.Length == 0)
-                return true;
-
-            var remaining = deadline - DateTime.UtcNow;
-            if (remaining <= TimeSpan.Zero)
-                return false;
-
-            var delay = Task.Delay(remaining < TimeSpan.FromMilliseconds(50)
-                ? remaining
-                : TimeSpan.FromMilliseconds(50));
-            if (lifecycleTasks.Length == 0)
-            {
-                await delay.ConfigureAwait(true);
-                continue;
-            }
-
-            await Task.WhenAny(Task.WhenAll(lifecycleTasks), delay).ConfigureAwait(true);
-        }
-    }
-
+    private Task<bool> WaitForWorkspaceQueueToFinishClosingAsync(string workspace, TimeSpan timeout) =>
+        _queueExecution.WaitForIdleAsync(workspace, timeout);
     private string BuildRemoteRuntimeStatusText()
     {
         var checkedCount = _queueItems.Count(item => item.Enabled);
@@ -4903,38 +4495,21 @@ public sealed partial class MainViewModel : ViewModelBase
         return string.Join(Environment.NewLine, lines);
     }
 
-    public CancellationToken BeginQueueRun()
+    public void BeginQueueRun()
     {
-        // 支持多账号/多工作目录并行：已有运行中的队列时复用同一 CTS，不得 Dispose（会破坏前一个队列的停止）。
-        if (_queueCts is null || _queueCts.IsCancellationRequested)
-        {
-            _queueCts?.Dispose();
-            _queueCts = new CancellationTokenSource();
-        }
-
         _activeQueueRunCount++;
         _queueRunActive = true;
         _dailyLimitNotified = false;
         RefreshRunningWorkspacesSummary();
-        return _queueCts.Token;
     }
 
     public void EndQueueRun()
     {
-        var finishedAllRuns = false;
         _activeQueueRunCount = Math.Max(0, _activeQueueRunCount - 1);
         if (_activeQueueRunCount == 0)
-        {
-            _queueCts?.Dispose();
-            _queueCts = null;
-            finishedAllRuns = true;
-        }
-
-        if (finishedAllRuns)
             ScheduleFinalQueueExcelExport();
         RefreshRunningWorkspacesSummary();
     }
-
     public void HandleQueueWorkerProgress(QueueWorkerProgress progress)
     {
         NotifyDailyLimitIfPresent(progress);
@@ -5028,8 +4603,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (string.IsNullOrEmpty(root) || string.IsNullOrWhiteSpace(workspaceRoot))
             return false;
         return string.Equals(
-            NormalizePathCached(workspaceRoot),
-            NormalizePathCached(root),
+            Path.TrimEndingDirectorySeparator(NormalizePathCached(workspaceRoot)),
+            Path.TrimEndingDirectorySeparator(NormalizePathCached(root)),
             StringComparison.OrdinalIgnoreCase);
     }
 
@@ -7915,10 +7490,4 @@ public sealed partial class MainViewModel : ViewModelBase
         public QueueRunOptions? Options { get; set; }
     }
 
-    private sealed class WorkspaceQueueRunLifecycle(string workspaceRoot)
-    {
-        public string WorkspaceRoot { get; } = workspaceRoot;
-        public TaskCompletionSource<bool> Completion { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-    }
 }

@@ -19,6 +19,191 @@ public sealed class QueueWorkerRunnerTests : IDisposable
     public void Dispose() => _settingsScope.Dispose();
 
     [Fact]
+    public async Task Queue_command_stops_one_workspace_and_runs_the_remaining_steps_on_resume()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var account = CreateCommandAccount(directory.FullName);
+            var store = CreateAccountStore(account);
+            var item = CreateCommandProject(directory.FullName, account);
+            using var http = new HttpClient();
+            var runner = CreateCommandRunner(http, directory.FullName);
+            var execution = new QueueExecutionUseCase(runner);
+            var target = new WorkspaceQueueTarget(directory.FullName + Path.DirectorySeparatorChar,
+                "test", account.Id, [item.ProjectDir]);
+            var host = new BlockingPublishHost();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+            var first = ExecuteCommandAsync(execution, target, store, host, [item], timeout.Token);
+            await host.WaitForPublishCountAsync(1).WaitAsync(timeout.Token);
+
+            execution.IsActive(directory.FullName).Should().BeTrue();
+            execution.TryReserveWorkspaceForDeletion(directory.FullName).Should().BeNull();
+            execution.TryStopWorkspace(directory.FullName, "another-account", () => { }).Should().BeFalse();
+            execution.TryStopWorkspace(directory.FullName, account.Id, () => { }).Should().BeTrue();
+
+            var stopped = await first.WaitAsync(timeout.Token);
+            stopped!.Stopped.Should().BeTrue();
+            execution.IsBusy(directory.FullName).Should().BeFalse();
+            var persisted = WorkspaceQueueDatabase.Load(directory.FullName).Items.Should().ContainSingle().Which;
+            persisted.StepStates[QueueStepRegistry.Download].Should().Be(QueueStepStatus.Completed);
+            persisted.StepStates[QueueStepRegistry.UploadSeries].Should().NotBe(QueueStepStatus.Completed);
+
+            var resumeHost = new ImmediatePublishHost();
+            var resumed = await ExecuteCommandAsync(execution, target, store, resumeHost, null, timeout.Token);
+            resumed!.SuccessCount.Should().Be(1);
+            resumeHost.PublishedProjectDirs.Should().Equal(item.ProjectDir);
+            var completed = WorkspaceQueueDatabase.Load(directory.FullName).Items.Should().ContainSingle().Which;
+            completed.StepStates[QueueStepRegistry.Download].Should().Be(QueueStepStatus.Completed);
+            completed.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Completed);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Queue_command_retry_keeps_completed_steps_and_ignores_unowned_or_deleted_paths()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var account = CreateCommandAccount(directory.FullName);
+            var store = CreateAccountStore(account);
+            var item = CreateCommandProject(directory.FullName, account);
+            var deleted = CreateCommandProject(directory.FullName, account);
+            WorkspaceQueueService.RememberDeletedProjects(directory.FullName, [deleted.ProjectDir]);
+            using var http = new HttpClient();
+            var runner = CreateCommandRunner(http, directory.FullName);
+            var execution = new QueueExecutionUseCase(runner);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            var target = new WorkspaceQueueTarget(directory.FullName, "test", account.Id, [item.ProjectDir]);
+
+            var failed = await ExecuteCommandAsync(execution, target, store, new FirstUploadFailsHost(false), [item], timeout.Token);
+            failed!.FailedCount.Should().Be(1);
+            var retryHost = new ImmediatePublishHost();
+            var retry = await new QueueRetryUseCase(execution, runner).ExecuteAsync(account.Id, store,
+                [new(item.ProjectDir), new(deleted.ProjectDir), new(Path.GetTempPath())], _ => false,
+                async retryTarget => (await ExecuteCommandAsync(execution, retryTarget, store, retryHost, null, timeout.Token,
+                    forceRerun: true))?.SuccessCount == 1,
+                (_, prepared) =>
+                {
+                    var candidate = prepared.AllItems.Should().ContainSingle().Which;
+                    candidate.StepStates[QueueStepRegistry.Download].Should().Be(QueueStepStatus.Completed);
+                    candidate.StepStates[QueueStepRegistry.UploadSeries].Should().Be(QueueStepStatus.Failed);
+                });
+
+            retry.Accepted.Should().BeTrue(retry.Message);
+            retry.Message.Should().Contain("2 个项目");
+            retryHost.PublishedProjectDirs.Should().Equal(item.ProjectDir);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Queue_command_rejects_a_foreign_workspace_and_does_not_open_a_session()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var owned = directory.CreateSubdirectory("owned");
+            var foreign = directory.CreateSubdirectory("foreign");
+            var account = CreateCommandAccount(owned.FullName);
+            var store = CreateAccountStore(account);
+            using var http = new HttpClient();
+            var execution = new QueueExecutionUseCase(CreateCommandRunner(http, directory.FullName));
+            var invoked = false;
+            Func<Task> command = () => execution.InSessionAsync([new(foreign.FullName, "wrong", account.Id)], store,
+                (_, _) => Task.FromResult(invoked = true), CancellationToken.None);
+
+            await command.Should().ThrowAsync<InvalidOperationException>().WithMessage("*配置不一致*");
+            invoked.Should().BeFalse();
+            execution.IsBusy(foreign.FullName).Should().BeFalse();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Queue_command_batch_skips_unchecked_work_and_can_cancel_one_preparation()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var idleDirectory = directory.CreateSubdirectory("idle").FullName;
+            var otherDirectory = directory.CreateSubdirectory("other").FullName;
+            var idle = CreateCommandAccount(idleDirectory);
+            var other = new TikTokAccountProfile { Id = "other", Name = "other", TiktokUploadProfilePath = otherDirectory };
+            var store = CreateAccountStore([idle, other], idle.Id);
+            var uncheckedItem = CreateCommandProject(idleDirectory, idle);
+            uncheckedItem.Enabled = false;
+            using var http = new HttpClient();
+            var execution = new QueueExecutionUseCase(CreateCommandRunner(http, directory.FullName));
+            var targets = new WorkspaceQueueTarget[] { new(idleDirectory, "idle", idle.Id), new(otherDirectory, "other", other.Id) };
+            var options = new QueueRunOptions { EnabledSteps = [QueueStepRegistry.UploadSeries] };
+
+            await execution.InSessionAsync(targets, store, async (batch, ct) =>
+            {
+                var idlePlan = await execution.PrepareAsync(batch[0], options, store, [uncheckedItem], ct, skipIdleWorkspace: true);
+                idlePlan.Should().BeNull();
+                execution.TryStopWorkspace(otherDirectory, other.Id, () => { }).Should().BeTrue();
+                Func<Task> prepare = () => execution.PrepareAsync(batch[1], options, store, null, ct, skipIdleWorkspace: true);
+                await prepare.Should().ThrowAsync<OperationCanceledException>();
+                ct.IsCancellationRequested.Should().BeFalse();
+                return true;
+            }, CancellationToken.None);
+
+            execution.IsBusy(otherDirectory).Should().BeFalse();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private static TikTokAccountProfile CreateCommandAccount(string root) => new()
+    {
+        Id = "command-test", Name = "test", TiktokUploadProfilePath = root,
+        TiktokCopyrightMaterialTypes = ["work_registration_certificate"],
+    };
+
+    private static WorkspaceQueueOrchestrator CreateCommandRunner(HttpClient http, string directory) =>
+        new(new XingeUploadTaskReporter(http, Path.Combine(directory, "outbox.json"), () => new ClientSettings()));
+
+    private static QueueProjectItem CreateCommandProject(string workspace, TikTokAccountProfile account)
+    {
+        var item = CreateReadyToUploadItem(1, account, workspace);
+        File.WriteAllText(Path.Combine(item.ProjectDir, "短剧信息.txt"), $"原剧名：{item.OriginalTitle}\n新剧名：{item.NewTitle}\n集数：1");
+        return item;
+    }
+
+    private static Task<QueueWorkerSummary?> ExecuteCommandAsync(QueueExecutionUseCase useCase, WorkspaceQueueTarget target,
+        AccountStore accounts, IQueuePublishHost host, IReadOnlyList<QueueProjectItem>? snapshot, CancellationToken ct,
+        bool forceRerun = false) =>
+        useCase.InSessionAsync([target], accounts, async (targets, token) =>
+        {
+            var prepared = await useCase.PrepareAsync(targets.Single(),
+                new QueueRunOptions
+                {
+                    EnabledSteps = [QueueStepRegistry.Download, QueueStepRegistry.UploadSeries],
+                    ForceRerunCompletedSteps = forceRerun,
+                }, accounts, snapshot, token);
+            var summary = await useCase.StartPreparedAsync(prepared!, accounts, host, FinalAction.None, _ => { },
+                (root, items) => WorkspaceQueueService.SaveRunOptions(root, items, prepared!.Options), token);
+            WorkspaceQueueService.SaveRunOptions(prepared!.Execution.Target.WorkspaceRoot, prepared.Items, prepared.Options);
+            return summary;
+        }, ct);
+
+    [Fact]
     public void ValidateRunSelection_Reruns_Completed_Repair_When_Transferred_Upload_Is_Small()
     {
         var projectDir = Path.Combine(Path.GetTempPath(), $"tiktok-stale-repair-{Guid.NewGuid():N}");
@@ -281,7 +466,7 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         var last = CreateReadyToUploadItem(3, account);
         var host = new ImmediatePublishHost();
 
-        var summary = await new QueueWorkerRunner().RunAsync(
+        var summary = await CreateRunnerWithSerialUploads().RunAsync(
             Path.Combine(Path.GetTempPath(), "tiktok-queue-runner-filter-order-test"),
             [first, skipped, last],
             new QueueRunOptions
@@ -1557,9 +1742,9 @@ public sealed class QueueWorkerRunnerTests : IDisposable
             editingProjectFilesCompleted: true);
     }
 
-    private static QueueProjectItem CreateReadyToUploadItem(int index, TikTokAccountProfile account)
+    private static QueueProjectItem CreateReadyToUploadItem(int index, TikTokAccountProfile account, string? workspace = null)
     {
-        var projectDir = Path.Combine(Path.GetTempPath(), $"tiktok-ready-upload-{Guid.NewGuid():N}-{index}");
+        var projectDir = Path.Combine(workspace ?? Path.GetTempPath(), $"tiktok-ready-upload-{Guid.NewGuid():N}-{index}");
         Directory.CreateDirectory(projectDir);
         var videoPath = Path.Combine(projectDir, "episode-1.mp4");
         File.WriteAllBytes(videoPath, TinyMp4Bytes.Value);
@@ -1675,6 +1860,13 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         foreach (var step in QueueStepRegistry.All)
             item.StepStates[step.Key] = QueueStepStatus.Completed;
         return item;
+    }
+
+    private static QueueWorkerRunner CreateRunnerWithSerialUploads()
+    {
+        var uploadSlots = new UploadSlotCoordinator();
+        uploadSlots.Configure(1);
+        return new QueueWorkerRunner(sharedUploadSlots: uploadSlots);
     }
 
     private static AccountStore CreateAccountStore(TikTokAccountProfile account) =>
