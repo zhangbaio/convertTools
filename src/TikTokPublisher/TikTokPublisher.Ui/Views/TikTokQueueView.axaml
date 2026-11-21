@@ -163,6 +163,18 @@
             <Setter Property="Padding" Value="6,2" />
             <Setter Property="FontSize" Value="12" />
         </Style>
+        <Style Selector="Button.queueStepsToggle">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="4,2,8,4" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="Border.queueStepsResizeHandle > Border">
+            <Setter Property="Background" Value="#B7CADC" />
+        </Style>
+        <Style Selector="Border.queueStepsResizeHandle:pointerover > Border, Border.queueStepsResizeHandle:focus > Border">
+            <Setter Property="Background" Value="{StaticResource PythonPrimaryBrush}" />
+        </Style>
     </UserControl.Styles>
 
     <Grid Classes="pageRoot">
@@ -172,9 +184,9 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <!-- 顶部控制区：紧凑保留高频操作，低频操作收进菜单 -->
-        <Border Classes="controlsFrame uploadQueueToolbar" Margin="0,0,0,8">
+        <Border x:Name="QueueToolbar" Classes="controlsFrame uploadQueueToolbar" Margin="0,0,0,8">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-              <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
+              <Grid x:Name="QueueToolbarRows" RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                 <WrapPanel Orientation="Horizontal" Margin="0,0,0,8">
                     <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="导入本地剧集" Click="OnImportLocalDramaClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
@@ -218,163 +230,183 @@
                     </WrapPanel>
                 </Grid>
 
-                <Border Grid.Row="3" Classes="taskStepFrame" Padding="8,6">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                        <StackPanel Grid.Column="0" Spacing="5">
-                            <WrapPanel Orientation="Horizontal">
-                                <CheckBox Content="下载" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="视频去重"
-                                          IsChecked="{Binding QueueVideoDedupEnabled}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Tip="按当前项目所属账号的去重方案处理下载视频，后续步骤使用去重后的成片。" />
-                                <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="剧本"
-                                          IsChecked="{Binding QueueGenerateEpisodeScriptEnabled}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Placement="Bottom"
-                                          ToolTip.VerticalOffset="6"
-                                          ToolTip.ShowDelay="350">
-                                    <ToolTip.Tip>
-                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
-                                            <Border Classes="stepHintCard">
-                                                <StackPanel MaxWidth="380" Spacing="3">
-                                                    <TextBlock Text="操作" Classes="stepHintLabel" />
-                                                    <TextBlock Text="提取前 N 集字幕与台词，由 AI 整理成分场剧本和角色表。" Classes="stepHintBody" />
-                                                    <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                    <TextBlock Text="工作项目目录中的“新剧名前N集剧本.pdf”；启用保留源文档时还会保留 DOCX。" Classes="stepHintBody" />
-                                                </StackPanel>
-                                            </Border>
-                                        </ToolTip>
-                                    </ToolTip.Tip>
-                                </CheckBox>
-                                <CheckBox Content="AI素材"
-                                          IsChecked="{Binding QueueGenerateAiDramaMaterialsEnabled}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Placement="Bottom"
-                                          ToolTip.VerticalOffset="6"
-                                          ToolTip.ShowDelay="350">
-                                    <ToolTip.Tip>
-                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
-                                            <Border Classes="stepHintCard">
-                                                <StackPanel MaxWidth="380" Spacing="3">
-                                                    <TextBlock Text="操作" Classes="stepHintLabel" />
-                                                    <TextBlock Text="从真实抽帧、AI 过程截图和剪辑工程图中分类整理漫剧制作素材。" Classes="stepHintBody" />
-                                                    <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                    <TextBlock Text="“项目原始资料\AI漫剧制作素材”，包含角色设定、场景设定、分镜设计及来源清单。" Classes="stepHintBody" />
-                                                </StackPanel>
-                                            </Border>
-                                        </ToolTip>
-                                    </ToolTip.Tip>
-                                </CheckBox>
-                                <CheckBox Content="AI大纲"
-                                          IsChecked="{Binding QueueGenerateAiScriptOutlineEnabled}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Placement="Bottom"
-                                          ToolTip.VerticalOffset="6"
-                                          ToolTip.ShowDelay="350">
-                                    <ToolTip.Tip>
-                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
-                                            <Border Classes="stepHintCard">
-                                                <StackPanel MaxWidth="380" Spacing="3">
-                                                    <TextBlock Text="操作" Classes="stepHintLabel" />
-                                                    <TextBlock Text="根据剧名、简介和剧本生成 AI 剧本大纲。" Classes="stepHintBody" />
-                                                    <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                    <TextBlock Text="仅输出工作项目目录中的“AI剧本大纲.pdf”。" Classes="stepHintBody" />
-                                                </StackPanel>
-                                            </Border>
-                                        </ToolTip>
-                                    </ToolTip.Tip>
-                                </CheckBox>
-                                <CheckBox Content="角色图"
-                                          IsChecked="{Binding QueueGenerateRoleVectorEnabled}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Placement="Bottom"
-                                          ToolTip.VerticalOffset="6"
-                                          ToolTip.ShowDelay="350">
-                                    <ToolTip.Tip>
-                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
-                                            <Border Classes="stepHintCard">
-                                                <StackPanel MaxWidth="380" Spacing="3">
-                                                    <TextBlock Text="操作" Classes="stepHintLabel" />
-                                                    <TextBlock Text="匹配主要角色参考图，生成或复用角色定妆图并合成角色展示图。" Classes="stepHintBody" />
-                                                    <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                    <TextBlock Text="“项目原始资料\参考格式原始素材包\角色矢量图.png”。" Classes="stepHintBody" />
-                                                </StackPanel>
-                                            </Border>
-                                        </ToolTip>
-                                    </ToolTip.Tip>
-                                </CheckBox>
-                                <CheckBox Content="证明材料"
-                                          IsChecked="{Binding QueueGenerateProofMaterialEnabled}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Placement="Bottom"
-                                          ToolTip.VerticalOffset="6"
-                                          ToolTip.ShowDelay="350">
-                                    <ToolTip.Tip>
-                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
-                                            <Border Classes="stepHintCard">
-                                                <StackPanel MaxWidth="380" Spacing="3">
-                                                    <TextBlock Text="操作" Classes="stepHintLabel" />
-                                                    <TextBlock Text="按照账号选择的版权材料类型生成并登记证明文件。" Classes="stepHintBody" />
-                                                    <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                    <TextBlock Text="可能包括“证明材料.pdf/.docx”、AI 过程截图、剪辑工程文件和原始文件信息材料。" Classes="stepHintBody" />
-                                                </StackPanel>
-                                            </Border>
-                                        </ToolTip>
-                                    </ToolTip.Tip>
-                                </CheckBox>
-                                <CheckBox Content="时间戳"
-                                          IsChecked="{Binding QueueGenerateTimestampCertificateEnabled}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Placement="Bottom"
-                                          ToolTip.VerticalOffset="6"
-                                          ToolTip.ShowDelay="350">
-                                    <ToolTip.Tip>
-                                        <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
-                                            <Border Classes="stepHintCard">
-                                                <StackPanel MaxWidth="380" Spacing="3">
-                                                    <TextBlock Text="操作" Classes="stepHintLabel" />
-                                                    <TextBlock Text="根据项目、申请人和认证信息制作中英双页时间戳证书。" Classes="stepHintBody" />
-                                                    <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
-                                                    <TextBlock Text="工作项目目录中的“可信时间戳认证证书.pdf”。" Classes="stepHintBody" />
-                                                </StackPanel>
-                                            </Border>
-                                        </ToolTip>
-                                    </ToolTip.Tip>
-                                </CheckBox>
-                                <CheckBox Content="修复"
-                                          IsChecked="{Binding QueueSmallVideoRepairEnabled}"
-                                          Margin="0,0,12,2"
-                                          ToolTip.Tip="检查并修复过小的上传视频。" />
-                                <CheckBox Content="翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
-                                <CheckBox Content="校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
-                                <CheckBox Content="上传" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
-                            </WrapPanel>
-                            <WrapPanel Orientation="Horizontal">
-                                <CheckBox Content="同步管理"
-                                          IsChecked="{Binding SyncManagementAfterUpload}"
-                                          Margin="0,0,16,0"
-                                          ToolTip.Tip="上传完成后把项目同步到管理系统。" />
-                                <CheckBox Content="传后归档"
-                                          IsChecked="{Binding AutoArchiveAfterUpload}"
-                                          Margin="0,0,16,0"
-                                          ToolTip.Tip="上传成功后自动把项目移入归档。" />
-                                <CheckBox Content="强制重跑"
-                                          IsChecked="{Binding ForceRerunCompletedSteps}"
-                                          Margin="0,0,16,0"
-                                          ToolTip.Tip="已完成步骤会重新执行。" />
-                                <CheckBox Content="优先上传"
-                                          IsChecked="{Binding PreferUploadWhenReady}"
-                                          Margin="0,0,16,0"
-                                          ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
-                            </WrapPanel>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Vertical" Spacing="4" VerticalAlignment="Center">
-                            <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
-                            <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="selectionAction compactAction" />
-                        </StackPanel>
-                    </Grid>
+                <Border x:Name="QueueStepsFrame" Grid.Row="3" Classes="taskStepFrame" Padding="8,6">
+                    <StackPanel>
+                        <Button x:Name="QueueStepsToggle" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                Classes="queueStepsToggle" Click="OnQueueStepsToggleClick">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                <TextBlock x:Name="QueueStepsIndicator" Text="▾" VerticalAlignment="Center" />
+                                <TextBlock x:Name="QueueStepsSummary" Text="执行步骤 · 已选 0 项" VerticalAlignment="Center" />
+                            </Grid>
+                        </Button>
+                        <ScrollViewer x:Name="QueueStepsBody" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <Grid x:Name="QueueStepsContent" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                <StackPanel Grid.Column="0" Spacing="5">
+                                    <WrapPanel x:Name="QueueExecutionStepOptions" Orientation="Horizontal">
+                                        <CheckBox Content="下载" IsChecked="{Binding QueueDownloadEnabled}" Margin="0,0,12,2" />
+                                        <CheckBox Content="视频去重"
+                                                  IsChecked="{Binding QueueVideoDedupEnabled}"
+                                                  Margin="0,0,12,2"
+                                                  ToolTip.Tip="按当前项目所属账号的去重方案处理下载视频，后续步骤使用去重后的成片。" />
+                                        <CheckBox Content="改写" IsChecked="{Binding QueueRewriteEnabled}" Margin="0,0,12,2" />
+                                        <CheckBox Content="海报" IsChecked="{Binding QueueGeneratePosterEnabled}" Margin="0,0,12,2" />
+                                        <CheckBox Content="剧本"
+                                                  IsChecked="{Binding QueueGenerateEpisodeScriptEnabled}"
+                                                  Margin="0,0,12,2"
+                                                  ToolTip.Placement="Bottom"
+                                                  ToolTip.VerticalOffset="6"
+                                                  ToolTip.ShowDelay="350">
+                                            <ToolTip.Tip>
+                                                <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                                    <Border Classes="stepHintCard">
+                                                        <StackPanel MaxWidth="380" Spacing="3">
+                                                            <TextBlock Text="操作" Classes="stepHintLabel" />
+                                                            <TextBlock Text="提取前 N 集字幕与台词，由 AI 整理成分场剧本和角色表。" Classes="stepHintBody" />
+                                                            <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
+                                                            <TextBlock Text="工作项目目录中的“新剧名前N集剧本.pdf”；启用保留源文档时还会保留 DOCX。" Classes="stepHintBody" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </ToolTip>
+                                            </ToolTip.Tip>
+                                        </CheckBox>
+                                        <CheckBox Content="AI素材"
+                                                  IsChecked="{Binding QueueGenerateAiDramaMaterialsEnabled}"
+                                                  Margin="0,0,12,2"
+                                                  ToolTip.Placement="Bottom"
+                                                  ToolTip.VerticalOffset="6"
+                                                  ToolTip.ShowDelay="350">
+                                            <ToolTip.Tip>
+                                                <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                                    <Border Classes="stepHintCard">
+                                                        <StackPanel MaxWidth="380" Spacing="3">
+                                                            <TextBlock Text="操作" Classes="stepHintLabel" />
+                                                            <TextBlock Text="从真实抽帧、AI 过程截图和剪辑工程图中分类整理漫剧制作素材。" Classes="stepHintBody" />
+                                                            <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
+                                                            <TextBlock Text="“项目原始资料\AI漫剧制作素材”，包含角色设定、场景设定、分镜设计及来源清单。" Classes="stepHintBody" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </ToolTip>
+                                            </ToolTip.Tip>
+                                        </CheckBox>
+                                        <CheckBox Content="AI大纲"
+                                                  IsChecked="{Binding QueueGenerateAiScriptOutlineEnabled}"
+                                                  Margin="0,0,12,2"
+                                                  ToolTip.Placement="Bottom"
+                                                  ToolTip.VerticalOffset="6"
+                                                  ToolTip.ShowDelay="350">
+                                            <ToolTip.Tip>
+                                                <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                                    <Border Classes="stepHintCard">
+                                                        <StackPanel MaxWidth="380" Spacing="3">
+                                                            <TextBlock Text="操作" Classes="stepHintLabel" />
+                                                            <TextBlock Text="根据剧名、简介和剧本生成 AI 剧本大纲。" Classes="stepHintBody" />
+                                                            <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
+                                                            <TextBlock Text="仅输出工作项目目录中的“AI剧本大纲.pdf”。" Classes="stepHintBody" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </ToolTip>
+                                            </ToolTip.Tip>
+                                        </CheckBox>
+                                        <CheckBox Content="角色图"
+                                                  IsChecked="{Binding QueueGenerateRoleVectorEnabled}"
+                                                  Margin="0,0,12,2"
+                                                  ToolTip.Placement="Bottom"
+                                                  ToolTip.VerticalOffset="6"
+                                                  ToolTip.ShowDelay="350">
+                                            <ToolTip.Tip>
+                                                <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                                    <Border Classes="stepHintCard">
+                                                        <StackPanel MaxWidth="380" Spacing="3">
+                                                            <TextBlock Text="操作" Classes="stepHintLabel" />
+                                                            <TextBlock Text="匹配主要角色参考图，生成或复用角色定妆图并合成角色展示图。" Classes="stepHintBody" />
+                                                            <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
+                                                            <TextBlock Text="“项目原始资料\参考格式原始素材包\角色矢量图.png”。" Classes="stepHintBody" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </ToolTip>
+                                            </ToolTip.Tip>
+                                        </CheckBox>
+                                        <CheckBox Content="证明材料"
+                                                  IsChecked="{Binding QueueGenerateProofMaterialEnabled}"
+                                                  Margin="0,0,12,2"
+                                                  ToolTip.Placement="Bottom"
+                                                  ToolTip.VerticalOffset="6"
+                                                  ToolTip.ShowDelay="350">
+                                            <ToolTip.Tip>
+                                                <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                                    <Border Classes="stepHintCard">
+                                                        <StackPanel MaxWidth="380" Spacing="3">
+                                                            <TextBlock Text="操作" Classes="stepHintLabel" />
+                                                            <TextBlock Text="按照账号选择的版权材料类型生成并登记证明文件。" Classes="stepHintBody" />
+                                                            <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
+                                                            <TextBlock Text="可能包括“证明材料.pdf/.docx”、AI 过程截图、剪辑工程文件和原始文件信息材料。" Classes="stepHintBody" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </ToolTip>
+                                            </ToolTip.Tip>
+                                        </CheckBox>
+                                        <CheckBox Content="时间戳"
+                                                  IsChecked="{Binding QueueGenerateTimestampCertificateEnabled}"
+                                                  Margin="0,0,12,2"
+                                                  ToolTip.Placement="Bottom"
+                                                  ToolTip.VerticalOffset="6"
+                                                  ToolTip.ShowDelay="350">
+                                            <ToolTip.Tip>
+                                                <ToolTip Background="Transparent" BorderThickness="0" Padding="0">
+                                                    <Border Classes="stepHintCard">
+                                                        <StackPanel MaxWidth="380" Spacing="3">
+                                                            <TextBlock Text="操作" Classes="stepHintLabel" />
+                                                            <TextBlock Text="根据项目、申请人和认证信息制作中英双页时间戳证书。" Classes="stepHintBody" />
+                                                            <TextBlock Text="产物" Classes="stepHintLabel" Margin="0,5,0,0" />
+                                                            <TextBlock Text="工作项目目录中的“可信时间戳认证证书.pdf”。" Classes="stepHintBody" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                </ToolTip>
+                                            </ToolTip.Tip>
+                                        </CheckBox>
+                                        <CheckBox Content="修复"
+                                                  IsChecked="{Binding QueueSmallVideoRepairEnabled}"
+                                                  Margin="0,0,12,2"
+                                                  ToolTip.Tip="检查并修复过小的上传视频。" />
+                                        <CheckBox Content="翻译" IsChecked="{Binding QueueVideoTranslateEnabled}" Margin="0,0,12,2" IsVisible="False" />
+                                        <CheckBox Content="校验" IsChecked="{Binding QueueMaterialValidateEnabled}" Margin="0,0,12,2" />
+                                        <CheckBox Content="上传" IsChecked="{Binding QueueUploadEnabled}" Margin="0,0,12,2" />
+                                    </WrapPanel>
+                                    <WrapPanel Orientation="Horizontal">
+                                        <CheckBox Content="同步管理"
+                                                  IsChecked="{Binding SyncManagementAfterUpload}"
+                                                  Margin="0,0,16,0"
+                                                  ToolTip.Tip="上传完成后把项目同步到管理系统。" />
+                                        <CheckBox Content="传后归档"
+                                                  IsChecked="{Binding AutoArchiveAfterUpload}"
+                                                  Margin="0,0,16,0"
+                                                  ToolTip.Tip="上传成功后自动把项目移入归档。" />
+                                        <CheckBox Content="强制重跑"
+                                                  IsChecked="{Binding ForceRerunCompletedSteps}"
+                                                  Margin="0,0,16,0"
+                                                  ToolTip.Tip="已完成步骤会重新执行。" />
+                                        <CheckBox Content="优先上传"
+                                                  IsChecked="{Binding PreferUploadWhenReady}"
+                                                  Margin="0,0,16,0"
+                                                  ToolTip.Tip="队列里有待上传项目时，先跑上传。" />
+                                    </WrapPanel>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Vertical" Spacing="4" VerticalAlignment="Center">
+                                    <Button Content="全选步骤" Command="{Binding SelectAllQueueStepsCommand}" Classes="selectionAction compactAction" />
+                                    <Button Content="取消全选" Command="{Binding ClearAllQueueStepsCommand}" Classes="selectionAction compactAction" />
+                                </StackPanel>
+                            </Grid>
+                        </ScrollViewer>
+                        <Border x:Name="QueueStepsResizeHandle" Classes="queueStepsResizeHandle"
+                                Height="12" Background="Transparent" Cursor="SizeNorthSouth" Focusable="True"
+                                ToolTip.Tip="拖动调整高度，双击恢复自动高度"
+                                AutomationProperties.Name="调整执行步骤高度，上下键调整，Home 恢复自动高度"
+                                PointerPressed="OnQueueStepsResizePressed" PointerMoved="OnQueueStepsResizeMoved"
+                                PointerReleased="OnQueueStepsResizeReleased" PointerCaptureLost="OnQueueStepsResizeCaptureLost"
+                                KeyDown="OnQueueStepsResizeKeyDown">
+                            <Border Width="36" Height="3" CornerRadius="2" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </StackPanel>
                 </Border>
 
                 <TextBlock x:Name="ManualInterventionHint" Grid.Row="4"

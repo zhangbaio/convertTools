@@ -81,6 +81,7 @@ public partial class TikTokQueueView : UserControl
     public TikTokQueueView()
     {
         InitializeComponent();
+        InitializeQueueStepsPanel();
         QueueTableGrid.SetColumnWidths(QueueTableRootGrid, _queueTableColumnWidths);
         QueueProjectList.AddHandler(
             ScrollViewer.ScrollChangedEvent,
@@ -99,6 +100,7 @@ public partial class TikTokQueueView : UserControl
         _ensureBrowserMounted = ensureBrowserMounted;
         _automation.PersistAccount = SaveUploadedAccountAsync;
         DataContext = vm;
+        LoadQueueStepsPanelPreferences();
         _queueProgressSink = new QueueUiProgressSink(vm.HandleQueueWorkerProgress);
         vm.NavigateRequested += OnNavigateRequested;
         vm.AccountSwitchRequested += OnAccountSwitchRequested;
