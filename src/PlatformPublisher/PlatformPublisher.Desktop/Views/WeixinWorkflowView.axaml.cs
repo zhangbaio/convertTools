@@ -8,6 +8,7 @@ using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Weixin.Publishing;
 using TikTokPublisher.Ui.Views;
+using PublishJobKind = PlatformPublisher.Common.Models.PublishJobKind;
 
 namespace PlatformPublisher.Desktop.Views;
 
@@ -528,7 +529,8 @@ public partial class WeixinWorkflowView : UserControl
             DeclareOriginal = ViewModel.DraftDeclareOriginal,
             HideLocation = ViewModel.DraftHideLocation,
         };
-        var result = await WeixinPublishConfigDialog.ShowAsync(owner, WeixinPublishOptions.FromJob(draftJob));
+        var result = await WeixinPublishConfigDialog.ShowAsync(owner, WeixinPublishOptions.FromJob(draftJob),
+            showSeriesUploadMode: ViewModel.IsWeixinPlatform && ViewModel.SelectedJobKind?.Value == PublishJobKind.Series);
         if (result is null) return;
         ViewModel.DraftPlatformOptionsJson = result.ToJson();
         ViewModel.DraftPublishDescription = result.DescriptionTemplate;

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Weixin.Publishing;
@@ -13,6 +14,8 @@ namespace PlatformPublisher.Desktop.Views;
 public partial class WeixinSeriesUploadView : UserControl
 {
     private Func<PublishJob, IProgress<string>, CancellationToken, Task>? _run;
+    private WeixinChannelPublishAdapter? _seriesAdapter;
+    private Func<string, CancellationToken, Task>? _prepareSession;
     private Func<bool>? _canStart;
     private WeixinSeriesReviewStore? _reviewStore;
     private bool _confirmingRetry;
@@ -40,6 +43,7 @@ public partial class WeixinSeriesUploadView : UserControl
     public void Bind(IPlatformPublishAdapter adapter, Func<ChannelAccount?> accountProvider)
     {
         _run = adapter.RunAsync;
+        BindUploadMode(adapter as WeixinChannelPublishAdapter);
         _accountProvider = accountProvider;
         RefreshAccountSummary();
     }
@@ -48,6 +52,8 @@ public partial class WeixinSeriesUploadView : UserControl
         Func<bool> canStart, Func<string, CancellationToken, Task> prepareSession)
     {
         _reviewStore = WeixinSeriesReviewStore.CreateDefault();
+        BindUploadMode(adapter);
+        _prepareSession = prepareSession;
         _run = async (job, progress, token) =>
         {
             await prepareSession(job.AccountId, token);
@@ -60,6 +66,23 @@ public partial class WeixinSeriesUploadView : UserControl
         _accountProvider = accountProvider;
         _canStart = canStart;
         RefreshAccountSummary();
+    }
+
+    private void BindUploadMode(WeixinChannelPublishAdapter? adapter)
+    {
+        _seriesAdapter = adapter;
+        UploadModeLabel.IsVisible = UploadModePanel.IsVisible = adapter is not null;
+        UpdateUploadModeControls();
+    }
+
+    private void OnUploadBackendChanged(object? sender, SelectionChangedEventArgs e) => UpdateUploadModeControls();
+
+    private void UpdateUploadModeControls()
+    {
+        if (SubmitWithApi is null || ForceApiReupload is null)
+            return;
+        var api = _seriesAdapter is not null && UploadBackend.SelectedIndex == 1;
+        SubmitWithApi.IsVisible = ForceApiReupload.IsVisible = api;
     }
 
     internal void SetAccount(ChannelAccount? account)
@@ -193,6 +216,11 @@ public partial class WeixinSeriesUploadView : UserControl
         }
 
         RefreshAccountSummary();
+        var api = _seriesAdapter is not null && UploadBackend.SelectedIndex == 1;
+        var mode = api ? SubmitWithApi.IsChecked == true ? WeixinSeriesUploadMode.ApiSubmit : WeixinSeriesUploadMode.ApiUpload
+            : WeixinSeriesUploadMode.Browser;
+        _options.SeriesUploadMode = mode;
+        _options.ReuploadSeriesApiFiles = api && ForceApiReupload.IsChecked == true;
         var job = new PublishJob
         {
             Id = $"series-{Guid.NewGuid():N}",
@@ -207,7 +235,8 @@ public partial class WeixinSeriesUploadView : UserControl
             PublishCount = 9999,
             PlatformOptionsJson = _options.ToJson(),
         };
-        if (_reviewStore?.HasReachedReview(job.AccountId, job.ProjectDirectory) == true &&
+        if (!api && _reviewStore?.HasReachedReview(job.AccountId, job.ProjectDirectory) == true &&
+            !_reviewStore.HasConfirmedSubmission(job.AccountId, job.ProjectDirectory) &&
             TopLevel.GetTopLevel(this) is Window owner)
         {
             _confirmingRetry = true;
@@ -239,10 +268,26 @@ public partial class WeixinSeriesUploadView : UserControl
         AddLog($"开始剧集上架：{job.ProjectName}，账号：{account.Name}");
         try
         {
-            await _run(job, progress, cancellation.Token);
-            var status = _canStart is null ? "剧集上架流程完成。" : "已结束提审页面操作，请在平台核对剧集状态。";
+            string status;
+            if (api && _seriesAdapter is { } adapter)
+            {
+                if (_prepareSession is not null)
+                    await _prepareSession(job.AccountId, cancellation.Token);
+                var result = await adapter.RunSeriesApiAsync(job, progress, ConfirmApiSubmitAsync, cancellation.Token);
+                status = WeixinChannelPublishAdapter.DescribeApiResult(result);
+            }
+            else
+            {
+                await _run(job, progress, cancellation.Token);
+                status = _canStart is null ? "剧集上架流程完成。" : "已结束提审页面操作，请在平台核对剧集状态。";
+            }
             SetStatus(status, isError: false);
             AddLog(status);
+        }
+        catch (WeixinSeriesSubmissionPendingException ex)
+        {
+            SetStatus(ex.Message, isError: true);
+            AddLog(ex.Message);
         }
         catch (OperationCanceledException)
         {
@@ -258,8 +303,57 @@ public partial class WeixinSeriesUploadView : UserControl
         {
             _cancellation = null;
             _runningAccountName = null;
+            ForceApiReupload.IsChecked = false;
             SetRunning(false);
             RuntimeChanged?.Invoke();
+        }
+    }
+
+    private Task<bool> ConfirmApiSubmitAsync(WeixinSeriesApiConfirmation details, CancellationToken ct) =>
+        Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            ct.ThrowIfCancellationRequested();
+            if (TopLevel.GetTopLevel(this) is not Window owner)
+                return false;
+            return await ConfirmDialog.ShowAsync(owner, "确认视频号接口提审",
+                $"账号：{details.Account}\n剧名：{details.Title}\n集数：{details.EpisodeCount}\n\n上传完成后将向视频号正式提审。",
+                500, 240, confirmText: "上传并提审");
+        });
+
+    private async void OnResolveReviewClick(object? sender, RoutedEventArgs e)
+    {
+        if (IsRunning || _confirmingRetry || _seriesAdapter is not { } adapter ||
+            TopLevel.GetTopLevel(this) is not Window owner)
+            return;
+        var account = _accountProvider?.Invoke();
+        var directory = ProjectDirectoryInput.Text?.Trim() ?? string.Empty;
+        if (account is null || !Directory.Exists(directory))
+        {
+            SetStatus("请先选择视频号账号和剧集项目目录。", isError: true);
+            return;
+        }
+        _confirmingRetry = true;
+        try
+        {
+            var submitted = await ConfirmDialog.ShowChoiceAsync(owner, "核对视频号剧集提审",
+                $"请在「{account.Name}」的视频号后台核对本项目的草稿与审核记录。只有确认平台没有记录时，才允许重新提交。",
+                "平台已有记录", "确认无记录");
+            if (submitted is null)
+                return;
+            var resolved = await Task.Run(() => adapter.ResolveSeriesReview(account.Id, directory, submitted.Value));
+            var message = resolved
+                ? submitted.Value ? "已记录平台提审结果。" : "已记录平台无提审结果，可继续执行。"
+                : "当前项目没有需要核对的提审记录。";
+            SetStatus(message, isError: false);
+            AddLog(message);
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"保存核对结果失败：{ex.Message}", isError: true);
+        }
+        finally
+        {
+            _confirmingRetry = false;
         }
     }
 
@@ -275,6 +369,7 @@ public partial class WeixinSeriesUploadView : UserControl
     {
         StartButton.IsEnabled = !running;
         StopButton.IsEnabled = running;
+        UploadModePanel.IsEnabled = !running;
     }
 
     private void SetStatus(string message, bool isError)

@@ -18,7 +18,7 @@
         <TabControl Classes="secondaryTabs">
             <TabItem Header="基础">
                 <ScrollViewer>
-                    <Grid Margin="6,14" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
+                    <Grid Margin="6,14" ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="12" ColumnSpacing="12">
                         <TextBlock Text="集数配置方式" VerticalAlignment="Center" />
                         <ComboBox x:Name="EpisodeModeCombo" Grid.Column="1">
                             <ComboBoxItem Content="连续区间" Tag="range" />
@@ -55,8 +55,14 @@
                         </WrapPanel>
 
                         <TextBlock Grid.Row="6" Grid.ColumnSpan="2"
-                                   Text="具体集数按素材排序后的序号计算；无效或重复序号会自动忽略。"
+                                   Text="浏览器按排序后的序号选择。接口按文件名中的集号选择，接口提审要求从第 1 集连续到总集数。"
                                    Classes="pageSummary" TextWrapping="Wrap" />
+                        <TextBlock x:Name="SeriesModeLabel" Grid.Row="7" Text="剧集上传方式" VerticalAlignment="Center" IsVisible="False" />
+                        <ComboBox x:Name="SeriesModeCombo" Grid.Row="7" Grid.Column="1" IsVisible="False">
+                            <ComboBoxItem Content="浏览器" Tag="Browser" />
+                            <ComboBoxItem Content="接口仅上传" Tag="ApiUpload" />
+                            <ComboBoxItem Content="接口上传并正式提审" Tag="ApiSubmit" />
+                        </ComboBox>
                     </Grid>
                 </ScrollViewer>
             </TabItem>

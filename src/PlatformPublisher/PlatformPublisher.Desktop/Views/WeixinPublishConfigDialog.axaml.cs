@@ -13,16 +13,19 @@ public partial class WeixinPublishConfigDialog : Window
 
     public static async Task<WeixinPublishOptions?> ShowAsync(
         Window owner,
-        WeixinPublishOptions options)
+        WeixinPublishOptions options,
+        bool showSeriesUploadMode = false)
     {
         var dialog = new WeixinPublishConfigDialog();
         dialog.LoadOptions(options);
+        dialog.SeriesModeLabel.IsVisible = dialog.SeriesModeCombo.IsVisible = showSeriesUploadMode;
         return await dialog.ShowDialog<WeixinPublishOptions?>(owner);
     }
 
     private void LoadOptions(WeixinPublishOptions options)
     {
         _options = options;
+        SelectByTag(SeriesModeCombo, options.SeriesUploadMode.ToString());
         SelectByTag(EpisodeModeCombo, options.EpisodeSelectionMode);
         StartEpisodeInput.Value = options.StartEpisodeIndex;
         EpisodeIndexesInput.Text = options.EpisodeIndexes;
@@ -54,6 +57,9 @@ public partial class WeixinPublishConfigDialog : Window
 
     private void OnSaveClick(object? sender, RoutedEventArgs e)
     {
+        if (SeriesModeCombo.IsVisible &&
+            Enum.TryParse<WeixinSeriesUploadMode>(SelectedTag(SeriesModeCombo, "Browser"), out var mode))
+            _options.SeriesUploadMode = mode;
         _options.EpisodeSelectionMode = SelectedTag(EpisodeModeCombo, "range");
         _options.StartEpisodeIndex = Decimal.ToInt32(StartEpisodeInput.Value ?? 1);
         _options.EpisodeIndexes = EpisodeIndexesInput.Text?.Trim() ?? string.Empty;

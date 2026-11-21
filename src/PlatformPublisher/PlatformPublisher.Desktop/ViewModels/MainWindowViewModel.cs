@@ -3739,6 +3739,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             {
                 StatusMessage = "批量执行已停止，未开始的任务仍保留在队列中。";
             }
+            catch (WeixinSeriesApiQuotaExceededException ex)
+            {
+                StatusMessage = $"视频号提审额度已用完，已停止本批任务。{ex.Message}";
+                AppendActivityLog(StatusMessage);
+            }
         });
     }
 
@@ -3782,16 +3787,49 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Running, "正在执行");
-            await adapter.RunAsync(job, progress, cancellationToken);
-            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Succeeded, "执行完成");
+            string? apiStatus = null;
+            if (adapter is WeixinChannelPublishAdapter weixin && job.Kind == PublishJobKind.Series &&
+                WeixinPublishOptions.FromJob(job).SeriesUploadMode != WeixinSeriesUploadMode.Browser)
+            {
+                var result = await weixin.RunSeriesApiAsync(job, progress, confirm: null, cancellationToken);
+                apiStatus = WeixinChannelPublishAdapter.DescribeApiResult(result);
+                if (result is WeixinSeriesApiResult.Uploaded or WeixinSeriesApiResult.Cancelled)
+                {
+                    await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Pending, apiStatus);
+                    job.Status = PublishJobStatus.Pending;
+                    job.StatusMessage = apiStatus;
+                    StatusMessage = $"[{job.ProjectName}] {apiStatus}";
+                    AppendActivityLog(StatusMessage);
+                    return;
+                }
+            }
+            else
+                await adapter.RunAsync(job, progress, cancellationToken);
+            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Succeeded, apiStatus ?? "执行完成");
             job.Status = PublishJobStatus.Succeeded;
-            job.StatusMessage = "发布流程执行完成";
-            StatusMessage = $"[{job.ProjectName}] 发布完成";
+            job.StatusMessage = apiStatus ?? "发布流程执行完成";
+            StatusMessage = $"[{job.ProjectName}] {apiStatus ?? "发布完成"}";
             AppendActivityLog(StatusMessage);
             if (PipelineSyncManagementAfterUpload)
                 await TrySyncManagementAsync(job, row, "是", CancellationToken.None);
             if (PipelineAutoArchiveAfterUpload && job.Kind == PublishJobKind.Series)
                 await TryArchivePublishedProjectAsync(job, cancellationToken);
+        }
+        catch (WeixinSeriesApiQuotaExceededException ex)
+        {
+            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Pending, ex.Message);
+            job.Status = PublishJobStatus.Blocked;
+            job.StatusMessage = ex.Message;
+            AppendActivityLog($"[{job.ProjectName}] {ex.Message}");
+            throw;
+        }
+        catch (WeixinSeriesSubmissionPendingException ex)
+        {
+            await UpdateStepStateAsync(job, row, "weixin-upload", uploadLabel, PublishJobStepStatus.Pending, ex.Message);
+            job.Status = PublishJobStatus.Blocked;
+            job.StatusMessage = ex.Message;
+            StatusMessage = $"[{job.ProjectName}] {ex.Message}";
+            AppendActivityLog(StatusMessage);
         }
         catch (OperationCanceledException)
         {

@@ -13,6 +13,8 @@ public sealed class WeixinPublishOptions
     };
 
     public string EpisodeSelectionMode { get; set; } = "range";
+    public WeixinSeriesUploadMode SeriesUploadMode { get; set; }
+    public bool ReuploadSeriesApiFiles { get; set; }
     public int StartEpisodeIndex { get; set; } = 1;
     public string EpisodeIndexes { get; set; } = string.Empty;
     public bool MergePublishEnabled { get; set; }
@@ -88,6 +90,8 @@ public sealed class WeixinPublishOptions
 
     private WeixinPublishOptions Normalize()
     {
+        if (!Enum.IsDefined(SeriesUploadMode))
+            SeriesUploadMode = WeixinSeriesUploadMode.Browser;
         EpisodeSelectionMode = EpisodeSelectionMode.Trim().ToLowerInvariant() switch
         {
             "all" => "all",

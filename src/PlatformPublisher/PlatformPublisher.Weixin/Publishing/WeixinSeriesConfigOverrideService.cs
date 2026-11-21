@@ -91,7 +91,7 @@ public sealed class WeixinSeriesConfigOverrideService
             selectedPaths.Count);
     }
 
-    private static string? ResolveSourceConfigPath(PublishJob job)
+    internal static string? ResolveSourceConfigPath(PublishJob job)
     {
         if (!string.IsNullOrWhiteSpace(job.ConfigPath) && File.Exists(job.ConfigPath))
             return Path.GetFullPath(job.ConfigPath);
@@ -103,6 +103,7 @@ public sealed class WeixinSeriesConfigOverrideService
                      "weixin-channel-autogen.json",
                      "weixin-channel-submit.json",
                      "weixin-channel-config.json",
+                     "weixin-channel.json",
                  })
         {
             var candidate = Path.Combine(job.ProjectDirectory, name);

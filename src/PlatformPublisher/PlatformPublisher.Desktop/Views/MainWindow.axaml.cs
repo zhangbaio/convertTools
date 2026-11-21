@@ -859,7 +859,8 @@ public partial class MainWindow : Window
             DeclareOriginal = ViewModel.DraftDeclareOriginal,
             HideLocation = ViewModel.DraftHideLocation,
         };
-        var result = await WeixinPublishConfigDialog.ShowAsync(this, WeixinPublishOptions.FromJob(draftJob));
+        var result = await WeixinPublishConfigDialog.ShowAsync(this, WeixinPublishOptions.FromJob(draftJob),
+            showSeriesUploadMode: ViewModel.IsWeixinPlatform && ViewModel.SelectedJobKind?.Value == PublishJobKind.Series);
         if (result is null)
             return;
 

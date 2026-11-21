@@ -4,7 +4,7 @@
              Background="#F3F6FA">
     <Grid Margin="14" RowDefinitions="Auto,Auto,*" RowSpacing="10">
         <Border Background="#FFFFFF" BorderBrush="#D9E2EC" BorderThickness="1" CornerRadius="8" Padding="14">
-            <Grid ColumnDefinitions="130,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
+            <Grid ColumnDefinitions="130,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                 <TextBlock Text="当前账号" VerticalAlignment="Center" />
                 <TextBlock x:Name="AccountSummary" Grid.Column="1" VerticalAlignment="Center"
                            Foreground="#0B74D1" FontWeight="SemiBold" Text="请先在左侧选择账号" />
@@ -20,8 +20,23 @@
                          Watermark="可选：weixin-channel-submit.json；留空时自动定位" />
                 <Button Grid.Row="2" Grid.Column="2" Content="选择配置" Click="OnPickConfigClick" Classes="secondaryAction" />
 
-                <TextBlock Grid.Row="3" Text="执行控制" VerticalAlignment="Center" />
-                <WrapPanel Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2">
+                <TextBlock x:Name="UploadModeLabel" Grid.Row="3" Text="上传方式" VerticalAlignment="Center" IsVisible="False" />
+                <WrapPanel x:Name="UploadModePanel" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" IsVisible="False">
+                    <ComboBox x:Name="UploadBackend" SelectedIndex="0" Width="136" Margin="0,0,10,2"
+                              AutomationProperties.Name="上传方式" SelectionChanged="OnUploadBackendChanged">
+                        <ComboBoxItem Content="浏览器" />
+                        <ComboBoxItem Content="接口" />
+                    </ComboBox>
+                    <CheckBox x:Name="SubmitWithApi" Content="上传并提审" IsVisible="False" Margin="0,0,10,2"
+                              ToolTip.Tip="取消勾选时只上传材料和分集视频，保存回执。" />
+                    <CheckBox x:Name="ForceApiReupload" Content="重新上传素材" IsVisible="False" Margin="0,0,10,2"
+                              ToolTip.Tip="本轮重新上传所选文件。已提交和待确认的提审记录仍受保护。" />
+                    <Button x:Name="ResolveReviewButton" Content="核对提审结果" Click="OnResolveReviewClick"
+                            Classes="secondaryAction" Margin="0,0,8,2" />
+                </WrapPanel>
+
+                <TextBlock Grid.Row="4" Text="执行控制" VerticalAlignment="Center" />
+                <WrapPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2">
                     <Button Content="高级发表配置" Click="OnAdvancedConfigClick" Classes="secondaryAction" Margin="0,0,8,0" />
                     <Button x:Name="StartButton" Content="开始剧集上架" Click="OnStartClick" Classes="primaryAction" Margin="0,0,8,0" />
                     <Button x:Name="StopButton" Content="停止" Click="OnStopClick" IsEnabled="False" Margin="0,0,8,0" />

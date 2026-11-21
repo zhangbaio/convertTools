@@ -14,6 +14,7 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
     private readonly WeixinLocalVideoPublishService _localVideoPublishService;
     private readonly WeixinSeriesConfigOverrideService _seriesConfigOverrideService;
     private readonly WeixinAdxMaterialPublishService _adxMaterialPublishService;
+    private readonly WeixinSeriesApiUploadService _seriesApi;
 
     public WeixinChannelPublishAdapter(
         IWeixinChannelUploader uploader,
@@ -22,7 +23,8 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         WeixinSystemHighlightPublishService systemHighlightPublishService,
         WeixinLocalVideoPublishService localVideoPublishService,
         WeixinSeriesConfigOverrideService seriesConfigOverrideService,
-        WeixinAdxMaterialPublishService adxMaterialPublishService)
+        WeixinAdxMaterialPublishService adxMaterialPublishService,
+        WeixinSeriesApiUploadService? seriesApi = null)
     {
         _uploader = uploader;
         _browserSessionLauncher = browserSessionLauncher;
@@ -31,6 +33,7 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         _localVideoPublishService = localVideoPublishService;
         _seriesConfigOverrideService = seriesConfigOverrideService;
         _adxMaterialPublishService = adxMaterialPublishService;
+        _seriesApi = seriesApi ?? new WeixinSeriesApiUploadService();
     }
 
     public PublishPlatform Platform => PublishPlatform.WeixinChannel;
@@ -74,6 +77,14 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
             return;
         }
 
+        if (WeixinPublishOptions.FromJob(job).SeriesUploadMode != WeixinSeriesUploadMode.Browser)
+        {
+            var apiResult = await RunSeriesApiAsync(job, progress, confirm: null, cancellationToken);
+            progress?.Report(DescribeApiResult(apiResult));
+            return;
+        }
+
+        using var browser = _seriesApi.OpenBrowserRun(job);
         var overridePlan = _seriesConfigOverrideService.Prepare(job);
         if (confirmSeriesReviewCompleteAsync is not null && overridePlan is null)
             throw new InvalidOperationException("未找到可用的视频号剧集配置。");
@@ -97,6 +108,31 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         if (!result.Ok)
             throw new InvalidOperationException(result.Message ?? "视频号上传失败。");
     }
+
+    public Task<WeixinSeriesApiResult> RunSeriesApiAsync(PublishJob job, IProgress<string>? progress,
+        Func<WeixinSeriesApiConfirmation, CancellationToken, Task<bool>>? confirm, CancellationToken cancellationToken)
+    {
+        ValidateProject(job);
+        if (job.Kind != PublishJobKind.Series)
+            throw new InvalidOperationException("接口上传仅用于视频号剧集上架。");
+        if (!string.IsNullOrWhiteSpace(job.ConfigPath) && !File.Exists(job.ConfigPath))
+            throw new InvalidOperationException("找不到选择的剧集配置。");
+        var config = WeixinSeriesConfigOverrideService.ResolveSourceConfigPath(job)
+            ?? throw new InvalidOperationException("未找到可用的视频号剧集配置。");
+        return _seriesApi.RunAsync(job, config, WeixinPublishOptions.FromJob(job), progress, confirm, cancellationToken);
+    }
+
+    public bool ResolveSeriesReview(string accountId, string projectDirectory, bool submitted) =>
+        _seriesApi.ResolveReview(accountId, projectDirectory, submitted);
+
+    public static string DescribeApiResult(WeixinSeriesApiResult result) => result switch
+    {
+        WeixinSeriesApiResult.Uploaded => "接口上传完成，素材回执已保存，尚未提审。",
+        WeixinSeriesApiResult.Submitted => "平台已接收提审，请到视频号后台查看审核状态。",
+        WeixinSeriesApiResult.AlreadySubmitted => "此项目已有提审记录，请到视频号后台查看审核状态。",
+        WeixinSeriesApiResult.Cancelled => "已取消接口提审。",
+        _ => throw new ArgumentOutOfRangeException(nameof(result)),
+    };
 
     public Task OpenLoginAsync(PublishJob job, CancellationToken cancellationToken)
     {

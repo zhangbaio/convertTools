@@ -240,6 +240,7 @@ public partial class App : Application
         services.AddSingleton<WeixinManagementSyncService>();
         services.AddSingleton<WeixinProofArtifactsService>();
         services.AddSingleton<WeixinSeriesConfigOverrideService>();
+        services.AddSingleton<WeixinSeriesApiUploadService>();
         services.AddSingleton<IAiRuntimeSettingsProvider, PlatformAiRuntimeSettingsProvider>();
         services.AddSingleton<IPlatformPublishAdapter, WeixinChannelPublishAdapter>();
         services.AddSingleton<KuaishouPersonalSessionService>();
