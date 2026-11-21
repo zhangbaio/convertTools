@@ -731,7 +731,8 @@ internal static class VideoDedupPlanner
             var clip = clips[slice.ClipIndex];
             var input = opened.SliceInput[i].ToString(CultureInfo.InvariantCulture);
             var label = i.ToString(CultureInfo.InvariantCulture);
-            var video = BuildVideoFilter(clip, slice, preset, seed + i * 17, opened.Origin[i], sharedFrame);
+            var video = BuildVideoFilter(clip, slice, preset, seed + i * 17, opened.Origin[i], sharedFrame,
+                normalizeSampleAspectRatio: true);
             if (video.Length == 0)
                 video = "setpts=PTS-STARTPTS";
             graph.Append($"[{input}:v]{video},format=yuv420p,settb=AVTB[v{label}];");
@@ -893,7 +894,8 @@ internal static class VideoDedupPlanner
         int seed,
         double originSeconds,
         UploadFrame? sharedFrame = null,
-        bool reduceFramesBeforeScaling = false)
+        bool reduceFramesBeforeScaling = false,
+        bool normalizeSampleAspectRatio = false)
     {
         var filters = new List<string>();
         var start = slice.StartSeconds - originSeconds;
@@ -925,7 +927,8 @@ internal static class VideoDedupPlanner
                 $"scale={frame.Width.ToString(CultureInfo.InvariantCulture)}:{frame.Height.ToString(CultureInfo.InvariantCulture)}:flags=bicubic");
         }
 
-        if (effects.ReframeEnabled && effects.ReframeKeepPercent < 100)
+        // Scaling to the same dimensions can still leave different sample aspect ratios for each segment.
+        if (normalizeSampleAspectRatio || effects.ReframeEnabled && effects.ReframeKeepPercent < 100)
             filters.Add("setsar=1");
 
         filters.Add("format=yuv420p,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709");

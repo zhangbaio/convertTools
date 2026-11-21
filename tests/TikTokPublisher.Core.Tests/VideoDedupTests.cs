@@ -539,6 +539,32 @@ public sealed class VideoDedupTests
             preset).Should().Be(new VideoDedupPlanner.UploadFrame(1920, 1080, true));
     }
 
+    [Theory]
+    [InlineData(false, "concat=n=2")]
+    [InlineData(true, "xfade=")]
+    public void Multi_slice_output_normalizes_sample_aspect_ratio_after_scaling(bool transitions, string joinFilter)
+    {
+        var preset = VideoDedupPreset.CreateDefault();
+        preset.PortraitWidth = 1080;
+        preset.PortraitHeight = 1920;
+        preset.CropTopPercent = preset.CropBottomPercent = 2;
+        preset.CropLeftPercent = preset.CropRightPercent = 2;
+        preset.TransitionsEnabled = transitions;
+        preset.TransitionDissolve = true;
+        preset.Normalize();
+
+        VideoDedupClip[] clips =
+        [
+            new("episode-4.mp4", new VideoDedupProbe(12, 1080, 1922, true)),
+            new("episode-5.mp4", new VideoDedupProbe(12, 1080, 1920, true)),
+        ];
+        var args = VideoDedupPlanner.BuildArguments(preset, clips, "out.mp4", "libx264", seed: 1);
+        var graph = args.SkipWhile(arg => arg != "-filter_complex").Skip(1).First();
+
+        graph.Should().Contain(joinFilter);
+        graph.Split("scale=1080:1920:flags=bicubic,setsar=1,").Should().HaveCount(3);
+    }
+
     [Fact]
     public void Source_below_1080_scales_to_the_upload_frame()
     {
