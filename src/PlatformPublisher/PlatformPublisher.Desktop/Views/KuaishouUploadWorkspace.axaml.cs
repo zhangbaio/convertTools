@@ -314,7 +314,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
     private string AccountSummary(Account account)
     {
         if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var platform))
-            return $"{account.Id} · 未设置账号类型";
+            return "未设置账号类型";
         var enterprise = platform == PublishPlatform.KuaishouEnterpriseRevenue;
         var key = enterprise ? "kuaishou.enterprise.config" : "kuaishou.personal.config";
         var path = _services?.GetRequiredService<AccountJsonSettingStore>()
@@ -324,7 +324,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         if (string.IsNullOrWhiteSpace(path))
             path = Path.Combine(PlatformPublisherPaths.DataRoot, "kuaishou-personal", "accounts", account.Id,
                 enterprise ? "kuaishou_enterprise_kdj_auth_state.json" : "kuaishou_personal_kdj_auth_state.json");
-        return $"{(enterprise ? "企业版" : "个人版")} · {(File.Exists(path) ? "已保存授权" : "待授权")}\n{account.Id}";
+        return $"{(enterprise ? "企业版" : "个人版")} · {(File.Exists(path) ? "已保存授权" : "待授权")}";
     }
 
     private async void AccountList_SelectionChanged(object? sender, SelectionChangedEventArgs e)

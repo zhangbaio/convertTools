@@ -67,10 +67,6 @@ public partial class WeixinWorkflowView : UserControl
         KuaishouChrome.Margin = new Thickness(0, 0, 0, 8);
         KuaishouChrome.ClearValue(Border.PaddingProperty);
         KuaishouQueueHeading.IsVisible = false;
-        KuaishouWorkDirectoryActions.Children.Remove(KuaishouResetJobButton);
-        KuaishouResetJobButton.Content = "重置当前任务";
-        KuaishouResetJobButton.Margin = new Thickness(6, 0, 0, 0);
-        KuaishouExecutionActions.Children.Add(KuaishouResetJobButton);
         WorkflowTableFrame.Classes.Remove("panel");
         WorkflowTableFrame.Classes.Add("queueTableFrame");
         WorkflowStatus.IsVisible = false;
@@ -79,6 +75,7 @@ public partial class WeixinWorkflowView : UserControl
 
     internal Control DetachWorkDirectoryEditor()
     {
+        KuaishouWorkDirectoryActions.Children.Remove(KuaishouResetJobButton);
         KuaishouQueueControls.Children.Remove(KuaishouWorkDirectoryEditor);
         KuaishouWorkDirectoryEditor.ClearValue(MarginProperty);
         KuaishouWorkDirectoryEditor.Bind(DataContextProperty, this.GetObservable(DataContextProperty));

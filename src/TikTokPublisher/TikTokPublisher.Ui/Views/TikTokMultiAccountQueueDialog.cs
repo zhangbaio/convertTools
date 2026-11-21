@@ -8,9 +8,10 @@ public sealed class TikTokMultiAccountQueueDialog : Window
 {
     public TikTokMultiAccountQueueDialog(IReadOnlyList<TikTokQueueImportTarget> targets, string? currentAccountId)
     {
-        Title = targets.Any(item => !string.IsNullOrWhiteSpace(item.PlatformLabel))
-            ? "添加到多个账号队列"
-            : "添加到多个 TikTok 账号队列";
+        var platformLabels = targets.Select(item => item.PlatformLabel).Distinct().ToArray();
+        Title = platformLabels.Length == 1 && !string.IsNullOrWhiteSpace(platformLabels[0])
+            ? $"加入{platformLabels[0]}队列"
+            : "选择目标账号";
         Width = 520;
         Height = 480;
         MinWidth = 360;
@@ -27,16 +28,18 @@ public sealed class TikTokMultiAccountQueueDialog : Window
                     : $"{target.PlatformLabel} · {target.AccountProfileName}",
                 IsChecked = string.Equals(target.AccountProfileId, currentAccountId, StringComparison.Ordinal),
             };
+            ToolTip.SetTip(box, target.WorkspaceRoot);
             checks.Add((box, target));
             list.Children.Add(box);
         }
 
         var ok = new Button
         {
-            Content = "确定",
+            Content = "加入队列",
             MinWidth = 88,
             HorizontalContentAlignment = HorizontalAlignment.Center,
             IsDefault = true,
+            IsEnabled = checks.Any(item => item.Box.IsChecked == true),
         };
         var cancel = new Button
         {
@@ -45,6 +48,9 @@ public sealed class TikTokMultiAccountQueueDialog : Window
             HorizontalContentAlignment = HorizontalAlignment.Center,
             IsCancel = true,
         };
+        ok.Classes.Add("primaryAction");
+        foreach (var (box, _) in checks)
+            box.IsCheckedChanged += (_, _) => ok.IsEnabled = checks.Any(item => item.Box.IsChecked == true);
         ok.Click += (_, _) =>
         {
             var picked = checks.Where(item => item.Box.IsChecked == true).Select(item => item.Target).ToList();

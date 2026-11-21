@@ -224,6 +224,9 @@
             <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
         </Style>
+        <Style Selector=":is(UserControl).embeddedUploadQueue Button.standaloneKuaishouAction">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
         <Style Selector=":is(UserControl).embeddedUploadQueue Border.kuaishouStepFrame">
             <Setter Property="Background" Value="{StaticResource PythonPanelBgBrush}" />
         </Style>
@@ -282,16 +285,16 @@
                 <WrapPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
                     <Border Classes="kuaishouButtonGroup sourceGroup">
                         <WrapPanel Orientation="Horizontal">
-                            <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="neutralAction compactAction" Margin="0,0,6,0"
+                            <Button Content="扫描目录" Command="{Binding ScanWorkspaceCommand}" Classes="neutralAction compactAction standaloneKuaishouAction" Margin="0,0,6,0"
                                     ToolTip.Tip="扫描所选目录下的短剧项目并加入剧集任务队列" />
                             <Button x:Name="KuaishouUploadDramasButton" Content="上传短剧" Click="OnUploadDramasClick" Classes="contentAction compactAction" Margin="0,0,6,0" />
                             <Button Content="导入本地短剧" Click="OnImportLocalProjectsClick" Classes="contentAction compactAction" Margin="0,0,6,0"
                                     ToolTip.Tip="扫描工作目录里已有视频的短剧，生成项目信息后加入列表。本地导入会跳过下载。" />
-                            <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="contentAction compactAction" />
+                            <Button Content="加入任务" Command="{Binding AddJobCommand}" Classes="contentAction compactAction standaloneKuaishouAction" />
                         </WrapPanel>
                     </Border>
                     <Border Classes="kuaishouButtonGroup executionGroup">
-                        <WrapPanel x:Name="KuaishouExecutionActions" Orientation="Horizontal">
+                        <WrapPanel Orientation="Horizontal">
                             <Button Content="执行勾选队列" Command="{Binding RunCheckedCommand}" Classes="primaryAction compactAction" Margin="0,0,6,0" />
                             <Button Content="停止" Command="{Binding StopCommand}" Classes="stopAction compactAction" />
                         </WrapPanel>

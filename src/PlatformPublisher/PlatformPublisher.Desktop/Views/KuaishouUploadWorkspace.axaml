@@ -32,7 +32,7 @@
                         <DataTemplate>
                             <StackPanel Spacing="2">
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Summary}" Classes="pageSummary" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding Summary}" FontSize="12" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>

@@ -106,7 +106,7 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:DramaPlatformQueueAction">
-                                    <Button Content="{Binding Label}" Command="{Binding AddCommand}" Margin="0,0,8,8" />
+                                    <Button Content="{Binding Label}" Command="{Binding AddCommand}" CommandParameter="{Binding Key}" Margin="0,0,8,8" />
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -324,7 +324,7 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:DramaPlatformQueueAction">
-                                    <Button Content="{Binding Label}" Command="{Binding AddCommand}" Margin="0,0,8,8" />
+                                    <Button Content="{Binding Label}" Command="{Binding AddCommand}" CommandParameter="{Binding Key}" Margin="0,0,8,8" />
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>

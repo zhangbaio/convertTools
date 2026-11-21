@@ -5692,7 +5692,7 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.ConfigurePlatformQueues([(DramaQueuePlatforms.TikTok, "TikTok"), (DramaQueuePlatforms.Kuaishou, "快手")]);
         DramaDownload.PlatformQueueTargetRequested += key => key switch
         {
-            DramaQueuePlatforms.TikTok => CaptureSelectedAccountQueueImportTarget(),
+            DramaQueuePlatforms.TikTok => ResolveSelectedAccountQueueImportTarget(),
             DramaQueuePlatforms.Kuaishou => selectedTarget(),
             _ => null,
         };
