@@ -258,13 +258,13 @@
     </UserControl.Styles>
     <Grid x:Name="WorkflowLayout" RowSpacing="8">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" SharedSizeGroup="UploadQueueToolbar" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Border x:Name="KuaishouChrome" Classes="panel" Padding="8" IsVisible="False">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-              <Grid x:Name="KuaishouQueueControls" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*">
+              <Grid x:Name="KuaishouQueueControls" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
                 <Border Background="#FFF7ED" BorderBrush="#FDBA74" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8"
                         IsVisible="{Binding ShowKuaishouEditionPrompt}">
                     <Grid ColumnDefinitions="*,Auto">
@@ -351,7 +351,7 @@
                     </StackPanel>
                 </Grid>
                 <Border Grid.Row="5" Classes="kuaishouStepFrame">
-                    <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <WrapPanel Orientation="Horizontal">
                         <TextBlock Text="启用步骤" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
                         <CheckBox Content="下载" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,2" />

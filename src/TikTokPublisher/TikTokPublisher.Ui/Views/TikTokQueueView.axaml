@@ -184,14 +184,14 @@
 
     <Grid Classes="pageRoot">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" SharedSizeGroup="UploadQueueToolbar" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <!-- 顶部控制区：紧凑保留高频操作，低频操作收进菜单 -->
         <Border Classes="controlsFrame uploadQueueToolbar" Margin="0,0,0,8">
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-              <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+              <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                 <WrapPanel Orientation="Horizontal" Margin="0,0,0,8">
                     <Button Content="刷新项目" Click="OnScanWorkspaceClick" Classes="neutralAction compactAction" Margin="0,0,8,8" />
                     <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
