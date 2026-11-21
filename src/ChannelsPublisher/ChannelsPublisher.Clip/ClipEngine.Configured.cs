@@ -38,7 +38,7 @@ public sealed partial class ClipEngine
             {
                 var label = DisplayMode(mode.Mode);
                 var maskVersion = mode.Mode == "commentary" && options.BurnSubtitles ? "|commentary-subtitle-mask-v2" : "";
-                var storyVersion = mode.Mode == "highlight" && options.StoryHighlights ? "|story-highlight-v1" : "";
+                var storyVersion = mode.Mode == "highlight" && options.StoryHighlights ? "|story-highlight-v2" : "";
                 var signature = Hash(sourceSignature + JsonSerializer.Serialize(mode with { ForceRegenerate = false }) + maskVersion + storyVersion);
                 for (var index = 0; index < mode.Ranges.Count; index++)
                 {
@@ -98,6 +98,7 @@ public sealed partial class ClipEngine
                 var storyMode = needsStoryCuts && group.Key == "highlight";
                 var timelines = storyMode ? sources.ToDictionary(source => source.Source.VideoPath,
                     source => new HighlightCutTimeline(source), StringComparer.OrdinalIgnoreCase) : null;
+                var continuity = timelines is null ? null : new StoryHighlightContinuity(sources, timelines);
                 var storyAiReady = storyMode && aiReady && sources.Any(source => source.HasDialogue);
                 if (storyMode && !storyAiReady)
                     log?.Invoke(aiReady ? "剧情高光未取得对白，使用本地镜头切点选段。" : "剧情高光未配置 AI 接口，使用本地选段并保护对白切点。");
@@ -111,16 +112,17 @@ public sealed partial class ClipEngine
                         if (group.Key == "commentary" && !aiReady)
                             throw new InvalidOperationException("请配置 AI 文本接口后生成解说。");
                         List<ClipCandidate>? segments = null;
-                        if (storyAiReady && timelines is not null)
+                        if (storyAiReady && timelines is not null && continuity is not null)
                         {
                             try
                             {
-                                var candidates = StoryHighlightPlanner.Candidates(sources, timelines, job.Range, past, options);
+                                var candidates = StoryHighlightPlanner.Candidates(sources, timelines, job.Range, past, options, continuity);
                                 if (candidates.Count >= 2 && candidates.Sum(clip => (long)clip.DurationMs) >= job.Range.MinSeconds * 1000L)
                                 {
                                     var (order, reason) = await new LlmScorer().SelectStoryHighlightsAsync(
-                                        candidates, job.Range, past, job.Mode.SimilarityCap, options, ct);
-                                    segments = StoryHighlightPlanner.Validate(order, candidates, job.Range, past, job.Mode.SimilarityCap);
+                                        candidates, job.Range, past, job.Mode.SimilarityCap, options, continuity, ct);
+                                    segments = StoryHighlightPlanner.Validate(order, candidates, job.Range, past, job.Mode.SimilarityCap,
+                                        clips => continuity.Improve(clips, job.Range, past, job.Mode.SimilarityCap, options, log));
                                     var episodeCount = segments.Select(clip => clip.EpisodeIndex).Distinct().Count();
                                     log?.Invoke($"{label} 采用 AI 剧情选段，覆盖 {episodeCount} 集。{reason}");
                                 }
@@ -134,7 +136,12 @@ public sealed partial class ClipEngine
                                 log?.Invoke($"{label} 的 AI 剧情选段失败，使用本地选段并保护对白切点。{ex.Message}");
                             }
                         }
-                        segments ??= ConfiguredClipPlanner.Plan(job.Mode, job.Range, sources, past, options, timelines);
+                        if (segments is null)
+                        {
+                            segments = ConfiguredClipPlanner.Plan(job.Mode, job.Range, sources, past, options, timelines);
+                            if (continuity is not null)
+                                segments = continuity.Improve(segments, job.Range, past, job.Mode.SimilarityCap, options, log);
+                        }
                         if (segments.Count == 0)
                             throw new InvalidOperationException(group.Key == "commentary" && !sources.Any(s => s.HasDialogue)
                                 ? "解说需要素材字幕或有效的 ASR 结果。"

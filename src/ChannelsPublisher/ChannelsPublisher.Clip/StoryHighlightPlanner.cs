@@ -8,7 +8,8 @@ internal static class StoryHighlightPlanner
 
     public static List<ClipCandidate> Candidates(
         IReadOnlyList<ClipSourceAnalysis> sources, IReadOnlyDictionary<string, HighlightCutTimeline> timelines,
-        ClipTimeRange range, IReadOnlyList<List<ClipCandidate>> previous, ClipEngineOptions options)
+        ClipTimeRange range, IReadOnlyList<List<ClipCandidate>> previous, ClipEngineOptions options,
+        StoryHighlightContinuity? continuity = null)
     {
         var minimumSegment = Math.Min(range.MinSeconds * 1000, options.SmoothSelection ? options.MinimumSegmentMs : 200);
         var maximum = range.MaxSeconds * 1000;
@@ -22,7 +23,10 @@ internal static class StoryHighlightPlanner
                 if (timeline.Cover(candidate) is not { } bounds || bounds.End - bounds.Start < minimumSegment ||
                     bounds.End - bounds.Start > maximum)
                     continue;
-                clips.Add(ConfiguredClipPlanner.Part(candidate, bounds.Start, bounds.End, timeline.Dialogue));
+                var safe = ConfiguredClipPlanner.Part(candidate, bounds.Start, bounds.End, timeline.Dialogue);
+                clips.Add(safe);
+                if (continuity is not null)
+                    clips.AddRange(continuity.ContextCandidates(safe).Where(clip => clip.DurationMs <= maximum));
             }
             if (clips.Count > 0)
                 episodes.Add(clips);
@@ -34,6 +38,12 @@ internal static class StoryHighlightPlanner
             .ThenByDescending(item => item.clip.Total).ToArray();
         var pool = new List<ClipCandidate>();
         var included = new HashSet<(string Path, int Start, int End)>();
+        if (continuity is not null)
+        {
+            foreach (var clip in episodes.SelectMany(clips => clips).Where(clip => continuity.Role(clip) is "保留时空转场画面" or "人物决定或答复")
+                .OrderBy(clip => PreviousOverlap(clip, previous) > 0).ThenByDescending(clip => clip.Total).Take(MaxCandidates / 3))
+                Add(clip);
+        }
         foreach (var (clip, episode, index) in anchors)
         {
             Add(clip);
@@ -64,28 +74,38 @@ internal static class StoryHighlightPlanner
 
     public static List<ClipCandidate> Validate(
         IReadOnlyList<int> order, IReadOnlyList<ClipCandidate> candidates, ClipTimeRange range,
-        IReadOnlyList<List<ClipCandidate>> previous, double similarityCap)
+        IReadOnlyList<List<ClipCandidate>> previous, double similarityCap,
+        Func<List<ClipCandidate>, List<ClipCandidate>>? improve = null)
     {
         if (order.Count == 0 || order.Count > candidates.Count || order.Distinct().Count() != order.Count ||
             order.Any(id => id < 1 || id > candidates.Count))
             throw new InvalidDataException("AI 返回了重复或不存在的候选编号。");
 
-        var selected = new List<ClipCandidate>(order.Count);
-        foreach (var id in order)
-        {
-            var clip = candidates[id - 1];
-            if (selected.Any(other => ConfiguredClipPlanner.Overlap(clip, other) > 0))
-                throw new InvalidDataException("AI 方案包含互相重叠的片段。");
-            selected.Add(clip);
-        }
+        var selected = order.Select(id => candidates[id - 1]).ToList();
+        if (improve is not null)
+            selected = improve(selected);
+        if (ConstraintViolation(selected, range, previous, similarityCap) is { } reason)
+            throw new InvalidDataException(reason);
+        return selected;
+    }
 
+    internal static bool FitsConstraints(IReadOnlyList<ClipCandidate> selected, ClipTimeRange range,
+        IReadOnlyList<List<ClipCandidate>> previous, double similarityCap) =>
+        ConstraintViolation(selected, range, previous, similarityCap) is null;
+
+    private static string? ConstraintViolation(IReadOnlyList<ClipCandidate> selected, ClipTimeRange range,
+        IReadOnlyList<List<ClipCandidate>> previous, double similarityCap)
+    {
+        for (var index = 0; index < selected.Count; index++)
+            if (selected.Take(index).Any(other => ConfiguredClipPlanner.Overlap(selected[index], other) > 0))
+                return "方案包含互相重叠的片段。";
         var length = selected.Sum(clip => clip.DurationMs);
         if (length < range.MinSeconds * 1000 || length > range.MaxSeconds * 1000)
-            throw new InvalidDataException($"AI 方案的总时长超出 {range.MinSeconds}–{range.MaxSeconds} 秒范围。");
+            return $"方案的总时长超出 {range.MinSeconds}–{range.MaxSeconds} 秒范围。";
         if (previous.Any(prior => selected.Sum(clip => prior.Sum(other => ConfiguredClipPlanner.Overlap(clip, other))) >
                 Math.Min(length, prior.Sum(clip => clip.DurationMs)) * similarityCap))
-            throw new InvalidDataException("AI 方案与已有高光的重叠超过相似度上限。");
-        return selected;
+            return "方案与已有高光的重叠超过相似度上限。";
+        return null;
     }
 
     public static int PreviousOverlap(ClipCandidate clip, IReadOnlyList<List<ClipCandidate>> previous) =>

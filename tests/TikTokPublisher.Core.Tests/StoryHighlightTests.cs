@@ -70,6 +70,49 @@ public sealed class StoryHighlightTests
         Assert.Throws<InvalidDataException>(() => StoryHighlightPlanner.Validate([1, 2], candidates, range, [[candidates[0]]], 0.5));
     }
 
+    [Fact]
+    public void RebirthPlanKeepsTheRevealAndPlaysEarlierScenesBeforeIt()
+    {
+        var earlier = Clip(1, 1000, 5000, 3);
+        var wish = Clip(1, 7000, 14000, 10);
+        var afterwards = Clip(2, 3000, 10000, 8);
+        var first = new ClipSourceAnalysis(new(1, wish.VideoPath), new(30000, 720, 1280, true, false), [earlier, wish],
+            [new(1000, 5000, "欠的钱我会想办法还"), new(7000, 14000, "只要能重来我一定对家里人好"), new(23000, 24000, "真回来了")],
+            [16000]);
+        var second = Source(afterwards, [new(3000, 10000, "这一次我来保护我们一家人")]);
+        ClipSourceAnalysis[] sources = [first, second];
+        var timelines = Timelines(sources);
+        var continuity = new StoryHighlightContinuity(sources, timelines);
+        var range = new ClipTimeRange(18, 25);
+
+        Assert.Contains(StoryHighlightPlanner.Candidates(sources, timelines, range, [], new(), continuity),
+            clip => clip.StartMs == wish.StartMs && clip.EndMs == 18500 && continuity.Role(clip) == "保留时空转场画面");
+        var selected = continuity.Improve([wish, afterwards, earlier], range, [], 0, new(), null);
+
+        Assert.Equal(new[] { earlier.StartMs, wish.StartMs, afterwards.StartMs }, selected.Select(clip => clip.StartMs));
+        Assert.Equal(18500, selected[1].EndMs);
+        Assert.True(StoryHighlightPlanner.FitsConstraints(selected, range, [], 0));
+    }
+
+    [Fact]
+    public void EndingContinuesPastAnUnpunctuatedQuestionToTheCompleteDecision()
+    {
+        var question = Clip(1, 2000, 8000);
+        var source = Source(question, [new(2000, 8000, "咱们是不是先缓一缓再看看"), new(11000, 16000, "现在背贷款日子会越过越紧咱们先不买了")]);
+        ClipSourceAnalysis[] sources = [source];
+        var timelines = Timelines(sources);
+        var continuity = new StoryHighlightContinuity(sources, timelines);
+        var range = new ClipTimeRange(6, 15);
+
+        var selected = Assert.Single(continuity.Improve([question], range, [], 0, new(), null));
+
+        Assert.Equal((2000, 16000), (selected.StartMs, selected.EndMs));
+        Assert.EndsWith("咱们先不买了", selected.Text);
+        Assert.Equal("人物决定或答复", continuity.Role(selected));
+        Assert.Same(question, Assert.Single(continuity.Improve([question], new(6, 8), [], 0, new(), null)));
+        Assert.Same(question, Assert.Single(continuity.Improve([question], range, [[Clip(1, 11000, 16000)]], 0, new(), null)));
+    }
+
     private static ClipCandidate Clip(int episode, int start, int end, double score = 1) => new()
     {
         VideoPath = $"episode-{episode}.mp4", EpisodeIndex = episode, StartMs = start, EndMs = end, Total = score,

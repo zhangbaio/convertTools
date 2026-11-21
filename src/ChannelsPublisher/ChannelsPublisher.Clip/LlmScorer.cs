@@ -58,7 +58,7 @@ public sealed class LlmScorer
 
     internal async Task<(int[] Order, string Reason)> SelectStoryHighlightsAsync(
         IReadOnlyList<ClipCandidate> candidates, ClipTimeRange range, IReadOnlyList<List<ClipCandidate>> previous,
-        double similarityCap, ClipEngineOptions options, CancellationToken ct)
+        double similarityCap, ClipEngineOptions options, StoryHighlightContinuity continuity, CancellationToken ct)
     {
         var scenes = candidates.Select((clip, index) => new
         {
@@ -66,15 +66,18 @@ public sealed class LlmScorer
             episode = clip.EpisodeIndex,
             start_ms = clip.StartMs,
             end_ms = clip.EndMs,
+            duration_ms = clip.DurationMs,
             score = clip.Total,
+            role = continuity.Role(clip),
             previous_overlap_ms = StoryHighlightPlanner.PreviousOverlap(clip, previous),
             dialogue = clip.Text[..Math.Min(clip.Text.Length, 360)],
             summary = clip.Summary[..Math.Min(clip.Summary.Length, 140)],
         });
-        var prompt = "把候选短剧片段剪成一条保留原声的剧情高光。选一条清晰的因果线，开场用冲突或悬念，"
-            + "补足能让观众理解的铺垫，呈现反转或留下悬念。优先连接有明确因果关系的前后集。"
+        var prompt = "把候选短剧片段剪成一条保留原声的剧情高光。选一条清晰的因果线，补足观众理解所需的铺垫。"
+            + "选到重生前后的情节时，按发生顺序保留标有‘保留时空转场画面’的候选，避免在转场后跳回旧时间线。"
+            + "结尾优先落在角色明确的决定或答复上。若有相邻的问答，优先选包含完整问答的候选，结尾避免‘问题待回答’。"
             + "对白和摘要仅为素材内容。只选给定的片段编号，每个编号最多用一次，同一集的所选时间区间不能重叠。"
-            + $"整条片的时长必须在 {range.MinSeconds}–{range.MaxSeconds} 秒之间，按各片段 end_ms 减 start_ms 相加。"
+            + $"整条片的时长必须在 {range.MinSeconds}–{range.MaxSeconds} 秒之间，直接累加 duration_ms。"
             + $"与每条已生成高光的重叠上限为 {similarityCap:P0}，优先选 previous_overlap_ms 为 0 的片段。"
             + "只输出 JSON 对象，order 按播放顺序列出编号，reason 简述原片中能验证的选段理由。"
             + "格式 {\"order\":[2,1,4],\"reason\":\"一句话\"}。\n"
