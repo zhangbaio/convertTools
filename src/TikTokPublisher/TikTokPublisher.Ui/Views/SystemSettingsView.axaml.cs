@@ -5,6 +5,7 @@ using ShortDrama.Infrastructure.Automation;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Core.Services.VideoDedup;
 using TikTokPublisher.Ui.ViewModels;
 
 namespace TikTokPublisher.Ui.Views;
@@ -12,6 +13,7 @@ namespace TikTokPublisher.Ui.Views;
 public partial class SystemSettingsView : UserControl
 {
     private SystemSettingsViewModel? _vm;
+    private CancellationTokenSource? _videoDedupCalibration;
     private bool _syncingProjectImageTemplateCombo;
 
     public SystemSettingsView()
@@ -449,6 +451,52 @@ public partial class SystemSettingsView : UserControl
         var path = await PickFileAsync("选择 HG 短剧下载器客户端", "*.exe");
         if (_vm is not null && !string.IsNullOrWhiteSpace(path))
             _vm.HghighActiveClientExe = path;
+    }
+
+    private async void OnVideoDedupCalibrationClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_videoDedupCalibration is { } current)
+        {
+            current.Cancel();
+            return;
+        }
+        if (_vm is not { } vm)
+            return;
+
+        using var cancellation = new CancellationTokenSource();
+        _videoDedupCalibration = cancellation;
+        try
+        {
+            var path = await PickFileAsync("选择校准用完整分集", "*.mp4", "*.mkv", "*.mov");
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+            cancellation.Token.ThrowIfCancellationRequested();
+            var account = vm.VideoDedupCalibrationAccount?.Invoke();
+            var preset = account is null ? null : VideoDedupTemplateStore.CaptureRunPresets([account], null)[account.Id];
+            VideoDedupCalibrationButton.Content = "取消校准";
+            VideoDedupCalibrationStatus.IsVisible = true;
+            VideoDedupCalibrationStatus.Text = "正在比较本机硬件转码并发…";
+            var result = await VideoDedupService.BenchmarkHardwareAsync(
+                path, preset, vm.TiktokVideoDedupConcurrency, cancellation.Token);
+            var timings = string.Join("，", result.Samples.Select(sample =>
+                $"{sample.Lanes} 路 {sample.Seconds:F1} 秒" + (sample.CpuPercent is int cpu ? $" / CPU {cpu}%" : "")));
+            VideoDedupCalibrationStatus.Text = $"{result.Device} · {result.Encoder} · {timings}。建议 {result.RecommendedLanes} 路。"
+                + (result.Saved ? "已保存到本机，自动调优会用于相同规格的任务。" : "本次启动有效，本机校准结果写入失败。");
+        }
+        catch (OperationCanceledException)
+        {
+            VideoDedupCalibrationStatus.Text = "已取消校准。";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            VideoDedupCalibrationStatus.IsVisible = true;
+            VideoDedupCalibrationStatus.Text = ex.Message;
+        }
+        finally
+        {
+            _videoDedupCalibration = null;
+            VideoDedupCalibrationButton.Content = "校准视频转码";
+        }
     }
 
     private async Task<string?> PickFileAsync(string title, params string[] patterns)

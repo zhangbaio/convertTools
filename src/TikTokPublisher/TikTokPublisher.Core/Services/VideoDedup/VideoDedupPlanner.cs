@@ -11,7 +11,11 @@ internal sealed record VideoDedupProbe(
     int Height,
     bool HasAudio,
     int AudioBitrateKbps = 0,
-    double AverageFramesPerSecond = 0);
+    double AverageFramesPerSecond = 0,
+    VideoDedupSourceFormat? Format = null,
+    double VideoDuration = 0,
+    double AudioDuration = 0,
+    long FrameCount = 0);
 
 internal sealed record VideoDedupClip(string Path, VideoDedupProbe Probe);
 
@@ -20,7 +24,7 @@ internal readonly record struct VideoDedupSlice(int ClipIndex, double StartSecon
     public double Length => Math.Max(0, EndSeconds - StartSeconds);
 }
 
-internal static class VideoDedupPlanner
+internal static partial class VideoDedupPlanner
 {
     public static IReadOnlyList<IReadOnlyList<VideoDedupSlice>> Plan(
         IReadOnlyList<double> rawDurations,
@@ -418,7 +422,8 @@ internal static class VideoDedupPlanner
         IReadOnlyList<VideoDedupSlice> slices,
         string outputPath,
         string videoEncoder,
-        int seed)
+        int seed,
+        VideoDedupHardwareDevice? outputDevice = null)
     {
         if (slices.Count == 0)
             throw new InvalidOperationException("没有可编码的视频。");
@@ -426,6 +431,7 @@ internal static class VideoDedupPlanner
         VideoDedupEffectFilters.Validate(preset);
         var opened = OpenInputs(slices);
         var args = new List<string> { "-y", "-hide_banner", "-loglevel", "error" };
+        outputDevice?.AppendDevice(args);
         var threads = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, IsHardwareEncoder(videoEncoder));
         AppendFilterThreadLimits(args, threads);
         for (var index = 0; index < opened.Inputs.Count; index++)
@@ -463,6 +469,8 @@ internal static class VideoDedupPlanner
                 BuildVideoFilter(clips[slice.ClipIndex], slice, preset, seed, opened.Origin[0],
                     reduceFramesBeforeScaling: preset.FrameDropPercent <= 0),
                 VideoDedupEffectFilters.LinearFilters(preset));
+            if (outputDevice is not null)
+                video = CombineFilters(video, "format=nv12,hwupload");
             if (video.Length > 0)
                 args.AddRange(["-vf", video]);
             AppendSingleAudio(args, clips[slice.ClipIndex], slice, preset, opened.Origin[0]);
@@ -488,7 +496,8 @@ internal static class VideoDedupPlanner
         }
 
         args.AddRange(["-threads:v", threads.EncoderThreads.ToString(CultureInfo.InvariantCulture)]);
-        AppendEncoder(args, preset, videoEncoder, hasAudio, ResolveSourceAudioBitrateKbps(clips, slices));
+        AppendEncoder(args, preset, videoEncoder, hasAudio, ResolveSourceAudioBitrateKbps(clips, slices),
+            hardwareFrames: outputDevice is not null);
         args.AddRange(["-movflags", "+faststart", outputPath]);
         return args;
     }
@@ -562,7 +571,8 @@ internal static class VideoDedupPlanner
         VideoDedupPreset preset,
         string videoEncoder,
         bool includeAudio,
-        int sourceAudioBitrateKbps = 0)
+        int sourceAudioBitrateKbps = 0,
+        bool hardwareFrames = false)
     {
         var rate = preset.Fps.ToString(CultureInfo.InvariantCulture);
         args.AddRange(["-r", rate, "-c:v", videoEncoder]);
@@ -578,7 +588,8 @@ internal static class VideoDedupPlanner
         else
             AppendSoftwareVideo(args, preset, videoEncoder);
         // QSV 只接收 NV12，直接给 yuv420p 会被拒或多一次隐式转换。
-        args.AddRange(["-pix_fmt", qsv ? "nv12" : "yuv420p"]);
+        if (!hardwareFrames)
+            args.AddRange(["-pix_fmt", qsv ? "nv12" : "yuv420p"]);
         if (IsHevcEncoder(videoEncoder))
             args.AddRange(["-tag:v", "hvc1"]);
 

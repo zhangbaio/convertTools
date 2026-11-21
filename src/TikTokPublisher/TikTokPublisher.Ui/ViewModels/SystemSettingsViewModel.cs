@@ -31,6 +31,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public bool ShowsKuaishouPublishPrompt { get; }
     public bool ShowsTikTokPublishPrompt { get; }
+    internal Func<TikTokAccountProfile?>? VideoDedupCalibrationAccount { get; set; }
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;
@@ -208,6 +209,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     [ObservableProperty] private int _tiktokDocumentConcurrency = 2;
     [ObservableProperty] private int _tiktokGlobalProjectConcurrency = 4;
     [ObservableProperty] private int _tiktokVideoDedupConcurrency = 2;
+    [ObservableProperty] private bool _tiktokVideoDedupAutomaticConcurrency = true;
     [ObservableProperty] private int _tiktokVideoDedupCpuPercent = 90;
 
     public decimal VideoDedupConcurrencyMaximum => Math.Max(1, Environment.ProcessorCount);
@@ -422,6 +424,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         settings.TiktokDocumentConcurrency = TiktokDocumentConcurrency;
         settings.TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency;
         settings.TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency;
+        settings.TiktokVideoDedupAutomaticConcurrency = TiktokVideoDedupAutomaticConcurrency;
         settings.TiktokVideoDedupCpuPercent = TiktokVideoDedupCpuPercent;
         settings.TiktokUploadConcurrency = TiktokUploadConcurrency;
         settings.KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency;
@@ -1335,6 +1338,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
         TiktokDocumentConcurrency = settings.TiktokDocumentConcurrency;
         TiktokGlobalProjectConcurrency = settings.TiktokGlobalProjectConcurrency;
         TiktokVideoDedupConcurrency = settings.TiktokVideoDedupConcurrency;
+        TiktokVideoDedupAutomaticConcurrency = settings.TiktokVideoDedupAutomaticConcurrency;
         TiktokVideoDedupCpuPercent = settings.TiktokVideoDedupCpuPercent;
         TiktokUploadConcurrency = settings.TiktokUploadConcurrency;
         KuaishouProjectImageConcurrency = settings.KuaishouProjectImageConcurrency;

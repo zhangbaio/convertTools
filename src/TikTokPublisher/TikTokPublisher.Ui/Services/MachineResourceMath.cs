@@ -7,7 +7,9 @@ internal readonly record struct SystemTimeSample(ulong Idle, ulong Kernel, ulong
 
 internal readonly record struct GpuEngineSample(string InstanceName, double UtilizationPercent);
 
-internal readonly record struct GpuAdapterLoad(string AdapterId, string Name, int Percent);
+internal readonly record struct GpuAdapterLoad(
+    string AdapterId, string Name, int Percent,
+    int? VideoEncode = null, int? VideoDecode = null, int? VideoCodec = null);
 
 internal readonly record struct GpuUtilizationSummary(int? MaxPercent, IReadOnlyList<GpuAdapterLoad> Adapters);
 
@@ -20,7 +22,7 @@ internal readonly record struct MachineResourceSnapshot(
 internal static class MachineResourceMath
 {
     private static readonly Regex GpuInstancePattern = new(
-        @"^pid_\d+_(luid_0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+)_phys_\d+_eng_\d+_engtype_(.+)$",
+        @"^pid_\d+_(luid_0x[0-9A-Fa-f]+_0x[0-9A-Fa-f]+)_(phys_\d+_eng_\d+)_engtype_(.+)$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public static int? CpuPercent(SystemTimeSample previous, SystemTimeSample current)
@@ -37,7 +39,7 @@ internal static class MachineResourceMath
         IReadOnlyList<GpuEngineSample> samples,
         IReadOnlyDictionary<string, string>? adapterNames = null)
     {
-        var byEngine = new Dictionary<(string Adapter, string Engine), double>();
+        var byEngine = new Dictionary<(string Adapter, string Engine, string Type), double>();
         foreach (var sample in samples)
         {
             if (!double.IsFinite(sample.UtilizationPercent) || sample.UtilizationPercent < 0)
@@ -45,29 +47,28 @@ internal static class MachineResourceMath
             var match = GpuInstancePattern.Match(sample.InstanceName);
             if (!match.Success)
                 continue;
-            var key = (match.Groups[1].Value, match.Groups[2].Value);
+            var key = (match.Groups[1].Value.ToLowerInvariant(), match.Groups[2].Value, match.Groups[3].Value);
             byEngine.TryGetValue(key, out var used);
             byEngine[key] = used + sample.UtilizationPercent;
         }
 
-        var byAdapter = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        foreach (var ((adapter, _), used) in byEngine)
-        {
-            var capped = Math.Min(100d, used);
-            if (!byAdapter.TryGetValue(adapter, out var current) || capped > current)
-                byAdapter[adapter] = capped;
-        }
-
-        if (byAdapter.Count == 0)
+        if (byEngine.Count == 0)
             return new GpuUtilizationSummary(null, []);
 
-        var adapters = byAdapter
-            .Select(pair =>
+        var adapters = byEngine
+            .GroupBy(pair => pair.Key.Adapter)
+            .Select(group =>
             {
-                var name = adapterNames is not null && adapterNames.TryGetValue(pair.Key, out var found) && found.Length > 0
+                var name = adapterNames is not null && adapterNames.TryGetValue(group.Key, out var found) && found.Length > 0
                     ? found
-                    : pair.Key;
-                return new GpuAdapterLoad(pair.Key, name, ClampPercent(pair.Value));
+                    : group.Key;
+                int? VideoLoad(string type) => group
+                    .Where(engine => engine.Key.Type.StartsWith(type, StringComparison.OrdinalIgnoreCase))
+                    .Select(engine => (int?)ClampPercent(engine.Value))
+                    .Max();
+
+                return new GpuAdapterLoad(group.Key, name, ClampPercent(group.Max(engine => engine.Value)),
+                    VideoLoad("VideoEncode"), VideoLoad("VideoDecode"), VideoLoad("Video Codec"));
             })
             .OrderByDescending(adapter => adapter.Percent)
             .ThenBy(adapter => adapter.Name, StringComparer.Ordinal)
@@ -87,8 +88,13 @@ internal static class MachineResourceMath
             return intro;
         return intro + Environment.NewLine + string.Join(
             Environment.NewLine,
-            adapters.Select(adapter => $"{adapter.Name} {adapter.Percent.ToString(CultureInfo.InvariantCulture)}%"));
+            adapters.Select(adapter => $"{adapter.Name} {adapter.Percent.ToString(CultureInfo.InvariantCulture)}%"
+                + EngineUsage("编码", adapter.VideoEncode) + EngineUsage("解码", adapter.VideoDecode)
+                + EngineUsage("视频引擎", adapter.VideoCodec)));
     }
+
+    private static string EngineUsage(string label, int? percent) =>
+        percent is int value ? $" · {label} {value.ToString(CultureInfo.InvariantCulture)}%" : "";
 
     private static int ClampPercent(double percent) =>
         (int)Math.Clamp(Math.Round(percent, MidpointRounding.AwayFromZero), 0d, 100d);

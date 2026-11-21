@@ -6,6 +6,23 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class MachineResourceMathTests
 {
     [Fact]
+    public void Multiple_video_engines_report_the_busiest_engine_by_type()
+    {
+        const string adapter = "luid_0x00000000_0x00000010";
+        var summary = MachineResourceMath.SummarizeGpu(
+        [
+            new($"pid_10_{adapter}_phys_0_eng_1_engtype_VideoEncode", 35),
+            new($"pid_11_{adapter}_phys_0_eng_1_engtype_VideoEncode", 20),
+            new($"pid_12_{adapter}_phys_0_eng_2_engtype_VideoEncode", 50),
+            new($"pid_12_{adapter}_phys_0_eng_3_engtype_VideoDecode", 25),
+        ]);
+        summary.MaxPercent.Should().Be(55);
+        summary.Adapters[0].VideoEncode.Should().Be(55);
+        summary.Adapters[0].VideoDecode.Should().Be(25);
+        MachineResourceMath.GpuTooltip(summary.Adapters).Should().Contain("编码 55%").And.Contain("解码 25%");
+    }
+
+    [Fact]
     public void Cpu_percent_uses_the_non_idle_portion_of_system_time()
     {
         var previous = new SystemTimeSample(Idle: 100, Kernel: 150, User: 50);

@@ -8,9 +8,12 @@ public static class FfmpegRunner
 {
     public static async Task RunAsync(string binary, IReadOnlyList<string> args, CancellationToken ct, bool belowNormal = false)
     {
+        ct.ThrowIfCancellationRequested();
         using var proc = Start(binary, args, belowNormal: belowNormal);
+        using var cancellation = ct.Register(static state => Stop((Process)state!), proc);
         var stderr = await proc.StandardError.ReadToEndAsync(ct);
         await proc.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested();
         if (proc.ExitCode != 0)
             throw new InvalidOperationException($"{Path.GetFileName(binary)} 退出码 {proc.ExitCode}：{stderr.Trim()}");
     }
@@ -20,11 +23,26 @@ public static class FfmpegRunner
         IReadOnlyList<string> args,
         CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         using var proc = Start(binary, args, captureStdout: true);
+        using var cancellation = ct.Register(static state => Stop((Process)state!), proc);
         var outTask = proc.StandardOutput.ReadToEndAsync(ct);
         var errTask = proc.StandardError.ReadToEndAsync(ct);
         await proc.WaitForExitAsync(ct);
+        ct.ThrowIfCancellationRequested();
         return (proc.ExitCode, await outTask, await errTask);
+    }
+
+    private static void Stop(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+        }
     }
 
     public static async Task<double> ProbeDurationSecondsAsync(string ffprobe, string path, CancellationToken ct)

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using TikTokPublisher.Core.Media;
 
 namespace TikTokPublisher.Ui.Services;
 
@@ -38,7 +39,8 @@ internal sealed class MachineResourceMonitor : IDisposable
     private async Task LoopAsync()
     {
         using var gpu = GpuEngineQuery.TryCreate();
-        var names = DisplayAdapterNames.Read();
+        var names = WindowsVideoAdapters.Read()
+            .ToDictionary(adapter => adapter.CounterId, adapter => adapter.Name, StringComparer.OrdinalIgnoreCase);
         var previous = SystemTimes.Read();
         gpu?.Collect();
         Publish(null, null, PhysicalMemory.ReadPercent(), []);
@@ -236,92 +238,5 @@ internal sealed class MachineResourceMonitor : IDisposable
 
         [DllImport("pdh.dll", EntryPoint = "PdhCloseQuery")]
         private static extern uint PdhCloseQuery(nint query);
-    }
-
-    private static class DisplayAdapterNames
-    {
-        public static IReadOnlyDictionary<string, string> Read()
-        {
-            var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            var factoryId = new Guid("770aae78-f26f-4dba-a829-253c83d1b387");
-            if (CreateDXGIFactory1(ref factoryId, out var factory) != 0 || factory == 0)
-                return names;
-
-            try
-            {
-                var factoryTable = Marshal.ReadIntPtr(factory);
-                var enumAdapters = Marshal.GetDelegateForFunctionPointer<EnumAdapters1Delegate>(
-                    Marshal.ReadIntPtr(factoryTable, 11 * nint.Size));
-                for (uint index = 0; index < 16; index++)
-                {
-                    if (enumAdapters(factory, index, out var adapter) != 0 || adapter == 0)
-                        break;
-                    try
-                    {
-                        var adapterTable = Marshal.ReadIntPtr(adapter);
-                        var getDesc = Marshal.GetDelegateForFunctionPointer<GetDescDelegate>(
-                            Marshal.ReadIntPtr(adapterTable, 7 * nint.Size));
-                        var description = new AdapterDescription();
-                        if (getDesc(adapter, ref description) != 0)
-                            continue;
-                        var id = $"luid_0x{description.LuidHigh:X8}_0x{description.LuidLow:X8}";
-                        var name = description.Description?.Trim();
-                        if (!string.IsNullOrWhiteSpace(name))
-                            names.TryAdd(id, name);
-                    }
-                    finally
-                    {
-                        Release(adapter);
-                    }
-                }
-            }
-            catch (Exception ex) when (ex is EntryPointNotFoundException or DllNotFoundException or InvalidOperationException)
-            {
-                return names;
-            }
-            finally
-            {
-                Release(factory);
-            }
-
-            return names;
-        }
-
-        private static void Release(nint unknown)
-        {
-            if (unknown == 0)
-                return;
-            var release = Marshal.GetDelegateForFunctionPointer<ReleaseDelegate>(
-                Marshal.ReadIntPtr(Marshal.ReadIntPtr(unknown), 2 * nint.Size));
-            release(unknown);
-        }
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private struct AdapterDescription
-        {
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
-            public string Description;
-            public uint VendorId;
-            public uint DeviceId;
-            public uint SubSysId;
-            public uint Revision;
-            public nuint DedicatedVideoMemory;
-            public nuint DedicatedSystemMemory;
-            public nuint SharedSystemMemory;
-            public uint LuidLow;
-            public int LuidHigh;
-        }
-
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        private delegate int EnumAdapters1Delegate(nint factory, uint index, out nint adapter);
-
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        private delegate int GetDescDelegate(nint adapter, ref AdapterDescription description);
-
-        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-        private delegate uint ReleaseDelegate(nint unknown);
-
-        [DllImport("dxgi.dll")]
-        private static extern int CreateDXGIFactory1(ref Guid factoryId, out nint factory);
     }
 }

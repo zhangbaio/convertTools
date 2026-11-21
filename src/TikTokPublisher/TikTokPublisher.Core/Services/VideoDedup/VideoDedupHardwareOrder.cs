@@ -2,6 +2,9 @@ namespace TikTokPublisher.Core.Services.VideoDedup;
 
 internal static class VideoDedupHardwareOrder
 {
+    private const string AdapterRegistryPath =
+        @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}";
+
     internal readonly record struct Vendors(bool Nvidia, bool Amd, bool Intel);
 
     public static IReadOnlyList<string> Encoders(bool hevc, Vendors vendors, bool mac)
@@ -44,8 +47,7 @@ internal static class VideoDedupHardwareOrder
 
     private static Vendors ReadWindowsAdapters()
     {
-        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
-            @"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}");
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(AdapterRegistryPath);
         if (key is null)
             return default;
 
@@ -69,6 +71,30 @@ internal static class VideoDedupHardwareOrder
         }
 
         return new Vendors(nvidia, amd, intel);
+    }
+
+    public static string DriverVersions()
+    {
+        if (!OperatingSystem.IsWindows())
+            return "";
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(AdapterRegistryPath);
+            if (key is null)
+                return "";
+            var versions = new List<string>();
+            foreach (var name in key.GetSubKeyNames().Order(StringComparer.Ordinal))
+            {
+                using var adapter = key.OpenSubKey(name);
+                if (adapter?.GetValue("DriverVersion") is string version)
+                    versions.Add($"{name}={version}");
+            }
+            return string.Join(',', versions);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            return "";
+        }
     }
 
     private static bool ContainsVendor(string text, params string[] tokens)

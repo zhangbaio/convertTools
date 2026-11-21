@@ -103,6 +103,27 @@ internal static class VideoDedupEncodeGate
     private static readonly Queue<TaskCompletionSource<int>> Waiters = new();
     private static readonly HashSet<int> Slots = [];
     private static int _limit = VideoDedupCpuBudget.DefaultConcurrency;
+    private static bool _calibrating;
+
+    public static bool TryBeginCalibration()
+    {
+        lock (Sync)
+        {
+            if (_calibrating || Slots.Count != 0 || Waiters.Count != 0)
+                return false;
+            _calibrating = true;
+            return true;
+        }
+    }
+
+    public static void EndCalibration()
+    {
+        lock (Sync)
+        {
+            _calibrating = false;
+            Pump();
+        }
+    }
 
     public static void Configure(int concurrency)
     {
@@ -167,7 +188,7 @@ internal static class VideoDedupEncodeGate
 
     private static int? TryTakeSlot()
     {
-        if (Slots.Count >= _limit)
+        if (_calibrating || Slots.Count >= _limit)
             return null;
 
         for (var i = 0; i < _limit; i++)

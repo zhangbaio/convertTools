@@ -294,6 +294,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private void WireSystemSettings()
     {
+        SystemSettings.VideoDedupCalibrationAccount = () => SelectedAccount?.Model;
         SystemSettings.SettingsSaved += settings =>
         {
             DramaDownload.ApplyClientSettings(settings);

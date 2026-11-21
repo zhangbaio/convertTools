@@ -72,6 +72,7 @@ public sealed class ClientSettings
     /// <summary>服务端监控屏的分发模式。空表示还没收到，执行时按轮流分发。</summary>
     public string ServerDispatchMode { get; set; } = "";
     public int TiktokVideoDedupConcurrency { get; set; } = 2;
+    public bool TiktokVideoDedupAutomaticConcurrency { get; set; } = true;
     public int TiktokVideoDedupCpuPercent { get; set; } = 90;
     public int TiktokUploadConcurrency { get; set; } = 2;
     public int KuaishouProjectImageConcurrency { get; set; } = 3;
@@ -257,6 +258,7 @@ public sealed class ClientSettings
         TiktokAccountScheduleMode = TiktokAccountScheduleMode,
         ServerDispatchMode = ServerDispatchMode,
         TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency,
+        TiktokVideoDedupAutomaticConcurrency = TiktokVideoDedupAutomaticConcurrency,
         TiktokVideoDedupCpuPercent = TiktokVideoDedupCpuPercent,
         TiktokUploadConcurrency = TiktokUploadConcurrency,
         KuaishouProjectImageConcurrency = KuaishouProjectImageConcurrency,

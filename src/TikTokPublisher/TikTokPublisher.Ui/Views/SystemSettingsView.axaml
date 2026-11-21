@@ -694,8 +694,15 @@
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="CPU 占用 %" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
                             <NumericUpDown Classes="configurationInput" Grid.Row="0" Grid.Column="1" Value="{Binding TiktokVideoDedupCpuPercent}" Minimum="50" Maximum="100" Increment="5" FormatString="0" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="视频去重并发" ToolTip.Tip="FFmpeg 并发随此设置" VerticalAlignment="Center" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
-                            <NumericUpDown Classes="configurationInput" Grid.Row="1" Grid.Column="1" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" HorizontalAlignment="Left" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="去重并发上限" VerticalAlignment="Top" Margin="0,8,0,0" IsVisible="{Binding ShowsTikTokPublishPrompt}" />
+                            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6" IsVisible="{Binding ShowsTikTokPublishPrompt}">
+                                <WrapPanel Orientation="Horizontal">
+                                    <NumericUpDown Classes="configurationInput" Value="{Binding TiktokVideoDedupConcurrency}" Minimum="1" Maximum="{Binding VideoDedupConcurrencyMaximum}" Width="120" />
+                                    <CheckBox Content="按本机校准自动调优" Margin="12,0" IsChecked="{Binding TiktokVideoDedupAutomaticConcurrency}" VerticalAlignment="Center" />
+                                    <Button x:Name="VideoDedupCalibrationButton" Content="校准视频转码" Click="OnVideoDedupCalibrationClicked" />
+                                </WrapPanel>
+                                <TextBlock x:Name="VideoDedupCalibrationStatus" TextWrapping="Wrap" IsVisible="False" />
+                            </StackPanel>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="同时生成工程图" VerticalAlignment="Center" IsVisible="{Binding ShowsKuaishouPublishPrompt}" />
                 <TabItem x:Name="SoftwareLicenseTab" Header="软件授权" IsVisible="False">
