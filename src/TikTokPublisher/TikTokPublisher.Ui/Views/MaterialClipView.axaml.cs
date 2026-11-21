@@ -29,6 +29,14 @@ public partial class MaterialClipView : UserControl
     private MaterialClipQueueItem? Selected => TasksList.SelectedItem as MaterialClipQueueItem;
     public bool IsRunning => _running is not null;
 
+    private Func<IReadOnlyList<string>, Task<string?>>? _sendToWeixin;
+
+    public void BindWeixinExport(Func<IReadOnlyList<string>, Task<string?>> send)
+    {
+        _sendToWeixin = send;
+        SendToWeixinButton.IsVisible = true;
+    }
+
     public void Stop() => _running?.Cancel();
 
     private async void ImportFiles(object? sender, RoutedEventArgs e)
@@ -274,6 +282,7 @@ public partial class MaterialClipView : UserControl
         StopButton.IsEnabled = _running is { IsCancellationRequested: false };
         RemoveButton.IsEnabled = ChangeOutputButton.IsEnabled = !busy && task is not null;
         OpenOutputButton.IsEnabled = task is not null && Directory.Exists(task.OutputFolder);
+        SendToWeixinButton.IsEnabled = !busy && task is { Outputs.Count: > 0 };
         SelectedSummary.Text = task is null ? "选择一个剪辑任务以查看进度。" : $"输出目录  {task.OutputFolder}";
     }
 
@@ -307,6 +316,31 @@ public partial class MaterialClipView : UserControl
     {
         if (Selected is { } task)
             OpenPath(task.OutputFolder);
+    }
+
+    private async void OnSendToWeixinClick(object? sender, RoutedEventArgs e)
+    {
+        if (_sendToWeixin is not { } send || Selected is not { } task || IsRunning)
+            return;
+        var paths = task.Outputs.Select(output => output.Path).Where(File.Exists).ToArray();
+        if (paths.Length == 0)
+        {
+            QueueStatus.Text = "找不到可发送的视频号成片。";
+            return;
+        }
+        SendToWeixinButton.IsEnabled = false;
+        try
+        {
+            QueueStatus.Text = await send(paths) ?? $"已发送 {paths.Length} 条成片到视频号";
+        }
+        catch (Exception ex)
+        {
+            QueueStatus.Text = $"发送成片失败：{ex.Message}";
+        }
+        finally
+        {
+            UpdateButtons();
+        }
     }
 
     private void OpenVideo(object? sender, TappedEventArgs e)

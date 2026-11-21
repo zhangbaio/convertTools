@@ -37,10 +37,17 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
     public bool IsAvailable => true;
     public string AvailabilityMessage => "已接入现有视频号剧集上传链路";
 
+    public Task RunAsync(
+        PublishJob job,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken) =>
+        RunAsync(job, progress, cancellationToken, confirmSeriesReviewCompleteAsync: null);
+
     public async Task RunAsync(
         PublishJob job,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<CancellationToken, Task>? confirmSeriesReviewCompleteAsync)
     {
         ValidateProject(job);
         if (job.Kind == PublishJobKind.DirectoryMaterials)
@@ -68,6 +75,8 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
         }
 
         var overridePlan = _seriesConfigOverrideService.Prepare(job);
+        if (confirmSeriesReviewCompleteAsync is not null && overridePlan is null)
+            throw new InvalidOperationException("未找到可用的视频号剧集配置。");
         var effectiveConfigPath = overridePlan?.OverrideConfigPath ?? NullIfWhiteSpace(job.ConfigPath);
         if (overridePlan is not null)
             progress?.Report($"剧集上传：已生成任务级配置，视频 {overridePlan.SelectedVideoCount}/{overridePlan.OriginalVideoCount}。 ");
@@ -77,10 +86,14 @@ public sealed class WeixinChannelPublishAdapter : IPlatformPublishAdapter
                 job.ProjectDirectory,
                 job.ProjectName,
                 effectiveConfigPath,
-                NullIfWhiteSpace(Path.GetFileName(effectiveConfigPath))),
+                NullIfWhiteSpace(Path.GetFileName(effectiveConfigPath)))
+            {
+                ConfirmSeriesReviewCompleteAsync = confirmSeriesReviewCompleteAsync,
+            },
             progress,
             cancellationToken);
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (!result.Ok)
             throw new InvalidOperationException(result.Message ?? "视频号上传失败。");
     }

@@ -77,9 +77,9 @@ public sealed class AccountStore
         finally{_database.WriteGate.Release();}
     }
 
-    public PublishAccount Add(string name)
+    public PublishAccount Add(string name, bool excludeFromKuaishou = false)
     {
-        var id="acct-"+Guid.NewGuid().ToString("N")[..8];var account=new PublishAccount{Id=id,Name=string.IsNullOrWhiteSpace(name)?id:name.Trim(),ProfileDir=AppPaths.ProfileDirFor(id)};
+        var id="acct-"+Guid.NewGuid().ToString("N")[..8];var account=new PublishAccount{Id=id,Name=string.IsNullOrWhiteSpace(name)?id:name.Trim(),ProfileDir=AppPaths.ProfileDirFor(id),KuaishouRemovedFromWorkspace=excludeFromKuaishou};
         Directory.CreateDirectory(account.ProfileDir);_accounts.Add(account);Save();return account;
     }
 

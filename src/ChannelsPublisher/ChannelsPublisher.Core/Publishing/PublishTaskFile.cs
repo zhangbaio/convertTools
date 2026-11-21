@@ -15,6 +15,17 @@ public sealed class PublishTaskDto
     public string? DramaName { get; set; }
     public bool DeclareOriginal { get; set; }
 
+    public static PublishTaskDto FromItem(string accountId, PublishItem item) => new()
+    {
+        Account = accountId,
+        VideoPath = item.VideoPath,
+        Description = item.Description,
+        ShortTitle = item.ShortTitle,
+        CoverPath = item.CoverPath,
+        DramaName = item.DramaName,
+        DeclareOriginal = item.DeclareOriginal,
+    };
+
     public PublishItem ToItem() => new()
     {
         VideoPath = VideoPath,

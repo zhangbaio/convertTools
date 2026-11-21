@@ -75,6 +75,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         if (await EnsureInitializedAsync() && _active && !_disposed)
         {
             _viewModel?.SetKuaishouQueueStatusVisible(Workflow.IsVisible);
+            RefreshSidebar();
             RefreshHistory();
         }
     }
@@ -467,6 +468,9 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
     }
 
     public Task PrepareAsync() => EnsureInitializedAsync();
+
+    internal async Task<IServiceProvider?> GetEmbeddedPlatformServicesAsync() =>
+        await EnsureInitializedAsync() ? _services : null;
 
     public IReadOnlyList<TikTokQueueImportTarget> GetDownloadTargets() =>
         WorkspaceAccounts.Select(CreateTarget).OfType<TikTokQueueImportTarget>().ToArray();

@@ -38,4 +38,8 @@ public sealed record PublishProgress(
     string ItemName,
     string Message,
     bool Done,
-    bool Ok);
+    bool Ok)
+{
+    public PublishItem? Item { get; init; }
+    public bool SubmissionPending { get; init; }
+}

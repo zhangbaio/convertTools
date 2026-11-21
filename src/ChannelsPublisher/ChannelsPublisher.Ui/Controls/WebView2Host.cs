@@ -19,6 +19,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     private CoreWebView2Controller? _controller;
     private string? _pendingUrl;
+    private int _attachment;
 
     public string UserDataFolder { get; set; } = "";
     public string StorageStatePath { get; set; } = "";
@@ -29,6 +30,7 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
     /// <summary>WebView2 就绪后回调（可用于把账号标记为在线）。</summary>
     public event Action? Ready;
+    public event Action<Uri>? LocationChanged;
 
     public WebView2Host()
     {
@@ -56,18 +58,19 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
     {
         var handle = base.CreateNativeControlCore(parent);
         if (OperatingSystem.IsWindows())
-            _ = InitAsync(handle.Handle);
+            _ = InitAsync(handle.Handle, ++_attachment);
         return handle;
     }
 
     protected override void DestroyNativeControlCore(IPlatformHandle control)
     {
+        _attachment++;
         try { _controller?.Close(); } catch { /* 忽略关闭异常 */ }
         _controller = null;
         base.DestroyNativeControlCore(control);
     }
 
-    private async Task InitAsync(IntPtr hwnd)
+    private async Task InitAsync(IntPtr hwnd, int attachment)
     {
         try
         {
@@ -77,11 +80,26 @@ public sealed class WebView2Host : NativeControlHost, IEmbeddedBrowser
 
             var udf = string.IsNullOrWhiteSpace(UserDataFolder) ? null : UserDataFolder;
             var env = await CoreWebView2Environment.CreateAsync(null, udf, options);
-            _controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            if (attachment != _attachment)
+                return;
+            var controller = await env.CreateCoreWebView2ControllerAsync(hwnd);
+            if (attachment != _attachment)
+            {
+                controller.Close();
+                return;
+            }
+            _controller = controller;
             _controller.IsVisible = IsVisible;
             UpdateBounds();
 
             await ImportStorageStateAsync(_controller.CoreWebView2);
+            if (attachment != _attachment)
+                return;
+            _controller.CoreWebView2.SourceChanged += (_, _) =>
+            {
+                if (Uri.TryCreate(_controller?.CoreWebView2.Source, UriKind.Absolute, out var location))
+                    LocationChanged?.Invoke(location);
+            };
 
             Log($"ready udf={udf} port={RemoteDebuggingPort} cdp={CdpEndpoint}");
             Ready?.Invoke();

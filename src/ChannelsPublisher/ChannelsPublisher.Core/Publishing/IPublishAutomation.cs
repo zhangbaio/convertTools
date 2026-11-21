@@ -7,10 +7,12 @@ namespace ChannelsPublisher.Core.Publishing;
 /// →挂载视频号剧集→（可选）发表。cdpEndpoint 来自 WebView2Host.CdpEndpoint。</summary>
 public interface IPublishAutomation
 {
+    /// <param name="beforeSubmit">在触发草稿保存或发表前调用一次。回调抛出异常时停止提交。</param>
     Task<PublishResult> PublishAsync(
         PublishItem item,
         string cdpEndpoint,
         FinalAction finalAction,
         Action<string>? log,
-        CancellationToken ct);
+        CancellationToken ct,
+        Action? beforeSubmit = null);
 }

@@ -4244,6 +4244,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    internal string[] ListWeixinJobSummaries() => _jobs
+        .Where(job => job.Platform == PublishPlatform.WeixinChannel)
+        .OrderByDescending(job => job.UpdatedAt)
+        .Select(job => $"{job.ProjectName} · {job.AccountName} · {job.StatusMessage}")
+        .ToArray();
+
     private async Task LoadSelectedProjectEpisodesAsync(PublishJobRowViewModel? row)
     {
         _episodeLoadCts?.Cancel();

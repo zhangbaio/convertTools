@@ -1,0 +1,12 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:channels="using:ChannelsPublisher.Desktop.Views"
+             x:Class="PlatformPublisher.Desktop.Views.WeixinUploadWorkspace">
+    <Panel>
+        <channels:MaterialPublishView x:Name="Publisher" IsVisible="False" />
+        <StackPanel x:Name="StartupPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+            <TextBlock x:Name="StartupMessage" Text="正在加载视频号工作区…" TextWrapping="Wrap" MaxWidth="520" />
+            <Button x:Name="RetryButton" Content="重试" IsVisible="False" Click="OnRetryClick" />
+        </StackPanel>
+    </Panel>
+</UserControl>

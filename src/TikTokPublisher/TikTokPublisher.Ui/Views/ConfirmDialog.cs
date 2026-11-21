@@ -72,9 +72,13 @@ public sealed class ConfirmDialog : Window
         return dialog._accepted == true;
     }
 
-    public static async Task<bool?> ShowSaveChangesAsync(Window owner, string title, string message)
+    public static Task<bool?> ShowSaveChangesAsync(Window owner, string title, string message) =>
+        ShowChoiceAsync(owner, title, message, "保存", "放弃修改");
+
+    public static async Task<bool?> ShowChoiceAsync(
+        Window owner, string title, string message, string confirmText, string alternateText)
     {
-        var dialog = new ConfirmDialog(title, message, 440, 170, "保存", "取消", "放弃修改");
+        var dialog = new ConfirmDialog(title, message, 500, 190, confirmText, "取消", alternateText);
         await dialog.ShowDialog(owner);
         return dialog._accepted;
     }

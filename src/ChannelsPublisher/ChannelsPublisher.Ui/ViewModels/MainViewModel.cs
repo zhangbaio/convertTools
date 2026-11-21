@@ -16,6 +16,7 @@ public sealed partial class MainViewModel : ViewModelBase
     public const string ChannelsLoginUrl = "https://channels.weixin.qq.com/platform/login";
 
     private readonly AccountStore _store;
+    private readonly bool _excludeNewAccountsFromKuaishou;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
     public ObservableCollection<string> Logs { get; } = new();
@@ -75,6 +76,19 @@ public sealed partial class MainViewModel : ViewModelBase
         StatusMessage = $"账号列表已刷新，共 {Accounts.Count} 个账号。";
     }
 
+    public void RefreshAccountList()
+    {
+        var current = _store.Accounts.ToDictionary(account => account.Id, StringComparer.OrdinalIgnoreCase);
+        foreach (var item in Accounts.Where(item => !current.ContainsKey(item.Id)).ToArray())
+            Accounts.Remove(item);
+        foreach (var account in current.Values)
+        {
+            if (Accounts.All(item => item.Id != account.Id))
+                Accounts.Add(new AccountItemViewModel(account));
+        }
+        SelectedAccount ??= Accounts.FirstOrDefault();
+    }
+
     public void RecordAccountLogin(AccountItemViewModel account)
     {
         account.MarkLoggedIn(DateTimeOffset.Now);
@@ -85,10 +99,12 @@ public sealed partial class MainViewModel : ViewModelBase
     /// <summary>请求视图把某账号的内嵌浏览器导航到 url（View 侧持有 WebView2Host）。</summary>
     public event Action<AccountItemViewModel, string>? NavigateRequested;
 
-    public MainViewModel(AccountStore store)
+    public MainViewModel(AccountStore store, bool loadAccounts = true, bool excludeNewAccountsFromKuaishou = false)
     {
         _store = store;
-        _store.Load();
+        _excludeNewAccountsFromKuaishou = excludeNewAccountsFromKuaishou;
+        if (loadAccounts)
+            _store.Load();
         foreach (var account in _store.Accounts)
             Accounts.Add(new AccountItemViewModel(account));
         SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
@@ -103,7 +119,7 @@ public sealed partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void AddAccount()
     {
-        var account = _store.Add($"账号{Accounts.Count + 1}");
+        var account = _store.Add($"账号{Accounts.Count + 1}", _excludeNewAccountsFromKuaishou);
         var vm = new AccountItemViewModel(account);
         Accounts.Add(vm);
         SelectedAccount = vm;

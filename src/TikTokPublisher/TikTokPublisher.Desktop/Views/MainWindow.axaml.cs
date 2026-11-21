@@ -28,6 +28,8 @@ public partial class MainWindow : Window
     private string _activeNavTag = "queue";
     private string _tikTokSubPage = "queue";
     private bool _navigationPending;
+    private bool _weixinClosePending;
+    private bool _licenseRequiresClose;
     private bool _tikTokAnalyticsEnabled;
     private bool _historyKuaishou;
     private readonly HashSet<string> _collapsedAccountPanels = [];
@@ -72,6 +74,9 @@ public partial class MainWindow : Window
         AccountSidebar.DataContext = _viewModel;
         AccountSidebar.CanChangeAccountAsync = ConfirmTikTokAccountChangeAsync;
         KuaishouWorkspace.MountAccountPanel(AccountPanelHost);
+        WeixinWorkspace.Bind(AccountPanelHost, KuaishouWorkspace);
+        WeixinWorkspace.RuntimeChanged += UpdateWeixinStatus;
+        MaterialClipPage.BindWeixinExport(SendClippedMaterialsToWeixinAsync);
         AccountsView.Bind(_viewModel);
         AccountsView.UseWorkspaceNavigation();
         TikTokBasicSettingsButton.IsVisible = AccountsView.HasWorkspacePage("基础设置");
@@ -84,7 +89,8 @@ public partial class MainWindow : Window
         LogView.Bind(_viewModel, _viewModel.Logs);
         SettingsView.Bind(_viewModel.SystemSettings);
         SettingsView.BindServices(_viewModel.SystemServices);
-        ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning || KuaishouWorkspace.HasActiveUploads || MaterialClipPage.IsRunning);
+        ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning || KuaishouWorkspace.HasActiveUploads ||
+            WeixinWorkspace.HasActiveUploads || MaterialClipPage.IsRunning);
         _viewModel.SystemServices.ConfirmClientUpdate = message =>
             ConfirmDialog.ShowAsync(this, "客户端升级", message);
         _viewModel.SystemServices.ConfigImported += () =>
@@ -258,19 +264,80 @@ public partial class MainWindow : Window
 
     private void ApplyAccountPanelLayout()
     {
-        var hasAccounts = _activeNavTag is "queue" or "kuaishou";
+        var hasAccounts = _activeNavTag is "queue" or "kuaishou" or "weixin";
         var collapsed = _collapsedAccountPanels.Contains(AccountPanelLayoutKey);
         var showAccounts = hasAccounts && !collapsed;
         WindowLayout.ColumnDefinitions[1].Width = new GridLength(showAccounts ? ExpandedSidebarWidth : 0);
         AccountPanelHost.IsVisible = showAccounts;
         AccountSidebar.IsVisible = showAccounts && _activeNavTag == "queue";
         KuaishouWorkspace.SetAccountPanelVisible(showAccounts && _activeNavTag == "kuaishou");
+        WeixinWorkspace.SetAccountPanelVisible(showAccounts && _activeNavTag == "weixin");
 
         SidebarToggleButton.IsVisible = hasAccounts;
         SidebarToggleButton.Content = collapsed ? "›" : "‹";
         var toggleLabel = collapsed ? "展开账号栏" : "收起账号栏";
         ToolTip.SetTip(SidebarToggleButton, toggleLabel);
         Avalonia.Automation.AutomationProperties.SetName(SidebarToggleButton, toggleLabel);
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (!_licenseRequiresClose && WeixinWorkspace.HasActiveUploads)
+        {
+            e.Cancel = true;
+            if (!_weixinClosePending)
+                _ = StopWeixinBeforeClosingAsync();
+        }
+        base.OnClosing(e);
+    }
+
+    private async Task StopWeixinBeforeClosingAsync()
+    {
+        _weixinClosePending = true;
+        try
+        {
+            if (!await ConfirmDialog.ShowAsync(this, "关闭短剧助手", "微信视频号还有任务在运行。停止任务并保存进度后退出？"))
+                return;
+            WeixinWorkspace.StopUploads();
+            while (WeixinWorkspace.HasActiveUploads)
+                await Task.Delay(150);
+            Close();
+        }
+        finally
+        {
+            _weixinClosePending = false;
+        }
+    }
+
+    private async Task DisposeWeixinWorkspaceAsync()
+    {
+        try
+        {
+            await WeixinWorkspace.CloseWorkspaceAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceError("关闭视频号工作区失败：{0}", ex);
+        }
+    }
+
+    private async Task<string?> SendClippedMaterialsToWeixinAsync(IReadOnlyList<string> paths)
+    {
+        await NavigateAsync("weixin");
+        if (_activeNavTag != "weixin")
+            return "未打开视频号工作区。";
+        await WeixinWorkspace.ActivateAsync();
+        return await WeixinWorkspace.QueueClippedMaterialsAsync(paths);
+    }
+
+    private void UpdateWeixinStatus()
+    {
+        var status = WeixinWorkspace.RuntimeStatus;
+        var showWeixin = _activeNavTag == "weixin" || WeixinWorkspace.HasActiveUploads;
+        WeixinStatusText.IsVisible = showWeixin;
+        PrimaryStatusText.IsVisible = !showWeixin;
+        WeixinStatusText.Text = string.IsNullOrWhiteSpace(status) ? "微信视频号" : $"视频号 · {status}";
+        ToolTip.SetTip(WeixinStatusText, WeixinStatusText.Text);
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)
@@ -282,6 +349,7 @@ public partial class MainWindow : Window
         _viewModel.StopXingeRemoteCommandService();
         _accountInventorySync.StatusChanged -= _viewModel.AppendLog;
         _accountInventorySync.Dispose();
+        _ = DisposeWeixinWorkspaceAsync();
         KuaishouWorkspace.Dispose();
         MaterialClipPage.Stop();
         _browserHost.CloseAll();
@@ -325,6 +393,7 @@ public partial class MainWindow : Window
             _licenseVerifyTimer?.Stop();
             _viewModel.StatusMessage = "软件授权联网校验失败，软件即将退出。";
             _viewModel.RequestStopQueue();
+            _licenseRequiresClose = true;
             Close();
         }
         finally
@@ -338,6 +407,7 @@ public partial class MainWindow : Window
         _licenseVerifyTimer?.Stop();
         _viewModel.StatusMessage = message;
         _viewModel.RequestStopQueue();
+        WeixinWorkspace.StopUploads();
         HideForLicenseGate();
 
         var loggedIn = await ShowLicenseLoginDialogAsync(message, standalone: true);
@@ -349,6 +419,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _licenseRequiresClose = true;
         Close();
     }
 
@@ -690,6 +761,12 @@ public partial class MainWindow : Window
         MaterialClipPage.ZIndex = tag == "material-clip" ? activeZ : inactiveZ;
         SetUploadWorkspacePresentation(TikTokWorkspace, showUploadWorkspaces, tikTokActive);
         SetUploadWorkspacePresentation(KuaishouWorkspace, showUploadWorkspaces, kuaishouActive);
+        WeixinWorkspace.IsVisible = tag == "weixin";
+        if (WeixinWorkspace.IsVisible)
+            _ = WeixinWorkspace.ActivateAsync();
+        else
+            WeixinWorkspace.Deactivate();
+        UpdateWeixinStatus();
         ApplyAccountPanelLayout();
         if (kuaishouActive)
             _ = KuaishouWorkspace.ActivateAsync();

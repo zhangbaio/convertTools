@@ -56,6 +56,8 @@
         <WrapPanel Grid.Row="3" Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
             <Button x:Name="ChangeOutputButton" Content="设置输出目录" Click="ChangeOutputFolder" />
             <Button x:Name="OpenOutputButton" Content="打开输出目录" Click="OpenOutputFolder" />
+            <Button x:Name="SendToWeixinButton" Content="发送成片到视频号"
+                    Click="OnSendToWeixinClick" IsVisible="False" IsEnabled="False" />
             <Button x:Name="RemoveButton" Content="移除所选" Click="RemoveSelected" />
         </WrapPanel>
     </Grid>

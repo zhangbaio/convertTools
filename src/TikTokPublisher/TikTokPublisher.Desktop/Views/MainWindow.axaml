@@ -111,6 +111,13 @@
                         <TextBlock Text="快手上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                <Button Tag="weixin" Classes="moduleNavItem" AutomationProperties.Name="微信视频号上传"
+                        ToolTip.Tip="微信视频号上传" Click="OnNavItemClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="F0 M3,4 H21 V18 H10 L5,22 V18 H3 Z M5,6 V16 H7 V18 L9,16 H19 V6 Z M10,8 L15,11 L10,14 Z" />
+                        <TextBlock Text="视频号上传" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
                 <Button Tag="analytics" Classes="moduleNavItem" AutomationProperties.Name="数据统计" ToolTip.Tip="数据统计" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="M3,14 H7 V21 H3 Z M10,9 H14 V21 H10 Z M17,3 H21 V21 H17 Z" />
@@ -179,6 +186,7 @@
                 </Grid>
             </Grid>
             <kuaishou:KuaishouUploadWorkspace x:Name="KuaishouWorkspace" IsVisible="False" />
+            <kuaishou:WeixinUploadWorkspace x:Name="WeixinWorkspace" IsVisible="False" />
             <views:SystemSettingsView x:Name="SettingsView" IsVisible="False" />
             <Grid x:Name="HistoryWorkspace" RowDefinitions="Auto,Auto,*" IsVisible="False">
                 <TabStrip x:Name="AnalyticsPlatformTabs" Margin="10,5,10,3"
@@ -220,12 +228,15 @@
 
         <Border Grid.Row="1" Grid.ColumnSpan="3" Classes="statusBarFrame" Height="28">
             <Grid ColumnDefinitions="*,*,*,Auto,Auto" Margin="12,0">
-                <TextBlock Grid.Column="0"
+                <TextBlock x:Name="PrimaryStatusText" Grid.Column="0"
                            VerticalAlignment="Center"
                            FontSize="12"
                            Text="{Binding StatusMessage}"
                            TextWrapping="NoWrap"
                            TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="WeixinStatusText" Grid.Column="0"
+                           IsVisible="False" VerticalAlignment="Center" FontSize="12"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                 <TextBlock Grid.Column="1"
                            VerticalAlignment="Center"
                            FontSize="12"

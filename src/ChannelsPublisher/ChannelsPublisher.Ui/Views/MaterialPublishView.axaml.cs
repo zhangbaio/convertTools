@@ -24,18 +24,30 @@ public partial class MaterialPublishView : UserControl
     private PublishScheduler? _scheduler;
     private MainViewModel? _vm;
     private bool _ready;
+    private string? _workspaceQueuePath;
+    private bool _workspaceQueueAvailable;
+    private bool _workspaceVisible;
+    private Func<bool>? _canStartPublish;
+    private Func<int, Task<bool>>? _confirmPublish;
+    private Func<string, Task<bool?>>? _confirmPendingOutcome;
+    private Func<string, int>? _allocatePort;
+    private Action<string>? _releasePort;
+
+    public event Action? RuntimeChanged;
+
+    public string RuntimeStatus => _vm?.StatusMessage ?? string.Empty;
     // 发表配置：作为发布的全局默认，供任务队列/发布测试套用；配置对话框保存后重载。
     private PublishConfig _publishConfig = PublishConfig.Load();
     // 停止：本轮发布的取消源；运行中非空。
     private CancellationTokenSource? _publishCts;
     // 断点续传：已成功发布素材的持久化记录，resume 策略下跳过。
-    private readonly PublishRunStateStore _runState = PublishRunStateStore.Load();
+    private readonly PublishRunStateStore _runState = new();
 
     public MaterialPublishView()
     {
         InitializeComponent();
-        DataContext = new MainViewModel(new AccountStore()); // 自带 VM，standalone/壳内都可用
         DataContextChanged += OnDataContextChanged;
+        DataContext = new MainViewModel(new AccountStore());
         // UserControl 无 OnOpened；Loaded 时命名控件与原生窗口句柄已就绪，WebView2 才能挂载
         Loaded += OnLoaded;
     }
@@ -49,6 +61,130 @@ public partial class MaterialPublishView : UserControl
         AccountSidebar.IsVisible = visible;
         RootLayout.ColumnDefinitions[0].Width = new GridLength(visible ? 198 : 0);
         RootLayout.ColumnSpacing = visible ? 12 : 0;
+    }
+
+    public void UseUploadWorkspace(Panel sidebarHost, AccountStore store, string queuePath,
+        Func<bool> canStartPublish, Func<int, Task<bool>> confirmPublish,
+        Func<string, Task<bool?>> confirmPendingOutcome,
+        Func<string, int> allocatePort, Action<string> releasePort)
+    {
+        _workspaceQueuePath = queuePath;
+        _canStartPublish = canStartPublish;
+        _confirmPublish = confirmPublish;
+        _confirmPendingOutcome = confirmPendingOutcome;
+        _allocatePort = allocatePort;
+        _releasePort = releasePort;
+
+        SetSidebarVisible(false);
+        RootLayout.Children.Remove(AccountSidebar);
+        AccountSidebar.UseShellChrome();
+        AccountSidebar.HideAccountRemoval();
+        sidebarHost.Children.Add(AccountSidebar);
+        LegacySessionImportButton.IsVisible = LegacySessionImportRequested is not null;
+        foreach (var tab in WorkspaceTabs.Items.OfType<TabItem>())
+            tab.IsVisible = tab == MaterialQueueTab || tab == AccountConfigTab ||
+                tab == SeriesUploadTab || tab == RuntimeLogTab;
+        MaterialQueueTab.Header = "素材发布";
+        AddMaterialDirectoryButton.IsVisible = true;
+        ClearResumeButton.IsVisible = false;
+        ResolvePendingButton.IsVisible = true;
+        MaterialQueue.IsVisible = true;
+        MaterialQueue.RowDefinitions[1].Height = new GridLength(0);
+        MaterialQueue.RowDefinitions[2].Height = new GridLength(1, GridUnitType.Star);
+        MaterialQueue.RowDefinitions[3].Height = new GridLength(0);
+        MaterialBrowserFrame.Child = null;
+        MaterialBrowserFrame.IsVisible = false;
+        WorkspaceBrowserPanel.Children.Add(BrowserArea);
+        CloseWorkspaceBrowserButton.IsVisible = false;
+        WorkspaceBrowserFrame.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
+        WorkspaceBrowserFrame.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
+        WorkspaceBrowserFrame.Width = 1;
+        WorkspaceBrowserFrame.Height = 1;
+        WorkspaceBrowserFrame.Margin = new Avalonia.Thickness(0);
+        WorkspaceBrowserFrame.IsVisible = true;
+        WorkspaceBrowserFrame.IsHitTestVisible = false;
+        DataContext = new MainViewModel(store, loadAccounts: false, excludeNewAccountsFromKuaishou: true);
+        AccountSidebar.DataContext = DataContext;
+        var vm = _vm!;
+        RuntimeLogContentHost.Content = new ListBox { ItemsSource = vm.Logs };
+        WorkspaceTabs.SelectionChanged += (_, args) =>
+        {
+            if (ReferenceEquals(args.Source, WorkspaceTabs))
+                CloseWorkspaceBrowser();
+        };
+        ApplyConfigToVm();
+        RestoreWorkspaceQueue(vm);
+    }
+
+    public void SetWorkspaceVisible(bool visible)
+    {
+        _workspaceVisible = visible;
+        if (!visible)
+            CloseWorkspaceBrowser();
+    }
+
+    public void SetWorkspaceAccountPanelVisible(bool visible) => AccountSidebar.IsVisible = visible;
+
+    public void RefreshWorkspaceAccounts() => _vm?.RefreshAccountList();
+
+    public async Task DisposeWorkspaceAsync()
+    {
+        StopWorkspace();
+        await _automation.DisposeAsync();
+    }
+
+    public void StopWorkspace()
+    {
+        _publishCts?.Cancel();
+        CloseWorkspaceBrowser();
+        if (!HasActivePublish)
+            ReleaseIdleHosts(null);
+    }
+
+    private void SetWorkspaceBrowserExpanded(bool expanded)
+    {
+        WorkspaceBrowserFrame.Width = expanded ? double.NaN : 1;
+        WorkspaceBrowserFrame.Height = expanded ? double.NaN : 1;
+        WorkspaceBrowserFrame.HorizontalAlignment = expanded ? Avalonia.Layout.HorizontalAlignment.Stretch : Avalonia.Layout.HorizontalAlignment.Left;
+        WorkspaceBrowserFrame.VerticalAlignment = expanded ? Avalonia.Layout.VerticalAlignment.Stretch : Avalonia.Layout.VerticalAlignment.Top;
+        WorkspaceBrowserFrame.Margin = expanded ? new Avalonia.Thickness(0, 48, 0, 0) : default;
+        WorkspaceBrowserFrame.IsHitTestVisible = expanded;
+        CloseWorkspaceBrowserButton.IsVisible = expanded;
+        ShowAccount(_vm?.SelectedAccount);
+    }
+
+    private void OnCloseWorkspaceBrowserClick(object? sender, RoutedEventArgs e) => CloseWorkspaceBrowser();
+
+    private void CloseWorkspaceBrowser()
+    {
+        if (_workspaceQueuePath is not null)
+            SetWorkspaceBrowserExpanded(false);
+    }
+
+    public async Task PrepareSeriesSessionAsync(string accountId, CancellationToken cancellationToken)
+    {
+        var account = _vm?.Accounts.FirstOrDefault(item => item.Id == accountId)?.Model;
+        if (account is null || string.IsNullOrWhiteSpace(account.ProfileDir))
+            return;
+        Directory.CreateDirectory(account.ProfileDir);
+        var destination = Path.Combine(account.ProfileDir, "weixin-series-auth.json");
+        if (_hosts.TryGetValue(account.Id, out var host) && host.CdpEndpoint is { } endpoint)
+        {
+            try
+            {
+                if (await _automation.TrySaveVideoChannelSessionAsync(endpoint, destination, cancellationToken))
+                    return;
+            }
+            catch (Exception ex) when (ex is Microsoft.Playwright.PlaywrightException or IOException)
+            {
+                if (_vm is not null)
+                    _vm.StatusMessage = "无法转存当前网页登录态，将使用原登录记录或在剧集上传窗口扫码。";
+            }
+        }
+
+        var previous = account.WeixinAuthStatePath;
+        if (!File.Exists(destination) && File.Exists(previous))
+            File.Copy(previous, destination, overwrite: false);
     }
 
     public Task RunPublishTestAsync() => PublishTestAsync();
@@ -127,6 +263,20 @@ public partial class MaterialPublishView : UserControl
         MaterialWorkflowContentHost.Content = content;
     }
 
+    public void SetWorkspaceRunHistory(Control history)
+    {
+        if (_vm is not { } vm)
+            return;
+        RuntimeLogContentHost.Content = new TabControl
+        {
+            ItemsSource = new[]
+            {
+                new TabItem { Header = "素材运行日志", Content = new ListBox { ItemsSource = vm.Logs } },
+                new TabItem { Header = "原项目队列", Content = history },
+            },
+        };
+    }
+
     public void SetRuntimeLogContent(Control content)
     {
         RuntimeLogContentHost.Content = content;
@@ -156,7 +306,7 @@ public partial class MaterialPublishView : UserControl
     {
         var vm = _vm;
         if (vm is null) return;
-        var fa = _publishConfig.FinalAction switch
+        var fa = (_workspaceQueuePath is not null ? "draft" : _publishConfig.FinalAction) switch
         {
             "publish" => FinalAction.Publish,
             "draft" => FinalAction.Draft,
@@ -203,6 +353,8 @@ public partial class MaterialPublishView : UserControl
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(MainViewModel.StatusMessage))
+            RuntimeChanged?.Invoke();
         if (_ready && e.PropertyName == nameof(MainViewModel.SelectedAccount))
         {
             ShowAccount(_vm?.SelectedAccount);
@@ -213,6 +365,14 @@ public partial class MaterialPublishView : UserControl
     private void OnNavigateRequested(AccountItemViewModel account, string url)
     {
         if (!_ready) return;
+        if (_workspaceQueuePath is not null && _busyAccountIds.Contains(account.Id))
+        {
+            if (_vm is not null)
+                _vm.StatusMessage = $"「{account.Name}」正在发布素材，任务结束后可重新登录。";
+            return;
+        }
+        if (_workspaceQueuePath is not null)
+            SetWorkspaceBrowserExpanded(_workspaceVisible);
         var host = GetOrCreateHost(account);
         ShowAccount(account);
         host.Navigate(url);
@@ -245,10 +405,21 @@ public partial class MaterialPublishView : UserControl
         {
             UserDataFolder = account.Model.ProfileDir,
             StorageStatePath = account.Model.WeixinAuthStatePath,
-            RemoteDebuggingPort = NextFreeDebuggingPort(),
-            IsVisible = _vm?.SelectedAccount?.Id == account.Id,
+            RemoteDebuggingPort = _allocatePort?.Invoke(account.Id) ?? NextFreeDebuggingPort(),
+            IsVisible = _workspaceQueuePath is not null || _vm?.SelectedAccount?.Id == account.Id,
         };
-        host.Ready += () => _vm?.RecordAccountLogin(account);
+        if (_workspaceQueuePath is null)
+            host.Ready += () => _vm?.RecordAccountLogin(account);
+        else
+            host.LocationChanged += location =>
+            {
+                if (PlaywrightPublishAutomation.IsVideoChannelWorkspace(location) &&
+                    account.Status != AccountStatus.Online && _hosts.GetValueOrDefault(account.Id) == host)
+                    _vm?.RecordAccountLogin(account);
+                else if (location.Host == "channels.weixin.qq.com" &&
+                    location.AbsolutePath.Contains("login", StringComparison.OrdinalIgnoreCase))
+                    account.Status = AccountStatus.LoggingIn;
+            };
         _hosts[account.Id] = host;
         BrowserArea.Children.Add(host);
         if (host.IsVisible) EmptyHint.IsVisible = false;
@@ -279,6 +450,7 @@ public partial class MaterialPublishView : UserControl
     {
         if (!_hosts.Remove(accountId, out var host)) return;
         BrowserArea.Children.Remove(host);
+        _releasePort?.Invoke(accountId);
         if (_vm?.Accounts.FirstOrDefault(item => item.Id == accountId) is { Status: AccountStatus.Online } account)
             account.Status = AccountStatus.Offline;
     }
@@ -337,7 +509,7 @@ public partial class MaterialPublishView : UserControl
 
         var item = new PublishItem { VideoPath = file.Path.LocalPath, Description = "【多账号发布测试】" };
         ApplyConfigDefaults(item); // 描述已填则保留测试标记，仅补剧集/封面/原创等配置默认
-        _scheduler ??= new PublishScheduler(_automation);
+        _scheduler ??= new PublishScheduler(_automation, _runState);
 
         _busyAccountIds.Add(account.Id);
         try
@@ -385,6 +557,119 @@ public partial class MaterialPublishView : UserControl
 
     // ────────────── 发布任务队列 ──────────────
 
+    private void RestoreWorkspaceQueue(MainViewModel vm)
+    {
+        try
+        {
+            if (File.Exists(_workspaceQueuePath))
+            {
+                foreach (var dto in PublishTaskFile.Load(_workspaceQueuePath!).Tasks)
+                {
+                    if (vm.FindAccount(dto.Account) is { } account)
+                        vm.Tasks.Add(new PublishTaskItemViewModel(dto.ToItem(), account));
+                    else
+                        throw new InvalidOperationException($"找不到任务所属账号 {dto.Account}。");
+                }
+            }
+            _workspaceQueueAvailable = true;
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = $"读取素材队列失败：{ex.Message}";
+        }
+    }
+
+    private bool SaveWorkspaceQueue(MainViewModel vm)
+    {
+        if (_workspaceQueuePath is not { } path)
+            return true;
+        if (!_workspaceQueueAvailable)
+        {
+            vm.StatusMessage = "原素材队列无法读取，请核对保存的任务文件后重新打开客户端。";
+            return false;
+        }
+
+        var tempPath = path + ".tmp";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            new PublishTaskFile
+            {
+                Tasks = vm.Tasks.Select(task => PublishTaskDto.FromItem(task.Account.Id, task.Item)).ToList(),
+            }.Save(tempPath);
+            File.Move(tempPath, path, overwrite: true);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            vm.StatusMessage = $"保存素材队列失败：{ex.Message}";
+            return false;
+        }
+    }
+
+    public string? QueueWorkspaceMaterials(string accountId, IEnumerable<string> paths)
+    {
+        if (_vm is not { } vm || vm.FindAccount(accountId) is not { } account)
+            return "请先在视频号工作区选择发布账号，再发送剪辑成片。";
+        if (!_workspaceQueueAvailable)
+            return vm.StatusMessage;
+        if (!AddWorkspaceMaterials(vm, account, paths.Where(File.Exists)))
+            return vm.StatusMessage;
+        ShowUnifiedPublish();
+        return null;
+    }
+
+    private bool AddWorkspaceMaterials(MainViewModel vm, AccountItemViewModel account, IEnumerable<string> paths)
+    {
+        var added = new List<PublishTaskItemViewModel>();
+        var existing = vm.Tasks.Where(task => task.Account.Id == account.Id)
+            .Select(task => task.Item.VideoPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var path in paths.Where(existing.Add))
+        {
+            var item = new PublishItem { VideoPath = path };
+            ApplyConfigDefaults(item);
+            var task = new PublishTaskItemViewModel(item, account);
+            vm.Tasks.Add(task);
+            added.Add(task);
+        }
+        if (added.Count == 0)
+        {
+            vm.StatusMessage = $"没有新素材可加入「{account.Name}」";
+            return true;
+        }
+        if (SaveWorkspaceQueue(vm))
+        {
+            vm.StatusMessage = $"已添加 {added.Count} 条素材到「{account.Name}」";
+            return true;
+        }
+
+        foreach (var task in added)
+            vm.Tasks.Remove(task);
+        return false;
+    }
+
+    private async void OnAddMaterialDirectoryClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is not { SelectedAccount: { } account } vm || Storage is not { } storage)
+            return;
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "选择包含成片的目录",
+        });
+        if (folders.FirstOrDefault() is not { } folder)
+            return;
+        try
+        {
+            AddWorkspaceMaterials(vm, account, Directory.EnumerateFiles(folder.Path.LocalPath)
+                .Where(path => Path.GetExtension(path).ToLowerInvariant() is ".mp4" or ".mov" or ".m4v")
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            vm.StatusMessage = $"读取素材目录失败：{ex.Message}";
+        }
+    }
+
     private async void OnAddMaterialsClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;
@@ -398,6 +683,11 @@ public partial class MaterialPublishView : UserControl
             AllowMultiple = true,
             FileTypeFilter = new[] { new FilePickerFileType("视频") { Patterns = new[] { "*.mp4", "*.mov", "*.m4v" } } },
         });
+        if (_workspaceQueuePath is not null)
+        {
+            AddWorkspaceMaterials(vm, account, files.Select(file => file.Path.LocalPath));
+            return;
+        }
         int n = 0;
         foreach (var f in files)
         {
@@ -426,17 +716,27 @@ public partial class MaterialPublishView : UserControl
         try { taskFile = PublishTaskFile.Load(file.Path.LocalPath); }
         catch (Exception ex) { vm.StatusMessage = $"导入失败：{ex.Message}"; return; }
 
+        var imported = new List<PublishTaskItemViewModel>();
         int added = 0, skipped = 0;
         foreach (var dto in taskFile.Tasks)
         {
             var acct = vm.FindAccount(dto.Account);
             if (acct is null) { skipped++; continue; }
-            vm.Tasks.Add(new PublishTaskItemViewModel(dto.ToItem(), acct));
+            var task = new PublishTaskItemViewModel(dto.ToItem(), acct);
+            vm.Tasks.Add(task);
+            imported.Add(task);
             added++;
         }
-        var fa = taskFile.ResolveFinalAction();
-        var choice = vm.FinalActionChoices.FirstOrDefault(c => c.Value == fa);
-        if (choice != null) vm.SelectedFinalAction = choice;
+        if (!SaveWorkspaceQueue(vm))
+        {
+            foreach (var task in imported) vm.Tasks.Remove(task);
+            return;
+        }
+        if (_workspaceQueuePath is null)
+        {
+            var choice = vm.FinalActionChoices.FirstOrDefault(c => c.Value == taskFile.ResolveFinalAction());
+            if (choice is not null) vm.SelectedFinalAction = choice;
+        }
         vm.StatusMessage = $"已导入 {added} 条任务" + (skipped > 0 ? $"，跳过 {skipped} 条（账号未匹配）" : "");
     }
 
@@ -446,6 +746,11 @@ public partial class MaterialPublishView : UserControl
         if (vm is null) return;
         var done = vm.Tasks.Where(t => t.Status == PublishTaskStatus.Done).ToList();
         foreach (var t in done) vm.Tasks.Remove(t);
+        if (!SaveWorkspaceQueue(vm))
+        {
+            foreach (var task in done) vm.Tasks.Add(task);
+            return;
+        }
         vm.StatusMessage = $"已清空 {done.Count} 条完成任务";
     }
 
@@ -455,35 +760,30 @@ public partial class MaterialPublishView : UserControl
         if (vm is null) return;
         if (_publishCts is not null) { vm.StatusMessage = "发布进行中…（可点「停止」）"; return; }
 
+        if (_canStartPublish?.Invoke() == false)
+        {
+            vm.StatusMessage = "视频号剧集上传正在运行，请等任务结束后再开始素材发布。";
+            return;
+        }
+        if (!SaveWorkspaceQueue(vm))
+            return;
+
         // 运行策略来自发表配置：all=全部待发；resume=断点续传（跳过已发布记录）；retry_failed=只重试失败。
-        var strategy = (_publishConfig.RunStrategy ?? "all").Trim().ToLowerInvariant();
+        var strategy = _workspaceQueuePath is not null
+            ? "resume"
+            : (_publishConfig.RunStrategy ?? "all").Trim().ToLowerInvariant();
         var candidates = (strategy == "retry_failed"
                 ? vm.Tasks.Where(t => t.Status == PublishTaskStatus.Failed)
-                : vm.Tasks.Where(t => t.Status is PublishTaskStatus.Pending or PublishTaskStatus.Failed))
+                : vm.Tasks.Where(t => t.Status is PublishTaskStatus.Pending or PublishTaskStatus.Failed
+                    or PublishTaskStatus.PendingConfirmation ||
+                    (_workspaceQueuePath is not null && t.Status == PublishTaskStatus.Done)))
             .ToList();
         if (candidates.Count == 0) { vm.StatusMessage = "没有待发布任务"; return; }
-
-        // resume：命中续传记录的素材直接标记完成、不再发。
-        int resumed = 0;
-        if (strategy == "resume")
+        var finalAction = vm.SelectedFinalAction?.Value ?? FinalAction.None;
+        if (finalAction == FinalAction.Publish && _confirmPublish is { } confirm)
         {
-            var remaining = new List<PublishTaskItemViewModel>();
-            foreach (var t in candidates)
-            {
-                if (_runState.IsDone(PublishRunStateStore.SignatureFor(t.Account.Id, t.Item)))
-                {
-                    t.Status = PublishTaskStatus.Done;
-                    t.Message = "已发布·续传跳过";
-                    resumed++;
-                }
-                else remaining.Add(t);
-            }
-            candidates = remaining;
-            if (candidates.Count == 0)
-            {
-                vm.StatusMessage = resumed > 0 ? $"全部 {resumed} 条已在续传记录中，无需重发" : "没有待发布任务";
+            if (!await confirm(candidates.Count) || _publishCts is not null || _canStartPublish?.Invoke() == false)
                 return;
-            }
         }
 
         _publishCts = new CancellationTokenSource();
@@ -493,33 +793,21 @@ public partial class MaterialPublishView : UserControl
         var jobs = new List<AccountPublishJob>();
         foreach (var group in candidates.GroupBy(t => t.Account.Id))
         {
-            var acctVm = group.First().Account;
-            string endpoint;
-            try { endpoint = await EnsureAccountCdpEndpointAsync(acctVm.Id, _publishCts.Token); }
-            catch (Exception)
-            {
-                foreach (var t in group) { t.Status = PublishTaskStatus.Failed; t.Message = "浏览器未就绪（先登录该账号）"; }
-                continue;
-            }
+            var account = group.First().Account;
             foreach (var t in group) { t.Status = PublishTaskStatus.Pending; t.Message = "排队中"; }
-            jobs.Add(new AccountPublishJob(acctVm.Model, endpoint, group.Select(t => t.Item).ToList()));
-        }
-        if (jobs.Count == 0)
-        {
-            vm.StatusMessage = "无可发布账号（选中账号的浏览器都未就绪）";
-            EndPublishRun(runAccountIds);
-            return;
+            jobs.Add(new AccountPublishJob(account.Model, "", group.Select(t => t.Item).ToList())
+            {
+                ResolveCdpEndpoint = ct => EnsureAccountCdpEndpointAsync(account.Id, ct),
+            });
         }
 
-        _scheduler ??= new PublishScheduler(_automation);
-        var finalAction = vm.SelectedFinalAction?.Value ?? FinalAction.None;
+        _scheduler ??= new PublishScheduler(_automation, _runState, scopeSubmissionByAction: _workspaceQueuePath is not null);
         var strategyLabel = strategy switch { "resume" => "断点续传", "retry_failed" => "仅重试失败", _ => "全部" };
-        vm.StatusMessage = $"开始发布：{jobs.Count} 账号 / {candidates.Count} 素材（{strategyLabel}，{finalAction.ToLabel()}，并发 {vm.MaxParallel}）"
-                           + (resumed > 0 ? $"，续传跳过 {resumed}" : "");
+        vm.StatusMessage = $"开始发布：{jobs.Count} 账号 / {candidates.Count} 素材（{strategyLabel}，{finalAction.ToLabel()}，并发 {vm.MaxParallel}）";
         try
         {
             await _scheduler.RunAsync(jobs, finalAction, vm.MaxParallel,
-                p => Dispatcher.UIThread.Post(() => UpdateTaskProgress(p)), _publishCts.Token);
+                p => Dispatcher.UIThread.Post(() => UpdateTaskProgress(p)), _publishCts.Token, resume: strategy == "resume");
             vm.StatusMessage = "发布结束";
         }
         catch (OperationCanceledException)
@@ -528,9 +816,9 @@ public partial class MaterialPublishView : UserControl
             foreach (var t in vm.Tasks.Where(t => t.Status is PublishTaskStatus.Running or PublishTaskStatus.Pending))
             {
                 t.Status = PublishTaskStatus.Pending;
-                t.Message = "已停止（可再次开始续传）";
+                t.Message = "已停止（已尝试提交的素材需先核对平台记录）";
             }
-            vm.StatusMessage = "已停止：完成的已保留，未完成可再次「开始」续传";
+            vm.StatusMessage = "已停止。已完成的记录已保留，待确认素材会在下次运行时提示。";
         }
         catch (Exception ex) { vm.StatusMessage = $"发布出错：{ex.Message}"; }
         finally { EndPublishRun(runAccountIds); }
@@ -543,6 +831,7 @@ public partial class MaterialPublishView : UserControl
         SetPublishing(false);
         _busyAccountIds.ExceptWith(accountIds);
         ShowAccount(_vm?.SelectedAccount);
+        RuntimeChanged?.Invoke();
     }
 
     private void OnStopPublishClick(object? sender, RoutedEventArgs e)
@@ -553,11 +842,47 @@ public partial class MaterialPublishView : UserControl
         if (_vm != null) _vm.StatusMessage = "正在停止…（当前素材发完即停）";
     }
 
+    private async void OnResolvePendingClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is not { } vm || _confirmPendingOutcome is null || HasActivePublish)
+            return;
+        if (MaterialTaskList.SelectedItem is not PublishTaskItemViewModel task)
+        {
+            vm.StatusMessage = "请先选中一条待确认的素材，并在视频号后台核对草稿或作品。";
+            return;
+        }
+
+        var submitted = await _confirmPendingOutcome(task.VideoName);
+        if (submitted is null || HasActivePublish)
+            return;
+        try
+        {
+            if (!_runState.ResolvePending(task.Account.Id, task.Item, submitted.Value))
+            {
+                vm.StatusMessage = "这条素材没有待确认的提交记录。";
+                return;
+            }
+            task.Status = submitted.Value ? PublishTaskStatus.Done : PublishTaskStatus.Pending;
+            task.Message = submitted.Value ? "已核对平台记录" : "平台未找到记录，可重试";
+            vm.StatusMessage = $"{task.VideoName}：{task.Message}";
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            vm.StatusMessage = $"保存核对结果失败：{ex.Message}";
+        }
+    }
+
     private void OnClearResumeClick(object? sender, RoutedEventArgs e)
     {
-        var n = _runState.Count;
-        _runState.Reset();
-        if (_vm != null) _vm.StatusMessage = $"已清除续传记录（{n} 条）；resume 模式下这些素材将重新发布";
+        var vm = _vm;
+        if (vm is null) return;
+        if (_publishCts is not null) { vm.StatusMessage = "请结束本轮发布后再清除续传记录"; return; }
+        try
+        {
+            _runState.Reset();
+            vm.StatusMessage = "已清除续传记录。重新提交前请先核对平台作品和草稿。";
+        }
+        catch (Exception ex) { vm.StatusMessage = $"无法清除续传记录：{ex.Message}"; }
     }
 
     // 开始/停止按钮互斥。
@@ -572,12 +897,12 @@ public partial class MaterialPublishView : UserControl
         var vm = _vm;
         if (vm is null) return;
         var task = vm.Tasks.FirstOrDefault(t =>
-            t.Account.Id == p.AccountId && t.VideoName == p.ItemName && t.Status != PublishTaskStatus.Done);
+            t.Account.Id == p.AccountId && ReferenceEquals(t.Item, p.Item) && t.Status != PublishTaskStatus.Done);
         if (task is null) return;
         task.Message = p.Message;
-        task.Status = p.Done ? (p.Ok ? PublishTaskStatus.Done : PublishTaskStatus.Failed) : PublishTaskStatus.Running;
-        // 成功即写入续传记录（无论当前策略，供后续 resume 复用）。
-        if (p.Done && p.Ok)
-            _runState.MarkDone(PublishRunStateStore.SignatureFor(task.Account.Id, task.Item), task.VideoName, task.AccountName);
+        task.Status = p.SubmissionPending ? PublishTaskStatus.PendingConfirmation
+            : p.Done ? (p.Ok ? PublishTaskStatus.Done : PublishTaskStatus.Failed) : PublishTaskStatus.Running;
+        if (_workspaceQueuePath is not null)
+            vm.StatusMessage = $"[{p.AccountName}] {p.ItemName}：{p.Message}";
     }
 }

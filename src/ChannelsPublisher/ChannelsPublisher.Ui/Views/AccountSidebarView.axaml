@@ -27,7 +27,7 @@
                                 Click="OnAccountSettingsClick"
                                 Classes="secondaryAction"
                                 Margin="0,0,6,6" />
-                        <Button Content="删除"
+                        <Button x:Name="RemoveAccountButton" Content="删除"
                                 Command="{Binding RemoveAccountCommand}"
                                 Classes="dangerAction"
                                 Margin="0,0,6,6" />

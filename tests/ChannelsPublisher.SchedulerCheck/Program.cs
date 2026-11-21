@@ -35,13 +35,12 @@ if (fake.MaxPerAccountConcurrent > 1)
     failures.Add($"账号内并发峰值={fake.MaxPerAccountConcurrent}，期望=1（账号内应串行）");
 
 // 3) 每账号 3 条素材都按序完成
-foreach (var acct in jobs.Select(j => j.Account))
+foreach (var job in jobs)
 {
-    var order = fake.OrderByAccount.TryGetValue(acct.Id, out var l) ? l : new List<string>();
-    var expected = new[] { "a-item1", "a-item2", "a-item3" }
-        .Select(x => x.Replace("a-", acct.Id.Replace("acct-", "a") + "-")).ToList();
-    // 仅校验条数与递增顺序
-    if (order.Count != 3) failures.Add($"{acct.Name} 完成 {order.Count} 条，期望 3");
+    var order = fake.OrderByAccount.GetValueOrDefault(job.Account.Id) ?? [];
+    var expected = job.Items.Select(item => Path.GetFileName(item.VideoPath));
+    if (!order.SequenceEqual(expected))
+        failures.Add($"{job.Account.Name} 的素材完成顺序不符：{string.Join(", ", order)}");
 }
 
 // 4) 每条素材都收到 done 进度
@@ -64,7 +63,7 @@ sealed class FakeAutomation : IPublishAutomation
     public readonly Dictionary<string, List<string>> OrderByAccount = new();
     private readonly object _lock = new();
 
-    public async Task<PublishResult> PublishAsync(PublishItem item, string cdpEndpoint, FinalAction finalAction, Action<string>? log, CancellationToken ct)
+    public async Task<PublishResult> PublishAsync(PublishItem item, string cdpEndpoint, FinalAction finalAction, Action<string>? log, CancellationToken ct, Action? beforeSubmit = null)
     {
         // cdpEndpoint 形如 http://127.0.0.1:922X → 账号 id 由端口推回
         var acctId = "acct-" + (cdpEndpoint[^1] - '0' - 1);

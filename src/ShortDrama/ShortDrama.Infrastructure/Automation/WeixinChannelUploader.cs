@@ -98,6 +98,17 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
             request.ProjectDir,
             cancellationToken);
         var isMaterialPublishTask = string.Equals(config.TaskType, "publish_videos", StringComparison.OrdinalIgnoreCase);
+        if (request.ConfirmSeriesReviewCompleteAsync is not null)
+        {
+            if (isMaterialPublishTask)
+                return new WeixinUploadResult(false, request.ProjectDir, resolvedConfigPath, "请选择剧集上传配置。");
+
+            config = config with
+            {
+                Submit = config.Submit with { Enabled = false },
+                Browser = config.Browser with { Headless = false },
+            };
+        }
 
         if (TryBuildMaterialPublishPreflightResult(request, config, resolvedConfigPath, out var preflightResult))
         {
@@ -383,11 +394,17 @@ public sealed class WeixinChannelUploader : IWeixinChannelUploader
         await _homePage.SaveDebugArtifactsAsync(page, config, "weixin-series-submit-page", cancellationToken);
         progress?.Report($"微信剧集上传：提审页已就绪，截图已保存到 {submitPageScreenshotPath}");
 
-        var decision = await WaitForSeriesOperatorAsync(
-            request,
-            config,
-            progress,
-            cancellationToken);
+        string decision;
+        if (request.ConfirmSeriesReviewCompleteAsync is { } confirmReview)
+        {
+            await context.StorageStateAsync(new BrowserContextStorageStateOptions { Path = config.AuthFilePath });
+            await confirmReview(cancellationToken);
+            decision = "resume";
+        }
+        else
+        {
+            decision = await WaitForSeriesOperatorAsync(request, config, progress, cancellationToken);
+        }
 
         if (string.Equals(decision, "stop", StringComparison.Ordinal))
         {

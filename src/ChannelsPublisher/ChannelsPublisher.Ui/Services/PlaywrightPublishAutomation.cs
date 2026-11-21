@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using ChannelsPublisher.Core.Publishing;
 using Microsoft.Playwright;
 
@@ -8,20 +9,51 @@ namespace ChannelsPublisher.Desktop.Services;
 public sealed class PlaywrightPublishAutomation : IPublishAutomation, IAsyncDisposable
 {
     private const string PostCreateUrl = "https://channels.weixin.qq.com/platform/post/create";
-    private IPlaywright? _pw;
+    private readonly Lazy<Task<IPlaywright>> _playwright = new(Playwright.CreateAsync);
 
-    private async Task<IPlaywright> PwAsync() => _pw ??= await Playwright.CreateAsync();
+    private Task<IPlaywright> PwAsync() => _playwright.Value;
+
+    public async Task<bool> TrySaveVideoChannelSessionAsync(string endpoint, string destination, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var playwright = await PwAsync();
+        await using var browser = await playwright.Chromium.ConnectOverCDPAsync(endpoint, new() { Timeout = 10_000 });
+        var context = browser.Contexts.FirstOrDefault();
+        if (context is null || !context.Pages.Any(page => Uri.TryCreate(page.Url, UriKind.Absolute, out var url)
+            && IsVideoChannelWorkspace(url)))
+            return false;
+
+        var cookies = await context.CookiesAsync(new[] { "https://channels.weixin.qq.com" });
+        if (cookies.Count == 0)
+            return false;
+        var state = await context.StorageStateAsync();
+        ct.ThrowIfCancellationRequested();
+        var temporaryPath = destination + ".tmp";
+        await File.WriteAllTextAsync(temporaryPath, state, ct);
+        File.Move(temporaryPath, destination, overwrite: true);
+        return true;
+    }
+
+    internal static bool IsVideoChannelWorkspace(Uri location) =>
+        location.Scheme == Uri.UriSchemeHttps && location.Host == "channels.weixin.qq.com" &&
+        location.AbsolutePath.StartsWith("/platform", StringComparison.OrdinalIgnoreCase) &&
+        !location.AbsolutePath.Contains("login", StringComparison.OrdinalIgnoreCase) &&
+        !location.AbsolutePath.Contains("passport", StringComparison.OrdinalIgnoreCase);
 
     public async Task<PublishResult> PublishAsync(
-        PublishItem item, string cdpEndpoint, FinalAction finalAction, Action<string>? log, CancellationToken ct)
+        PublishItem item, string cdpEndpoint, FinalAction finalAction, Action<string>? log, CancellationToken ct,
+        Action? beforeSubmit = null)
     {
         void L(string m) => log?.Invoke(m);
 
         if (!File.Exists(item.VideoPath))
             return PublishResult.Fail($"视频不存在：{item.VideoPath}");
 
+        ct.ThrowIfCancellationRequested();
         var pw = await PwAsync();
-        await using var browser = await pw.Chromium.ConnectOverCDPAsync(cdpEndpoint);
+        await using var browser = await pw.Chromium.ConnectOverCDPAsync(cdpEndpoint, new() { Timeout = 15_000 });
+        using var cancelBrowser = ct.Register(() => _ = DisconnectAsync(browser));
+        ct.ThrowIfCancellationRequested();
         var context = browser.Contexts.FirstOrDefault() ?? await browser.NewContextAsync();
         var page = context.Pages.FirstOrDefault() ?? await context.NewPageAsync();
 
@@ -105,17 +137,50 @@ public sealed class PlaywrightPublishAutomation : IPublishAutomation, IAsyncDisp
         switch (finalAction)
         {
             case FinalAction.Draft:
-                await ClickFirstAsync(page, "button:has-text('保存草稿')");
-                L("已保存草稿");
-                return PublishResult.Success("已保存草稿");
+                return await SubmitAsync(page, "保存草稿", "已保存草稿", ["保存成功", "草稿保存成功", "已保存草稿"], beforeSubmit, ct);
             case FinalAction.Publish:
-                await ClickFirstAsync(page, "button.weui-desktop-btn_primary:has-text('发表')", "button:has-text('发表')");
-                L("已点击发表");
-                return PublishResult.Success("已发表");
+                return await SubmitAsync(page, "发表", "已发表", ["发表成功", "发布成功", "已发表"], beforeSubmit, ct);
             default:
                 L("已填表（未点发表/保存草稿）");
                 return PublishResult.Success("已填表（未提交）");
         }
+    }
+
+    private static async Task<PublishResult> SubmitAsync(
+        IPage page, string buttonText, string successMessage, string[] confirmationTexts,
+        Action? beforeSubmit, CancellationToken ct)
+    {
+        var button = page.GetByRole(AriaRole.Button, new() { NameString = buttonText, Exact = true }).First;
+        await button.WaitForAsync(new() { State = WaitForSelectorState.Visible, Timeout = 5000 });
+        if (!await button.IsEnabledAsync())
+            return PublishResult.Fail($"“{buttonText}”按钮当前不可用");
+
+        var notices = confirmationTexts.Select(text => page.GetByText(text, new() { Exact = true })
+            .Filter(new() { Visible = true }).First).ToArray();
+        foreach (var notice in notices)
+        {
+            if (await notice.IsVisibleAsync())
+                return PublishResult.Fail("上一条提交提示尚未消失");
+        }
+
+        ct.ThrowIfCancellationRequested();
+        beforeSubmit?.Invoke();
+        ct.ThrowIfCancellationRequested();
+        await button.ClickAsync(new() { Timeout = 5000 });
+
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < TimeSpan.FromSeconds(12))
+        {
+            ct.ThrowIfCancellationRequested();
+            foreach (var notice in notices)
+            {
+                if (await notice.IsVisibleAsync())
+                    return PublishResult.Success(successMessage);
+            }
+            await Task.Delay(200, ct);
+        }
+
+        return PublishResult.Fail($"未收到平台的“{buttonText}”成功提示");
     }
 
     private static async Task TryAsync(Action<string> log, string name, Func<Task> action)
@@ -142,9 +207,15 @@ public sealed class PlaywrightPublishAutomation : IPublishAutomation, IAsyncDisp
         return false;
     }
 
-    public ValueTask DisposeAsync()
+    private static async Task DisconnectAsync(IBrowser browser)
     {
-        _pw?.Dispose();
-        return ValueTask.CompletedTask;
+        try { await browser.CloseAsync(); }
+        catch (PlaywrightException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_playwright.IsValueCreated)
+            (await _playwright.Value).Dispose();
     }
 }

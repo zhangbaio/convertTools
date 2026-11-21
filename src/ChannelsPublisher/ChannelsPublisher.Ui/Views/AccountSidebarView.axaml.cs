@@ -19,6 +19,8 @@ public partial class AccountSidebarView : UserControl
         SidebarFrame.BorderThickness = new Thickness(0, 0, 1, 0);
     }
 
+    internal void HideAccountRemoval() => RemoveAccountButton.IsVisible = false;
+
     private void OnAccountSettingsClick(object? sender, RoutedEventArgs e) =>
         AccountSettingsRequested?.Invoke(this, EventArgs.Empty);
 }

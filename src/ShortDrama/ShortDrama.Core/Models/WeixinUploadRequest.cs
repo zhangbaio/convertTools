@@ -8,6 +8,7 @@ public sealed record WeixinUploadRequest(
     string? ConfigName)
 {
     public Action<WeixinMaterialPublishItemResult>? MaterialItemCompleted { get; init; }
+    public Func<CancellationToken, Task>? ConfirmSeriesReviewCompleteAsync { get; init; }
 }
 
 public sealed record WeixinMaterialPublishItemResult(

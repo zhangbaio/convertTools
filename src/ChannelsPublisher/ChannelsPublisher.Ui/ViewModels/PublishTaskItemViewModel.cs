@@ -9,6 +9,7 @@ public enum PublishTaskStatus
     Running,
     Done,
     Failed,
+    PendingConfirmation,
 }
 
 /// <summary>发布任务列表项：一条素材 + 目标账号 + 可观察状态。</summary>
@@ -35,6 +36,7 @@ public sealed partial class PublishTaskItemViewModel : ViewModelBase
         PublishTaskStatus.Running => "发布中",
         PublishTaskStatus.Done => "完成",
         PublishTaskStatus.Failed => "失败",
+        PublishTaskStatus.PendingConfirmation => "待确认",
         _ => "待发布",
     };
 

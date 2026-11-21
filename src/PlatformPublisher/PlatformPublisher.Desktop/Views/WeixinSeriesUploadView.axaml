@@ -25,6 +25,8 @@
                     <Button Content="高级发表配置" Click="OnAdvancedConfigClick" Classes="secondaryAction" Margin="0,0,8,0" />
                     <Button x:Name="StartButton" Content="开始剧集上架" Click="OnStartClick" Classes="primaryAction" Margin="0,0,8,0" />
                     <Button x:Name="StopButton" Content="停止" Click="OnStopClick" IsEnabled="False" Margin="0,0,8,0" />
+                    <Button x:Name="ReviewCompleteButton" Content="已处理浏览器中的提审页面"
+                            IsVisible="False" Click="OnReviewCompleteClick" Classes="primaryAction" Margin="0,0,8,0" />
                     <TextBlock x:Name="OptionsSummary" VerticalAlignment="Center" Foreground="#64748B"
                                Text="全部配置使用项目默认值" />
                 </WrapPanel>
