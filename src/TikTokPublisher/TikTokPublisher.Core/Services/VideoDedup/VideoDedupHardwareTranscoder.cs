@@ -53,7 +53,9 @@ internal sealed class VideoDedupHardwareTranscoder
             return false;
         }
 
-        var limit = automatic ? Math.Min(machineLimit, CalibratedLimit(selection.Key)) : machineLimit;
+        var sampleKey = VideoDedupCalibrationSample.Covers(clip.Probe, frame, _preset)
+            ? BuildCalibrationKey(selection.Device, clip.Probe) : null;
+        var limit = automatic ? Math.Min(machineLimit, CalibratedLimit(selection.Key, sampleKey)) : machineLimit;
         if (automatic && (!VideoDedupMachineLoad.HasMemoryHeadroom() || VideoDedupMachineLoad.IsOnBattery()))
             limit = 1;
         var gate = GateFor(selection.Device);
@@ -116,15 +118,31 @@ internal sealed class VideoDedupHardwareTranscoder
     }
 
     public async Task<VideoDedupHardwareBenchmark> BenchmarkAsync(
-        VideoDedupClip clip, VideoDedupSlice slice, VideoDedupPlanner.HardwareFrame frame, int maximum, CancellationToken ct)
+        IReadOnlyList<VideoDedupClip> clips, int maximum, CancellationToken ct)
     {
         Task<double> Execute(IReadOnlyList<string> args, TimeSpan? timeout, CancellationToken token) =>
             RunTimedAsync(_binary, args, timeout, token);
-        var selection = await SelectAsync(clip, slice, frame, Execute, ct, exclusive: true).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("本机没有通过该素材试转的硬件链路。");
-        var encoder = selection.Device.Encoder(_hevc);
-        var sampleFrames = (int)(Math.Min(clip.Probe.DurationSeconds, 25) * _preset.Fps);
-        var args = VideoDedupPlanner.BuildHardwareArguments(_preset, clip, slice, frame, selection.Device, encoder, null, sampleFrames);
+        VideoDedupHardwareDevice? device = null;
+        var arguments = new List<IReadOnlyList<string>>();
+        var calibrationKeys = new List<string>();
+        foreach (var clip in clips)
+        {
+            var slice = new VideoDedupSlice(0, 0, clip.Probe.DurationSeconds);
+            if (VideoDedupPlanner.GetHardwareFrame(_preset, [clip], [slice]) is not { } frame)
+                continue;
+            var selection = await SelectAsync(clip, slice, frame, Execute, ct, exclusive: true, onlyDevice: device)
+                .ConfigureAwait(false);
+            if (selection is null)
+                continue;
+            device = selection.Device;
+            var frames = (int)(clip.Probe.DurationSeconds * _preset.Fps);
+            arguments.Add(VideoDedupPlanner.BuildHardwareArguments(_preset, clip, slice, frame,
+                device, device.Encoder(_hevc), null, frames));
+            calibrationKeys.Add(BuildCalibrationKey(device, clip.Probe));
+        }
+        if (device is null)
+            throw new InvalidOperationException("本机没有通过测试片段试转的硬件链路。");
+
         var timings = new List<VideoDedupHardwareBenchmarkSample>();
         for (var lanes = 1; lanes <= Math.Clamp(maximum, 1, 3); lanes++)
         {
@@ -142,7 +160,10 @@ internal sealed class VideoDedupHardwareTranscoder
                 {
                     MaxDegreeOfParallelism = lanes,
                     CancellationToken = timeout.Token,
-                }, async (_, token) => { await Execute(args, null, token).ConfigureAwait(false); }).ConfigureAwait(false);
+                }, async (index, token) =>
+                {
+                    await Execute(arguments[index % arguments.Count], null, token).ConfigureAwait(false);
+                }).ConfigureAwait(false);
                 var cpu = VideoDedupMachineLoad.ReadCpu()?.PercentSince(cpuBefore);
                 var room = VideoDedupMachineLoad.HasMemoryHeadroom() && cpu is null or < 85;
                 timings.Add(new(lanes, stopwatch.Elapsed.TotalSeconds, cpu, room));
@@ -158,8 +179,8 @@ internal sealed class VideoDedupHardwareTranscoder
             }
         }
         var recommended = Recommend(timings);
-        var saved = SaveCalibration(selection.Key, recommended);
-        return new(selection.Device.Name, encoder, timings, recommended, saved);
+        var saved = SaveCalibration(calibrationKeys, recommended);
+        return new(device.Name, device.Encoder(_hevc), timings, recommended, saved);
     }
 
     internal static int Recommend(IReadOnlyList<VideoDedupHardwareBenchmarkSample> timings)
@@ -186,11 +207,14 @@ internal sealed class VideoDedupHardwareTranscoder
 
     private async Task<Selection?> SelectAsync(
         VideoDedupClip clip, VideoDedupSlice slice, VideoDedupPlanner.HardwareFrame frame,
-        Func<IReadOnlyList<string>, TimeSpan?, CancellationToken, Task<double>> execute, CancellationToken ct, bool exclusive = false)
+        Func<IReadOnlyList<string>, TimeSpan?, CancellationToken, Task<double>> execute, CancellationToken ct,
+        bool exclusive = false, VideoDedupHardwareDevice? onlyDevice = null)
     {
         Selection? best = null;
         foreach (var device in _devices.Where(SatisfiesPreference))
         {
+            if (onlyDevice is not null && device.Id != onlyDevice.Id)
+                continue;
             var encoder = device.Encoder(_hevc);
             var key = BuildKey(device, clip.Probe, frame, encoder);
             var probeKey = key + device.Id;
@@ -225,8 +249,13 @@ internal sealed class VideoDedupHardwareTranscoder
     {
         var key = FormattableString.Invariant(
             $"{_environment}|{device.CalibrationId}|{probe.Format?.Codec}|{probe.Format?.Profile}|{probe.Width}x{probe.Height}|{probe.AverageFramesPerSecond:F3}|{frame.Size.Width}x{frame.Size.Height}|{frame.AspectRatio}|{encoder}|{_preset.Fps}|{_preset.BitrateMode}|{_preset.VideoBitrateMbps:F3}|{_preset.Crf}");
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
+        return HashKey(key);
     }
+
+    private string BuildCalibrationKey(VideoDedupHardwareDevice device, VideoDedupProbe probe) =>
+        HashKey($"{_environment}|standard-1080p30-v1|{device.CalibrationId}|{probe.Format?.Codec}|{device.Encoder(_hevc)}");
+
+    private static string HashKey(string key) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
 
     private bool SatisfiesPreference(VideoDedupHardwareDevice device) => _preset.EncodingPreference switch
     {
@@ -266,10 +295,16 @@ internal sealed class VideoDedupHardwareTranscoder
 
     private static string CalibrationPath => Path.Combine(AppPaths.DataRoot, "video-dedup-calibration.json");
 
-    private static int CalibratedLimit(string key)
+    private static int CalibratedLimit(string key, string? sampleKey)
     {
         lock (CalibrationLock)
-            return ReadCalibrations().TryGetValue(key, out var value) ? Math.Clamp(value, 1, 3) : 1;
+        {
+            var calibrations = ReadCalibrations();
+            if (calibrations.TryGetValue(key, out var value) ||
+                (sampleKey is not null && calibrations.TryGetValue(sampleKey, out value)))
+                return Math.Clamp(value, 1, 3);
+            return 1;
+        }
     }
 
     private static Dictionary<string, int> ReadCalibrations()
@@ -287,12 +322,13 @@ internal sealed class VideoDedupHardwareTranscoder
         return _calibrations = [];
     }
 
-    private static bool SaveCalibration(string key, int limit)
+    private static bool SaveCalibration(IEnumerable<string> keys, int limit)
     {
         lock (CalibrationLock)
         {
             var data = ReadCalibrations();
-            data[key] = limit;
+            foreach (var key in keys)
+                data[key] = limit;
             var path = CalibrationPath;
             var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try

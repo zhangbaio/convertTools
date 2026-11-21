@@ -31,7 +31,6 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
 
     public bool ShowsKuaishouPublishPrompt { get; }
     public bool ShowsTikTokPublishPrompt { get; }
-    internal Func<TikTokAccountProfile?>? VideoDedupCalibrationAccount { get; set; }
 
     public event Action<ClientSettings>? SettingsSaved;
     public event Action<string>? StatusRequested;

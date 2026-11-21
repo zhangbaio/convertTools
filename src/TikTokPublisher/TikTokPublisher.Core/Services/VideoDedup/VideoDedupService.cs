@@ -720,28 +720,47 @@ public static class VideoDedupService
     }
 
     public static async Task<VideoDedupHardwareBenchmark> BenchmarkHardwareAsync(
-        string sourceFile, VideoDedupPreset? preset, int maximum, CancellationToken ct = default)
+        int maximum, CancellationToken ct = default)
     {
-        preset = (preset ?? VideoDedupPreset.CreateDefault()).NormalizedCopy();
-        var probe = await ProbeAsync(sourceFile, ct).ConfigureAwait(false);
-        if (probe.DurationSeconds < 15)
-            throw new InvalidOperationException("请选用至少 15 秒的完整分集进行校准。");
-        var clip = new VideoDedupClip(sourceFile, probe);
-        var slice = new VideoDedupSlice(0, preset.TrimStartSeconds, probe.DurationSeconds - preset.TrimEndSeconds);
-        var frame = preset.HasDurationLimit ? null : VideoDedupPlanner.GetHardwareFrame(preset, [clip], [slice]);
-        if (frame is null)
-            throw new InvalidOperationException("当前素材或模板使用兼容转码。请选择 H.264 或 HEVC 8 位 SDR 分集及只包含基础缩放的模板。");
+        ct.ThrowIfCancellationRequested();
+        var transcoder = new VideoDedupHardwareTranscoder(VideoDedupCalibrationSample.CreatePreset());
+        if (!transcoder.HasDevices)
+            throw new InvalidOperationException("本机未检测到可用于硬件转码校准的显卡。");
+        var samplePrefix = Path.Combine(Path.GetTempPath(), $"tiktok-dedup-calibration-{Guid.NewGuid():N}");
+        var h264 = samplePrefix + ".h264.mp4";
+        var hevc = samplePrefix + ".hevc.mp4";
         if (!VideoDedupEncodeGate.TryBeginCalibration())
             throw new InvalidOperationException("当前有去重任务或校准在运行，请在队列空闲时再校准。");
         try
         {
-            return await new VideoDedupHardwareTranscoder(preset).BenchmarkAsync(clip, slice, frame.Value,
+            var ffmpeg = FfmpegLocator.ResolveFfmpeg();
+            await VideoDedupCalibrationSample.CreateAsync(ffmpeg, "libx264", h264, ct).ConfigureAwait(false);
+            var clips = new List<VideoDedupClip>();
+            try
+            {
+                await VideoDedupCalibrationSample.CreateAsync(ffmpeg, "libx265", hevc, ct).ConfigureAwait(false);
+                clips.Add(new(hevc, await ProbeAsync(hevc, ct).ConfigureAwait(false)));
+            }
+            catch (InvalidOperationException) when (!ct.IsCancellationRequested)
+            {
+                // Builds without the software HEVC encoder can still calibrate H.264.
+            }
+            clips.Add(new(h264, await ProbeAsync(h264, ct).ConfigureAwait(false)));
+            return await transcoder.BenchmarkAsync(clips,
                 VideoDedupCpuBudget.Normalize(maximum, Environment.ProcessorCount), ct).ConfigureAwait(false);
         }
         finally
         {
             VideoDedupEncodeGate.EndCalibration();
+            DeleteCalibrationSample(h264);
+            DeleteCalibrationSample(hevc);
         }
+    }
+
+    private static void DeleteCalibrationSample(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     private static double ParseFrameRate(string? rate)

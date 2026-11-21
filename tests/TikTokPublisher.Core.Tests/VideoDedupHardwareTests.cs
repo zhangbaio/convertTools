@@ -73,6 +73,34 @@ public sealed class VideoDedupHardwareTests
         VideoDedupHardwareTranscoder.Recommend([new(1, 40), new(2, 34), new(3, 30)]).Should().Be(3);
     }
 
+    [Theory]
+    [InlineData("libx264")]
+    [InlineData("libx265")]
+    public void Calibration_creates_its_own_standard_video(string encoder)
+    {
+        var args = VideoDedupCalibrationSample.BuildArguments(encoder, "sample.mp4");
+        args.Should().Contain("-n").And.Contain("lavfi").And.Contain("yuv420p").And.Contain(encoder);
+        args.Should().Contain(argument => argument.StartsWith("testsrc2="));
+        args[^1].Should().Be("sample.mp4");
+    }
+
+    [Fact]
+    public void Calibration_only_covers_jobs_within_the_tested_workload()
+    {
+        var preset = VideoDedupCalibrationSample.CreatePreset();
+        var clip = Clip(SourceFormat);
+        var frame = VideoDedupPlanner.GetHardwareFrame(preset, [clip], [new(0, 0, 20)])!.Value;
+
+        VideoDedupCalibrationSample.Covers(clip.Probe, frame, preset).Should().BeTrue();
+        VideoDedupCalibrationSample.Covers(
+            clip.Probe with { Width = 1922, Height = 1080 }, frame, preset).Should().BeTrue();
+        VideoDedupCalibrationSample.Covers(
+            clip.Probe with { AverageFramesPerSecond = 60 }, frame, preset).Should().BeFalse();
+        VideoDedupCalibrationSample.Covers(clip.Probe, frame with { Size = new(2160, 3840, true) }, preset).Should().BeFalse();
+        preset.VideoCodec = VideoDedupPreset.CodecHevc;
+        VideoDedupCalibrationSample.Covers(clip.Probe, frame, preset).Should().BeFalse();
+    }
+
     [Fact]
     public async Task Render_failure_tries_same_card_with_software_filters_and_validates_output()
     {

@@ -467,21 +467,28 @@ public partial class SystemSettingsView : UserControl
         _videoDedupCalibration = cancellation;
         try
         {
-            var path = await PickFileAsync("选择校准用完整分集", "*.mp4", "*.mkv", "*.mov");
-            if (string.IsNullOrWhiteSpace(path))
-                return;
-            cancellation.Token.ThrowIfCancellationRequested();
-            var account = vm.VideoDedupCalibrationAccount?.Invoke();
-            var preset = account is null ? null : VideoDedupTemplateStore.CaptureRunPresets([account], null)[account.Id];
             VideoDedupCalibrationButton.Content = "取消校准";
             VideoDedupCalibrationStatus.IsVisible = true;
-            VideoDedupCalibrationStatus.Text = "正在比较本机硬件转码并发…";
+            VideoDedupCalibrationStatus.Text = "正在准备测试片段并校准本机转码…";
             var result = await VideoDedupService.BenchmarkHardwareAsync(
-                path, preset, vm.TiktokVideoDedupConcurrency, cancellation.Token);
+                vm.TiktokVideoDedupConcurrency, cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
             var timings = string.Join("，", result.Samples.Select(sample =>
                 $"{sample.Lanes} 路 {sample.Seconds:F1} 秒" + (sample.CpuPercent is int cpu ? $" / CPU {cpu}%" : "")));
             VideoDedupCalibrationStatus.Text = $"{result.Device} · {result.Encoder} · {timings}。建议 {result.RecommendedLanes} 路。"
-                + (result.Saved ? "已保存到本机，自动调优会用于相同规格的任务。" : "本次启动有效，本机校准结果写入失败。");
+                + (result.Saved ? "已保存到本机，用于匹配的硬件转码任务。" : "本次启动有效，本机校准结果写入失败。");
+
+            var currentLimit = vm.TiktokVideoDedupConcurrency;
+            if (currentLimit != result.RecommendedLanes && ReferenceEquals(_vm, vm) &&
+                TopLevel.GetTopLevel(this) is Window owner &&
+                await ConfirmDialog.ShowAsync(owner, "应用转码校准建议",
+                    $"是否将去重并发上限从 {currentLimit} 路改为推荐的 {result.RecommendedLanes} 路？\n点击「保存设置」后生效。",
+                    confirmText: "改为推荐值", cancelText: "保留当前值") &&
+                ReferenceEquals(_vm, vm))
+            {
+                vm.TiktokVideoDedupConcurrency = result.RecommendedLanes;
+                VideoDedupCalibrationStatus.Text += $" 去重并发上限已填为 {result.RecommendedLanes} 路，请点击「保存设置」。";
+            }
         }
         catch (OperationCanceledException)
         {
