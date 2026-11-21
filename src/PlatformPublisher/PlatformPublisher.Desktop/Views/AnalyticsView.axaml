@@ -10,7 +10,7 @@
             <Grid ColumnDefinitions="*,Auto,Auto">
                 <StackPanel>
                     <TextBlock Text="数据统计" FontSize="20" FontWeight="SemiBold" />
-                    <TextBlock Text="只统计快手分账。每个账号按已选的个人版或企业版统计，保留最近连续 30 天的每日播放量。第一次补齐近 30 天，之后每天 12 点后自动更新前一天。"
+                    <TextBlock Text="快手分账播放量 · 保留最近 30 天"
                                Foreground="#6B7280" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
                 <Button Grid.Column="1" Content="更新全部账号" MinWidth="120" Margin="0,0,8,0"
@@ -18,88 +18,64 @@
                 <Button Grid.Column="2" Content="停止" MinWidth="72" Command="{Binding StopCommand}" />
             </Grid>
 
-            <ItemsControl Grid.Row="1" ItemsSource="{Binding Cards}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <UniformGrid Columns="2" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:KuaishouPlayCardViewModel">
-                        <Border Background="White" CornerRadius="8" Padding="16" Margin="0,0,12,12">
-                            <Grid RowDefinitions="Auto,Auto" RowSpacing="14">
-                                <Grid ColumnDefinitions="*,Auto,Auto">
-                                    <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                    <Border Grid.Column="1" Background="{Binding EditionBackground}" CornerRadius="4" Padding="8,2" Margin="8,0" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Edition}" Foreground="{Binding EditionForeground}" FontSize="12" />
-                                    </Border>
-                                    <Button Grid.Column="2" Content="更新" Command="{Binding UpdateCommand}" CommandParameter="{Binding Key}" MinWidth="64" />
-                                </Grid>
-                                <Grid Grid.Row="1" ColumnDefinitions="*,*">
-                                    <StackPanel>
-                                        <TextBlock Text="近30日播放" Foreground="#6B7280" FontSize="12" />
-                                        <TextBlock Text="{Binding TotalText}" FontSize="22" FontWeight="SemiBold" Margin="0,4,0,0" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1">
-                                        <TextBlock Text="最近一天" Foreground="#6B7280" FontSize="12" />
-                                        <TextBlock Text="{Binding LatestText}" FontSize="22" FontWeight="SemiBold" Foreground="#2563EB" Margin="0,4,0,0" />
-                                    </StackPanel>
-                                </Grid>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <charts:AnalyticsDashboardSummary x:Name="DashboardSummary" />
+            </ScrollViewer>
 
-            <Border Grid.Row="2" Background="White" CornerRadius="8" Padding="12">
-                <DockPanel>
-                    <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,*,Auto" Margin="0,0,0,4">
-                        <TextBlock Text="{Binding RangeTitle}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <TextBlock x:Name="HoverText" Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" Foreground="#374151" TextTrimming="CharacterEllipsis" />
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                            <Button Content="7天" Command="{Binding ShowSevenDaysCommand}" MinWidth="52" />
-                            <Button Content="30天" Command="{Binding ShowThirtyDaysCommand}" MinWidth="52" />
-                        </StackPanel>
+            <Grid Grid.Row="2" ColumnDefinitions="2*,*" ColumnSpacing="12">
+                <Border Background="White" CornerRadius="8" Padding="14">
+                    <DockPanel>
+                        <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <TextBlock Text="{Binding RangeTitle}" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <Button Content="7天" Command="{Binding ShowSevenDaysCommand}" Margin="0,0,6,0" />
+                            <Button Content="30天" Command="{Binding ShowThirtyDaysCommand}" />
+                            <ToggleButton Content="账号对比" IsChecked="{Binding CompareAccounts, Mode=TwoWay}" Margin="8,0,0,0" />
+                        </WrapPanel>
+                        <TextBlock x:Name="HoverText" DockPanel.Dock="Top" Foreground="#475569" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding ChartScope}" DockPanel.Dock="Top" Foreground="#475569" FontSize="12" />
+                        <charts:AnalyticsLineChart x:Name="DailyChart" Series="{Binding ChartSeries}" Height="245" />
+                    </DockPanel>
+                </Border>
+                <Border Grid.Column="1" Background="White" CornerRadius="8" Padding="14">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="账号排行 · 区间播放" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <ScrollViewer MaxHeight="270">
+                            <charts:AnalyticsAccountRanking x:Name="AccountRanking" />
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="3" Background="White" CornerRadius="8" Padding="14">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="账号明细" FontSize="16" FontWeight="SemiBold" />
+                    <Grid ColumnDefinitions="2*,*,*,*,92" Background="#F1F5F9" Height="30">
+                        <TextBlock Text="账号" Margin="8,0" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="类型" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="近30日播放" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="3" Text="最近一天" VerticalAlignment="Center" />
                     </Grid>
-                    <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Legend}" Margin="0,0,0,6">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <WrapPanel Orientation="Horizontal" />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
+                    <ItemsControl ItemsSource="{Binding Cards}">
                         <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:KuaishouPlayLegendViewModel">
-                                <Button Command="{Binding ToggleCommand}" CommandParameter="{Binding Key}" Background="Transparent" BorderThickness="0" Padding="0,2" Margin="0,0,14,0" Opacity="{Binding Opacity}">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <Border Width="10" Height="10" CornerRadius="5" Background="{Binding Color}" VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </Button>
+                            <DataTemplate x:DataType="vm:KuaishouPlayCardViewModel">
+                                <Border BorderThickness="0,0,0,1" BorderBrush="#E2E8F0" Padding="0,4">
+                                    <Grid ColumnDefinitions="2*,*,*,*,92">
+                                        <TextBlock Text="{Binding Title}" Margin="8,0" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Edition}" Foreground="{Binding EditionForeground}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding TotalText}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="3" Text="{Binding LatestText}" VerticalAlignment="Center" />
+                                        <Button Grid.Column="4" Content="更新" Command="{Binding UpdateCommand}" CommandParameter="{Binding Key}" />
+                                    </Grid>
+                                </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Height="230">
-                        <charts:AnalyticsLineChart x:Name="DailyChart" Series="{Binding ChartSeries}" PointSpacing="36" Height="220" HorizontalAlignment="Left" />
-                    </ScrollViewer>
-                </DockPanel>
+                </StackPanel>
             </Border>
-
-            <ItemsControl Grid.Row="3" ItemsSource="{Binding Tabs}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <WrapPanel Orientation="Horizontal" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:KuaishouPlayTabViewModel">
-                        <Button Content="{Binding Name}" Command="{Binding SelectCommand}" CommandParameter="{Binding Key}"
-                                Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="{Binding Foreground}"
-                                Foreground="{Binding Foreground}" FontWeight="{Binding Weight}" Margin="0,0,8,0" Padding="8,6" />
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-
-            <TextBlock Grid.Row="4" Text="{Binding StatusMessage}" Foreground="#6B7280" TextWrapping="Wrap" />
+            <StackPanel Grid.Row="4" Spacing="4">
+                <TextBlock Text="{Binding StatusMessage}" Foreground="#475569" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding LastCollectedText}" Foreground="#475569" />
+            </StackPanel>
         </Grid>
     </ScrollViewer>
 </UserControl>

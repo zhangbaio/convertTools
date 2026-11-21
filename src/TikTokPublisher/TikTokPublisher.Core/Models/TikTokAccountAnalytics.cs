@@ -1,6 +1,9 @@
 namespace TikTokPublisher.Core.Models;
 
-public sealed record TikTokAccountDailyStat(DateOnly Date, long TotalViews, long ValidViews);
+public sealed record TikTokAccountDailyStat(DateOnly Date, long TotalViews, long ValidViews)
+{
+    public DateTimeOffset? FetchedAt { get; init; }
+}
 
 public sealed record TikTokSeriesSnapshot(
     string SeriesId,

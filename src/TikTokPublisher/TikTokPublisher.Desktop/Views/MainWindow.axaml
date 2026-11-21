@@ -185,7 +185,7 @@
             </Grid>
             <kuaishou:KuaishouUploadWorkspace x:Name="KuaishouWorkspace" IsVisible="False" />
             <views:SystemSettingsView x:Name="SettingsView" IsVisible="False" />
-            <Grid x:Name="HistoryWorkspace" RowDefinitions="Auto,*" IsVisible="False">
+            <Grid x:Name="HistoryWorkspace" RowDefinitions="Auto,Auto,*" IsVisible="False">
                 <TabStrip x:Name="AnalyticsPlatformTabs" Margin="10,5,10,3"
                           AutomationProperties.Name="统计平台" SelectionChanged="OnAnalyticsPlatformChanged">
                     <TabStrip.Styles>
@@ -201,7 +201,21 @@
                     <TabStripItem x:Name="TikTokAnalyticsTab" Content="TikTok" />
                     <TabStripItem x:Name="KuaishouAnalyticsTab" Content="快手" />
                 </TabStrip>
-                <Panel Grid.Row="1">
+                <Border Grid.Row="1" Background="#172C46" CornerRadius="8" Margin="16,4,16,0" Padding="14,9">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="运行状态" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" Foreground="#E2E8F0"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding StatusMessage}" />
+                        <WrapPanel Grid.Column="2" Orientation="Horizontal">
+                            <TextBlock Text="{Binding SystemServices.XingeRemoteStatus, StringFormat='XINGE {0}'}" Foreground="#E2E8F0" Margin="0,0,12,0" />
+                            <TextBlock Text="{Binding #CpuUsageText.Text}" Foreground="#E2E8F0" Margin="0,0,12,0" />
+                            <TextBlock Text="{Binding #GpuUsageText.Text}" Foreground="#E2E8F0" Margin="0,0,12,0" />
+                            <TextBlock Text="{Binding #MemUsageText.Text}" Foreground="#E2E8F0" Margin="0,0,12,0" />
+                            <TextBlock Text="{Binding TodayUploadCount, StringFormat='今日上传完成 {0}'}" Foreground="White" />
+                        </WrapPanel>
+                    </Grid>
+                </Border>
+                <Panel Grid.Row="2">
                     <views:TikTokAccountAnalyticsView x:Name="AnalyticsView" IsVisible="False" />
                     <kuaishou:AnalyticsView x:Name="KuaishouAnalyticsView" IsVisible="False" />
                     <TextBlock x:Name="HistoryUnavailable" Text="请先打开快手上传工作区。" Margin="16" Classes="pageSummary" IsVisible="False" />

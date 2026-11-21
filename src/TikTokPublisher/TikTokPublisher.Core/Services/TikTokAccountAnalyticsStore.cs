@@ -132,7 +132,7 @@ public sealed class TikTokAccountAnalyticsStore
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            SELECT event_date, total_views, valid_views
+            SELECT event_date, total_views, valid_views, fetched_at
             FROM account_daily_stats
             WHERE account_id = $id
             ORDER BY event_date
@@ -145,7 +145,10 @@ public sealed class TikTokAccountAnalyticsStore
             rows.Add(new TikTokAccountDailyStat(
                 DateOnly.Parse(reader.GetString(0)),
                 reader.GetInt64(1),
-                reader.GetInt64(2)));
+                reader.GetInt64(2))
+            {
+                FetchedAt = DateTimeOffset.TryParse(reader.GetString(3), out var fetchedAt) ? fetchedAt : null,
+            });
         }
 
         return rows;

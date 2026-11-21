@@ -47,6 +47,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
     private readonly Dictionary<string, Button> _accountUpdateButtons = new(StringComparer.Ordinal);
     private int _dailyRangeDays = 30;
     private string? _selectedAccountId;
+    private string? _trendAccountId;
     private string? _selectedSeriesId;
     private bool _buildingTabs;
     private int _fullSyncCount;
@@ -78,6 +79,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
     public TikTokAccountAnalyticsView()
     {
         InitializeComponent();
+        MonthlyChart.HoverTextChanged += text => DailyHoverText.Text = text ?? string.Empty;
         DailyChart.HoverTextChanged += text => DailyHoverText.Text = text ?? "";
         BuildDailyRangeButtons();
         BuildGrowthMetricButtons();
@@ -328,109 +330,69 @@ public partial class TikTokAccountAnalyticsView : UserControl
     {
         RevenuePanel.Children.Clear();
         _accountUpdateButtons.Clear();
-        for (var index = 0; index < _accounts.Count; index++)
+        RevenuePanel.Children.Add(new Border
         {
-            var account = _accounts[index];
-            var color = Palette[index % Palette.Length];
+            Background = Brush.Parse("#F1F5F9"),
+            Padding = new Thickness(8, 6),
+            Child = CreateRevenueRow(["账号 / 公司", "总收入", "待结算", "已完成", "已上架", "今日新增"], header: true),
+        });
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        foreach (var account in _accounts)
+        {
             var revenue = _store!.GetRevenue(account.Id);
-            var root = new StackPanel { Spacing = 8 };
-            var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-            header.Children.Add(new TextBlock
-            {
-                Text = account.DisplayName,
-                FontSize = 16,
-                FontWeight = FontWeight.SemiBold,
-                Foreground = new SolidColorBrush(color),
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-            var update = new Button
-            {
-                Content = "更新",
-                MinWidth = 64,
-                Padding = new Avalonia.Thickness(12, 0),
-                FontSize = 12,
-                IsEnabled = !_runningSyncs.ContainsKey(account.Id),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Center,
-                HorizontalContentAlignment = HorizontalAlignment.Center,
-                VerticalContentAlignment = VerticalAlignment.Center,
-            };
+            var listing = _store.GetListingCounts(account.Id, today);
+            var title = string.IsNullOrWhiteSpace(revenue?.CompanyName) ? account.DisplayName : $"{account.DisplayName} · {revenue.CompanyName}";
+            var row = CreateRevenueRow([
+                title,
+                FormatMoney(revenue?.TotalAmount, revenue?.Currency),
+                FormatMoney(revenue?.PendingAmount, revenue?.Currency),
+                FormatMoney(revenue?.CompletedAmount, revenue?.Currency),
+                FormatCount(listing.Listed),
+                FormatCount(listing.AddedToday),
+            ]);
+            var update = new Button { Content = "更新", VerticalAlignment = VerticalAlignment.Center };
             update.Click += (_, _) => _ = SyncAccountsAsync([account]);
-            Grid.SetColumn(update, 1);
-            header.Children.Add(update);
+            Grid.SetColumn(update, 6);
+            row.Children.Add(update);
             _accountUpdateButtons[account.Id] = update;
-            root.Children.Add(header);
-            var numbers = new Grid
-            {
-                ColumnDefinitions = new ColumnDefinitions("*,*,*"),
-                ColumnSpacing = 16,
-            };
-            numbers.Children.Add(MetricBlock("总收入", FormatMoney(revenue?.TotalAmount, revenue?.Currency), 0));
-            numbers.Children.Add(MetricBlock("待结算", FormatMoney(revenue?.PendingAmount, revenue?.Currency), 1));
-            numbers.Children.Add(MetricBlock("已完成", FormatMoney(revenue?.CompletedAmount, revenue?.Currency), 2));
-            root.Children.Add(numbers);
-            var listing = _store.GetListingCounts(account.Id, DateOnly.FromDateTime(DateTime.Now));
-            root.Children.Add(new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(revenue?.CompanyName) ? " " : revenue.CompanyName,
-                FontSize = 12,
-                Foreground = new SolidColorBrush(Color.Parse("#6B7280")),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            });
-            root.Children.Add(new TextBlock
-            {
-                Text = $"已上架 {listing.Listed}    今日新增 {listing.AddedToday}",
-                FontSize = 12,
-                Foreground = new SolidColorBrush(Color.Parse("#374151")),
-            });
             RevenuePanel.Children.Add(new Border
             {
                 Background = Brushes.White,
-                CornerRadius = new Avalonia.CornerRadius(8),
-                Padding = new Avalonia.Thickness(16, 12),
-                Margin = new Avalonia.Thickness(0, 0, 12, 12),
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                Child = root,
+                BorderBrush = Brush.Parse("#E2E8F0"),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(8, 4),
+                Child = row,
             });
         }
 
-        ApplyRevenueColumns(RevenuePanel.Bounds.Width);
         ApplySyncButtons();
     }
 
-    private void OnRevenuePanelSizeChanged(object? sender, SizeChangedEventArgs e)
+    private static Grid CreateRevenueRow(string[] values, bool header = false)
     {
-        if (Math.Abs(e.NewSize.Width - e.PreviousSize.Width) < 1)
-            return;
-        ApplyRevenueColumns(e.NewSize.Width);
-    }
-
-    private void ApplyRevenueColumns(double width)
-    {
-        if (double.IsNaN(width) || width <= 1)
-            return;
-        const double minCard = 540;
-        const double gap = 12;
-        var columns = (int)Math.Floor((width + gap) / (minCard + gap));
-        var limit = Math.Max(1, _accounts.Count);
-        columns = Math.Clamp(columns, 1, Math.Min(3, limit));
-        if (RevenuePanel.Columns != columns)
-            RevenuePanel.Columns = columns;
-    }
-
-    private static StackPanel MetricBlock(string label, string value, int column)
-    {
-        var panel = new StackPanel { Spacing = 2 };
-        Grid.SetColumn(panel, column);
-        panel.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = new SolidColorBrush(Color.Parse("#6B7280")) });
-        panel.Children.Add(new TextBlock { Text = value, FontSize = 22, FontWeight = FontWeight.Bold });
-        return panel;
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("2*,*,*,*,*,*,72"), ColumnSpacing = 8 };
+        for (var index = 0; index < values.Length; index++)
+        {
+            var text = new TextBlock
+            {
+                Text = values[index],
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                FontWeight = header ? FontWeight.SemiBold : FontWeight.Normal,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            ToolTip.SetTip(text, text.Text);
+            Grid.SetColumn(text, index);
+            row.Children.Add(text);
+        }
+        return row;
     }
 
     private void BuildCharts()
     {
         if (_store is null) return;
         var loaded = _accounts.Select(account => (account, rows: _store.ListDaily(account.Id))).ToList();
+        var lastFetched = loaded.SelectMany(item => item.rows).Select(row => row.FetchedAt).Max();
+        LastFetchedText.Text = lastFetched is { } time ? $"播放数据最近拉取 · {time.ToLocalTime():yyyy-MM-dd HH:mm}" : "播放数据最近拉取 · 暂无记录";
         var today = DateOnly.FromDateTime(DateTime.Now);
         var start = _dailyRangeDays <= 0 ? DateOnly.MinValue : today.AddDays(-(_dailyRangeDays - 1));
         var dates = loaded.SelectMany(item => item.rows.Select(row => row.Date))
@@ -453,65 +415,59 @@ public partial class TikTokAccountAnalyticsView : UserControl
                 account.DisplayName,
                 color,
                 dates.Select(date => byDate.TryGetValue(date, out var row)
-                    ? new AnalyticsChartPoint(date.ToString("MM-dd"), row.ValidViews, $"{date:yyyy-MM-dd}  {FormatPlayCount(row.ValidViews)}")
+                    ? new AnalyticsChartPoint(date.ToString("MM-dd"), row.ValidViews, $"{date:yyyy-MM-dd}  {FormatCount(row.ValidViews)}")
                     : new AnalyticsChartPoint(date.ToString("MM-dd"), double.NaN, "")).ToList()));
             var byMonth = TikTokAccountAnalyticsLogic.SumByMonth(rows).ToDictionary(item => item.Month, item => item.ValidViews);
             monthly.Add(new AnalyticsChartSeries(
                 account.DisplayName,
                 color,
                 months.Select(month => byMonth.TryGetValue(month, out var views)
-                    ? new AnalyticsChartPoint(month, views, $"{month}  {FormatPlayCount(views)}")
+                    ? new AnalyticsChartPoint(month, views, $"{month}  {FormatCount(views)}")
                     : new AnalyticsChartPoint(month, double.NaN, "")).ToList()));
         }
 
-        DailyChart.Series = daily;
-        MonthlyChart.Series = monthly;
-        FillLegend(DailyLegend, daily);
-        FillLegend(MonthlyLegend, monthly);
-        ScrollDailyChartToLatest();
+        var accounts = loaded.Select((item, index) => new AnalyticsAccountSeries(item.account.Id, daily[index])).ToArray();
+        var monthlyAccounts = loaded.Select((item, index) => new AnalyticsAccountSeries(item.account.Id, monthly[index])).ToArray();
+        var selected = Array.FindIndex(accounts, item => item.Key == _trendAccountId);
+        if (selected < 0)
+            _trendAccountId = null;
+        var compare = CompareToggle.IsChecked == true;
+        ChartScopeText.Text = compare ? "账号对比 · 悬停查看各账号数据" : selected < 0 ? "全部账号" : daily[selected].Name;
+        DailyHoverText.Text = "";
+        DailyChart.Series = compare ? daily : selected < 0 ? [AnalyticsDashboardSummary.Aggregate(accounts, "全部账号")] : [daily[selected]];
+        MonthlyChart.Series = compare ? monthly : selected < 0 ? [AnalyticsDashboardSummary.Aggregate(monthlyAccounts, "全部账号")] : [monthly[selected]];
+        var listings = loaded.Select(item => _store.GetListingCounts(item.account.Id, today)).ToArray();
+        DashboardSummary.Update(accounts,
+            ("已上架", FormatCount(listings.Sum(item => (long)item.Listed))),
+            ("今日新增上架", FormatCount(listings.Sum(item => (long)item.AddedToday))));
+        AccountRanking.Update(accounts, _trendAccountId, key =>
+        {
+            _trendAccountId = key;
+            if (key is not null)
+            {
+                for (var index = 0; index < _accounts.Count; index++)
+                {
+                    if (_accounts[index].Id != key) continue;
+                    SeriesTabs.SelectedIndex = index;
+                    break;
+                }
+            }
+            if (CompareToggle.IsChecked == true)
+                CompareToggle.IsChecked = false;
+            else
+                BuildCharts();
+        });
     }
 
-    private void ScrollDailyChartToLatest()
-    {
-        void Apply()
-        {
-            var max = Math.Max(0, DailyChartScroll.Extent.Width - DailyChartScroll.Viewport.Width);
-            DailyChartScroll.Offset = new Vector(max, DailyChartScroll.Offset.Y);
-        }
+    private void OnCompareToggleChanged(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => BuildCharts();
 
-        EventHandler? afterLayout = null;
-        afterLayout = (_, _) =>
-        {
-            DailyChartScroll.LayoutUpdated -= afterLayout;
-            Apply();
-        };
-        DailyChartScroll.LayoutUpdated += afterLayout;
-        Dispatcher.UIThread.Post(Apply, DispatcherPriority.Background);
-    }
-
-    private static void FillLegend(StackPanel panel, IReadOnlyList<AnalyticsChartSeries> series)
+    private void OnMonthlyToggleChanged(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        panel.Children.Clear();
-        foreach (var item in series)
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-            row.Children.Add(new Avalonia.Controls.Border
-            {
-                Width = 10,
-                Height = 10,
-                CornerRadius = new Avalonia.CornerRadius(5),
-                Background = new SolidColorBrush(item.Color),
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-            row.Children.Add(new TextBlock
-            {
-                Text = item.Name,
-                FontSize = 12,
-                Foreground = new SolidColorBrush(Color.Parse("#374151")),
-                VerticalAlignment = VerticalAlignment.Center,
-            });
-            panel.Children.Add(row);
-        }
+        if (DailyChart is null || MonthlyChart is null) return;
+        var monthly = MonthlyToggle.IsChecked == true;
+        DailyChart.IsVisible = !monthly;
+        MonthlyChart.IsVisible = monthly;
+        DailyHoverText.Text = "";
     }
 
     private void OnSeriesTabsSelectionChanged(object? sender, SelectionChangedEventArgs e)

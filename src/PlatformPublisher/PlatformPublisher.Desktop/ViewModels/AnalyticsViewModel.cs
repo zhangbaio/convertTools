@@ -24,7 +24,6 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     private DispatcherTimer? _dailyTimer;
     private IReadOnlyList<AnalyticsAccount> _accounts = [];
     private IReadOnlyList<DailyAnalyticsRecord> _records = [];
-    private readonly HashSet<string> _hidden = new(StringComparer.Ordinal);
 
     public AnalyticsViewModel(AnalyticsRepository repository, AnalyticsCollectionCoordinator coordinator, KuaishouWorksPlayCollector collector)
     {
@@ -34,10 +33,16 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     }
 
     public ObservableCollection<KuaishouPlayCardViewModel> Cards { get; } = [];
-    public ObservableCollection<KuaishouPlayLegendViewModel> Legend { get; } = [];
-    public ObservableCollection<KuaishouPlayTabViewModel> Tabs { get; } = [];
 
     [ObservableProperty] private IReadOnlyList<AnalyticsChartSeries> _chartSeries = [];
+    [ObservableProperty] private IReadOnlyList<AnalyticsAccountSeries> _overviewSeries = [];
+    [ObservableProperty] private string _chartScope = "全部账号";
+    [ObservableProperty] private bool _compareAccounts;
+    [ObservableProperty] private string _lastCollectedText = "最近拉取 · 暂无记录";
+
+    partial void OnCompareAccountsChanged(bool value) => Rebuild();
+
+    public string SelectedKey => _selectedKey;
     [ObservableProperty] private int _rangeDays = 30;
     [ObservableProperty] private string _statusMessage = "尚未加载播放量。";
     [ObservableProperty] private bool _isBusy;
@@ -114,15 +119,10 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     private void SelectTab(string? key)
     {
         _selectedKey = key ?? string.Empty;
-        Rebuild();
-    }
-
-    [RelayCommand]
-    private void ToggleLegend(string? key)
-    {
-        if (string.IsNullOrWhiteSpace(key)) return;
-        if (!_hidden.Add(key)) _hidden.Remove(key);
-        Rebuild();
+        if (CompareAccounts)
+            CompareAccounts = false;
+        else
+            Rebuild();
     }
 
     private string _selectedKey = string.Empty;
@@ -219,41 +219,30 @@ public sealed partial class AnalyticsViewModel : ObservableObject
             .ToArray();
         if (!string.IsNullOrEmpty(_selectedKey) && _accounts.All(account => KuaishouPlayBoard.Key(account) != _selectedKey))
             _selectedKey = string.Empty;
-        _hidden.RemoveWhere(key => _accounts.All(account => KuaishouPlayBoard.Key(account) != key));
         Rebuild();
     }
 
     private void Rebuild()
     {
         var today = DateOnly.FromDateTime(DateTime.Now);
-        var board = KuaishouPlayBoard.Build(_accounts, _records, today, RangeDays, _selectedKey);
-        Replace(Cards, board.Cards.Select(card => new KuaishouPlayCardViewModel(card, UpdateAccountCommand)));
-        var visibleSeries = board.Series.Where(item => item.Points.Any(point => point.Views.HasValue)).ToArray();
-        Replace(Legend, visibleSeries.Select((item, index) => new KuaishouPlayLegendViewModel(
-            item.Key, item.Name, Palette[index % Palette.Length], !_hidden.Contains(item.Key), ToggleLegendCommand)));
-        ChartSeries = visibleSeries
-            .Where(item => !_hidden.Contains(item.Key))
-            .Select(item => new AnalyticsChartSeries(
-                item.Name,
-                Color.Parse(Palette[LegendIndex(visibleSeries, item.Key) % Palette.Length]),
+        var board = KuaishouPlayBoard.Build(_accounts, _records, today, RangeDays, null);
+        Replace(Cards, board.Cards.OrderByDescending(card => card.Key == _selectedKey)
+            .Select(card => new KuaishouPlayCardViewModel(card, UpdateAccountCommand)));
+        var accounts = board.Series.Select((item, index) => new AnalyticsAccountSeries(item.Key,
+            new AnalyticsChartSeries(item.Name, Color.Parse(Palette[index % Palette.Length]),
                 item.Points.Select(point => new AnalyticsChartPoint(
                     point.Date.ToString("MM-dd"),
                     point.Views ?? double.NaN,
-                    point.Date.ToString("MM-dd") + "  " + (point.Views is long views ? KuaishouPlayFormat.Count(views) : "未出数"))).ToArray()))
+                    point.Views is long views ? $"{point.Date:yyyy-MM-dd} · {views:N0}" : "")).ToArray())))
             .ToArray();
-        var tabs = new List<KuaishouPlayTabViewModel>
-        {
-            new(string.Empty, "全部", string.IsNullOrEmpty(_selectedKey), SelectTabCommand),
-        };
-        tabs.AddRange(board.Cards.Select(card => new KuaishouPlayTabViewModel(card.Key, card.Name + " · " + card.Edition, card.Key == _selectedKey, SelectTabCommand)));
-        Replace(Tabs, tabs);
-    }
-
-    private static int LegendIndex(IReadOnlyList<KuaishouPlaySeries> series, string key)
-    {
-        for (var index = 0; index < series.Count; index++)
-            if (series[index].Key == key) return index;
-        return 0;
+        var selected = accounts.FirstOrDefault(account => account.Key == _selectedKey);
+        var latest = _records.Where(record => record.Status == AnalyticsRecordStatus.Success)
+            .Select(record => (DateTimeOffset?)record.CollectedAt).Max();
+        LastCollectedText = latest is { } time ? $"最近拉取 · {time.ToLocalTime():yyyy-MM-dd HH:mm}" : "最近拉取 · 暂无记录";
+        ChartScope = CompareAccounts ? "账号对比 · 悬停查看各账号数据" : selected?.Series.Name ?? "全部账号";
+        ChartSeries = CompareAccounts ? accounts.Select(account => account.Series).ToArray()
+            : [selected?.Series ?? AnalyticsDashboardSummary.Aggregate(accounts, "全部账号")];
+        OverviewSeries = accounts;
     }
 
     private IReadOnlyList<AnalyticsAccount> Accounts() => _accountProvider()
@@ -289,40 +278,4 @@ public sealed class KuaishouPlayCardViewModel
     public string EditionBackground { get; }
     public string EditionForeground { get; }
     public IAsyncRelayCommand<string?> UpdateCommand { get; }
-}
-
-public sealed class KuaishouPlayLegendViewModel
-{
-    public KuaishouPlayLegendViewModel(string key, string name, string color, bool visible, IRelayCommand<string?> toggle)
-    {
-        Key = key;
-        Name = name;
-        Color = color;
-        Opacity = visible ? 1 : 0.35;
-        ToggleCommand = toggle;
-    }
-
-    public string Key { get; }
-    public string Name { get; }
-    public string Color { get; }
-    public double Opacity { get; }
-    public IRelayCommand<string?> ToggleCommand { get; }
-}
-
-public sealed class KuaishouPlayTabViewModel
-{
-    public KuaishouPlayTabViewModel(string key, string name, bool selected, IRelayCommand<string?> select)
-    {
-        Key = key;
-        Name = name;
-        Foreground = selected ? "#2563EB" : "#374151";
-        Weight = selected ? FontWeight.SemiBold : FontWeight.Normal;
-        SelectCommand = select;
-    }
-
-    public string Key { get; }
-    public string Name { get; }
-    public string Foreground { get; }
-    public FontWeight Weight { get; }
-    public IRelayCommand<string?> SelectCommand { get; }
 }

@@ -74,7 +74,7 @@ public sealed class AnalyticsLineChart : Control
 
         const double left = 58;
         const double top = 12;
-        var right = Math.Max(left + 10, area.Width - 12);
+        var right = Math.Max(left + 10, area.Width - 30);
         var bottom = Math.Max(top + 10, area.Height - 28);
         var max = series.SelectMany(item => item.Points).Where(point => !double.IsNaN(point.Value)).Select(point => point.Value).DefaultIfEmpty(1).Max();
         if (max <= 0) max = 1;
@@ -87,7 +87,7 @@ public sealed class AnalyticsLineChart : Control
         _plotLeft = left;
         _plotTop = top;
         _plotBottom = bottom;
-        _slot = Math.Max(1, slot);
+        _slot = slot;
         _pointCount = labels.Count;
 
         var gridPen = new Pen(new SolidColorBrush(Color.Parse("#E5E7EB")), 1);
@@ -101,7 +101,7 @@ public sealed class AnalyticsLineChart : Control
         }
 
         context.DrawLine(axisPen, new Point(left, bottom), new Point(right, bottom));
-        var labelStep = PointSpacing >= 32 ? 1 : Math.Max(1, labels.Count / 6);
+        var labelStep = Math.Max(1, (int)Math.Ceiling(64 / slot));
         for (var index = 0; index < labels.Count; index += labelStep)
         {
             var x = left + slot * index;
@@ -126,7 +126,8 @@ public sealed class AnalyticsLineChart : Control
                 var current = new Point(x, y);
                 if (previous is not null)
                     context.DrawLine(pen, previous.Value, current);
-                context.DrawEllipse(brush, null, current, 3, 3);
+                if (slot >= 20 || previous is null || index == _hoverIndex)
+                    context.DrawEllipse(brush, null, current, 3, 3);
                 previous = current;
             }
         }
@@ -296,7 +297,8 @@ public sealed class AnalyticsLineChart : Control
 
     private static string FormatAxis(double value)
     {
-        if (Math.Abs(value) > 10_000) return $"{value / 10_000:0.##}万";
+        if (Math.Abs(value) >= 100_000_000) return $"{value / 100_000_000:0.##}亿";
+        if (Math.Abs(value) >= 10_000) return $"{value / 10_000:0.#}万";
         return value.ToString("0");
     }
 }
