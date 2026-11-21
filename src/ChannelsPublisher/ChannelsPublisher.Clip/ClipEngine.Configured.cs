@@ -11,7 +11,7 @@ public sealed partial class ClipEngine
 
     private async Task<ClipEngineResult> GenerateConfiguredAsync(
         string projectDir, IReadOnlyList<EpisodeSource> episodes, ClipEngineOptions options,
-        Action<string>? log, CancellationToken ct, Action<string>? outputReady)
+        Action<string>? log, CancellationToken ct, Action<string>? outputReady, Action<ClipProgress>? progress)
     {
         var outputs = new List<string>();
         var issues = new List<string>();
@@ -31,7 +31,7 @@ public sealed partial class ClipEngine
                 ? Path.Combine(projectDir, "素材剪辑输出") : options.OutputDirectory);
             var title = string.IsNullOrWhiteSpace(options.ProjectTitle)
                 ? Path.GetFileName(Path.TrimEndingDirectorySeparator(projectDir)) : options.ProjectTitle.Trim();
-            var fileTitle = SafeName(title.TrimEnd('.', ' '));
+            var fileTitle = OutputFileStem(title);
             var sourceSignature = SourceSignature(episodes, projectDir, options);
             var jobs = new List<ConfiguredClipJob>();
             foreach (var mode in modes)
@@ -61,12 +61,15 @@ public sealed partial class ClipEngine
             if ((options.EnableLlmScore || options.ArrangeNarrative) && !HasAi(options))
                 log?.Invoke("AI 文本接口尚未配置，将使用本地评分和排序。");
 
+            progress?.Invoke(new ClipProgress(ClipStage.Analyzing, 0, episodes.Count));
             await VerifyToolsAsync(options, ct);
             var networkLimit = Math.Clamp(options.NetworkConcurrency > 0 ? options.NetworkConcurrency :
                 options.AsrEngine == "local" ? Math.Max(options.PipelineConcurrency, 8) : options.PipelineConcurrency, 1, 32);
             using var network = new SemaphoreSlim(networkLimit);
             var analyzed = new ClipSourceAnalysis?[episodes.Count];
             var sourceIssues = new string?[episodes.Count];
+            var analyzedCount = 0;
+            var progressGate = new object();
             await Parallel.ForEachAsync(Enumerable.Range(0, episodes.Count), new ParallelOptions
             {
                 CancellationToken = ct,
@@ -80,6 +83,11 @@ public sealed partial class ClipEngine
                 catch (Exception ex) when (!token.IsCancellationRequested)
                 {
                     sourceIssues[index] = $"{Path.GetFileName(episodes[index].VideoPath)} 分析失败。{ex.Message}";
+                }
+                if (progress is not null)
+                {
+                    lock (progressGate)
+                        progress(new ClipProgress(ClipStage.Analyzing, ++analyzedCount, episodes.Count));
                 }
             });
             foreach (var problem in sourceIssues.OfType<string>())
@@ -96,7 +104,11 @@ public sealed partial class ClipEngine
             foreach (var group in jobs.GroupBy(job => job.Mode.Mode))
             {
                 var storyMode = needsStoryCuts && group.Key == "highlight";
-                var modeSources = storyMode && (options.StoryHardSubtitles || options.StoryVisualReview)
+                var review = storyMode && group.Any(job => job.Reusable is null) &&
+                    (options.StoryHardSubtitles || options.StoryVisualReview);
+                if (review)
+                    progress?.Invoke(new ClipProgress(ClipStage.Reviewing, 0, 0, group.Key));
+                var modeSources = review
                     ? await StoryHighlightEvidence.EnrichAsync(sources, root, options, log, ct) : sources;
                 var timelines = storyMode ? modeSources.ToDictionary(source => source.Source.VideoPath,
                     source => new HighlightCutTimeline(source), StringComparer.OrdinalIgnoreCase) : null;
@@ -112,6 +124,7 @@ public sealed partial class ClipEngine
                     var label = $"{DisplayMode(group.Key)}第 {job.Index} 条";
                     try
                     {
+                        progress?.Invoke(new ClipProgress(ClipStage.Selecting, job.Index, job.Mode.Ranges.Count, group.Key));
                         if (group.Key == "commentary" && !aiReady)
                             throw new InvalidOperationException("请配置 AI 文本接口后生成解说。");
                         List<ClipCandidate>? segments = null;
@@ -164,6 +177,7 @@ public sealed partial class ClipEngine
                         if (storyMode && options.StoryVisualReview)
                             log?.Invoke($"{label} 采用 {segments.Count(clip => clip.IsVisualOnly && clip.VisualDescription.Length > 0)} 段经画面复评的少对白或无对白镜头。");
                         log?.Invoke($"{label} 正在渲染，预选时长 {segments.Sum(c => c.DurationMs) / 1000d:0.##} 秒。");
+                        progress?.Invoke(new ClipProgress(ClipStage.Rendering, job.Index, job.Mode.Ranges.Count, group.Key));
                         await RenderOutputAsync(job, segments, media, narration, options, fileTitle, encoder, networkLimit, log, ct);
                         past.Add(segments);
                         outputs.Add(job.Path);
@@ -321,7 +335,7 @@ public sealed partial class ClipEngine
                 {
                     VideoPath = c.VideoPath, EpisodeIndex = c.EpisodeIndex, StartMs = c.StartMs, EndMs = c.EndMs,
                     VisualDescription = c.VisualDescription, IsVisualOnly = c.IsVisualOnly, HardSubtitleText = c.HardSubtitleText,
-                }).ToList());
+                }).ToList()) { DurationSeconds = duration };
             await File.WriteAllTextAsync(ManifestPath(pending), JsonSerializer.Serialize(manifest, ManifestJson), ct);
             var sidecar = Path.ChangeExtension(pending, ".publish.json");
             if (metadata is not null)
@@ -432,6 +446,8 @@ public sealed partial class ClipEngine
         + (opts.StoryVisualReview ? "|visual-review-v3|" + Hash(opts.StoryVisionEndpoint + "\n" + opts.StoryVisionModel) : "");
     private static string ManifestPath(string path) => Path.ChangeExtension(path, ".material-clips.json");
 
+    public static string OutputFileStem(string title) => SafeName(title.Trim().TrimEnd('.', ' '));
+
     private static string DisplayMode(string mode) => mode switch
     {
         "highlight" => "高光",
@@ -441,7 +457,28 @@ public sealed partial class ClipEngine
         _ => throw new InvalidDataException($"未知剪辑模式 {mode}。"),
     };
 
-    private sealed record ConfiguredClipManifest(string Signature, long Length, List<ClipCandidate> Segments);
+    public static async Task<ClipOutputReview?> ReadOutputReviewAsync(string path, CancellationToken ct)
+    {
+        try
+        {
+            await using var stream = File.OpenRead(ManifestPath(path));
+            var manifest = await JsonSerializer.DeserializeAsync<ConfiguredClipManifest>(stream, ManifestJson, ct);
+            if (manifest?.Segments is not { Count: > 0 } || new FileInfo(path).Length != manifest.Length)
+                return null;
+            return new ClipOutputReview(manifest.DurationSeconds, manifest.Segments
+                .Select(segment => new ClipReviewSegment(segment.EpisodeIndex, segment.StartMs, segment.EndMs, segment.VisualDescription))
+                .ToArray());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record ConfiguredClipManifest(string Signature, long Length, List<ClipCandidate> Segments)
+    {
+        public double? DurationSeconds { get; init; }
+    }
     private sealed record ConfiguredClipJob(ClipModeOptions Mode, ClipTimeRange Range, int Index,
         string Path, string Signature, ConfiguredClipManifest? Reusable);
 }

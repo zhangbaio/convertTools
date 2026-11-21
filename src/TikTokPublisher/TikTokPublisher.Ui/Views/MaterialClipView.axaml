@@ -1,64 +1,127 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="TikTokPublisher.Ui.Views.MaterialClipView">
-    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="12" RowSpacing="10">
-        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
-            <Button x:Name="ImportFilesButton" Content="导入视频" Click="ImportFiles" />
-            <Button x:Name="ImportFolderButton" Content="导入剧集目录" Click="ImportFolders" />
-            <Button x:Name="StartButton" Classes="primary" Content="开始剪辑" Click="StartQueue" />
-            <Button x:Name="StopButton" Content="停止" IsEnabled="False" Click="StopQueue" />
-            <Button x:Name="RetryButton" Content="重试所选" Click="RetrySelected" />
-            <Button Content="全局剪辑配置" Click="OpenSettings" />
-        </WrapPanel>
-        <TextBlock Grid.Row="1" x:Name="QueueStatus" Text="导入单个视频、多段素材或剧集目录后开始剪辑。"
-                   Classes="pageSummary" TextWrapping="Wrap" />
-        <Grid Grid.Row="2" ColumnDefinitions="2*,8,3*">
+             x:Class="TikTokPublisher.Ui.Views.MaterialClipView"
+             DragDrop.AllowDrop="True">
+    <Grid RowDefinitions="Auto,Auto,*" Margin="12" RowSpacing="10">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <WrapPanel ItemSpacing="8" LineSpacing="6">
+                <Button x:Name="ImportButton" Content="导入素材">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="导入视频" Click="ImportFiles" />
+                            <MenuItem Header="导入剧集目录" Click="ImportFolders" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+                <Button x:Name="StartButton" Classes="primary" Content="开始队列" Click="StartQueue" />
+                <Button x:Name="StopButton" Content="停止队列" Click="StopQueue" />
+            </WrapPanel>
+            <Button Grid.Column="1" Content="默认剪辑设置" Click="OpenSettings" />
+        </Grid>
+        <TextBlock Grid.Row="1" x:Name="QueueStatus" Classes="pageSummary" TextWrapping="Wrap"
+                   AutomationProperties.LiveSetting="Polite" />
+        <Border Grid.Row="2" x:Name="EmptyPanel" Classes="panelCard" BorderBrush="#CBD9ED"
+                BorderThickness="1" CornerRadius="8" Padding="24">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                <TextBlock Text="拖入视频或剧集目录" FontSize="22" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock Text="导入后可为每部剧选择剪辑模式、条数和时长。" Classes="pageSummary" TextWrapping="Wrap" />
+                <Button Classes="primary" Content="导入素材" HorizontalAlignment="Center">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="导入视频" Click="ImportFiles" />
+                            <MenuItem Header="导入剧集目录" Click="ImportFolders" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+        </Border>
+        <Grid Grid.Row="2" x:Name="Workspace" ColumnDefinitions="2*,8,3*">
             <Border Classes="panelCard" BorderBrush="#CBD9ED" BorderThickness="1" CornerRadius="8" Padding="10">
-                <Grid RowDefinitions="Auto,*" RowSpacing="8">
-                    <TextBlock Text="剪辑队列" FontWeight="SemiBold" />
-                    <ListBox x:Name="TasksList" Grid.Row="1" SelectionChanged="SelectionChanged">
+                <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
+                    <TextBlock Text="剪辑队列" FontWeight="SemiBold" FontSize="16" />
+                    <ListBox x:Name="TasksList" Grid.Row="1" SelectionChanged="SelectionChanged"
+                             AutomationProperties.Name="剪辑队列">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" Margin="0,3" ColumnSpacing="8">
-                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Text="{Binding Status}" />
-                                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Description}" Classes="pageSummary"
-                                               TextTrimming="CharacterEllipsis" />
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" Margin="0,4">
+                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}"
+                                              AutomationProperties.Name="{Binding Title, StringFormat='勾选 {0}'}"
+                                              ToolTip.Tip="勾选以批量应用设置或移除任务" />
+                                    <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding ProjectFolder}" />
+                                        <TextBlock Grid.Row="1" Text="{Binding Description}" Classes="pageSummary" TextWrapping="Wrap" />
+                                        <TextBlock Grid.Row="2" Text="{Binding Status}" TextWrapping="Wrap" />
+                                    </Grid>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                    <WrapPanel Grid.Row="2" ItemSpacing="6" LineSpacing="6">
+                        <Button x:Name="RetryButton" Content="重试当前任务" Click="RetrySelected" />
+                        <Button x:Name="DuplicateButton" Content="复制当前任务" Click="DuplicateSelected" />
+                        <Button x:Name="RemoveButton" Content="移除当前任务" Click="RemoveSelected" />
+                    </WrapPanel>
                 </Grid>
             </Border>
             <GridSplitter Grid.Column="1" Width="8" ResizeDirection="Columns" Background="Transparent" />
             <Border Grid.Column="2" Classes="panelCard" BorderBrush="#CBD9ED" BorderThickness="1" CornerRadius="8" Padding="10">
-                <Grid RowDefinitions="Auto,Auto,2*,Auto,*" RowSpacing="8">
-                    <TextBlock Text="任务详情" FontWeight="SemiBold" />
-                    <TextBlock Grid.Row="1" x:Name="SelectedSummary" Classes="pageSummary" TextWrapping="Wrap" />
-                    <ListBox Grid.Row="2" x:Name="LogList" AutomationProperties.Name="剪辑日志">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding}" TextWrapping="Wrap" />
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <TextBlock Grid.Row="3" Text="成片" FontWeight="SemiBold" />
-                    <ListBox Grid.Row="4" x:Name="OutputsList" DoubleTapped="OpenVideo">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Name}" ToolTip.Tip="{Binding Path}" TextTrimming="CharacterEllipsis" />
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                    <TextBlock x:Name="SelectedSummary" FontWeight="SemiBold" FontSize="16" TextWrapping="Wrap" />
+                    <TabControl Grid.Row="1" x:Name="TaskTabs">
+                        <TabItem Header="出片设置">
+                            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="SettingsPanel" Spacing="10" Margin="4,10,10,4">
+                                    <StackPanel x:Name="ModeEditors" Spacing="10" />
+                                    <WrapPanel ItemSpacing="8" LineSpacing="6">
+                                        <Button x:Name="AddModeButton" Content="添加出片配置" />
+                                        <Button x:Name="ApplyCheckedButton" Content="应用到勾选任务" Click="ApplyToChecked" />
+                                    </WrapPanel>
+                                    <TextBlock Text="输出目录" FontWeight="SemiBold" />
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                        <TextBlock x:Name="OutputFolderText" Classes="pageSummary" TextWrapping="Wrap"
+                                                   VerticalAlignment="Center" />
+                                        <Button Grid.Column="1" Content="更改目录" Click="ChangeOutputFolder" />
+                                    </Grid>
+                                    <TextBlock x:Name="SettingsStatus" Classes="pageSummary" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+                        <TabItem Header="成片">
+                            <Grid Margin="4,10,4,0" RowDefinitions="Auto,*,Auto" RowSpacing="8">
+                                <TextBlock x:Name="OutputsSummary" TextWrapping="Wrap" Classes="pageSummary" />
+                                <ListBox Grid.Row="1" x:Name="OutputsList" DoubleTapped="OpenVideo"
+                                         SelectionChanged="OutputSelectionChanged" AutomationProperties.Name="成片">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Spacing="4" Margin="0,3">
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" ToolTip.Tip="{Binding Path}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Summary}" Classes="pageSummary" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                                <WrapPanel Grid.Row="2" ItemSpacing="8" LineSpacing="6">
+                                    <Button x:Name="PreviewButton" Classes="primary" Content="预览成片" Click="PreviewSelected" />
+                                    <Button x:Name="OpenOutputButton" Content="打开输出目录" Click="OpenOutputFolder" />
+                                    <Button x:Name="SendToWeixinButton" Content="发送成片到视频号"
+                                            Click="OnSendToWeixinClick" IsVisible="False" />
+                                </WrapPanel>
+                            </Grid>
+                        </TabItem>
+                        <TabItem Header="日志">
+                            <ListBox x:Name="LogList" Margin="4,10,4,0" AutomationProperties.Name="剪辑日志">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </TabItem>
+                    </TabControl>
                 </Grid>
             </Border>
         </Grid>
-        <WrapPanel Grid.Row="3" Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
-            <Button x:Name="ChangeOutputButton" Content="设置输出目录" Click="ChangeOutputFolder" />
-            <Button x:Name="OpenOutputButton" Content="打开输出目录" Click="OpenOutputFolder" />
-            <Button x:Name="SendToWeixinButton" Content="发送成片到视频号"
-                    Click="OnSendToWeixinClick" IsVisible="False" IsEnabled="False" />
-            <Button x:Name="RemoveButton" Content="移除所选" Click="RemoveSelected" />
-        </WrapPanel>
     </Grid>
 </UserControl>

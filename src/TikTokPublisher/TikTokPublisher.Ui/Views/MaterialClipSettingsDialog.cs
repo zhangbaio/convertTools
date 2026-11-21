@@ -22,7 +22,7 @@ internal sealed class MaterialClipSettingsDialog : Window
     public MaterialClipSettingsDialog(MaterialClipSettings settings, string error)
     {
         _settings = settings;
-        Title = "全局剪辑配置";
+        Title = "默认剪辑设置";
         Width = 850;
         Height = 710;
         MinWidth = 590;
@@ -32,7 +32,7 @@ internal sealed class MaterialClipSettingsDialog : Window
         var layout = new Grid { Margin = new Thickness(16), RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"), RowSpacing = 10 };
         layout.Children.Add(new TextBlock
         {
-            Text = "本机全局配置。保存后对新启动的剪辑任务生效。",
+            Text = "模式和出片参数适用于新导入的任务。服务配置在下次开始队列时读取。",
             Classes = { "pageSummary" },
             TextWrapping = TextWrapping.Wrap,
         });

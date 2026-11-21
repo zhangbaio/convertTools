@@ -13,6 +13,14 @@ public sealed record ClipTimeRange(int MinSeconds, int MaxSeconds);
 public sealed record ClipModeOptions(
     string Mode, IReadOnlyList<ClipTimeRange> Ranges, double SimilarityCap, bool ForceRegenerate);
 
+public enum ClipStage { Analyzing, Reviewing, Selecting, Rendering }
+
+public sealed record ClipProgress(ClipStage Stage, int Current, int Total, string? Mode = null);
+
+public sealed record ClipReviewSegment(int Episode, int StartMs, int EndMs, string VisualDescription);
+
+public sealed record ClipOutputReview(double? DurationSeconds, IReadOnlyList<ClipReviewSegment> Segments);
+
 /// <summary>一个候选高光片段（含 4 维评分与综合分）。</summary>
 public sealed class ClipCandidate
 {

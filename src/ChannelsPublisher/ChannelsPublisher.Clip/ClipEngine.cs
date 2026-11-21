@@ -41,16 +41,25 @@ public sealed partial class ClipEngine
         Action<string>? log,
         CancellationToken ct) => GenerateAsync(projectDir, episodes, opts, log, ct, null);
 
+    public Task<ClipEngineResult> GenerateAsync(
+        string projectDir,
+        IReadOnlyList<EpisodeSource> episodes,
+        ClipEngineOptions opts,
+        Action<string>? log,
+        CancellationToken ct,
+        Action<string>? outputReady) => GenerateAsync(projectDir, episodes, opts, log, ct, outputReady, null);
+
     public async Task<ClipEngineResult> GenerateAsync(
         string projectDir,
         IReadOnlyList<EpisodeSource> episodes,
         ClipEngineOptions opts,
         Action<string>? log,
         CancellationToken ct,
-        Action<string>? outputReady)
+        Action<string>? outputReady,
+        Action<ClipProgress>? progress)
     {
         if (opts.ModeSettings is not null)
-            return await GenerateConfiguredAsync(projectDir, episodes, opts, log, ct, outputReady);
+            return await GenerateConfiguredAsync(projectDir, episodes, opts, log, ct, outputReady, progress);
 
         try
         {
