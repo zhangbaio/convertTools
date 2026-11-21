@@ -19,6 +19,7 @@ using ShortDrama.Infrastructure.DependencyInjection;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Infrastructure.Rendering;
 using TikTokPublisher.Core.Drama;
+using ClientSettingsStore = TikTokPublisher.Core.Services.ClientSettingsStore;
 using TikTokPublisher.Ui.ViewModels;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Security;
@@ -147,7 +148,7 @@ public partial class App : Application
             mainWindow.StartYunfanLicenseVerifyTimer();
     }
 
-    internal static ServiceProvider BuildServices(DramaSourceRouter? sharedDramaRouter = null)
+    internal static ServiceProvider BuildServices(bool embeddedInTikTok = false)
     {
         var services = new ServiceCollection();
         services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Information));
@@ -158,13 +159,12 @@ public partial class App : Application
         services.AddSingleton<HongguoMemoryReaderService>();
         services.AddSingleton<HongguoDramaSearchService>();
         services.AddSingleton<HongguoDramaDownloader>();
-        if (sharedDramaRouter is null)
-        {
-            services.AddSingleton<IDramaSettingsProvider, YunfanDramaSettingsProvider>();
-            services.AddSingleton<DramaSourceRouter>();
-        }
-        else
-            services.AddSingleton(sharedDramaRouter);
+        // 快手沿用本土剧链路，和 TikTok 当前账号的链路状态隔离。
+        services.AddSingleton(new YunfanDramaSettingsProvider(embeddedInTikTok
+            ? ClientSettingsStore.MainDatabasePath
+            : PlatformPublisherPaths.SettingsDatabasePath));
+        services.AddSingleton<IDramaSettingsProvider>(provider => provider.GetRequiredService<YunfanDramaSettingsProvider>());
+        services.AddSingleton<DramaSourceRouter>();
         services.AddSingleton<IDramaSearchService>(provider => provider.GetRequiredService<DramaSourceRouter>());
         services.AddSingleton<IDramaDownloader>(provider => provider.GetRequiredService<DramaSourceRouter>());
         services.AddSingleton<IDocumentRenderService, LibreOfficeDocumentRenderService>();
@@ -256,7 +256,7 @@ public partial class App : Application
         services.AddSingleton<IKuaishouAccountEditionCatalog>(provider =>
             new GlobalKuaishouAccountEditionCatalog(
                 provider.GetRequiredService<ChannelsPublisher.Core.Services.AccountStore>(),
-                excludeRemovedWorkspaceAccounts: sharedDramaRouter is not null));
+                excludeRemovedWorkspaceAccounts: embeddedInTikTok));
         services.AddSingleton<KuaishouOnlineQueueWorker>();
         services.AddSingleton<KuaishouScheduledShelfService>();
         services.AddSingleton<KuaishouPersonalUploadService>();

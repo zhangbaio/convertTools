@@ -38,7 +38,7 @@
                         </Grid>
 
                         <TextBlock Text="数据链路与下载参数" FontWeight="Bold" />
-                        <TextBlock Text="本土剧和海外剧各自选择来源。清晰度、并发和超时两条链路共用。账号按剧集类型使用对应链路。" Classes="pageSummary" TextWrapping="Wrap" />
+                        <TextBlock Text="快手下载使用本土剧数据链路，TikTok 按账号的剧集类型使用对应链路。清晰度、并发和超时设置共用。" Classes="pageSummary" TextWrapping="Wrap" />
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10" ColumnSpacing="10">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="本土剧数据链路" VerticalAlignment="Center" />
                             <ComboBox Classes="configurationInput" Grid.Row="0" Grid.Column="1" x:Name="DramaSourceCombo" HorizontalAlignment="Stretch" />

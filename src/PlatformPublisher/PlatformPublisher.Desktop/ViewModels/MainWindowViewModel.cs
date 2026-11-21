@@ -76,6 +76,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly KuaishouScheduledShelfService _scheduledShelfService;
     private readonly KuaishouPersonalUploadService _kuaishouUploadService;
     private readonly DramaSourceRouter _dramaDownloader;
+    private readonly YunfanDramaSettingsProvider _dramaSettings;
     private int _scheduledShelfGate;
     private readonly HashSet<string> _scheduledShelfIdleAnnounced = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PublishJob> _jobs = [];
@@ -135,7 +136,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         DramaTitleImportService dramaTitleImportService,
         KuaishouScheduledShelfService scheduledShelfService,
         KuaishouPersonalUploadService kuaishouUploadService,
-        DramaSourceRouter dramaDownloader)
+        DramaSourceRouter dramaDownloader,
+        YunfanDramaSettingsProvider dramaSettings)
     {
         _store = store;
         _accountStore = accountStore;
@@ -157,6 +159,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _scheduledShelfService = scheduledShelfService;
         _kuaishouUploadService = kuaishouUploadService;
         _dramaDownloader = dramaDownloader;
+        _dramaSettings = dramaSettings;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -828,8 +831,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     public DramaSourceConfigurationStatus GetDramaSourceConfigurationStatus()
     {
-        var status = DramaSourceConfigurationValidator.Check(
-            ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath));
+        var status = DramaSourceConfigurationValidator.Check(_dramaSettings.LoadClientSettings());
         DramaSourceStatusText = status.Message;
         return status;
     }
@@ -2759,7 +2761,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     }
                     else
                     {
-                        var runtimeSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                        var runtimeSettings = _dramaSettings.LoadClientSettings();
+                        AppendActivityLog($"下载链路：{VisibleDramaSource.Label(runtimeSettings.DramaSourceChain)}（本土剧）", projectName);
                         var runtimeConfigPath = PrepareWeixinRuntimeConfig(runtimeSettings, directories.SourceDirectory, "");
                         try
                         {

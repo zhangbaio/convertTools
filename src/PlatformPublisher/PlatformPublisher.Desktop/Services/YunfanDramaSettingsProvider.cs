@@ -1,33 +1,33 @@
-using PlatformPublisher.Common.Services;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using TikTokPublisher.Core.Drama;
+using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
 namespace PlatformPublisher.Desktop.Services;
 
 /// <summary>
-/// 共享流水线每次下载都读取云帆自己的系统设置，避免沿用启动时的旧快照。
+/// 从所运行客户端的系统设置读取本土剧链路。
 /// </summary>
-public sealed class YunfanDramaSettingsProvider : IDramaSettingsProvider
+public sealed class YunfanDramaSettingsProvider(string databasePath) : IDramaSettingsProvider
 {
+    public ClientSettings LoadClientSettings() => ClientSettingsStore.Load(databasePath);
+
     public DramaSourceSettings Get() =>
-        DramaSourceSettingsMapping.FromClientSettings(
-            ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath));
+        DramaSourceSettingsMapping.FromClientSettings(LoadClientSettings());
 
     public void SavePikachuDeviceId(string deviceId)
     {
-        var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-        settings.PikachuDeviceId = deviceId.Trim();
+        var settings = LoadClientSettings();
         ClientSettingsStore.PatchPikachuRuntimeFields(
             settings.PikachuFanqieCookie,
-            settings.PikachuDeviceId,
-            PlatformPublisherPaths.SettingsDatabasePath);
+            deviceId.Trim(),
+            databasePath);
     }
 
     public void SaveHongguoAppPlaybackIdentity(string deviceId, string installId) =>
         ClientSettingsStore.PatchHongguoAppPlaybackIdentity(
             deviceId,
             installId,
-            PlatformPublisherPaths.SettingsDatabasePath);
+            databasePath);
 }

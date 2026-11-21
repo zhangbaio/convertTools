@@ -11,7 +11,6 @@ using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Persistence;
-using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Ui.ViewModels;
 using TikTokPublisher.Ui.Views;
 using Account = ChannelsPublisher.Core.Models.PublishAccount;
@@ -147,7 +146,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
                 ServiceProvider? provider = null;
                 try
                 {
-                    provider = App.BuildServices(ShortDramaDramaServices.SharedRouter);
+                    provider = App.BuildServices(embeddedInTikTok: true);
                     _ = provider.GetRequiredService<AnalyticsRepository>();
                     provider.GetRequiredService<LegacyDatabaseImporter>().Import(
                         PlatformPublisherPaths.LegacySettingsDatabasePath,

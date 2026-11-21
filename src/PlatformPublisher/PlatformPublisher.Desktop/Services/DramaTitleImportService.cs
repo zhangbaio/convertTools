@@ -1,4 +1,4 @@
-using PlatformPublisher.Common.Services;
+using ShortDrama.Core.Interfaces;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Services;
 
@@ -9,7 +9,7 @@ public sealed record DramaTitleImportOutcome(
     IReadOnlyList<UploadTitleImportFailure> Failures,
     int RequestedCount);
 
-public sealed class DramaTitleImportService
+public sealed class DramaTitleImportService(IDramaSearchService search, YunfanDramaSettingsProvider settingsProvider)
 {
     public const int MinimumEpisodes = 10;
     public const int MaximumEpisodes = 200;
@@ -25,8 +25,7 @@ public sealed class DramaTitleImportService
         var (requests,parseFailures)=UploadTitleImportService.ParseRequests(titlesText,UploadTitleImportService.MatchModeTitle);
         if(requests.Count==0)throw new InvalidOperationException("请输入至少一个短剧名称。");
 
-        var settings=ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-        ShortDramaDramaServices.RefreshSettings(settings);
+        var settings=settingsProvider.LoadClientSettings();
         var failures=new List<UploadTitleImportFailure>(parseFailures);
         var projectDirectories=new List<string>();
         for(var index=0;index<requests.Count;index++)
@@ -35,7 +34,7 @@ public sealed class DramaTitleImportService
             log?.Invoke($"精确搜索短剧 {index+1}/{requests.Count}：{request.Title}");
             try
             {
-                var coreItems=await ShortDramaDramaServices.Search.SearchAsync(request.Title,1,cancellationToken);
+                var coreItems=await search.SearchAsync(request.Title,1,cancellationToken);
                 var items=coreItems.Select(ShortDramaDramaServices.FromCore).ToArray();
                 var (matched,reason)=UploadTitleImportService.PickPreferredSearchMatch(request.Title,items);
                 if(matched is null){failures.Add(new(request.Title,reason));log?.Invoke($"未加入：{request.Title}，{reason}");continue;}
