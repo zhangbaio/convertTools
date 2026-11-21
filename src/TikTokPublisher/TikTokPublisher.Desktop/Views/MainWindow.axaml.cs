@@ -649,8 +649,6 @@ public partial class MainWindow : Window
             if ((tag != "queue" || (tikTokSubPage is not null && !IsTikTokConfigurationPage(tikTokSubPage))) &&
                 !await ConfirmTikTokAccountChangeAsync())
                 return;
-            if (tikTokSubPage == "series" && _tikTokSubPage != "series")
-                TikTokSeriesViewTabs.SelectedIndex = 0;
             if (tikTokSubPage is not null)
                 _tikTokSubPage = tikTokSubPage;
             if (tag == "analytics" && _activeNavTag is "queue" or "kuaishou")
@@ -705,7 +703,13 @@ public partial class MainWindow : Window
             TikTokAllLogAccounts.IsVisible = LogView.IsVisible;
             if (LogView.IsVisible)
                 RefreshTikTokLogScope();
-            ApplyTikTokSeriesView();
+            AccountsView.IsVisible = IsTikTokConfigurationPage(_tikTokSubPage);
+            if (AccountsView.IsVisible)
+                AccountsView.SelectWorkspacePage(_tikTokSubPage == "basics" ? "基础设置" : "发布配置");
+            ArchivedView.IsVisible = IsTikTokArchiveVisible;
+            TikTokAllArchiveAccounts.IsVisible = ArchivedView.IsVisible;
+            if (ArchivedView.IsVisible)
+                RefreshTikTokArchiveScope();
             foreach (var button in TikTokSubNavigation.Children.OfType<Button>())
             {
                 var active = Equals(button.Tag, _tikTokSubPage);
@@ -791,27 +795,7 @@ public partial class MainWindow : Window
     }
 
     private bool IsTikTokArchiveVisible =>
-        _activeNavTag == "queue" && _tikTokSubPage == "series" && TikTokSeriesViewTabs.SelectedIndex == 1;
-
-    private void OnTikTokSeriesViewChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_activeNavTag == "queue" && _tikTokSubPage == "series")
-            ApplyTikTokSeriesView();
-    }
-
-    private void ApplyTikTokSeriesView()
-    {
-        var showSeries = _tikTokSubPage == "series";
-        var showArchive = IsTikTokArchiveVisible;
-        TikTokSeriesHeader.IsVisible = showSeries;
-        TikTokAllArchiveAccounts.IsVisible = showArchive;
-        ArchivedView.IsVisible = showArchive;
-        AccountsView.IsVisible = IsTikTokConfigurationPage(_tikTokSubPage) || (showSeries && !showArchive);
-        if (AccountsView.IsVisible)
-            AccountsView.SelectWorkspacePage(showSeries ? "剧集列表" : _tikTokSubPage == "basics" ? "基础设置" : "发布配置");
-        if (showArchive)
-            RefreshTikTokArchiveScope();
-    }
+        _activeNavTag == "queue" && _tikTokSubPage == "archived";
 
     private void OnTikTokLogScopeChanged(object? sender, RoutedEventArgs e)
     {

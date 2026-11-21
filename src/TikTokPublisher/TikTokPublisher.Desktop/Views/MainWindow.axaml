@@ -156,7 +156,7 @@
                         <Button Content="发布配置" Tag="accounts" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button x:Name="TikTokBasicSettingsButton" Content="基础设置" Tag="basics" Classes="topNavItem"
                                 IsVisible="False" Click="OnTikTokSubPageClick" />
-                        <Button Content="剧集列表" Tag="series" Classes="topNavItem" Click="OnTikTokSubPageClick" />
+                        <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                     </StackPanel>
@@ -164,15 +164,8 @@
                 <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto">
                     <CheckBox x:Name="TikTokAllLogAccounts" Content="全部账号" Margin="12,4" IsVisible="False"
                               IsCheckedChanged="OnTikTokLogScopeChanged" />
-                    <Grid x:Name="TikTokSeriesHeader" ColumnDefinitions="*,Auto" Margin="16,4,16,2" IsVisible="False">
-                        <TabStrip x:Name="TikTokSeriesViewTabs" SelectedIndex="0"
-                                  AutomationProperties.Name="剧集列表视图" SelectionChanged="OnTikTokSeriesViewChanged">
-                            <TabStripItem Content="已上传" />
-                            <TabStripItem Content="已归档" />
-                        </TabStrip>
-                        <CheckBox x:Name="TikTokAllArchiveAccounts" Grid.Column="1" Content="全部账号" IsVisible="False"
-                                  VerticalAlignment="Center" IsCheckedChanged="OnTikTokArchiveScopeChanged" />
-                    </Grid>
+                    <CheckBox x:Name="TikTokAllArchiveAccounts" Content="全部账号" Margin="16,4" IsVisible="False"
+                              HorizontalAlignment="Right" IsCheckedChanged="OnTikTokArchiveScopeChanged" />
                     <Panel Grid.Row="1">
                         <views:TikTokQueueView x:Name="QueueView" />
                         <views:AccountProfilesView x:Name="AccountsView" IsVisible="False" />

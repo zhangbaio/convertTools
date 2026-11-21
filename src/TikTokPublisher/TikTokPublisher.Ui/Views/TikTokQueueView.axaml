@@ -30,14 +30,6 @@
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="FontSize" Value="13" />
         </Style>
-        <Style Selector="Button.neutralAction">
-            <Setter Property="Background" Value="#F8FAFC" />
-            <Setter Property="Foreground" Value="#334155" />
-            <Setter Property="BorderBrush" Value="#CBD5E1" />
-        </Style>
-        <Style Selector="Button.neutralAction:pointerover">
-            <Setter Property="Background" Value="#EEF2F6" />
-        </Style>
         <Style Selector="Button.contentAction">
             <Setter Property="Background" Value="#EAF4FF" />
             <Setter Property="Foreground" Value="#0F63C7" />
@@ -45,15 +37,6 @@
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.contentAction:pointerover">
-            <Setter Property="Background" Value="#DCEBFF" />
-        </Style>
-        <Style Selector="Button.browserAction">
-            <Setter Property="Background" Value="#EEF6FF" />
-            <Setter Property="Foreground" Value="#0B5CAD" />
-            <Setter Property="BorderBrush" Value="#B8D8FF" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-        </Style>
-        <Style Selector="Button.browserAction:pointerover">
             <Setter Property="Background" Value="#DCEBFF" />
         </Style>
         <Style Selector="Button.repairAction">
@@ -193,7 +176,6 @@
             <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
               <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto">
                 <WrapPanel Orientation="Horizontal" Margin="0,0,0,8">
-                    <Button Content="刷新项目" Click="OnScanWorkspaceClick" Classes="neutralAction compactAction" Margin="0,0,8,8" />
                     <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="导入本地剧集" Click="OnImportLocalDramaClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
@@ -217,7 +199,6 @@
                     <Button Content="导出 Excel" Click="OnExportExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="打开 Excel" Click="OnOpenExcelClick" Classes="fileAction compactAction" Margin="0,0,8,0" />
                     <Button Content="角色素材" Click="OnConfigureRoleMaterialClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
-                    <Button Content="打开外部浏览器" Click="OnOpenBrowserClick" Classes="browserAction compactAction" Margin="0,0,8,0" />
                     <Button Content="同步勾选任务" Click="OnSyncSelectedManagementClick" Classes="repairAction compactAction" Margin="0,0,8,0" />
                     <Button Content="标记上传成功" Click="OnMarkSelectedUploadCompletedClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
                     <Button Content="标记上传失败" Click="OnMarkSelectedUploadFailedClick" Classes="dangerSoftAction compactAction" Margin="0,0,8,0" />

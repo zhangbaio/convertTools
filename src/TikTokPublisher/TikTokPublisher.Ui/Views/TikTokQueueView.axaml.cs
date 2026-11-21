@@ -430,22 +430,6 @@ public partial class TikTokQueueView : UserControl
         await InfoDialog.ShowSaveSuccessAsync(owner, "账号设置已保存成功。");
     }
 
-    private void OnScanWorkspaceClick(object? sender, RoutedEventArgs e)
-    {
-        if (_vm is null) return;
-        if (string.IsNullOrWhiteSpace(_vm.WorkspacePath))
-        {
-            _vm.StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
-            return;
-        }
-        _vm.RefreshWorkspaceProjects();
-    }
-
-    private async void OnOpenBrowserClick(object? sender, RoutedEventArgs e)
-    {
-        await OpenSelectedAccountExternalBrowserAsync();
-    }
-
     private async Task OpenSelectedAccountExternalBrowserAsync()
     {
         var vm = _vm;
@@ -2899,7 +2883,7 @@ public partial class TikTokQueueView : UserControl
                     $"{Environment.NewLine}{Environment.NewLine}{names}" +
                     $"{Environment.NewLine}{Environment.NewLine}" +
                     $"目标工作目录：{workspace}" +
-                    $"{Environment.NewLine}请刷新项目或确认当前账号的工作目录后重试。",
+                    $"{Environment.NewLine}请确认当前账号的工作目录及项目文件后重试。",
                     warning: true);
             }
         }
@@ -3736,7 +3720,7 @@ public partial class TikTokQueueView : UserControl
 
         if (targetOverride is null && projectDirFilter is null && vm.FilteredQueueProjectRows.Count == 0)
         {
-            vm.StatusMessage = "队列为空，请先刷新项目";
+            vm.StatusMessage = "当前列表为空，请检查筛选条件或先添加剧集。";
             return false;
         }
 
