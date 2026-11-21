@@ -64,7 +64,7 @@ public static class AudioEnergy
                 }
             }
         }
-        catch (Exception ex) { log?.Invoke($"ℹ️ 音频能量分析跳过：{ex.Message}"); return new List<(int, double)>(); }
+        catch (Exception ex) when (!ct.IsCancellationRequested) { log?.Invoke($"ℹ️ 音频能量分析跳过：{ex.Message}"); return new List<(int, double)>(); }
 
         if (env.Count == 0) log?.Invoke("ℹ️ 音频能量分析跳过：未取到响度（无音轨或 ffmpeg 不支持 ebur128）");
         return env;

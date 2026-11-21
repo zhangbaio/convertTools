@@ -52,6 +52,7 @@ public sealed class ClipConfig
     public bool ShotDensity { get; set; } = true;
     public bool LlmArrange { get; set; } = true;
     public bool SmoothSelection { get; set; } = true;
+    public int MinimumSegmentMs { get; set; } = 1500;
     public bool PublishMeta { get; set; } = true;
 
     public int PipelineConcurrent { get; set; } = 4;
@@ -67,6 +68,7 @@ public sealed class ClipConfig
     public int TitleCardSeconds { get; set; } = 4;
 
     public bool CommentaryBurnSubtitles { get; set; } = true;
+    public double CommentarySubtitleBlurHeight { get; set; } = 0.18;
     public string CommentaryStyleStrength { get; set; } = "standard";
     public double CommentaryNarrationRatio { get; set; } = 70.0;
     public string TtsEngine { get; set; } = "volcengine";
@@ -80,6 +82,10 @@ public sealed class ClipConfig
     public bool OrigColor { get; set; }
     public bool OrigSpeed { get; set; }
     public bool OrigFade { get; set; }
+    public bool OrigForegroundZoom { get; set; }
+    public bool OrigBlurBackground { get; set; }
+    public bool OrigStickerStrip { get; set; }
+    public bool OrigNoise { get; set; }
     public string OrigStickerDir { get; set; } = string.Empty;
 
     private static readonly JsonSerializerOptions Options = new()
@@ -219,13 +225,27 @@ public sealed class ClipConfig
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(legacyPath));
-            var root = document.RootElement;
+            return ReadLegacySettings(document.RootElement, config);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return config;
+        }
+    }
+
+    public static ClipConfig FromLegacyJson(JsonElement root) => ReadLegacySettings(root, new ClipConfig());
+
+    private static ClipConfig ReadLegacySettings(JsonElement root, ClipConfig config)
+    {
+        if (root.ValueKind == JsonValueKind.Object)
+        {
             config.EpisodeQuota = GetBool(root, "material_clip_episode_length_quota", config.EpisodeQuota);
             config.EnableLlmScore = GetBool(root, "material_clip_enable_llm", config.EnableLlmScore);
             config.AudioEnergy = GetBool(root, "material_clip_audio_energy", config.AudioEnergy);
             config.ShotDensity = GetBool(root, "material_clip_shot_density", config.ShotDensity);
             config.LlmArrange = GetBool(root, "material_clip_llm_arrange", config.LlmArrange);
             config.SmoothSelection = GetBool(root, "material_clip_smooth_selection", config.SmoothSelection);
+            config.MinimumSegmentMs = GetInt(root, "material_clip_min_clip_ms", config.MinimumSegmentMs);
             config.PublishMeta = GetBool(root, "material_clip_publish_meta", config.PublishMeta);
             config.PipelineConcurrent = GetInt(root, "material_clip_pipeline_concurrent", config.PipelineConcurrent);
             config.NetConcurrent = GetInt(root, "material_clip_net_concurrent", config.NetConcurrent);
@@ -238,6 +258,7 @@ public sealed class ClipConfig
             config.TitleCard = GetBool(root, "material_clip_title_card", config.TitleCard);
             config.TitleCardSeconds = GetInt(root, "material_clip_title_card_seconds", config.TitleCardSeconds);
             config.CommentaryBurnSubtitles = GetBool(root, "material_clip_commentary_burn_subtitles", config.CommentaryBurnSubtitles);
+            config.CommentarySubtitleBlurHeight = GetDouble(root, "material_clip_commentary_subtitle_blur_height_pct", config.CommentarySubtitleBlurHeight);
             config.CommentaryStyleStrength = GetString(root, "material_clip_commentary_style_strength", config.CommentaryStyleStrength);
             config.CommentaryNarrationRatio = GetDouble(root, "material_clip_commentary_narration_ratio", config.CommentaryNarrationRatio);
             config.TtsEngine = GetString(root, "material_clip_tts_engine", config.TtsEngine);
@@ -250,13 +271,13 @@ public sealed class ClipConfig
             config.OrigColor = GetBool(root, "material_clip_originality_color", config.OrigColor);
             config.OrigSpeed = GetBool(root, "material_clip_originality_speed", config.OrigSpeed);
             config.OrigFade = GetBool(root, "material_clip_originality_fade", config.OrigFade);
+            config.OrigForegroundZoom = GetBool(root, "material_clip_originality_foreground_zoom", config.OrigForegroundZoom);
+            config.OrigBlurBackground = GetBool(root, "material_clip_originality_blur_background", config.OrigBlurBackground);
+            config.OrigStickerStrip = GetBool(root, "material_clip_originality_sticker_strip", config.OrigStickerStrip);
+            config.OrigNoise = GetBool(root, "material_clip_originality_noise", config.OrigNoise);
             config.OrigStickerDir = GetString(root, "material_clip_originality_sticker_dir", config.OrigStickerDir);
             ImportModeSettings(config, root);
         }
-        catch
-        {
-        }
-
         return config;
     }
 
@@ -265,16 +286,23 @@ public sealed class ClipConfig
         if (root.TryGetProperty("material_clip_mode_enabled", out var enabledMap) &&
             enabledMap.ValueKind == JsonValueKind.Object)
         {
-            foreach (var property in enabledMap.EnumerateObject())
+            foreach (var property in enabledMap.EnumerateObject().Where(p => IsKnownMode(p.Name)))
             {
                 config.Mode(property.Name).Enabled = ReadBool(property.Value, config.Mode(property.Name).Enabled);
             }
+        }
+        else if (root.TryGetProperty("material_clip_edit_mode", out _))
+        {
+            var primary = GetString(root, "material_clip_edit_mode", "highlight").Trim().ToLowerInvariant();
+            if (IsKnownMode(primary))
+                foreach (var mode in config.Modes)
+                    mode.Enabled = mode.Key == primary;
         }
 
         if (root.TryGetProperty("material_clip_force_regenerate_by_mode", out var forceMap) &&
             forceMap.ValueKind == JsonValueKind.Object)
         {
-            foreach (var property in forceMap.EnumerateObject())
+            foreach (var property in forceMap.EnumerateObject().Where(p => IsKnownMode(p.Name)))
             {
                 config.Mode(property.Name).Force = ReadBool(property.Value, config.Mode(property.Name).Force);
             }
@@ -283,7 +311,7 @@ public sealed class ClipConfig
         if (root.TryGetProperty("material_clip_similarity_cap_by_mode", out var capMap) &&
             capMap.ValueKind == JsonValueKind.Object)
         {
-            foreach (var property in capMap.EnumerateObject())
+            foreach (var property in capMap.EnumerateObject().Where(p => IsKnownMode(p.Name)))
             {
                 config.SimilarityCapByMode[property.Name] = ReadDouble(property.Value, 0.5);
             }
@@ -292,7 +320,7 @@ public sealed class ClipConfig
         if (root.TryGetProperty("material_clip_ranges_by_mode", out var rangeMap) &&
             rangeMap.ValueKind == JsonValueKind.Object)
         {
-            foreach (var property in rangeMap.EnumerateObject())
+            foreach (var property in rangeMap.EnumerateObject().Where(p => IsKnownMode(p.Name)))
             {
                 var ranges = ReadRanges(property.Value);
                 if (ranges.Count > 0)
@@ -302,7 +330,29 @@ public sealed class ClipConfig
                 }
             }
         }
+        else
+        {
+            var ranges = root.TryGetProperty("material_clip_clip_ranges", out var legacyRanges)
+                ? ReadRanges(legacyRanges)
+                : new List<ClipDurationRange>();
+            if (ranges.Count == 0 && root.TryGetProperty("material_clip_split_count", out _))
+            {
+                var count = Math.Clamp(GetInt(root, "material_clip_split_count", 2), 1, 10);
+                var min = GetInt(root, "material_clip_clip_min_sec", 300);
+                var max = GetInt(root, "material_clip_clip_max_sec", 360);
+                ranges = Enumerable.Range(0, count)
+                    .Select(_ => new ClipDurationRange { MinSeconds = min, MaxSeconds = max }).ToList();
+            }
+            if (ranges.Count > 0)
+            {
+                var mode = config.Modes.FirstOrDefault(m => m.Enabled) ?? config.Mode("highlight");
+                config.RangesByMode[mode.Key] = ranges;
+                mode.Count = ranges.Count;
+            }
+        }
     }
+
+    private static bool IsKnownMode(string key) => key is "highlight" or "mashup" or "commentary" or "slice";
 
     private static List<ClipDurationRange> ReadRanges(JsonElement element)
     {

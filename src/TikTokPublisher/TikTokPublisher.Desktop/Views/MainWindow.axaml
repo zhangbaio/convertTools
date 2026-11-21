@@ -83,6 +83,12 @@
                         <TextBlock Text="短剧下载" Classes="moduleRailLabel" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
+                <Button Tag="material-clip" Classes="moduleNavItem" AutomationProperties.Name="素材剪辑" ToolTip.Tip="素材剪辑" Click="OnNavItemClick">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PathIcon Data="F0 M2,4 H22 V20 H2 Z M4,6 V18 H20 V6 Z M10,8 L16,12 L10,16 Z" />
+                        <TextBlock Text="素材剪辑" Classes="moduleRailLabel" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
                 <Button Tag="queue" Classes="moduleNavItem" AutomationProperties.Name="TikTok 上传" ToolTip.Tip="TikTok 上传" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="M17.8,4.81 C16.51,3.97 15.58,2.62 15.29,1.05 C15.22,0.71 15.19,0.36 15.19,0
@@ -145,6 +151,7 @@
                    ZIndex="5" />
             <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" ZIndex="10" />
             <views:DramaDownloadView x:Name="DownloadView" IsVisible="False" />
+            <views:MaterialClipView x:Name="MaterialClipPage" IsVisible="False" />
             <Grid x:Name="TikTokWorkspace">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" SharedSizeGroup="UploadTabs" />

@@ -46,7 +46,7 @@ public static class Commentary
 }
 
 /// <summary>LLM 解说脚本生成 + 旁白比例校准 + TTS 语速换算。移植自 material_clip commentary_prompting/generation/render_tts。
-/// v1：单批请求（不分批/并发/缓存）。</summary>
+/// 长片按播放顺序分批生成脚本，再统一校准旁白比例。</summary>
 public sealed class CommentaryScripter
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(180) };
@@ -58,8 +58,17 @@ public sealed class CommentaryScripter
 
         var endpoint = opts.AiEndpoint.Trim().TrimEnd('/');
         int keepPct = Math.Clamp((int)Math.Round(100 - opts.CommentaryNarrationRatio), 0, 100);
-        var content = await RequestAsync(endpoint, opts, BuildPrompt(titleHint, segs, keepPct), ct);
-        var lines = ParseLines(content, segs.Count);
+        var lines = new List<NarrationLine>();
+        var batchSize = opts.ModeSettings is null ? Math.Max(1, segs.Count) : 12;
+        foreach (var batch in segs.Chunk(batchSize))
+        {
+            var content = await RequestAsync(endpoint, opts, BuildPrompt(titleHint, batch, keepPct), ct);
+            var batchLines = ParseLines(content, batch.Length);
+            var offset = lines.Count;
+            foreach (var line in batchLines)
+                line.Index += offset;
+            lines.AddRange(batchLines);
+        }
         EnforceRatio(lines, segs, opts.CommentaryNarrationRatio);
         log?.Invoke($"📝 解说脚本：{lines.Count} 段（旁白 {lines.Count(l => !l.KeepOriginal)} / 原声 {lines.Count(l => l.KeepOriginal)}）");
         return lines;
@@ -85,7 +94,7 @@ public sealed class CommentaryScripter
         return Math.Clamp(baseSpeed + (pace + delivery + emo) * styleFactor, 0.78, 1.25);
     }
 
-    private static string BuildPrompt(string titleHint, List<ClipCandidate> segs, int keepPct)
+    private static string BuildPrompt(string titleHint, IReadOnlyList<ClipCandidate> segs, int keepPct)
     {
         var clips = segs.Select((c, i) => new { index = i + 1, subtitle = c.Text }).ToArray();
         return
@@ -115,7 +124,7 @@ public sealed class CommentaryScripter
             },
             response_format = new { type = "json_object" },
         });
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions")
+        using var req = new HttpRequestMessage(HttpMethod.Post, LlmScorer.ChatEndpoint(endpoint))
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
@@ -164,7 +173,8 @@ public sealed class CommentaryScripter
     private static void EnforceRatio(List<NarrationLine> lines, List<ClipCandidate> segs, double narrationRatio)
     {
         int total = lines.Count;
-        int targetKeep = (int)Math.Round((1.0 - Math.Clamp(narrationRatio, 0, 100) / 100.0) * total);
+        int targetKeep = Math.Min(Math.Max(0, total - 1),
+            (int)Math.Round((1.0 - Math.Clamp(narrationRatio, 0, 100) / 100.0) * total));
         int curKeep = lines.Count(l => l.KeepOriginal);
         double Score(NarrationLine l) => (l.Index - 1 >= 0 && l.Index - 1 < segs.Count) ? segs[l.Index - 1].Total : 0;
 

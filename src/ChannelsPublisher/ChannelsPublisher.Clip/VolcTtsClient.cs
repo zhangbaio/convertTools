@@ -12,14 +12,16 @@ public sealed class VolcTtsClient
 
     public async Task<byte[]> SynthesizeAsync(string text, double speedRatio, ClipEngineOptions opts, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(opts.VolcAppId) || string.IsNullOrWhiteSpace(opts.VolcAccessToken))
+        var appId = string.IsNullOrWhiteSpace(opts.TtsAppId) ? opts.VolcAppId : opts.TtsAppId;
+        var token = string.IsNullOrWhiteSpace(opts.TtsAccessToken) ? opts.VolcAccessToken : opts.TtsAccessToken;
+        if (string.IsNullOrWhiteSpace(appId) || string.IsNullOrWhiteSpace(token))
             throw new Exception("未配置火山 TTS 凭据（复用 material_clip_volcengine_app_id/access_token）");
 
         var cluster = string.IsNullOrWhiteSpace(opts.TtsCluster) ? "volcano_tts" : opts.TtsCluster;
         var body = JsonSerializer.Serialize(new
         {
-            app = new { appid = opts.VolcAppId, token = opts.VolcAccessToken, cluster },
-            user = new { uid = opts.VolcAppId },
+            app = new { appid = appId, token, cluster },
+            user = new { uid = appId },
             audio = new
             {
                 voice_type = string.IsNullOrWhiteSpace(opts.TtsVoiceType) ? "BV701_streaming" : opts.TtsVoiceType,
@@ -39,7 +41,7 @@ public sealed class VolcTtsClient
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
-        req.Headers.TryAddWithoutValidation("Authorization", $"Bearer;{opts.VolcAccessToken}");
+        req.Headers.TryAddWithoutValidation("Authorization", $"Bearer;{token}");
 
         using var resp = await Http.SendAsync(req, ct);
         var payload = await resp.Content.ReadAsStringAsync(ct);

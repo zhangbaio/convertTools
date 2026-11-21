@@ -8,6 +8,11 @@ public sealed record SubtitleSegment(int StartMs, int EndMs, string Text);
 /// <summary>一集源视频。</summary>
 public sealed record EpisodeSource(int EpisodeIndex, string VideoPath);
 
+public sealed record ClipTimeRange(int MinSeconds, int MaxSeconds);
+
+public sealed record ClipModeOptions(
+    string Mode, IReadOnlyList<ClipTimeRange> Ranges, double SimilarityCap, bool ForceRegenerate);
+
 /// <summary>一个候选高光片段（含 4 维评分与综合分）。</summary>
 public sealed class ClipCandidate
 {
@@ -40,6 +45,22 @@ public sealed class ClipCandidate
 /// <summary>剪辑引擎选项（调用方从 ClipConfig + 用户 ASR 配置映射而来）。</summary>
 public sealed class ClipEngineOptions
 {
+    public IReadOnlyList<ClipModeOptions>? ModeSettings { get; set; }
+    public string ProjectTitle { get; set; } = "";
+    public string OutputDirectory { get; set; } = "";
+    public bool EpisodeQuota { get; set; } = true;
+    public bool ShotDensity { get; set; }
+    public bool ArrangeNarrative { get; set; }
+    public bool SmoothSelection { get; set; }
+    public int MinimumSegmentMs { get; set; } = 1500;
+    public bool PublishMetadata { get; set; } = true;
+    public bool TitleCard { get; set; }
+    public int TitleCardSeconds { get; set; } = 4;
+    public int PipelineConcurrency { get; set; } = 1;
+    public int NetworkConcurrency { get; set; }
+    public string EncodeMode { get; set; } = "quality";
+    public string VideoCodec { get; set; } = "h264";
+    public double VideoBitrateMbps { get; set; } = 2.5;
     public int Width { get; set; } = 1080;
     public int Height { get; set; } = 1920;
     public List<string> Modes { get; set; } = new() { "highlight" }; // highlight/mashup（切片/解说后续）
@@ -56,6 +77,9 @@ public sealed class ClipEngineOptions
     // ASR 引擎：volcengine(在线) / local(本地 SenseVoice) / hybrid(本地优先+火山复核)
     public string AsrEngine { get; set; } = "volcengine";
     public string AsrLanguage { get; set; } = "zh-CN";
+    public string AsrProvider { get; set; } = "volcengine_stt";
+    public string DoubaoAppId { get; set; } = "";
+    public string DoubaoAccessToken { get; set; } = "";
 
     // 火山在线 ASR
     public string VolcAppId { get; set; } = "";
@@ -63,6 +87,7 @@ public sealed class ClipEngineOptions
 
     // 本地 ASR（SenseVoice + silero VAD）
     public string LocalModelDir { get; set; } = "";   // 含 model(.int8).onnx + tokens.txt
+    public string LocalModel { get; set; } = "sensevoice";
     public string LocalVadPath { get; set; } = "";    // silero_vad.onnx；空=在模型目录及其上级找
     public bool LocalUseItn { get; set; }             // 数字逆归一化（默认关）
     public double HybridMinCharsPerSec { get; set; } = 1.0; // 混合判据：本地字密度低于此值改用火山
@@ -74,11 +99,17 @@ public sealed class ClipEngineOptions
 
     // 解说（commentary）：火山 TTS 复用 Volc 凭据；语音/旁白比例/风格
     public string TtsVoiceType { get; set; } = "BV701_streaming";
+    public string TtsEngine { get; set; } = "volcengine";
+    public string TtsAppId { get; set; } = "";
+    public string TtsAccessToken { get; set; } = "";
+    public string EdgeVoice { get; set; } = "zh-CN-YunjianNeural";
+    public string EdgeTtsExecutable { get; set; } = "";
     public string TtsCluster { get; set; } = "volcano_tts";
     public double TtsSpeedRatio { get; set; } = 1.0;
     public double CommentaryNarrationRatio { get; set; } = 70.0;      // 旁白占比 40-100
     public string CommentaryStyleStrength { get; set; } = "standard"; // subtle/standard/strong
     public bool BurnSubtitles { get; set; } = true;                   // 解说段：抹除原字幕(底部模糊带)+烧录解说字幕
+    public double SubtitleBlurHeight { get; set; } = 0.18;
 
     // 原创度后处理（对成片做确定性轻扰动，降低重复率）
     public bool OrigEnabled { get; set; }
@@ -86,13 +117,33 @@ public sealed class ClipEngineOptions
     public bool OrigColor { get; set; }
     public bool OrigSpeed { get; set; }
     public bool OrigFade { get; set; }
+    public bool OrigForegroundZoom { get; set; }
+    public bool OrigBlurBackground { get; set; }
+    public bool OrigStickerStrip { get; set; }
+    public bool OrigNoise { get; set; }
     public string OrigStickerDir { get; set; } = "";                  // 贴纸/水印 PNG 目录，随机叠一张到随机角落
 
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string FfprobePath { get; set; } = "ffprobe";
 }
 
-public sealed record ClipEngineResult(bool Ok, IReadOnlyList<string> Outputs, string? Error);
+public sealed record ClipEngineResult(bool Ok, IReadOnlyList<string> Outputs, string? Error)
+{
+    public IReadOnlyList<string> Issues { get; init; } = Array.Empty<string>();
+}
+
+internal sealed record ClipPublishMetadata(string Description, string ShortTitle, string[] Tags, string Caption)
+{
+    public static ClipPublishMetadata Create(string description, string title, IEnumerable<string> tags)
+    {
+        description = string.Concat(description.EnumerateRunes().Take(40));
+        title = string.Concat(title.EnumerateRunes().Take(18));
+        var cleanTags = tags.Select(tag => tag.Trim().TrimStart('#')).Where(tag => tag.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase).Take(5).ToArray();
+        return new ClipPublishMetadata(description, title, cleanTags,
+            cleanTags.Length == 0 ? description : $"{description} {string.Join(" ", cleanTags.Select(tag => "#" + tag))}");
+    }
+}
 
 /// <summary>四维关键词表（移植自 material_clip/constants.py）。</summary>
 internal static class Keywords

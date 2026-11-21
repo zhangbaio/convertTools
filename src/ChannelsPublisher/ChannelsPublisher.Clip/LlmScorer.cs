@@ -30,7 +30,7 @@ public sealed class LlmScorer
                 var content = await RequestAsync(endpoint, opts, BuildPrompt(group.Key, ranked), ct);
                 byIndex = ParseScenes(content);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 log?.Invoke($"⚠️ 第 {group.Key} 集 AI 复评分失败，保留关键词分：{ex.Message}");
                 continue;
@@ -38,6 +38,38 @@ public sealed class LlmScorer
             for (int i = 0; i < ranked.Count; i++)
                 if (byIndex.TryGetValue(i + 1, out var s)) ApplyScene(ranked[i], s);
         }
+    }
+
+    internal async Task<List<ClipCandidate>> ArrangeAsync(
+        List<ClipCandidate> clips, ClipEngineOptions options, CancellationToken ct)
+    {
+        if (clips.Count < 2)
+            return clips;
+        var scenes = clips.Select((clip, index) => new { index = index + 1, subtitle = clip.Text });
+        var prompt = "按剧情重排以下视频片段，开头用钩子，之后确保故事连贯。每段必须出现一次。只返回 JSON，格式为 {\"order\":[2,1]}。\n"
+            + JsonSerializer.Serialize(scenes);
+        var content = await RequestAsync(options.AiEndpoint.Trim().TrimEnd('/'), options, prompt, ct);
+        using var doc = JsonDocument.Parse(ExtractJsonObject(content));
+        var order = doc.RootElement.GetProperty("order").EnumerateArray().Select(value => value.GetInt32()).ToArray();
+        if (order.Length != clips.Count || order.Distinct().Count() != clips.Count || order.Any(i => i < 1 || i > clips.Count))
+            throw new InvalidDataException("AI 返回的叙事顺序缺少片段或包含重复片段。");
+        return order.Select(i => clips[i - 1]).ToList();
+    }
+
+    internal async Task<ClipPublishMetadata?> PublishMetadataAsync(
+        IReadOnlyList<ClipCandidate> clips, string title, ClipEngineOptions options, CancellationToken ct)
+    {
+        var subtitles = string.Join("\n", clips.Select(c => c.Text).Where(text => !string.IsNullOrWhiteSpace(text)).Distinct());
+        var prompt = $"剧名：{title}\n根据成片字幕写一条简短的发表文案和相关标签，只输出 JSON："
+            + "{\"description\":\"40 字以内\",\"short_title\":\"18 字以内\",\"tags\":[\"标签\"]}。\n"
+            + subtitles[..Math.Min(subtitles.Length, 9000)];
+        var content = await RequestAsync(options.AiEndpoint.Trim().TrimEnd('/'), options, prompt, ct);
+        using var doc = JsonDocument.Parse(ExtractJsonObject(content));
+        var root = doc.RootElement;
+        var description = ReadStr(root, "description").Trim();
+        return description.Length == 0 ? null :
+            ClipPublishMetadata.Create(description, ReadStr(root, "short_title").Trim() is { Length: > 0 } shortTitle ? shortTitle : title,
+                ReadTags(root, "tags"));
     }
 
     private static string BuildPrompt(int episode, List<ClipCandidate> items)
@@ -76,7 +108,7 @@ public sealed class LlmScorer
             },
             response_format = new { type = "json_object" },
         });
-        using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions")
+        using var req = new HttpRequestMessage(HttpMethod.Post, ChatEndpoint(endpoint))
         {
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
@@ -87,6 +119,9 @@ public sealed class LlmScorer
         using var doc = JsonDocument.Parse(text);
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
     }
+
+    internal static string ChatEndpoint(string endpoint) => endpoint.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
+        ? endpoint : $"{endpoint}/chat/completions";
 
     private static void ApplyScene(ClipCandidate c, SceneScore s)
     {

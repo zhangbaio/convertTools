@@ -2,10 +2,8 @@ using System.Text.Json;
 
 namespace ChannelsPublisher.Clip;
 
-/// <summary>纯 C# 剪辑引擎（零 Python）：抽音→火山 ASR→候选→关键词打分→音频能量→LLM 复评分→信号加权（共享一次），
-/// 再按每个模式(highlight/mashup)选段→装箱→ffmpeg 渲染。产物写 &lt;project&gt;/素材剪辑输出/&lt;模式&gt;/ + .publish.json。
-/// 切片/解说/本地 ASR 为后续分期。</summary>
-public sealed class ClipEngine
+/// <summary>分析视频和字幕，再按高光、混剪、解说或切片模式选段和渲染。</summary>
+public sealed partial class ClipEngine
 {
     private readonly VolcengineAsrClient _volc = new();
     private readonly LocalAsrClient _local = new();
@@ -25,19 +23,35 @@ public sealed class ClipEngine
             double density = speechSec > 0 ? chars / speechSec : 0;
             if (speechSec > 0 && density >= opts.HybridMinCharsPerSec) return local;
             log?.Invoke($"  混合：本地字密度 {density:F2} < 阈值 {opts.HybridMinCharsPerSec}，改用火山复核");
-            try { return await _volc.TranscribeAsync(wav, opts, log, ct); }
-            catch (Exception ex) { log?.Invoke($"  火山复核失败，保留本地：{ex.Message}"); return local; }
+            try { return await RunOnlineAsrAsync(wav, opts, log, ct); }
+            catch (Exception ex) when (!ct.IsCancellationRequested) { log?.Invoke($"  在线 ASR 复核失败，保留本地：{ex.Message}"); return local; }
         }
-        return await _volc.TranscribeAsync(wav, opts, log, ct);
+        return await RunOnlineAsrAsync(wav, opts, log, ct);
     }
+
+    private Task<List<SubtitleSegment>> RunOnlineAsrAsync(string wav, ClipEngineOptions opts, Action<string>? log, CancellationToken ct)
+        => opts.AsrProvider == "doubao_subtitle"
+            ? DoubaoSubtitleAsrClient.TranscribeAsync(wav, opts, ct)
+            : _volc.TranscribeAsync(wav, opts, log, ct);
+
+    public Task<ClipEngineResult> GenerateAsync(
+        string projectDir,
+        IReadOnlyList<EpisodeSource> episodes,
+        ClipEngineOptions opts,
+        Action<string>? log,
+        CancellationToken ct) => GenerateAsync(projectDir, episodes, opts, log, ct, null);
 
     public async Task<ClipEngineResult> GenerateAsync(
         string projectDir,
         IReadOnlyList<EpisodeSource> episodes,
         ClipEngineOptions opts,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<string>? outputReady)
     {
+        if (opts.ModeSettings is not null)
+            return await GenerateConfiguredAsync(projectDir, episodes, opts, log, ct, outputReady);
+
         try
         {
             // —— 共享分析：候选 + 音频能量 + LLM + 信号加权（只做一次，各模式复用）——

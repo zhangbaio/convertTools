@@ -84,7 +84,7 @@ public partial class MainWindow : Window
         LogView.Bind(_viewModel, _viewModel.Logs);
         SettingsView.Bind(_viewModel.SystemSettings);
         SettingsView.BindServices(_viewModel.SystemServices);
-        ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning || KuaishouWorkspace.HasActiveUploads);
+        ClientUpdateCoordinator.Bind(() => _viewModel.IsQueueRunning || KuaishouWorkspace.HasActiveUploads || MaterialClipPage.IsRunning);
         _viewModel.SystemServices.ConfirmClientUpdate = message =>
             ConfirmDialog.ShowAsync(this, "客户端升级", message);
         _viewModel.SystemServices.ConfigImported += () =>
@@ -283,6 +283,7 @@ public partial class MainWindow : Window
         _accountInventorySync.StatusChanged -= _viewModel.AppendLog;
         _accountInventorySync.Dispose();
         KuaishouWorkspace.Dispose();
+        MaterialClipPage.Stop();
         _browserHost.CloseAll();
         try
         {
@@ -684,6 +685,8 @@ public partial class MainWindow : Window
         const int inactiveZ = 0;
 
         DownloadView.IsVisible = tag == "download";
+        MaterialClipPage.IsVisible = tag == "material-clip";
+        MaterialClipPage.ZIndex = tag == "material-clip" ? activeZ : inactiveZ;
         SetUploadWorkspacePresentation(TikTokWorkspace, showUploadWorkspaces, tikTokActive);
         SetUploadWorkspacePresentation(KuaishouWorkspace, showUploadWorkspaces, kuaishouActive);
         ApplyAccountPanelLayout();

@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TikTokPublisher.Ui.Views.MaterialClipView">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="12" RowSpacing="10">
+        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
+            <Button x:Name="ImportFilesButton" Content="导入视频" Click="ImportFiles" />
+            <Button x:Name="ImportFolderButton" Content="导入剧集目录" Click="ImportFolders" />
+            <Button x:Name="StartButton" Classes="primary" Content="开始剪辑" Click="StartQueue" />
+            <Button x:Name="StopButton" Content="停止" IsEnabled="False" Click="StopQueue" />
+            <Button x:Name="RetryButton" Content="重试所选" Click="RetrySelected" />
+            <Button Content="全局剪辑配置" Click="OpenSettings" />
+        </WrapPanel>
+        <TextBlock Grid.Row="1" x:Name="QueueStatus" Text="导入单个视频、多段素材或剧集目录后开始剪辑。"
+                   Classes="pageSummary" TextWrapping="Wrap" />
+        <Grid Grid.Row="2" ColumnDefinitions="2*,8,3*">
+            <Border Classes="panelCard" BorderBrush="#CBD9ED" BorderThickness="1" CornerRadius="8" Padding="10">
+                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                    <TextBlock Text="剪辑队列" FontWeight="SemiBold" />
+                    <ListBox x:Name="TasksList" Grid.Row="1" SelectionChanged="SelectionChanged">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" Margin="0,3" ColumnSpacing="8">
+                                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Status}" />
+                                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Description}" Classes="pageSummary"
+                                               TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+            <GridSplitter Grid.Column="1" Width="8" ResizeDirection="Columns" Background="Transparent" />
+            <Border Grid.Column="2" Classes="panelCard" BorderBrush="#CBD9ED" BorderThickness="1" CornerRadius="8" Padding="10">
+                <Grid RowDefinitions="Auto,Auto,2*,Auto,*" RowSpacing="8">
+                    <TextBlock Text="任务详情" FontWeight="SemiBold" />
+                    <TextBlock Grid.Row="1" x:Name="SelectedSummary" Classes="pageSummary" TextWrapping="Wrap" />
+                    <ListBox Grid.Row="2" x:Name="LogList" AutomationProperties.Name="剪辑日志">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock Grid.Row="3" Text="成片" FontWeight="SemiBold" />
+                    <ListBox Grid.Row="4" x:Name="OutputsList" DoubleTapped="OpenVideo">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Name}" ToolTip.Tip="{Binding Path}" TextTrimming="CharacterEllipsis" />
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Grid>
+        <WrapPanel Grid.Row="3" Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
+            <Button x:Name="ChangeOutputButton" Content="设置输出目录" Click="ChangeOutputFolder" />
+            <Button x:Name="OpenOutputButton" Content="打开输出目录" Click="OpenOutputFolder" />
+            <Button x:Name="RemoveButton" Content="移除所选" Click="RemoveSelected" />
+        </WrapPanel>
+    </Grid>
+</UserControl>

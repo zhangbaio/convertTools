@@ -24,9 +24,14 @@ public sealed class LocalAsrClient
         var (model, tokens, vad) = ResolveModelFiles(opts);
 
         var config = new OfflineRecognizerConfig();
-        config.ModelConfig.SenseVoice.Model = model;
-        config.ModelConfig.SenseVoice.Language = MapLang(opts.AsrLanguage);
-        config.ModelConfig.SenseVoice.UseInverseTextNormalization = opts.LocalUseItn ? 1 : 0;
+        if (opts.LocalModel == "paraformer")
+            config.ModelConfig.Paraformer.Model = model;
+        else
+        {
+            config.ModelConfig.SenseVoice.Model = model;
+            config.ModelConfig.SenseVoice.Language = MapLang(opts.AsrLanguage);
+            config.ModelConfig.SenseVoice.UseInverseTextNormalization = opts.LocalUseItn ? 1 : 0;
+        }
         config.ModelConfig.Tokens = tokens;
         config.ModelConfig.NumThreads = 2;
         config.ModelConfig.Provider = "cpu";
@@ -48,11 +53,11 @@ public sealed class LocalAsrClient
 
         var result = new List<SubtitleSegment>();
         int offset = 0;
-        while (offset + window <= samples.Length)
+        while (offset < samples.Length)
         {
             ct.ThrowIfCancellationRequested();
             var chunk = new float[window];
-            Array.Copy(samples, offset, chunk, 0, window);
+            Array.Copy(samples, offset, chunk, 0, Math.Min(window, samples.Length - offset));
             detector.AcceptWaveform(chunk);
             offset += window;
             DrainSegments(detector, recognizer, sampleRate, result);
@@ -132,7 +137,7 @@ public sealed class LocalAsrClient
 
         var model = new[] { "model.int8.onnx", "model.onnx" }
             .Select(n => Path.Combine(dir, n)).FirstOrDefault(File.Exists)
-            ?? throw new Exception($"未找到 SenseVoice 模型（model.int8.onnx / model.onnx）于 {dir}");
+            ?? throw new Exception($"未找到本地 ASR 模型（model.int8.onnx / model.onnx）于 {dir}");
         var tokens = Path.Combine(dir, "tokens.txt");
         if (!File.Exists(tokens)) throw new Exception($"未找到 tokens.txt 于 {dir}");
 

@@ -43,7 +43,7 @@ public sealed class VolcengineAsrClient
             };
             req.Headers.TryAddWithoutValidation("X-Api-Resource-Id", "volc.bigasr.auc_turbo");
             req.Headers.TryAddWithoutValidation("X-Api-Sequence", "-1");
-            req.Headers.TryAddWithoutValidation("X-Api-Request-Id", $"clip-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{attempt}");
+            req.Headers.TryAddWithoutValidation("X-Api-Request-Id", Guid.NewGuid().ToString());
             if (!string.IsNullOrWhiteSpace(opts.VolcAccessToken))
             {
                 req.Headers.TryAddWithoutValidation("X-Api-App-Key", opts.VolcAppId);
@@ -56,13 +56,14 @@ public sealed class VolcengineAsrClient
 
             HttpResponseMessage resp;
             try { resp = await Http.SendAsync(req, ct); }
-            catch (Exception ex) when (attempt < MaxAttempts)
+            catch (Exception ex) when (attempt < MaxAttempts && !ct.IsCancellationRequested)
             {
                 log?.Invoke($"ASR 请求异常，退避重试 {attempt}：{ex.Message}");
                 await BackoffAsync(rng, attempt, ct);
                 continue;
             }
 
+            using var received = resp;
             var statusCode = resp.Headers.TryGetValues("X-Api-Status-Code", out var sv) ? string.Concat(sv) : "";
             var payload = await resp.Content.ReadAsStringAsync(ct);
 
