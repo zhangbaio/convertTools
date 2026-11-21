@@ -81,6 +81,24 @@ public sealed class MaterialClipSettingsTests
         Assert.True(MaterialClipSettingsStore.BuildOptions(reloaded, new ClientSettings()).StoryHighlights);
     }
 
+    [Fact]
+    public void SeparateVisionEndpointDoesNotReceiveTheTextServiceKey()
+    {
+        var settings = new MaterialClipSettings();
+        settings.Clip.StoryHardSubtitles = true;
+        settings.Clip.StoryVisualReview = true;
+        settings.Services.StoryVisionEndpoint = "http://localhost:8000/v1";
+        settings.Services.StoryVisionModel = "qwen3-vl";
+
+        var options = MaterialClipSettingsStore.BuildOptions(settings, new ClientSettings { AiTextApiKey = "text-service-key" });
+
+        Assert.True(options.StoryHardSubtitles);
+        Assert.True(options.StoryVisualReview);
+        Assert.Equal("http://localhost:8000/v1", options.StoryVisionEndpoint);
+        Assert.Equal("qwen3-vl", options.StoryVisionModel);
+        Assert.Empty(options.StoryVisionApiKey);
+    }
+
     private static MaterialClipSettings Import(string json, ClientSettings client)
     {
         var path = Path.GetTempFileName();

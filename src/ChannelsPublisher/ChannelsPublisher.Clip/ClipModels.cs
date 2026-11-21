@@ -30,6 +30,9 @@ public sealed class ClipCandidate
     // 可选信号（音频能量 0-10 / 镜头密度 0-10）；未计算则 0。
     public double AudioEnergy { get; set; }
     public double ShotDensity { get; set; }
+    public string VisualDescription { get; set; } = "";
+    public string HardSubtitleText { get; set; } = "";
+    public bool IsVisualOnly { get; set; }
 
     // LLM 复评分产出的元数据（用于发表文案 sidecar）。
     public string Summary { get; set; } = "";
@@ -52,6 +55,11 @@ public sealed class ClipEngineOptions
     public bool ShotDensity { get; set; }
     public bool ArrangeNarrative { get; set; }
     public bool StoryHighlights { get; set; }
+    public bool StoryHardSubtitles { get; set; }
+    public bool StoryVisualReview { get; set; }
+    public string StoryVisionEndpoint { get; set; } = "";
+    public string StoryVisionApiKey { get; set; } = "";
+    public string StoryVisionModel { get; set; } = "";
     public bool SmoothSelection { get; set; }
     public int MinimumSegmentMs { get; set; } = 1500;
     public bool PublishMetadata { get; set; } = true;

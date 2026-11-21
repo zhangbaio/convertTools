@@ -19,6 +19,9 @@ public sealed class MaterialClipConnections
     public string AiEndpoint { get; set; } = "";
     public string AiApiKey { get; set; } = "";
     public string AiModel { get; set; } = "";
+    public string StoryVisionEndpoint { get; set; } = "";
+    public string StoryVisionApiKey { get; set; } = "";
+    public string StoryVisionModel { get; set; } = "";
     public string AsrEngine { get; set; } = "volcengine";
     public string AsrProvider { get; set; } = "volcengine_stt";
     public string AsrLanguage { get; set; } = "";
@@ -165,6 +168,12 @@ public static class MaterialClipSettingsStore
             EnableLlmScore = clip.EnableLlmScore,
             ArrangeNarrative = clip.LlmArrange,
             StoryHighlights = clip.StoryHighlights,
+            StoryHardSubtitles = clip.StoryHardSubtitles,
+            StoryVisualReview = clip.StoryVisualReview,
+            StoryVisionEndpoint = First(services.StoryVisionEndpoint, services.AiEndpoint, client.AiTextEndpoint),
+            StoryVisionApiKey = string.IsNullOrWhiteSpace(services.StoryVisionEndpoint)
+                ? First(services.StoryVisionApiKey, services.AiApiKey, client.AiTextApiKey) : services.StoryVisionApiKey?.Trim() ?? "",
+            StoryVisionModel = First(services.StoryVisionModel, services.AiModel, client.AiTextModel),
             SmoothSelection = clip.SmoothSelection,
             MinimumSegmentMs = Math.Clamp(clip.MinimumSegmentMs, 100, 10000),
             PublishMetadata = clip.PublishMeta,

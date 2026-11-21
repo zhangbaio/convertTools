@@ -28,6 +28,12 @@ internal static class StoryHighlightPlanner
                 if (continuity is not null)
                     clips.AddRange(continuity.ContextCandidates(safe).Where(clip => clip.DurationMs <= maximum));
             }
+            if (source.HardSubtitles is { Count: > 0 } hard)
+            {
+                foreach (var clip in clips)
+                    clip.HardSubtitleText = string.Join(" / ", hard.Where(cue => cue.StartMs >= clip.StartMs && cue.EndMs <= clip.EndMs)
+                        .Select(cue => cue.Text).Distinct());
+            }
             if (clips.Count > 0)
                 episodes.Add(clips);
         }
@@ -44,6 +50,9 @@ internal static class StoryHighlightPlanner
                 .OrderBy(clip => PreviousOverlap(clip, previous) > 0).ThenByDescending(clip => clip.Total).Take(MaxCandidates / 3))
                 Add(clip);
         }
+        foreach (var clip in episodes.SelectMany(clips => clips).Where(clip => clip.IsVisualOnly && clip.VisualDescription.Length > 0)
+            .OrderBy(clip => PreviousOverlap(clip, previous) > 0).ThenByDescending(clip => clip.Total).Take(18))
+            Add(clip);
         foreach (var (clip, episode, index) in anchors)
         {
             Add(clip);
@@ -92,6 +101,25 @@ internal static class StoryHighlightPlanner
     internal static bool FitsConstraints(IReadOnlyList<ClipCandidate> selected, ClipTimeRange range,
         IReadOnlyList<List<ClipCandidate>> previous, double similarityCap) =>
         ConstraintViolation(selected, range, previous, similarityCap) is null;
+
+    internal static List<ClipCandidate> MergeVisualOverlap(List<ClipCandidate> selected)
+    {
+        foreach (var visual in selected.Where(clip => clip.IsVisualOnly).ToArray())
+        {
+            var index = selected.FindIndex(clip => !clip.IsVisualOnly && ConfiguredClipPlanner.Overlap(clip, visual) > 0);
+            if (index < 0)
+                continue;
+            var existing = selected[index];
+            if (existing.StartMs <= visual.StartMs && existing.EndMs >= visual.EndMs && existing.VisualDescription.Length == 0)
+            {
+                var covering = ConfiguredClipPlanner.Part(existing, existing.StartMs, existing.EndMs);
+                covering.VisualDescription = visual.VisualDescription;
+                selected[index] = covering;
+            }
+            selected.Remove(visual);
+        }
+        return selected;
+    }
 
     private static string? ConstraintViolation(IReadOnlyList<ClipCandidate> selected, ClipTimeRange range,
         IReadOnlyList<List<ClipCandidate>> previous, double similarityCap)

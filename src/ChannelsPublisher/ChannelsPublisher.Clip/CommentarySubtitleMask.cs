@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text.Json;
 
 namespace ChannelsPublisher.Clip;
 
@@ -31,17 +30,7 @@ internal static class CommentarySubtitleMask
                         "-update", "1", Path.Combine(folder, $"frame-{index:D4}.png")], token);
                 });
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(90));
-            var (code, output, _) = await Ffmpeg.RunCaptureAsync("powershell.exe",
-                ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", RecognizeScript], timeout.Token, folder);
-            if (code != 0)
-            {
-                log?.Invoke("原字幕 OCR 不可用，采用中下部和底部的字幕遮盖区域。");
-                return masks;
-            }
-
-            var observations = JsonSerializer.Deserialize<SubtitleObservation[]>(output) ?? [];
+            var observations = await WindowsClipOcr.ReadAsync(folder, ct);
             observations = observations.Where(box => box.Frame >= 0 && box.Frame < samples.Length &&
                 box.Height is >= 0.009 and <= 0.075 && box.CenterY is >= 0.52 and <= 0.955 &&
                 Math.Abs(box.CenterX - 0.5) <= 0.17).ToArray();
@@ -111,55 +100,9 @@ internal static class CommentarySubtitleMask
             return $"delogo=x={x}:y={y}:w={right - x}:h={bottom - y}";
         }).DefaultIfEmpty("null"));
     }
-
-    private const string RecognizeScript = """
-        $ErrorActionPreference = 'Stop'
-        [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
-        Add-Type -AssemblyName System.Runtime.WindowsRuntime
-        $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime]
-        $null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType=WindowsRuntime]
-        $null = [Windows.Media.Ocr.OcrEngine, Windows.Media.Ocr, ContentType=WindowsRuntime]
-        $asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
-            $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
-        })[0]
-        function Await([object]$operation, [type]$type) {
-            $task = $asTask.MakeGenericMethod($type).Invoke($null, @($operation))
-            $task.GetAwaiter().GetResult()
-        }
-        $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-        if ($null -eq $engine) { throw 'No Windows OCR language is available.' }
-        $boxes = foreach ($image in Get-ChildItem -LiteralPath . -File -Filter 'frame-*.png') {
-            if ($image.BaseName -notmatch '^frame-(\d+)$') { continue }
-            $frame = [int]$Matches[1]
-            $stream = $null
-            $bitmap = $null
-            try {
-                $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($image.FullName)) ([Windows.Storage.StorageFile])
-                $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
-                $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
-                $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-                $result = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
-                foreach ($line in $result.Lines) {
-                    if ($line.Text -notmatch '[\p{L}\p{N}]' -or $line.Words.Count -eq 0) { continue }
-                    $rects = $line.Words | ForEach-Object { $_.BoundingRect }
-                    $left = ($rects | Measure-Object X -Minimum).Minimum
-                    $top = ($rects | Measure-Object Y -Minimum).Minimum
-                    $right = ($rects | ForEach-Object { $_.X + $_.Width } | Measure-Object -Maximum).Maximum
-                    $bottom = ($rects | ForEach-Object { $_.Y + $_.Height } | Measure-Object -Maximum).Maximum
-                    [pscustomobject]@{ Frame=$frame; X=$left/$bitmap.PixelWidth; Y=$top/$bitmap.PixelHeight;
-                        Width=($right-$left)/$bitmap.PixelWidth; Height=($bottom-$top)/$bitmap.PixelHeight }
-                }
-            }
-            finally {
-                if ($null -ne $bitmap) { $bitmap.Dispose() }
-                if ($null -ne $stream) { $stream.Dispose() }
-            }
-        }
-        ConvertTo-Json -InputObject @($boxes) -Compress
-        """;
 }
 
-internal sealed record SubtitleObservation(int Frame, double X, double Y, double Width, double Height)
+internal sealed record SubtitleObservation(int Frame, double X, double Y, double Width, double Height, string Text = "")
 {
     public double CenterX => X + Width / 2;
     public double CenterY => Y + Height / 2;

@@ -110,7 +110,11 @@ internal sealed class MaterialClipSettingsDialog : Window
         var panel = editor.Body;
         var clip = _settings.Clip;
         if (key == "highlight")
+        {
             Flag(panel, "剧情高光（保护对白切点，配置 AI 后支持跨集选段）", clip.StoryHighlights, value => clip.StoryHighlights = value);
+            Flag(panel, "本地 OCR 补充硬字幕（剧情高光）", clip.StoryHardSubtitles, value => clip.StoryHardSubtitles = value);
+            Flag(panel, "画面复评（发现少对白和无对白的高光）", clip.StoryVisualReview, value => clip.StoryVisualReview = value);
+        }
         if (key != "commentary")
             return panel;
         Section(panel, "旁白和字幕");
@@ -155,6 +159,10 @@ internal sealed class MaterialClipSettingsDialog : Window
         Text(panel, "API 地址", services.AiEndpoint, value => services.AiEndpoint = value);
         Text(panel, "API Key", services.AiApiKey, value => services.AiApiKey = value, secret: true);
         Text(panel, "模型", services.AiModel, value => services.AiModel = value);
+        Section(panel, "剧情高光画面复评（留空时复用 AI 文本服务）");
+        Text(panel, "视觉 API 地址", services.StoryVisionEndpoint, value => services.StoryVisionEndpoint = value);
+        Text(panel, "视觉 API Key", services.StoryVisionApiKey, value => services.StoryVisionApiKey = value, secret: true);
+        Text(panel, "视觉模型", services.StoryVisionModel, value => services.StoryVisionModel = value, "例如 Qwen3-VL 或支持图片输入的豆包模型");
         Section(panel, "字幕识别 ASR");
         Choice(panel, "ASR 引擎", services.AsrEngine, value => services.AsrEngine = value,
             ("volcengine", "在线"), ("local", "本地"), ("hybrid", "混合（本地优先）"));

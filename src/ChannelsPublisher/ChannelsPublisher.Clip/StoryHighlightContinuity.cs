@@ -67,16 +67,46 @@ internal sealed class StoryHighlightContinuity(
             if (FitBudget(withDecision, range, previous, similarityCap, options, protectEnding: true))
             {
                 log?.Invoke($"剧情高光接上第 {resolved.EpisodeIndex} 集问句后的决定或答复。");
-                return withDecision;
+                clips = withDecision;
             }
         }
         if (EndsInQuestion(LastLine(clips[^1])))
             log?.Invoke("当前时长和相似度限制下，未找到可接在结尾问句后的完整决定或答复。");
+        return options.StoryVisualReview && !clips.Any(clip => clip.IsVisualOnly)
+            ? ConnectVisualGap(clips, range, previous, similarityCap, options, log) : clips;
+    }
+
+    private List<ClipCandidate> ConnectVisualGap(List<ClipCandidate> clips, ClipTimeRange range,
+        IReadOnlyList<List<ClipCandidate>> previous, double similarityCap, ClipEngineOptions options, Action<string>? log)
+    {
+        for (var index = 1; index < clips.Count; index++)
+        {
+            var left = clips[index - 1];
+            var right = clips[index];
+            var gap = right.StartMs - left.EndMs;
+            if (left.VideoPath != right.VideoPath || gap is < 1500 or > 8000)
+                continue;
+            var source = sources.FirstOrDefault(item => item.Source.VideoPath == left.VideoPath);
+            if (source is null)
+                continue;
+            foreach (var visual in source.Candidates.Where(clip => clip.IsVisualOnly && clip.VisualDescription.Length > 0 &&
+                         clip.StartMs >= left.EndMs && clip.EndMs <= right.StartMs).OrderByDescending(clip => clip.Total))
+            {
+                var connected = clips.ToList();
+                connected.Insert(index, visual);
+                if (!FitBudget(connected, range, previous, similarityCap, options, protectEnding: true,
+                        required: [left, visual, right]))
+                    continue;
+                log?.Invoke($"剧情高光补上第 {visual.EpisodeIndex} 集两段对白之间的少对白镜头。{visual.VisualDescription}");
+                return connected;
+            }
+        }
         return clips;
     }
 
     private bool FitBudget(List<ClipCandidate> clips, ClipTimeRange range,
-        IReadOnlyList<List<ClipCandidate>> previous, double similarityCap, ClipEngineOptions options, bool protectEnding)
+        IReadOnlyList<List<ClipCandidate>> previous, double similarityCap, ClipEngineOptions options, bool protectEnding,
+        IReadOnlyList<ClipCandidate>? required = null)
     {
         var minimum = range.MinSeconds * 1000;
         var maximum = range.MaxSeconds * 1000;
@@ -86,9 +116,11 @@ internal sealed class StoryHighlightContinuity(
         {
             if (length <= maximum)
                 break;
-            if ((protectEnding && ReferenceEquals(clip, clips[^1])) || IsOnlyContextForTransition(clip, clips))
+            if ((protectEnding && ReferenceEquals(clip, clips[^1])) || IsOnlyContextForTransition(clip, clips) ||
+                required?.Contains(clip) == true)
                 continue;
-            if (length - clip.DurationMs >= minimum)
+            var canRemove = length - clip.DurationMs >= minimum;
+            if (canRemove && required is null)
             {
                 clips.Remove(clip);
                 length -= clip.DurationMs;
@@ -101,6 +133,11 @@ internal sealed class StoryHighlightContinuity(
             {
                 clips[clips.IndexOf(clip)] = ConfiguredClipPlanner.Part(clip, safe.Start, safe.End, timeline.Dialogue);
                 length += safe.End - safe.Start - clip.DurationMs;
+            }
+            else if (canRemove)
+            {
+                clips.Remove(clip);
+                length -= clip.DurationMs;
             }
         }
         return StoryHighlightPlanner.FitsConstraints(clips, range, previous, similarityCap);

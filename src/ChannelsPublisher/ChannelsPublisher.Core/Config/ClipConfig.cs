@@ -52,6 +52,8 @@ public sealed class ClipConfig
     public bool ShotDensity { get; set; } = true;
     public bool LlmArrange { get; set; } = true;
     public bool StoryHighlights { get; set; }
+    public bool StoryHardSubtitles { get; set; }
+    public bool StoryVisualReview { get; set; }
     public bool SmoothSelection { get; set; } = true;
     public int MinimumSegmentMs { get; set; } = 1500;
     public bool PublishMeta { get; set; } = true;

@@ -7,7 +7,7 @@ namespace ChannelsPublisher.Clip;
 
 internal sealed record ClipSourceAnalysis(
     EpisodeSource Source, ClipMediaInfo Media, List<ClipCandidate> Candidates,
-    IReadOnlyList<SubtitleSegment> Dialogue, IReadOnlyList<int> ShotCuts)
+    IReadOnlyList<SubtitleSegment> Dialogue, IReadOnlyList<int> ShotCuts, IReadOnlyList<SubtitleSegment>? HardSubtitles = null)
 {
     public bool HasDialogue => Dialogue.Count > 0;
 }

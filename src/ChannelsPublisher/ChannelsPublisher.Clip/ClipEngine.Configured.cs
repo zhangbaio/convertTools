@@ -38,7 +38,7 @@ public sealed partial class ClipEngine
             {
                 var label = DisplayMode(mode.Mode);
                 var maskVersion = mode.Mode == "commentary" && options.BurnSubtitles ? "|commentary-subtitle-mask-v2" : "";
-                var storyVersion = mode.Mode == "highlight" && options.StoryHighlights ? "|story-highlight-v2" : "";
+                var storyVersion = mode.Mode == "highlight" && options.StoryHighlights ? StorySignature(options) : "";
                 var signature = Hash(sourceSignature + JsonSerializer.Serialize(mode with { ForceRegenerate = false }) + maskVersion + storyVersion);
                 for (var index = 0; index < mode.Ranges.Count; index++)
                 {
@@ -96,12 +96,15 @@ public sealed partial class ClipEngine
             foreach (var group in jobs.GroupBy(job => job.Mode.Mode))
             {
                 var storyMode = needsStoryCuts && group.Key == "highlight";
-                var timelines = storyMode ? sources.ToDictionary(source => source.Source.VideoPath,
+                var modeSources = storyMode && (options.StoryHardSubtitles || options.StoryVisualReview)
+                    ? await StoryHighlightEvidence.EnrichAsync(sources, root, options, log, ct) : sources;
+                var timelines = storyMode ? modeSources.ToDictionary(source => source.Source.VideoPath,
                     source => new HighlightCutTimeline(source), StringComparer.OrdinalIgnoreCase) : null;
-                var continuity = timelines is null ? null : new StoryHighlightContinuity(sources, timelines);
-                var storyAiReady = storyMode && aiReady && sources.Any(source => source.HasDialogue);
+                var continuity = timelines is null ? null : new StoryHighlightContinuity(modeSources, timelines);
+                var storyAiReady = storyMode && aiReady && modeSources.Any(source => source.HasDialogue ||
+                    source.Candidates.Any(clip => clip.VisualDescription.Length > 0));
                 if (storyMode && !storyAiReady)
-                    log?.Invoke(aiReady ? "剧情高光未取得对白，使用本地镜头切点选段。" : "剧情高光未配置 AI 接口，使用本地选段并保护对白切点。");
+                    log?.Invoke(aiReady ? "剧情高光未取得对白或画面说明，使用本地镜头切点选段。" : "剧情高光未配置 AI 接口，使用本地选段并保护对白切点。");
                 var past = group.Select(job => job.Reusable?.Segments).OfType<List<ClipCandidate>>().ToList();
                 foreach (var job in group.Where(job => job.Reusable is null))
                 {
@@ -116,13 +119,14 @@ public sealed partial class ClipEngine
                         {
                             try
                             {
-                                var candidates = StoryHighlightPlanner.Candidates(sources, timelines, job.Range, past, options, continuity);
+                                var candidates = StoryHighlightPlanner.Candidates(modeSources, timelines, job.Range, past, options, continuity);
                                 if (candidates.Count >= 2 && candidates.Sum(clip => (long)clip.DurationMs) >= job.Range.MinSeconds * 1000L)
                                 {
                                     var (order, reason) = await new LlmScorer().SelectStoryHighlightsAsync(
                                         candidates, job.Range, past, job.Mode.SimilarityCap, options, continuity, ct);
                                     segments = StoryHighlightPlanner.Validate(order, candidates, job.Range, past, job.Mode.SimilarityCap,
-                                        clips => continuity.Improve(clips, job.Range, past, job.Mode.SimilarityCap, options, log));
+                                        clips => continuity.Improve(options.StoryVisualReview ? StoryHighlightPlanner.MergeVisualOverlap(clips) : clips,
+                                            job.Range, past, job.Mode.SimilarityCap, options, log));
                                     var episodeCount = segments.Select(clip => clip.EpisodeIndex).Distinct().Count();
                                     log?.Invoke($"{label} 采用 AI 剧情选段，覆盖 {episodeCount} 集。{reason}");
                                 }
@@ -138,7 +142,7 @@ public sealed partial class ClipEngine
                         }
                         if (segments is null)
                         {
-                            segments = ConfiguredClipPlanner.Plan(job.Mode, job.Range, sources, past, options, timelines);
+                            segments = ConfiguredClipPlanner.Plan(job.Mode, job.Range, modeSources, past, options, timelines);
                             if (continuity is not null)
                                 segments = continuity.Improve(segments, job.Range, past, job.Mode.SimilarityCap, options, log);
                         }
@@ -157,6 +161,8 @@ public sealed partial class ClipEngine
                         var narration = group.Key == "commentary"
                             ? await new CommentaryScripter().BuildAsync(segments, options, title, log, ct)
                             : null;
+                        if (storyMode && options.StoryVisualReview)
+                            log?.Invoke($"{label} 采用 {segments.Count(clip => clip.IsVisualOnly && clip.VisualDescription.Length > 0)} 段经画面复评的少对白或无对白镜头。");
                         log?.Invoke($"{label} 正在渲染，预选时长 {segments.Sum(c => c.DurationMs) / 1000d:0.##} 秒。");
                         await RenderOutputAsync(job, segments, media, narration, options, fileTitle, encoder, networkLimit, log, ct);
                         past.Add(segments);
@@ -314,6 +320,7 @@ public sealed partial class ClipEngine
                 segments.Select(c => new ClipCandidate
                 {
                     VideoPath = c.VideoPath, EpisodeIndex = c.EpisodeIndex, StartMs = c.StartMs, EndMs = c.EndMs,
+                    VisualDescription = c.VisualDescription, IsVisualOnly = c.IsVisualOnly, HardSubtitleText = c.HardSubtitleText,
                 }).ToList());
             await File.WriteAllTextAsync(ManifestPath(pending), JsonSerializer.Serialize(manifest, ManifestJson), ct);
             var sidecar = Path.ChangeExtension(pending, ".publish.json");
@@ -392,6 +399,11 @@ public sealed partial class ClipEngine
         var settings = JsonSerializer.SerializeToNode(options)!.AsObject();
         settings.Remove(nameof(ClipEngineOptions.ModeSettings));
         settings.Remove(nameof(ClipEngineOptions.StoryHighlights));
+        settings.Remove(nameof(ClipEngineOptions.StoryHardSubtitles));
+        settings.Remove(nameof(ClipEngineOptions.StoryVisualReview));
+        settings.Remove(nameof(ClipEngineOptions.StoryVisionEndpoint));
+        settings.Remove(nameof(ClipEngineOptions.StoryVisionApiKey));
+        settings.Remove(nameof(ClipEngineOptions.StoryVisionModel));
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         sha.AppendData(Encoding.UTF8.GetBytes(settings.ToJsonString()));
         foreach (var source in episodes)
@@ -414,6 +426,10 @@ public sealed partial class ClipEngine
         !string.IsNullOrWhiteSpace(opts.AiApiKey) && !string.IsNullOrWhiteSpace(opts.AiModel);
 
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    private static string StorySignature(ClipEngineOptions opts) => "|story-highlight-v2"
+        + (opts.StoryHardSubtitles ? "|win-ocr-v2" : "")
+        + (opts.StoryVisualReview ? "|visual-review-v3|" + Hash(opts.StoryVisionEndpoint + "\n" + opts.StoryVisionModel) : "");
     private static string ManifestPath(string path) => Path.ChangeExtension(path, ".material-clips.json");
 
     private static string DisplayMode(string mode) => mode switch
