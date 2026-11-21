@@ -71,12 +71,6 @@
                 </Button>
             </Grid>
             <StackPanel Grid.Row="1" x:Name="ModuleNav" Margin="7,5,7,8" Spacing="4" VerticalAlignment="Top">
-                <Button Tag="browser" Classes="moduleNavItem" AutomationProperties.Name="浏览器" ToolTip.Tip="浏览器" Click="OnNavItemClick">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <PathIcon Data="F0 M2,3 H22 V21 H2 Z M4,5 V8 H20 V5 Z M4,10 V19 H20 V10 Z M6,6 H8 V7 H6 Z" />
-                        <TextBlock Text="浏览器" Classes="moduleRailLabel" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Button>
                 <Button Tag="download" Classes="moduleNavItem" AutomationProperties.Name="短剧下载" ToolTip.Tip="短剧下载" Click="OnNavItemClick">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <PathIcon Data="M11,2 H13 V11 L16,8 L17.4,9.4 L12,15 L6.6,9.4 L8,8 L11,11 Z M3,15 H5 V20 H19 V15 H21 V22 H3 Z" />
@@ -149,7 +143,6 @@
                    HorizontalAlignment="Left"
                    VerticalAlignment="Top"
                    ZIndex="5" />
-            <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" ZIndex="10" />
             <views:DramaDownloadView x:Name="DownloadView" IsVisible="False" />
             <views:MaterialClipView x:Name="MaterialClipPage" IsVisible="False" />
             <Grid x:Name="TikTokWorkspace">
@@ -165,6 +158,7 @@
                                 IsVisible="False" Click="OnTikTokSubPageClick" />
                         <Button Content="剧集列表" Tag="series" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnTikTokSubPageClick" />
+                        <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                     </StackPanel>
                 </ScrollViewer>
                 <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto">
@@ -184,6 +178,7 @@
                         <views:AccountProfilesView x:Name="AccountsView" IsVisible="False" />
                         <views:LogView x:Name="LogView" IsVisible="False" />
                         <views:ArchivedProjectsView x:Name="ArchivedView" IsVisible="False" />
+                        <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" />
                     </Panel>
                     <Grid x:Name="TikTokQueueFooter" Grid.Row="2" Classes="uploadQueueFooter">
                         <TextBlock Text="{Binding QueueSummaryText}" Classes="pageSummary" TextTrimming="CharacterEllipsis" />

@@ -58,7 +58,7 @@ public partial class MainWindow : Window
         _browserHost.Attach(BrowserHostMount);
         _browserHost.PresentationLayoutChanged += () =>
         {
-            if (_activeNavTag == "browser")
+            if (IsTikTokBrowserActive)
                 ScheduleBrowserHostMountLayout();
         };
         QueueView.Initialize(_viewModel, _browserHost, EnsureBrowserHostMounted);
@@ -66,7 +66,7 @@ public partial class MainWindow : Window
         BrowserView.Initialize(_browserHost, _viewModel);
         BrowserView.LayoutUpdated += (_, _) =>
         {
-            if (_activeNavTag == "browser")
+            if (IsTikTokBrowserActive)
                 SyncBrowserHostMountLayout();
         };
         AccountSidebar.DataContext = _viewModel;
@@ -258,12 +258,12 @@ public partial class MainWindow : Window
 
     private void ApplyAccountPanelLayout()
     {
-        var hasAccounts = _activeNavTag is "queue" or "kuaishou" or "browser";
+        var hasAccounts = _activeNavTag is "queue" or "kuaishou";
         var collapsed = _collapsedAccountPanels.Contains(AccountPanelLayoutKey);
         var showAccounts = hasAccounts && !collapsed;
         WindowLayout.ColumnDefinitions[1].Width = new GridLength(showAccounts ? ExpandedSidebarWidth : 0);
         AccountPanelHost.IsVisible = showAccounts;
-        AccountSidebar.IsVisible = showAccounts && (_activeNavTag is "queue" or "browser");
+        AccountSidebar.IsVisible = showAccounts && _activeNavTag == "queue";
         KuaishouWorkspace.SetAccountPanelVisible(showAccounts && _activeNavTag == "kuaishou");
 
         SidebarToggleButton.IsVisible = hasAccounts;
@@ -444,8 +444,9 @@ public partial class MainWindow : Window
                 _viewModel.StatusMessage += $"；{resetWarning}";
         }
 
-        NavigateTo("browser");
-        _browserHost.BeginLogin(account, forceRelogin);
+        await NavigateAsync("queue", "browser");
+        if (IsTikTokBrowserActive)
+            _browserHost.BeginLogin(account, forceRelogin);
     }
 
     private async Task BeginExternalAccountLoginAsync(AccountItemViewModel account)
@@ -514,7 +515,7 @@ public partial class MainWindow : Window
 
     private void OnAccountSwitchRequested(AccountItemViewModel account)
     {
-        if (_activeNavTag == "browser")
+        if (IsTikTokBrowserActive)
             ScheduleBrowserHostMountLayout();
         else if (_activeNavTag == "queue")
         {
@@ -528,7 +529,7 @@ public partial class MainWindow : Window
     private void EnsureBrowserHostMounted()
     {
         // 浏览器页正在展示时不得折叠挂载层/关闭渲染（否则页面变成不绘制的黑色原生窗口）。
-        if (_activeNavTag == "browser")
+        if (IsTikTokBrowserActive)
             return;
 
         // 后台上传：WebView2 挂在 1×1 隐藏层，避免原生 HWND 盖住队列页。
@@ -548,7 +549,7 @@ public partial class MainWindow : Window
 
     private void SyncBrowserHostMountLayout()
     {
-        if (_activeNavTag != "browser" || !BrowserView.IsVisible)
+        if (!IsTikTokBrowserActive || !BrowserView.IsVisible)
         {
             CollapseBrowserHostMount();
             return;
@@ -620,6 +621,8 @@ public partial class MainWindow : Window
 
     private void NavigateTo(string tag) => _ = NavigateAsync(tag);
 
+    private bool IsTikTokBrowserActive => _activeNavTag == "queue" && _tikTokSubPage == "browser";
+
     private Task<bool> ConfirmTikTokAccountChangeAsync() =>
         _activeNavTag == "queue" && IsTikTokConfigurationPage(_tikTokSubPage)
             ? AccountsView.TryLeaveAsync(this)
@@ -632,10 +635,10 @@ public partial class MainWindow : Window
     {
         if (_navigationPending)
             return;
-        if (tag == "accounts")
+        if (tag is "accounts" or "browser")
         {
+            tikTokSubPage = tag;
             tag = "queue";
-            tikTokSubPage = "accounts";
         }
         _navigationPending = true;
         try
@@ -677,7 +680,7 @@ public partial class MainWindow : Window
 
     private void ShowPage(string tag)
     {
-        var browserActive = tag == "browser";
+        var browserActive = IsTikTokBrowserActive;
         var tikTokActive = tag == "queue";
         var kuaishouActive = tag == "kuaishou";
         var showUploadWorkspaces = tikTokActive || kuaishouActive;
