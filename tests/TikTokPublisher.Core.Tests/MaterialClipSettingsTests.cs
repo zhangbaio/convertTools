@@ -52,6 +52,7 @@ public sealed class MaterialClipSettingsTests
         Assert.Equal(1.2, result.VideoBitrateMbps);
         Assert.Equal(5, result.PipelineConcurrency);
         Assert.False(result.PublishMetadata);
+        Assert.False(result.StoryHighlights);
         Assert.True(result.OrigForegroundZoom);
         Assert.True(Directory.Exists(result.OrigStickerDir));
     }
@@ -67,6 +68,17 @@ public sealed class MaterialClipSettingsTests
         var options = MaterialClipSettingsStore.BuildOptions(settings, client);
 
         AssertMode(Assert.Single(options.ModeSettings!), "slice", false, 0.5, new(45, 57), new(45, 57));
+    }
+
+    [Fact]
+    public void StoryHighlightSwitchReachesTheConfiguredEngine()
+    {
+        var settings = new MaterialClipSettings();
+        settings.Clip.StoryHighlights = true;
+        var saved = System.Text.Json.JsonSerializer.Serialize(settings);
+        var reloaded = System.Text.Json.JsonSerializer.Deserialize<MaterialClipSettings>(saved)!;
+
+        Assert.True(MaterialClipSettingsStore.BuildOptions(reloaded, new ClientSettings()).StoryHighlights);
     }
 
     private static MaterialClipSettings Import(string json, ClientSettings client)

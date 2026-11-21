@@ -108,9 +108,11 @@ internal sealed class MaterialClipSettingsDialog : Window
     private StackPanel ModeBody(ModeEditor editor, string key)
     {
         var panel = editor.Body;
+        var clip = _settings.Clip;
+        if (key == "highlight")
+            Flag(panel, "剧情高光（保护对白切点，配置 AI 后支持跨集选段）", clip.StoryHighlights, value => clip.StoryHighlights = value);
         if (key != "commentary")
             return panel;
-        var clip = _settings.Clip;
         Section(panel, "旁白和字幕");
         Flag(panel, "定位并遮盖原字幕，烧录解说字幕", clip.CommentaryBurnSubtitles, value => clip.CommentaryBurnSubtitles = value);
         Number(panel, "定位失败时的底部遮盖高度（%）", clip.CommentarySubtitleBlurHeight * 100, 5, 35, 1,

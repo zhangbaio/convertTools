@@ -6,7 +6,11 @@ using System.Text.RegularExpressions;
 namespace ChannelsPublisher.Clip;
 
 internal sealed record ClipSourceAnalysis(
-    EpisodeSource Source, ClipMediaInfo Media, List<ClipCandidate> Candidates, bool HasDialogue);
+    EpisodeSource Source, ClipMediaInfo Media, List<ClipCandidate> Candidates,
+    IReadOnlyList<SubtitleSegment> Dialogue, IReadOnlyList<int> ShotCuts)
+{
+    public bool HasDialogue => Dialogue.Count > 0;
+}
 
 internal static partial class ClipSubtitles
 {

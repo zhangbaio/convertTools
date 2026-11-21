@@ -4,7 +4,8 @@ internal static class ConfiguredClipPlanner
 {
     public static List<ClipCandidate> Plan(
         ClipModeOptions mode, ClipTimeRange range, IReadOnlyList<ClipSourceAnalysis> sources,
-        IReadOnlyList<List<ClipCandidate>> previous, ClipEngineOptions options)
+        IReadOnlyList<List<ClipCandidate>> previous, ClipEngineOptions options,
+        IReadOnlyDictionary<string, HighlightCutTimeline>? cutTimelines = null)
     {
         var minimum = range.MinSeconds * 1000;
         var maximum = range.MaxSeconds * 1000;
@@ -27,9 +28,9 @@ internal static class ConfiguredClipPlanner
 
         var rankedClips = ranked.ToArray();
         var minimumSegment = options.SmoothSelection ? options.MinimumSegmentMs : 200;
-        var chosen = Fill(rankedClips, previous, minimum, target, maximum, minimumSegment, mode.SimilarityCap);
+        var chosen = Fill(rankedClips, previous, minimum, target, maximum, minimumSegment, mode.SimilarityCap, cutTimelines);
         if (chosen.Count == 0 && minimumSegment > minimum)
-            chosen = Fill(rankedClips, previous, minimum, target, maximum, minimum, mode.SimilarityCap);
+            chosen = Fill(rankedClips, previous, minimum, target, maximum, minimum, mode.SimilarityCap, cutTimelines);
         if (mode.Mode == "mashup")
             return Mashup.ArrangeNarrativeArc(chosen);
         if (mode.Mode == "commentary")
@@ -39,7 +40,8 @@ internal static class ConfiguredClipPlanner
 
     private static List<ClipCandidate> Fill(
         IReadOnlyList<ClipCandidate> ranked, IReadOnlyList<List<ClipCandidate>> previous, int minimum, int target,
-        int maximum, int minimumSegment, double similarityCap)
+        int maximum, int minimumSegment, double similarityCap,
+        IReadOnlyDictionary<string, HighlightCutTimeline>? cutTimelines)
     {
         var selected = new List<ClipCandidate>();
         var priorLengths = previous.Select(bin => bin.Sum(c => c.DurationMs)).ToArray();
@@ -55,8 +57,10 @@ internal static class ConfiguredClipPlanner
                 if (length >= target || (length >= minimum && target - length < minimumSegment))
                     break;
 
+                var timeline = cutTimelines?.GetValueOrDefault(candidate.VideoPath);
+                var bounds = timeline?.Cover(candidate) ?? (candidate.StartMs, candidate.EndMs);
                 var blocked = allowReuse ? selected : selected.Concat(used);
-                foreach (var (start, end) in FreeIntervals(candidate, blocked))
+                foreach (var (start, end) in FreeIntervals(candidate.VideoPath, bounds, blocked))
                 {
                     var remaining = Math.Min(maximum - length, Math.Max(minimumSegment, target - length));
                     var duration = Math.Min(remaining, end - start);
@@ -65,7 +69,18 @@ internal static class ConfiguredClipPlanner
                     if (duration < minimumSegment)
                         continue;
 
-                    var segment = Part(candidate, start, start + duration);
+                    ClipCandidate segment;
+                    if (timeline is null)
+                        segment = Part(candidate, start, start + duration);
+                    else
+                    {
+                        var minimumRemaining = Math.Max(minimumSegment, minimum - length);
+                        var fitted = timeline.Fit(start, end, duration, maximum - length, minimumRemaining)
+                            ?? timeline.Fit(start, end, duration, maximum - length, minimumSegment);
+                        if (fitted is not { } safe)
+                            continue;
+                        segment = Part(candidate, safe.Start, safe.End, timeline.Dialogue);
+                    }
                     var overlaps = previous.Select(bin => bin.Sum(c => Overlap(segment, c))).ToArray();
                     if (overlaps.Where((overlap, i) => priorOverlaps[i] + overlap >
                             Math.Min(priorLengths[i], target) * similarityCap).Any())
@@ -86,17 +101,19 @@ internal static class ConfiguredClipPlanner
             overlap <= Math.Min(length, priorLengths[i]) * similarityCap).All(fits => fits) ? selected : [];
     }
 
-    private static IEnumerable<(int Start, int End)> FreeIntervals(ClipCandidate segment, IEnumerable<ClipCandidate> blocked)
+    private static IEnumerable<(int Start, int End)> FreeIntervals(
+        string videoPath, (int Start, int End) bounds, IEnumerable<ClipCandidate> blocked)
     {
-        var cursor = segment.StartMs;
-        foreach (var other in blocked.Where(c => Overlap(segment, c) > 0).OrderBy(c => c.StartMs).ToArray())
+        var cursor = bounds.Start;
+        foreach (var other in blocked.Where(c => c.VideoPath == videoPath && c.StartMs < bounds.End && c.EndMs > bounds.Start)
+            .OrderBy(c => c.StartMs).ToArray())
         {
             if (other.StartMs > cursor)
                 yield return (cursor, other.StartMs);
             cursor = Math.Max(cursor, other.EndMs);
         }
-        if (cursor < segment.EndMs)
-            yield return (cursor, segment.EndMs);
+        if (cursor < bounds.End)
+            yield return (cursor, bounds.End);
     }
 
     private static List<ClipCandidate> PlanSlice(
@@ -138,16 +155,17 @@ internal static class ConfiguredClipPlanner
         return selection.Clip is null ? [] : [selection.Clip];
     }
 
-    private static int Overlap(ClipCandidate a, ClipCandidate b) => a.VideoPath == b.VideoPath
+    internal static int Overlap(ClipCandidate a, ClipCandidate b) => a.VideoPath == b.VideoPath
         ? Math.Max(0, Math.Min(a.EndMs, b.EndMs) - Math.Max(a.StartMs, b.StartMs)) : 0;
 
-    private static ClipCandidate Part(ClipCandidate clip, int start, int end) => new()
+    internal static ClipCandidate Part(ClipCandidate clip, int start, int end, IReadOnlyList<SubtitleSegment>? dialogue = null) => new()
     {
         VideoPath = clip.VideoPath,
         EpisodeIndex = clip.EpisodeIndex,
         StartMs = start,
         EndMs = end,
-        Text = clip.Text,
+        Text = dialogue is null ? clip.Text : string.Join(" ", dialogue
+            .Where(line => line.StartMs >= start && line.EndMs <= end).Select(line => line.Text)),
         Total = clip.Total,
         Emotion = clip.Emotion,
         Conflict = clip.Conflict,

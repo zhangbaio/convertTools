@@ -164,6 +164,7 @@ public static class MaterialClipSettingsStore
             ShotDensity = clip.ShotDensity,
             EnableLlmScore = clip.EnableLlmScore,
             ArrangeNarrative = clip.LlmArrange,
+            StoryHighlights = clip.StoryHighlights,
             SmoothSelection = clip.SmoothSelection,
             MinimumSegmentMs = Math.Clamp(clip.MinimumSegmentMs, 100, 10000),
             PublishMetadata = clip.PublishMeta,

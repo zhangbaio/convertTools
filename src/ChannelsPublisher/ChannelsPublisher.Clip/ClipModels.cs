@@ -51,6 +51,7 @@ public sealed class ClipEngineOptions
     public bool EpisodeQuota { get; set; } = true;
     public bool ShotDensity { get; set; }
     public bool ArrangeNarrative { get; set; }
+    public bool StoryHighlights { get; set; }
     public bool SmoothSelection { get; set; }
     public int MinimumSegmentMs { get; set; } = 1500;
     public bool PublishMetadata { get; set; } = true;

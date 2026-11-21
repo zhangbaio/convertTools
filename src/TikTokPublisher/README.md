@@ -53,3 +53,9 @@ dotnet run --project src\TikTokPublisher\TikTokPublisher.Desktop
 - 队列 Worker（预处理 + upload_series）
 - 短剧下载 / AI 改写 / 海报（ShortDrama C#）
 - 红果 APP 下载的协议、两条取流链路和解密记录见 `src/ShortDrama/docs/hongguo/README.md`
+
+## 剧情高光
+
+在「素材剪辑 → 全局剪辑配置 → 高光」勾选「剧情高光」并保存。剪辑时使用字幕或 ASR 的对白时间，以及 FFmpeg 检测的镜头切点，优先在对白间隙和换镜点剪切。配置 AI 文本接口后，模型可从已有候选中挑选并排列跨集剧情。AI 不可用或方案未通过校验时，使用本地选段和对白切点保护。
+
+剧情高光仍按每条成片的时长范围和相似度配置出片。开启或关闭该选项会重新生成高光成片，同一配置下重新运行可复用已完成的视频。算法参考 [DramaClip v0.2.5](https://github.com/efarsoft/DramaClip/releases/tag/v0.2.5)。

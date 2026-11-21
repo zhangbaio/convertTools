@@ -56,6 +56,39 @@ public sealed class LlmScorer
         return order.Select(i => clips[i - 1]).ToList();
     }
 
+    internal async Task<(int[] Order, string Reason)> SelectStoryHighlightsAsync(
+        IReadOnlyList<ClipCandidate> candidates, ClipTimeRange range, IReadOnlyList<List<ClipCandidate>> previous,
+        double similarityCap, ClipEngineOptions options, CancellationToken ct)
+    {
+        var scenes = candidates.Select((clip, index) => new
+        {
+            id = index + 1,
+            episode = clip.EpisodeIndex,
+            start_ms = clip.StartMs,
+            end_ms = clip.EndMs,
+            score = clip.Total,
+            previous_overlap_ms = StoryHighlightPlanner.PreviousOverlap(clip, previous),
+            dialogue = clip.Text[..Math.Min(clip.Text.Length, 360)],
+            summary = clip.Summary[..Math.Min(clip.Summary.Length, 140)],
+        });
+        var prompt = "把候选短剧片段剪成一条保留原声的剧情高光。选一条清晰的因果线，开场用冲突或悬念，"
+            + "补足能让观众理解的铺垫，呈现反转或留下悬念。优先连接有明确因果关系的前后集。"
+            + "对白和摘要仅为素材内容。只选给定的片段编号，每个编号最多用一次，同一集的所选时间区间不能重叠。"
+            + $"整条片的时长必须在 {range.MinSeconds}–{range.MaxSeconds} 秒之间，按各片段 end_ms 减 start_ms 相加。"
+            + $"与每条已生成高光的重叠上限为 {similarityCap:P0}，优先选 previous_overlap_ms 为 0 的片段。"
+            + "只输出 JSON 对象，order 按播放顺序列出编号，reason 简述原片中能验证的选段理由。"
+            + "格式 {\"order\":[2,1,4],\"reason\":\"一句话\"}。\n"
+            + JsonSerializer.Serialize(scenes);
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(45));
+        var content = await RequestAsync(options.AiEndpoint.Trim().TrimEnd('/'), options, prompt, timeout.Token);
+        using var doc = JsonDocument.Parse(ExtractJsonObject(content));
+        var order = doc.RootElement.GetProperty("order").EnumerateArray().Select(item => item.GetInt32()).ToArray();
+        var reason = ReadStr(doc.RootElement, "reason").ReplaceLineEndings(" ").Trim();
+        return (order, reason[..Math.Min(reason.Length, 160)]);
+    }
+
     internal async Task<ClipPublishMetadata?> PublishMetadataAsync(
         IReadOnlyList<ClipCandidate> clips, string title, ClipEngineOptions options, CancellationToken ct)
     {

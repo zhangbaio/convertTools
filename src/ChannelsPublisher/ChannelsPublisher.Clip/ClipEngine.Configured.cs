@@ -1,9 +1,7 @@
-using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 
 namespace ChannelsPublisher.Clip;
 
@@ -40,7 +38,8 @@ public sealed partial class ClipEngine
             {
                 var label = DisplayMode(mode.Mode);
                 var maskVersion = mode.Mode == "commentary" && options.BurnSubtitles ? "|commentary-subtitle-mask-v2" : "";
-                var signature = Hash(sourceSignature + JsonSerializer.Serialize(mode with { ForceRegenerate = false }) + maskVersion);
+                var storyVersion = mode.Mode == "highlight" && options.StoryHighlights ? "|story-highlight-v1" : "";
+                var signature = Hash(sourceSignature + JsonSerializer.Serialize(mode with { ForceRegenerate = false }) + maskVersion + storyVersion);
                 for (var index = 0; index < mode.Ranges.Count; index++)
                 {
                     var path = Path.Combine(root, label, $"{fileTitle}-{label}-{index + 1:D2}.mp4");
@@ -57,6 +56,7 @@ public sealed partial class ClipEngine
 
             if (jobs.All(job => job.Reusable is not null))
                 return Finish();
+            var needsStoryCuts = options.StoryHighlights && jobs.Any(job => job.Mode.Mode == "highlight" && job.Reusable is null);
 
             if ((options.EnableLlmScore || options.ArrangeNarrative) && !HasAi(options))
                 log?.Invoke("AI 文本接口尚未配置，将使用本地评分和排序。");
@@ -75,7 +75,7 @@ public sealed partial class ClipEngine
             {
                 try
                 {
-                    analyzed[index] = await AnalyzeAsync(episodes[index], projectDir, root, options, network, log, token);
+                    analyzed[index] = await AnalyzeAsync(episodes[index], projectDir, root, options, needsStoryCuts, network, log, token);
                 }
                 catch (Exception ex) when (!token.IsCancellationRequested)
                 {
@@ -95,6 +95,12 @@ public sealed partial class ClipEngine
 
             foreach (var group in jobs.GroupBy(job => job.Mode.Mode))
             {
+                var storyMode = needsStoryCuts && group.Key == "highlight";
+                var timelines = storyMode ? sources.ToDictionary(source => source.Source.VideoPath,
+                    source => new HighlightCutTimeline(source), StringComparer.OrdinalIgnoreCase) : null;
+                var storyAiReady = storyMode && aiReady && sources.Any(source => source.HasDialogue);
+                if (storyMode && !storyAiReady)
+                    log?.Invoke(aiReady ? "剧情高光未取得对白，使用本地镜头切点选段。" : "剧情高光未配置 AI 接口，使用本地选段并保护对白切点。");
                 var past = group.Select(job => job.Reusable?.Segments).OfType<List<ClipCandidate>>().ToList();
                 foreach (var job in group.Where(job => job.Reusable is null))
                 {
@@ -104,12 +110,36 @@ public sealed partial class ClipEngine
                     {
                         if (group.Key == "commentary" && !aiReady)
                             throw new InvalidOperationException("请配置 AI 文本接口后生成解说。");
-                        var segments = ConfiguredClipPlanner.Plan(job.Mode, job.Range, sources, past, options);
+                        List<ClipCandidate>? segments = null;
+                        if (storyAiReady && timelines is not null)
+                        {
+                            try
+                            {
+                                var candidates = StoryHighlightPlanner.Candidates(sources, timelines, job.Range, past, options);
+                                if (candidates.Count >= 2 && candidates.Sum(clip => (long)clip.DurationMs) >= job.Range.MinSeconds * 1000L)
+                                {
+                                    var (order, reason) = await new LlmScorer().SelectStoryHighlightsAsync(
+                                        candidates, job.Range, past, job.Mode.SimilarityCap, options, ct);
+                                    segments = StoryHighlightPlanner.Validate(order, candidates, job.Range, past, job.Mode.SimilarityCap);
+                                    var episodeCount = segments.Select(clip => clip.EpisodeIndex).Distinct().Count();
+                                    log?.Invoke($"{label} 采用 AI 剧情选段，覆盖 {episodeCount} 集。{reason}");
+                                }
+                                else
+                                    log?.Invoke($"{label} 的 AI 候选不足，使用本地选段并保护对白切点。");
+                            }
+                            catch (Exception ex) when (!ct.IsCancellationRequested)
+                            {
+                                if (ex is not InvalidDataException)
+                                    storyAiReady = false;
+                                log?.Invoke($"{label} 的 AI 剧情选段失败，使用本地选段并保护对白切点。{ex.Message}");
+                            }
+                        }
+                        segments ??= ConfiguredClipPlanner.Plan(job.Mode, job.Range, sources, past, options, timelines);
                         if (segments.Count == 0)
                             throw new InvalidOperationException(group.Key == "commentary" && !sources.Any(s => s.HasDialogue)
                                 ? "解说需要素材字幕或有效的 ASR 结果。"
-                                : $"可用素材无法满足 {job.Range.MinSeconds}–{job.Range.MaxSeconds} 秒和相似度上限。");
-                        if (options.ArrangeNarrative && aiReady && group.Key != "slice")
+                                : $"可用素材无法满足 {job.Range.MinSeconds}–{job.Range.MaxSeconds} 秒{(storyMode ? "、对白保护" : "")}和相似度上限。");
+                        if (options.ArrangeNarrative && aiReady && !storyMode && group.Key != "slice")
                         {
                             try { segments = await new LlmScorer().ArrangeAsync(segments, options, ct); }
                             catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -146,7 +176,7 @@ public sealed partial class ClipEngine
     }
 
     private async Task<ClipSourceAnalysis> AnalyzeAsync(
-        EpisodeSource source, string projectDir, string outputRoot, ClipEngineOptions options, SemaphoreSlim network,
+        EpisodeSource source, string projectDir, string outputRoot, ClipEngineOptions options, bool needsStoryCuts, SemaphoreSlim network,
         Action<string>? log, CancellationToken ct)
     {
         var name = Path.GetFileName(source.VideoPath);
@@ -182,8 +212,15 @@ public sealed partial class ClipEngine
         }
         if (options.AudioEnergy && media.HasAudio)
             await AudioEnergy.ApplyAsync(candidates, options.FfmpegPath, source.VideoPath, log, ct);
+        var cuts = options.ShotDensity || needsStoryCuts
+            ? await ClipShotCuts.ReadAsync(source.VideoPath, media.DurationMs, outputRoot, options.FfmpegPath, needsStoryCuts, log, ct)
+            : [];
         if (options.ShotDensity)
-            await AnalyzeShotsAsync(source.VideoPath, candidates, options, log, ct);
+        {
+            foreach (var candidate in candidates)
+                candidate.ShotDensity = Math.Clamp(cuts.Count(cut => cut >= candidate.StartMs && cut < candidate.EndMs)
+                    * 5000d / Math.Max(1, candidate.DurationMs), 0, 10);
+        }
         if (options.EnableLlmScore && subtitles.Count > 0 && HasAi(options))
         {
             await network.WaitAsync(ct);
@@ -192,7 +229,7 @@ public sealed partial class ClipEngine
         }
         SignalWeights.Apply(candidates);
         log?.Invoke($"{name} · 字幕 {subtitles.Count} 句，候选 {candidates.Count} 段");
-        return new ClipSourceAnalysis(source, media, candidates, subtitles.Count > 0);
+        return new ClipSourceAnalysis(source, media, candidates, subtitles, cuts);
     }
 
     private async Task<List<SubtitleSegment>> ReadOrTranscribeAsync(
@@ -243,24 +280,6 @@ public sealed partial class ClipEngine
             finally { File.Delete(pending); }
         }
         return result;
-    }
-
-    private static async Task AnalyzeShotsAsync(
-        string path, List<ClipCandidate> candidates, ClipEngineOptions options, Action<string>? log, CancellationToken ct)
-    {
-        var (code, output, _) = await Ffmpeg.RunCaptureAsync(options.FfmpegPath,
-            ["-hide_banner", "-loglevel", "error", "-i", path, "-an", "-sn",
-                "-vf", "scale=320:-2,select='gt(scene,0.3)',metadata=mode=print:file=-", "-f", "null", "-"], ct);
-        if (code != 0)
-        {
-            log?.Invoke($"{Path.GetFileName(path)} 镜头检测失败。");
-            return;
-        }
-        var cuts = Regex.Matches(output, @"pts_time:(\d+(?:\.\d+)?)")
-            .Select(match => double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) * 1000).ToArray();
-        foreach (var candidate in candidates)
-            candidate.ShotDensity = Math.Clamp(cuts.Count(cut => cut >= candidate.StartMs && cut < candidate.EndMs)
-                * 5000d / Math.Max(1, candidate.DurationMs), 0, 10);
     }
 
     private static async Task RenderOutputAsync(
@@ -365,6 +384,7 @@ public sealed partial class ClipEngine
     {
         var settings = JsonSerializer.SerializeToNode(options)!.AsObject();
         settings.Remove(nameof(ClipEngineOptions.ModeSettings));
+        settings.Remove(nameof(ClipEngineOptions.StoryHighlights));
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         sha.AppendData(Encoding.UTF8.GetBytes(settings.ToJsonString()));
         foreach (var source in episodes)
