@@ -110,7 +110,6 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <Button Content="添加到多个账号队列" Command="{Binding AddSelectedToMultipleTikTokQueuesCommand}" Margin="0,0,8,8" />
                         <Button Content="全选" Command="{Binding SelectAllResultsCommand}" Margin="0,0,8,8" />
                         <Button Content="取消选择" Command="{Binding ClearSelectionCommand}" ToolTip.Tip="取消当前列表中所有已勾选的短剧" Margin="0,0,8,8" />
                         <TextBlock Text="{Binding SelectedCountText}" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8" />
@@ -328,7 +327,6 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <Button Content="添加到多个账号队列" Command="{Binding AddSelectedToMultipleTikTokQueuesCommand}" Margin="0,0,8,8" />
                         <Button Content="全选" Command="{Binding SelectAllResultsCommand}" Margin="0,0,8,8" />
                         <Button Content="取消选择" Command="{Binding ClearSelectionCommand}" ToolTip.Tip="取消当前列表中所有已勾选的短剧" Margin="0,0,8,8" />
                         <TextBlock Text="{Binding SelectedCountText}" VerticalAlignment="Center" Classes="pageSummary" Margin="0,0,8,8" />
