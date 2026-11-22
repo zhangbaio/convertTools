@@ -264,7 +264,7 @@
                                                FormatString="0.00"
                                                Value="1.05"
                                                Width="160"
-                                               HorizontalAlignment="Stretch" />
+                                               HorizontalAlignment="Left" />
                             </StackPanel>
 
                             <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
