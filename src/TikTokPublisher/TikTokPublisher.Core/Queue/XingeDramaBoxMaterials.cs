@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Remote;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
 
@@ -32,7 +33,7 @@ internal static class XingeDramaBoxMaterials
         HttpClient? client = null)
     {
         client ??= Http;
-        var manifest = await ReadManifestAsync(client, assignment.AssignmentId, settings, ct).ConfigureAwait(false);
+        var manifest = await ReadManifestAsync(client, assignment, settings, ct).ConfigureAwait(false);
         var byNumber = manifest.Items.ToDictionary(episode => episode.Number);
         var requested = episodeNumbers.Count == 0 ? byNumber.Keys.Order().ToArray() : episodeNumbers;
         if (requested.Count == 0 || requested.Any(number => !byNumber.ContainsKey(number)))
@@ -69,21 +70,19 @@ internal static class XingeDramaBoxMaterials
         log($"XINGE DramaBox 分集已就绪，共 {requested.Count} 集。");
     }
 
-    private static async Task<Manifest> ReadManifestAsync(HttpClient client, long assignmentId, ClientSettings settings, CancellationToken ct)
+    private static async Task<Manifest> ReadManifestAsync(HttpClient client, XingeAutoPublishMarker assignment, ClientSettings settings, CancellationToken ct)
     {
-        var endpoint = string.IsNullOrWhiteSpace(settings.XingeServerUrl) ? settings.AuthServerUrl : settings.XingeServerUrl;
-        endpoint = (endpoint ?? "").Trim().TrimEnd('/');
-        if (!endpoint.Contains("://", StringComparison.Ordinal))
-            endpoint = "http://" + endpoint;
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var server) || server.Scheme is not ("http" or "https") ||
-            string.IsNullOrWhiteSpace(settings.XingeClientId) || string.IsNullOrWhiteSpace(settings.XingeClientToken))
-            throw new InvalidOperationException("请先连接 XINGE，再下载 DramaBox 派单素材。");
+        var connection = XingeRuntimeConnection.Resolve(settings)
+            ?? throw new InvalidOperationException("请先连接 XINGE，再下载 DramaBox 派单素材。");
+        if (!string.IsNullOrEmpty(assignment.ConnectionScope) && assignment.ConnectionScope != connection.Scope)
+            throw new InvalidOperationException("此派单属于之前的 XINGE 连接，请恢复该账号后再下载素材。");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(25));
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"{endpoint}/client-api/dramabox/assignments/{assignmentId}/episodes");
-        request.Headers.TryAddWithoutValidation("X-Remote-Client-ID", settings.XingeClientId.Trim());
-        request.Headers.TryAddWithoutValidation("X-Remote-Client-Token", settings.XingeClientToken.Trim());
+        var query = string.IsNullOrWhiteSpace(assignment.SeriesId) ? "" : "?series_id=" + Uri.EscapeDataString(assignment.SeriesId);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{connection.BaseUrl}/client-api/dramabox/assignments/{assignment.AssignmentId}/episodes{query}");
+        request.Headers.TryAddWithoutValidation("X-Remote-Client-ID", connection.ClientId);
+        request.Headers.TryAddWithoutValidation("X-Remote-Client-Token", connection.ClientToken);
         try
         {
             using var response = await client.SendAsync(request, timeout.Token).ConfigureAwait(false);

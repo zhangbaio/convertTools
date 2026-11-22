@@ -4,6 +4,7 @@ using System.Text;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Remote;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
 
@@ -78,6 +79,7 @@ public sealed class XingeDramaBoxMaterialsTests
 
     private static ClientSettings Settings() => new()
     {
+        XingeConnectionMode = XingeRuntimeConnection.Manual,
         XingeServerUrl = "https://xinge.example",
         XingeClientId = "test-id",
         XingeClientToken = "test-token",

@@ -120,7 +120,32 @@ public sealed class XingeRemoteAccountService(HttpClient http)
             ComputeCredentialFingerprint(settings));
     }
 
-    private async Task<T> PostAsync<T>(string url, object body, CancellationToken ct)
+    public async Task<XingeRemoteClientCredentials> ProvisionFromSoftwareSessionAsync(
+        XingeSoftwareSession session, string clientName, CancellationToken ct, ClientSettings? legacySettings = null)
+    {
+        var body = new Dictionary<string, string>
+        {
+            ["machine_id"] = session.MachineId,
+            ["token"] = session.Token,
+            ["client_name"] = clientName,
+        };
+        if (legacySettings is not null && !string.IsNullOrWhiteSpace(legacySettings.XingeAccount) &&
+            !string.IsNullOrWhiteSpace(legacySettings.XingePassword) &&
+            XingeRuntimeConnection.NormalizeBaseUrl(legacySettings.XingeServerUrl) == session.BaseUrl &&
+            !string.IsNullOrWhiteSpace(legacySettings.XingeClientId) && !string.IsNullOrWhiteSpace(legacySettings.XingeClientToken))
+        {
+            body["legacy_client_id"] = legacySettings.XingeClientId;
+            body["legacy_client_token"] = legacySettings.XingeClientToken;
+        }
+        var remote = await PostAsync<XingeRemoteClientData>(session.BaseUrl + "/client-api/tt/account/remote-client", body, ct, softwareSession: true).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(remote.Item?.ClientId) || string.IsNullOrWhiteSpace(remote.ClientToken))
+            throw new InvalidOperationException("XINGE 未返回设备凭据");
+
+        return new XingeRemoteClientCredentials(session.Account, remote.Item.ClientId.Trim(), remote.ClientToken.Trim(), session.SessionKey);
+    }
+
+    private async Task<T> PostAsync<T>(string url, object body, CancellationToken ct, bool softwareSession = false)
     {
         using var response = await http.PostAsJsonAsync(url, body, JsonOptions, ct).ConfigureAwait(false);
         var raw = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -136,7 +161,11 @@ public sealed class XingeRemoteAccountService(HttpClient http)
 
         if (!response.IsSuccessStatusCode || envelope is null || !envelope.Ok)
         {
-            var message = FirstNonEmpty(envelope?.Message, BoundedPreview(raw), response.ReasonPhrase, "XINGE 请求失败");
+            if (softwareSession && (response.StatusCode == System.Net.HttpStatusCode.NotFound ||
+                                    (response.IsSuccessStatusCode && envelope is null)))
+                throw new InvalidOperationException("该登录后台尚未启用 XINGE 自动连接，可使用手动配置");
+            var message = FirstNonEmpty(envelope?.Message, envelope?.Error,
+                softwareSession ? "" : BoundedPreview(raw), response.ReasonPhrase, "XINGE 请求失败");
             throw new InvalidOperationException(message);
         }
 
@@ -179,6 +208,9 @@ public sealed class XingeRemoteAccountService(HttpClient http)
 
         [JsonPropertyName("message")]
         public string Message { get; set; } = "";
+
+        [JsonPropertyName("error")]
+        public string Error { get; set; } = "";
 
         [JsonPropertyName("data")]
         public T? Data { get; set; }

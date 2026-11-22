@@ -264,6 +264,7 @@ public sealed class XingeAutoPublishTests : IDisposable
         var settings = new ClientSettings
         {
             XingeRemoteEnabled = true,
+            XingeConnectionMode = XingeRuntimeConnection.Manual,
             XingeServerUrl = "https://xinge.example/",
             XingeClientId = "rc_1",
             XingeClientToken = "token-1",
@@ -311,6 +312,7 @@ public sealed class XingeAutoPublishTests : IDisposable
         var settings = new ClientSettings
         {
             XingeRemoteEnabled = true,
+            XingeConnectionMode = XingeRuntimeConnection.Manual,
             XingeServerUrl = "https://xinge.example/",
             XingeClientId = "rc_1",
             XingeClientToken = "token-1",
@@ -345,6 +347,35 @@ public sealed class XingeAutoPublishTests : IDisposable
         (await restarted.ReportAsync(new XingeAutoPublishProgress(6, "", XingeAutoPublishStatuses.Success), CancellationToken.None))
             .Should().BeTrue("404 表示派单已不存在，重发无意义");
         restarted.PendingCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Reporter_LeavesPreviousConnectionReportsInItsOutboxAfterSwitch()
+    {
+        var settings = new ClientSettings
+        {
+            XingeConnectionMode = XingeRuntimeConnection.Manual,
+            XingeServerUrl = "https://xinge.example",
+            XingeClientId = "rc_owner_a",
+            XingeClientToken = "test-token-a",
+        };
+        var sentClients = new List<string>();
+        using var http = new HttpClient(new StubHandler(request =>
+        {
+            sentClients.Add(request.Headers.GetValues("X-Remote-Client-ID").Single());
+            return Task.FromResult(new HttpResponseMessage(sentClients.Count == 1 ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK));
+        }));
+        var reporter = new XingeAutoPublishProgressReporter(http, Path.Combine(_root, "account-outbox.json"), () => settings);
+        await reporter.ReportAsync(new XingeAutoPublishProgress(1, "", XingeAutoPublishStatuses.Success), CancellationToken.None);
+        settings.XingeClientId = "rc_owner_b";
+        settings.XingeClientToken = "test-token-b";
+        await reporter.FlushAsync(CancellationToken.None);
+        sentClients.Should().Equal("rc_owner_a");
+        reporter.PendingCount.Should().Be(1);
+
+        await reporter.ReportAsync(new XingeAutoPublishProgress(1, "", XingeAutoPublishStatuses.Success), CancellationToken.None);
+        sentClients.Should().Equal("rc_owner_a", "rc_owner_b");
+        reporter.PendingCount.Should().Be(1);
     }
 
     [Fact]
@@ -386,6 +417,7 @@ public sealed class XingeAutoPublishTests : IDisposable
         reporter.PendingCount.Should().Be(1);
 
         settings.XingeRemoteEnabled = true;
+        settings.XingeConnectionMode = XingeRuntimeConnection.Manual;
         settings.XingeServerUrl = "https://xinge.example/";
         settings.XingeClientId = "rc_1";
         settings.XingeClientToken = "token-1";

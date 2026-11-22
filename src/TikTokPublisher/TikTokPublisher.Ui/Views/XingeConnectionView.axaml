@@ -13,12 +13,28 @@
                    FontWeight="Bold"
                    IsVisible="{Binding ShowHeading}" />
         <TextBlock Text="{Binding Status}" Classes="pageSummary" TextWrapping="Wrap" />
+        <Grid ColumnDefinitions="140,*" ColumnSpacing="10" IsVisible="{Binding SupportsLoginFollow}">
+            <TextBlock Text="连接方式" VerticalAlignment="Center" />
+            <ComboBox Grid.Column="1" SelectedIndex="{Binding ModeIndex}" MinWidth="200" HorizontalAlignment="Left">
+                <ComboBoxItem Content="跟随软件登录" />
+                <ComboBoxItem Content="手动配置" />
+                <ComboBoxItem Content="关闭远程监听" />
+            </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="9"
+              IsVisible="{Binding ShowAutomatic}">
+            <TextBlock Text="当前登录后台" />
+            <TextBlock Grid.Column="1" Text="{Binding LoginServer}" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="1" Text="本机名称" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DeviceName}" />
+        </Grid>
         <Grid ColumnDefinitions="140,*"
               RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
               RowSpacing="9"
-              ColumnSpacing="10">
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="监听开关" VerticalAlignment="Center" />
-            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Enabled}" OnContent="启用 XINGE 远程命令" OffContent="启用 XINGE 远程命令" />
+              ColumnSpacing="10" IsVisible="{Binding ShowManual}">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="监听开关" VerticalAlignment="Center" IsVisible="{Binding ShowLegacyToggle}" />
+            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Enabled}" IsVisible="{Binding ShowLegacyToggle}"
+                          OnContent="启用 XINGE 远程命令" OffContent="启用 XINGE 远程命令" />
 
             <TextBlock Grid.Row="1" Grid.Column="0" Text="XINGE 地址" VerticalAlignment="Center" />
             <TextBox Classes="configurationInput" Grid.Row="1" Grid.Column="1" Text="{Binding ServerUrl}" Watermark="http://127.0.0.1:8080" />
@@ -50,7 +66,7 @@
             <TextBox Classes="configurationInput" Grid.Row="7" Grid.Column="1" Text="{Binding ClientToken}" PasswordChar="*" RevealPassword="False" Watermark="账号登录后自动生成，也可手工填写" />
         </Grid>
 
-        <StackPanel Orientation="Horizontal" Spacing="8">
+        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowManual}">
             <Button Content="测试账号并生成凭证" Command="{Binding TestLoginCommand}" />
             <TextBlock Text="保存配置后也会自动登录；账号或密码变化时自动重新签发客户端凭证。"
                        Classes="compactHint"

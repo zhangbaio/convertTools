@@ -52,7 +52,7 @@ public sealed class XingeAutoPublishProgressReporter
     }
 
     public static XingeAutoPublishProgressReporter Shared { get; } = new(
-        new HttpClient { Timeout = TimeSpan.FromSeconds(15) },
+        new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(15) },
         Path.Combine(AppPaths.DataRoot, "xinge-auto-publish-outbox.json"),
         () => ClientSettingsStore.Load());
 
@@ -70,6 +70,7 @@ public sealed class XingeAutoPublishProgressReporter
     /// <summary>入队并在后台尝试发送，不阻塞调用方（队列进度回调使用）。</summary>
     public void Enqueue(XingeAutoPublishProgress progress)
     {
+        progress = StampConnection(progress);
         Add(progress);
         _ = Task.Run(async () =>
         {
@@ -81,6 +82,7 @@ public sealed class XingeAutoPublishProgressReporter
     /// <summary>入队并立即发送；返回该条是否已被服务端处理（送达或明确拒收）。</summary>
     public async Task<bool> ReportAsync(XingeAutoPublishProgress progress, CancellationToken ct)
     {
+        progress = StampConnection(progress);
         Add(progress);
         try
         {
@@ -102,6 +104,11 @@ public sealed class XingeAutoPublishProgressReporter
         {
             while (true)
             {
+                var settings = _settingsProvider();
+                var connection = XingeRuntimeConnection.Resolve(settings);
+                if (connection is null)
+                    return;
+                var manual = XingeRuntimeConnection.Mode(settings) == XingeRuntimeConnection.Manual;
                 XingeAutoPublishProgress? next;
                 lock (_sync)
                 {
@@ -109,13 +116,13 @@ public sealed class XingeAutoPublishProgressReporter
                     var expired = pending.RemoveAll(item => _now() - item.CreatedAt > MaxPendingAge);
                     if (expired > 0)
                         SavePending();
-                    next = pending.FirstOrDefault();
+                    next = pending.FirstOrDefault(item => item.ConnectionScope == connection.Scope || (manual && string.IsNullOrEmpty(item.ConnectionScope)));
                 }
 
                 if (next is null)
                     return;
 
-                var outcome = await SendAsync(next, ct).ConfigureAwait(false);
+                var outcome = await SendAsync(connection, next, ct).ConfigureAwait(false);
                 if (outcome == XingeAutoPublishSendOutcome.Retry)
                     return;
 
@@ -132,12 +139,20 @@ public sealed class XingeAutoPublishProgressReporter
         }
     }
 
+    private XingeAutoPublishProgress StampConnection(XingeAutoPublishProgress progress) =>
+        string.IsNullOrEmpty(progress.ConnectionScope)
+            ? progress with { ConnectionScope = XingeRuntimeConnection.Resolve(_settingsProvider())?.Scope ?? "" }
+            : progress;
+
     private void Add(XingeAutoPublishProgress progress)
     {
         lock (_sync)
         {
             var pending = LoadPending();
-            var sameAssignment = pending.Where(item => item.AssignmentId == progress.AssignmentId).ToList();
+            var manual = XingeRuntimeConnection.Mode(_settingsProvider()) == XingeRuntimeConnection.Manual;
+            bool SameAssignment(XingeAutoPublishProgress item) => item.AssignmentId == progress.AssignmentId &&
+                (item.ConnectionScope == progress.ConnectionScope || (manual && string.IsNullOrEmpty(item.ConnectionScope)));
+            var sameAssignment = pending.Where(SameAssignment).ToList();
             if (!XingeAutoPublishStatuses.IsTerminal(progress.Status) &&
                 sameAssignment.Any(item => XingeAutoPublishStatuses.IsTerminal(item.Status) &&
                     !string.Equals(item.Status, XingeAutoPublishStatuses.UserStopped, StringComparison.OrdinalIgnoreCase)))
@@ -148,7 +163,7 @@ public sealed class XingeAutoPublishProgressReporter
             // 未发出的中间进度被新状态取代，只保留最新一条，避免断网恢复后补发大量过期步骤。
             // 手动停止还没发出时，重启后续跑的 running 要盖掉它。
             pending.RemoveAll(item =>
-                item.AssignmentId == progress.AssignmentId &&
+                SameAssignment(item) &&
                 (!XingeAutoPublishStatuses.IsTerminal(item.Status)
                     || string.Equals(item.Status, XingeAutoPublishStatuses.UserStopped, StringComparison.OrdinalIgnoreCase)
                     || XingeAutoPublishStatuses.IsTerminal(progress.Status)));
@@ -157,14 +172,10 @@ public sealed class XingeAutoPublishProgressReporter
         }
     }
 
-    private async Task<XingeAutoPublishSendOutcome> SendAsync(XingeAutoPublishProgress progress, CancellationToken ct)
+    private async Task<XingeAutoPublishSendOutcome> SendAsync(XingeConnectionCredentials connection, XingeAutoPublishProgress progress, CancellationToken ct)
     {
-        var settings = _settingsProvider();
-        var baseUrl = NormalizeBaseUrl(FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl));
-        var clientId = settings.XingeClientId?.Trim() ?? "";
-        var clientToken = settings.XingeClientToken?.Trim() ?? "";
-        if (!settings.XingeRemoteEnabled || baseUrl.Length == 0 || clientId.Length == 0 || clientToken.Length == 0)
-            return XingeAutoPublishSendOutcome.Retry;
+        var clientId = connection.ClientId;
+        var clientToken = connection.ClientToken;
 
         var body = new Dictionary<string, object?>
         {
@@ -175,7 +186,7 @@ public sealed class XingeAutoPublishProgressReporter
             ["detail"] = Truncate(progress.Detail, MaxDetailLength),
             ["failure_kind"] = progress.FailureKind,
         };
-        using var request = new HttpRequestMessage(HttpMethod.Post, baseUrl + ResolveProgressPath(progress))
+        using var request = new HttpRequestMessage(HttpMethod.Post, connection.BaseUrl + ResolveProgressPath(progress))
         {
             Content = new StringContent(JsonSerializer.Serialize(body, JsonOptions), Encoding.UTF8, "application/json"),
         };
@@ -258,15 +269,6 @@ public sealed class XingeAutoPublishProgressReporter
         }
     }
 
-    private static string NormalizeBaseUrl(string value)
-    {
-        var text = value.Trim().TrimEnd('/');
-        if (text.Length == 0)
-            return "";
-        if (!Uri.TryCreate(text, UriKind.Absolute, out _))
-            text = "http://" + text;
-        return text.TrimEnd('/');
-    }
 
     private static string Truncate(string? value, int max)
     {
@@ -274,6 +276,4 @@ public sealed class XingeAutoPublishProgressReporter
         return text.Length > max ? text[..max] : text;
     }
 
-    private static string FirstNonEmpty(params string?[] values) =>
-        values.Select(value => value?.Trim() ?? "").FirstOrDefault(value => value.Length > 0) ?? "";
 }

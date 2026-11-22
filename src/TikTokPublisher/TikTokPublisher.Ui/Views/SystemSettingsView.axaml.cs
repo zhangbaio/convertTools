@@ -24,7 +24,7 @@ public partial class SystemSettingsView : UserControl
     {
         SoftwareLicenseHost.Bind(vm);
         var xinge = new XingeConnectionViewModel(null, "TikTokPublisher",
-            "启用后客户端会用账号登录 XINGE，注册当前工作目录和 TikTok 账号列表，并接收 XINGE 下发的上传任务。")
+            "跟随软件登录时，助手自动注册本机。哪些 TikTok 账号可以接单，由各账号的远程分发设置决定。", supportsLoginFollow: true)
         {
             ShowSaveButton = true,
             ShowHeading = false,

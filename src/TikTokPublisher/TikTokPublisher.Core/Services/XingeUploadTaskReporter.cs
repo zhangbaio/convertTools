@@ -46,7 +46,7 @@ public sealed class XingeUploadTaskReporter
     }
 
     public static XingeUploadTaskReporter Shared { get; } = new(
-        new HttpClient { Timeout = TimeSpan.FromSeconds(15) },
+        new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(15) },
         Path.Combine(AppPaths.DataRoot, "xinge-upload-task-outbox.json"),
         () => ClientSettingsStore.Load());
 
@@ -64,6 +64,8 @@ public sealed class XingeUploadTaskReporter
     /// <summary>入队并在后台尝试发送，不阻塞调用方（队列进度回调使用）。</summary>
     public void Enqueue(XingeUploadTaskReport report)
     {
+        if (string.IsNullOrEmpty(report.ConnectionScope))
+            report = report with { ConnectionScope = XingeRuntimeConnection.Resolve(_settingsProvider())?.Scope ?? "" };
         Add(report);
         _ = Task.Run(async () =>
         {
@@ -79,19 +81,25 @@ public sealed class XingeUploadTaskReporter
         {
             while (true)
             {
+                var settings = _settingsProvider();
+                var connection = XingeRuntimeConnection.Resolve(settings);
+                if (connection is null)
+                    return;
+                var manual = XingeRuntimeConnection.Mode(settings) == XingeRuntimeConnection.Manual;
                 List<XingeUploadTaskReport> batch;
                 lock (_sync)
                 {
                     var pending = LoadPending();
                     if (pending.RemoveAll(item => _now() - item.OccurredAt > MaxPendingAge) > 0)
                         SavePending();
-                    batch = pending.Take(BatchSize).ToList();
+                    batch = pending.Where(item => item.ConnectionScope == connection.Scope || (manual && string.IsNullOrEmpty(item.ConnectionScope)))
+                        .Take(BatchSize).ToList();
                 }
 
                 if (batch.Count == 0)
                     return;
 
-                if (await SendAsync(batch, ct).ConfigureAwait(false) == XingeAutoPublishSendOutcome.Retry)
+                if (await SendAsync(connection, batch, ct).ConfigureAwait(false) == XingeAutoPublishSendOutcome.Retry)
                     return;
 
                 lock (_sync)
@@ -117,6 +125,7 @@ public sealed class XingeUploadTaskReporter
             // 同一部剧尚未发出的中间状态已过时；已有的终态保留，按时间顺序发送。
             pending.RemoveAll(item =>
                 string.Equals(item.ProjectPath, report.ProjectPath, StringComparison.OrdinalIgnoreCase) &&
+                item.ConnectionScope == report.ConnectionScope &&
                 !XingeUploadTaskStatuses.IsTerminal(item.Status));
             pending.Add(report);
             if (pending.Count > MaxPending)
@@ -129,14 +138,10 @@ public sealed class XingeUploadTaskReporter
         }
     }
 
-    private async Task<XingeAutoPublishSendOutcome> SendAsync(IReadOnlyList<XingeUploadTaskReport> batch, CancellationToken ct)
+    private async Task<XingeAutoPublishSendOutcome> SendAsync(XingeConnectionCredentials connection, IReadOnlyList<XingeUploadTaskReport> batch, CancellationToken ct)
     {
-        var settings = _settingsProvider();
-        var baseUrl = NormalizeBaseUrl(FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl));
-        var clientId = settings.XingeClientId?.Trim() ?? "";
-        var clientToken = settings.XingeClientToken?.Trim() ?? "";
-        if (!settings.XingeRemoteEnabled || baseUrl.Length == 0 || clientId.Length == 0 || clientToken.Length == 0)
-            return XingeAutoPublishSendOutcome.Retry;
+        var clientId = connection.ClientId;
+        var clientToken = connection.ClientToken;
 
         var body = new Dictionary<string, object?>
         {
@@ -144,7 +149,7 @@ public sealed class XingeUploadTaskReporter
             ["client_token"] = clientToken,
             ["tasks"] = batch.Select(ToPayload).ToList(),
         };
-        using var request = new HttpRequestMessage(HttpMethod.Post, baseUrl + ReportPath)
+        using var request = new HttpRequestMessage(HttpMethod.Post, connection.BaseUrl + ReportPath)
         {
             Content = new StringContent(JsonSerializer.Serialize(body, JsonOptions), Encoding.UTF8, "application/json"),
         };
@@ -236,15 +241,6 @@ public sealed class XingeUploadTaskReporter
         }
     }
 
-    private static string NormalizeBaseUrl(string value)
-    {
-        var text = value.Trim().TrimEnd('/');
-        if (text.Length == 0)
-            return "";
-        if (!Uri.TryCreate(text, UriKind.Absolute, out _))
-            text = "http://" + text;
-        return text.TrimEnd('/');
-    }
 
     private static string Truncate(string? value, int max)
     {
@@ -252,6 +248,4 @@ public sealed class XingeUploadTaskReporter
         return text.Length > max ? text[..max] : text;
     }
 
-    private static string FirstNonEmpty(params string?[] values) =>
-        values.Select(value => value?.Trim() ?? "").FirstOrDefault(value => value.Length > 0) ?? "";
 }

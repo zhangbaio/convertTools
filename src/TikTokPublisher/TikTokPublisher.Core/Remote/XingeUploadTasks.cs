@@ -29,6 +29,7 @@ public sealed record XingeUploadTaskReport(
     int LocalFailures = 0)
 {
     public DateTimeOffset OccurredAt { get; init; } = DateTimeOffset.Now;
+    public string ConnectionScope { get; init; } = "";
 }
 
 public readonly record struct XingeUploadTaskAccount(string Id, string Name);
@@ -223,6 +224,7 @@ public sealed class XingeUploadTaskObserver
             failureReason?.Trim() ?? "")
         {
             OccurredAt = _now(),
+            ConnectionScope = marker?.ConnectionScope ?? "",
         };
     }
 

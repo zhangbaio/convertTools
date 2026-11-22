@@ -17,6 +17,7 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
     public event Action? SettingsSaved;
 
     private XingeConnectionViewModel? _xinge;
+    private string _xingeMode = XingeRuntimeConnection.FollowLogin;
 
     [ObservableProperty] private string _authServerUrl = "";
     [ObservableProperty] private string _licenseSummary = "未登录";
@@ -56,7 +57,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         AuthServerUrl = FirstNonEmpty(settings.AuthServerUrl, state.ServerUrl);
         LoginAccount = settings.AuthAccount ?? "";
         LoginPassword = settings.AuthPassword ?? "";
-        XingeRemoteEnabled = settings.XingeRemoteEnabled;
+        _xingeMode = XingeRuntimeConnection.Mode(settings);
+        XingeRemoteEnabled = _xingeMode != XingeRuntimeConnection.Off;
         XingeServerUrl = FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl, state.ServerUrl);
         XingeAccount = FirstNonEmpty(settings.XingeAccount, settings.AuthAccount);
         XingePassword = !string.IsNullOrEmpty(settings.XingePassword)
@@ -104,7 +106,11 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
         CopyXingeToConnection();
     }
 
-    private void OnXingeSettingsSaved() => SettingsSaved?.Invoke();
+    private void OnXingeSettingsSaved()
+    {
+        _xingeMode = _xinge?.SelectedMode ?? _xingeMode;
+        SettingsSaved?.Invoke();
+    }
 
     private void OnXingeStatusRequested(string message) => StatusRequested?.Invoke(message);
 
@@ -125,7 +131,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
             XingeClientToken,
             XingeClientName,
             XingePollIntervalSeconds,
-            XingeRemoteStatus);
+            XingeRemoteStatus,
+            _xingeMode);
     }
 
     partial void OnXingeRemoteStatusChanged(string value)
@@ -167,6 +174,8 @@ public sealed partial class SystemServicesViewModel : ViewModelBase
             await LicenseAuthService.LoginAsync(settings.AuthServerUrl, LoginAccount, LoginPassword);
             LoginStatus = "登录成功";
             RefreshLicenseSummary();
+            CopyXingeToConnection();
+            SettingsSaved?.Invoke();
             StatusRequested?.Invoke("授权登录成功");
         }
         catch (Exception ex)

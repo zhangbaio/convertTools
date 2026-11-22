@@ -10,15 +10,22 @@ public sealed partial class XingeConnectionViewModel : ViewModelBase
     private readonly string? _databasePath;
     private readonly string _defaultClientName;
 
-    public XingeConnectionViewModel(string? databasePath, string defaultClientName, string hint)
+    public XingeConnectionViewModel(string? databasePath, string defaultClientName, string hint, bool supportsLoginFollow = false)
     {
         _databasePath = databasePath;
         _defaultClientName = string.IsNullOrWhiteSpace(defaultClientName) ? "TikTokPublisher" : defaultClientName.Trim();
         Hint = hint ?? "";
+        SupportsLoginFollow = supportsLoginFollow;
         ClientName = _defaultClientName;
     }
 
     public string Hint { get; }
+    public bool SupportsLoginFollow { get; }
+    public bool ShowLegacyToggle => !SupportsLoginFollow;
+    public bool ShowManual => !SupportsLoginFollow || ModeIndex == 1;
+    public bool ShowAutomatic => SupportsLoginFollow && ModeIndex == 0;
+    public string SelectedMode => ModeIndex switch { 1 => XingeRuntimeConnection.Manual, 2 => XingeRuntimeConnection.Off, _ => XingeRuntimeConnection.FollowLogin };
+    public string DeviceName => Environment.MachineName;
 
     public event Action<string>? StatusRequested;
     public event Action? SettingsSaved;
@@ -28,6 +35,8 @@ public sealed partial class XingeConnectionViewModel : ViewModelBase
     [ObservableProperty] private string _heading = "系统服务";
     [ObservableProperty] private string _status = "未启用";
     [ObservableProperty] private bool _enabled;
+    [ObservableProperty] private int _modeIndex;
+    [ObservableProperty] private string _loginServer = "";
     [ObservableProperty] private string _serverUrl = "";
     [ObservableProperty] private string _account = "";
     [ObservableProperty] private string _password = "";
@@ -51,7 +60,8 @@ public sealed partial class XingeConnectionViewModel : ViewModelBase
             settings.XingeClientToken ?? "",
             ResolveClientName(settings.XingeClientName),
             ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds),
-            settings.XingeRemoteEnabled ? "等待连接" : "未启用");
+            settings.XingeRemoteEnabled ? "等待连接" : "未启用",
+            SupportsLoginFollow ? XingeRuntimeConnection.Mode(settings) : null);
     }
 
     public void CopyFrom(
@@ -63,7 +73,8 @@ public sealed partial class XingeConnectionViewModel : ViewModelBase
         string? clientToken,
         string? clientName,
         int pollIntervalSeconds,
-        string? status)
+        string? status,
+        string? mode = null)
     {
         Enabled = enabled;
         ServerUrl = serverUrl ?? "";
@@ -74,6 +85,12 @@ public sealed partial class XingeConnectionViewModel : ViewModelBase
         ClientName = string.IsNullOrWhiteSpace(clientName) ? _defaultClientName : clientName.Trim();
         PollIntervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(pollIntervalSeconds);
         Status = string.IsNullOrWhiteSpace(status) ? (enabled ? "等待连接" : "未启用") : status;
+        if (SupportsLoginFollow)
+        {
+            ModeIndex = mode switch { XingeRuntimeConnection.Manual => 1, XingeRuntimeConnection.Off => 2, _ => 0 };
+            Enabled = ModeIndex != 2;
+            LoginServer = XingeRuntimeConnection.ReadSoftwareSession()?.BaseUrl ?? "软件尚未登录";
+        }
     }
 
     public void RefreshCredentials()
@@ -87,7 +104,11 @@ public sealed partial class XingeConnectionViewModel : ViewModelBase
 
     public void ApplyTo(ClientSettings settings)
     {
+        if (SupportsLoginFollow)
+            settings.XingeConnectionMode = SelectedMode;
         settings.XingeRemoteEnabled = Enabled;
+        if (SupportsLoginFollow && !ShowManual)
+            return;
         settings.XingeServerUrl = (ServerUrl ?? "").Trim();
         settings.XingeAccount = (Account ?? "").Trim();
         settings.XingePassword = Password ?? "";
@@ -111,7 +132,7 @@ public sealed partial class XingeConnectionViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanTestLogin))]
     public async Task TestLoginAsync()
     {
-        if (IsBusy)
+        if (IsBusy || !ShowManual)
             return;
         IsBusy = true;
         Status = "正在使用用户名和密码登录 XINGE...";
@@ -141,9 +162,18 @@ public sealed partial class XingeConnectionViewModel : ViewModelBase
         }
     }
 
-    private bool CanTestLogin() => !IsBusy;
+    private bool CanTestLogin() => !IsBusy && ShowManual;
 
     partial void OnIsBusyChanged(bool value) => TestLoginCommand.NotifyCanExecuteChanged();
+
+    partial void OnModeIndexChanged(int value)
+    {
+        if (SupportsLoginFollow)
+            Enabled = value != 2;
+        OnPropertyChanged(nameof(ShowManual));
+        OnPropertyChanged(nameof(ShowAutomatic));
+        TestLoginCommand.NotifyCanExecuteChanged();
+    }
 
     private string ResolveClientName(string? configured)
     {

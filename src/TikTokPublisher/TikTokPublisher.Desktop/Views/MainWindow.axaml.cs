@@ -405,6 +405,7 @@ public partial class MainWindow : Window
     private async Task RequireLicenseReloginAsync(string message)
     {
         _licenseVerifyTimer?.Stop();
+        _viewModel.StopXingeRemoteCommandService();
         _viewModel.StatusMessage = message;
         _viewModel.RequestStopQueue();
         WeixinWorkspace.StopUploads();

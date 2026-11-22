@@ -152,7 +152,7 @@ public sealed class QueueRetryUseCase(QueueExecutionUseCase execution, Workspace
             XingeAutoPublishMarkerStore.Write(projectDir, new XingeAutoPublishAssignment(
                 assignmentId, $"{XingeAutoPublishProgressReporter.DefaultProgressPathPrefix}{assignmentId}/progress",
                 marker?.SeriesId ?? "", string.IsNullOrWhiteSpace(marker?.AccountProfileId) ? accountId : marker.AccountProfileId,
-                marker?.Title ?? ""), createdAt);
+                marker?.Title ?? "", marker?.ConnectionScope ?? ""), createdAt);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

@@ -40,11 +40,7 @@ public sealed class XingeRemoteCommandService
 
     private readonly object _sync = new();
     private readonly object _quotaFullLock = new();
-    private readonly DispatchConfirmCoordinator _confirm = new();
-    private readonly Dictionary<long, XingeRemoteMessage> _heldConfirmMessages = new();
-    private bool _stoppedReclaimDone;
     private Dictionary<string, DateTimeOffset> _quotaFullUntil = new(StringComparer.OrdinalIgnoreCase);
-    private string _dispatchPauseDate = "";
     private CancellationTokenSource? _cts;
     private Task? _worker;
 
@@ -65,16 +61,30 @@ public sealed class XingeRemoteCommandService
         Stop();
 
         var settings = ClientSettingsStore.Load();
-        if (!settings.XingeRemoteEnabled)
+        var mode = XingeRuntimeConnection.Mode(settings);
+        var signedIn = LicenseStore.Load().IsActivated();
+        XingeRuntimeConnection.SetManualAvailable(signedIn && mode == XingeRuntimeConnection.Manual);
+        if (mode != XingeRuntimeConnection.FollowLogin)
+            XingeRuntimeConnection.ClearAutomatic();
+        if (mode == XingeRuntimeConnection.Off)
         {
             Notify("XINGE 未启用");
+            return;
+        }
+
+        if (!signedIn)
+        {
+            XingeRuntimeConnection.ClearAutomatic();
+            Notify("请先完成软件登录，XINGE 监听尚未启动");
             return;
         }
 
         var config = XingeRemoteConfig.FromSettings(settings);
         if (!config.IsReady)
         {
-            Notify("XINGE 未配置用户名/密码、客户端 ID/Token 或服务地址");
+            Notify(mode == XingeRuntimeConnection.FollowLogin
+                ? "请先完成软件登录，XINGE 将自动连接"
+                : "请填写 XINGE 手动连接的地址和账户凭据");
             return;
         }
 
@@ -85,7 +95,7 @@ public sealed class XingeRemoteCommandService
             _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, recoverAsync, onIdle, cts.Token));
         }
 
-        Notify(config.NeedsProvisioning ? "XINGE 正在登录账号..." : "XINGE 正在连接...");
+        Notify(config.NeedsProvisioning ? "XINGE 正在注册本机..." : "XINGE 正在连接...");
     }
 
     public void ReportDailySeriesLimit(string? accountProfileId)
@@ -102,7 +112,7 @@ public sealed class XingeRemoteCommandService
         {
             var settings = ClientSettingsStore.Load();
             var config = XingeRemoteConfig.FromSettings(settings);
-            if (!settings.XingeRemoteEnabled || !config.IsReady)
+            if (!config.IsReady || (config.SoftwareSession is not null && !config.HasClientCredentials))
                 return;
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
             if (config.NeedsProvisioning)
@@ -141,6 +151,8 @@ public sealed class XingeRemoteCommandService
 
         try { cts?.Cancel(); }
         catch { }
+        lock (_quotaFullLock)
+            _quotaFullUntil.Clear();
         if (cts is null)
             return;
 
@@ -166,7 +178,7 @@ public sealed class XingeRemoteCommandService
         Action? onIdle,
         CancellationToken ct)
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
+        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(25) };
         var lastRegisteredAt = DateTimeOffset.MinValue;
         var sentProcessedSeries = new HashSet<XingeTikTokProcessedFact>();
         XingeRemoteMessage? replay = null;
@@ -175,6 +187,11 @@ public sealed class XingeRemoteCommandService
         {
             try
             {
+                if (config.SoftwareSession is { } softwareSession && XingeRuntimeConnection.ReadSoftwareSession()?.SessionKey != softwareSession.SessionKey)
+                {
+                    Notify("软件登录已变化，XINGE 监听已停止");
+                    return;
+                }
                 if (config.NeedsProvisioning)
                     await ProvisionAndSaveAsync(config, ct).ConfigureAwait(false);
 
@@ -183,19 +200,20 @@ public sealed class XingeRemoteCommandService
                     var snapshot = await snapshotProvider(ct).ConfigureAwait(false);
                     await SyncProcessedSeriesAsync(http, config, snapshot.ProcessedSeries, sentProcessedSeries, log, ct).ConfigureAwait(false);
                     var quotaFull = await RegisterAsync(http, config, snapshot, ct).ConfigureAwait(false);
+                    ct.ThrowIfCancellationRequested();
                     RememberQuotaFullAccounts(quotaFull);
                     lastRegisteredAt = DateTimeOffset.UtcNow;
                     Notify($"XINGE 已在线：{snapshot.AccountProfiles.Count} 个账号");
                     await FlushAutoPublishProgressAsync(log, ct).ConfigureAwait(false);
                     if (recoverAsync is not null)
                     {
-                        if (!_stoppedReclaimDone)
+                        if (!config.StoppedReclaimDone)
                         {
                             var stoppedIds = LocalStoppedAssignmentIds?.Invoke();
-                            _stoppedReclaimDone = stoppedIds is not { Count: > 0 }
+                            config.StoppedReclaimDone = stoppedIds is not { Count: > 0 }
                                 || await ResumeStoppedAsync(http, config, stoppedIds, log, ct).ConfigureAwait(false);
                         }
-                        if (_stoppedReclaimDone)
+                        if (config.StoppedReclaimDone)
                         {
                             var open = await ListOpenAutoPublishAsync(http, config, ct).ConfigureAwait(false);
                             await recoverAsync(open).ConfigureAwait(false);
@@ -223,7 +241,7 @@ public sealed class XingeRemoteCommandService
                             log?.Invoke($"账号今日上传已达上限，跳过 TikTok 自动派单：{item.Title}");
                             await CompleteAsync(http, config, message.ID, TikTokRemoteCommandResult.Success("tiktok_upload_series", "账号今日上传已达上限，已跳过"), ct).ConfigureAwait(false);
                         }
-                        else if (IsDispatchPaused)
+                        else if (config.DispatchPauseDate.Length > 0)
                         {
                             // 服务端可以手动恢复。这里不再次上报暂停，等下一次注册读到未暂停后再收这条剧。
                             replay = message;
@@ -232,17 +250,19 @@ public sealed class XingeRemoteCommandService
                         }
                         else
                         {
-                            _heldConfirmMessages[message.ID] = message;
-                            _confirm.ExpireIfDue(DateTimeOffset.Now);
-                            var offer = _confirm.Offer(item, DateTimeOffset.Now, out var session);
+                            config.HeldConfirmMessages[message.ID] = message;
+                            config.Confirm.ExpireIfDue(DateTimeOffset.Now);
+                            var offer = config.Confirm.Offer(item, DateTimeOffset.Now, out var session);
                             if (offer == DispatchConfirmOffer.PendingDecision)
                             {
-                                _heldConfirmMessages.Remove(message.ID);
+                                config.HeldConfirmMessages.Remove(message.ID);
                                 await ConsumeConfirmAsync(http, config, executeAsync, log, ct).ConfigureAwait(false);
                                 replay = message;
                             }
                             else if (offer == DispatchConfirmOffer.Opened && session is not null)
                             {
+                                var dismissOnStop = ct.Register(() => session.Decision.TrySetResult(DispatchConfirmDecision.Dismissed));
+                                _ = session.Decision.Task.ContinueWith(_ => dismissOnStop.Dispose(), TaskScheduler.Default);
                                 XingeDispatchConfirmPrompt.Show(session);
                             }
                         }
@@ -263,8 +283,8 @@ public sealed class XingeRemoteCommandService
                     log?.Invoke($"自动派单调度失败：{ex.Message}");
                 }
 
-                _confirm.ExpireIfDue(DateTimeOffset.Now);
-                var decision = _confirm.DecisionTask;
+                config.Confirm.ExpireIfDue(DateTimeOffset.Now);
+                var decision = config.Confirm.DecisionTask;
                 if (decision is { IsCompleted: false })
                     await Task.WhenAny(Task.Delay(config.PollInterval, ct), decision).ConfigureAwait(false);
                 else if (decision is null)
@@ -360,7 +380,7 @@ public sealed class XingeRemoteCommandService
         CancellationToken ct)
     {
         var version = typeof(XingeRemoteCommandService).Assembly.GetName().Version?.ToString() ?? "unknown";
-        var machineId = MachineFingerprintHelper.GetMachineFingerprint();
+        var machineId = config.SoftwareSession?.MachineId ?? MachineFingerprintHelper.GetMachineFingerprint();
         if (string.IsNullOrWhiteSpace(machineId))
             machineId = Environment.MachineName;
         var body = new
@@ -411,7 +431,7 @@ public sealed class XingeRemoteCommandService
 
         if (!envelope.Ok)
             throw new InvalidOperationException(FirstNonEmpty(envelope.Message, "register failed"));
-        RememberDispatchPause(envelope);
+        RememberDispatchPause(config, envelope);
         ClientSettingsStore.RememberServerDispatchMode(envelope.DispatchMode);
         return envelope.QuotaFullAccounts;
     }
@@ -435,14 +455,12 @@ public sealed class XingeRemoteCommandService
         return envelope.Data;
     }
 
-    private bool IsDispatchPaused => _dispatchPauseDate.Length > 0;
-
-    private void RememberDispatchPause(XingeApiEnvelope<JsonElement> envelope)
+    private static void RememberDispatchPause(XingeRemoteConfig config, XingeApiEnvelope<JsonElement> envelope)
     {
         if (string.IsNullOrWhiteSpace(envelope.DispatchPauseDate) && string.IsNullOrWhiteSpace(envelope.BusinessDate))
             return;
         var date = string.IsNullOrWhiteSpace(envelope.BusinessDate) ? envelope.DispatchPauseDate : envelope.BusinessDate;
-        _dispatchPauseDate = envelope.DispatchPaused ? date : "";
+        config.DispatchPauseDate = envelope.DispatchPaused ? date : "";
     }
 
     private static int ReadConfirmSeconds(JsonElement payload)
@@ -486,28 +504,28 @@ public sealed class XingeRemoteCommandService
         Action<string>? log,
         CancellationToken ct)
     {
-        if (!_confirm.TryConsume(out var decision, out var items))
+        if (!config.Confirm.TryConsume(out var decision, out var items))
             return false;
         switch (decision)
         {
             case DispatchConfirmDecision.RejectOnce:
                 await DeclineOnceAsync(http, config, items, log, ct).ConfigureAwait(false);
                 foreach (var item in items)
-                    _heldConfirmMessages.Remove(item.MessageId);
+                    config.HeldConfirmMessages.Remove(item.MessageId);
                 break;
             case DispatchConfirmDecision.RejectToday:
                 await PauseDayAsync(http, config, log, ct).ConfigureAwait(false);
-                _heldConfirmMessages.Clear();
+                config.HeldConfirmMessages.Clear();
                 break;
             case DispatchConfirmDecision.Dismissed:
                 foreach (var item in items)
-                    _heldConfirmMessages.Remove(item.MessageId);
+                    config.HeldConfirmMessages.Remove(item.MessageId);
                 log?.Invoke("已关闭派单确认。这批剧仍保留，重启后会再提示，不会另派新剧。");
                 break;
             default:
                 foreach (var item in items)
                 {
-                    if (!_heldConfirmMessages.Remove(item.MessageId, out var message))
+                    if (!config.HeldConfirmMessages.Remove(item.MessageId, out var message))
                         continue;
                     await HandleCommandAsync(http, config, message, executeAsync, log, ct).ConfigureAwait(false);
                 }
@@ -547,11 +565,11 @@ public sealed class XingeRemoteCommandService
                 "/client-api/tiktok/auto-publish/pause-day",
                 new { client_id = config.ClientId, client_token = config.ClientToken }, ct).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(envelope.BusinessDate))
-                _dispatchPauseDate = envelope.BusinessDate;
+                config.DispatchPauseDate = envelope.BusinessDate;
             else if (!string.IsNullOrWhiteSpace(envelope.DispatchPauseDate))
-                _dispatchPauseDate = envelope.DispatchPauseDate;
+                config.DispatchPauseDate = envelope.DispatchPauseDate;
             else
-                _dispatchPauseDate = "paused";
+                config.DispatchPauseDate = "paused";
             log?.Invoke("今日不再接收 TikTok 自动派单，尚未开始的剧已释放。");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -582,7 +600,8 @@ public sealed class XingeRemoteCommandService
         }
         else
         {
-            result = await executeAsync(command).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            result = await executeAsync(command with { XingeConnectionScope = XingeRuntimeConnection.ScopeForClient(config.BaseUrl, config.ClientId) }).ConfigureAwait(false);
         }
 
         try
@@ -667,11 +686,27 @@ public sealed class XingeRemoteCommandService
 
     private async Task ProvisionAndSaveAsync(XingeRemoteConfig config, CancellationToken ct)
     {
+        if (config.SoftwareSession is { } session)
+        {
+            using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) };
+            var automatic = await new XingeRemoteAccountService(http)
+                .ProvisionFromSoftwareSessionAsync(session, config.ClientName, ct, config.Settings).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            if (XingeRuntimeConnection.Accept(session, automatic) is null)
+                throw new InvalidOperationException("软件登录已变化，请重新连接 XINGE");
+            config.ApplyCredentials(automatic);
+            return;
+        }
+
         var credentials = await XingeRemoteAccountService
             .ProvisionAsync(config.Settings, ct)
             .ConfigureAwait(false);
 
         var persisted = ClientSettingsStore.Load();
+        ct.ThrowIfCancellationRequested();
+        if (XingeRuntimeConnection.Mode(persisted) != XingeRuntimeConnection.Manual ||
+            XingeRemoteAccountService.ComputeCredentialFingerprint(persisted) != credentials.CredentialFingerprint)
+            throw new InvalidOperationException("手动连接配置已变化，请重新连接 XINGE");
         persisted.XingeClientId = credentials.ClientId;
         persisted.XingeClientToken = credentials.ClientToken;
         persisted.XingeCredentialFingerprint = credentials.CredentialFingerprint;
@@ -791,36 +826,50 @@ public sealed class XingeRemoteCommandService
 
     private sealed class XingeRemoteConfig
     {
-        private XingeRemoteConfig(ClientSettings settings, string baseUrl, TimeSpan pollInterval)
+        private XingeRemoteConfig(ClientSettings settings, string mode, XingeSoftwareSession? session, string baseUrl, TimeSpan pollInterval)
         {
             Settings = settings;
+            Mode = mode;
+            SoftwareSession = session;
             BaseUrl = baseUrl;
-            ClientId = settings.XingeClientId?.Trim() ?? "";
-            ClientToken = settings.XingeClientToken?.Trim() ?? "";
+            var credentials = session is null ? XingeRuntimeConnection.Resolve(settings) : XingeRuntimeConnection.ForSession(session);
+            ClientId = credentials?.ClientId ?? "";
+            ClientToken = credentials?.ClientToken ?? "";
             ClientName = FirstNonEmpty(settings.XingeClientName, "TikTokPublisher");
             PollInterval = pollInterval;
         }
 
         public ClientSettings Settings { get; }
+        public string Mode { get; }
+        public XingeSoftwareSession? SoftwareSession { get; }
+        public DispatchConfirmCoordinator Confirm { get; } = new();
+        public Dictionary<long, XingeRemoteMessage> HeldConfirmMessages { get; } = new();
+        public bool StoppedReclaimDone { get; set; }
+        public string DispatchPauseDate { get; set; } = "";
         public string BaseUrl { get; }
         public string ClientId { get; private set; }
         public string ClientToken { get; private set; }
         public string ClientName { get; }
         public TimeSpan PollInterval { get; }
-        public bool CanProvision => XingeRemoteAccountService.HasPasswordCredentials(Settings);
-        public bool NeedsProvisioning => XingeRemoteAccountService.NeedsProvisioning(Settings);
+        public bool CanProvision => SoftwareSession is not null || (Mode == XingeRuntimeConnection.Manual && XingeRemoteAccountService.HasPasswordCredentials(Settings));
+        public bool NeedsProvisioning => SoftwareSession is not null ? !HasClientCredentials
+            : Mode == XingeRuntimeConnection.Manual && XingeRemoteAccountService.NeedsProvisioning(Settings);
         public bool HasClientCredentials =>
             !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientToken);
 
         public bool IsReady =>
-            !string.IsNullOrWhiteSpace(BaseUrl) &&
+            Mode != XingeRuntimeConnection.Off && !string.IsNullOrWhiteSpace(BaseUrl) &&
             (HasClientCredentials || CanProvision);
 
         public static XingeRemoteConfig FromSettings(ClientSettings settings)
         {
-            var baseUrl = NormalizeBaseUrl(FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl));
+            var mode = XingeRuntimeConnection.Mode(settings);
+            var session = mode == XingeRuntimeConnection.FollowLogin ? XingeRuntimeConnection.ReadSoftwareSession() : null;
+            var baseUrl = mode == XingeRuntimeConnection.Manual
+                ? XingeRuntimeConnection.NormalizeBaseUrl(FirstNonEmpty(settings.XingeServerUrl, settings.AuthServerUrl))
+                : session?.BaseUrl ?? "";
             var intervalSeconds = ClientSettingsDefaults.NormalizeXingePollIntervalSeconds(settings.XingePollIntervalSeconds);
-            return new XingeRemoteConfig(settings, baseUrl, TimeSpan.FromSeconds(intervalSeconds));
+            return new XingeRemoteConfig(settings, mode, session, baseUrl, TimeSpan.FromSeconds(intervalSeconds));
         }
 
         public void ApplyCredentials(XingeRemoteClientCredentials credentials)
@@ -832,15 +881,6 @@ public sealed class XingeRemoteCommandService
             Settings.XingeCredentialFingerprint = credentials.CredentialFingerprint;
         }
 
-        private static string NormalizeBaseUrl(string? value)
-        {
-            var text = (value ?? "").Trim().TrimEnd('/');
-            if (string.IsNullOrWhiteSpace(text))
-                return "";
-            if (!Uri.TryCreate(text, UriKind.Absolute, out _))
-                text = "http://" + text;
-            return text.TrimEnd('/');
-        }
     }
 
     private sealed class XingeRemoteAuthenticationException(string message) : Exception(message);

@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
+using TikTokPublisher.Core.Licensing;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
@@ -9,6 +10,44 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class XingeRemoteAccountServiceTests
 {
+    [Fact]
+    public async Task SoftwareLoginProvisionsFromExistingSessionWithoutLoggingInAgain()
+    {
+        var session = XingeRuntimeConnection.FromLicense(new LicenseState
+        {
+            ServerUrl = "https://xinge.example/",
+            AccountUsername = "software-user",
+            MachineId = "bound-machine",
+            Token = "software-session",
+        })!;
+        using var http = new HttpClient(new StubHandler(async request =>
+        {
+            request.RequestUri!.AbsoluteUri.Should().Be("https://xinge.example/client-api/tt/account/remote-client");
+            using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            var body = json.RootElement;
+            body.GetProperty("token").GetString().Should().Be("software-session");
+            body.GetProperty("machine_id").GetString().Should().Be("bound-machine");
+            body.TryGetProperty("password", out _).Should().BeFalse();
+            body.TryGetProperty("legacy_client_token", out _).Should().BeFalse();
+            return Json(HttpStatusCode.OK, """{"ok":true,"data":{"item":{"client_id":"rc_1"},"client_token":"remote-session"}}""");
+        }));
+
+        var result = await new XingeRemoteAccountService(http).ProvisionFromSoftwareSessionAsync(session, "TikTokPublisher", CancellationToken.None,
+            new ClientSettings { XingeServerUrl = "https://other.example", XingeAccount = "manual", XingePassword = "manual-only", XingeClientId = "rc_old", XingeClientToken = "legacy-only" });
+        result.ClientId.Should().Be("rc_1");
+        result.CredentialFingerprint.Should().Be(session.SessionKey);
+    }
+
+    [Fact]
+    public void MissingModeFollowsLoginAndExplicitOffIgnoresManualCredentials()
+    {
+        var settings = new ClientSettings { XingeServerUrl = "https://other.example", XingeClientId = "rc_old", XingeClientToken = "legacy-only" };
+        XingeRuntimeConnection.Mode(settings).Should().Be(XingeRuntimeConnection.FollowLogin);
+        settings.XingeConnectionMode = XingeRuntimeConnection.Off;
+        XingeRuntimeConnection.Resolve(settings).Should().BeNull();
+        XingeRuntimeConnection.FromLicense(new LicenseState { ServerUrl = "https://xinge.example" }).Should().BeNull();
+    }
+
     [Fact]
     public async Task ProvisionWithHttpAsync_LogsInAndCreatesRemoteClient()
     {

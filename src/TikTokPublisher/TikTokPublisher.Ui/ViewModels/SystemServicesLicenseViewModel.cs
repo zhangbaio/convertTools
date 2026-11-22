@@ -57,6 +57,8 @@ public sealed partial class SystemServicesViewModel
 
         LoginStatus = "登录成功";
         RefreshLicenseSummaryDisplay();
+        CopyXingeToConnection();
+        SettingsSaved?.Invoke();
         StatusRequested?.Invoke("授权登录成功");
     }
 
@@ -67,7 +69,12 @@ public sealed partial class SystemServicesViewModel
         LoginStatus = "正在退出登录...";
         try
         {
-            await LicenseAuthService.LogoutAsync();
+            var logout = LicenseAuthService.LogoutAsync();
+            XingeRuntimeConnection.ClearAutomatic();
+            XingeRuntimeConnection.SetManualAvailable(false);
+            CopyXingeToConnection();
+            SettingsSaved?.Invoke();
+            await logout;
             LoginStatus = "已退出登录";
             RefreshLicenseSummaryDisplay();
             StatusRequested?.Invoke("已退出授权登录");

@@ -190,6 +190,7 @@ public sealed class ClientSettings
     public int TiktokMaximumEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokMaximumEpisodeCount;
     public int TiktokOverLimitDownloadEpisodeCount { get; set; } = ClientSettingsDefaults.TiktokOverLimitDownloadEpisodeCount;
     public bool XingeRemoteEnabled { get; set; }
+    public string XingeConnectionMode { get; set; } = "";
     public string XingeServerUrl { get; set; } = "";
     public string XingeAccount { get; set; } = "";
     public string XingePassword { get; set; } = "";
@@ -360,6 +361,7 @@ public sealed class ClientSettings
         TiktokMaximumEpisodeCount = TiktokMaximumEpisodeCount,
         TiktokOverLimitDownloadEpisodeCount = TiktokOverLimitDownloadEpisodeCount,
         XingeRemoteEnabled = XingeRemoteEnabled,
+        XingeConnectionMode = XingeConnectionMode,
         XingeServerUrl = XingeServerUrl,
         XingeAccount = XingeAccount,
         XingePassword = XingePassword,

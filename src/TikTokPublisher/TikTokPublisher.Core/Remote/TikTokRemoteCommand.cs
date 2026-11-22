@@ -29,7 +29,8 @@ public sealed record TikTokRemoteCommand(
     string DispatchMode = "",
     string DownloadSource = "",
     string SeriesSource = "",
-    bool UseXingeProcessedHistory = false)
+    bool UseXingeProcessedHistory = false,
+    string XingeConnectionScope = "")
 {
     public bool IsRetryQueueCommand =>
         string.Equals(Command, TikTokRemoteCommandNames.RetryQueue, StringComparison.Ordinal);

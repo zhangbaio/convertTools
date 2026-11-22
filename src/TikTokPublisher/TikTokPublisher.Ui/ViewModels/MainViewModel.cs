@@ -154,6 +154,7 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly HashSet<long> _restartStoredStarted = new();
     private readonly HashSet<long> _stoppedThisSession = new();
     private bool _restartResumeChecked;
+    private string? _restartResumeScope;
     private bool _restartResumeConfirmed;
     private bool _restartResumeDismissed;
 
@@ -365,7 +366,12 @@ public sealed partial class MainViewModel : ViewModelBase
 
     public void StartXingeRemoteCommandService() => RestartXingeRemoteCommandService();
 
-    public void StopXingeRemoteCommandService() => _xingeRemoteCommandService.Stop();
+    public void StopXingeRemoteCommandService()
+    {
+        _xingeRemoteCommandService.Stop();
+        XingeRuntimeConnection.ClearAutomatic();
+        XingeRuntimeConnection.SetManualAvailable(false);
+    }
 
     private void RestartXingeRemoteCommandService()
     {
@@ -397,6 +403,16 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private async Task RecoverOpenAutoPublishAsync(IReadOnlyList<XingeRemoteCommandService.XingeOpenAutoPublishAssignment> open)
     {
+        var connectionScope = XingeRuntimeConnection.Resolve(ClientSettingsStore.Load())?.Scope;
+        if (connectionScope is null)
+            return;
+        if (_restartResumeScope != connectionScope)
+        {
+            _restartResumeScope = connectionScope;
+            _restartResumeChecked = false;
+            _restartResumeConfirmed = false;
+            _restartResumeDismissed = false;
+        }
         if (_restartResumeChecked && !_restartResumeConfirmed)
             return;
         if (open.Count == 0)
@@ -416,12 +432,14 @@ public sealed partial class MainViewModel : ViewModelBase
 
         await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
         {
+            if (XingeRuntimeConnection.Resolve(ClientSettingsStore.Load())?.Scope != connectionScope)
+                return;
             if (!_restartResumeChecked)
             {
                 _restartResumeChecked = true;
                 await ConfirmRestartResumeAsync(open, located);
             }
-            if (!_restartResumeConfirmed)
+            if (!_restartResumeConfirmed || XingeRuntimeConnection.Resolve(ClientSettingsStore.Load())?.Scope != connectionScope)
                 return;
 
             foreach (var assignment in open)
@@ -517,7 +535,8 @@ public sealed partial class MainViewModel : ViewModelBase
             $"{XingeAutoPublishProgressReporter.DefaultProgressPathPrefix}{assignment.Id}/progress",
             FirstNonEmptyText(located.Marker?.SeriesId, assignment.SeriesId),
             FirstNonEmptyText(located.Marker?.AccountProfileId, assignment.AccountProfileId),
-            FirstNonEmptyText(located.Marker?.Title, assignment.Title));
+            FirstNonEmptyText(located.Marker?.Title, assignment.Title),
+            FirstNonEmptyText(located.Marker?.ConnectionScope, XingeRuntimeConnection.Resolve(ClientSettingsStore.Load())?.Scope));
         switch (action)
         {
             case XingeAutoPublishRecoveryAction.ReportSuccess:
@@ -643,6 +662,7 @@ public sealed partial class MainViewModel : ViewModelBase
         IReadOnlyList<XingeRemoteAccountSeed> accounts)
     {
         var seenWorkspaces = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var scope = XingeRuntimeConnection.Resolve(ClientSettingsStore.Load())?.Scope;
         var lookupFailed = false;
         foreach (var account in accounts)
         {
@@ -670,11 +690,11 @@ public sealed partial class MainViewModel : ViewModelBase
                 continue;
             }
 
-            var located = FindAutoPublishProjectInItems(assignmentId, accounts, account, workspace, items);
+            var located = FindAutoPublishProjectInItems(assignmentId, accounts, account, workspace, items, scope);
             if (located.ProjectExists)
                 return located;
 
-            located = FindAutoPublishProjectOnDisk(assignmentId, accounts, account, workspace);
+            located = FindAutoPublishProjectOnDisk(assignmentId, accounts, account, workspace, scope);
             if (located.ProjectExists)
                 return located;
             if (located.LookupFailed)
@@ -689,14 +709,15 @@ public sealed partial class MainViewModel : ViewModelBase
         IReadOnlyList<XingeRemoteAccountSeed> accounts,
         XingeRemoteAccountSeed account,
         string workspace,
-        IReadOnlyList<QueueProjectItem> items)
+        IReadOnlyList<QueueProjectItem> items,
+        string? scope)
     {
         foreach (var item in items)
         {
             if (string.IsNullOrWhiteSpace(item.ProjectDir))
                 continue;
             var marker = XingeAutoPublishMarkerStore.TryRead(item.ProjectDir);
-            if (marker is null || marker.AssignmentId != assignmentId)
+            if (marker is null || marker.AssignmentId != assignmentId || !MatchesXingeConnection(marker, scope))
                 continue;
             var owner = accounts.FirstOrDefault(candidate =>
                 string.Equals(candidate.Id, marker.AccountProfileId, StringComparison.OrdinalIgnoreCase)) ?? account;
@@ -711,7 +732,8 @@ public sealed partial class MainViewModel : ViewModelBase
         long assignmentId,
         IReadOnlyList<XingeRemoteAccountSeed> accounts,
         XingeRemoteAccountSeed account,
-        string workspace)
+        string workspace,
+        string? scope)
     {
         IEnumerable<string> children;
         try
@@ -726,7 +748,7 @@ public sealed partial class MainViewModel : ViewModelBase
         foreach (var dir in children)
         {
             var marker = XingeAutoPublishMarkerStore.TryRead(dir);
-            if (marker is null || marker.AssignmentId != assignmentId)
+            if (marker is null || marker.AssignmentId != assignmentId || !MatchesXingeConnection(marker, scope))
                 continue;
             var owner = accounts.FirstOrDefault(candidate =>
                 string.Equals(candidate.Id, marker.AccountProfileId, StringComparison.OrdinalIgnoreCase)) ?? account;
@@ -735,6 +757,9 @@ public sealed partial class MainViewModel : ViewModelBase
 
         return new AutoPublishProjectLocation(null, false, "", "", "", "");
     }
+
+    private static bool MatchesXingeConnection(XingeAutoPublishMarker marker, string? scope) =>
+        string.IsNullOrEmpty(marker.ConnectionScope) || marker.ConnectionScope == scope;
 
     private static bool LocalAutoPublishMarkerExists(long assignmentId, AutoPublishProjectLocation located)
     {
@@ -836,6 +861,7 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private IReadOnlyList<long> LocalStoppedAssignmentIds()
     {
+        var scope = XingeRuntimeConnection.Resolve(ClientSettingsStore.Load())?.Scope;
         IReadOnlyList<XingeRemoteAccountSeed> seeds;
         if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
             seeds = CaptureXingeAccountSeeds();
@@ -870,8 +896,8 @@ public sealed partial class MainViewModel : ViewModelBase
             foreach (var dir in children)
             {
                 var marker = XingeAutoPublishMarkerStore.TryRead(dir);
-                if (XingeAutoPublishRecovery.ShouldReclaimOnRestart(marker))
-                    ids.Add(marker!.AssignmentId);
+                if (marker is not null && MatchesXingeConnection(marker, scope) && XingeAutoPublishRecovery.ShouldReclaimOnRestart(marker))
+                    ids.Add(marker.AssignmentId);
             }
         }
 

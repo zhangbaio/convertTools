@@ -47,7 +47,8 @@ public sealed record XingeAutoPublishAssignment(
     string ProgressPath,
     string SeriesId,
     string AccountProfileId,
-    string Title)
+    string Title,
+    string ConnectionScope = "")
 {
     public static XingeAutoPublishAssignment? FromCommand(TikTokRemoteCommand command)
     {
@@ -59,7 +60,8 @@ public sealed record XingeAutoPublishAssignment(
             command.AutoPublishProgressPath.Trim(),
             spec?.SeriesId ?? "",
             command.AccountProfileId.Trim(),
-            spec?.Title ?? command.Titles?.FirstOrDefault() ?? "");
+            spec?.Title ?? command.Titles?.FirstOrDefault() ?? "",
+            command.XingeConnectionScope);
     }
 }
 
@@ -72,6 +74,7 @@ public sealed record XingeAutoPublishProgress(
     string FailureKind = "")
 {
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
+    public string ConnectionScope { get; init; } = "";
 
     public static XingeAutoPublishProgress For(
         XingeAutoPublishAssignment assignment,
@@ -79,7 +82,10 @@ public sealed record XingeAutoPublishProgress(
         string step = "",
         string detail = "",
         string failureKind = "") =>
-        new(assignment.AssignmentId, assignment.ProgressPath, status, step, detail, failureKind);
+        new(assignment.AssignmentId, assignment.ProgressPath, status, step, detail, failureKind)
+        {
+            ConnectionScope = assignment.ConnectionScope,
+        };
 }
 
 public sealed class XingeAutoPublishMarker
@@ -99,6 +105,9 @@ public sealed class XingeAutoPublishMarker
     [JsonPropertyName("title")]
     public string Title { get; set; } = "";
 
+    [JsonPropertyName("connection_scope")]
+    public string ConnectionScope { get; set; } = "";
+
     [JsonPropertyName("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 
@@ -114,7 +123,7 @@ public sealed class XingeAutoPublishMarker
     public bool IsActive => AssignmentId > 0 && string.IsNullOrWhiteSpace(FinalStatus);
 
     public XingeAutoPublishAssignment ToAssignment() =>
-        new(AssignmentId, ProgressPath, SeriesId, AccountProfileId, Title);
+        new(AssignmentId, ProgressPath, SeriesId, AccountProfileId, Title, ConnectionScope);
 }
 
 public static class XingeAutoPublishMarkerStore
@@ -134,6 +143,7 @@ public static class XingeAutoPublishMarkerStore
             SeriesId = assignment.SeriesId,
             AccountProfileId = assignment.AccountProfileId,
             Title = assignment.Title,
+            ConnectionScope = assignment.ConnectionScope,
             CreatedAt = createdAt ?? DateTimeOffset.Now,
         };
         Save(projectDir, marker);
