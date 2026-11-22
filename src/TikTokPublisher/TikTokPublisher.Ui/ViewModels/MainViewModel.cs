@@ -287,7 +287,7 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
         DramaDownload.TikTokQueueTargetsRequested += ListTikTokQueueImportTargets;
         DramaDownload.AccountProfileRequested += accountId => FindAccountById(accountId)?.Model;
-        DramaDownload.ExistenceAccountRequested += () => SelectedAccount?.Model;
+        DramaDownload.ExistenceAccountsRequested += () => Accounts.Select(item => item.Model).ToArray();
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
     }
@@ -342,7 +342,7 @@ public sealed partial class MainViewModel : ViewModelBase
         DramaDownload.TikTokQueueTargetRequested += CaptureSelectedAccountQueueImportTarget;
         DramaDownload.TikTokQueueTargetsRequested += ListTikTokQueueImportTargets;
         DramaDownload.AccountProfileRequested += accountId => FindAccountById(accountId)?.Model;
-        DramaDownload.ExistenceAccountRequested += () => SelectedAccount?.Model;
+        DramaDownload.ExistenceAccountsRequested += () => Accounts.Select(item => item.Model).ToArray();
         UpdateDramaDownloadQueueTarget();
         WireQueueOrchestrator();
     }
@@ -5378,8 +5378,8 @@ public sealed partial class MainViewModel : ViewModelBase
         if (SelectedAccount?.Id == profile.Id)
         {
             RefreshWorkspaceFromActiveAccount();
-            UpdateDramaDownloadQueueTarget();
         }
+        UpdateDramaDownloadQueueTarget();
         AccountProfileNetworkChanged?.Invoke(profile);
     }
 

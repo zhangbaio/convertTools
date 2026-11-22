@@ -39,12 +39,51 @@ public sealed record DramaDownloadExistenceResult(
 
     public static DramaExistenceTone ToneFor(string? text)
     {
+        if (text?.StartsWith(DramaDownloadAllAccountsExistenceResult.PresentPrefix, StringComparison.Ordinal) == true)
+            return DramaExistenceTone.Present;
         var parts = (text ?? "").Split('、', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Any(part => part is "已归档" or "管理系统"))
             return DramaExistenceTone.Present;
         if (parts.Length == 1 && parts[0] == "不存在")
             return DramaExistenceTone.Absent;
         return DramaExistenceTone.Unknown;
+    }
+}
+
+public sealed record DramaDownloadAccountExistence(string AccountName, DramaDownloadExistenceResult Result);
+
+public sealed record DramaDownloadAllAccountsExistenceResult(
+    IReadOnlyList<DramaDownloadAccountExistence> Accounts,
+    IReadOnlySet<string> UnassignedArchiveKeys)
+{
+    internal const string PresentPrefix = "已存在 · ";
+
+    public string LabelFor(string? title)
+    {
+        var key = AiRewriteHistoryService.NormalizeTitleKey(title);
+        if (key.Length == 0)
+            return "-";
+        if (Accounts.Count == 0)
+            return "未配置 TikTok 账号";
+
+        var hits = new List<string>();
+        foreach (var (accountName, result) in Accounts)
+        {
+            var inArchive = result.ArchiveChecked && result.ArchiveKeys.Contains(key);
+            var inManagement = result.ManagementChecked && result.ManagementKeys.Contains(key);
+            if (inArchive || inManagement)
+            {
+                var sources = DramaDownloadExistenceResult.Format(true, inArchive, true, inManagement);
+                hits.Add($"{accountName}（{sources}）");
+            }
+        }
+        if (UnassignedArchiveKeys.Contains(key))
+            hits.Add("归属未标记的归档");
+
+        var incomplete = Accounts.Any(account => !account.Result.ArchiveChecked || !account.Result.ManagementChecked);
+        if (hits.Count == 0)
+            return incomplete ? "未核对完整" : "不存在";
+        return PresentPrefix + string.Join("、", hits) + (incomplete ? " · 部分来源未核对" : "");
     }
 }
 
@@ -57,6 +96,86 @@ public enum DramaExistenceTone
 
 public static class DramaDownloadExistenceService
 {
+    public static Task<DramaDownloadAllAccountsExistenceResult> CheckAllAsync(
+        IReadOnlyList<string> titles, IReadOnlyList<TikTokAccountProfile> accounts, CancellationToken cancellationToken) =>
+        CheckAllAsync(titles, accounts, LoadManagementAsync, cancellationToken);
+
+    internal static async Task<DramaDownloadAllAccountsExistenceResult> CheckAllAsync(
+        IReadOnlyList<string> titles,
+        IReadOnlyList<TikTokAccountProfile> accounts,
+        Func<IReadOnlyList<string>, TikTokAccountProfile?, CancellationToken,
+            Task<(bool Checked, string Message, HashSet<string> Keys)>> loadManagement,
+        CancellationToken cancellationToken)
+    {
+        var locations = await Task.Run(() => accounts
+            .DistinctBy(account => FirstNonEmpty(account.Id, account.ResolveTikTokAccountName(), account.DisplayName),
+                StringComparer.OrdinalIgnoreCase)
+            .Select(account =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var workspace = account.ResolveWorkspacePath();
+                return (Account: account, Workspace: workspace,
+                    Root: Path.TrimEndingDirectorySeparator(account.ResolveArchiveRootPath(workspace)));
+            }).ToArray(), cancellationToken).ConfigureAwait(false);
+        var sharedRoots = FindDuplicates(locations.Select(location => location.Root));
+        var duplicateNames = FindDuplicates(locations.Select(location => location.Account.DisplayName));
+        var results = new DramaDownloadAccountExistence[locations.Length];
+        var unassigned = new HashSet<string>[locations.Length];
+
+        await Parallel.ForEachAsync(Enumerable.Range(0, locations.Length), new ParallelOptions
+        {
+            MaxDegreeOfParallelism = 3,
+            CancellationToken = cancellationToken,
+        }, async (index, ct) =>
+        {
+            var (account, workspace, root) = locations[index];
+            var archive = ReadArchive(workspace, root);
+            var archiveKeys = new HashSet<string>(StringComparer.Ordinal);
+            var unassignedKeys = new HashSet<string>(StringComparer.Ordinal);
+            var shared = sharedRoots.Contains(root);
+            foreach (var item in archive.Items)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!string.IsNullOrEmpty(item.ArchiveSource) &&
+                    !string.Equals(item.ArchiveSource, "tiktok", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (shared && string.IsNullOrWhiteSpace(item.AccountProfileId) &&
+                    (string.IsNullOrWhiteSpace(item.AccountProfileName) || duplicateNames.Contains(item.AccountProfileName)))
+                {
+                    AddArchiveKeys(unassignedKeys, item);
+                }
+                else if (TikTokArchivedProjectService.MatchesAccount(item, account.Id, account.DisplayName, allowUnassigned: !shared))
+                {
+                    AddArchiveKeys(archiveKeys, item);
+                }
+            }
+
+            (bool Checked, string Message, HashSet<string> Keys) management;
+            try
+            {
+                management = await loadManagement(titles, account, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                management = (false, ex is OperationCanceledException ? "连接管理系统超时" : ex.Message, []);
+            }
+            var name = duplicateNames.Contains(account.DisplayName) && !string.IsNullOrWhiteSpace(account.Id)
+                ? $"{account.DisplayName} [{account.Id}]" : account.DisplayName;
+            results[index] = new(name, new DramaDownloadExistenceResult(
+                archive.Checked, archive.Message, management.Checked, management.Message, archiveKeys, management.Keys));
+            unassigned[index] = unassignedKeys;
+        }).ConfigureAwait(false);
+
+        return new(results, unassigned.SelectMany(keys => keys).ToHashSet(StringComparer.Ordinal));
+    }
+
+    private static HashSet<string> FindDuplicates(IEnumerable<string> values) =>
+        values.Where(value => value.Length != 0)
+            .GroupBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Skip(1).Any())
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
     public static async Task<DramaDownloadExistenceResult> CheckAsync(
         IReadOnlyList<string> titles,
         TikTokAccountProfile? account,
@@ -79,37 +198,36 @@ public static class DramaDownloadExistenceService
             return (false, "没有选中 TikTok 账号", new HashSet<string>(StringComparer.Ordinal));
 
         var workspace = account.ResolveWorkspacePath();
-        if (string.IsNullOrWhiteSpace(workspace))
-            return (false, "当前账号没有上传工作目录", new HashSet<string>(StringComparer.Ordinal));
+        var archive = ReadArchive(workspace, account.ResolveArchiveRootPath(workspace));
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in archive.Items)
+            AddArchiveKeys(keys, item);
+        return (archive.Checked, archive.Message, keys);
+    }
 
-        string archiveRoot;
-        try
-        {
-            archiveRoot = account.ResolveArchiveRootPath(workspace);
-        }
-        catch (Exception ex)
-        {
-            return (false, ex.Message, new HashSet<string>(StringComparer.Ordinal));
-        }
+    private static (bool Checked, string Message, IReadOnlyList<ArchivedProjectItem> Items) ReadArchive(
+        string workspace, string archiveRoot)
+    {
+        if (string.IsNullOrWhiteSpace(workspace))
+            return (false, "当前账号没有上传工作目录", []);
 
         if (string.IsNullOrWhiteSpace(archiveRoot) || !Directory.Exists(archiveRoot))
-            return (false, "当前账号没有归档目录", new HashSet<string>(StringComparer.Ordinal));
+            return (false, "当前账号没有归档目录", []);
 
         try
         {
-            var keys = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var item in TikTokArchivedProjectService.ListForNewTitleCheck(workspace, archiveRoot))
-            {
-                AddKey(keys, item.OriginalTitle);
-                AddKey(keys, Path.GetFileName(item.ArchiveProjectDir));
-            }
-
-            return (true, "", keys);
+            return (true, "", TikTokArchivedProjectService.ListForNewTitleCheck(workspace, archiveRoot));
         }
         catch (Exception ex)
         {
-            return (false, ex.Message, new HashSet<string>(StringComparer.Ordinal));
+            return (false, ex.Message, []);
         }
+    }
+
+    private static void AddArchiveKeys(ISet<string> keys, ArchivedProjectItem item)
+    {
+        AddKey(keys, item.OriginalTitle);
+        AddKey(keys, Path.GetFileName(item.ArchiveProjectDir));
     }
 
     private static async Task<(bool Checked, string Message, HashSet<string> Keys)> LoadManagementAsync(

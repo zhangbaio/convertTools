@@ -316,7 +316,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private CancellationTokenSource? _newReleaseCts;
     private long _searchGeneration;
     private bool _isLoadingState;
-    private int _existenceGeneration;
+    private CancellationTokenSource? _existenceCancellation;
     private string _existenceSignature = "";
     private bool _rankReloadPending;
     private bool _rankHasMore = true;
@@ -432,7 +432,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     public Func<IReadOnlyList<TikTokQueueImportTarget>, string?, Task<IReadOnlyList<TikTokQueueImportTarget>?>>? PickTikTokQueueTargetsAsync { get; set; }
     public Func<string, Task<bool?>>? ConfirmDuplicateQueueAsync { get; set; }
     public event Func<string, TikTokAccountProfile?>? AccountProfileRequested;
-    public event Func<TikTokAccountProfile?>? ExistenceAccountRequested;
+    public event Func<IReadOnlyList<TikTokAccountProfile>>? ExistenceAccountsRequested;
 
     public void UpdateTikTokQueueTarget(TikTokQueueImportTarget? target)
     {
@@ -440,7 +440,6 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
             ? $"目标账号：未配置{QueuePlatformLabel}上传工作目录"
             : $"目标账号：{target.AccountProfileName} · {target.WorkspaceRoot}";
         SetProperty(ref _singleQueueTargetText, targetText, nameof(TikTokQueueTargetText));
-        _existenceSignature = "";
         ScheduleExistenceCheck();
     }
 
@@ -1483,6 +1482,7 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
         try
         {
             var items = await loader(CancellationToken.None);
+            _existenceSignature = "";
             _allSearchResults.Clear();
             foreach (var item in items)
             {
@@ -1589,41 +1589,77 @@ public sealed partial class DramaDownloadViewModel : ViewModelBase
     private void ScheduleExistenceCheck()
     {
         var titles = SearchResults.Select(row => row.Item.Title).ToArray();
-        var signature = string.Join("\n", titles);
+        if (titles.Length == 0)
+        {
+            _existenceCancellation?.Cancel();
+            _existenceCancellation = null;
+            _existenceSignature = "";
+            return;
+        }
+
+        var accounts = (ExistenceAccountsRequested?.Invoke() ?? []).Select(account => new TikTokAccountProfile
+        {
+            Id = account.Id,
+            Name = account.Name,
+            TiktokAccountNickname = account.TiktokAccountNickname,
+            TiktokLoginEmail = account.TiktokLoginEmail,
+            TiktokLastLoginEmail = account.TiktokLastLoginEmail,
+            TiktokUploadProfilePath = account.TiktokUploadProfilePath,
+            LastWorkspace = account.LastWorkspace,
+            TiktokArchiveRootDir = account.TiktokArchiveRootDir,
+        }).ToArray();
+        var accountSignature = string.Join('\n', accounts.Select(account =>
+            string.Join('\u001f', account.Id, account.DisplayName, account.ResolveTikTokAccountName(),
+                account.TiktokUploadProfilePath, account.LastWorkspace, account.TiktokArchiveRootDir)));
+        var signature = string.Join('\n', titles) + "\u001e" + accountSignature;
         if (string.Equals(signature, _existenceSignature, StringComparison.Ordinal) &&
-            SearchResults.All(row => row.ExistenceText != "核对中"))
+            (_existenceCancellation is not null || SearchResults.All(row => row.ExistenceText != "核对中")))
             return;
 
         _existenceSignature = signature;
-        var generation = Interlocked.Increment(ref _existenceGeneration);
+        _existenceCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _existenceCancellation = cancellation;
         foreach (var row in SearchResults)
             row.ExistenceText = "核对中";
-        _ = ApplyExistenceAsync(generation, titles);
+        _ = ApplyExistenceAsync(titles, accounts, cancellation);
     }
 
-    private async Task ApplyExistenceAsync(int generation, IReadOnlyList<string> titles)
+    private async Task ApplyExistenceAsync(
+        IReadOnlyList<string> titles, IReadOnlyList<TikTokAccountProfile> accounts, CancellationTokenSource cancellation)
     {
         try
         {
-            var account = ExistenceAccountRequested?.Invoke();
-            var result = await DramaDownloadExistenceService.CheckAsync(titles, account, CancellationToken.None)
+            var result = await DramaDownloadExistenceService.CheckAllAsync(titles, accounts, cancellation.Token)
                 .ConfigureAwait(true);
-            if (generation != _existenceGeneration)
+            if (!ReferenceEquals(_existenceCancellation, cancellation))
                 return;
             foreach (var row in SearchResults)
                 row.ExistenceText = result.LabelFor(row.Item.Title);
-            if (!result.ArchiveChecked && result.ArchiveMessage.Length > 0)
-                LogRequested?.Invoke($"归档是否已存在未核对：{result.ArchiveMessage}");
-            if (!result.ManagementChecked && result.ManagementMessage.Length > 0)
-                LogRequested?.Invoke($"管理系统是否已存在未核对：{result.ManagementMessage}");
+            foreach (var (name, check) in result.Accounts)
+            {
+                if (!check.ArchiveChecked && check.ArchiveMessage.Length > 0)
+                    LogRequested?.Invoke($"「{name}」归档未核对 · {check.ArchiveMessage}");
+                if (!check.ManagementChecked && check.ManagementMessage.Length > 0)
+                    LogRequested?.Invoke($"「{name}」管理系统未核对 · {check.ManagementMessage}");
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
         }
         catch (Exception ex)
         {
-            if (generation != _existenceGeneration)
+            if (!ReferenceEquals(_existenceCancellation, cancellation))
                 return;
             foreach (var row in SearchResults)
-                row.ExistenceText = DramaDownloadExistenceResult.Format(false, false, false, false);
+                row.ExistenceText = "未核对完整";
             LogRequested?.Invoke($"是否已存在未核对：{ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_existenceCancellation, cancellation))
+                _existenceCancellation = null;
+            cancellation.Dispose();
         }
     }
 
