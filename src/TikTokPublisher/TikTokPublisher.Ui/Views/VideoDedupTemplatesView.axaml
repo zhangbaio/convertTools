@@ -1,0 +1,39 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:TikTokPublisher.Ui.Views"
+             x:Class="TikTokPublisher.Ui.Views.VideoDedupTemplatesView">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://TikTokPublisher.Ui/Themes/ConfigurationFormStyles.axaml" />
+    </UserControl.Styles>
+    <Grid x:Name="WorkspaceForm" RowDefinitions="Auto,*,Auto" RowSpacing="8" Margin="10,8,10,8">
+        <StackPanel Spacing="8">
+            <TextBlock x:Name="AccountSummary" TextWrapping="Wrap" Classes="pageSummary" />
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                <ComboBox x:Name="TemplatePicker" Classes="configurationInput" HorizontalAlignment="Stretch"
+                          AutomationProperties.Name="视频去重模板" SelectionChanged="OnTemplateSelectionChanged" />
+                <Button Grid.Column="1" Content="新建模板" Click="OnNewTemplateClick"
+                        ToolTip.Tip="以当前方案为基础新建模板" />
+                <Button x:Name="ApplyTemplateButton" Grid.Column="2" Content="应用到当前账号" Click="OnApplyTemplateClick" />
+            </Grid>
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="模板名称" VerticalAlignment="Center" />
+                <TextBox x:Name="TemplateNameBox" Grid.Column="1" Classes="configurationInput"
+                         AutomationProperties.Name="模板名称" Watermark="请输入自定义模板名称" />
+                <Button x:Name="RenameTemplateButton" Grid.Column="2" Content="重命名" Click="OnRenameTemplateClick" />
+                <Button x:Name="DeleteTemplateButton" Grid.Column="3" Content="删除模板" Classes="dangerAction"
+                        Click="OnDeleteTemplateClick" />
+            </Grid>
+            <TextBlock x:Name="TemplateSummary" Classes="pageSummary" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <views:VideoDedupPresetEditor x:Name="PresetEditor" Grid.Row="1" />
+
+        <Border Grid.Row="2" Classes="controlsFrame" Padding="10,8">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBlock x:Name="FeedbackText" Classes="pageSummary" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button x:Name="SaveTemplateButton" Grid.Column="1" Content="保存模板" Classes="primaryAction"
+                        Click="OnSaveTemplateClick" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

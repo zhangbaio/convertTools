@@ -79,6 +79,7 @@ public partial class MainWindow : Window
         MaterialClipPage.BindWeixinExport(SendClippedMaterialsToWeixinAsync);
         AccountsView.Bind(_viewModel);
         AccountsView.UseWorkspaceNavigation();
+        DedupTemplatesView.Bind(_viewModel);
         TikTokBasicSettingsButton.IsVisible = AccountsView.HasWorkspacePage("基础设置");
         KuaishouWorkspace.SettingsRequested += () => NavigateTo("settings");
         KuaishouWorkspace.RuntimeChanged += () =>
@@ -695,10 +696,14 @@ public partial class MainWindow : Window
 
     private bool IsTikTokBrowserActive => _activeNavTag == "queue" && _tikTokSubPage == "browser";
 
-    private Task<bool> ConfirmTikTokAccountChangeAsync() =>
-        _activeNavTag == "queue" && IsTikTokConfigurationPage(_tikTokSubPage)
-            ? AccountsView.TryLeaveAsync(this)
-            : Task.FromResult(true);
+    private Task<bool> ConfirmTikTokAccountChangeAsync()
+    {
+        if (_activeNavTag != "queue")
+            return Task.FromResult(true);
+        if (_tikTokSubPage == "dedup")
+            return DedupTemplatesView.TryLeaveAsync(this);
+        return IsTikTokConfigurationPage(_tikTokSubPage) ? AccountsView.TryLeaveAsync(this) : Task.FromResult(true);
+    }
 
     private static bool IsTikTokConfigurationPage(string page) =>
         page is "accounts" or "basics";
@@ -718,8 +723,9 @@ public partial class MainWindow : Window
             if (_activeNavTag == "kuaishou" && tag != "kuaishou" &&
                 !await KuaishouWorkspace.TryLeaveAsync(this))
                 return;
-            if ((tag != "queue" || (tikTokSubPage is not null && !IsTikTokConfigurationPage(tikTokSubPage))) &&
-                !await ConfirmTikTokAccountChangeAsync())
+            var staysOnEditor = tag == "queue" && (tikTokSubPage is null || tikTokSubPage == _tikTokSubPage ||
+                (IsTikTokConfigurationPage(_tikTokSubPage) && IsTikTokConfigurationPage(tikTokSubPage)));
+            if (!staysOnEditor && !await ConfirmTikTokAccountChangeAsync())
                 return;
             if (tikTokSubPage is not null)
                 _tikTokSubPage = tikTokSubPage;
@@ -752,6 +758,7 @@ public partial class MainWindow : Window
     {
         var browserActive = IsTikTokBrowserActive;
         var tikTokActive = tag == "queue";
+        var dedupActive = tikTokActive && _tikTokSubPage == "dedup";
         var kuaishouActive = tag == "kuaishou";
         var showUploadWorkspaces = tikTokActive || kuaishouActive;
         const int activeZ = 10;
@@ -761,6 +768,12 @@ public partial class MainWindow : Window
         MaterialClipPage.IsVisible = tag == "material-clip";
         MaterialClipPage.ZIndex = tag == "material-clip" ? activeZ : inactiveZ;
         SetUploadWorkspacePresentation(TikTokWorkspace, showUploadWorkspaces, tikTokActive);
+        if (DedupTemplatesView.IsVisible != dedupActive)
+        {
+            DedupTemplatesView.IsVisible = dedupActive;
+            if (dedupActive)
+                DedupTemplatesView.RefreshSelectedAccount();
+        }
         SetUploadWorkspacePresentation(KuaishouWorkspace, showUploadWorkspaces, kuaishouActive);
         WeixinWorkspace.IsVisible = tag == "weixin";
         if (WeixinWorkspace.IsVisible)

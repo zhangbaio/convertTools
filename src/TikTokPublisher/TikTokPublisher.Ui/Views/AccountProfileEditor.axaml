@@ -135,16 +135,6 @@
                             <views:CopyrightMaterialSelector x:Name="CopyrightMaterials" />
 
                             <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
-                            <TextBlock Text="视频去重" Classes="configurationHeading" />
-                            <Grid x:Name="DedupTemplateSection" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                <ComboBox x:Name="DedupTemplatePicker" Classes="configurationInput" HorizontalAlignment="Stretch"
-                                          AutomationProperties.Name="视频去重模板" SelectionChanged="OnDedupTemplateSelectionChanged" />
-                                <Button Grid.Column="1" Content="新建模板" Click="OnNewDedupTemplateClick" />
-                                <Button x:Name="EditDedupTemplateButton" Grid.Column="2" Content="编辑" Click="OnEditDedupTemplateClick" />
-                            </Grid>
-                            <TextBlock x:Name="DedupTemplateSummary" Classes="pageSummary" TextWrapping="Wrap" />
-
-                            <Border Height="1" Background="#E4E9F0" Margin="0,8,12,0" />
                             <TextBlock Text="剧集与版权" FontSize="15" FontWeight="SemiBold" Margin="0,8,0,0" />
 
                             <UniformGrid Classes="publishRow" Columns="2">

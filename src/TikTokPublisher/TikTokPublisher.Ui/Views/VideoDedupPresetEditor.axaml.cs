@@ -139,9 +139,18 @@ public partial class VideoDedupPresetEditor : UserControl
         HighGainBox.Value = (decimal)value.AudioHighGainDb;
     }
 
-    internal void SetReadOnly() => DedupForm.IsEnabled = false;
+    internal void SetReadOnly(bool readOnly) => DedupForm.IsEnabled = !readOnly;
 
     public VideoDedupPreset Read()
+    {
+        var preset = CaptureDraft();
+        var durationError = preset.DurationRangeError();
+        if (durationError is not null)
+            throw new InvalidOperationException(durationError);
+        return preset;
+    }
+
+    internal VideoDedupPreset CaptureDraft()
     {
         var resolution = SelectedResolution();
         var preset = new VideoDedupPreset
@@ -208,9 +217,6 @@ public partial class VideoDedupPresetEditor : UserControl
         };
         ReadComposition(preset.Effects);
         preset.Normalize();
-        var durationError = preset.DurationRangeError();
-        if (durationError is not null)
-            throw new InvalidOperationException(durationError);
         return preset;
     }
 
