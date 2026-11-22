@@ -65,8 +65,7 @@ public static class TikTokTodayUploadCountService
         {
             foreach (var item in TikTokArchivedProjectService.ListStored(workspace, archiveRootDir))
             {
-                var completedAt = FirstNonEmpty(item.UploadCompletedAt, item.ArchivedAt);
-                Add(item.AccountProfileId, FirstNonEmpty(item.SourceProjectDir, item.ArchivedSourceDir, item.ArchiveProjectDir), item.OriginalTitle, item.NewTitle, item.DisplayName, completedAt);
+                Add(item.AccountProfileId, FirstNonEmpty(item.SourceProjectDir, item.ArchivedSourceDir, item.ArchiveProjectDir), item.OriginalTitle, item.NewTitle, item.DisplayName, item.UploadCompletedAt);
             }
         }
 
@@ -90,7 +89,7 @@ public static class TikTokTodayUploadCountService
     private static readonly ConcurrentDictionary<string, (DateTime WriteTimeUtc, string SeriesId)> ProjectBookIdCache =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private static string ReadProjectBookId(string? projectDir)
+    internal static string ReadProjectBookId(string? projectDir)
     {
         if (string.IsNullOrWhiteSpace(projectDir))
             return "";

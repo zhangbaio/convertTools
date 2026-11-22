@@ -227,6 +227,13 @@ public static class TikTokRemoteCommandParser
                 // 兼容仅下发 series（无 titles）的情况：从 series 补齐剧名列表。
                 if (titles.Count == 0 && series.Count > 0)
                     titles = NormalizeTitles(series.Select(spec => (object?)spec.Title));
+                if (series.Count == 0 && titles.Count == 1)
+                {
+                    var seriesId = FirstString(root, "series_id");
+                    var episodes = GetPositiveLong(root, "episodes");
+                    if (seriesId.Length > 0 || episodes is > 0 and <= int.MaxValue)
+                        series = [new TikTokUploadSeriesSpec(titles[0], episodes is > 0 and <= int.MaxValue ? (int)episodes : 0, seriesId)];
+                }
                 return new TikTokRemoteCommand(
                     TikTokRemoteCommandNames.UploadSeries,
                     Titles: titles,
@@ -244,7 +251,8 @@ public static class TikTokRemoteCommandParser
                     AutoPublishProgressPath: FirstString(root, "auto_publish_progress_path"),
                     LookupMode: NormalizeLookupMode(FirstString(root, "lookup_mode")),
                     DispatchMode: QueueProjectSlotCoordinator.NormalizeServerDispatchMode(FirstString(root, "dispatch_mode")),
-                    DownloadSource: NormalizeDownloadSource(FirstString(root, "download_source")));
+                    DownloadSource: NormalizeDownloadSource(FirstString(root, "download_source")),
+                    SeriesSource: FirstString(root, "source"));
             }
 
             if (commandName is "tiktok_start_queue" or "start_tiktok_queue")

@@ -1,4 +1,5 @@
 using TikTokPublisher.Core.Queue;
+using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Remote;
 
@@ -26,7 +27,9 @@ public sealed record TikTokRemoteCommand(
     IReadOnlyList<TikTokRetryQueueItem>? RetryItems = null,
     string LookupMode = "",
     string DispatchMode = "",
-    string DownloadSource = "")
+    string DownloadSource = "",
+    string SeriesSource = "",
+    bool UseXingeProcessedHistory = false)
 {
     public bool IsRetryQueueCommand =>
         string.Equals(Command, TikTokRemoteCommandNames.RetryQueue, StringComparison.Ordinal);
@@ -73,7 +76,8 @@ public sealed record TikTokRemoteCommandResult(
     string SummaryText,
     string Command = "",
     string ReplyMessageType = TikTokRemoteReplyMessageTypes.Text,
-    string ReplyContent = "")
+    string ReplyContent = "",
+    IReadOnlyList<XingeTikTokProcessedFact>? ProcessedSeries = null)
 {
     public static TikTokRemoteCommandResult Accepted(string command, string summary) =>
         new("accepted", summary, command, TikTokRemoteReplyMessageTypes.Text, summary);

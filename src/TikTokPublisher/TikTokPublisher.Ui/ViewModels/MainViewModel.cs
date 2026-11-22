@@ -755,14 +755,40 @@ public sealed partial class MainViewModel : ViewModelBase
         string AccountName,
         bool LookupFailed = false);
 
-    private Task<TikTokRemoteCommandResult> ExecuteXingeRemoteCommandAsync(TikTokRemoteCommand command)
+    private async Task<TikTokRemoteCommandResult> ExecuteXingeRemoteCommandAsync(TikTokRemoteCommand command)
     {
+        if (command.IsUploadCommand)
+        {
+            var seeds = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(CaptureXingeAccountSeeds);
+            var facts = await Task.Run(() => XingeTikTokProcessedSeries.Collect(seeds)).ConfigureAwait(false);
+            var source = FirstNonEmptyText(command.DownloadSource, command.SeriesSource);
+            var specs = command.Series is { Count: > 0 }
+                ? command.Series
+                : (command.Titles ?? []).Select(title => new TikTokUploadSeriesSpec(title)).ToArray();
+            var remaining = new List<TikTokUploadSeriesSpec>();
+            var duplicates = new HashSet<XingeTikTokProcessedFact>();
+            foreach (var item in specs)
+            {
+                var matches = XingeTikTokProcessedSeries.FindMatches(item, source, facts);
+                if (matches.Count == 0)
+                    remaining.Add(item);
+                else
+                    duplicates.UnionWith(matches);
+            }
+            if (duplicates.Count > 0 && remaining.Count == 0)
+                return new TikTokRemoteCommandResult("duplicate_skipped", "重复跳过：客户端已有上传或归档记录", command.Command, ProcessedSeries: duplicates.Take(250).ToArray());
+            if (duplicates.Count > 0)
+                command = command with { Series = remaining, Titles = remaining.Select(item => item.Title).ToArray() };
+            command = command with { UseXingeProcessedHistory = true };
+        }
         if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
-            return ExecuteRemoteCommandAsync(command);
+            return await ExecuteRemoteCommandAsync(command);
 
-        return Avalonia.Threading.Dispatcher.UIThread
+        return await Avalonia.Threading.Dispatcher.UIThread
             .InvokeAsync(() => ExecuteRemoteCommandAsync(command));
     }
+
+    private DateTimeOffset _lastXingeProcessedScanAt;
 
     private async Task<XingeRemoteRegistrationSnapshot> BuildXingeRemoteRegistrationSnapshotAsync(CancellationToken ct)
     {
@@ -770,7 +796,20 @@ public sealed partial class MainViewModel : ViewModelBase
         ct.ThrowIfCancellationRequested();
         var settings = ClientSettingsStore.Load();
         var uploaded = await Task.Run(() => ScanUploadedToday(captured.Accounts), ct).ConfigureAwait(false);
-        return ComposeXingeRegistrationSnapshot(captured, settings, uploaded);
+        var snapshot = ComposeXingeRegistrationSnapshot(captured, settings, uploaded);
+        if (DateTimeOffset.UtcNow - _lastXingeProcessedScanAt < TimeSpan.FromMinutes(2))
+            return snapshot;
+        try
+        {
+            var facts = await Task.Run(() => XingeTikTokProcessedSeries.Collect(captured.Accounts), ct).ConfigureAwait(false);
+            _lastXingeProcessedScanAt = DateTimeOffset.UtcNow;
+            return snapshot with { ProcessedSeries = facts };
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            AppendLog("读取 TikTok 上传和归档历史失败，下次连接将重试。");
+            return snapshot;
+        }
     }
 
     private readonly record struct XingeRegistrationCapture(
@@ -3386,7 +3425,8 @@ public sealed partial class MainViewModel : ViewModelBase
                 forcedSeriesId: autoPublish.Assignment.SeriesId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(importChain, "dramabox", StringComparison.OrdinalIgnoreCase)
                     ? autoPublish.Assignment.SeriesId
-                    : "");
+                    : "",
+                useXingeProcessedHistory: command.UseXingeProcessedHistory);
             var result = importOutcome.ImportResult;
             if (result.ProjectDirs.Count == 0)
             {
@@ -3936,7 +3976,8 @@ public sealed partial class MainViewModel : ViewModelBase
             finalAction,
             allowAppendToRunningQueue: command.AutoRun,
             CancellationToken.None,
-            autoPublish: autoPublish);
+            autoPublish: autoPublish,
+            useXingeProcessedHistory: command.UseXingeProcessedHistory);
 
         if (command.AutoRun && IsLocalCheckedQueueRunning(targetWorkspace))
             return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, targetWorkspace);
@@ -4154,7 +4195,8 @@ public sealed partial class MainViewModel : ViewModelBase
                 remoteMatchMode,
                 target.FinalActionOverride,
                 allowAppendToRunningQueue: command.AutoRun,
-                CancellationToken.None);
+                CancellationToken.None,
+                useXingeProcessedHistory: command.UseXingeProcessedHistory);
             var result = importOutcome.ImportResult;
 
             totalQueued += result.QueuedCount;
@@ -6050,7 +6092,8 @@ public sealed partial class MainViewModel : ViewModelBase
         RemoteAutoPublishContext? autoPublish = null,
         bool keepExistingSelection = false,
         string downloadSource = "",
-        string forcedSeriesId = "")
+        string forcedSeriesId = "",
+        bool useXingeProcessedHistory = false)
     {
         var root = Path.GetFullPath(workspaceRoot);
         var market = string.Equals(downloadSource, "dramabox", StringComparison.OrdinalIgnoreCase)
@@ -6062,6 +6105,11 @@ public sealed partial class MainViewModel : ViewModelBase
         {
             settings = settings.Clone();
             settings.DramaSourceChain = "dramabox";
+        }
+        if (useXingeProcessedHistory && settings.ManagementDedupEnabled)
+        {
+            settings = settings.Clone();
+            settings.ManagementDedupEnabled = false;
         }
         using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
         AppendLog($"使用{VisibleDramaSource.Describe(loaded, market)}导入。");

@@ -14,7 +14,8 @@ public sealed record XingeRemoteRegistrationSnapshot(
     string WorkspacePath,
     string ActiveAccountProfileId,
     string DramaSource,
-    IReadOnlyList<XingeRemoteAccountSnapshot> AccountProfiles);
+    IReadOnlyList<XingeRemoteAccountSnapshot> AccountProfiles,
+    IReadOnlyList<XingeTikTokProcessedFact>? ProcessedSeries = null);
 
 public sealed record XingeRemoteUploadedDrama(string SeriesId, string Title, string CompletedAt);
 
@@ -167,6 +168,7 @@ public sealed class XingeRemoteCommandService
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
         var lastRegisteredAt = DateTimeOffset.MinValue;
+        var sentProcessedSeries = new HashSet<XingeTikTokProcessedFact>();
         XingeRemoteMessage? replay = null;
 
         while (!ct.IsCancellationRequested)
@@ -179,6 +181,7 @@ public sealed class XingeRemoteCommandService
                 if (DateTimeOffset.UtcNow - lastRegisteredAt >= TimeSpan.FromSeconds(30))
                 {
                     var snapshot = await snapshotProvider(ct).ConfigureAwait(false);
+                    await SyncProcessedSeriesAsync(http, config, snapshot.ProcessedSeries, sentProcessedSeries, log, ct).ConfigureAwait(false);
                     var quotaFull = await RegisterAsync(http, config, snapshot, ct).ConfigureAwait(false);
                     RememberQuotaFullAccounts(quotaFull);
                     lastRegisteredAt = DateTimeOffset.UtcNow;
@@ -677,6 +680,34 @@ public sealed class XingeRemoteCommandService
         Notify($"XINGE 账号已登录：{credentials.Username}");
     }
 
+    private static async Task SyncProcessedSeriesAsync(
+        HttpClient http,
+        XingeRemoteConfig config,
+        IReadOnlyList<XingeTikTokProcessedFact>? facts,
+        HashSet<XingeTikTokProcessedFact> sent,
+        Action<string>? log,
+        CancellationToken ct)
+    {
+        if (facts is null)
+            return;
+        foreach (var batch in facts.Where(fact => !sent.Contains(fact)).Chunk(100))
+        {
+            try
+            {
+                var envelope = await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+                    "/client-api/tiktok/processed-series", new { items = batch }, ct).ConfigureAwait(false);
+                if (!envelope.Ok)
+                    throw new InvalidOperationException("历史同步失败");
+                sent.UnionWith(batch);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is InvalidOperationException or HttpRequestException or OperationCanceledException)
+            {
+                log?.Invoke("XINGE 上传和归档历史暂未同步，下次连接将重试。");
+                return;
+            }
+        }
+    }
+
     private static async Task CompleteAsync(
         HttpClient http,
         XingeRemoteConfig config,
@@ -689,6 +720,7 @@ public sealed class XingeRemoteCommandService
             "failed" => "failed",
             "accepted" => "accepted",
             "success" => "success",
+            "duplicate_skipped" => "duplicate_skipped",
             _ => "failed",
         };
         var body = new
@@ -704,6 +736,7 @@ public sealed class XingeRemoteCommandService
                 ["reply_message_type"] = result.ReplyMessageType,
                 ["reply_content"] = result.ReplyContent,
                 ["completed_at"] = DateTimeOffset.Now.ToString("O"),
+                ["processed_series"] = result.ProcessedSeries,
             },
         };
 

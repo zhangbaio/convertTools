@@ -162,7 +162,7 @@ public sealed class TikTokSeriesIdentityIndex
         return int.TryParse(digits, out var count) && count > 0 ? count : 0;
     }
 
-    private static string ReadArchiveEpisodeCount(ArchivedProjectItem item)
+    internal static string ReadArchiveEpisodeCount(ArchivedProjectItem item)
     {
         var counts = new List<int>();
         foreach (var dir in new[] { item.ArchivedWorkflowDir, item.ArchivedSourceDir, item.ArchiveProjectDir })

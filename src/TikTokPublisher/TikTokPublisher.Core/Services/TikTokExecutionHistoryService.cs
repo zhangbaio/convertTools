@@ -216,7 +216,9 @@ public static class TikTokExecutionHistoryService
                        COALESCE(json_extract(payload_json, '$.project_dir'), ''),
                        COALESCE(json_extract(payload_json, '$.original_title'), ''),
                        COALESCE(json_extract(payload_json, '$.new_title'), ''),
-                       COALESCE(json_extract(payload_json, '$.display_name'), '')
+                       COALESCE(json_extract(payload_json, '$.display_name'), ''),
+                       COALESCE(NULLIF(json_extract(payload_json, '$.source_episode_count'), 0), json_extract(payload_json, '$.episode_count'), 0),
+                       COALESCE(json_extract(payload_json, '$.source_series_id'), '')
                 FROM upload_project_snapshots
                 WHERE COALESCE(json_extract(payload_json, '$.upload_completed_at'), '') <> ''
                 """
@@ -228,7 +230,9 @@ public static class TikTokExecutionHistoryService
                        COALESCE(json_extract(payload_json, '$.project_dir'), ''),
                        COALESCE(json_extract(payload_json, '$.original_title'), ''),
                        COALESCE(json_extract(payload_json, '$.new_title'), ''),
-                       COALESCE(json_extract(payload_json, '$.display_name'), '')
+                       COALESCE(json_extract(payload_json, '$.display_name'), ''),
+                       COALESCE(NULLIF(json_extract(payload_json, '$.source_episode_count'), 0), json_extract(payload_json, '$.episode_count'), 0),
+                       COALESCE(json_extract(payload_json, '$.source_series_id'), '')
                 FROM upload_project_snapshots
                 WHERE account_profile_id = $account
                   AND COALESCE(json_extract(payload_json, '$.upload_completed_at'), '') <> ''
@@ -248,7 +252,9 @@ public static class TikTokExecutionHistoryService
                     reader.GetString(4),
                     reader.GetString(5),
                     reader.GetString(6),
-                    reader.GetString(7)));
+                    reader.GetString(7),
+                    int.TryParse(reader.GetValue(8).ToString(), out var episodeCount) ? episodeCount : 0,
+                    reader.GetString(9)));
             }
 
             return stamps;
@@ -394,6 +400,8 @@ public static class TikTokExecutionHistoryService
             ["original_title"] = item?.OriginalTitle ?? "",
             ["new_title"] = item?.NewTitle ?? "",
             ["episode_count"] = item?.EpisodeCount ?? 0,
+            ["source_episode_count"] = item?.SourceEpisodeCount ?? 0,
+            ["source_series_id"] = TikTokTodayUploadCountService.ReadProjectBookId(item?.ProjectDir),
             ["genre_category"] = item?.GenreCategory ?? "",
             ["description"] = item?.Description ?? "",
             ["queued_at"] = item?.QueuedAt ?? "",
@@ -767,4 +775,6 @@ internal sealed record UploadCompletionStamp(
     string ProjectDir,
     string OriginalTitle,
     string NewTitle,
-    string DisplayName);
+    string DisplayName,
+    int EpisodeCount = 0,
+    string SourceSeriesId = "");

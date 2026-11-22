@@ -216,6 +216,24 @@ public sealed class TikTokArchivedProjectServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RecentUploads_excludes_projects_that_were_only_archived()
+    {
+        var (sourceDir, _) = CreateProjectDirs("archive-only");
+        WorkspaceQueueDatabase.Save(_workspaceRoot, [new QueueProjectItem
+        {
+            ProjectDir = sourceDir,
+            OriginalTitle = "Archive only",
+            AccountProfileId = "acct-archive-only",
+        }]);
+
+        await TikTokArchivedProjectService.ArchiveQueueProjectAsync(_workspaceRoot, sourceDir, _archiveRoot,
+            account: new TikTokAccountProfile { Id = "acct-archive-only", Name = "归档测试" });
+
+        Assert.Single(TikTokArchivedProjectService.ListStored(_workspaceRoot, _archiveRoot));
+        Assert.Empty(TikTokTodayUploadCountService.ListRecentUploads([], _workspaceRoot, _archiveRoot, []));
+    }
+
+    [Fact]
     public void List_backfills_missing_queued_time_from_queue_state()
     {
         var (sourceDir, workflowDir) = CreateProjectDirs("legacy-queued");

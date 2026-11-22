@@ -238,6 +238,7 @@ public static class TikTokManagementUploadRecordSyncService
             ["new_name"] = newName,
             ["remark"] = (item.Remark ?? "").Trim(),
             ["episodes"] = item.EpisodeCount.ToString(),
+            ["source_series_id"] = TikTokTodayUploadCountService.ReadProjectBookId(projectDir),
             ["series_id"] = ResolveSeriesId(projectDir),
             ["uploader_display"] = uploaderDisplay,
             ["account_profile_name"] = profileName,
