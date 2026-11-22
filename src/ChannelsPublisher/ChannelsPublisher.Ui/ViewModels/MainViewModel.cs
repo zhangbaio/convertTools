@@ -19,21 +19,47 @@ public sealed partial class MainViewModel : ViewModelBase
     private readonly bool _excludeNewAccountsFromKuaishou;
 
     public ObservableCollection<AccountItemViewModel> Accounts { get; } = new();
+    public IReadOnlyList<AccountItemViewModel> FilteredAccounts { get; private set; } = [];
     public ObservableCollection<string> Logs { get; } = new();
 
     [ObservableProperty] private AccountItemViewModel? _selectedAccount;
+    [ObservableProperty] private string _accountSearchText = "";
     [ObservableProperty] private string _statusMessage = "就绪";
     public string CurrentAccountTitle => SelectedAccount?.Name ?? "请先在左侧选择账号";
     public string CurrentLoginStatusText => SelectedAccount?.LoginStatusText ?? "尚未选择账号";
     public string CurrentLastLoginText => SelectedAccount?.LastLoginText ?? "-";
     public string CurrentRuntimeStatusText => SelectedAccount?.StatusText ?? "未选择";
 
+    public AccountItemViewModel? SidebarSelectedAccount
+    {
+        get => SelectedAccount is { } account && FilteredAccounts.Contains(account) ? account : null;
+        set
+        {
+            if (value is not null && FilteredAccounts.Contains(value))
+                SelectedAccount = value;
+        }
+    }
+
     partial void OnSelectedAccountChanged(AccountItemViewModel? value)
     {
+        OnPropertyChanged(nameof(SidebarSelectedAccount));
         OnPropertyChanged(nameof(CurrentAccountTitle));
         OnPropertyChanged(nameof(CurrentLoginStatusText));
         OnPropertyChanged(nameof(CurrentLastLoginText));
         OnPropertyChanged(nameof(CurrentRuntimeStatusText));
+    }
+
+    partial void OnAccountSearchTextChanged(string value) => RefreshAccountFilter();
+
+    private void RefreshAccountFilter()
+    {
+        var keyword = (AccountSearchText ?? "").Trim();
+        FilteredAccounts = Accounts.Where(account => keyword.Length == 0 ||
+            account.Name?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true ||
+            account.Nickname?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true ||
+            account.Id?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true).ToArray();
+        OnPropertyChanged(nameof(FilteredAccounts));
+        OnPropertyChanged(nameof(SidebarSelectedAccount));
     }
 
     partial void OnStatusMessageChanged(string value)
@@ -72,6 +98,7 @@ public sealed partial class MainViewModel : ViewModelBase
         _store.Load();
         Accounts.Clear();
         foreach (var account in _store.Accounts) Accounts.Add(new AccountItemViewModel(account));
+        RefreshAccountFilter();
         SelectedAccount = Accounts.FirstOrDefault(account => account.Id == selectedId) ?? Accounts.FirstOrDefault();
         StatusMessage = $"账号列表已刷新，共 {Accounts.Count} 个账号。";
     }
@@ -86,7 +113,9 @@ public sealed partial class MainViewModel : ViewModelBase
             if (Accounts.All(item => item.Id != account.Id))
                 Accounts.Add(new AccountItemViewModel(account));
         }
-        SelectedAccount ??= Accounts.FirstOrDefault();
+        RefreshAccountFilter();
+        if (SelectedAccount is null || !Accounts.Contains(SelectedAccount))
+            SelectedAccount = Accounts.FirstOrDefault();
     }
 
     public void RecordAccountLogin(AccountItemViewModel account)
@@ -107,6 +136,7 @@ public sealed partial class MainViewModel : ViewModelBase
             _store.Load();
         foreach (var account in _store.Accounts)
             Accounts.Add(new AccountItemViewModel(account));
+        RefreshAccountFilter();
         SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
         _selectedFinalAction = FinalActionChoices[0];
     }
@@ -122,6 +152,10 @@ public sealed partial class MainViewModel : ViewModelBase
         var account = _store.Add($"账号{Accounts.Count + 1}", _excludeNewAccountsFromKuaishou);
         var vm = new AccountItemViewModel(account);
         Accounts.Add(vm);
+        if (string.IsNullOrEmpty(AccountSearchText))
+            RefreshAccountFilter();
+        else
+            AccountSearchText = "";
         SelectedAccount = vm;
         StatusMessage = $"已添加「{account.Name}」，点击「登录」扫码（每账号独立会话，登录一次长期保持）";
     }
@@ -133,6 +167,7 @@ public sealed partial class MainViewModel : ViewModelBase
         var vm = SelectedAccount;
         _store.Remove(vm.Model);
         Accounts.Remove(vm);
+        RefreshAccountFilter();
         SelectedAccount = Accounts.Count > 0 ? Accounts[0] : null;
         StatusMessage = $"已删除「{vm.Name}」";
     }
@@ -177,6 +212,7 @@ public sealed partial class MainViewModel : ViewModelBase
         SelectedAccount.DownloadDirectory = SelectedAccount.DownloadDirectory?.Trim() ?? string.Empty;
         SelectedAccount.ArchiveRootDirectory = SelectedAccount.ArchiveRootDirectory?.Trim() ?? string.Empty;
         _store.Update(SelectedAccount.Model);
+        RefreshAccountFilter();
         StatusMessage = $"[{SelectedAccount.Name}] 账号配置已保存";
     }
 

@@ -1,4 +1,3 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 
@@ -15,8 +14,10 @@ public partial class AccountSidebarView : UserControl
 
     public void UseShellChrome()
     {
-        SidebarFrame.CornerRadius = new CornerRadius(0);
-        SidebarFrame.BorderThickness = new Thickness(0, 0, 1, 0);
+        SidebarFrame.Classes.Remove("standaloneAccountFrame");
+        AccountList.Classes.Remove("standaloneAccountList");
+        AddAccountButton.Classes.Remove("sidebarPrimaryAction");
+        AccountSettingsButton.Classes.Remove("secondaryAction");
     }
 
     internal void HideAccountRemoval() => RemoveAccountButton.IsVisible = false;

@@ -53,6 +53,7 @@ public sealed partial class AccountItemViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(LegacySessionSummary));
         OnPropertyChanged(nameof(PlatformSummary));
+        OnPropertyChanged(nameof(SidebarSubtitle));
     }
 
     public string StatusText => Status switch
@@ -64,6 +65,8 @@ public sealed partial class AccountItemViewModel : ViewModelBase
 
     public string PlatformSummary =>
         $"视频号：{StatusText} · 快手分账：{KuaishouEditionLabel(Model.KuaishouAccountEdition)}";
+
+    public string SidebarSubtitle => $"{StatusText} · {Id}";
 
     public void NotifyKuaishouEditionChanged() => OnPropertyChanged(nameof(PlatformSummary));
 
@@ -80,5 +83,6 @@ public sealed partial class AccountItemViewModel : ViewModelBase
         Model.Status = value;
         OnPropertyChanged(nameof(StatusText));
         OnPropertyChanged(nameof(PlatformSummary));
+        OnPropertyChanged(nameof(SidebarSubtitle));
     }
 }
