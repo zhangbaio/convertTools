@@ -370,6 +370,7 @@ public sealed class XingeRemoteCommandService
             workspace_path = snapshot.WorkspacePath,
             active_account_profile_id = snapshot.ActiveAccountProfileId,
             drama_source = snapshot.DramaSource,
+            dramabox_server_media = true,
             project_slot_capacity = ClientSettingsStore.Load().TiktokGlobalProjectConcurrency,
             account_profiles = snapshot.AccountProfiles.Select(account =>
             {

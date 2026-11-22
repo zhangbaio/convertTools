@@ -3383,9 +3383,9 @@ public sealed partial class MainViewModel : ViewModelBase
                 autoPublish: autoPublish,
                 keepExistingSelection: true,
                 downloadSource: command.DownloadSource,
-                forcedSeriesId: string.Equals(importChain, "dramabox", StringComparison.OrdinalIgnoreCase)
-                    && command.Series is { Count: > 0 }
-                    ? command.Series[0].SeriesId
+                forcedSeriesId: autoPublish.Assignment.SeriesId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(importChain, "dramabox", StringComparison.OrdinalIgnoreCase)
+                    ? autoPublish.Assignment.SeriesId
                     : "");
             var result = importOutcome.ImportResult;
             if (result.ProjectDirs.Count == 0)
@@ -6058,6 +6058,11 @@ public sealed partial class MainViewModel : ViewModelBase
             : account?.TiktokDramaMarket;
         var loaded = ClientSettingsStore.Load();
         var settings = VisibleDramaSource.SettingsFor(loaded, market);
+        if (autoPublish is not null && forcedSeriesId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase))
+        {
+            settings = settings.Clone();
+            settings.DramaSourceChain = "dramabox";
+        }
         using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
         AppendLog($"使用{VisibleDramaSource.Describe(loaded, market)}导入。");
         var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);

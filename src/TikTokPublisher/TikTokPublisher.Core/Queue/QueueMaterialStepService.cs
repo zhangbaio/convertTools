@@ -44,6 +44,22 @@ public static class QueueMaterialStepService
         var bookId = FirstNonEmpty(metadata.BookId);
         if (string.IsNullOrWhiteSpace(bookId))
             throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
+        if (XingeDramaBoxMaterials.ReadAssignment(context.SourceProjectDir) is { } assignment)
+        {
+            var expected = ResolveExpectedDownloadedEpisodeNumbers(context.SourceProjectDir, item);
+            if (OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(context.SourceProjectDir, out var originalCount))
+            {
+                OverLimitEpisodePolicy.MarkTruncated(context.SourceProjectDir, originalCount, settings, log);
+                expected = Enumerable.Range(1, Math.Min(originalCount, OverLimitEpisodePolicy.ResolveKeepCount(settings))).ToArray();
+            }
+            using var slot = await QueueDownloadSlotCoordinator.WaitAsync(
+                Math.Clamp(settings.DramaDownloadMaxParallelProjects, 1, 4), item.Title, log, ct).ConfigureAwait(false);
+            await XingeDramaBoxMaterials.DownloadAsync(context.SourceProjectDir, assignment, settings, expected, forceRerun, log, ct).ConfigureAwait(false);
+            ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
+            ProjectWorkspaceService.RefreshQueueItemMetadata(item);
+            await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
+            return;
+        }
         if (bookId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(settings.DramaSourceChain, "dramabox", StringComparison.OrdinalIgnoreCase))
         {
@@ -1457,6 +1473,11 @@ public static class QueueMaterialStepService
         var inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item, expectedEpisodeNumbers);
         if (inspection.IsUnknown || inspection.IsComplete)
             return inspection.IsComplete;
+        if (XingeDramaBoxMaterials.ReadAssignment(context.SourceProjectDir) is { } assignment)
+        {
+            await XingeDramaBoxMaterials.DownloadAsync(context.SourceProjectDir, assignment, settings, inspection.Missing, false, log, ct).ConfigureAwait(false);
+            return InspectDownloadedEpisodes(context.SourceProjectDir, item, expectedEpisodeNumbers).IsComplete;
+        }
         if (inspection.FoundCount <= 0)
             return false;
 
@@ -1850,6 +1871,8 @@ public static class QueueMaterialStepService
         if (ShortDramaDramaServices.Downloader is not DramaSourceRouter router)
             return;
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        if (XingeDramaBoxMaterials.ReadAssignment(context.SourceProjectDir) is not null)
+            return;
         var displayName = FirstNonEmpty(item.OriginalTitle, item.Title, Path.GetFileName(context.SourceProjectDir));
         await router.EnsurePosterAndIntroAsync(
             context.SourceProjectDir,
