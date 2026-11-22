@@ -37,12 +37,12 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     [ObservableProperty] private IReadOnlyList<AnalyticsChartSeries> _chartSeries = [];
     [ObservableProperty] private IReadOnlyList<AnalyticsAccountSeries> _overviewSeries = [];
     [ObservableProperty] private string _chartScope = "全部账号";
-    [ObservableProperty] private bool _compareAccounts;
+    [ObservableProperty] private bool _compareAccounts = true;
     [ObservableProperty] private string _lastCollectedText = "最近拉取 · 暂无记录";
 
     partial void OnCompareAccountsChanged(bool value) => Rebuild();
 
-    public string SelectedKey => _selectedKey;
+    public string SelectedKey => CompareAccounts ? string.Empty : _selectedKey;
     [ObservableProperty] private int _rangeDays = 30;
     [ObservableProperty] private string _statusMessage = "尚未加载播放量。";
     [ObservableProperty] private bool _isBusy;
@@ -119,8 +119,9 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     private void SelectTab(string? key)
     {
         _selectedKey = key ?? string.Empty;
-        if (CompareAccounts)
-            CompareAccounts = false;
+        var showAllAccounts = _selectedKey.Length == 0;
+        if (CompareAccounts != showAllAccounts)
+            CompareAccounts = showAllAccounts;
         else
             Rebuild();
     }
@@ -218,7 +219,10 @@ public sealed partial class AnalyticsViewModel : ObservableObject
                              record.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
             .ToArray();
         if (!string.IsNullOrEmpty(_selectedKey) && _accounts.All(account => KuaishouPlayBoard.Key(account) != _selectedKey))
-            _selectedKey = string.Empty;
+        {
+            SelectTab(null);
+            return;
+        }
         Rebuild();
     }
 
@@ -226,7 +230,7 @@ public sealed partial class AnalyticsViewModel : ObservableObject
     {
         var today = DateOnly.FromDateTime(DateTime.Now);
         var board = KuaishouPlayBoard.Build(_accounts, _records, today, RangeDays, null);
-        Replace(Cards, board.Cards.OrderByDescending(card => card.Key == _selectedKey)
+        Replace(Cards, board.Cards.OrderByDescending(card => card.Key == SelectedKey)
             .Select(card => new KuaishouPlayCardViewModel(card, UpdateAccountCommand)));
         var accounts = board.Series.Select((item, index) => new AnalyticsAccountSeries(item.Key,
             new AnalyticsChartSeries(item.Name, Color.Parse(Palette[index % Palette.Length]),
@@ -239,7 +243,7 @@ public sealed partial class AnalyticsViewModel : ObservableObject
         var latest = _records.Where(record => record.Status == AnalyticsRecordStatus.Success)
             .Select(record => (DateTimeOffset?)record.CollectedAt).Max();
         LastCollectedText = latest is { } time ? $"最近拉取 · {time.ToLocalTime():yyyy-MM-dd HH:mm}" : "最近拉取 · 暂无记录";
-        ChartScope = CompareAccounts ? "账号对比 · 悬停查看各账号数据" : selected?.Series.Name ?? "全部账号";
+        ChartScope = CompareAccounts ? "全部账号 · 悬停查看各账号数据" : selected?.Series.Name ?? "全部账号";
         ChartSeries = CompareAccounts ? accounts.Select(account => account.Series).ToArray()
             : [selected?.Series ?? AnalyticsDashboardSummary.Aggregate(accounts, "全部账号")];
         OverviewSeries = accounts;
