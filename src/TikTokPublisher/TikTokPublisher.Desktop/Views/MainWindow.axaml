@@ -177,6 +177,7 @@
                 </Grid.RowDefinitions>
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="TikTokSubNavigation" Orientation="Horizontal" Spacing="5" Margin="10,5,10,3">
+                        <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="任务队列" Tag="queue" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="发布配置" Tag="accounts" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="视频去重" Tag="dedup" Classes="topNavItem" Click="OnTikTokSubPageClick" />
@@ -184,7 +185,6 @@
                                 IsVisible="False" Click="OnTikTokSubPageClick" />
                         <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                         <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="OnTikTokSubPageClick" />
-                        <Button Content="浏览器" Tag="browser" Classes="topNavItem" Click="OnTikTokSubPageClick" />
                     </StackPanel>
                 </ScrollViewer>
                 <Grid Grid.Row="1" RowDefinitions="Auto,*,Auto">

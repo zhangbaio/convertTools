@@ -1251,6 +1251,26 @@ public sealed class TikTokPublishDefaultsTests
     }
 
     [Fact]
+    public void Account_upload_options_ignore_retired_materials_and_keep_the_minimum_requirement()
+    {
+        var account = new TikTokAccountProfile { TiktokCopyrightMaterialTypes = ["work_registration_certificate"] };
+        TikTokPublishOptions.FromAccount(account).CopyrightMaterialTypes.Should()
+            .Equal(TikTokPublishConstants.ProductionAgreementMaterialType);
+
+        account.TiktokCopyrightMaterialTypes =
+            [TikTokPublishConstants.FilingOrDistributionLicenseMaterialType, " OPENING_ENDING_RIGHTS_NOTICE "];
+        TikTokPublishOptions.FromAccount(account).CopyrightMaterialTypes.Should().Equal(
+            TikTokPublishConstants.ProductionAgreementMaterialType, TikTokPublishConstants.FilingOrDistributionLicenseMaterialType);
+
+        account.TiktokCopyrightMaterialTypes =
+            ["work_registration_certificate", "opening_ending_rights_notice",
+                TikTokPublishConstants.FilingOrDistributionLicenseMaterialType,
+                TikTokPublishConstants.EditingProjectFilesMaterialType];
+        TikTokPublishOptions.FromAccount(account).CopyrightMaterialTypes.Should().Equal(
+            TikTokPublishConstants.FilingOrDistributionLicenseMaterialType, TikTokPublishConstants.EditingProjectFilesMaterialType);
+    }
+
+    [Fact]
     public void Auto_managed_copyright_materials_allow_auxiliary_configuration_shrink()
     {
         var desired = TikTokPublishConstants.ValidateAutoManagedCopyrightMaterialTypes(

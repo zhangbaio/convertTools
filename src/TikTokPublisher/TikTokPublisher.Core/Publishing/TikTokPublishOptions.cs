@@ -125,6 +125,21 @@ public static class TikTokPublishConstants
             : [ProductionAgreementMaterialType];
     }
 
+    public static IReadOnlyList<string> NormalizeAccountCopyrightMaterialTypes(IEnumerable<string>? materialTypes)
+    {
+        var normalized = NormalizeCopyrightMaterialTypes(materialTypes);
+        var selected = normalized
+            .Where(type => type is not ("work_registration_certificate" or "opening_ending_rights_notice"))
+            .ToList();
+        if (selected.Count != normalized.Count &&
+            !selected.Any(CoreCopyrightMaterialTypes.Contains) &&
+            selected.Count(AuxiliaryCopyrightMaterialTypes.Contains) < 2)
+        {
+            selected.Insert(0, ProductionAgreementMaterialType);
+        }
+        return selected;
+    }
+
     public static IReadOnlyList<string> ValidateCopyrightMaterialTypes(IEnumerable<string>? materialTypes)
     {
         var normalized = NormalizeCopyrightMaterialTypes(materialTypes);
@@ -577,7 +592,7 @@ public sealed class TikTokPublishOptions
         ContentOriginalityType = string.IsNullOrWhiteSpace(account.TiktokContentOriginalityType)
             ? "original"
             : account.TiktokContentOriginalityType.Trim(),
-        CopyrightMaterialTypes = TikTokPublishConstants.NormalizeCopyrightMaterialTypes(
+        CopyrightMaterialTypes = TikTokPublishConstants.NormalizeAccountCopyrightMaterialTypes(
             account.TiktokCopyrightMaterialTypes),
         UploadAiScriptOutlineWithScreenshots = account.TiktokUploadAiScriptOutlineWithScreenshots,
         UploadSourceInfoRoleVector = account.TiktokUploadSourceInfoRoleVector,

@@ -47,12 +47,10 @@ public partial class CopyrightMaterialSelector : UserControl
         try
         {
             var selected = new HashSet<string>(
-                TikTokPublishConstants.NormalizeCopyrightMaterialTypes(values),
+                TikTokPublishConstants.NormalizeAccountCopyrightMaterialTypes(values),
                 StringComparer.Ordinal);
             ProductionAgreementMaterialBox.IsChecked = selected.Contains("production_agreement");
-            WorkRegistrationMaterialBox.IsChecked = selected.Contains("work_registration_certificate");
             FilingLicenseMaterialBox.IsChecked = selected.Contains("filing_or_distribution_license");
-            RightsNoticeMaterialBox.IsChecked = selected.Contains("opening_ending_rights_notice");
             AiScreenshotsMaterialBox.IsChecked = selected.Contains("ai_generation_screenshots");
             EditingProjectMaterialBox.IsChecked = selected.Contains("editing_project_files");
             SourceInfoMaterialBox.IsChecked = selected.Contains("source_file_information");
@@ -76,9 +74,7 @@ public partial class CopyrightMaterialSelector : UserControl
         try
         {
             ProductionAgreementMaterialBox.IsChecked = false;
-            WorkRegistrationMaterialBox.IsChecked = false;
             FilingLicenseMaterialBox.IsChecked = false;
-            RightsNoticeMaterialBox.IsChecked = false;
             AiScreenshotsMaterialBox.IsChecked = false;
             EditingProjectMaterialBox.IsChecked = false;
             SourceInfoMaterialBox.IsChecked = false;
@@ -97,9 +93,7 @@ public partial class CopyrightMaterialSelector : UserControl
     {
         var result = new List<string>();
         if (ProductionAgreementMaterialBox.IsChecked == true) result.Add("production_agreement");
-        if (WorkRegistrationMaterialBox.IsChecked == true) result.Add("work_registration_certificate");
         if (FilingLicenseMaterialBox.IsChecked == true) result.Add("filing_or_distribution_license");
-        if (RightsNoticeMaterialBox.IsChecked == true) result.Add("opening_ending_rights_notice");
         if (AiScreenshotsMaterialBox.IsChecked == true) result.Add("ai_generation_screenshots");
         if (EditingProjectMaterialBox.IsChecked == true) result.Add("editing_project_files");
         if (SourceInfoMaterialBox.IsChecked == true) result.Add("source_file_information");
@@ -122,9 +116,7 @@ public partial class CopyrightMaterialSelector : UserControl
         try
         {
             ProductionAgreementMaterialBox.IsChecked = true;
-            WorkRegistrationMaterialBox.IsChecked = false;
             FilingLicenseMaterialBox.IsChecked = false;
-            RightsNoticeMaterialBox.IsChecked = false;
             AiScreenshotsMaterialBox.IsChecked = false;
             EditingProjectMaterialBox.IsChecked = false;
             SourceInfoMaterialBox.IsChecked = false;

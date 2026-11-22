@@ -351,7 +351,7 @@ public sealed class AccountStore
             account.TiktokProofTemplateLanguage);
         account.TiktokArchiveRootDir = (account.TiktokArchiveRootDir ?? "").Trim();
         account.TiktokCopyrightMaterialTypes = TikTokPublishConstants
-            .NormalizeCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
+            .NormalizeAccountCopyrightMaterialTypes(account.TiktokCopyrightMaterialTypes)
             .ToList();
         account.ManagementDedupScope = NormalizeManagementDedupScope(account.ManagementDedupScope);
         account.TiktokAiNewTitleRandomness = ClientSettingsDefaults.NormalizeAiNewTitleRandomness(

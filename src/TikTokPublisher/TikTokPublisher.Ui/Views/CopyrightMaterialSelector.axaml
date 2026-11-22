@@ -54,7 +54,7 @@
             <Border Classes="materialGroup">
                 <StackPanel Spacing="2">
                     <TextBlock Text="核心材料" FontWeight="SemiBold" FontSize="14" />
-                    <TextBlock Text="选择任意 1 项即可满足平台最低标准" Classes="materialHint" Margin="0,0,0,4" />
+                    <TextBlock Text="选择合作协议即可满足平台最低标准" Classes="materialHint" Margin="0,0,0,4" />
 
                     <Border Classes="materialRow">
                         <StackPanel>
@@ -92,20 +92,6 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Height="1" Background="#EEF1F5" />
-
-                    <Border Classes="materialRow">
-                        <StackPanel>
-                            <ToggleSwitch x:Name="WorkRegistrationMaterialBox"
-                                      Classes="materialOption"
-                                          OnContent="作品登记证书" OffContent="作品登记证书" AutomationProperties.Name="作品登记证书" IsCheckedChanged="OnMaterialSelectionChanged" />
-                            <TextBlock Text="登记的作品类别需为影视作品，并与当前短剧作品及合同签约主体一致。"
-                                       Classes="materialHint" IsVisible="{Binding IsChecked, ElementName=WorkRegistrationMaterialBox}" />
-                            <TextBlock Text="当前自动上传流程未支持，请仅在已另行配置独立文件时选择。"
-                                       Classes="materialHint" Foreground="#C2410C" Margin="28,3,0,0"
-                                       IsVisible="{Binding IsChecked, ElementName=WorkRegistrationMaterialBox}" />
-                        </StackPanel>
-                    </Border>
                 </StackPanel>
             </Border>
 
@@ -129,21 +115,6 @@
                                     <TextBox Classes="configurationInput" x:Name="TimestampApplicantNameBox" Watermark="留空时使用本公司/声明人" />
                                 </StackPanel>
                             </StackPanel>
-                        </StackPanel>
-                    </Border>
-
-                    <Border Height="1" Background="#EEF1F5" />
-
-                    <Border Classes="materialRow">
-                        <StackPanel>
-                            <ToggleSwitch x:Name="RightsNoticeMaterialBox"
-                                      Classes="materialOption"
-                                          OnContent="片头片尾及权利标识" OffContent="片头片尾及权利标识" AutomationProperties.Name="片头片尾及权利标识" IsCheckedChanged="OnMaterialSelectionChanged" />
-                            <TextBlock Text="包含片头片尾署名、标识等，可识别的制片方、出品方、发行方应与合同主体一致。"
-                                       Classes="materialHint" IsVisible="{Binding IsChecked, ElementName=RightsNoticeMaterialBox}" />
-                            <TextBlock Text="当前自动上传流程未支持，请仅在已另行配置独立文件时选择。"
-                                       Classes="materialHint" Foreground="#C2410C" Margin="28,3,0,0"
-                                       IsVisible="{Binding IsChecked, ElementName=RightsNoticeMaterialBox}" />
                         </StackPanel>
                     </Border>
 
