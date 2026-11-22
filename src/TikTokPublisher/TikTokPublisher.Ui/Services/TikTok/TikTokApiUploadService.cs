@@ -449,7 +449,7 @@ public static partial class TikTokApiUploadService
         var local = ResolveLocalEpisodes(uploadPaths)
                     ?? throw new InvalidOperationException("接口直传：本地视频文件名里有读不出集号或重复的集。");
 
-        var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log, options.UploadBatchMaxRetries);
         var changed = false;
         var extras = PlanDeleteExtras(existing);
         if (extras.Count > 0)
@@ -608,7 +608,7 @@ public static partial class TikTokApiUploadService
                 log?.Invoke(FormatUploadSummaryLog(uploaded, Interlocked.Read(ref uploadedBytes), uploadClock.Elapsed));
         }
 
-        var after = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        var after = await ReadSeriesVideosAsync(page, seriesId, ct, log, options.UploadBatchMaxRetries);
         if (PlanReorder(after) is { Count: > 0 } ordered)
         {
             await PageFetchAsync(
@@ -1017,25 +1017,14 @@ public static partial class TikTokApiUploadService
         IPage? page,
         string seriesId,
         CancellationToken ct,
-        Action<string>? log = null)
+        Action<string>? log,
+        int maxRetries = 3)
     {
-        const int attempts = 8;
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                using var document = await PageFetchAsync(page, "GET", $"/api/content-partner/series/{seriesId}", null, ct);
-                return document.RootElement.TryGetProperty("data", out var data)
-                    ? ParseSeriesVideos(data)
-                    : Array.Empty<SeriesVideo>();
-            }
-            catch (PageFetchException ex) when (ex.Status >= 500 && attempt < attempts)
-            {
-                var delay = TimeSpan.FromSeconds(Math.Min(attempt * 2, 10));
-                log?.Invoke($"接口直传：读取剧集详情暂时失败（HTTP {ex.Status}），{delay.TotalSeconds:0} 秒后重试（{attempt}/{attempts - 1}）。");
-                await Task.Delay(delay, ct);
-            }
-        }
+        using var document = await FetchSeriesWithRetryAsync(
+            page, seriesId, "GET", "读取草稿分集", null, maxRetries, log, ct, retryServerErrors: true);
+        return document.RootElement.TryGetProperty("data", out var data)
+            ? ParseSeriesVideos(data)
+            : Array.Empty<SeriesVideo>();
     }
 
     /// <summary>
@@ -1072,7 +1061,7 @@ public static partial class TikTokApiUploadService
         Action<string>? log,
         CancellationToken ct)
     {
-        var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+        var existing = await ReadSeriesVideosAsync(page, seriesId, ct, log, options.UploadBatchMaxRetries);
         var ids = existing
             .Select(video => video.VideoId)
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -1135,7 +1124,7 @@ public static partial class TikTokApiUploadService
         {
             if (attempt > 1)
                 await Task.Delay(TimeSpan.FromSeconds(2), ct);
-            afterDelete = await ReadSeriesVideosAsync(page, seriesId, ct, log);
+            afterDelete = await ReadSeriesVideosAsync(page, seriesId, ct, log, options.UploadBatchMaxRetries);
             stillThere = videoIds
                 .Where(id => afterDelete.Any(video => string.Equals(video.VideoId, id, StringComparison.Ordinal)))
                 .ToList();
@@ -1152,11 +1141,24 @@ public static partial class TikTokApiUploadService
         return afterDelete;
     }
 
-    private sealed class PageFetchException(string message, int status) : InvalidOperationException(message)
+    private sealed class PageFetchException(
+        string message, int status, string responseBody, string? retryAfter, long code = -1, string logId = "")
+        : InvalidOperationException(message)
     {
         public int Status { get; } = status;
+        public long Code { get; } = code;
+        public string LogId { get; } = string.IsNullOrWhiteSpace(logId) ? "-" : Truncate(FlattenTransportMessage(logId), 80);
 
         public bool IsTransient => IsTransientHttpStatus(Status);
+
+        public bool IsRateLimited => Status == 429 || IsConcurrencyLimited;
+
+        public bool IsConcurrencyLimited { get; } =
+            code == 1606 ||
+            responseBody.Contains("[1606]", StringComparison.Ordinal) ||
+            responseBody.Contains("Function route has reached max concurrency limiter", StringComparison.OrdinalIgnoreCase);
+
+        public TimeSpan? RetryAfter { get; } = ParseRetryAfter(retryAfter, DateTimeOffset.UtcNow);
     }
 
     private sealed class TransientUploadException(string message) : InvalidOperationException(message);
@@ -1294,6 +1296,17 @@ public static partial class TikTokApiUploadService
         return string.IsNullOrWhiteSpace(url) ? DramaCenterOrigin + "/" : url;
     }
 
+    internal static TimeSpan? ParseRetryAfter(string? value, DateTimeOffset now)
+    {
+        if (!RetryConditionHeaderValue.TryParse(value, out var header))
+            return null;
+        if (header.Delta is { } delta)
+            return delta;
+
+        var remaining = header.Date.GetValueOrDefault() - now;
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+    }
+
     private static async Task<JsonDocument> PageFetchAsync(
         IPage? page,
         string method,
@@ -1302,11 +1315,10 @@ public static partial class TikTokApiUploadService
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        int status;
-        string text;
+        FetchReply reply;
         if (PartnerSession.Current.Value is { } session)
         {
-            (status, text) = await session.SendAsync(method, path, body, ct);
+            reply = await session.SendAsync(method, path, body, ct);
         }
         else
         {
@@ -1321,14 +1333,17 @@ public static partial class TikTokApiUploadService
                     init.body = body;
                   }
                   const res = await fetch(path, init);
-                  return { status: res.status, text: await res.text() };
+                  return { status: res.status, text: await res.text(), retryAfter: res.headers.get('Retry-After') };
                 }
                 """,
                 new object?[] { method, path, body });
-            status = result.GetProperty("status").GetInt32();
-            text = result.GetProperty("text").GetString() ?? "";
+            reply = new FetchReply(
+                result.GetProperty("status").GetInt32(),
+                result.GetProperty("text").GetString() ?? "",
+                result.TryGetProperty("retryAfter", out var header) ? header.GetString() : null);
         }
 
+        var (status, text, retryAfter) = reply;
         JsonDocument document;
         try
         {
@@ -1336,11 +1351,12 @@ public static partial class TikTokApiUploadService
         }
         catch (JsonException)
         {
-            throw new PageFetchException($"{path} 返回无法解析（HTTP {status}）：{Truncate(text)}", status);
+            throw new PageFetchException(
+                $"{method} {path} 返回无法解析（HTTP {status}）：{Truncate(text)}", status, text, retryAfter);
         }
 
         var root = document.RootElement;
-        var code = root.TryGetProperty("code", out var codeElement) && codeElement.TryGetInt64(out var value)
+        var code = long.TryParse(ReadId(root, "code"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
             ? value
             : -1;
         if (status is < 200 or >= 300 || code != 0)
@@ -1348,9 +1364,13 @@ public static partial class TikTokApiUploadService
             var message = ReadString(root, "message");
             if (string.IsNullOrWhiteSpace(message))
                 message = ReadString(root, "msg");
+            var logId = ReadString(root, "logId");
+            if (logId.Length == 0 && root.ValueKind == JsonValueKind.Object && root.TryGetProperty("extra", out var extra))
+                logId = ReadString(extra, "logId");
             document.Dispose();
             var detail = string.IsNullOrWhiteSpace(message) ? Truncate(text) : Truncate(message);
-            throw new PageFetchException($"{path} 失败（HTTP {status}，code {code}）：{detail}", status);
+            throw new PageFetchException(
+                $"{method} {path} 失败（HTTP {status}，code {code}）：{detail}", status, text, retryAfter, code, logId);
         }
 
         return document;
@@ -1413,7 +1433,7 @@ public static partial class TikTokApiUploadService
         }
     }
 
-    private readonly record struct FetchReply(int Status, string Text);
+    private readonly record struct FetchReply(int Status, string Text, string? RetryAfter = null);
 
     private static async Task<IReadOnlyList<FetchReply>> PostJsonManyAsync(
         IPage? page,
@@ -1432,10 +1452,10 @@ public static partial class TikTokApiUploadService
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    return (Status: 0, Text: ex.Message);
+                    return new FetchReply(0, ex.Message);
                 }
             }));
-            return sent.Select(reply => new FetchReply(reply.Status, reply.Text)).ToArray();
+            return sent;
         }
 
         if (page is null)
@@ -2280,7 +2300,7 @@ public static partial class TikTokApiUploadService
             return new PartnerSession(cookie, options);
         }
 
-        public async Task<(int Status, string Text)> SendAsync(
+        public async Task<FetchReply> SendAsync(
             string method,
             string path,
             string? body,
@@ -2300,7 +2320,8 @@ public static partial class TikTokApiUploadService
 
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
             var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            return ((int)response.StatusCode, text);
+            var retryAfter = response.Headers.TryGetValues("Retry-After", out var values) ? values.FirstOrDefault() : null;
+            return new FetchReply((int)response.StatusCode, text, retryAfter);
         }
 
         public void Dispose() => _http.Dispose();

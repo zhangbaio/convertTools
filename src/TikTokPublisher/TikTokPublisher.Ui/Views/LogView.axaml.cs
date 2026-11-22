@@ -35,7 +35,7 @@ public partial class LogView : UserControl
                 RefreshView();
             }
         };
-        ProjectList.SelectionChanged += (_, _) =>
+        ProjectList.SelectionChanged += async (_, _) =>
         {
             if (_syncingProjectSelection) return;
             if (_logs is null || ProjectList.SelectedItem is not LogProjectItem item) return;
@@ -43,6 +43,7 @@ public partial class LogView : UserControl
                 AutoFollowBox.IsChecked = false;
             _logs.SelectedProjectPath = item.ProjectPath;
             RefreshView();
+            await _logs.RestoreSeriesRequestHistoryAsync(item.ProjectPath, item.Title);
         };
     }
 

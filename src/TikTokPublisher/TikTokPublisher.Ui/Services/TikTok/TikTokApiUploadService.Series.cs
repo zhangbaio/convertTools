@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Microsoft.Playwright;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Ui.Services.TikTok;
@@ -89,7 +90,8 @@ public static partial class TikTokApiUploadService
         var audienceId = await ResolveAudienceTagIdAsync(page, recommendation.TargetAudience, ct);
         var themeIds = ResolveThemeTagIds(recommendation.Genres);
         var episodeCount = Math.Max(payload.EpisodeCount, uploadPaths.Count);
-        var collection = await ReadCollectionAsync(page, seriesId, ct);
+        var collection = await ReadCollectionAsync(
+            page, seriesId, "读取草稿发布设置", options.UploadBatchMaxRetries, log, ct);
         var publishers = await ResolvePublisherIdsAsync(page, collection, options, ct);
         var publisherIds = publishers.Select(publisher => publisher.UserId).ToArray();
 
@@ -109,6 +111,7 @@ public static partial class TikTokApiUploadService
             collection,
             BuildShell(payload, coverUri, episodeCount, audienceId, themeIds, publisherIds, contractBinding, options, copyrightFiles: null, signed: false),
             "写入剧名、简介、封面和发布设置",
+            options.UploadBatchMaxRetries,
             log,
             ct);
 
@@ -117,13 +120,15 @@ public static partial class TikTokApiUploadService
         log?.Invoke("接口上传：开始上传证明材料。");
         var copyrightFiles = await UploadCopyrightFilesAsync(page, options, log, ct);
         LogCopyrightForm(log, copyrightFiles);
-        collection = await ReadCollectionAsync(page, seriesId, ct);
+        collection = await ReadCollectionAsync(
+            page, seriesId, "读取草稿以补写证明材料", options.UploadBatchMaxRetries, log, ct);
         await WriteSeriesAsync(
             page,
             seriesId,
             collection,
             BuildShell(payload, coverUri, episodeCount, audienceId, themeIds, publisherIds, contractBinding, options, copyrightFiles, signed: true),
             "写入证明材料和本人承诺",
+            options.UploadBatchMaxRetries,
             log,
             ct);
 
@@ -209,9 +214,12 @@ public static partial class TikTokApiUploadService
         return null;
     }
 
-    private static async Task<JsonObject?> ReadCollectionAsync(IPage? page, string seriesId, CancellationToken ct)
+    internal static async Task<JsonObject?> ReadCollectionAsync(
+        IPage? page, string seriesId, string step, int maxRetries, Action<string>? log, CancellationToken ct,
+        Func<TimeSpan, CancellationToken, Task>? waitAsync = null)
     {
-        using var detail = await PageFetchAsync(page, "GET", $"/api/content-partner/series/{seriesId}", null, ct);
+        using var detail = await FetchSeriesWithRetryAsync(
+            page, seriesId, "GET", step, null, maxRetries, log, ct, waitAsync);
         if (detail.RootElement.TryGetProperty("data", out var data) &&
             data.TryGetProperty("collection", out var collectionElement) &&
             collectionElement.ValueKind == JsonValueKind.Object)
@@ -222,14 +230,16 @@ public static partial class TikTokApiUploadService
         return null;
     }
 
-    private static async Task WriteSeriesAsync(
+    internal static async Task WriteSeriesAsync(
         IPage? page,
         string seriesId,
         JsonObject? collection,
         TikTokApiSeriesShell shell,
         string step,
+        int maxRetries,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<TimeSpan, CancellationToken, Task>? waitAsync = null)
     {
         var contract = TikTokApiSeriesDocument.Overlay(collection, shell);
         var update = new JsonObject { ["contract"] = contract };
@@ -241,12 +251,63 @@ public static partial class TikTokApiUploadService
         }
 
         log?.Invoke($"接口上传：{step}，剧集 ID {seriesId}。");
-        using var _ = await PageFetchAsync(
-            page,
-            "PATCH",
-            $"/api/content-partner/series/{seriesId}",
-            update.ToJsonString(),
-            ct);
+        using var response = await FetchSeriesWithRetryAsync(
+            page, seriesId, "PATCH", step, update.ToJsonString(), maxRetries, log, ct, waitAsync);
+    }
+
+    private static async Task<JsonDocument> FetchSeriesWithRetryAsync(
+        IPage? page, string seriesId, string method, string step, string? body, int maxRetries,
+        Action<string>? log, CancellationToken ct, Func<TimeSpan, CancellationToken, Task>? waitAsync = null,
+        bool retryServerErrors = false)
+    {
+        var path = $"/api/content-partner/series/{seriesId}";
+        var retryLimit = Math.Clamp(maxRetries, 1, 10);
+        waitAsync ??= WaitForSeriesRetryAsync;
+
+        for (var retries = 0; ; retries++)
+        {
+            try
+            {
+                return await PageFetchAsync(page, method, path, body, ct);
+            }
+            catch (PageFetchException ex)
+            {
+                ct.ThrowIfCancellationRequested();
+                // 分集挂载后详情可能暂未落库，保留原来对 GET 5xx 的重试次数和间隔。
+                var limit = ex.IsRateLimited ? retryLimit : retryServerErrors && ex.Status >= 500 ? 7 : 0;
+                var diagnostic = $"{QueueStepLogFilters.SeriesRequestDiagnosticPrefix} {step}，{method}，草稿 {seriesId}，" +
+                                 $"HTTP {ex.Status}，code {ex.Code}，logId={ex.LogId}";
+                if (ex.IsConcurrencyLimited)
+                    diagnostic += "，并发限流 1606";
+                if (retries >= limit)
+                {
+                    var outcome = limit == 0 ? $"请求失败（已重试 {retries} 次）" : $"重试已用尽（已重试 {retries} 次）";
+                    log?.Invoke($"{diagnostic}，{outcome}。");
+                    throw new InvalidOperationException($"{diagnostic}，{outcome}。{ex.Message}", ex);
+                }
+
+                var delay = ex.RetryAfter ?? TimeSpan.FromSeconds(ex.IsRateLimited
+                    ? retries switch { 0 => 3, 1 => 15, 2 => 30, _ => 60 }
+                    : Math.Min((retries + 1) * 2, 10));
+                var delaySource = ex.RetryAfter.HasValue ? "Retry-After" : "退避";
+                log?.Invoke(
+                    $"{diagnostic}，按 {delaySource} 等待 {Math.Ceiling(delay.TotalSeconds)} 秒后重试草稿（{retries + 1}/{limit}）。");
+                await waitAsync(delay, ct);
+            }
+        }
+    }
+
+    private static async Task WaitForSeriesRetryAsync(TimeSpan delay, CancellationToken ct)
+    {
+        // 长于 Task.Delay 单次上限的 Retry-After 也要等满。
+        var interval = TimeSpan.FromDays(30);
+        while (delay > interval)
+        {
+            await Task.Delay(interval, ct);
+            delay -= interval;
+        }
+
+        await Task.Delay(delay, ct);
     }
 
     private static void LogSeriesForm(

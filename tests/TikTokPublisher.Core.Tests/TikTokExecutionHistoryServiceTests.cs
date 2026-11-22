@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
+using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Tests;
@@ -83,13 +84,14 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
     [Fact]
     public void LoadRecentProjectEvents_returns_failures_for_the_project_directory()
     {
+        var now = DateTime.Now;
         InsertEvent(
             "matched",
-            "2026-10-13T22:59:52",
+            now.AddMinutes(-1).ToString("yyyy-MM-ddTHH:mm:ss"),
             ProjectPayload("queue_progress", "失败", "简介与历史/原简介过于相似", message: "改写信息 失败：简介与历史/原简介过于相似"));
         InsertEvent(
             "other",
-            "2026-10-13T22:00:00",
+            now.AddHours(-1).ToString("yyyy-MM-ddTHH:mm:ss"),
             ProjectPayload("queue_progress", "失败", "别的项目", projectDir: @"E:\tiktok\other"));
 
         var events = TikTokExecutionHistoryService.LoadRecentProjectEvents(
@@ -99,6 +101,30 @@ public sealed class TikTokExecutionHistoryServiceTests : IDisposable
         events.Should().ContainSingle();
         events[0].Message.Should().Contain("简介与历史/原简介过于相似");
         events[0].ProjectTitle.Should().Be("demo");
+    }
+
+    [Fact]
+    public void LoadRecentProjectEvents_restores_series_retry_diagnostics_for_the_selected_account()
+    {
+        const string projectDir = @"E:\tiktok\demo";
+        var diagnostic = QueueStepLogFilters.SeriesRequestDiagnosticPrefix + " 读取草稿，GET，重试（1/3）。";
+        AppendProgress("account-1", diagnostic);
+        AppendProgress("account-2", diagnostic);
+        AppendProgress("account-1", "普通进度");
+
+        ReadEventIds().Should().HaveCount(2);
+
+        var restored = TikTokExecutionHistoryService.LoadRecentProjectEvents(
+            projectDir, databasePath: _databasePath, accountProfileId: "account-1");
+
+        var entry = restored.Should().ContainSingle().Which;
+        entry.Message.Should().Be(diagnostic);
+        entry.Failed.Should().BeFalse();
+
+        void AppendProgress(string accountId, string message) => TikTokExecutionHistoryService.AppendEvent(
+            "queue_progress", "执行中", @"E:\tiktok",
+            new QueueProjectItem { ProjectDir = projectDir, OriginalTitle = "demo", AccountProfileId = accountId },
+            QueueStepRegistry.UploadSeries, message, databasePath: _databasePath);
     }
 
     [Fact]

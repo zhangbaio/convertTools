@@ -64,16 +64,25 @@ public static class VideoDedupService
         bool force,
         Action<string>? log,
         CancellationToken ct) =>
-        RunWithPresetAsync(item, account, VideoDedupTemplateStore.CaptureRunPresets([account], log)[account.Id], force, log, ct);
+        RunWithPresetAsync(
+            item,
+            account,
+            VideoDedupTemplateStore.CaptureRunPresets([account], log)[account.Id],
+            OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load()).Minimum,
+            force,
+            log,
+            ct);
 
     internal static async Task RunWithPresetAsync(
         QueueProjectItem item,
         TikTokAccountProfile account,
         VideoDedupPreset? runPreset,
+        int minimumEpisodeCount,
         bool force,
         Action<string>? log,
         CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
             throw new InvalidOperationException("项目目录不存在，无法执行视频去重。");
 
@@ -89,14 +98,18 @@ public static class VideoDedupService
         if (!force && OutputsMatch(project, fingerprint, preset, visible))
         {
             var kept = fingerprint!.Outputs.Count;
+            EnsureMinimumEpisodeCount(kept, minimumEpisodeCount);
             item.EpisodeCount = kept;
             log?.Invoke($"跳过：去重成片已与账号「{account.DisplayName}」的方案「{preset.Name}」一致，共 {kept.ToString(CultureInfo.InvariantCulture)} 集。");
             return;
         }
 
-        var inputs = ResolveInputs(project, originalsRoot, visible, fingerprint, log);
+        var archived = ListArchivedVideos(originalsRoot);
+        var (inputs, archiveCopies) = ResolveInputs(project, originalsRoot, visible, archived, fingerprint);
         if (inputs.Count == 0)
             throw new InvalidOperationException("没有可去重的视频。请先完成下载。");
+        if (!preset.HasDurationLimit)
+            EnsureMinimumEpisodeCount(inputs.Count, minimumEpisodeCount);
 
         var logGate = new object();
         void Write(string message)
@@ -116,10 +129,11 @@ public static class VideoDedupService
         {
             ct.ThrowIfCancellationRequested();
             var input = inputs[inputIndex];
-            var probe = await ProbeAsync(input, ct).ConfigureAwait(false);
+            var probe = await ProbeAsync(input.ReadPath, ct).ConfigureAwait(false);
             if (probe.DurationSeconds <= 0)
-                throw new InvalidOperationException($"无法读取视频时长：{Path.GetFileName(input)}");
-            clips.Add(new VideoDedupClip(input, probe));
+                throw new InvalidOperationException($"无法读取视频时长：{Path.GetFileName(input.ReadPath)}");
+            // 用归档路径计算转场，与后续实际编码的切片保持一致。
+            clips.Add(new VideoDedupClip(input.ArchivePath, probe));
             Write($"读取第 {(inputIndex + 1).ToString(CultureInfo.InvariantCulture)}/{inputs.Count.ToString(CultureInfo.InvariantCulture)} 个原片：{DescribeClip(clips[^1])}。");
         }
 
@@ -132,13 +146,24 @@ public static class VideoDedupService
         {
             if (plan.Count == 0)
                 throw new InvalidOperationException("视频去重已停止，不会开始编码。没有算出可输出的集。");
+            EnsureMinimumEpisodeCount(plan.Count, minimumEpisodeCount);
             if (VideoDedupPlanner.DescribeDurationMismatch(plan, preset, clipPaths) is { } mismatch)
                 throw new InvalidOperationException(VideoDedupPlanner.FormatDurationStop(mismatch));
             Write(VideoDedupPlanner.DescribeDurationCheckPassed(clips.Count, plan, preset, clipPaths));
         }
 
+        ct.ThrowIfCancellationRequested();
+        foreach (var input in archiveCopies)
+            CopyToArchive(input.ReadPath, input.ArchivePath);
+        if (archiveCopies.Count > 0)
+        {
+            Write(archived.Count == 0
+                ? $"已把 {archiveCopies.Count.ToString(CultureInfo.InvariantCulture)} 个下载视频复制到 source-originals。"
+                : "检测到新的下载文件，已更新 source-originals 中的原片。");
+        }
+
         var renumber = plan.Count != clips.Count || plan.Any(group => group.Count > 1);
-        var outputDirectory = Path.GetDirectoryName(VisiblePathFor(project, originalsRoot, inputs[0])) ?? project;
+        var outputDirectory = Path.GetDirectoryName(VisiblePathFor(project, originalsRoot, clips[0].Path)) ?? project;
         var jobs = new List<RenderJob>();
         for (var index = 0; index < plan.Count; index++)
         {
@@ -463,60 +488,50 @@ public static class VideoDedupService
 
     private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
-    private static List<string> ResolveInputs(
-        string project,
-        string originalsRoot,
-        IReadOnlyList<string> visible,
-        DedupFingerprint? fingerprint,
-        Action<string>? log)
+    private static void EnsureMinimumEpisodeCount(int count, int minimum)
     {
-        var archived = ListArchivedVideos(originalsRoot);
-        var refreshed = RefreshArchiveFromNewDownloads(project, originalsRoot, visible, archived, fingerprint);
-        if (refreshed)
-            log?.Invoke("检测到新的下载文件，已更新 source-originals 中的原片。");
-        archived = ListArchivedVideos(originalsRoot);
-        if (archived.Count > 0)
-            return archived;
-
-        if (visible.Count == 0)
-            return [];
-
-        Directory.CreateDirectory(originalsRoot);
-        foreach (var file in visible)
-            CopyToArchive(project, originalsRoot, file);
-        log?.Invoke($"已把 {visible.Count.ToString(CultureInfo.InvariantCulture)} 个下载视频复制到 source-originals。");
-        return ListArchivedVideos(originalsRoot);
+        if (count < minimum)
+            throw new InvalidOperationException(
+                $"预计去重后 {count} 集，低于系统设置的最小集数 {minimum}，未开始编码。");
     }
 
-    private static bool RefreshArchiveFromNewDownloads(
+    private sealed record DedupInput(string ArchivePath, string ReadPath);
+
+    private static (List<DedupInput> Inputs, List<DedupInput> ArchiveCopies) ResolveInputs(
         string project,
         string originalsRoot,
         IReadOnlyList<string> visible,
         IReadOnlyList<string> archived,
         DedupFingerprint? fingerprint)
     {
-        if (archived.Count == 0 || visible.Count == 0 || fingerprint is null)
-            return false;
+        if (archived.Count > 0 && fingerprint is null)
+            return (archived.Select(path => new DedupInput(path, path)).ToList(), []);
 
-        var changed = false;
+        var inputs = archived.ToDictionary(
+            path => path, path => new DedupInput(path, path),
+            OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+        var archiveCopies = new List<DedupInput>();
         foreach (var file in visible)
         {
             var relative = ToRelative(project, file);
-            var length = new FileInfo(file).Length;
-            var recorded = fingerprint.Outputs.FirstOrDefault(output =>
-                string.Equals(output.Path, relative, StringComparison.OrdinalIgnoreCase));
-            if (recorded is not null && recorded.Length == length)
-                continue;
-
             var archivePath = Path.Combine(originalsRoot, relative);
-            if (File.Exists(archivePath) && new FileInfo(archivePath).Length == length)
-                continue;
+            if (archived.Count > 0)
+            {
+                var length = new FileInfo(file).Length;
+                var recorded = fingerprint!.Outputs.FirstOrDefault(output =>
+                    string.Equals(output.Path, relative, StringComparison.OrdinalIgnoreCase));
+                if (recorded?.Length == length || (File.Exists(archivePath) && new FileInfo(archivePath).Length == length))
+                    continue;
+            }
 
-            CopyToArchive(project, originalsRoot, file);
-            changed = true;
+            var input = new DedupInput(archivePath, file);
+            archiveCopies.Add(input);
+            if (IsArchivedVideo(relative))
+                inputs[archivePath] = input;
         }
 
-        return changed;
+        return (inputs.Values.OrderBy(input => NaturalKey(input.ArchivePath), StringComparer.OrdinalIgnoreCase).ToList(),
+            archiveCopies);
     }
 
     private static void PublishOutputs(
@@ -560,9 +575,8 @@ public static class VideoDedupService
         }
     }
 
-    private static void CopyToArchive(string project, string originalsRoot, string file)
+    private static void CopyToArchive(string file, string destination)
     {
-        var destination = Path.Combine(originalsRoot, ToRelative(project, file));
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         File.Copy(file, destination, overwrite: true);
     }
@@ -616,16 +630,15 @@ public static class VideoDedupService
         if (!Directory.Exists(originalsRoot))
             return [];
         return Directory.EnumerateFiles(originalsRoot, "*.*", SearchOption.AllDirectories)
-            .Where(path =>
-            {
-                var relative = Path.GetRelativePath(originalsRoot, path);
-                return !relative.StartsWith(".work", StringComparison.OrdinalIgnoreCase) &&
-                       !relative.Contains($"{Path.DirectorySeparatorChar}.work{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) &&
-                       IsVideo(path);
-            })
+            .Where(path => IsArchivedVideo(Path.GetRelativePath(originalsRoot, path)))
             .OrderBy(NaturalKey, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
+
+    private static bool IsArchivedVideo(string relative) =>
+        !relative.StartsWith(".work", StringComparison.OrdinalIgnoreCase) &&
+        !relative.Contains($"{Path.DirectorySeparatorChar}.work{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase) &&
+        IsVideo(relative);
 
     private static async Task<VideoDedupProbe> ProbeAsync(string path, CancellationToken ct)
     {

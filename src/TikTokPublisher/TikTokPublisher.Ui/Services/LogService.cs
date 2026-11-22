@@ -320,6 +320,56 @@ public sealed class LogService
     public string BuildCopyText() =>
         string.Join(Environment.NewLine, VisibleEntries().Select(entry => entry.Text));
 
+    public async Task RestoreSeriesRequestHistoryAsync(string projectPath, string title)
+    {
+        if (string.IsNullOrWhiteSpace(projectPath))
+            return;
+
+        var accountId = _accountId;
+        var history = await Task.Run(() => TikTokExecutionHistoryService.LoadRecentProjectEvents(
+            projectPath, accountProfileId: accountId));
+        if (!string.Equals(SelectedProjectPath, projectPath, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(_accountId, accountId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var added = false;
+        foreach (var entry in history)
+        {
+            if (!QueueStepLogFilters.IsSeriesRequestDiagnostic(entry.Message) ||
+                _entries.Any(live => string.Equals(live.AccountId, accountId, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(live.ProjectPath, projectPath, StringComparison.OrdinalIgnoreCase) &&
+                    Math.Abs((live.CreatedAt - entry.CreatedAt).TotalSeconds) < 2 &&
+                    live.Text.EndsWith(entry.Message, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            var level = entry.Failed ? "error" : "warn";
+            _entries.Add(new LogEntry
+            {
+                Text = BuildHeaderLine(entry.CreatedAt.ToString("HH:mm:ss"), level, title, entry.Message),
+                Level = level,
+                AccountId = accountId,
+                ProjectName = title,
+                ProjectPath = projectPath,
+                CreatedAt = entry.CreatedAt,
+            });
+            added = true;
+        }
+
+        if (!added)
+            return;
+
+        var ordered = _entries.OrderBy(entry => entry.CreatedAt).ToArray();
+        _entries.Clear();
+        _entries.AddRange(ordered);
+        TrimOverflow();
+        RefreshRendered();
+        ScheduleChanged();
+    }
+
     private bool PruneExpiredEntries(DateTime now)
     {
         var cutoff = now - Retention;

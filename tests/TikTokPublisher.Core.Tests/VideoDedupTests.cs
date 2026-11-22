@@ -6,8 +6,13 @@ using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace TikTokPublisher.Core.Tests;
 
-public sealed class VideoDedupTests
+public sealed class VideoDedupTests : IDisposable
 {
+    private readonly IDisposable _settings = ClientSettingsStore.UseSettingsForTests(
+        () => new ClientSettings { TiktokMinimumEpisodeCount = 1 });
+
+    public void Dispose() => _settings.Dispose();
+
     [Fact]
     public void Step_order_puts_dedup_after_download_and_retires_source_deletion()
     {
@@ -854,6 +859,66 @@ public sealed class VideoDedupTests
             VideoDedupService.EncoderForTests = null;
             VideoDedupService.RunProcessForTests = null;
             try { Directory.Delete(root, recursive: true); } catch { /* temp cleanup */ }
+        }
+    }
+
+    [Theory]
+    [InlineData(54, 27)]
+    [InlineData(60, 30)]
+    public async Task Minimum_episode_check_uses_the_resegmented_count_before_archiving_or_encoding(
+        int sourceCount, int plannedCount)
+    {
+        using var settings = ClientSettingsStore.UseSettingsForTests(() => new ClientSettings());
+        var project = Directory.CreateTempSubdirectory("video-dedup-count-");
+        try
+        {
+            var sourceFiles = Enumerable.Range(1, sourceCount)
+                .Select(index => Path.Combine(project.FullName, $"episode-{index}.mp4"))
+                .ToArray();
+            foreach (var file in sourceFiles)
+                await File.WriteAllBytesAsync(file, [1, 2]);
+
+            VideoDedupService.ProbeForTests = (_, _) =>
+                Task.FromResult(new VideoDedupProbe(15, 1080, 1920, true));
+            VideoDedupService.EncoderForTests = "libx264";
+            var encoded = 0;
+            VideoDedupService.RunProcessForTests = (args, _) =>
+            {
+                Interlocked.Increment(ref encoded);
+                File.WriteAllBytes(args[^1], [8, 8, 8]);
+                return Task.CompletedTask;
+            };
+
+            var preset = VideoDedupPreset.CreateDefault();
+            preset.MinimumDurationSeconds = 20;
+            preset.MaximumDurationSeconds = 40;
+            var account = new TikTokAccountProfile { Id = "a1", Name = "账号1", VideoDedupPreset = preset };
+            var item = new QueueProjectItem { ProjectDir = project.FullName, EpisodeCount = sourceCount };
+            Func<Task> run = () => VideoDedupService.RunAsync(item, account, force: false, null, CancellationToken.None);
+
+            if (plannedCount < 30)
+            {
+                await run.Should().ThrowAsync<InvalidOperationException>()
+                    .WithMessage("预计去重后 27 集，低于系统设置的最小集数 30，未开始编码。");
+                encoded.Should().Be(0);
+                item.EpisodeCount.Should().Be(sourceCount);
+                Directory.GetFileSystemEntries(project.FullName).Should().BeEquivalentTo(sourceFiles);
+                sourceFiles.Should().OnlyContain(file => new FileInfo(file).Length == 2);
+            }
+            else
+            {
+                await run();
+                encoded.Should().Be(plannedCount);
+                item.EpisodeCount.Should().Be(plannedCount);
+                Directory.GetFiles(project.FullName, "*.mp4").Should().HaveCount(plannedCount);
+            }
+        }
+        finally
+        {
+            VideoDedupService.ProbeForTests = null;
+            VideoDedupService.EncoderForTests = null;
+            VideoDedupService.RunProcessForTests = null;
+            project.Delete(recursive: true);
         }
     }
 

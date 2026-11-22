@@ -34,7 +34,8 @@ public static class TikTokExecutionHistoryService
         string error = "",
         string batchId = "",
         IReadOnlyDictionary<string, object?>? metadata = null,
-        TikTokAccountProfile? account = null)
+        TikTokAccountProfile? account = null,
+        string? databasePath = null)
     {
         try
         {
@@ -49,7 +50,7 @@ public static class TikTokExecutionHistoryService
                 batchId,
                 metadata,
                 account);
-            AppendPayload(payload);
+            AppendPayload(payload, databasePath);
         }
         catch
         {
@@ -87,7 +88,8 @@ public static class TikTokExecutionHistoryService
     public static IReadOnlyList<TikTokProjectHistoryEvent> LoadRecentProjectEvents(
         string projectDir,
         int limit = 40,
-        string? databasePath = null)
+        string? databasePath = null,
+        string? accountProfileId = null)
     {
         var normalized = NormalizeProjectDir(projectDir);
         if (string.IsNullOrWhiteSpace(normalized))
@@ -109,11 +111,13 @@ public static class TikTokExecutionHistoryService
                 FROM upload_task_events
                 WHERE created_at >= $cutoff
                   AND lower(COALESCE(json_extract(payload_json, '$.project_dir'), '')) = lower($dir)
+                  AND ($account IS NULL OR COALESCE(json_extract(payload_json, '$.account_profile_id'), '') = $account COLLATE NOCASE)
                 ORDER BY created_at DESC
                 LIMIT $limit
                 """;
             cmd.Parameters.AddWithValue("$cutoff", cutoff);
             cmd.Parameters.AddWithValue("$dir", normalized);
+            cmd.Parameters.AddWithValue("$account", (object?)accountProfileId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 200));
 
             var events = new List<TikTokProjectHistoryEvent>();
@@ -129,7 +133,7 @@ public static class TikTokExecutionHistoryService
                              !string.IsNullOrWhiteSpace(GetString(payload, "last_error")) ||
                              string.Equals(status, QueueStepStatus.Failed, StringComparison.Ordinal) ||
                              message.Contains("失败", StringComparison.Ordinal);
-                if (!failed)
+                if (!failed && !QueueStepLogFilters.IsSeriesRequestDiagnostic(message))
                     continue;
                 var createdAt = DateTime.TryParse(reader.GetString(1), out var parsed)
                     ? parsed
@@ -138,7 +142,7 @@ public static class TikTokExecutionHistoryService
                     createdAt,
                     FirstNonEmpty(GetString(payload, "original_title"), GetString(payload, "new_title"), GetString(payload, "display_name")),
                     message.Replace("\r\n", "\n").Trim(),
-                    true));
+                    failed));
             }
 
             events.Reverse();
@@ -493,6 +497,7 @@ public static class TikTokExecutionHistoryService
                 delete.CommandText = """
                     DELETE FROM upload_task_events
                     WHERE json_extract(payload_json, '$.event_type') = 'queue_progress'
+                      AND substr(COALESCE(json_extract(payload_json, '$.message'), ''), 1, length($diagnostic_prefix)) <> $diagnostic_prefix
                       AND COALESCE(json_extract(payload_json, '$.error'), '') = ''
                       AND COALESCE(json_extract(payload_json, '$.last_error'), '') = ''
                       AND COALESCE(json_extract(payload_json, '$.status'), '') NOT IN ($failed, $stopped, 'failed', 'stopped')
@@ -500,6 +505,7 @@ public static class TikTokExecutionHistoryService
                     """;
                 delete.Parameters.AddWithValue("$failed", QueueStepStatus.Failed);
                 delete.Parameters.AddWithValue("$stopped", QueueStepStatus.Stopped);
+                delete.Parameters.AddWithValue("$diagnostic_prefix", QueueStepLogFilters.SeriesRequestDiagnosticPrefix);
                 delete.ExecuteNonQuery();
 
                 using var mark = conn.CreateCommand();
@@ -573,6 +579,8 @@ public static class TikTokExecutionHistoryService
     private static bool ShouldPersistEvent(IReadOnlyDictionary<string, object?> payload)
     {
         if (!string.Equals(GetString(payload, "event_type"), "queue_progress", StringComparison.Ordinal))
+            return true;
+        if (QueueStepLogFilters.IsSeriesRequestDiagnostic(GetString(payload, "message")))
             return true;
         var status = FirstNonEmpty(GetString(payload, "status"), GetString(payload, "status_text"));
         return !string.IsNullOrWhiteSpace(GetString(payload, "error")) ||

@@ -1369,9 +1369,28 @@ public sealed class QueueWorkerRunner
         using var projectGenerationSlots = new SemaphoreSlim(
             perProjectGenerationConcurrency,
             perProjectGenerationConcurrency);
+        var checkExistingDedup = !item.IsUploadCompleted && !options.IsCopyrightProofWorkflowRun() &&
+            !(options.ForceRerunCompletedSteps && preUploadSteps.Contains(QueueStepRegistry.VideoDedup));
 
         foreach (var stepKey in preUploadSteps)
         {
+            ct.ThrowIfCancellationRequested();
+            if (checkExistingDedup && stepKey != QueueStepRegistry.Download)
+            {
+                checkExistingDedup = false;
+                if (item.StepStates.GetValueOrDefault(QueueStepRegistry.VideoDedup) == QueueStepStatus.Completed)
+                {
+                    var minimum = OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load()).Minimum;
+                    var count = TikTokMaterialValidationService.CountActualUploadVideos(item.ProjectDir);
+                    if (count > 0 && count < minimum)
+                    {
+                        throw new QueueStepExecutionException(
+                            QueueStepRegistry.MaterialValidate,
+                            new InvalidOperationException(TikTokMaterialValidationService.BuildMinimumEpisodeRejection(count, minimum)));
+                    }
+                }
+            }
+
             if (!parallelSteps.Contains(stepKey))
             {
                 await RunStepAsync(stepKey, [stepKey]).ConfigureAwait(false);
@@ -2066,6 +2085,7 @@ public sealed class QueueWorkerRunner
                     item,
                     account,
                     dedupPreset,
+                    materialOptions.MinimumEpisodeCount,
                     options.ForceRerunCompletedSteps,
                     log,
                     ct).ConfigureAwait(false);

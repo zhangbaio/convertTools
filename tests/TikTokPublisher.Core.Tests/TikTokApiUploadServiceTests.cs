@@ -1,6 +1,8 @@
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Playwright;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
@@ -11,6 +13,158 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class TikTokApiUploadServiceTests
 {
     private static readonly TikTokVodSigner.Credentials FakeCredentials = new("AKFAKE", "SKFAKE", "TOKENFAKE");
+
+    [Theory]
+    [InlineData("7", 7)]
+    [InlineData("0", 0)]
+    [InlineData("Sat, 21 Nov 2026 10:00:12 GMT", 12)]
+    [InlineData("Sat, 21 Nov 2026 09:59:59 GMT", 0)]
+    [InlineData("invalid", null)]
+    [InlineData(null, null)]
+    public void Retry_after_accepts_seconds_and_http_dates(string? value, int? seconds)
+    {
+        var now = new DateTimeOffset(2026, 11, 21, 10, 0, 0, TimeSpan.Zero);
+        TikTokApiUploadService.ParseRetryAfter(value, now)
+            .Should().Be(seconds.HasValue ? TimeSpan.FromSeconds(seconds.Value) : null);
+    }
+
+    [Fact]
+    public async Task Saving_series_retries_the_same_patch_using_retry_after_then_backoff()
+    {
+        var page = CreateSaveSeriesPage(
+            (500, """{"code":500,"message":"gateway error","statusMessage":"[RemoteRPCError]: [1606] Function route has reached max concurrency limiter"}""", "7"),
+            (200, """{"code":"1606"}""", "invalid"),
+            (500, """{"code":500,"statusMessage":"Function route has reached max concurrency limiter"}""", null),
+            (429, "Too Many Requests", null),
+            (200, """{"code":0}""", null));
+        var waits = new List<TimeSpan>();
+
+        await SaveSeriesAsync(page, 4, waitAsync: (delay, _) =>
+        {
+            waits.Add(delay);
+            return Task.CompletedTask;
+        });
+
+        waits.Select(wait => wait.TotalSeconds).Should().Equal(7, 15, 30, 60);
+        var requests = ((SaveSeriesPage)(object)page).Requests;
+        requests.Should().HaveCount(5);
+        requests.Select(request => request.Method).Distinct().Should().Equal("PATCH");
+        requests.Select(request => request.Path).Distinct().Should().Equal("/api/content-partner/series/1234567890123456789");
+        requests.Select(request => request.Body).Distinct().Should().ContainSingle();
+    }
+
+    [Theory]
+    [InlineData(1606, 2)]
+    [InlineData(500, 1)]
+    public async Task Saving_series_stops_at_the_retry_limit_and_does_not_retry_other_errors(
+        int code, int expectedRequests)
+    {
+        var body = JsonSerializer.Serialize(new { code });
+        var page = CreateSaveSeriesPage((500, body, null), (500, body, null));
+        var waits = new List<TimeSpan>();
+
+        Func<Task> save = () => SaveSeriesAsync(page, 1, waitAsync: (delay, _) =>
+        {
+            waits.Add(delay);
+            return Task.CompletedTask;
+        });
+
+        await save.Should().ThrowAsync<InvalidOperationException>().WithMessage($"*code {code}*");
+        ((SaveSeriesPage)(object)page).Requests.Should().HaveCount(expectedRequests);
+        waits.Should().Equal(Enumerable.Repeat(TimeSpan.FromSeconds(3), expectedRequests - 1));
+    }
+
+    [Fact]
+    public async Task Reading_series_retries_rate_limits_on_the_same_draft_and_records_request_details()
+    {
+        var page = CreateSaveSeriesPage(
+            (500, """{"code":500,"statusMessage":"[RemoteRPCError]: [1606] Function route has reached max concurrency limiter","extra":{"logId":"test-read-log"}}""", "11"),
+            (429, "Too Many Requests", null),
+            (200, """{"code":0,"data":{"collection":{"title":"Existing draft"}}}""", null));
+        var waits = new List<TimeSpan>();
+        var logs = new List<string>();
+
+        var collection = await TikTokApiUploadService.ReadCollectionAsync(
+            page, "1234567890123456789", "读取草稿发布设置", 3, logs.Add, CancellationToken.None,
+            (delay, _) =>
+            {
+                waits.Add(delay);
+                return Task.CompletedTask;
+            });
+
+        collection!["title"]!.GetValue<string>().Should().Be("Existing draft");
+        waits.Select(wait => wait.TotalSeconds).Should().Equal(11, 15);
+        var requests = ((SaveSeriesPage)(object)page).Requests;
+        requests.Should().HaveCount(3).And.OnlyContain(request =>
+            request.Method == "GET" && request.Path == "/api/content-partner/series/1234567890123456789" && request.Body == null);
+        logs[0].Should().Contain("读取草稿发布设置，GET").And.Contain("HTTP 500，code 500，logId=test-read-log")
+            .And.Contain("并发限流 1606").And.Contain("Retry-After 等待 11 秒").And.Contain("（1/3）");
+    }
+
+    [Fact]
+    public async Task Reading_series_retains_the_last_platform_error_when_the_retry_budget_is_exhausted()
+    {
+        var page = CreateSaveSeriesPage(
+            (500, """{"code":1606}""", null),
+            (500, """{"code":1606,"extra":{"logId":"last-read-log"}}""", null));
+        var logs = new List<string>();
+        Func<Task> read = () => TikTokApiUploadService.ReadCollectionAsync(
+            page, "1234567890123456789", "读取草稿发布设置", 1, logs.Add, CancellationToken.None,
+            (_, _) => Task.CompletedTask);
+
+        await read.Should().ThrowAsync<InvalidOperationException>().WithMessage("*GET*last-read-log*重试已用尽*");
+        ((SaveSeriesPage)(object)page).Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task Stopping_during_series_save_backoff_prevents_another_patch()
+    {
+        var page = CreateSaveSeriesPage((500, """{"code":1606}""", "30"));
+        using var stop = new CancellationTokenSource();
+
+        Func<Task> save = () => SaveSeriesAsync(page, 3, stop.Token, log: message =>
+        {
+            if (message.Contains("重试草稿", StringComparison.Ordinal))
+                stop.Cancel();
+        });
+
+        await save.Should().ThrowAsync<OperationCanceledException>();
+        ((SaveSeriesPage)(object)page).Requests.Should().ContainSingle();
+    }
+
+    private static Task SaveSeriesAsync(
+        IPage page,
+        int maxRetries,
+        CancellationToken ct = default,
+        Action<string>? log = null,
+        Func<TimeSpan, CancellationToken, Task>? waitAsync = null) =>
+        TikTokApiUploadService.WriteSeriesAsync(
+            page, "1234567890123456789", null, new TikTokApiSeriesShell { Title = "Draft title" },
+            "写入剧集资料", maxRetries, log, ct, waitAsync);
+
+    private static IPage CreateSaveSeriesPage(params (int Status, string Text, string? RetryAfter)[] replies)
+    {
+        var page = DispatchProxy.Create<IPage, SaveSeriesPage>();
+        ((SaveSeriesPage)(object)page).Replies = new Queue<(int, string, string?)>(replies);
+        return page;
+    }
+
+    public class SaveSeriesPage : DispatchProxy
+    {
+        public Queue<(int Status, string Text, string? RetryAfter)> Replies { get; set; } = new();
+        public List<(string Method, string Path, string? Body)> Requests { get; } = [];
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name != nameof(IPage.EvaluateAsync))
+                throw new NotSupportedException(targetMethod?.Name);
+
+            var request = (object[])args![1]!;
+            Requests.Add(((string)request[0], (string)request[1], (string?)request[2]));
+            var (status, text, retryAfter) = Replies.Dequeue();
+            return Task.FromResult(JsonSerializer.SerializeToElement(new { status, text, retryAfter }));
+        }
+    }
 
     [Fact]
     public void Vod_signature_for_apply_upload_matches_reference_vector()

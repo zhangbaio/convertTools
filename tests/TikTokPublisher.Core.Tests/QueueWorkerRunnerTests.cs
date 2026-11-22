@@ -316,6 +316,53 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Queue_rejects_a_short_series_before_generating_more_materials(bool alreadyDeduplicated)
+    {
+        using var settings = ClientSettingsStore.UseSettingsForTests(() => new ClientSettings());
+        var workspace = Directory.CreateTempSubdirectory("tiktok-dedup-count-");
+        try
+        {
+            var account = CreateCommandAccount(workspace.FullName);
+            account.VideoDedupPreset = VideoDedupPreset.CreateDefault();
+            var item = CreateCommandProject(workspace.FullName, account);
+            for (var index = 2; index <= 27; index++)
+                await File.WriteAllBytesAsync(Path.Combine(item.ProjectDir, $"episode-{index}.mp4"), [1, 2]);
+            item.EpisodeCount = 27;
+            item.StepStates[QueueStepRegistry.VideoDedup] =
+                alreadyDeduplicated ? QueueStepStatus.Completed : QueueStepStatus.Pending;
+            item.StepStates[QueueStepRegistry.RewriteInfo] = QueueStepStatus.Pending;
+            item.StepStates[QueueStepRegistry.MaterialValidate] = QueueStepStatus.Pending;
+            var host = new ImmediatePublishHost();
+            var options = new QueueRunOptions
+            {
+                EnabledSteps = [QueueStepRegistry.VideoDedup, QueueStepRegistry.RewriteInfo, QueueStepRegistry.MaterialValidate, QueueStepRegistry.UploadSeries],
+            };
+
+            var summary = await new QueueWorkerRunner().RunAsync(
+                workspace.FullName, [item], options, host, CreateAccountStore(account), FinalAction.None,
+                onProgress: null, onPersist: null, CancellationToken.None);
+
+            summary.FailedCount.Should().Be(1);
+            item.StepStates[QueueStepRegistry.VideoDedup].Should().Be(
+                alreadyDeduplicated ? QueueStepStatus.Completed : QueueStepStatus.Failed);
+            item.StepStates[QueueStepRegistry.MaterialValidate].Should().Be(
+                alreadyDeduplicated ? QueueStepStatus.Failed : QueueStepStatus.Pending);
+            item.StepStates[QueueStepRegistry.RewriteInfo].Should().Be(QueueStepStatus.Pending);
+            item.LastError.Should().Contain("27 集，低于系统设置的最小集数 30");
+            host.PublishedProjectDirs.Should().BeEmpty();
+            Directory.Exists(Path.Combine(item.ProjectDir, "source-originals")).Should().BeFalse();
+            Directory.GetFiles(item.ProjectDir, "*.mp4").Should().HaveCount(27);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            workspace.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public async Task RunAsync_uploads_all_projects_when_preupload_steps_complete_synchronously()
     {
