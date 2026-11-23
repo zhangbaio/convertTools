@@ -16,7 +16,7 @@ public sealed record NewTitleOccupancySnapshot(
 
 public readonly record struct NewTitleOccupancyDecision(bool Regenerate, string Reason);
 
-/// <summary>新剧名已被占用，重新生成后仍然重复。</summary>
+/// <summary>新剧名已被占用，无法保存改写结果。</summary>
 public sealed class NewTitleOccupiedException : InvalidOperationException
 {
     public NewTitleOccupiedException(string message) : base(message)
@@ -30,8 +30,6 @@ public sealed class NewTitleOccupiedException : InvalidOperationException
 /// </summary>
 public static class NewTitleOccupancyService
 {
-    public const int MaxRegenerationAttempts = 3;
-
     private static readonly ConcurrentDictionary<string, string> Reservations = new(StringComparer.OrdinalIgnoreCase);
 
     public static NewTitleOccupancySnapshot LoadArchiveTitles(

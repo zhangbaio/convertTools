@@ -127,6 +127,19 @@ public static class ClientSettingsDefaults
         菜单 / 卡片教程：回复按钮卡片教程
         """;
 
+    public const string TikTokUnifiedPublishInfoPrompt = """
+        你负责生成 TikTok 短剧发布文案。以原剧资料为依据，用自然、精炼的表达突出剧情中已有的核心冲突、关系变化或关键反转，保留原意和事实。只交付一版结果。
+        【语言】按 output_language 指定的语言代码输出。为 auto 时，根据 original_title 和 synopsis 判断原文语言。中文用简体中文，英文用英文。支持 zh、en、id、pt、ja、th、es、ko、tr、hi，language 填实际使用的代码。无法判断或不支持时，language 返回 unsupported，其他字符串字段返回空字符串，themes 返回空数组。
+        【新剧名】改写 original_title，让新剧名鲜明、易读，与原剧名明显不同。中文剧名 6–15 个字，英文及其他语种 8–80 个字符。避开 forbidden_titles 中的相同或近似剧名，以及 occupied_exact_titles 中的同名剧名。避免装饰符号和夸张宣传。
+        【简介轻改写】rewrite_synopsis 为 false 时，description 返回空字符串。为 true 时，重组 synopsis 的句式，保留角色姓名、人物关系、地点、数字、动机、事件顺序、因果、转折和结局。可以拆句或合句，禁止增加剧情、揣测、宣传语或演员姓名。
+        简介目标长度接近原文，允许增减 10%，下限向上取整，上限向下取整。中文、日语和泰语按字计数，计入文字和数字，空格和标点不计入。英文及其他语种按词计数，词内连字符和撇号不断词。中文简介最多 300 个字符，其他语种最多 900 个字符。
+        禁止复用完整原句，单改大小写或标点也算复用。按词计数时，与原文相同的连续 5 词片段最多占候选简介全部此类片段的 25%。避开 forbidden_synopses 中的历史简介。
+        【题材与观众】从 theme_options 选出 theme_count 个最贴合剧情的题材，排除 existing_themes，禁止重复或自定义。theme_count 为 0 时返回空数组。ask_audience 为 true 时，audience 只填「男」或「女」。否则返回空字符串。
+        只返回一个 JSON 对象，禁止附加说明。
+        {"title":"","description":"","themes":[],"audience":"","language":""}
+        """;
+
+    // Retained for the shared publish-info workflow and for recognizing saved TikTok defaults.
     public const string AiPublishInfoPrompt = """
         你是 TikTok 短剧发布信息助手。根据输入的短剧信息，一次生成发布所需的全部字段。
 

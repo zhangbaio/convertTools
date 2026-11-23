@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using TikTokPublisher.Core.Licensing;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Desktop.Views;
 using TikTokPublisher.Ui.Views;
 
@@ -43,6 +44,7 @@ public partial class App : Application
             return;
         }
 
+        await Task.Run(TikTokUnifiedPublishPromptMigration.ApplyOnce);
         var mainWindow = new MainWindow();
         desktop.MainWindow = mainWindow;
         desktop.ShutdownMode = ShutdownMode.OnMainWindowClose;

@@ -36,7 +36,7 @@ public sealed class AccountAiEditor : UserControl
         form.Children.Add(title);
         form.Children.Add(PresetRow("AI 文本模型预设", _textPresets, () => EditTextAsync(false), () => EditTextAsync(true)));
         form.Children.Add(KeyRow("AI 文本 API Key", _textKey));
-        form.Children.Add(PromptRow("发布信息提示词", _publish));
+        form.Children.Add(PromptRow("发布信息提示词", _publish, ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt));
         form.Children.Add(PresetRow("AI 图片模型预设", _imagePresets, () => EditImageAsync(false), () => EditImageAsync(true)));
         form.Children.Add(KeyRow("AI 图片 API Key", _imageKey));
         Content = form;
@@ -60,7 +60,7 @@ public sealed class AccountAiEditor : UserControl
         _textKey.Text = _shownTextKey = "";
         _imageKey.Text = _shownImageKey = "";
         UpdateDisplayedKeys();
-        _publish.Text = _draft.PublishPrompt;
+        _publish.Text = TikTokAccountAiSettings.ResolvePublishPrompt(_draft.PublishPrompt);
         IsEnabled = true;
     }
 
@@ -89,7 +89,7 @@ public sealed class AccountAiEditor : UserControl
         {
             TextPresetId = SelectedId(_textPresets),
             ImagePresetId = SelectedId(_imagePresets),
-            PublishPrompt = Read(_publish),
+            PublishPrompt = ReadPublishPrompt(),
         };
     }
 
@@ -105,8 +105,15 @@ public sealed class AccountAiEditor : UserControl
         Keys = ReadKeys(),
         TextPresets = _textEdits.Values.ToArray(),
         ImagePresets = _imageEdits.Values.ToArray(),
-        PublishPrompt = Read(_publish),
+        PublishPrompt = ReadPublishPrompt(),
     };
+
+    private string ReadPublishPrompt()
+    {
+        var prompt = Read(_publish);
+        return string.Equals(prompt.ReplaceLineEndings("\n"),
+            ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt.ReplaceLineEndings("\n"), StringComparison.Ordinal) ? "" : prompt;
+    }
 
     private TikTokAiTextPreset? SelectedText()
     {
@@ -347,10 +354,10 @@ public sealed class AccountAiEditor : UserControl
         return Field(label, Row(box, toggle));
     }
 
-    private static Control PromptRow(string label, TextBox box)
+    private static Control PromptRow(string label, TextBox box, string defaultPrompt)
     {
         var reset = new Button { Content = "恢复默认", VerticalAlignment = VerticalAlignment.Top };
-        reset.Click += (_, _) => box.Text = "";
+        reset.Click += (_, _) => box.Text = defaultPrompt;
         return Field(label, Row(box, reset));
     }
 

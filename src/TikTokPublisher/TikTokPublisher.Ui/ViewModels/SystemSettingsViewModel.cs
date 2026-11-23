@@ -728,7 +728,7 @@ public sealed partial class SystemSettingsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void ResetAiPublishInfoPrompt() => AiPublishInfoPrompt = ClientSettingsDefaults.AiPublishInfoPrompt;
+    private void ResetAiPublishInfoPrompt() => AiPublishInfoPrompt = ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt;
 
     [RelayCommand]
     private void ResetKuaishouPublishInfoPrompt() =>

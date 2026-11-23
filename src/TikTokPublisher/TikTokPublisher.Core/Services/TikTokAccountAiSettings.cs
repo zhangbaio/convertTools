@@ -84,7 +84,10 @@ public static class TikTokAccountAiSettings
         settings.PosterAgentDirectPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
         settings.PosterAgentErasePrompt = ClientSettingsDefaults.PosterAgentErasePrompt;
         if (account?.AiOptions is not { } options)
+        {
+            settings.AiPublishInfoPrompt = ResolvePublishPrompt(settings.AiPublishInfoPrompt);
             return settings;
+        }
 
         var library = Load();
         var keys = library.AccountKeys.GetValueOrDefault(account.Id) ?? new Keys();
@@ -115,8 +118,7 @@ public static class TikTokAccountAiSettings
         settings.ImageModelApiKey = image is null ? "" :
             ResolveKey(keys.Image, image.Endpoint, imageDefault.Endpoint, defaults.ImageModelApiKey);
 
-        settings.AiPublishInfoPrompt = string.IsNullOrWhiteSpace(options.PublishPrompt)
-            ? ClientSettingsDefaults.AiPublishInfoPrompt : options.PublishPrompt;
+        settings.AiPublishInfoPrompt = ResolvePublishPrompt(options.PublishPrompt);
         settings.TiktokRoleReferenceSelectionMode = options.RoleSelectionMode;
         settings.TiktokRoleReferenceAiFallbackEnabled = options.RoleFallback;
         settings.PosterMode = options.PosterMode;
@@ -124,6 +126,9 @@ public static class TikTokAccountAiSettings
         settings.PosterTitleVerifyMode = options.VerifyMode;
         return settings;
     }
+
+    public static string ResolvePublishPrompt(string? prompt) =>
+        string.IsNullOrWhiteSpace(prompt) ? ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt : prompt;
 
     public static bool SameEndpoint(string left, string right) =>
         string.Equals(left.Trim().TrimEnd('/'), right.Trim().TrimEnd('/'), StringComparison.Ordinal);

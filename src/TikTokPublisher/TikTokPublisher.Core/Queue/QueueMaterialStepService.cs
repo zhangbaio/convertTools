@@ -4,14 +4,13 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Automation;
-using ShortDrama.Infrastructure.AI;
 using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
-using TikTokPublisher.Core.Publishing;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
@@ -30,7 +29,7 @@ public static class QueueMaterialStepService
     private const int MissingEpisodeRepairRounds = 3;
     private const string ProofMaterialFrameFallbackVideoFileName = "证明材料抽帧兜底.mp4";
     private const string AiRewriteStateDocumentType = "ai_rewrite_state";
-    private const int AiRewriteStateVersion = 1;
+    private const int AiRewriteStateVersion = 2;
 
     public static async Task RunDownloadAsync(
         QueueProjectItem item,
@@ -1705,7 +1704,7 @@ public static class QueueMaterialStepService
 
         if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
         {
-            log("海外剧：标题和简介按原剧语言改写。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。");
+            log("海外剧：按发布提示词中跟随原文的规则生成。");
         }
 
         var rewriteVariantKey = BuildRewriteVariantKey(context, account);
@@ -1715,15 +1714,11 @@ public static class QueueMaterialStepService
         {
             var outputPath = infoPath;
             var outputExists = File.Exists(outputPath);
-            var duplicatesHistory = outputExists && ExistingInfoDuplicatesHistory(outputPath, item, otherHistory, rewriteSynopsis);
-            var needsRewrite = outputExists &&
-                               (NeedsAiRewrite(item, context, outputPath, account, rewriteSynopsis) || duplicatesHistory);
+            var needsRewrite = outputExists && NeedsAiRewrite(item, context, outputPath, account, rewriteSynopsis);
             var recoveredPersistedResult = outputExists &&
                                            !overwriteExisting &&
                                            needsRewrite &&
-                                           !duplicatesHistory &&
                                            CurrentInfoMatchesRewriteHistory(
-                                               item,
                                                context,
                                                outputPath,
                                                rewriteHistory,
@@ -1736,7 +1731,8 @@ public static class QueueMaterialStepService
             {
                 log(recoveredPersistedResult
                     ? "检测到已落盘且经历史核验的 AI 改写结果，将补录完成状态并跳过重复调用。"
-                    : "短剧信息已存在且新剧名有效，跳过 AI 改写。");
+                    : "已有改写结果，跳过 AI 改写。");
+                ApplyConfiguredPublishAudience(outputPath, account, log);
                 if (!recoveredPersistedResult)
                 {
                     AppendCurrentRewriteHistory(
@@ -1747,9 +1743,7 @@ public static class QueueMaterialStepService
             {
                 if (outputExists && !overwriteExisting && needsRewrite)
                 {
-                    log(duplicatesHistory
-                        ? "短剧信息已存在但与其它账号历史重复，重新执行 AI 改写。"
-                        : "短剧信息已存在但新剧名未改写，重新执行 AI 改写。");
+                    log("当前短剧信息缺少匹配的改写结果，执行 AI 改写。");
                 }
 
                 var forbiddenTitles = BuildForbiddenTitles(item, context, originalTitle, outputPath, otherHistory);
@@ -1764,60 +1758,26 @@ public static class QueueMaterialStepService
                 if (!archiveOccupancy.Checked)
                     log($"归档新剧名查重未完成，继续生成剧名：{archiveOccupancy.SkipReason}");
                 else if (archiveOccupancy.Titles.Count > 0)
-                    log($"当前账号归档新剧名 {archiveOccupancy.Titles.Count} 条，完全相同的名字会重新生成。");
-                log("开始 AI 改写短剧信息…");
-                var outputExisted = File.Exists(outputPath);
-                var previousOutput = outputExisted ? File.ReadAllText(outputPath) : null;
-                try
-                {
-                    generatedResult = await RewriteUntilNewTitleAvailableAsync(
-                        workflowDir,
-                        configPath,
-                        outputPath,
-                        overwriteExisting || outputExists,
-                        forbiddenTitles,
-                        forbiddenSynopses,
-                        rewriteSynopsis || sourceSynopsis.Length != 0 ? sourceSynopsis : null,
-                        rewriteVariantKey,
-                        archiveOccupancy,
-                        account,
-                        context.SourceProjectDir,
-                        log,
-                        ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    RestoreRewriteOutput(outputPath, outputExisted, previousOutput);
-                    throw;
-                }
-                catch (NewTitleOccupiedException)
-                {
-                    RestoreRewriteOutput(outputPath, outputExisted, previousOutput);
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    RestoreRewriteOutput(outputPath, outputExisted, previousOutput);
-                    if (rewriteSynopsis || !await TryApplyRewriteHistoryFallbackAsync(
-                            rewriteHistory,
-                            context,
-                            outputPath,
-                            otherHistory,
-                            item,
-                            log,
-                            ex,
-                            rewriteSynopsis,
-                            rewriteVariantKey,
-                            archiveOccupancy,
-                            account,
-                            ct))
-                    {
-                        throw;
-                    }
-
-                    AppendCurrentRewriteHistory(
-                        item, settings, account, context, outputPath, originalTitle, sourceSynopsis, rewriteVariantKey);
-                }
+                    log($"将当前账号归档中 {archiveOccupancy.Titles.Count} 条新剧名传入提示词作为占用名单。");
+                log("开始 AI 改写短剧信息，写入前核验剧名占用…");
+                generatedResult = await RewriteWithTitleReservationAsync(
+                    QueueInfrastructureServices.InfoRewriter,
+                    new ProjectInfoRewriteRequest(
+                        ProjectDir: workflowDir,
+                        ConfigFile: configPath,
+                        OutputFilePath: outputPath,
+                        Overwrite: overwriteExisting || outputExists,
+                        ForbiddenTitles: forbiddenTitles,
+                        ForbiddenSynopses: forbiddenSynopses,
+                        RewriteVariantKey: rewriteVariantKey,
+                        OccupiedExactTitles: archiveOccupancy.Titles,
+                        OriginalSynopsis: rewriteSynopsis || sourceSynopsis.Length != 0 ? sourceSynopsis : null,
+                        UseUnifiedPublishPrompt: true),
+                    archiveOccupancy,
+                    account,
+                    context.SourceProjectDir,
+                    log,
+                    ct);
             }
         }
         finally
@@ -1840,32 +1800,12 @@ public static class QueueMaterialStepService
 
         PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis, rewriteVariantKey);
         if (generatedResult is not null)
-        {
-            if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
-            {
-                var detected = RewriteSourceLanguage.ReadCached(workflowDir);
-                if (detected is not null)
-                    log($"海外剧：识别为{RewriteSourceLanguage.DisplayName(detected)}，标题和简介使用该语言。");
-            }
             log($"改写完成：{generatedResult.Title}");
-        }
 
         var newTitle = ResolveNewTitle(infoPath, item, context);
         if (!string.IsNullOrWhiteSpace(newTitle))
-        {
-            workflowDir = ProjectWorkspaceService.SyncWorkflowProjectDirName(context.SourceProjectDir, newTitle, log);
-            infoPath = Path.Combine(workflowDir, "短剧信息.txt");
-        }
+            ProjectWorkspaceService.SyncWorkflowProjectDirName(context.SourceProjectDir, newTitle, log);
 
-        await WriteTikTokPublishFieldsAsync(
-            item,
-            settings,
-            account,
-            episodeCount,
-            workflowDir,
-            allowAi: generatedResult is null,
-            log,
-            ct);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
     }
 
@@ -2179,74 +2119,22 @@ public static class QueueMaterialStepService
         EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, expectedEpisodeNumbers, log);
     }
 
-    private static async Task WriteTikTokPublishFieldsAsync(
-        QueueProjectItem item,
-        ClientSettings settings,
-        TikTokAccountProfile? account,
-        int episodeCount,
-        string workflowDir,
-        bool allowAi,
-        Action<string> log,
-        CancellationToken ct)
+    private static void ApplyConfiguredPublishAudience(string infoPath, TikTokAccountProfile? account, Action<string> log)
     {
-        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-        var infoPath = Path.Combine(workflowDir, "短剧信息.txt");
-        var merged = ProjectInfoTextHelper.MergeProjectInfo(
-            Path.Combine(context.SourceProjectDir, "短剧信息.txt"),
-            infoPath);
-
-        var title = FirstNonEmpty(
-            merged.GetValueOrDefault("新剧名"),
-            merged.GetValueOrDefault("剧名"),
-            item.NewTitle,
-            item.Title,
-            Path.GetFileName(workflowDir).TrimStart('_'));
-        var originalTitle = FirstNonEmpty(
-            merged.GetValueOrDefault("原剧名"),
-            item.OriginalTitle,
-            Path.GetFileName(context.SourceProjectDir));
-        var description = FirstNonEmpty(
-            merged.GetValueOrDefault("简介"),
-            merged.GetValueOrDefault("描述"),
-            merged.GetValueOrDefault("剧情简介"),
-            item.Description);
-
-        var infoPayload = TikTokProjectPayloadFactory.BuildFromPublishItem(new PublishItem
+        var configured = account?.TiktokTargetAudienceMode?.Trim() switch
         {
-            ProjectDir = item.ProjectDir,
-            GenreCategory = item.GenreCategory,
-            EpisodeCount = episodeCount,
-        });
-
-        var payload = new TikTokProjectPayload
-        {
-            SourceProjectDir = context.SourceProjectDir,
-            WorkflowProjectDir = workflowDir,
-            Title = title ?? "",
-            OriginalTitle = originalTitle ?? "",
-            Description = description ?? "",
-            EpisodeCount = Math.Max(1, episodeCount),
-            TargetAudience = infoPayload.TargetAudience,
-            Genres = infoPayload.Genres,
+            "male" => "男",
+            "female" => "女",
+            _ => null,
         };
-
-        var options = TikTokPublishOptionsBuilder.FromAccount(account);
-        var recommendation = await TikTokPublishRecommendationService.BuildRecommendationAsync(
-            payload,
-            settings,
-            options,
-            log,
-            ct,
-            allowAi);
-
-        ProjectInfoTextHelper.UpdateFields(infoPath, new Dictionary<string, string>
+        if (configured is null ||
+            string.Equals(ProjectInfoTextHelper.ParseInfoFile(infoPath).GetValueOrDefault("目标观众"), configured, StringComparison.Ordinal))
         {
-            ["目标观众"] = TikTokPublishRecommendationService.TargetAudienceDisplayText(recommendation.TargetAudience),
-            ["题材类型"] = string.Join("、", recommendation.Genres),
-        });
+            return;
+        }
 
-        item.GenreCategory = string.Join("、", recommendation.Genres);
-        log($"TikTok 发布字段已生成：目标观众={TikTokPublishRecommendationService.TargetAudienceDisplayText(recommendation.TargetAudience)}，题材类型={string.Join("、", recommendation.Genres)}");
+        ProjectInfoTextHelper.UpdateFields(infoPath, new Dictionary<string, string> { ["目标观众"] = configured });
+        log($"目标观众采用账号固定设置：{configured}。");
     }
 
     private static string ResolveOriginalTitle(
@@ -2282,39 +2170,7 @@ public static class QueueMaterialStepService
         ]);
     }
 
-    private static bool ExistingInfoDuplicatesHistory(
-        string infoPath,
-        QueueProjectItem item,
-        IReadOnlyList<AiRewriteHistoryRecord> history,
-        bool checkSynopsis)
-    {
-        if (history.Count == 0) return false;
-
-        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
-        var title = FirstNonEmpty(
-            info.GetValueOrDefault("新剧名"),
-            info.GetValueOrDefault("剧名"),
-            item.NewTitle,
-            item.Title);
-        var synopsis = FirstNonEmpty(
-            info.GetValueOrDefault("简介"),
-            info.GetValueOrDefault("描述"),
-            info.GetValueOrDefault("剧情简介"),
-            item.Description);
-
-        if (!string.IsNullOrWhiteSpace(title) &&
-            AiRewriteHistoryService.IsTitleDuplicate(title, history.Select(record => record.NewTitle)))
-        {
-            return true;
-        }
-
-        return checkSynopsis &&
-               !string.IsNullOrWhiteSpace(synopsis) &&
-               AiRewriteHistoryService.IsSynopsisDuplicate(synopsis, history.Select(record => record.NewSynopsis));
-    }
-
     internal static bool CurrentInfoMatchesRewriteHistory(
-        QueueProjectItem item,
         ProjectWorkspaceContext context,
         string infoPath,
         IReadOnlyList<AiRewriteHistoryRecord> history,
@@ -2325,9 +2181,6 @@ public static class QueueMaterialStepService
             return false;
 
         var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
-        if (!IsProjectInfoRewritten(info, item, context, rewriteSynopsis))
-            return false;
-
         var title = FirstNonEmpty(
             info.GetValueOrDefault("新剧名"),
             info.GetValueOrDefault("剧名"));
@@ -2353,216 +2206,81 @@ public static class QueueMaterialStepService
                 StringComparison.OrdinalIgnoreCase)));
     }
 
-    private static async Task<ProjectInfoRewriteResult> RewriteUntilNewTitleAvailableAsync(
-        string workflowDir,
-        string configPath,
-        string outputPath,
-        bool overwrite,
-        IReadOnlyList<string> forbiddenTitles,
-        IReadOnlyList<string> forbiddenSynopses,
-        string? originalSynopsis,
-        string rewriteVariantKey,
+    internal static async Task<ProjectInfoRewriteResult> RewriteWithTitleReservationAsync(
+        IProjectInfoRewriter rewriter,
+        ProjectInfoRewriteRequest request,
         NewTitleOccupancySnapshot archiveOccupancy,
         TikTokAccountProfile? account,
         string projectDir,
         Action<string> log,
         CancellationToken ct)
     {
-        var rejectedTitles = new List<string>();
-        var managementFailureLogged = false;
-        var accountKey = NewTitleOccupancyService.ReservationAccountKey(account);
-        string lastOccupiedTitle = "";
-        for (var attempt = 1; attempt <= NewTitleOccupancyService.MaxRegenerationAttempts; attempt++)
-        {
-            var generated = await QueueInfrastructureServices.InfoRewriter.RewriteAsync(
-                new ProjectInfoRewriteRequest(
-                    ProjectDir: workflowDir,
-                    ConfigFile: configPath,
-                    OutputFilePath: outputPath,
-                    Overwrite: overwrite,
-                    ForbiddenTitles: forbiddenTitles,
-                    ForbiddenSynopses: forbiddenSynopses,
-                    RewriteVariantKey: rewriteVariantKey,
-                    OccupiedExactTitles: rejectedTitles,
-                    OriginalSynopsis: originalSynopsis),
-                ct);
-
-            var title = (generated.Title ?? "").Trim();
-            var archiveHit = archiveOccupancy.Checked &&
-                             NewTitleOccupancyService.IsExactMatch(title, archiveOccupancy.Titles);
-            var managementChecked = false;
-            IReadOnlyCollection<string> managementDuplicates = [];
-            if (!archiveHit)
-            {
-                try
-                {
-                    var management = await TikTokManagementUploadRecordSyncService.CheckDuplicateNewNamesAsync(
-                        [title],
-                        account,
-                        ct);
-                    managementChecked = management.Ok;
-                    managementDuplicates = management.Duplicates;
-                    if (!management.Ok && !managementFailureLogged)
-                    {
-                        managementFailureLogged = true;
-                        log($"管理系统新剧名查重未完成，继续生成剧名：{management.Message}");
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    if (!managementFailureLogged)
-                    {
-                        managementFailureLogged = true;
-                        log($"管理系统新剧名查重未完成，继续生成剧名：{ex.Message}");
-                    }
-                }
-            }
-
-            var decision = NewTitleOccupancyService.Decide(
-                title,
-                archiveOccupancy,
-                managementChecked,
-                managementDuplicates);
-            if (!decision.Regenerate &&
-                !NewTitleOccupancyService.TryClaim(accountKey, title, projectDir))
-            {
-                decision = new NewTitleOccupancyDecision(true, "本次同时生成");
-            }
-
-            if (!decision.Regenerate)
-                return generated;
-
-            lastOccupiedTitle = title;
-            rejectedTitles.Add(title);
-            log(decision.Reason == "本次同时生成"
-                ? $"新剧名「{title}」刚被同一账号的其他剧使用，重新生成。"
-                : $"新剧名「{title}」已在{decision.Reason}中存在，重新生成。");
-        }
-
-        throw new NewTitleOccupiedException(
-            $"新剧名「{lastOccupiedTitle}」已被占用，重新生成 {NewTitleOccupancyService.MaxRegenerationAttempts} 次后仍然重复。");
-    }
-
-    private static void RestoreRewriteOutput(string outputPath, bool existed, string? previous)
-    {
+        var outputPath = request.OutputFilePath;
+        var temporaryPath = Path.Combine(Path.GetDirectoryName(outputPath)!, $".rewrite-{Guid.NewGuid():N}.tmp");
+        ct.ThrowIfCancellationRequested();
         try
         {
-            if (!existed)
+            if (File.Exists(outputPath))
             {
-                if (File.Exists(outputPath))
-                    File.Delete(outputPath);
-                return;
+                if (!request.Overwrite)
+                    throw new IOException($"输出文件已存在: {outputPath}");
+                File.Copy(outputPath, temporaryPath);
             }
 
-            File.WriteAllText(outputPath, previous ?? "");
-        }
-        catch
-        {
-            // 恢复旧稿失败时仍让这一步失败，避免把占用的新剧名当成成功结果。
-        }
-    }
+            var generated = await rewriter.RewriteAsync(request with { OutputFilePath = temporaryPath }, ct);
+            ct.ThrowIfCancellationRequested();
+            var title = generated.Title;
+            if (archiveOccupancy.Checked && NewTitleOccupancyService.IsExactMatch(title, archiveOccupancy.Titles))
+                throw new NewTitleOccupiedException($"写入前校验发现新剧名「{title}」已被归档占用，保留原短剧信息。");
 
-    /// <summary>AI 改写多次失败时的兜底：复用本项目历史生成过的新剧名/简介（避开其它项目已用标题和已占用新剧名）。</summary>
-    private static async Task<bool> TryApplyRewriteHistoryFallbackAsync(
-        IReadOnlyList<AiRewriteHistoryRecord> history,
-        ProjectWorkspaceContext context,
-        string infoPath,
-        IReadOnlyList<AiRewriteHistoryRecord> otherHistory,
-        QueueProjectItem item,
-        Action<string> log,
-        Exception failure,
-        bool rewriteSynopsis,
-        string rewriteVariantKey,
-        NewTitleOccupancySnapshot archiveOccupancy,
-        TikTokAccountProfile? account,
-        CancellationToken ct)
-    {
-        if (!File.Exists(infoPath))
-            return false;
-
-        var forbiddenTitles = otherHistory
-            .Select(record => (record.NewTitle ?? "").Trim())
-            .Where(title => title.Length > 0)
-            .ToHashSet(StringComparer.Ordinal);
-        var accountKey = NewTitleOccupancyService.ReservationAccountKey(account);
-        var managementFailureLogged = false;
-        var candidates = history
-            .Where(record => ProjectOriginalSynopsisService.IsCurrentProjectHistory(record, context))
-            .Where(record => !rewriteSynopsis || RewriteVariantKeysEqual(record.VariantKey, rewriteVariantKey))
-            .Where(record => !string.IsNullOrWhiteSpace(record.NewTitle))
-            .Where(record => !rewriteSynopsis || !string.IsNullOrWhiteSpace(record.NewSynopsis))
-            .Where(record => !forbiddenTitles.Contains(record.NewTitle.Trim()))
-            .OrderByDescending(record => record.CreatedAt, StringComparer.Ordinal);
-
-        foreach (var candidate in candidates)
-        {
-            var title = candidate.NewTitle.Trim();
             var managementChecked = false;
             IReadOnlyCollection<string> managementDuplicates = [];
-            if (!(archiveOccupancy.Checked &&
-                  NewTitleOccupancyService.IsExactMatch(title, archiveOccupancy.Titles)))
+            try
             {
-                try
-                {
-                    var management = await TikTokManagementUploadRecordSyncService.CheckDuplicateNewNamesAsync(
-                        [title],
-                        account,
-                        ct);
-                    managementChecked = management.Ok;
-                    managementDuplicates = management.Duplicates;
-                    if (!management.Ok && !managementFailureLogged)
-                    {
-                        managementFailureLogged = true;
-                        log($"管理系统新剧名查重未完成，继续使用历史剧名：{management.Message}");
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    if (!managementFailureLogged)
-                    {
-                        managementFailureLogged = true;
-                        log($"管理系统新剧名查重未完成，继续使用历史剧名：{ex.Message}");
-                    }
-                }
+                var management = await TikTokManagementUploadRecordSyncService.CheckDuplicateNewNamesAsync([title], account, ct);
+                managementChecked = management.Ok;
+                managementDuplicates = management.Duplicates;
+                if (!management.Ok)
+                    log($"管理系统新剧名占用校验未完成：{management.Message}");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log($"管理系统新剧名占用校验未完成：{ex.Message}");
             }
 
-            var decision = NewTitleOccupancyService.Decide(
-                title,
-                archiveOccupancy,
-                managementChecked,
-                managementDuplicates);
-            if (decision.Regenerate ||
-                !NewTitleOccupancyService.TryClaim(accountKey, title, context.SourceProjectDir))
+            var decision = NewTitleOccupancyService.Decide(title, archiveOccupancy, managementChecked, managementDuplicates);
+            if (decision.Regenerate)
+                throw new NewTitleOccupiedException($"写入前校验发现新剧名「{title}」已被{decision.Reason}占用，保留原短剧信息。");
+
+            ApplyConfiguredPublishAudience(temporaryPath, account, log);
+            var currentInfo = ProjectInfoTextHelper.ParseInfoFile(outputPath);
+            var currentTitle = FirstNonEmpty(currentInfo.GetValueOrDefault("新剧名"), currentInfo.GetValueOrDefault("剧名"));
+            var sameAsCurrentTitle = NewTitleOccupancyService.IsExactMatch(title, [currentTitle]);
+            var accountKey = NewTitleOccupancyService.ReservationAccountKey(account);
+            if (!NewTitleOccupancyService.TryClaim(accountKey, title, projectDir))
+                throw new NewTitleOccupiedException($"写入前校验发现新剧名「{title}」已被同一账号的其他项目占用，保留原短剧信息。");
+
+            try
             {
-                continue;
+                ct.ThrowIfCancellationRequested();
+                File.Move(temporaryPath, outputPath, request.Overwrite);
+            }
+            catch
+            {
+                if (!sameAsCurrentTitle)
+                    NewTitleOccupancyService.Release(accountKey, title, projectDir);
+                throw;
             }
 
-            var synopsis = NormalizeSingleLine(candidate.NewSynopsis);
-            ProjectWorkspaceService.UpdateProjectInfoField(infoPath, "新剧名", title);
-            if (rewriteSynopsis && !string.IsNullOrWhiteSpace(synopsis))
-                ProjectWorkspaceService.UpdateProjectInfoField(infoPath, "简介", synopsis);
-
-            item.NewTitle = title;
-            if (rewriteSynopsis && !string.IsNullOrWhiteSpace(synopsis))
-                item.Description = synopsis;
-
-            log($"AI 改写多次失败（{failure.Message}），已兜底复用本项目历史新剧名：「{title}」");
-            return true;
+            if (!sameAsCurrentTitle && !string.IsNullOrWhiteSpace(currentTitle))
+                NewTitleOccupancyService.Release(accountKey, currentTitle, projectDir);
+            return generated with { OutputFilePath = outputPath };
         }
-
-        return false;
+        finally
+        {
+            TryDelete(temporaryPath);
+        }
     }
-
-    private static string NormalizeSingleLine(string? text) =>
-        string.Join(' ', (text ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()));
 
     private static void AppendRewriteHistory(
         ProjectInfoRewriteResult result,
@@ -2728,10 +2446,16 @@ public static class QueueMaterialStepService
         bool rewriteSynopsis)
     {
         var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var title = FirstNonEmpty(info.GetValueOrDefault("新剧名"), info.GetValueOrDefault("剧名"));
+        var matchingCompletion = HasMatchingRewriteCompletionState(context, account, info, rewriteSynopsis, out var recordedTitle);
+        if (matchingCompletion && title.Length > 0 && string.Equals(title, recordedTitle, StringComparison.Ordinal))
+            return false;
+
+        // Older projects did not record a completed title. Keep their existing resume behavior.
         if (!IsProjectInfoRewritten(info, item, context, rewriteSynopsis))
             return true;
 
-        return rewriteSynopsis && !HasMatchingRewriteCompletionState(context, account, info);
+        return rewriteSynopsis && !matchingCompletion;
     }
 
     internal static void PersistRewriteCompletionState(
@@ -2758,6 +2482,7 @@ public static class QueueMaterialStepService
                     : rewriteVariantKey,
                 ["rewrite_synopsis"] = rewriteSynopsis,
                 ["synopsis_fingerprint"] = rewriteSynopsis ? SynopsisFingerprint(synopsis) : string.Empty,
+                ["title"] = FirstNonEmpty(info.GetValueOrDefault("新剧名"), info.GetValueOrDefault("剧名")),
             },
             context.WorkflowProjectDir);
     }
@@ -2765,19 +2490,29 @@ public static class QueueMaterialStepService
     private static bool HasMatchingRewriteCompletionState(
         ProjectWorkspaceContext context,
         TikTokAccountProfile? account,
-        IReadOnlyDictionary<string, string> info)
+        IReadOnlyDictionary<string, string> info,
+        bool rewriteSynopsis,
+        out string recordedTitle)
     {
         var state = ProjectStateDocumentStore.LoadDocument(
             context.WorkspaceRoot,
             context.SourceProjectDir,
             AiRewriteStateDocumentType);
 
-        if (!TryReadBoolean(state.GetValueOrDefault("rewrite_synopsis"), out var rewriteSynopsis) || !rewriteSynopsis)
+        recordedTitle = ReadJsonString(state.GetValueOrDefault("title"));
+        if (!TryReadBoolean(state.GetValueOrDefault("rewrite_synopsis"), out var recordedRewriteSynopsis))
             return false;
 
-        var variantKey = ReadJsonString(state.GetValueOrDefault("variant_key"));
-        if (!RewriteVariantKeysEquivalentForReuse(variantKey, BuildRewriteVariantKey(context, account)))
-            return false;
+        if (account is not null)
+        {
+            var variantKey = ReadJsonString(state.GetValueOrDefault("variant_key"));
+            if (recordedRewriteSynopsis != rewriteSynopsis ||
+                !RewriteVariantKeysEquivalentForReuse(variantKey, BuildRewriteVariantKey(context, account)))
+                return false;
+        }
+
+        if (!recordedRewriteSynopsis)
+            return true;
 
         var expectedFingerprint = ReadJsonString(state.GetValueOrDefault("synopsis_fingerprint"));
         return !string.IsNullOrWhiteSpace(expectedFingerprint) &&

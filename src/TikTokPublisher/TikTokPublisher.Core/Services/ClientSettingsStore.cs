@@ -196,6 +196,17 @@ public static class ClientSettingsStore
     public static void ResetHgnewCredentials(string? databasePath = null) =>
         ResetInstallerDataSecrets(databasePath);
 
+    internal static void ResetTikTokPublishPromptToDefault(string databasePath)
+    {
+        AppDatabaseInitializer.EnsureInitialized(databasePath);
+        using var connection = AppDatabaseInitializer.OpenConnection(databasePath);
+        using var transaction = connection.BeginTransaction();
+        var existing = LoadRawObject(connection, transaction) ?? new JsonObject();
+        existing["ai_publish_info_prompt"] = ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt;
+        SaveRawObject(connection, existing, transaction);
+        transaction.Commit();
+    }
+
     public static string MainDatabasePath => AppPaths.AppDatabaseFile;
 
     public static string WorkspaceDatabasePath(string? workspacePath)
@@ -329,7 +340,13 @@ public static class ClientSettingsStore
 
         using var conn = new SqliteConnection($"Data Source={path};Mode=ReadOnly");
         conn.Open();
+        return LoadRawObject(conn);
+    }
+
+    private static JsonObject? LoadRawObject(SqliteConnection conn, SqliteTransaction? transaction = null)
+    {
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = "SELECT value_json FROM app_settings WHERE key = $key LIMIT 1";
         cmd.Parameters.AddWithValue("$key", SettingsKey);
         var json = cmd.ExecuteScalar()?.ToString();
@@ -343,12 +360,18 @@ public static class ClientSettingsStore
 
     private static void SaveRawObject(string path, JsonObject settings)
     {
+        using var conn = new SqliteConnection($"Data Source={path}");
+        conn.Open();
+        SaveRawObject(conn, settings);
+    }
+
+    private static void SaveRawObject(SqliteConnection conn, JsonObject settings, SqliteTransaction? transaction = null)
+    {
         var now = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:ss");
         var payload = settings.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
 
-        using var conn = new SqliteConnection($"Data Source={path}");
-        conn.Open();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
             INSERT INTO app_settings (key, value_json, updated_at)
             VALUES ($key, $json, $now)

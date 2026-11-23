@@ -182,27 +182,25 @@ public sealed partial class ProjectInfoRewriter : IProjectInfoRewriter
         var synopsisTemperature = GetOptionalDouble(config, "AiSynopsisTemperature") ?? 0.75;
         var rewriteSynopsis = GetOptionalBool(config, "AiRewriteSynopsis") ?? false;
         var followSourceLanguage = GetOptionalBool(config, "AiRewriteFollowsSourceLanguage") ?? false;
-        if (followSourceLanguage)
+        if (followSourceLanguage && !request.UseUnifiedPublishPrompt)
             (project, canonicalOriginalTitle) = ApplyImportedSource(project, canonicalOriginalTitle);
-        if (GetOptionalBool(config, "AiPublishInfoMode") == true)
+        if (request.UseUnifiedPublishPrompt || GetOptionalBool(config, "AiPublishInfoMode") == true)
         {
-            return await RewritePublishInfoAsync(
-                new PublishInfoContext(
-                    endpoint,
-                    modelId,
-                    apiKey,
-                    systemPrompt,
-                    timeoutSeconds,
-                    titleTemperature,
-                    rewriteSynopsis,
-                    followSourceLanguage,
-                    ParseThemeOptions(GetOptional(config, "AiPublishThemeOptions")),
-                    Math.Clamp(GetOptionalInt(config, "AiPublishThemeCount") ?? 3, 1, 8),
-                    GetOptionalBool(config, "AiPublishAskAudience") ?? true),
-                project,
-                canonicalOriginalTitle,
-                request,
-                cancellationToken);
+            var publishContext = new PublishInfoContext(
+                endpoint,
+                modelId,
+                apiKey,
+                systemPrompt,
+                timeoutSeconds,
+                titleTemperature,
+                rewriteSynopsis,
+                followSourceLanguage,
+                ParseThemeOptions(GetOptional(config, "AiPublishThemeOptions")),
+                Math.Clamp(GetOptionalInt(config, "AiPublishThemeCount") ?? 3, 1, 8),
+                GetOptionalBool(config, "AiPublishAskAudience") ?? true);
+            return request.UseUnifiedPublishPrompt
+                ? await RewriteWithUnifiedPublishPromptAsync(publishContext, project, canonicalOriginalTitle, request, cancellationToken)
+                : await RewritePublishInfoAsync(publishContext, project, canonicalOriginalTitle, request, cancellationToken);
         }
 
         var outputLanguage = followSourceLanguage
@@ -715,7 +713,8 @@ public sealed partial class ProjectInfoRewriter : IProjectInfoRewriter
         string prompt,
         int timeoutSeconds,
         double titleTemperature,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireJsonObject = false)
     {
         var messages = new List<object>();
         if (!string.IsNullOrWhiteSpace(systemPrompt))
@@ -773,13 +772,15 @@ public sealed partial class ProjectInfoRewriter : IProjectInfoRewriter
 
         try
         {
-            var jsonText = ExtractJsonValue(content);
-            var payloadText = ExtractRewritePayloadJson(jsonText);
+            var payloadText = requireJsonObject ? content : ExtractRewritePayloadJson(ExtractJsonValue(content));
             return JsonSerializer.Deserialize<RewritePayload>(payloadText, JsonOptions)
                 ?? throw new InvalidOperationException("无法解析改写结果 JSON。");
         }
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
+            if (requireJsonObject)
+                throw new InvalidOperationException($"无法解析改写结果 JSON：{ex.Message}", ex);
+
             throw new InvalidOperationException(
                 $"无法解析改写结果 JSON：{ex.Message}; AI原始返回内容:\n{FormatRawContentForLog(content)}",
                 ex);

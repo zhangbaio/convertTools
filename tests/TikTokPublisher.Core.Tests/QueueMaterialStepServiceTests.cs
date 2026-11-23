@@ -1,4 +1,6 @@
 using FluentAssertions;
+using ShortDrama.Core.Interfaces;
+using ShortDrama.Core.Models;
 using System.Text.Json;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
@@ -602,7 +604,6 @@ public sealed class QueueMaterialStepServiceTests
             QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeTrue(
                 "the generated file exists but its completion state was not written");
             QueueMaterialStepService.CurrentInfoMatchesRewriteHistory(
-                    item,
                     context,
                     infoPath,
                     history,
@@ -610,7 +611,6 @@ public sealed class QueueMaterialStepServiceTests
                     rewriteVariantKey: variantKey)
                 .Should().BeTrue("the exact on-disk AI output is already recorded in history");
             QueueMaterialStepService.CurrentInfoMatchesRewriteHistory(
-                    item,
                     context,
                     infoPath,
                     history,
@@ -618,7 +618,6 @@ public sealed class QueueMaterialStepServiceTests
                     rewriteVariantKey: $"{Path.GetFullPath(sourceDir)}#account-b#synopsis=1")
                 .Should().BeFalse("a different account variant must receive its own rewrite");
             QueueMaterialStepService.CurrentInfoMatchesRewriteHistory(
-                    item,
                     context,
                     infoPath,
                     history.Select(record => record with { NewSynopsis = "另一个 AI 改写简介" }).ToArray(),
@@ -639,6 +638,77 @@ public sealed class QueueMaterialStepServiceTests
             try { Directory.Delete(workspace, recursive: true); }
             catch (IOException) { /* SQLite can retain a pooled Windows handle briefly. */ }
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unified_rewrite_checks_title_reservation_before_replacing_short_drama_info(bool occupied)
+    {
+        var workspace = Directory.CreateTempSubdirectory("rewrite-reservation-");
+        var source = workspace.CreateSubdirectory("原项目").FullName;
+        var workflow = ProjectWorkspaceService.PrepareWorkflowProject(source);
+        var infoPath = Path.Combine(workflow, "短剧信息.txt");
+        const string originalTitle = "旧梦归途";
+        const string synopsis = "旧简介。";
+        const string existing = $"原剧名: {originalTitle}\n新剧名: {originalTitle}\n简介: {synopsis}\n集数: 1\n";
+        File.WriteAllText(infoPath, existing);
+        var calls = 0;
+        var rewriter = new RecordingInfoRewriter(request =>
+        {
+            calls++;
+            request.OutputFilePath.Should().NotBe(infoPath);
+            request.UseUnifiedPublishPrompt.Should().BeTrue();
+            File.ReadAllText(request.OutputFilePath).Should().Be(existing);
+            File.ReadAllText(infoPath).Should().Be(existing);
+            const string updated = $"原剧名: {originalTitle}\n新剧名: {originalTitle}\n简介: 改写简介。\n集数: 1\n";
+            File.WriteAllText(request.OutputFilePath, updated);
+            return new ProjectInfoRewriteResult(request.OutputFilePath, originalTitle, "", "改写简介。", "", "");
+        });
+        var account = new TikTokAccountProfile
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            TiktokAiRewriteSynopsis = true,
+            TiktokTargetAudienceMode = "female",
+        };
+        try
+        {
+            var archive = NewTitleOccupancySnapshot.Ready(occupied ? [originalTitle] : []);
+            var request = new ProjectInfoRewriteRequest(workflow, "", infoPath, Overwrite: true,
+                OccupiedExactTitles: archive.Titles, UseUnifiedPublishPrompt: true);
+            var rewrite = () => QueueMaterialStepService.RewriteWithTitleReservationAsync(
+                rewriter, request, archive, account, source, _ => { }, CancellationToken.None);
+            if (occupied)
+            {
+                await rewrite.Should().ThrowAsync<NewTitleOccupiedException>();
+                File.ReadAllText(infoPath).Should().Be(existing);
+            }
+            else
+            {
+                var generated = await rewrite();
+                generated.OutputFilePath.Should().Be(infoPath);
+                ProjectInfoTextHelper.ParseInfoFile(infoPath).Should().Contain("目标观众", "女").And.Contain("简介", "改写简介。");
+                var context = ProjectWorkspaceService.LoadContext(source);
+                QueueMaterialStepService.PersistRewriteCompletionState(context, account, infoPath, rewriteSynopsis: true);
+                var item = new QueueProjectItem { ProjectDir = source };
+                QueueMaterialStepService.NeedsAiRewrite(item, account).Should().BeFalse();
+                QueueMaterialStepService.NeedsAiRewrite(item).Should().BeFalse("the workspace scan has no account context");
+            }
+            calls.Should().Be(1);
+            Directory.EnumerateFiles(workflow, ".rewrite-*.tmp").Should().BeEmpty();
+        }
+        finally
+        {
+            NewTitleOccupancyService.Release(NewTitleOccupancyService.ReservationAccountKey(account), originalTitle, source);
+            try { workspace.Delete(recursive: true); }
+            catch (IOException) { /* SQLite can retain a pooled Windows handle briefly. */ }
+        }
+    }
+
+    private sealed class RecordingInfoRewriter(Func<ProjectInfoRewriteRequest, ProjectInfoRewriteResult> rewrite) : IProjectInfoRewriter
+    {
+        public Task<ProjectInfoRewriteResult> RewriteAsync(ProjectInfoRewriteRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(rewrite(request));
     }
 
     [Fact]

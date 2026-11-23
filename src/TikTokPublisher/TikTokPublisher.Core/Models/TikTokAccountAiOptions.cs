@@ -8,7 +8,8 @@ public sealed record TikTokAccountAiOptions(
     string PosterMode, bool VerifyTitle, string VerifyMode)
 {
     public static TikTokAccountAiOptions FromSettings(ClientSettings settings) => new(
-        "", "", Services.ClientSettingsStore.ResolvePublishInfoPrompt(settings), settings.TiktokRoleReferenceSelectionMode,
+        "", "", Services.TikTokAccountAiSettings.ResolvePublishPrompt(settings.AiPublishInfoPrompt),
+        settings.TiktokRoleReferenceSelectionMode,
         settings.TiktokRoleReferenceAiFallbackEnabled,
         settings.PosterMode, settings.PosterTitleVerifyEnabled, settings.PosterTitleVerifyMode);
 }

@@ -1,8 +1,11 @@
 using System.Text.Json;
+using Avalonia.Controls;
+using Avalonia.Interactivity;
 using FluentAssertions;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
+using TikTokPublisher.Ui.Views;
 
 namespace TikTokPublisher.Core.Tests;
 
@@ -12,6 +15,70 @@ public sealed class AccountAiDataRootCollection { }
 [Collection("Account AI data root")]
 public sealed class TikTokAccountAiSettingsTests
 {
+    [Fact]
+    public void Account_editor_displays_the_builtin_prompt_on_reset_and_after_reload()
+    {
+        var previous = AppPaths.DataRootOverride;
+        var root = Directory.CreateTempSubdirectory("tiktok-prompt-reset-");
+        AppPaths.DataRootOverride = root.FullName;
+        try
+        {
+            var defaults = new ClientSettings { AiPublishInfoPrompt = "全局自定义提示词" };
+            var account = new TikTokAccountProfile
+            {
+                Id = "a",
+                AiOptions = TikTokAccountAiOptions.FromSettings(defaults) with { PublishPrompt = "账号自定义提示词" },
+            };
+            var editor = new AccountAiEditor();
+            var promptRow = ((StackPanel)editor.Content!).Children.OfType<StackPanel>()
+                .Single(panel => panel.Children.OfType<TextBlock>().Any(label => label.Text == "发布信息提示词"));
+            var controls = promptRow.Children.OfType<Grid>().Single().Children;
+            var promptBox = controls.OfType<TextBox>().Single();
+            var reset = controls.OfType<Button>().Single(button => Equals(button.Content, "恢复默认"));
+
+            editor.Load(account, defaults);
+            promptBox.Text.Should().Be("账号自定义提示词");
+
+            reset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            promptBox.Text.Should().Be(ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt);
+            account.AiOptions!.PublishPrompt.Should().Be("账号自定义提示词");
+
+            editor.Save(account);
+            account.AiOptions.PublishPrompt.Should().BeEmpty();
+            editor.Load(account, defaults);
+            promptBox.Text.Should().Be(TikTokAccountAiSettings.Apply(defaults, account).AiPublishInfoPrompt)
+                .And.Be(ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt);
+
+            promptBox.Text = "重新编辑的提示词";
+            editor.Save(account);
+            account.AiOptions.PublishPrompt.Should().Be("重新编辑的提示词");
+        }
+        finally
+        {
+            AppPaths.DataRootOverride = previous;
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void An_empty_prompt_uses_the_builtin_default_and_saved_user_text_is_used_verbatim()
+    {
+        TikTokAccountAiSettings.ResolvePublishPrompt(null)
+            .Should().Be(ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt);
+        TikTokAccountAiSettings.ResolvePublishPrompt(" \r\n ")
+            .Should().Be(ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt);
+        TikTokAccountAiSettings.ResolvePublishPrompt(ClientSettingsDefaults.AiPublishInfoPrompt.ReplaceLineEndings("\n"))
+            .Should().Be(ClientSettingsDefaults.AiPublishInfoPrompt.ReplaceLineEndings("\n"));
+        TikTokAccountAiSettings.ResolvePublishPrompt(ClientSettingsDefaults.AiFullInfoSystemPrompt)
+            .Should().Be(ClientSettingsDefaults.AiFullInfoSystemPrompt);
+        const string custom = "使用账号自己的文字约定。";
+        TikTokAccountAiSettings.ResolvePublishPrompt(custom).Should().Be(custom);
+        TikTokAccountAiOptions.FromSettings(new ClientSettings()).PublishPrompt
+            .Should().Be(ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt);
+        TikTokAccountAiOptions.FromSettings(new ClientSettings { AiPublishInfoPrompt = custom }).PublishPrompt
+            .Should().Be(custom);
+    }
+
     [Fact]
     public void Accounts_with_a_shared_image_preset_keep_their_own_poster_mode()
     {
