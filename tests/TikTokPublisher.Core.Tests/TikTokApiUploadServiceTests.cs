@@ -160,6 +160,17 @@ public sealed class TikTokApiUploadServiceTests
                 throw new NotSupportedException(targetMethod?.Name);
 
             var request = (object[])args![1]!;
+            if (request is [string path, string[] bodies])
+            {
+                var results = bodies.Select(body =>
+                {
+                    Requests.Add(("POST", path, body));
+                    var (status, text, retryAfter) = Replies.Dequeue();
+                    return new { status, text, retryAfter };
+                }).ToArray();
+                return Task.FromResult(JsonSerializer.SerializeToElement(results));
+            }
+
             Requests.Add(((string)request[0], (string)request[1], (string?)request[2]));
             var (status, text, retryAfter) = Replies.Dequeue();
             return Task.FromResult(JsonSerializer.SerializeToElement(new { status, text, retryAfter }));
@@ -647,7 +658,7 @@ public sealed class TikTokApiUploadServiceTests
     }
 
     [Fact]
-    public void Add_video_response_retries_only_server_failures()
+    public void Add_video_response_distinguishes_transient_failures_from_rejections()
     {
         var ok = TikTokApiUploadService.InspectAddVideoResponse(200, "{\"code\":0}");
         ok.Succeeded.Should().BeTrue();
@@ -663,8 +674,131 @@ public sealed class TikTokApiUploadServiceTests
         rejected.Retryable.Should().BeFalse();
 
         TikTokApiUploadService.InspectAddVideoResponse(0, "Failed to fetch").Retryable.Should().BeTrue();
+        TikTokApiUploadService.InspectAddVideoResponse(429, "Too Many Requests").Retryable.Should().BeTrue();
+        TikTokApiUploadService.InspectAddVideoResponse(200, """{"code":500,"message":""}""").Retryable.Should().BeTrue();
+        TikTokApiUploadService.InspectAddVideoResponse(200, """{"code":"500"}""").Retryable.Should().BeTrue();
+        TikTokApiUploadService.InspectAddVideoResponse(403, """{"code":500}""").Retryable.Should().BeFalse();
         TikTokApiUploadService.InspectAddVideoResponse(200, "<html>").Retryable.Should().BeFalse();
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Mount_retry_checks_the_draft_and_reuses_the_original_request_only_if_still_missing(bool alreadyMounted)
+    {
+        var page = alreadyMounted
+            ? CreateSaveSeriesPage((200, MountBusy, "7"), (200, MountOk, null), (200, MountOk, null),
+                (200, DraftEpisodes(38, 39, 40), null))
+            : CreateSaveSeriesPage((200, MountBusy, "7"), (200, MountOk, null), (200, MountOk, null),
+                (200, DraftEpisodes(38, 40), null), (200, MountOk, null));
+        var mounted = new List<int>();
+        var waits = new List<TimeSpan>();
+        var request = CreateEpisodeMount(39);
+
+        var failed = await TikTokApiUploadService.MountEpisodeBatchAsync(page,
+            [request, CreateEpisodeMount(38)], mounted.Add, CancellationToken.None);
+        await TikTokApiUploadService.MountEpisodeBatchAsync(page,
+            [CreateEpisodeMount(40)], mounted.Add, CancellationToken.None);
+        var unresolved = await TikTokApiUploadService.RetryEpisodeMountsAsync(page, MountSeriesId, failed,
+            3, 3, mounted.Add, null, CancellationToken.None, (delay, _) =>
+            {
+                waits.Add(delay);
+                return Task.CompletedTask;
+            });
+
+        unresolved.Should().BeEmpty();
+        mounted.Should().Equal(38, 40, 39);
+        waits.Should().Equal(TimeSpan.FromSeconds(7));
+        var requests = ((SaveSeriesPage)(object)page).Requests;
+        requests.Select(item => item.Method)
+            .Should().Equal(alreadyMounted
+                ? new[] { "POST", "POST", "POST", "GET" }
+                : new[] { "POST", "POST", "POST", "GET", "POST" });
+        requests.Count(item => item.Body == request.Body).Should().Be(alreadyMounted ? 1 : 2);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Mount_retry_reconciles_the_last_attempt_and_preserves_completed_episodes(bool mountedOnLastAttempt)
+    {
+        var page = CreateSaveSeriesPage((200, MountBusy, null), (200, MountOk, null),
+            (200, DraftEpisodes(40), null), (200, MountBusy, null),
+            (200, DraftEpisodes(40), null), (200, MountBusy, null),
+            (200, mountedOnLastAttempt ? DraftEpisodes(39, 40) : DraftEpisodes(40), null));
+        var mounted = new List<int>();
+        var waits = new List<TimeSpan>();
+        var request = CreateEpisodeMount(39);
+
+        var failed = await TikTokApiUploadService.MountEpisodeBatchAsync(page,
+            [request, CreateEpisodeMount(40)], mounted.Add, CancellationToken.None);
+        var unresolved = await TikTokApiUploadService.RetryEpisodeMountsAsync(page, MountSeriesId, failed,
+            3, 3, mounted.Add, null, CancellationToken.None, (delay, _) =>
+            {
+                waits.Add(delay);
+                return Task.CompletedTask;
+            });
+
+        if (mountedOnLastAttempt)
+            unresolved.Should().BeEmpty();
+        else
+            unresolved.Should().ContainSingle().Which.Request.Should().Be(request);
+        mounted.Should().Equal(mountedOnLastAttempt ? new[] { 40, 39 } : new[] { 40 });
+        waits.Select(delay => delay.TotalSeconds).Should().Equal(2, 4);
+        var requests = ((SaveSeriesPage)(object)page).Requests;
+        requests.Count(item => item.Body == request.Body).Should().Be(3);
+        requests.Count(item => item.Body == CreateEpisodeMount(40).Body).Should().Be(1);
+        requests.Should().OnlyContain(item => item.Method == "GET" || item.Method == "POST");
+    }
+
+    [Theory]
+    [InlineData("""{"code":0,"data":{}}""")]
+    [InlineData("""{"code":0,"data":{"videos":[{"title":"第39集"}]}}""")]
+    [InlineData("""{"code":0,"data":{"videos":[{"title":"第39集","videoId":"row-1"},{"title":"第39集","videoId":"row-2"}]}}""")]
+    public async Task Mount_retry_stops_when_the_draft_list_cannot_confirm_the_missing_episode(string draft)
+    {
+        var page = CreateSaveSeriesPage((200, MountBusy, null), (200, draft, null));
+        var failed = await TikTokApiUploadService.MountEpisodeBatchAsync(page,
+            [CreateEpisodeMount(39)], _ => { }, CancellationToken.None);
+        Func<Task> retry = () => TikTokApiUploadService.RetryEpisodeMountsAsync(page, MountSeriesId, failed,
+            3, 3, _ => { }, null, CancellationToken.None, (_, _) => Task.CompletedTask);
+        await retry.Should().ThrowAsync<InvalidOperationException>();
+        ((SaveSeriesPage)(object)page).Requests.Select(item => item.Method).Should().Equal("POST", "GET");
+    }
+
+    [Fact]
+    public async Task Mount_retry_honors_cancellation_before_read_or_resend()
+    {
+        var page = CreateSaveSeriesPage((200, MountBusy, null));
+        var failed = await TikTokApiUploadService.MountEpisodeBatchAsync(page,
+            [CreateEpisodeMount(39)], _ => { }, CancellationToken.None);
+        using var stop = new CancellationTokenSource();
+        Func<Task> retry = () => TikTokApiUploadService.RetryEpisodeMountsAsync(page, MountSeriesId, failed,
+            3, 3, _ => { }, null, stop.Token, (_, token) =>
+            {
+                stop.Cancel();
+                return Task.FromCanceled(token);
+            });
+        await retry.Should().ThrowAsync<OperationCanceledException>();
+        ((SaveSeriesPage)(object)page).Requests.Should().ContainSingle();
+    }
+
+    private const string MountSeriesId = "1234567890123456789";
+    private const string MountOk = """{"code":0}""";
+    private const string MountBusy = """{"code":500,"message":""}""";
+
+    private static TikTokApiUploadService.EpisodeMount CreateEpisodeMount(int episode) =>
+        new(episode, TikTokApiUploadService.BuildAddVideoBody(
+            MountSeriesId, new($"vod-{episode}", 2000, "cover"), $"第{episode}集", episode));
+
+    private static string DraftEpisodes(params int[] episodes) => JsonSerializer.Serialize(new
+    {
+        code = 0,
+        data = new
+        {
+            videos = episodes.Select(episode => new { videoId = $"row-{episode}", title = $"第{episode}集", orderNum = episode })
+        }
+    });
 
     [Fact]
     public void Account_api_upload_defaults()
