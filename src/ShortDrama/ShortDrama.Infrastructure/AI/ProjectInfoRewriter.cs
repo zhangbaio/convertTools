@@ -7,6 +7,7 @@ using ShortDrama.Infrastructure.Config;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace ShortDrama.Infrastructure.AI;
@@ -1777,7 +1778,9 @@ public sealed partial class ProjectInfoRewriter : IProjectInfoRewriter
         JsonElement? Genres = null,
         string? Audience = null,
         string? Target_Audience = null,
-        string? Language = null);
+        string? Language = null,
+        [property: JsonPropertyName("matches_source")] bool? MatchesSource = null,
+        string? Reason = null);
 
     private sealed record NormalizedRewrite(
         string Title,

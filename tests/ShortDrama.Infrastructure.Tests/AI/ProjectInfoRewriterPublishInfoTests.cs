@@ -128,6 +128,110 @@ public sealed class ProjectInfoRewriterPublishInfoTests
         result.Title.Should().Be("错嫁之后我翻盘了");
     }
 
+    [Fact]
+    public async Task Light_synopsis_retries_only_the_description_using_the_original_text()
+    {
+        const string original = "Lina finds the missing ledger and shows it to her brother. They take the evidence to court and recover the family shop.";
+        const string paraphrase = "Upon finding the lost ledger, Lina shows her brother what it contains. Together they present proof in court and reclaim the family shop.";
+        var projectDir = Directory.CreateTempSubdirectory().FullName;
+        var infoPath = await WriteInfoAsync(projectDir, "The Hidden Ledger", "Previously expanded workflow synopsis.");
+        var configPath = WriteConfig(projectDir, rewriteSynopsis: true, followSourceLanguage: true);
+        var handler = new RecordingHandler(
+        [
+            LightPublishReply(original + " " + original),
+            JsonSerializer.Serialize(new { description = paraphrase }),
+            """{"matches_source":true,"reason":""}""",
+        ]);
+
+        var result = await CreateRewriter(handler).RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir, configPath, infoPath, Overwrite: true,
+                ForbiddenSynopses: [original], OriginalSynopsis: original),
+            CancellationToken.None);
+
+        result.Title.Should().Be("A Price at Midnight");
+        result.Synopsis.Should().Be(paraphrase);
+        handler.RequestBodies.Should().HaveCount(3);
+        Message(handler.RequestBodies[0], 1).Should().Contain(original).And.NotContain("Previously expanded workflow synopsis.");
+        Message(handler.RequestBodies[1], 1).Should().Contain("只改写简介").And.Contain("本次 44 词");
+        Message(handler.RequestBodies[2], 1).Should().Contain(original).And.Contain(paraphrase);
+        File.ReadAllText(infoPath).Should().Contain(paraphrase);
+    }
+
+    [Fact]
+    public async Task Light_synopsis_rejects_copy_and_changed_plot_without_replacing_existing_output()
+    {
+        const string original = "Lina finds the missing ledger and shows it to her brother. They take the evidence to court and recover the family shop.";
+        const string changed = "Lina locates the lost ledger and shares it with her sister. They bring the evidence to court and win back the family shop.";
+        var projectDir = Directory.CreateTempSubdirectory().FullName;
+        var infoPath = await WriteInfoAsync(projectDir, "The Hidden Ledger", "Saved synopsis and title.", "新剧名: Existing Title");
+        var previous = await File.ReadAllTextAsync(infoPath);
+        var configPath = WriteConfig(projectDir, rewriteSynopsis: true, followSourceLanguage: true);
+        var handler = new RecordingHandler(
+        [
+            LightPublishReply(original.ToUpperInvariant().Replace(".", "!")),
+            JsonSerializer.Serialize(new { description = "Lina finds the missing ledger and shows it to her brother. With that proof, the siblings win their shop back in court." }),
+            JsonSerializer.Serialize(new { description = "Lina locates the missing ledger and shows it to her brother. They bring the evidence to court and recover the family shop." }),
+            JsonSerializer.Serialize(new { description = changed }),
+            """{"matches_source":false,"reason":"把哥哥改成了姐妹"}""",
+        ]);
+
+        var action = () => CreateRewriter(handler).RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir, configPath, infoPath, Overwrite: true, OriginalSynopsis: original),
+            CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("*剧情核对未通过*");
+        handler.RequestBodies.Should().HaveCount(5);
+        Message(handler.RequestBodies[1], 1).Should().Contain("简介与原文相同");
+        Message(handler.RequestBodies[2], 1).Should().Contain("整句照搬");
+        Message(handler.RequestBodies[3], 1).Should().Contain("连续 5 词片段复用率");
+        (await File.ReadAllTextAsync(infoPath)).Should().Be(previous);
+    }
+
+    [Fact]
+    public void Copied_sentences_are_detected_despite_case_and_punctuation_without_splitting_at_titles()
+    {
+        const string original = "Dr. Evelyn waited in the hall.She carried the evidence home.";
+        ProjectInfoRewriter.ContainsCopiedSynopsisSentence(original,
+            "DR. EVELYN WAITED IN THE HALL! The proof eventually went home.").Should().BeTrue();
+        ProjectInfoRewriter.ContainsCopiedSynopsisSentence(original,
+            "Dr. Evelyn remained in the hallway. She took the proof back home.").Should().BeFalse();
+    }
+
+    [Fact]
+    public void Five_word_reuse_counts_sliding_windows_and_normalizes_case_and_punctuation()
+    {
+        const string source = "One two three four five six seven eight nine.";
+        ProjectInfoRewriter.CountReusedSynopsisFragments(source, "ONE, two three four five alpha beta gamma.")
+            .Should().Be((1, 4));
+        ProjectInfoRewriter.CountReusedSynopsisFragments(source, "One two three four five six beta gamma.")
+            .Should().Be((2, 4));
+        ProjectInfoRewriter.CountReusedSynopsisFragments(source, "Only four words here.").Should().Be((0, 0));
+    }
+
+    [Fact]
+    public async Task Light_synopsis_counts_chinese_characters_without_padding_short_sources()
+    {
+        const string original = "小雨找到失踪的妹妹，两人一起回家。";
+        var projectDir = Directory.CreateTempSubdirectory().FullName;
+        var infoPath = await WriteInfoAsync(projectDir, "雨夜寻人", original);
+        var configPath = WriteConfig(projectDir, rewriteSynopsis: true);
+        var handler = new RecordingHandler(
+        [
+            """{"title":"归途有她陪伴","description":"小雨寻到走失的妹妹，两人结伴回家。","language":"zh"}""",
+            """{"matches_source":true,"reason":""}""",
+        ]);
+
+        var result = await CreateRewriter(handler).RewriteAsync(
+            new ProjectInfoRewriteRequest(projectDir, configPath, infoPath, Overwrite: true, OriginalSynopsis: original),
+            CancellationToken.None);
+
+        result.Synopsis.Should().Be("小雨寻到走失的妹妹，两人结伴回家。");
+        Message(handler.RequestBodies[0], 1).Should().Contain("14～16 字");
+    }
+
+    private static string LightPublishReply(string synopsis) =>
+        JsonSerializer.Serialize(new { title = "A Price at Midnight", description = synopsis, language = "en" });
+
     private static ProjectInfoRewriter CreateRewriter(RecordingHandler handler) =>
         new(new TxtProjectInfoParser(), new HttpClient(handler), NullLogger<ProjectInfoRewriter>.Instance);
 

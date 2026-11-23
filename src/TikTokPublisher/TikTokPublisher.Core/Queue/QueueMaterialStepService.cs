@@ -1684,10 +1684,13 @@ public static class QueueMaterialStepService
         var workflowDir = ProjectWorkspaceService.EnsureWorkflowInfo(item.ProjectDir, episodeCount, log);
         var infoPath = Path.Combine(workflowDir, "短剧信息.txt");
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-        EnsureRewriteInputDefaults(infoPath, item, context, episodeCount);
         var originalTitle = ResolveOriginalTitle(infoPath, item, context);
-        var sourceSynopsis = ResolveSynopsis(infoPath, item, context);
         var rewriteHistory = AiRewriteHistoryService.LoadForOriginalTitle(originalTitle);
+        var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
+        var sourceSynopsis = rewriteSynopsis
+            ? ResolveOriginalSynopsis(context, originalTitle, rewriteHistory)
+            : ResolveSynopsis(infoPath, item, context);
+        EnsureRewriteInputDefaults(infoPath, item, context, episodeCount);
         var otherHistory = rewriteHistory
             .Where(record => !IsCurrentProjectHistory(record, context))
             .ToList();
@@ -1696,7 +1699,6 @@ public static class QueueMaterialStepService
             log($"同原剧名历史记录：{otherHistory.Count} 条，AI 将避开已用新剧名/简介。");
         }
 
-        var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
         if (TikTokAccountProfile.RewriteFollowsImportedLanguage(account?.TiktokDramaMarket))
         {
             log("海外剧：标题和简介按原剧语言改写。只接受中文、英语、印尼语、葡语、日语、泰语、西语、韩语、土耳其语、印地语。");
@@ -1748,7 +1750,7 @@ public static class QueueMaterialStepService
 
                 var forbiddenTitles = BuildForbiddenTitles(item, context, originalTitle, outputPath, otherHistory);
                 var forbiddenSynopses = rewriteSynopsis
-                    ? BuildForbiddenSynopses(sourceSynopsis, otherHistory)
+                    ? UniqueTexts(otherHistory.Select(record => record.NewSynopsis))
                     : [];
                 var archiveOccupancy = NewTitleOccupancyService.LoadArchiveTitles(
                     context.WorkspaceRoot,
@@ -1771,7 +1773,7 @@ public static class QueueMaterialStepService
                         overwriteExisting || outputExists,
                         forbiddenTitles,
                         forbiddenSynopses,
-                        sourceSynopsis,
+                        rewriteSynopsis ? sourceSynopsis : null,
                         rewriteVariantKey,
                         archiveOccupancy,
                         account,
@@ -1792,7 +1794,7 @@ public static class QueueMaterialStepService
                 catch (Exception ex)
                 {
                     RestoreRewriteOutput(outputPath, outputExisted, previousOutput);
-                    if (!await TryApplyRewriteHistoryFallbackAsync(
+                    if (rewriteSynopsis || !await TryApplyRewriteHistoryFallbackAsync(
                             rewriteHistory,
                             context,
                             outputPath,
@@ -2272,15 +2274,22 @@ public static class QueueMaterialStepService
         ]);
     }
 
-    private static IReadOnlyList<string> BuildForbiddenSynopses(
-        string sourceSynopsis,
+    private static string ResolveOriginalSynopsis(
+        ProjectWorkspaceContext context,
+        string originalTitle,
         IReadOnlyList<AiRewriteHistoryRecord> history)
     {
-        return UniqueTexts(
-        [
-            sourceSynopsis,
-            .. history.Select(record => record.NewSynopsis),
-        ]);
+        var sourceInfo = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(context.SourceProjectDir, "短剧信息.txt"));
+        var originals = new[]
+        {
+            RewriteSourceLanguage.ReadImported(context.SourceProjectDir).Synopsis,
+            RewriteSourceLanguage.ReadImported(context.WorkflowProjectDir).Synopsis,
+            CurrentSynopsis(sourceInfo),
+        }.Concat(history.Where(record => IsCurrentProjectHistory(record, context))
+            .OrderBy(record => record.CreatedAt, StringComparer.Ordinal)
+            .Select(record => record.OriginalSynopsis));
+
+        return originals.FirstOrDefault(synopsis => !IsDefaultSynopsis(synopsis, originalTitle))?.Trim() ?? "";
     }
 
     private static bool ExistingInfoDuplicatesHistory(
@@ -2361,7 +2370,7 @@ public static class QueueMaterialStepService
         bool overwrite,
         IReadOnlyList<string> forbiddenTitles,
         IReadOnlyList<string> forbiddenSynopses,
-        string sourceSynopsis,
+        string? originalSynopsis,
         string rewriteVariantKey,
         NewTitleOccupancySnapshot archiveOccupancy,
         TikTokAccountProfile? account,
@@ -2383,9 +2392,9 @@ public static class QueueMaterialStepService
                     Overwrite: overwrite,
                     ForbiddenTitles: forbiddenTitles,
                     ForbiddenSynopses: forbiddenSynopses,
-                    TargetSynopsisLength: TargetSynopsisLength(sourceSynopsis),
                     RewriteVariantKey: rewriteVariantKey,
-                    OccupiedExactTitles: rejectedTitles),
+                    OccupiedExactTitles: rejectedTitles,
+                    OriginalSynopsis: originalSynopsis),
                 ct);
 
             var title = (generated.Title ?? "").Trim();
@@ -2693,14 +2702,6 @@ public static class QueueMaterialStepService
         projectPath = text[..accountIndex];
         synopsisMode = text[modeIndex..];
         return !string.IsNullOrWhiteSpace(projectPath);
-    }
-
-    private static int TargetSynopsisLength(string sourceSynopsis)
-    {
-        var length = (sourceSynopsis ?? "").Trim().Length;
-        if (length <= 0) return 0;
-        if (length < 40) return 60;
-        return Math.Min(220, Math.Max(40, length));
     }
 
     private static void EnsureRewriteInputDefaults(

@@ -48,6 +48,10 @@ public sealed partial class ProjectInfoRewriter
         if (!string.IsNullOrWhiteSpace(outputDirectory))
             Directory.CreateDirectory(outputDirectory);
 
+        var lightRewrite = context.RewriteSynopsis && request.OriginalSynopsis is not null;
+        if (lightRewrite)
+            project = project with { Synopsis = request.OriginalSynopsis!.Trim() };
+
         var preserved = ReadPreservedFields(request.OutputFilePath)
             .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
         var existingAudience = NormalizePublishAudience(FirstPreservedValue(preserved, AudienceFieldKeys));
@@ -58,6 +62,7 @@ public sealed partial class ProjectInfoRewriter
         var askAudience = context.AskAudience && existingAudience.Length == 0;
         var themeCount = Math.Max(0, context.ThemeCount - existingThemes.Count);
         var knownLanguage = ResolveKnownPublishLanguage(context.FollowSourceLanguage, project, canonicalOriginalTitle);
+        var lightLength = lightRewrite ? MeasureLightSynopsis(project.Synopsis, knownLanguage) : (LightSynopsisLength?)null;
 
         string? retryReason = null;
         string? previousTitle = null;
@@ -78,12 +83,13 @@ public sealed partial class ProjectInfoRewriter
                 existingThemes,
                 askAudience,
                 retryReason,
-                previousTitle);
+                previousTitle,
+                lightLength);
             var payload = await RequestRewritePayloadAsync(
                 context.Endpoint,
                 context.ModelId,
                 context.ApiKey,
-                context.SystemPrompt,
+                lightRewrite ? $"{context.SystemPrompt}\n\n{LightSynopsisRules}" : context.SystemPrompt,
                 prompt,
                 context.TimeoutSeconds,
                 context.Temperature,
@@ -109,6 +115,8 @@ public sealed partial class ProjectInfoRewriter
 
                 knownLanguage = detected;
                 language = detected;
+                if (lightRewrite)
+                    lightLength = MeasureLightSynopsis(project.Synopsis, detected);
                 RewriteSourceLanguage.SaveCached(project.ProjectDir, detected);
                 _logger.LogInformation("源语言识别为{Language}", RewriteSourceLanguage.DisplayName(detected));
             }
@@ -116,7 +124,7 @@ public sealed partial class ProjectInfoRewriter
             NormalizedRewrite normalized;
             try
             {
-                normalized = NormalizePublishRewrite(project, canonicalOriginalTitle, payload, context.RewriteSynopsis);
+                normalized = NormalizePublishRewrite(project, canonicalOriginalTitle, payload, context.RewriteSynopsis && !lightRewrite);
             }
             catch (InvalidOperationException ex)
             {
@@ -129,12 +137,12 @@ public sealed partial class ProjectInfoRewriter
                     canonicalOriginalTitle,
                     normalized,
                     request,
-                    context.RewriteSynopsis,
+                    context.RewriteSynopsis && !lightRewrite,
                     language,
                     checkTagline: false)
                 .ToList();
             var synopsisMax = RewriteSourceLanguage.GetLimits(language).SynopsisMax;
-            if (context.RewriteSynopsis && normalized.Synopsis.Length > synopsisMax)
+            if (context.RewriteSynopsis && !lightRewrite && normalized.Synopsis.Length > synopsisMax)
                 issues.Add($"简介超过 {synopsisMax} 个字符，当前 {normalized.Synopsis.Length} 个字符");
 
             if (issues.Count == 0)
@@ -156,7 +164,7 @@ public sealed partial class ProjectInfoRewriter
                 request,
                 lastNormalized,
                 previousTitle,
-                context.RewriteSynopsis,
+                context.RewriteSynopsis && !lightRewrite,
                 language);
             if (fallback is null)
             {
@@ -170,6 +178,13 @@ public sealed partial class ProjectInfoRewriter
                 retryReason ?? "未知错误",
                 fallback.Title);
             accepted = fallback with { Tagline = string.Empty };
+        }
+
+        if (lightLength is { } length)
+        {
+            var synopsis = await CompleteLightSynopsisAsync(context, project.Synopsis!, language, length,
+                request.ForbiddenSynopses, lastPayload, cancellationToken);
+            accepted = accepted with { Synopsis = synopsis };
         }
 
         var themes = existingThemes
@@ -264,7 +279,8 @@ public sealed partial class ProjectInfoRewriter
         IReadOnlyList<string> existingThemes,
         bool askAudience,
         string? retryReason,
-        string? previousTitle)
+        string? previousTitle,
+        LightSynopsisLength? lightLength)
     {
         var limits = RewriteSourceLanguage.GetLimits(knownLanguage ?? RewriteSourceLanguage.English);
         var input = new
@@ -274,7 +290,8 @@ public sealed partial class ProjectInfoRewriter
             synopsis = FirstNonEmpty(project.Synopsis, "待补充简介。"),
             episode_count = project.EpisodeCount,
             rewrite_synopsis = context.RewriteSynopsis,
-            target_synopsis_length = context.RewriteSynopsis ? Math.Max(0, request.TargetSynopsisLength) : 0,
+            target_synopsis_length = lightLength?.Original
+                ?? (context.RewriteSynopsis ? Math.Max(0, request.TargetSynopsisLength) : 0),
             forbidden_titles = UniqueTexts(request.ForbiddenTitles),
             forbidden_synopses = context.RewriteSynopsis ? UniqueTexts(request.ForbiddenSynopses) : Array.Empty<string>(),
             occupied_exact_titles = UniqueTexts(request.OccupiedExactTitles),
@@ -287,9 +304,11 @@ public sealed partial class ProjectInfoRewriter
             length_rules = new
             {
                 title = $"{limits.TitleMin}-{limits.TitleMax} 个字符",
-                description = context.RewriteSynopsis
-                    ? $"{limits.SynopsisMin}-{limits.SynopsisMax} 个字符，尽量接近 target_synopsis_length"
-                    : "返回空字符串",
+                description = lightLength is { } length
+                    ? $"目标 {length.Original} {length.Unit}，必须在 {length.Min}～{length.Max} {length.Unit}内。用精简句式保留原有剧情事实。"
+                    : context.RewriteSynopsis
+                        ? $"{limits.SynopsisMin}-{limits.SynopsisMax} 个字符，尽量接近 target_synopsis_length"
+                        : "返回空字符串",
             },
             retry = retryReason is null
                 ? null
