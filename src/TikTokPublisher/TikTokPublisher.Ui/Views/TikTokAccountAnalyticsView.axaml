@@ -26,7 +26,7 @@
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                         <TextBlock Text="有效播放趋势" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
                         <StackPanel x:Name="DailyRangePanel" Orientation="Horizontal" Spacing="6" />
-                        <ToggleButton x:Name="CompareToggle" Content="账号对比" Margin="8,0,0,0" IsCheckedChanged="OnCompareToggleChanged" />
+                        <ToggleButton x:Name="CompareToggle" Content="账号对比" IsChecked="True" Margin="8,0,0,0" IsCheckedChanged="OnCompareToggleChanged" />
                         <ToggleButton x:Name="MonthlyToggle" Content="按月" Margin="8,0,0,0" IsCheckedChanged="OnMonthlyToggleChanged" />
                     </WrapPanel>
                     <TextBlock x:Name="DailyHoverText" DockPanel.Dock="Top" Foreground="#475569" TextTrimming="CharacterEllipsis" />

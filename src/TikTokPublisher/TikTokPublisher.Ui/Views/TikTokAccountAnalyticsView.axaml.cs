@@ -432,7 +432,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
         if (selected < 0)
             _trendAccountId = null;
         var compare = CompareToggle.IsChecked == true;
-        ChartScopeText.Text = compare ? "账号对比 · 悬停查看各账号数据" : selected < 0 ? "全部账号" : daily[selected].Name;
+        ChartScopeText.Text = compare ? "全部账号 · 悬停查看各账号数据" : selected < 0 ? "全部账号" : daily[selected].Name;
         DailyHoverText.Text = "";
         DailyChart.Series = compare ? daily : selected < 0 ? [AnalyticsDashboardSummary.Aggregate(accounts, "全部账号")] : [daily[selected]];
         MonthlyChart.Series = compare ? monthly : selected < 0 ? [AnalyticsDashboardSummary.Aggregate(monthlyAccounts, "全部账号")] : [monthly[selected]];
@@ -440,7 +440,7 @@ public partial class TikTokAccountAnalyticsView : UserControl
         DashboardSummary.Update(accounts,
             ("已上架", FormatCount(listings.Sum(item => (long)item.Listed))),
             ("今日新增上架", FormatCount(listings.Sum(item => (long)item.AddedToday))));
-        AccountRanking.Update(accounts, _trendAccountId, key =>
+        AccountRanking.Update(accounts, compare ? null : _trendAccountId, key =>
         {
             _trendAccountId = key;
             if (key is not null)
@@ -452,8 +452,9 @@ public partial class TikTokAccountAnalyticsView : UserControl
                     break;
                 }
             }
-            if (CompareToggle.IsChecked == true)
-                CompareToggle.IsChecked = false;
+            var showAllAccounts = key is null;
+            if (CompareToggle.IsChecked != showAllAccounts)
+                CompareToggle.IsChecked = showAllAccounts;
             else
                 BuildCharts();
         });
