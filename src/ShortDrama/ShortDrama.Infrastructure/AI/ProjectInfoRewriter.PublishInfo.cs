@@ -68,32 +68,44 @@ public sealed partial class ProjectInfoRewriter
         string? previousTitle = null;
         NormalizedRewrite? lastNormalized = null;
         RewritePayload? lastPayload = null;
+        RewritePayload? initialSynopsisPayload = null;
         NormalizedRewrite? accepted = null;
         var language = knownLanguage ?? RewriteSourceLanguage.English;
 
         for (var attempt = 1; attempt <= MaxAiAttempts; attempt++)
         {
+            var includeLightSynopsis = lightRewrite && initialSynopsisPayload is null;
+            var promptContext = lightRewrite && !includeLightSynopsis
+                ? context with { RewriteSynopsis = false }
+                : context;
             var prompt = BuildPublishInfoPrompt(
                 project,
                 canonicalOriginalTitle,
                 request,
-                context,
+                promptContext,
                 knownLanguage,
                 themeCount,
                 existingThemes,
                 askAudience,
                 retryReason,
                 previousTitle,
-                lightLength);
+                includeLightSynopsis ? lightLength : null);
+            var systemPrompt = context.SystemPrompt;
+            if (lightRewrite)
+                systemPrompt += includeLightSynopsis
+                    ? $"\n\n{LightSynopsisRules}"
+                    : "\n\n简介已在首轮生成，本轮处理其他发布字段，description 返回空字符串。";
             var payload = await RequestRewritePayloadAsync(
                 context.Endpoint,
                 context.ModelId,
                 context.ApiKey,
-                lightRewrite ? $"{context.SystemPrompt}\n\n{LightSynopsisRules}" : context.SystemPrompt,
+                systemPrompt,
                 prompt,
                 context.TimeoutSeconds,
                 context.Temperature,
                 cancellationToken);
+            if (includeLightSynopsis)
+                initialSynopsisPayload = payload;
             lastPayload = payload;
             var rawTitle = FirstNonEmpty(payload.Title, payload.NewTitle, payload.New_Title, payload.新剧名, payload.剧名);
 
@@ -183,7 +195,7 @@ public sealed partial class ProjectInfoRewriter
         if (lightLength is { } length)
         {
             var synopsis = await CompleteLightSynopsisAsync(context, project.Synopsis!, language, length,
-                request.ForbiddenSynopses, lastPayload, cancellationToken);
+                request.ForbiddenSynopses, initialSynopsisPayload, cancellationToken);
             accepted = accepted with { Synopsis = synopsis };
         }
 
@@ -283,6 +295,10 @@ public sealed partial class ProjectInfoRewriter
         LightSynopsisLength? lightLength)
     {
         var limits = RewriteSourceLanguage.GetLimits(knownLanguage ?? RewriteSourceLanguage.English);
+        var forbiddenSynopses = context.RewriteSynopsis ? UniqueTexts(request.ForbiddenSynopses) : Array.Empty<string>();
+        if (lightLength is not null)
+            forbiddenSynopses = forbiddenSynopses.Where(text => !SameLightSynopsis(text, project.Synopsis ?? "")).ToArray();
+
         var input = new
         {
             original_title = canonicalOriginalTitle,
@@ -293,7 +309,7 @@ public sealed partial class ProjectInfoRewriter
             target_synopsis_length = lightLength?.Original
                 ?? (context.RewriteSynopsis ? Math.Max(0, request.TargetSynopsisLength) : 0),
             forbidden_titles = UniqueTexts(request.ForbiddenTitles),
-            forbidden_synopses = context.RewriteSynopsis ? UniqueTexts(request.ForbiddenSynopses) : Array.Empty<string>(),
+            forbidden_synopses = forbiddenSynopses,
             occupied_exact_titles = UniqueTexts(request.OccupiedExactTitles),
             rewrite_variant_key = request.RewriteVariantKey ?? string.Empty,
             theme_options = context.ThemeOptions,
@@ -305,7 +321,7 @@ public sealed partial class ProjectInfoRewriter
             {
                 title = $"{limits.TitleMin}-{limits.TitleMax} 个字符",
                 description = lightLength is { } length
-                    ? $"目标 {length.Original} {length.Unit}，必须在 {length.Min}～{length.Max} {length.Unit}内。用精简句式保留原有剧情事实。"
+                    ? length.Rule
                     : context.RewriteSynopsis
                         ? $"{limits.SynopsisMin}-{limits.SynopsisMax} 个字符，尽量接近 target_synopsis_length"
                         : "返回空字符串",

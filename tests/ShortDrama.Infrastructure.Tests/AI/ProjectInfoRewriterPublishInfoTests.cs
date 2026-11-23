@@ -13,6 +13,10 @@ namespace ShortDrama.Infrastructure.Tests.AI;
 public sealed class ProjectInfoRewriterPublishInfoTests
 {
     private static readonly string LongSynopsis = string.Concat(Enumerable.Repeat("她在误解中坚持追查真相，", 10));
+    private const string ShortEnglishSynopsis =
+        "Mira has handled every difficult case at the station for years. After a storm cuts power, she finds an old letter inside a locked drawer, names three witnesses, and calls her brother for help. No one believes her story. She has one night to find the missing evidence before the mayor clears the building and the official records disappear for good.";
+    private const string RewrittenEnglishSynopsis =
+        "For years, Mira has taken on the station's toughest investigations. A power outage during a storm leads her to an old letter in a locked drawer. She identifies three witnesses and phones her brother for help. Nobody trusts her account. Before the mayor empties the building and the official files vanish forever, she gets one night to recover the lost evidence.";
 
     [Fact]
     public async Task Publish_info_mode_sends_one_request_and_writes_themes_and_audience_without_tagline()
@@ -152,13 +156,103 @@ public sealed class ProjectInfoRewriterPublishInfoTests
         result.Synopsis.Should().Be(paraphrase);
         handler.RequestBodies.Should().HaveCount(3);
         Message(handler.RequestBodies[0], 1).Should().Contain(original).And.NotContain("Previously expanded workflow synopsis.");
-        Message(handler.RequestBodies[1], 1).Should().Contain("只改写简介").And.Contain("本次 44 词");
+        Message(handler.RequestBodies[1], 1).Should().Contain("只改写简介").And.Contain("本次 44 词")
+            .And.Contain("连续 5 词片段复用率").And.Contain("\"reused_five_word_fragments\":[\"Lina finds the missing ledger\"");
         Message(handler.RequestBodies[2], 1).Should().Contain(original).And.Contain(paraphrase);
         File.ReadAllText(infoPath).Should().Contain(paraphrase);
     }
 
     [Fact]
-    public async Task Light_synopsis_rejects_copy_and_changed_plot_without_replacing_existing_output()
+    public async Task Light_synopsis_accepts_the_first_draft_for_a_sixty_one_word_source()
+    {
+        var project = Directory.CreateTempSubdirectory();
+        try
+        {
+            var infoPath = await WriteInfoAsync(project.FullName, "The Lost Files", ShortEnglishSynopsis);
+            var configPath = WriteConfig(project.FullName, rewriteSynopsis: true, followSourceLanguage: true);
+            var handler = new RecordingHandler(
+            [
+                LightPublishReply(RewrittenEnglishSynopsis),
+                """{"matches_source":true,"reason":""}""",
+            ]);
+
+            var result = await CreateRewriter(handler).RewriteAsync(
+                new ProjectInfoRewriteRequest(project.FullName, configPath, infoPath, Overwrite: true,
+                    OriginalSynopsis: ShortEnglishSynopsis), CancellationToken.None);
+
+            result.Synopsis.Should().Be(RewrittenEnglishSynopsis);
+            handler.RequestBodies.Should().HaveCount(2);
+            Message(handler.RequestBodies[0], 0).Should().Contain("只返回最终一版简介").And.Contain("25%");
+            Message(handler.RequestBodies[0], 1).Should().Contain("目标 61 词，允许 55～67 词");
+            Message(handler.RequestBodies[1], 0).Should().Contain("事实核对员");
+        }
+        finally
+        {
+            project.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Light_synopsis_names_the_actual_copied_sentence_and_stops_after_one_retry()
+    {
+        var project = Directory.CreateTempSubdirectory();
+        try
+        {
+            var infoPath = await WriteInfoAsync(project.FullName, "The Lost Files", "Saved synopsis.", "新剧名: Existing Title");
+            var previous = await File.ReadAllTextAsync(infoPath);
+            var configPath = WriteConfig(project.FullName, rewriteSynopsis: true, followSourceLanguage: true);
+            var copied = RewrittenEnglishSynopsis.Replace("Nobody trusts her account.", "NO ONE BELIEVES HER STORY!");
+            var handler = new RecordingHandler([LightPublishReply(copied), JsonSerializer.Serialize(new { description = copied })]);
+
+            var action = () => CreateRewriter(handler).RewriteAsync(
+                new ProjectInfoRewriteRequest(project.FullName, configPath, infoPath, Overwrite: true,
+                    OriginalSynopsis: ShortEnglishSynopsis), CancellationToken.None);
+
+            await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("*首版*整句照搬*重试*整句照搬*");
+            handler.RequestBodies.Should().HaveCount(2);
+            Message(handler.RequestBodies[1], 1).Should().Contain(
+                "\"copied_sentences\":[{\"original\":\"No one believes her story.\",\"candidate\":\"NO ONE BELIEVES HER STORY!\"}]");
+            (await File.ReadAllTextAsync(infoPath)).Should().Be(previous);
+        }
+        finally
+        {
+            project.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Publish_title_retry_reuses_the_initial_light_synopsis()
+    {
+        var project = Directory.CreateTempSubdirectory();
+        try
+        {
+            var infoPath = await WriteInfoAsync(project.FullName, "The Lost Files", ShortEnglishSynopsis);
+            var configPath = WriteConfig(project.FullName, rewriteSynopsis: true, followSourceLanguage: true);
+            var handler = new RecordingHandler(
+            [
+                JsonSerializer.Serialize(new { title = "The Lost Files", description = RewrittenEnglishSynopsis, language = "en" }),
+                LightPublishReply("Ignore this unrelated draft."),
+                """{"matches_source":true,"reason":""}""",
+            ]);
+
+            var result = await CreateRewriter(handler).RewriteAsync(
+                new ProjectInfoRewriteRequest(project.FullName, configPath, infoPath, Overwrite: true,
+                    OriginalSynopsis: ShortEnglishSynopsis), CancellationToken.None);
+
+            result.Title.Should().Be("A Price at Midnight");
+            result.Synopsis.Should().Be(RewrittenEnglishSynopsis);
+            handler.RequestBodies.Should().HaveCount(3);
+            Message(handler.RequestBodies[1], 1).Should().Contain("\"rewrite_synopsis\":false");
+            Message(handler.RequestBodies[2], 1).Should().Contain(RewrittenEnglishSynopsis);
+        }
+        finally
+        {
+            project.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Light_synopsis_sends_the_plot_issue_to_the_only_retry_and_preserves_existing_output_on_failure()
     {
         const string original = "Lina finds the missing ledger and shows it to her brother. They take the evidence to court and recover the family shop.";
         const string changed = "Lina locates the lost ledger and shares it with her sister. They bring the evidence to court and win back the family shop.";
@@ -168,9 +262,8 @@ public sealed class ProjectInfoRewriterPublishInfoTests
         var configPath = WriteConfig(projectDir, rewriteSynopsis: true, followSourceLanguage: true);
         var handler = new RecordingHandler(
         [
-            LightPublishReply(original.ToUpperInvariant().Replace(".", "!")),
-            JsonSerializer.Serialize(new { description = "Lina finds the missing ledger and shows it to her brother. With that proof, the siblings win their shop back in court." }),
-            JsonSerializer.Serialize(new { description = "Lina locates the missing ledger and shows it to her brother. They bring the evidence to court and recover the family shop." }),
+            LightPublishReply(changed),
+            """{"matches_source":false,"reason":"把哥哥改成了姐妹"}""",
             JsonSerializer.Serialize(new { description = changed }),
             """{"matches_source":false,"reason":"把哥哥改成了姐妹"}""",
         ]);
@@ -180,10 +273,8 @@ public sealed class ProjectInfoRewriterPublishInfoTests
             CancellationToken.None);
 
         await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("*剧情核对未通过*");
-        handler.RequestBodies.Should().HaveCount(5);
-        Message(handler.RequestBodies[1], 1).Should().Contain("简介与原文相同");
-        Message(handler.RequestBodies[2], 1).Should().Contain("整句照搬");
-        Message(handler.RequestBodies[3], 1).Should().Contain("连续 5 词片段复用率");
+        handler.RequestBodies.Should().HaveCount(4);
+        Message(handler.RequestBodies[2], 1).Should().Contain("只改写简介").And.Contain("把哥哥改成了姐妹");
         (await File.ReadAllTextAsync(infoPath)).Should().Be(previous);
     }
 
