@@ -487,27 +487,46 @@ internal sealed class HongguoAppDirectClient
         }
     }
 
+    internal const string LandpagePath = "/reading/distribution/category/landpage/v1/";
+    internal const int NewReleasePageSize = 18;
+    private const string LandpageUserAgent =
+        "com.phoenix.read/74532 (Linux; U; Android 16; zh_CN; 25053RT47C; Build/BP2A.250605.031.A3)";
+
     internal async Task<HongguoAppReleasePage> GetNewReleasePageAsync(
         string genre,
         int offset,
         string? sessionId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? deviceId = null,
+        string? installId = null)
     {
         var safeOffset = Math.Max(0, offset);
-        var root = await SendAsync(
-            HttpMethod.Post,
-            LandpagePath,
-            LandpageBody(genre, safeOffset, sessionId),
-            null,
-            cancellationToken,
-            attempts: 8);
+        var body = LandpageBody(genre, safeOffset, sessionId);
+        JsonNode root;
+        if (TryLandpageIdentity(deviceId, installId, out var device, out var install))
+        {
+            try
+            {
+                root = await SendLandpageAsync(body, device, install, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                root = await SendAsync(HttpMethod.Post, LandpagePath, body, null, cancellationToken, attempts: 3);
+            }
+        }
+        else
+        {
+            root = await SendAsync(HttpMethod.Post, LandpagePath, body, null, cancellationToken, attempts: 3);
+        }
+
         var items = ReadLandpageItems(root);
         var paging = ReadLandpagePaging(root, safeOffset, items.Count);
         return new HongguoAppReleasePage(items, paging.HasMore, paging.NextOffset, paging.SessionId);
     }
-
-    internal const string LandpagePath = "/reading/distribution/category/landpage/v";
-    internal const int NewReleasePageSize = 20;
 
     internal static byte[] LandpageBody(string genre, int offset, string? sessionId = null)
     {
@@ -515,13 +534,111 @@ internal sealed class HongguoAppDirectClient
             throw new ArgumentOutOfRangeException(nameof(genre));
         var safeOffset = Math.Max(0, offset);
         var session = new string((sessionId ?? "").Where(char.IsLetterOrDigit).ToArray());
-        var json = "{\"client_req_type\":3,\"filter_ids\":\"\",\"limit\":20,"
-                   + "\"need_selector_panel\":false,\"offset\":" + safeOffset
-                   + ",\"req_scene\":\"comic_series\",\"req_type\":\"only_content\",\"select_items\":{"
-                   + "\"category_dim_epoch\":[],\"category_dim_role\":[],\"category_dim_theme\":[],"
-                   + "\"gender\":[],\"genre\":[\"" + genre + "\"],\"online_time\":[\"days_7\"],"
-                   + "\"sort\":[\"online_time\"]},\"session_id\":\"" + session + "\"}";
+        var json = "{\"req_scene\":\"" + genre + "\",\"offset\":" + safeOffset
+                   + ",\"limit\":18,\"req_type\":\"only_content\",\"need_selector_panel\":false,"
+                   + "\"client_req_type\":3,\"session_id\":\"" + session + "\",\"filter_ids\":\"\","
+                   + "\"select_items\":{\"genre\":[\"" + genre + "\"],\"online_time\":[\"days_7\"],\"sort\":[\"online_time\"]}}";
         return Encoding.UTF8.GetBytes(json);
+    }
+
+    internal static string BuildLandpageUrl(string deviceId, string installId, long rticket, int ts)
+    {
+        var query = string.Join("&", new[]
+        {
+            "_rticket=" + rticket,
+            "ac=wifi",
+            "aid=8662",
+            "app_name=novelread",
+            "cdid=" + Uri.EscapeDataString(DesktopCdid(deviceId)),
+            "channel=update_64",
+            "device_brand=Redmi",
+            "device_id=" + Uri.EscapeDataString(deviceId),
+            "device_platform=android",
+            "device_type=25053RT47C",
+            "dpi=520",
+            "iid=" + Uri.EscapeDataString(installId),
+            "language=zh",
+            "manifest_version_code=74532",
+            "os=android",
+            "os_api=36",
+            "os_version=16",
+            "resolution=" + Uri.EscapeDataString("1280*2772"),
+            "ssmix=a",
+            "ts=" + ts,
+            "update_version_code=74532",
+            "version_code=74532",
+            "version_name=7.4.5.32",
+        });
+        return PlaybackHost + LandpagePath + "?" + query;
+    }
+
+    private async Task<JsonNode> SendLandpageAsync(
+        byte[] body,
+        string deviceId,
+        string installId,
+        CancellationToken cancellationToken)
+    {
+        Exception? last = null;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            var rticket = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var khronos = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var url = BuildLandpageUrl(deviceId, installId, rticket, khronos);
+            using var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.TryAddWithoutValidation("User-Agent", LandpageUserAgent);
+            request.Headers.TryAddWithoutValidation("X-XS-From-Web", "0");
+            request.Headers.TryAddWithoutValidation("Sdk-Version", "2");
+            request.Headers.TryAddWithoutValidation("Accept", "application/json; charset=utf-8,application/x-protobuf");
+            request.Headers.TryAddWithoutValidation("X-SS-Req-Ticket", rticket.ToString());
+            request.Headers.TryAddWithoutValidation("X-TT-Request-Tag", "t=0;n=0");
+            request.Headers.TryAddWithoutValidation("Passport-Sdk-Version", "50561");
+            request.Headers.TryAddWithoutValidation("X-VC-Bdturing-Sdk-Version", "3.7.2.cn");
+            request.Content = new ByteArrayContent(body);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+            request.Headers.TryAddWithoutValidation("x-ss-stub", Convert.ToHexString(MD5.HashData(body)));
+            foreach (var header in HongguoPureSign.Sign(url, body, khronos))
+                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            try
+            {
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                if (bytes.Length == 0)
+                    throw new InvalidOperationException("empty body");
+                var node = JsonNode.Parse(bytes) ?? throw new InvalidOperationException("empty body");
+                if (node is JsonObject obj && CodeOf(obj) is not (0 or null))
+                    throw new InvalidOperationException("rejected");
+                return node;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationToken);
+            }
+        }
+
+        throw last ?? new InvalidOperationException("红果漫剧上新失败");
+    }
+
+    private static bool TryLandpageIdentity(string? deviceId, string? installId, out string device, out string install)
+    {
+        device = (deviceId ?? "").Trim();
+        install = (installId ?? "").Trim();
+        if (HongguoGuestPlayback.IsSavedIdentity(device, install))
+            return true;
+        device = HongguoPureSign.LoadDeviceId(AuditDevicePathOverride ?? HongguoPureSign.DefaultDevicePath());
+        if (long.TryParse(device, out var numeric))
+        {
+            install = (numeric + 4096).ToString();
+            return true;
+        }
+
+        device = "";
+        install = "";
+        return false;
     }
 
     internal static IReadOnlyList<DramaSearchItem> ReadLandpageItems(JsonNode root)

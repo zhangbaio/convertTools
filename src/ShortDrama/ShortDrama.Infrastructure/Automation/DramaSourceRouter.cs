@@ -234,7 +234,9 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             ai ? "ai_series" : "comic_series",
             offset,
             sessionId,
-            cancellationToken);
+            cancellationToken,
+            settings.HongguoAppDeviceId,
+            settings.HongguoAppInstallId);
         return page with
         {
             Items = page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray()
@@ -278,7 +280,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var sessionId = "";
         for (var page = 0; page < 8; page++)
         {
-            var batch = await _hongguoApp.GetNewReleasePageAsync(genre, offset, sessionId, cancellationToken);
+            var settings = _settingsProvider.Get();
+            var batch = await _hongguoApp.GetNewReleasePageAsync(
+                genre,
+                offset,
+                sessionId,
+                cancellationToken,
+                settings.HongguoAppDeviceId,
+                settings.HongguoAppInstallId);
             foreach (var item in batch.Items)
             {
                 var retargeted = AsPlayletBook(item);
@@ -2468,7 +2477,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         IProgress<IReadOnlyList<DramaSearchItem>>? partialResults,
         CancellationToken cancellationToken)
     {
-        var page = await _hongguoApp.GetNewReleasePageAsync(genre, 0, null, cancellationToken);
+        var settings = _settingsProvider.Get();
+        var page = await _hongguoApp.GetNewReleasePageAsync(
+            genre,
+            0,
+            null,
+            cancellationToken,
+            settings.HongguoAppDeviceId,
+            settings.HongguoAppInstallId);
         var items = page.Items.Select(item => RetargetBook(item, HongguoAppBookPrefix)).ToArray();
         partialResults?.Report(items);
         return items;

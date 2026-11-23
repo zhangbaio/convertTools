@@ -131,6 +131,7 @@ public sealed class HongguoAppDirectClientTests
         Assert.Contains("\"offset\":20", continued, StringComparison.Ordinal);
 
         var ai = Encoding.UTF8.GetString(HongguoAppDirectClient.LandpageBody("ai_series", 0));
+        Assert.Contains("\"req_scene\":\"ai_series\"", ai, StringComparison.Ordinal);
         Assert.Contains("\"genre\":[\"ai_series\"]", ai, StringComparison.Ordinal);
         Assert.Contains("\"sort\":[\"online_time\"]", ai, StringComparison.Ordinal);
         Assert.Contains("\"online_time\":[\"days_7\"]", ai, StringComparison.Ordinal);
