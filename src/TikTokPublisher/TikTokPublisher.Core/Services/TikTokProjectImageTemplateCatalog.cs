@@ -1,3 +1,4 @@
+using ShortDrama.Infrastructure.Imaging;
 using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Services;
@@ -37,6 +38,16 @@ public static class TikTokProjectImageTemplateCatalog
 
         option = null!;
         return false;
+    }
+
+    public static string RuntimeId(string? templateId)
+    {
+        if (TryGet(templateId, out var option))
+            return option.Id;
+
+        return string.IsNullOrWhiteSpace(templateId) || ProjectImageTemplateCatalog.IsRetiredBuiltInId(templateId)
+            ? ClientSettingsDefaults.TiktokProjectImageTemplateId
+            : templateId.Trim();
     }
 
     public static string NormalizeId(string? templateId) =>

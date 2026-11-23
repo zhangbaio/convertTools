@@ -341,7 +341,7 @@ public static class TikTokProjectImageService
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        var selectedId = TikTokProjectImageTemplateCatalog.NormalizeId(settings.TiktokProjectImageTemplateId);
+        var selectedId = TikTokProjectImageTemplateCatalog.RuntimeId(settings.TiktokProjectImageTemplateId);
 
         var explicitRoot = (settings.TiktokProjectImageTemplateRoot ?? string.Empty).Trim();
         var explicitDirectory = FindSelectedTemplateDirectory(explicitRoot, selectedId);

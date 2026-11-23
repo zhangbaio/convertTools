@@ -72,6 +72,34 @@ public sealed class TikTokProjectImageTemplateSelectionTests
         });
     }
 
+    [Theory]
+    [InlineData("image-template-project-image-3")]
+    [InlineData(" IMAGE_TEMPLATE_PROJECT_IMAGE_3 ")]
+    [InlineData("image-template-project-image-12")]
+    public void Retired_account_template_resolves_to_bundled_template_10(string templateId)
+    {
+        WithTemporaryDirectory(tempDirectory =>
+        {
+            var explicitRoot = Path.Combine(tempDirectory, "explicit");
+            var bundledRoot = Path.Combine(tempDirectory, "bundled");
+            CreateTemplate(explicitRoot, "retired-template", 3);
+            var bundledTemplate = CreateTemplate(bundledRoot, "bundled-ten", 10);
+            CreateTemplate(bundledRoot, "bundled-eleven", 11);
+
+            var settings = new ClientSettings
+            {
+                // The per-account selection is applied after the shared settings have been normalized.
+                TiktokProjectImageTemplateId = templateId,
+                TiktokProjectImageTemplateRoot = explicitRoot,
+            };
+
+            TikTokProjectImageTemplateCatalog.RuntimeId(templateId)
+                .Should().Be(ClientSettingsDefaults.TiktokProjectImageTemplateId);
+            TikTokProjectImageService.ResolveTemplateDirectoryFromRoots(settings, bundledRoot)
+                .Should().Be(Path.GetFullPath(bundledTemplate));
+        });
+    }
+
     [Fact]
     public void Template_resolution_prefers_the_explicit_root_for_the_selected_id()
     {

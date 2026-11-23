@@ -156,8 +156,8 @@ public static class ProjectImageTemplateCatalog
         return results;
     }
 
-    private static bool IsRetiredBuiltInId(string? templateId) =>
-        templateId?.Trim().ToLowerInvariant() is
+    public static bool IsRetiredBuiltInId(string? templateId) =>
+        templateId?.Trim().Replace('_', '-').ToLowerInvariant() is
             "image-template-project-image-1" or "image-template-project-image-2" or
             "image-template-project-image-3" or "image-template-project-image-4" or
             "image-template-project-image-5" or "image-template-project-image-6" or
