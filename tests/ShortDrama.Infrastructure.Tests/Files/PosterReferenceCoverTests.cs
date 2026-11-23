@@ -10,14 +10,57 @@ using ShortDrama.Infrastructure.Parsing;
 using ShortDrama.Infrastructure.Process;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using Xunit;
 
 namespace ShortDrama.Infrastructure.Tests.Files;
 
 public sealed class PosterReferenceCoverTests
 {
+    [Fact]
+    public void Difference_ignores_small_zoom_color_and_independent_title_boxes()
+    {
+        using var original = CreateScene(160, 160, horizontal: false);
+        using var candidate = original.Clone(context => context.Crop(new Rectangle(5, 5, 150, 150)).Resize(160, 160));
+        candidate.ProcessPixelRows(pixels =>
+        {
+            for (var y = 0; y < pixels.Height; y++)
+            {
+                var row = pixels.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var intensity = row[x].R;
+                    row[x] = new Rgba32(intensity, (byte)(intensity * 0.7f), (byte)(255 - intensity));
+                    if (x is < 8 or >= 152 || y is < 8 or >= 152 || (y is >= 78 and <= 116 && x is >= 25 and <= 135))
+                        row[x] = new Rgba32(220, 30, 80);
+                }
+            }
+        });
+
+        var candidateTitle = new RectangleF(25 / 160f, 78 / 160f, 111 / 160f, 39 / 160f);
+        PosterCoverDifference.Measure(original, candidate, candidateTitle: candidateTitle)
+            .Should().BeLessThan(PosterReferenceCover.MinimumChangedArea);
+    }
+
+    [Fact]
+    public void Difference_ignores_a_title_only_change_outside_the_usual_title_area()
+    {
+        using var original = CreateScene(160, 160, horizontal: false);
+        using var candidate = original.Clone();
+        candidate.ProcessPixelRows(pixels =>
+        {
+            for (var y = 22; y < 96; y++)
+                pixels.GetRowSpan(y).Slice(20, 120).Fill(new Rgba32(240, 110, 20));
+        });
+
+        var title = new RectangleF(20 / 160f, 22 / 160f, 120 / 160f, 74 / 160f);
+        PosterCoverDifference.Measure(original, candidate, title, title).Should().Be(0);
+    }
+
     [Theory]
     [InlineData("success")]
+    [InlineData("second candidate succeeds")]
+    [InlineData("both similar")]
     [InlineData("image service failure")]
     [InlineData("blocking validation unavailable")]
     [InlineData("canceled")]
@@ -31,7 +74,7 @@ public sealed class PosterReferenceCoverTests
 
         try
         {
-            using (var source = new Image<Rgba32>(16, 9, new Rgba32(200, 100, 0)))
+            using (var source = CreateScene(128, 96, horizontal: false))
                 await source.SaveAsPngAsync(input);
             var originalBytes = await File.ReadAllBytesAsync(input);
             await File.WriteAllBytesAsync(output, originalBytes);
@@ -43,22 +86,27 @@ public sealed class PosterReferenceCoverTests
                 ImageEditPath = "/images/generations",
                 ImageModelId = "test-model",
                 ImageModelApiKey = "fake-key",
-                ImageSize = "24x32",
+                ImageSize = "96x128",
                 PosterTitleVerifyEnabled = outcome == "blocking validation unavailable",
                 PosterTitleVerifyMode = "blocking",
             }));
 
-            using var generated = new Image<Rgba32>(36, 24, new Rgba32(0, 10, 220));
+            using var generated = CreateScene(144, 96, horizontal: true);
             await using var responsePng = new MemoryStream();
             await generated.SaveAsPngAsync(responsePng);
+            var attempts = 0;
             using var http = new HttpClient(new ImageHandler(async (request, ct) =>
             {
+                attempts++;
                 request.RequestUri!.AbsolutePath.Should().Be("/v1/images/generations");
                 using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
                 body.RootElement.GetProperty("image").GetString().Should().Be(
                     $"data:image/png;base64,{Convert.ToBase64String(originalBytes)}");
-                body.RootElement.GetProperty("size").GetString().Should().Be("24x32");
-                body.RootElement.GetProperty("prompt").GetString().Should().Contain("A New Title").And.Contain("重新构图");
+                body.RootElement.GetProperty("size").GetString().Should().Be("96x128");
+                var prompt = body.RootElement.GetProperty("prompt").GetString();
+                prompt.Should().Contain("A New Title").And.Contain("40%");
+                if (attempts == 2)
+                    prompt.Should().Contain(PosterReferenceCover.AlternateComposition);
                 (await File.ReadAllBytesAsync(output, ct)).Should().Equal(originalBytes);
 
                 if (outcome == "image service failure")
@@ -66,9 +114,11 @@ public sealed class PosterReferenceCoverTests
                 if (outcome == "canceled")
                     cancellation.Cancel();
 
+                var candidateBytes = outcome == "both similar" || (outcome == "second candidate succeeds" && attempts == 1)
+                    ? originalBytes : responsePng.ToArray();
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = JsonContent.Create(new { data = new[] { new { b64_json = Convert.ToBase64String(responsePng.ToArray()) } } }),
+                    Content = JsonContent.Create(new { data = new[] { new { b64_json = Convert.ToBase64String(candidateBytes) } } }),
                 };
             }));
             var renamer = new PosterRenamer(new TxtProjectInfoParser(), new ExternalProcessRunner(), http,
@@ -76,24 +126,29 @@ public sealed class PosterReferenceCoverTests
             var request = new PosterRenameRequest(directory.FullName, input, output, config, Overwrite: true);
             var action = () => renamer.RenameAsync(request, cancellation.Token);
 
-            if (outcome == "success")
+            if (outcome is "success" or "second candidate succeeds")
             {
                 await action();
                 using var result = await Image.LoadAsync<Rgba32>(output);
-                (result.Width, result.Height).Should().Be((24, 32));
-                result[12, 16].Should().Be(generated[18, 12]);
+                (result.Width, result.Height).Should().Be((96, 128));
+                result[48, 30].Should().Be(result[66, 30]);
             }
             else
             {
                 if (outcome == "canceled")
                     await action.Should().ThrowAsync<OperationCanceledException>();
                 else
-                    await action.Should().ThrowAsync<InvalidOperationException>().WithMessage(
-                        outcome == "image service failure" ? "*mock failure*" : "*ChatModelEndpoint*");
+                    await action.Should().ThrowAsync<InvalidOperationException>().WithMessage(outcome switch
+                    {
+                        "image service failure" => "*mock failure*",
+                        "both similar" => "*最后一次有效画面差异*低于*40*",
+                        _ => "*ChatModelEndpoint*",
+                    });
 
                 (await File.ReadAllBytesAsync(output)).Should().Equal(originalBytes);
             }
 
+            attempts.Should().Be(outcome is "both similar" or "second candidate succeeds" ? 2 : 1);
             (await File.ReadAllBytesAsync(input)).Should().Equal(originalBytes);
             directory.EnumerateDirectories(".reference-cover-*").Should().BeEmpty();
         }
@@ -101,6 +156,24 @@ public sealed class PosterReferenceCoverTests
         {
             directory.Delete(recursive: true);
         }
+    }
+
+    private static Image<Rgba32> CreateScene(int width, int height, bool horizontal)
+    {
+        var image = new Image<Rgba32>(width, height);
+        image.ProcessPixelRows(pixels =>
+        {
+            for (var y = 0; y < height; y++)
+            {
+                var row = pixels.GetRowSpan(y);
+                for (var x = 0; x < width; x++)
+                {
+                    var value = (byte)(30 + 185 * (horizontal ? y / 7 % 2 : x / 9 % 2));
+                    row[x] = new Rgba32(value, value, value);
+                }
+            }
+        });
+        return image;
     }
 
     private sealed class ImageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond)

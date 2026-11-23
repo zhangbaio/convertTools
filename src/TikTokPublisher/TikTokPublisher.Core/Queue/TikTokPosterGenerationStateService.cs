@@ -166,7 +166,8 @@ public static class TikTokPosterGenerationStateService
             generation_prompt = settings.PosterGenerationPrompt ?? string.Empty,
             generation_retry_prompt = settings.PosterGenerationSafeRetryPrompt ?? string.Empty,
             agent_prompt = posterMode == PosterReferenceCover.Mode
-                ? PosterReferenceCover.DefaultPrompt
+                ? $"{PosterReferenceCover.DefaultPrompt}\n{PosterReferenceCover.AlternateComposition}\n" +
+                  FormattableString.Invariant($"{PosterReferenceCover.MinimumChangedArea:R}")
                 : ClientSettingsStore.ResolvePosterAgentPrompt(settings, posterMode),
         };
         var json = JsonSerializer.Serialize(payload);

@@ -31,14 +31,22 @@ public sealed partial class PosterRenamer
         var renderInputPath = await PrepareRenderableInputAsync(inputPath, cancellationToken);
         try
         {
-            Log(request, $"以原图 {Path.GetFileName(inputPath)} 生成新封面，请求尺寸 {imageSize}。");
-            var bytes = await GenerateSizedCoverBytesAsync(
-                config, renderInputPath, prompt, safeRetryPrompt: null, imageSize, cancellationToken);
-
             Directory.CreateDirectory(stagingDirectory);
-            await using (var buffer = new MemoryStream(bytes))
-            using (var image = await Image.LoadAsync<Rgba32>(buffer, cancellationToken))
+            using var original = await Image.LoadAsync<Rgba32>(renderInputPath, cancellationToken);
+            var originalLayout = await TryDetectReferenceTitleLayoutAsync(
+                configFile, config, renderInputPath, title, request, cancellationToken);
+            var originalTitle = GetReferenceTitleBounds(originalLayout);
+
+            const int maxAttempts = 2;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
             {
+                var attemptPrompt = attempt == 1 ? prompt : $"{prompt}\n\n{PosterReferenceCover.AlternateComposition}";
+                Log(request, $"以原图 {Path.GetFileName(inputPath)} 生成第 {attempt} 张候选封面，请求尺寸 {imageSize}。");
+                var bytes = await GenerateSizedCoverBytesAsync(
+                    config, renderInputPath, attemptPrompt, safeRetryPrompt: null, imageSize, cancellationToken);
+
+                await using var buffer = new MemoryStream(bytes);
+                using var image = await Image.LoadAsync<Rgba32>(buffer, cancellationToken);
                 if (PosterCoverFrameSizeHelper.TryParseSize(imageSize, out var width, out var height) &&
                     (image.Width != width || image.Height != height))
                 {
@@ -46,11 +54,35 @@ public sealed partial class PosterRenamer
                 }
 
                 await image.SaveAsync(candidatePath, cancellationToken);
-            }
+                var candidateLayout = await TryDetectReferenceTitleLayoutAsync(
+                    configFile, config, candidatePath, title, request, cancellationToken);
+                var candidateTitle = GetReferenceTitleBounds(candidateLayout);
+                var changedArea = PosterCoverDifference.Measure(original, image, originalTitle, candidateTitle, cancellationToken);
+                Log(request, $"第 {attempt} 张候选封面的有效画面差异 {changedArea:P1}，要求至少 {PosterReferenceCover.MinimumChangedArea:P0}。");
+                if (changedArea >= PosterReferenceCover.MinimumChangedArea)
+                {
+                    await VerifyCoverTitleAsync(configFile, config, candidatePath, title, request, cancellationToken, candidateLayout);
+                    if (IsPosterTitleVerifyEnabled(config))
+                    {
+                        using var finalImage = await Image.LoadAsync<Rgba32>(candidatePath, cancellationToken);
+                        changedArea = PosterCoverDifference.Measure(original, finalImage, originalTitle, candidateTitle, cancellationToken);
+                        if (changedArea < PosterReferenceCover.MinimumChangedArea)
+                            Log(request, $"标题处理后的有效画面差异降至 {changedArea:P1}。");
+                    }
+                }
 
-            await VerifyCoverTitleAsync(configFile, config, candidatePath, title, request, cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            File.Move(candidatePath, outputPath, request.Overwrite);
+                if (changedArea >= PosterReferenceCover.MinimumChangedArea)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    File.Move(candidatePath, outputPath, request.Overwrite);
+                    return;
+                }
+
+                if (attempt == maxAttempts)
+                    throw new InvalidOperationException($"新封面连续两次与原图过于相似，最后一次有效画面差异为 {changedArea:P1}，低于 {PosterReferenceCover.MinimumChangedArea:P0}。");
+
+                Log(request, "画面差异不足，改用另一套构图重试一次。");
+            }
         }
         finally
         {
@@ -68,4 +100,30 @@ public sealed partial class PosterRenamer
             }
         }
     }
+
+    private async Task<PosterLayout?> TryDetectReferenceTitleLayoutAsync(
+        string configFile,
+        IReadOnlyDictionary<string, string> config,
+        string imagePath,
+        string title,
+        PosterRenameRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsPosterTitleVerifyEnabled(config) || string.IsNullOrWhiteSpace(GetOptional(config, "ChatModelEndpoint")) ||
+            string.IsNullOrWhiteSpace(GetOptional(config, "ChatModelId")) || string.IsNullOrWhiteSpace(GetOptional(config, "ChatModelApiKey")))
+            return null;
+
+        try
+        {
+            return await DetectPosterLayoutAsync(configFile, imagePath, title, request.Log, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log(request, $"未定位到 {Path.GetFileName(imagePath)} 的标题框，画面评分将避开底部文字区域：{ex.Message}");
+            return null;
+        }
+    }
+
+    private static RectangleF? GetReferenceTitleBounds(PosterLayout? layout) =>
+        layout is null ? null : new RectangleF(layout.X, layout.Y, layout.Width, layout.Height);
 }

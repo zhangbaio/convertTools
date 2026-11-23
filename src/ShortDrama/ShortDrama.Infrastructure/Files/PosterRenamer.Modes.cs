@@ -387,12 +387,13 @@ public sealed partial class PosterRenamer
         string outputPath,
         string title,
         PosterRenameRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        PosterLayout? detectedLayout = null)
     {
         if (!IsPosterTitleVerifyEnabled(config))
             return;
 
-        var layout = await DetectPosterLayoutAsync(configFile, outputPath, title, request.Log, cancellationToken);
+        var layout = detectedLayout ?? await DetectPosterLayoutAsync(configFile, outputPath, title, request.Log, cancellationToken);
         var verifyResult = await VerifyGeneratedTitleAsync(
             config,
             outputPath,
