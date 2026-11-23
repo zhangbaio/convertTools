@@ -62,23 +62,25 @@ JSON 格式：
         IReadOnlyDictionary<string, string> config,
         string imagePath,
         string title,
-        PosterTitleLayout layout,
-        CancellationToken cancellationToken)
+        PosterTitleLayout? layout,
+        CancellationToken cancellationToken,
+        string? visibleReportTemplate = null)
     {
         try
         {
-            var cropPath = CreateTitleCrop(imagePath, layout);
+            var cropPath = layout is { } crop ? CreateTitleCrop(imagePath, crop) : imagePath;
             try
             {
                 var endpoint = Require(config, "ChatModelEndpoint").TrimEnd('/');
                 var modelId = Require(config, "ChatModelId");
                 var apiKey = Require(config, "ChatModelApiKey");
                 var prompt = RenderPrompt(
-                    config.GetValueOrDefault("PosterVerifyPrompt") ?? DefaultVerifyPrompt,
+                    visibleReportTemplate ?? config.GetValueOrDefault("PosterVerifyPrompt") ?? DefaultVerifyPrompt,
                     title);
                 var mediaType = GuessMediaType(Path.GetExtension(cropPath));
                 var imageBase64 = Convert.ToBase64String(await File.ReadAllBytesAsync(cropPath, cancellationToken));
-                var fast = PosterRenamer.IsFastPosterLayoutMode(config.GetValueOrDefault("PosterLayoutRequestMode"));
+                var fast = visibleReportTemplate is null &&
+                    PosterRenamer.IsFastPosterLayoutMode(config.GetValueOrDefault("PosterLayoutRequestMode"));
                 var messages = new object[]
                 {
                     new
@@ -131,11 +133,12 @@ JSON 格式：
 
                 var result = JsonSerializer.Deserialize<PosterTitleVerifyPayload>(json, JsonOptions)
                     ?? new PosterTitleVerifyPayload();
-                return NormalizeResult(result, title);
+                return visibleReportTemplate is null ? NormalizeResult(result, title) : ReportVisibleResult(result);
             }
             finally
             {
-                TryDelete(cropPath);
+                if (layout is not null)
+                    TryDelete(cropPath);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -144,7 +147,8 @@ JSON 格式：
         }
         catch (OperationCanceledException)
         {
-            var fast = PosterRenamer.IsFastPosterLayoutMode(config.GetValueOrDefault("PosterLayoutRequestMode"));
+            var fast = visibleReportTemplate is null &&
+                PosterRenamer.IsFastPosterLayoutMode(config.GetValueOrDefault("PosterLayoutRequestMode"));
             return PosterTitleVerifyResult.Inconclusive(
                 $"标题校验接口请求超时（{(fast ? FastVerifyTimeout : StandardVerifyTimeout).TotalSeconds:0} 秒，{(fast ? "流式" : "非流式")}）");
         }
@@ -152,6 +156,19 @@ JSON 格式：
         {
             return PosterTitleVerifyResult.Inconclusive($"标题校验接口暂不可用：{ex.Message}");
         }
+    }
+
+    private static PosterTitleVerifyResult ReportVisibleResult(PosterTitleVerifyPayload result)
+    {
+        if (result.MatchesTarget is not { } matches || result.HasResidualText is not { } hasResidualText)
+            return PosterTitleVerifyResult.Inconclusive("模型没有返回完整的标题校验结果");
+
+        var reason = result.Reason?.Trim() ?? string.Empty;
+        if (reason.Length == 0 && (!matches || hasResidualText))
+            reason = hasResidualText ? "模型报告存在额外文字" : "模型报告标题与目标剧名不一致";
+
+        return new PosterTitleVerifyResult(matches && !hasResidualText, result.DetectedTitle?.Trim() ?? string.Empty,
+            reason, HasResidualText: hasResidualText, ResidualText: result.ResidualText?.Trim() ?? string.Empty);
     }
 
     private static PosterTitleVerifyResult NormalizeResult(PosterTitleVerifyPayload result, string title)

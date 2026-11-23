@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Core.Posters;
 using ShortDrama.Infrastructure.Automation;
 using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Drama;
@@ -1895,7 +1896,7 @@ public static class QueueMaterialStepService
             }
         }
 
-        var excludedPath = posterMode == ClientSettingsDefaults.PosterModeReferenceRegenerate ? outputPath : null;
+        var excludedPath = PosterGenerationTemplates.IsSupportedMode(posterMode) ? outputPath : null;
         string? preparedInput = null;
         if (excludedPath is null)
         {
@@ -2000,8 +2001,7 @@ public static class QueueMaterialStepService
                     log("开始清除封面原文字，并在下半部分用固定字体写入新剧名…");
                     break;
                 default:
-                    log("开始 AI 海报改标题…");
-                    log("正在检测海报标题区域…");
+                    log("开始使用当前图片提示词生成海报…");
                     break;
             }
 
@@ -2018,7 +2018,8 @@ public static class QueueMaterialStepService
                         ConfigFile: configPath,
                         UseAi: false,
                         Overwrite: true,
-                        Log: log),
+                        Log: log,
+                        UseVisibleImagePrompt: PosterGenerationTemplates.IsSupportedMode(posterMode)),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (QueueWorkerRunner.IsPosterSensitiveContent(ex))

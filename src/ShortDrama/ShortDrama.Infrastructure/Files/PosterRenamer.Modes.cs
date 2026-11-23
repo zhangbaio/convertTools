@@ -21,7 +21,7 @@ public sealed partial class PosterRenamer
 遮罩区域外的所有人物、背景、颜色、清晰度和构图必须保持不变。
 """;
 
-    private const string DefaultPosterAllTextErasePrompt = """
+    public const string DefaultPosterAllTextErasePrompt = """
 这是海报全图文字清理任务，不是重新设计或重绘海报。
 请删除图片中所有可读文字和文字残影，包括主标题、副标题、人物或角色姓名、演员名、作者、改编或来源说明、版权或出品信息、宣传语、季数、字幕、水印、Logo文字、角标，以及任何中文、英文、拼音、字母和数字文字。
 用每处文字周围的背景、纹理和光影自然补全被删除区域，不能留下描边、底纹、模糊字或残影。
@@ -360,11 +360,7 @@ public sealed partial class PosterRenamer
             Log(request, $"原始封面：{Path.GetFileName(inputPath)} ({posterW}x{posterH})");
 
             var config = KeyValueConfigReader.Read(configFile);
-            var promptTemplate = GetOptional(config, "FrameCoverPrompt") ?? DefaultPosterGenerationPrompt;
-            var prompt = MergePromptWithGuardrails(RenderPromptTemplate(
-                promptTemplate,
-                CreatePosterPromptVariables(title, title, null, null)),
-                title);
+            var prompt = BuildImageGenerationPrompt(GetOptional(config, "FrameCoverPrompt"), title);
             var apiSize = PosterCoverFrameSizeHelper.ResolveFrameApiSize(posterW, posterH, config);
             Log(request, $"AI 生成中：请求尺寸 {apiSize}");
 
@@ -1270,7 +1266,7 @@ public sealed partial class PosterRenamer
             ThrowPosterApiFailure("AI 海报图片编辑", requestUrl, response, responseText);
 
         return await ReadImageResponseBytesAsync(responseText, cancellationToken)
-            ?? throw new InvalidOperationException("AI 海报图片编辑成功返回，但响应中没有可解析的图片数据。");
+            ?? throw CreateMissingImageDataException("AI 海报图片编辑成功返回，但响应中没有可解析的图片数据。", responseText);
     }
 
     private static async Task WriteGeneratedPosterCandidateAsync(

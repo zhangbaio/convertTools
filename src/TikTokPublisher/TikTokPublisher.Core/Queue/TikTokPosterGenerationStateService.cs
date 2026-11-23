@@ -136,6 +136,7 @@ public static class TikTokPosterGenerationStateService
         string? imageProviderOverride = null)
     {
         var posterMode = NormalizePosterMode(settings.PosterMode);
+        var usesVisiblePrompt = PosterGenerationTemplates.IsSupportedMode(posterMode);
         var payload = new
         {
             version = FingerprintVersion,
@@ -153,21 +154,19 @@ public static class TikTokPosterGenerationStateService
             ofox_quality = (settings.OfoxImage2Quality ?? string.Empty).Trim(),
             ofox_size = (settings.OfoxImage2Size ?? string.Empty).Trim(),
             title_verify_enabled = settings.PosterTitleVerifyEnabled,
-            title_verify_mode = (settings.PosterTitleVerifyMode ?? string.Empty).Trim(),
-            title_verify_retries = settings.PosterTitleVerifyAiRetryCount,
+            title_verify_mode = usesVisiblePrompt ? "report" : (settings.PosterTitleVerifyMode ?? string.Empty).Trim(),
+            title_verify_retries = usesVisiblePrompt ? 0 : settings.PosterTitleVerifyAiRetryCount,
             frame_episode = settings.FrameExtractEpisodeIndex,
             frame_time = settings.FrameExtractTime,
             frame_neighbor_offsets = (settings.FrameExtractNeighborOffsetsSeconds ?? string.Empty).Trim(),
             frame_fallback_percents = (settings.FrameExtractFallbackPercents ?? string.Empty).Trim(),
             frame_prompt = settings.FrameCoverPrompt ?? string.Empty,
-            layout_prompt = settings.PosterLayoutDetectPrompt ?? string.Empty,
-            inpaint_prompt = settings.PosterInpaintPrompt ?? string.Empty,
-            inpaint_retry_prompt = settings.PosterInpaintSafeRetryPrompt ?? string.Empty,
-            generation_prompt = settings.PosterGenerationPrompt ?? string.Empty,
-            generation_retry_prompt = settings.PosterGenerationSafeRetryPrompt ?? string.Empty,
-            agent_prompt = posterMode == PosterReferenceCover.Mode
-                ? $"{PosterReferenceCover.DefaultPrompt}\n{PosterReferenceCover.AlternateComposition}\n" +
-                  FormattableString.Invariant($"{PosterReferenceCover.MinimumChangedArea:R}")
+            layout_prompt = usesVisiblePrompt ? string.Empty : settings.PosterLayoutDetectPrompt ?? string.Empty,
+            inpaint_prompt = usesVisiblePrompt ? string.Empty : settings.PosterInpaintPrompt ?? string.Empty,
+            inpaint_retry_prompt = usesVisiblePrompt ? string.Empty : settings.PosterInpaintSafeRetryPrompt ?? string.Empty,
+            generation_prompt = usesVisiblePrompt ? string.Empty : settings.PosterGenerationPrompt ?? string.Empty,
+            generation_retry_prompt = usesVisiblePrompt ? string.Empty : settings.PosterGenerationSafeRetryPrompt ?? string.Empty,
+            agent_prompt = usesVisiblePrompt ? PosterGenerationTemplates.ForMode(posterMode)
                 : ClientSettingsStore.ResolvePosterAgentPrompt(settings, posterMode),
         };
         var json = JsonSerializer.Serialize(payload);

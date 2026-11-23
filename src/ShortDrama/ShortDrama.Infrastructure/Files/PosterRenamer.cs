@@ -164,13 +164,6 @@ JSON 结构：
 
         var project = await _projectInfoParser.ParsePosterAsync(request.ProjectDir, cancellationToken);
         var inputPath = ResolveInputFile(request.ProjectDir, request.InputFilePath);
-        var posterName = request.UseAi
-            ? await GeneratePosterNameAsync(project, request.ConfigFile, cancellationToken)
-            : project.Title;
-
-        var extension = Path.GetExtension(inputPath);
-        var outputPath = request.OutputFilePath
-            ?? Path.Combine(request.ProjectDir, BuildFileName(posterName, request.NameTemplate, extension));
 
         if (string.IsNullOrWhiteSpace(request.ConfigFile) || !File.Exists(request.ConfigFile))
         {
@@ -179,27 +172,39 @@ JSON 结构：
 
         var config = KeyValueConfigReader.Read(request.ConfigFile);
         var posterMode = NormalizePosterMode(GetOptional(config, "PosterMode"));
+        var useVisiblePrompt = request.UseVisibleImagePrompt && PosterGenerationTemplates.IsSupportedMode(posterMode);
+        var posterName = request.UseAi && !useVisiblePrompt
+            ? await GeneratePosterNameAsync(project, request.ConfigFile, cancellationToken)
+            : project.Title;
+        var outputPath = request.OutputFilePath
+            ?? Path.Combine(request.ProjectDir, BuildFileName(posterName, request.NameTemplate, Path.GetExtension(inputPath)));
         var samePath = string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(outputPath),
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
-        if (posterMode == PosterReferenceCover.Mode && samePath)
-            throw new InvalidOperationException("参考原图生成新封面需要独立的原图文件。");
+        if (samePath && (useVisiblePrompt || posterMode == PosterReferenceCover.Mode))
+            throw new InvalidOperationException(useVisiblePrompt
+                ? "生成海报需要独立的原图和输出文件。"
+                : "参考原图生成新封面需要独立的原图文件。");
 
         if (File.Exists(outputPath) && !samePath)
         {
             if (!request.Overwrite)
                 throw new InvalidOperationException($"目标海报文件已存在: {outputPath}");
 
-            if (posterMode != PosterReferenceCover.Mode)
+            if (!useVisiblePrompt && posterMode != PosterReferenceCover.Mode)
                 File.Delete(outputPath);
         }
 
         var previousCall = CurrentCall.Value;
         CurrentCall.Value = new PosterCallContext(
             request.Log,
-            IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode")));
+            !useVisiblePrompt && IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode")),
+            useVisiblePrompt);
         try
         {
-            await RenderByModeAsync(request, inputPath, outputPath, posterName, posterMode, cancellationToken);
+            if (useVisiblePrompt)
+                await GenerateWithVisiblePromptAsync(request, config, inputPath, outputPath, posterName, posterMode, cancellationToken);
+            else
+                await RenderByModeAsync(request, inputPath, outputPath, posterName, posterMode, cancellationToken);
         }
         finally
         {
@@ -783,7 +788,7 @@ JSON 结构：
     private static string FormatByteCount(long bytes) =>
         bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024d:0.#} KB";
 
-    private sealed record PosterCallContext(Action<string>? Log, bool Fast);
+    private sealed record PosterCallContext(Action<string>? Log, bool Fast, bool UseVisiblePrompt = false);
 
     private sealed class PosterImageAttempt(
         bool stream,
@@ -953,16 +958,15 @@ JSON 结构：
         var mediaType = GuessMediaType(extension);
 
         var useGenerationApi = apiPath.EndsWith("/images/generations", StringComparison.OrdinalIgnoreCase);
-        var promptVariables = CreatePosterPromptVariables(title, title, null, null);
-        var primaryPrompt = MergePromptWithGuardrails(
+        var primaryPrompt = BuildImageGenerationPrompt(
             useGenerationApi
-                ? RenderPromptTemplate(GetOptional(config, "PosterGenerationPrompt") ?? DefaultPosterGenerationPrompt, promptVariables)
-                : RenderPromptTemplate(GetOptional(config, "PosterInpaintPrompt") ?? DefaultPosterInpaintPrompt, promptVariables),
+                ? GetOptional(config, "PosterGenerationPrompt") ?? DefaultPosterGenerationPrompt
+                : GetOptional(config, "PosterInpaintPrompt") ?? DefaultPosterInpaintPrompt,
             title);
-        var safeRetryPrompt = MergePromptWithGuardrails(
+        var safeRetryPrompt = BuildImageGenerationPrompt(
             useGenerationApi
-                ? RenderPromptTemplate(GetOptional(config, "PosterGenerationSafeRetryPrompt") ?? DefaultPosterGenerationSafeRetryPrompt, promptVariables)
-                : RenderPromptTemplate(GetOptional(config, "PosterInpaintSafeRetryPrompt") ?? DefaultPosterInpaintSafeRetryPrompt, promptVariables),
+                ? GetOptional(config, "PosterGenerationSafeRetryPrompt") ?? DefaultPosterGenerationSafeRetryPrompt
+                : GetOptional(config, "PosterInpaintSafeRetryPrompt") ?? DefaultPosterInpaintSafeRetryPrompt,
             title);
 
         byte[] bytes;
@@ -1247,8 +1251,8 @@ JSON 结构：
             if (bytes is null)
             {
                 log?.Invoke("海报图片生成失败：" + attempt.Describe(watch.Elapsed, status, TruncateForLog(responseText, 400)));
-                throw new InvalidOperationException(
-                    $"AI 海报图片生成成功返回，但响应中没有可解析的图片数据。url: {attempt.RequestUrl}");
+                throw CreateMissingImageDataException(
+                    $"AI 海报图片生成成功返回，但响应中没有可解析的图片数据。url: {attempt.RequestUrl}", responseText);
             }
 
             log?.Invoke(
@@ -1464,12 +1468,31 @@ JSON 结构：
             throw new PosterSensitiveContentException(PosterSensitiveContentMessage);
         }
 
-        throw new InvalidOperationException(AiApiErrorMessage.Create(
+        var error = AiApiErrorMessage.Create(
             operation,
             response.StatusCode,
             response.ReasonPhrase,
             responseText,
-            "请检查 config.json 中的 ImageEditEndpoint / ImageEditPath / ImageEditModelId 配置。"));
+            "请检查 config.json 中的 ImageEditEndpoint / ImageEditPath / ImageEditModelId 配置。");
+        if (CurrentCall.Value?.UseVisiblePrompt == true &&
+            (response.StatusCode is HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests || (int)response.StatusCode >= 500))
+        {
+            throw new HttpRequestException(error, null, response.StatusCode);
+        }
+
+        throw new InvalidOperationException(error);
+    }
+
+    private static Exception CreateMissingImageDataException(string message, string responseText)
+    {
+        if (CurrentCall.Value?.UseVisiblePrompt != true)
+            return new InvalidOperationException(message);
+
+        if (!IsSensitiveContentBlocked(responseText))
+            return new InvalidDataException(message);
+
+        LogSensitiveApiResponse(responseText);
+        return new PosterSensitiveContentException(PosterSensitiveContentMessage);
     }
 
     private static void LogSensitiveApiResponse(string responseText) =>
@@ -1554,6 +1577,13 @@ JSON 结构：
         }
 
         return rendered;
+    }
+
+    public static string BuildImageGenerationPrompt(string? template, string title)
+    {
+        var variables = CreatePosterPromptVariables(title, title, null, null);
+        var prompt = string.IsNullOrWhiteSpace(template) ? DefaultPosterGenerationPrompt : template;
+        return MergePromptWithGuardrails(RenderPromptTemplate(prompt, variables), title);
     }
 
     private static string MergePromptWithGuardrails(string prompt, string title)

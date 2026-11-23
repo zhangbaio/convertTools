@@ -8,4 +8,5 @@ public sealed record PosterRenameRequest(
     string? NameTemplate = null,
     bool UseAi = false,
     bool Overwrite = false,
-    Action<string>? Log = null);
+    Action<string>? Log = null,
+    bool UseVisibleImagePrompt = false);

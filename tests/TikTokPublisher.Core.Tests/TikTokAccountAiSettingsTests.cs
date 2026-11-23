@@ -2,6 +2,8 @@ using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using FluentAssertions;
+using ShortDrama.Core.Posters;
+using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
@@ -15,6 +17,81 @@ public sealed class AccountAiDataRootCollection { }
 [Collection("Account AI data root")]
 public sealed class TikTokAccountAiSettingsTests
 {
+    [Fact]
+    public void Account_editor_displays_the_generation_prompt_for_each_account_poster_mode()
+    {
+        var previous = AppPaths.DataRootOverride;
+        var root = Directory.CreateTempSubdirectory("tiktok-image-prompt-");
+        AppPaths.DataRootOverride = root.FullName;
+        try
+        {
+            var defaults = new ClientSettings { PosterAgentDirectPrompt = "非账号运行时配置的自定义提示词" };
+            var initialOptions = TikTokAccountAiOptions.FromSettings(defaults) with { VerifyTitle = true };
+            var account = new TikTokAccountProfile { Id = "a", AiOptions = initialOptions };
+            var editor = new AccountAiEditor();
+            var fields = ((StackPanel)editor.Content!).Children.OfType<StackPanel>().ToArray();
+            var modeOptions = fields.Single(panel => panel.Children.OfType<TextBlock>().Any(label => label.Text == "海报模式"))
+                .Children.OfType<WrapPanel>().Single();
+            void SelectMode(string mode) => modeOptions.Children.OfType<RadioButton>()
+                .Single(button => Equals(button.Tag, mode)).IsChecked = true;
+            void AssertSelectedMode(string mode) => modeOptions.Children.OfType<RadioButton>()
+                .Should().ContainSingle(button => button.IsChecked == true).Which.Tag.Should().Be(mode);
+            var row = fields
+                .Single(panel => panel.Children.OfType<TextBlock>().Any(label => label.Text!.StartsWith("图片提示词")));
+            var label = row.Children.OfType<TextBlock>().Single();
+            var promptBox = row.Children.OfType<TextBox>().Single();
+            var verification = fields.Single(panel => panel.Children.OfType<TextBlock>()
+                .Any(field => field.Text == "标题校验提示词（仅报告）"));
+            promptBox.IsReadOnly.Should().BeTrue();
+
+            editor.Load(account, defaults);
+            modeOptions.Children.OfType<RadioButton>().Should().HaveCount(3);
+            AssertSelectedMode(ClientSettingsDefaults.PosterModeDirect);
+            label.Text.Should().Contain("AI 直接生成");
+            promptBox.Text.Should().Be(PosterGenerationTemplates.DirectPrompt);
+            verification.IsVisible.Should().BeTrue();
+            verification.Children.OfType<TextBox>().Single().Text.Should().Be(PosterGenerationTemplates.TitleVerificationPrompt);
+
+            SelectMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
+            AssertSelectedMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
+            label.Text.Should().Contain("去字后固定字体写入");
+            promptBox.Text.Should().Be(PosterGenerationTemplates.ErasePrompt);
+            account.AiOptions.Should().Be(initialOptions);
+
+            SelectMode(ClientSettingsDefaults.PosterModeReferenceRegenerate);
+            AssertSelectedMode(ClientSettingsDefaults.PosterModeReferenceRegenerate);
+            label.Text.Should().Contain("参考原图生成新封面");
+            promptBox.Text.Should().Be(PosterGenerationTemplates.ReferencePrompt);
+            account.AiOptions.Should().Be(initialOptions);
+
+            editor.Save(account);
+            account.AiOptions!.PosterMode.Should().Be(ClientSettingsDefaults.PosterModeReferenceRegenerate);
+
+            var legacyAccount = new TikTokAccountProfile
+            {
+                Id = "legacy",
+                AiOptions = initialOptions with { PosterMode = "video_frame" },
+            };
+            editor.Load(legacyAccount, defaults);
+            AssertSelectedMode("video_frame");
+            promptBox.Text.Should().Be(PosterRenamer.BuildImageGenerationPrompt(defaults.FrameCoverPrompt, "{title}"));
+            verification.IsVisible.Should().BeFalse();
+            editor.Save(legacyAccount);
+            legacyAccount.AiOptions!.PosterMode.Should().Be("video_frame");
+
+            editor.Load(account, defaults);
+            AssertSelectedMode(ClientSettingsDefaults.PosterModeReferenceRegenerate);
+            editor.Clear();
+            modeOptions.Children.OfType<RadioButton>().Should().NotContain(button => button.IsChecked == true);
+            promptBox.Text.Should().BeEmpty();
+        }
+        finally
+        {
+            AppPaths.DataRootOverride = previous;
+            root.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void Account_editor_displays_the_builtin_prompt_on_reset_and_after_reload()
     {

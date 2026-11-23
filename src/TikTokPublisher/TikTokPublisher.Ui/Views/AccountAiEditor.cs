@@ -5,6 +5,8 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Media;
+using ShortDrama.Core.Posters;
+using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
@@ -13,11 +15,24 @@ namespace TikTokPublisher.Ui.Views;
 public sealed class AccountAiEditor : UserControl
 {
     private static readonly HttpClient ProbeHttp = new(new HttpClientHandler { AllowAutoRedirect = false });
+    private static readonly (string Id, string Name)[] PosterModes =
+    [
+        (ClientSettingsDefaults.PosterModeDirect, "AI 直接生成"),
+        (ClientSettingsDefaults.PosterModeEraseFixedTitle, "去字后固定字体写入"),
+        (ClientSettingsDefaults.PosterModeReferenceRegenerate, "参考原图生成新封面"),
+    ];
     private readonly ComboBox _textPresets = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _imagePresets = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly WrapPanel _posterMode = new() { Orientation = Orientation.Horizontal };
+    private readonly string _posterModeGroup = $"poster-mode-{Guid.NewGuid():N}";
     private readonly TextBox _textKey = KeyBox();
     private readonly TextBox _imageKey = KeyBox();
     private readonly TextBox _publish = PromptBox();
+    private readonly TextBlock _imagePromptLabel = new() { Text = "图片提示词" };
+    private readonly TextBox _imagePrompt = PromptBox(readOnly: true);
+    private readonly TextBlock _imagePromptRules = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly Control _titleVerificationPrompt = Field("标题校验提示词（仅报告）",
+        PromptBox(readOnly: true, text: PosterGenerationTemplates.TitleVerificationPrompt));
     private readonly Dictionary<string, TikTokAiTextPreset> _textEdits = new();
     private readonly Dictionary<string, TikTokAiImagePreset> _imageEdits = new();
     private ClientSettings _defaults = new();
@@ -39,6 +54,11 @@ public sealed class AccountAiEditor : UserControl
         form.Children.Add(PromptRow("发布信息提示词", _publish, ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt));
         form.Children.Add(PresetRow("AI 图片模型预设", _imagePresets, () => EditImageAsync(false), () => EditImageAsync(true)));
         form.Children.Add(KeyRow("AI 图片 API Key", _imageKey));
+        form.Children.Add(Field("海报模式", _posterMode));
+        form.Children.Add(new StackPanel { Spacing = 4, Children = { _imagePromptLabel, _imagePrompt } });
+        _imagePromptRules.IsVisible = _titleVerificationPrompt.IsVisible = false;
+        form.Children.Add(_imagePromptRules);
+        form.Children.Add(_titleVerificationPrompt);
         Content = form;
         _textPresets.SelectionChanged += (_, _) => UpdateDisplayedKeys();
         _imagePresets.SelectionChanged += (_, _) => UpdateDisplayedKeys();
@@ -61,6 +81,8 @@ public sealed class AccountAiEditor : UserControl
         _imageKey.Text = _shownImageKey = "";
         UpdateDisplayedKeys();
         _publish.Text = TikTokAccountAiSettings.ResolvePublishPrompt(_draft.PublishPrompt);
+        LoadPosterModeSelection();
+        UpdateImagePrompt();
         IsEnabled = true;
     }
 
@@ -70,6 +92,10 @@ public sealed class AccountAiEditor : UserControl
         _savedKeys = new();
         _shownTextKey = _shownImageKey = "";
         _textKey.Text = _imageKey.Text = _publish.Text = "";
+        _imagePromptLabel.Text = "图片提示词";
+        _imagePrompt.Text = "";
+        _imagePromptRules.IsVisible = _titleVerificationPrompt.IsVisible = false;
+        _posterMode.Children.Clear();
         _textPresets.Items.Clear();
         _imagePresets.Items.Clear();
         _textEdits.Clear();
@@ -113,6 +139,79 @@ public sealed class AccountAiEditor : UserControl
         var prompt = Read(_publish);
         return string.Equals(prompt.ReplaceLineEndings("\n"),
             ClientSettingsDefaults.TikTokUnifiedPublishInfoPrompt.ReplaceLineEndings("\n"), StringComparison.Ordinal) ? "" : prompt;
+    }
+
+    private void LoadPosterModeSelection()
+    {
+        var mode = DraftPosterMode();
+        _posterMode.Children.Clear();
+        foreach (var (id, name) in PosterModes)
+            AddPosterModeOption(id, name, id == mode);
+
+        if (!PosterModes.Any(choice => choice.Id == mode))
+            AddPosterModeOption(mode, PosterModeName(mode), selected: true);
+    }
+
+    private void AddPosterModeOption(string id, string name, bool selected)
+    {
+        var option = new RadioButton
+        {
+            Content = name,
+            Tag = id,
+            GroupName = _posterModeGroup,
+            IsChecked = selected,
+            Margin = new Thickness(0, 0, 18, 4),
+        };
+        _posterMode.Children.Add(option);
+        option.IsCheckedChanged += (_, _) =>
+        {
+            if (_draft is null || option.IsChecked != true)
+                return;
+
+            _draft = _draft with { PosterMode = id };
+            UpdateImagePrompt();
+        };
+    }
+
+    private string DraftPosterMode() => (_draft?.PosterMode ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant();
+
+    private static string PosterModeName(string mode) => PosterModes.FirstOrDefault(choice => choice.Id == mode).Name ?? (mode switch
+    {
+        "video_frame" => "视频抽帧生成封面",
+        "ai" or "poster_ai_edit" => "参考原海报生成封面",
+        "poster_ai_erase_pil_title" => "AI 去字后重绘标题",
+        _ => "沿用原图",
+    });
+
+    private void UpdateImagePrompt()
+    {
+        var mode = DraftPosterMode();
+        _imagePromptLabel.Text = $"图片提示词（{PosterModeName(mode)}）";
+        var usesVisiblePrompt = PosterGenerationTemplates.IsSupportedMode(mode);
+        _imagePromptRules.IsVisible = usesVisiblePrompt;
+        _titleVerificationPrompt.IsVisible = usesVisiblePrompt && _draft?.VerifyTitle == true;
+        if (usesVisiblePrompt)
+        {
+            _imagePrompt.Text = PosterGenerationTemplates.ForMode(mode);
+            var deliveryRule = mode switch
+            {
+                PosterGenerationTemplates.EraseMode => "AI 交付无字底图，程序按原图比例在下半部分用固定字体写入剧名。",
+                PosterReferenceCover.Mode => $"有效画面差异须达到 {PosterReferenceCover.MinimumChangedArea:P0}。实际分数见运行日志，两次未达标时保留已有封面。",
+                _ => "由图片模型在成品中写入剧名。",
+            };
+            _imagePromptRules.Text = deliveryRule +
+                " 临时接口或图片响应失败时原样重试一次，模型审核拒绝时报告原因。" +
+                (mode == PosterGenerationTemplates.EraseMode ? "" : " {title} 和 {ratio} 会替换为当前剧名和出图比例。") +
+                (_draft?.VerifyTitle == true ? " 标题校验仅报告结果。" : "");
+            return;
+        }
+
+        _imagePrompt.Text = mode switch
+        {
+            "video_frame" or "ai" or "poster_ai_edit" => PosterRenamer.BuildImageGenerationPrompt(_defaults.FrameCoverPrompt, "{title}"),
+            "poster_ai_erase_pil_title" => PosterRenamer.DefaultPosterAllTextErasePrompt,
+            _ => "当前模式直接使用原图，无需调用图片模型。",
+        };
     }
 
     private TikTokAiTextPreset? SelectedText()
@@ -255,20 +354,23 @@ public sealed class AccountAiEditor : UserControl
         var model = Input(preset.Model);
         var resolution = Input(preset.Resolution);
         var ratio = Input(preset.Ratio);
-        var mode = Choice(draft.PosterMode, (ClientSettingsDefaults.PosterModeDirect, "AI 直接生成"),
-            (ClientSettingsDefaults.PosterModeEraseFixedTitle, "去字后固定字体写入"),
-            (ClientSettingsDefaults.PosterModeReferenceRegenerate, "参考原图生成新封面"));
-        var verify = new CheckBox { Content = "启用标题校验", IsChecked = draft.VerifyTitle };
-        var verifyMode = Choice(draft.VerifyMode, ("fallback_repaint", "AI 重试后重绘"), ("warn", "AI 重试后仅警告"), ("blocking", "AI 重试后阻断"));
+        var usesVisiblePrompt = PosterGenerationTemplates.IsSupportedMode(DraftPosterMode());
+        var verify = new CheckBox
+        {
+            Content = usesVisiblePrompt ? "启用标题校验（仅报告）" : "启用标题校验",
+            IsChecked = draft.VerifyTitle,
+        };
+        var verifyMode = usesVisiblePrompt ? null
+            : Choice(draft.VerifyMode, ("fallback_repaint", "AI 重试后重绘"), ("warn", "AI 重试后仅警告"), ("blocking", "AI 重试后阻断"));
         var dialog = new DetailWindow(owner, "AI 图片详细配置", create);
         dialog.Add("预设名称", name);
         dialog.Add("模型 Endpoint", endpoint);
         dialog.Add("模型 ID", model);
         dialog.Add("分辨率", resolution);
         dialog.Add("比例", ratio);
-        dialog.Add("海报模式", mode);
         dialog.Fields.Children.Add(verify);
-        dialog.Add("校验失败处理", verifyMode);
+        if (verifyMode is not null)
+            dialog.Add("校验失败处理", verifyMode);
         dialog.Validate = () => ValidateConnection(name, endpoint, model);
         if (!await dialog.ShowDialog<bool>(owner) || !ReferenceEquals(_draft, draft))
             return;
@@ -283,10 +385,10 @@ public sealed class AccountAiEditor : UserControl
         }
         _draft = draft with
         {
-            PosterMode = SelectedId(mode),
             VerifyTitle = verify.IsChecked == true,
-            VerifyMode = SelectedId(verifyMode),
+            VerifyMode = verifyMode is null ? draft.VerifyMode : SelectedId(verifyMode),
         };
+        UpdateImagePrompt();
         RefreshPresets(SelectedId(_textPresets), id);
     }
 
@@ -321,10 +423,10 @@ public sealed class AccountAiEditor : UserControl
     private static string SelectedId(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
     private static TextBox Input(string text = "") => new() { Text = text, Classes = { "configurationInput" } };
     private static TextBox KeyBox() => new() { PasswordChar = '●', Classes = { "configurationInput" } };
-    private static TextBox PromptBox() => new()
+    private static TextBox PromptBox(bool readOnly = false, string? text = null) => new()
     {
-        AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 64, MaxHeight = 150,
-        Watermark = "留空使用默认提示词", Classes = { "configurationInput" },
+        AcceptsReturn = true, IsReadOnly = readOnly, TextWrapping = TextWrapping.Wrap, MinHeight = 64, MaxHeight = 150,
+        Text = text, Watermark = readOnly ? null : "留空使用默认提示词", Classes = { "configurationInput" },
     };
     private static NumericUpDown Number(int value, int min, int max) =>
         new() { Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max), FormatString = "0", Classes = { "configurationInput" } };
