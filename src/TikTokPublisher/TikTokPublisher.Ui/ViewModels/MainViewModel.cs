@@ -2932,6 +2932,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 TikTokRemoteCommandNames.StartQueue => await ExecuteRemoteStartQueueAsync(command),
                 TikTokRemoteCommandNames.UploadSeries => await ExecuteRemoteUploadSeriesAsync(command),
                 TikTokRemoteCommandNames.RetryQueue => await ExecuteRemoteRetryQueueAsync(command),
+                TikTokRemoteCommandNames.RemoveQueueTask => ExecuteRemoteRemoveQueueTask(command),
                 _ => TikTokRemoteCommandResult.Failed(command.Command, $"未支持的远程命令：{command.Command}"),
             };
         }
@@ -2996,6 +2997,30 @@ public sealed partial class MainViewModel : ViewModelBase
             return TikTokRemoteCommandResult.Failed(command.Command, $"TikTok 队列未启动，工作目录可能已被其它任务占用：{workspace}");
 
         return TikTokRemoteCommandResult.Accepted(command.Command, $"TikTok 队列已启动，工作目录：{workspace}");
+    }
+
+    private TikTokRemoteCommandResult ExecuteRemoteRemoveQueueTask(TikTokRemoteCommand command)
+    {
+        var project = command.RetryItems?.SingleOrDefault();
+        var account = FindAccountById(command.AccountProfileId)?.Model;
+        var workspace = account?.ResolveWorkspacePath();
+        if (project is null || account is null || string.IsNullOrWhiteSpace(workspace))
+            return TikTokRemoteCommandResult.Failed(command.Command, "找不到要移出的项目或账号工作目录。");
+        if (IsLocalCheckedQueueRunning(workspace))
+            return DeferRemoteCommandWhileLocalCheckedQueueRuns(command, workspace);
+        using var reservation = _queueExecution.TryReserveWorkspaceForDeletion(workspace);
+        if (reservation is null)
+            return TikTokRemoteCommandResult.Failed(command.Command, "队列正在运行，请先停止任务。");
+        try
+        {
+            QueueRetryUseCase.RemoveReleasedProject(workspace, account.Id, project);
+            RefreshWorkspaceProjects(workspace);
+            return TikTokRemoteCommandResult.Success(command.Command, "已移出客户端队列，保留本地文件。");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return TikTokRemoteCommandResult.Failed(command.Command, ex.Message);
+        }
     }
 
     private async Task<TikTokRemoteCommandResult> ExecuteRemoteRetryQueueAsync(TikTokRemoteCommand command)

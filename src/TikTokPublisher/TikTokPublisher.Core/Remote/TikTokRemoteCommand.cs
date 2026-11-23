@@ -65,6 +65,7 @@ public static class TikTokRemoteCommandNames
     public const string UploadSeries = "tiktok_upload_series";
     public const string StartQueue = "tiktok_start_queue";
     public const string RetryQueue = "tiktok_retry_queue";
+    public const string RemoveQueueTask = "tiktok_remove_queue_task";
     public const string StopQueue = "tiktok_stop_queue";
     public const string QueryStatus = "tiktok_query_status";
     public const string ShowHelpText = "show_help_text";

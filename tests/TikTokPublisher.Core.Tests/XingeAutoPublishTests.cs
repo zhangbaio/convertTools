@@ -22,6 +22,31 @@ public sealed class XingeAutoPublishTests : IDisposable
     }
 
     [Fact]
+    public void RemovingReleasedProjectFromQueueKeepsItsLocalFiles()
+    {
+        var project = Path.Combine(_root, "Failed drama");
+        Directory.CreateDirectory(project);
+        var metadata = Path.Combine(project, "shortdrama-project.json");
+        File.WriteAllText(metadata, """{"bookId":"dramabox:test","title":"Failed drama","episodeCount":2}""");
+        var video = Path.Combine(project, "第1集.mp4");
+        File.WriteAllText(video, "media");
+        WorkspaceQueueService.AddProjectsToQueue(_root, [project]);
+        XingeAutoPublishMarkerStore.Write(project, new XingeAutoPublishAssignment(
+            41, "/progress", "dramabox:test", "profile-a", "Failed drama"));
+        XingeAutoPublishMarkerStore.MarkFinal(project, 41, XingeAutoPublishStatuses.Failed);
+        Assert.NotEmpty(WorkspaceQueueService.ScanProjects(_root));
+
+        Assert.Throws<InvalidOperationException>(() => QueueRetryUseCase.RemoveReleasedProject(
+            _root, "wrong-account", new TikTokRetryQueueItem(project, AutoPublishAssignmentId: 41)));
+        QueueRetryUseCase.RemoveReleasedProject(
+            _root, "profile-a", new TikTokRetryQueueItem(project, AutoPublishAssignmentId: 41));
+
+        Assert.Empty(WorkspaceQueueService.ScanProjects(_root));
+        Assert.True(File.Exists(metadata));
+        Assert.Equal("media", File.ReadAllText(video));
+    }
+
+    [Fact]
     public void Parse_ReadsAutoPublishAssignmentFields()
     {
         var command = TikTokRemoteCommandParser.Parse(

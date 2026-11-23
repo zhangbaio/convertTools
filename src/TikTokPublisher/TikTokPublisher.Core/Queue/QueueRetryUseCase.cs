@@ -139,6 +139,37 @@ public sealed class QueueRetryUseCase(QueueExecutionUseCase execution, Workspace
         return Directory.Exists(path) && !WorkspaceQueueService.IsDeletedProjectDir(root, path);
     }
 
+    public static void RemoveReleasedProject(string workspaceRoot, string accountId, TikTokRetryQueueItem project)
+    {
+        var path = project.ProjectPath;
+        if (!WorkspaceQueueService.IsProjectInsideWorkspace(workspaceRoot, path))
+            throw new InvalidOperationException("项目不在该账号的工作目录中。");
+        if (WorkspaceQueueService.IsDeletedProjectDir(workspaceRoot, path) ||
+            WorkspaceQueueService.IsRemovedByXinge(path))
+            return;
+        if (!Directory.Exists(path))
+            return;
+        for (DirectoryInfo? dir = new(path); dir is not null; dir = dir.Parent)
+        {
+            if ((dir.Attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException("项目路径包含重解析点，无法安全移出。");
+        }
+
+        var item = WorkspaceQueueService.ScanProjects(workspaceRoot).FirstOrDefault(candidate =>
+            string.Equals(QueueExecutionUseCase.NormalizePath(candidate.ProjectDir),
+                QueueExecutionUseCase.NormalizePath(path), StringComparison.OrdinalIgnoreCase));
+        if (item is null)
+            return;
+        if (!string.IsNullOrWhiteSpace(item.AccountProfileId) && item.AccountProfileId != accountId)
+            throw new InvalidOperationException("项目属于另一个账号。");
+        var marker = XingeAutoPublishMarkerStore.TryRead(path);
+        if (marker is not null && (marker.AccountProfileId != accountId ||
+            marker.AssignmentId > project.AutoPublishAssignmentId || marker.IsActive))
+            throw new InvalidOperationException("项目已经绑定其他派单，或派单尚未结束。");
+
+        WorkspaceQueueService.RemoveFromQueuePreservingFiles(workspaceRoot, path);
+    }
+
     public static void RefreshAssignment(string projectDir, long assignmentId, string accountId, Action<string>? report)
     {
         try

@@ -280,6 +280,14 @@ public static class TikTokRemoteCommandParser
                         : Array.Empty<TikTokRetryQueueItem>());
             }
 
+            if (commandName == TikTokRemoteCommandNames.RemoveQueueTask)
+            {
+                return new TikTokRemoteCommand(TikTokRemoteCommandNames.RemoveQueueTask,
+                    AccountProfileId: accountProfileId,
+                    RetryItems: [new TikTokRetryQueueItem(FirstString(root, "project_path"),
+                        AutoPublishAssignmentId: GetPositiveLong(root, "auto_publish_assignment_id"))]);
+            }
+
             return commandName switch
             {
                 "tiktok_stop_queue" or "stop_tiktok_queue" => new TikTokRemoteCommand(TikTokRemoteCommandNames.StopQueue),

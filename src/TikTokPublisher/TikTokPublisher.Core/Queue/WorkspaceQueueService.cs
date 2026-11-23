@@ -11,6 +11,17 @@ public static class WorkspaceQueueService
     private static readonly object DeletedDirSync = new();
     private static readonly Dictionary<string, HashSet<string>> DeletedDirCache = new(StringComparer.OrdinalIgnoreCase);
 
+    private const string RemovedByXingeMarker = ".xinge-removed-from-queue";
+
+    internal static bool IsRemovedByXinge(string projectDir) =>
+        File.Exists(Path.Combine(projectDir, RemovedByXingeMarker));
+
+    internal static void RemoveFromQueuePreservingFiles(string workspaceRoot, string projectDir)
+    {
+        File.WriteAllText(Path.Combine(projectDir, RemovedByXingeMarker), "");
+        RemoveProjectsFromQueue(workspaceRoot, [projectDir]);
+    }
+
     public static IReadOnlyList<QueueProjectItem> ScanProjects(string workspaceRoot)
     {
         var root = Path.GetFullPath(workspaceRoot);
@@ -35,7 +46,7 @@ public static class WorkspaceQueueService
         foreach (var scanned in WorkspaceProjectScanner.Scan(root))
         {
             var normalized = Path.GetFullPath(scanned.ProjectDir);
-            if (deleted.Contains(normalized))
+            if (deleted.Contains(normalized) || IsRemovedByXinge(normalized))
                 continue;
             persistedByDir.TryGetValue(normalized, out var persisted);
             discovered[normalized] = MergeScanned(scanned, persisted, clientSettings);
@@ -54,7 +65,7 @@ public static class WorkspaceQueueService
                 continue;
             }
 
-            if (deleted.Contains(normalized))
+            if (deleted.Contains(normalized) || IsRemovedByXinge(normalized))
                 continue;
 
             if (!discovered.TryGetValue(normalized, out var item))
@@ -233,6 +244,9 @@ public static class WorkspaceQueueService
                 continue;
             if (!appendedKeys.Add(normalized))
                 continue;
+            var removedMarker = Path.Combine(normalized, RemovedByXingeMarker);
+            if (File.Exists(removedMarker))
+                File.Delete(removedMarker);
 
             if (existing.TryGetValue(normalized, out var existingItem))
             {
