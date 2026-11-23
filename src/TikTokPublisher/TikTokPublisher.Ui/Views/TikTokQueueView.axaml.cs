@@ -1867,6 +1867,12 @@ public partial class TikTokQueueView : UserControl
         await StartQueueRunAsync(options, dirs);
     }
 
+    private async void OnBackfillOriginalSynopsisClick(object? sender, RoutedEventArgs e)
+    {
+        if (_vm is { } vm)
+            await vm.BackfillOriginalSynopsesAsync(GetCheckedOrSelectedQueueRows());
+    }
+
     private async void OnReplaceDraftClick(object? sender, RoutedEventArgs e)
     {
         var vm = _vm;

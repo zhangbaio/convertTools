@@ -63,7 +63,7 @@ public sealed class ProjectInfoRewriterPublishInfoTests
     public async Task Publish_info_mode_keeps_source_synopsis_and_only_asks_for_missing_themes()
     {
         var projectDir = Directory.CreateTempSubdirectory().FullName;
-        var infoPath = await WriteInfoAsync(projectDir, "替嫁新娘", "她被迫替嫁进豪门。", "题材类型: 豪门\n目标观众: 男\n");
+        var infoPath = await WriteInfoAsync(projectDir, "替嫁新娘", "她被迫替嫁进豪门。", "原简介: 她因约定代嫁。\n题材类型: 豪门\n目标观众: 男\n");
         var configPath = WriteConfig(projectDir, rewriteSynopsis: false, themeCount: 2);
         var handler = new RecordingHandler(
         [
@@ -79,6 +79,7 @@ public sealed class ProjectInfoRewriterPublishInfoTests
         userPrompt.Should().Contain("\"existing_themes\":[\"豪门\"]");
         userPrompt.Should().Contain("\"ask_audience\":false");
         var info = File.ReadAllText(infoPath);
+        info.Should().Contain("原简介: 她因约定代嫁。\n简介: 她被迫替嫁进豪门。");
         info.Should().Contain("简介: 她被迫替嫁进豪门。");
         info.Should().Contain("题材类型: 豪门、复仇");
         info.Should().Contain("目标观众: 男");
@@ -159,7 +160,7 @@ public sealed class ProjectInfoRewriterPublishInfoTests
         Message(handler.RequestBodies[1], 1).Should().Contain("只改写简介").And.Contain("本次 44 词")
             .And.Contain("连续 5 词片段复用率").And.Contain("\"reused_five_word_fragments\":[\"Lina finds the missing ledger\"");
         Message(handler.RequestBodies[2], 1).Should().Contain(original).And.Contain(paraphrase);
-        File.ReadAllText(infoPath).Should().Contain(paraphrase);
+        File.ReadAllText(infoPath).Should().Contain($"原简介: {original}\n简介: {paraphrase}");
     }
 
     [Fact]

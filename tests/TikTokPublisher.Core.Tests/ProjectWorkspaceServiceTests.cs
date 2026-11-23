@@ -207,6 +207,7 @@ public sealed class ProjectWorkspaceServiceTests
 
             var info = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(workflowDir, "短剧信息.txt"));
             info["简介"].Should().Be(intro);
+            info["原简介"].Should().Be(intro);
         }
         finally
         {
@@ -248,6 +249,7 @@ public sealed class ProjectWorkspaceServiceTests
 
             var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
             info["简介"].Should().Be(intro);
+            info["原简介"].Should().Be(intro);
             info["集数"].Should().Be("71");
             info["制作公司"].Should().Be("未填写公司");
         }

@@ -222,7 +222,8 @@ public sealed partial class ProjectInfoRewriter
                 string.Empty,
                 accepted.Synopsis,
                 preserved,
-                PublishInfoExtraKeys),
+                PublishInfoExtraKeys,
+                request.OriginalSynopsis),
             Encoding.UTF8,
             cancellationToken);
 

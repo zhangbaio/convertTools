@@ -27,13 +27,14 @@ public static class AiRewriteHistoryService
         WriteIndented = false,
     };
 
-    public static IReadOnlyList<AiRewriteHistoryRecord> LoadForOriginalTitle(string originalTitle, int limit = 5000)
+    public static IReadOnlyList<AiRewriteHistoryRecord> LoadForOriginalTitle(
+        string originalTitle, int limit = 5000, bool createIfMissing = true)
     {
         var originalKey = NormalizeTitleKey(originalTitle);
         if (string.IsNullOrWhiteSpace(originalKey)) return [];
 
         var records = new List<AiRewriteHistoryRecord>();
-        records.AddRange(LoadFromDatabase(ClientSettingsStore.MainDatabasePath, createIfMissing: true, limit));
+        records.AddRange(LoadFromDatabase(ClientSettingsStore.MainDatabasePath, createIfMissing, limit));
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var output = new List<AiRewriteHistoryRecord>();

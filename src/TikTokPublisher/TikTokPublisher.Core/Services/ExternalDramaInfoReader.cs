@@ -218,6 +218,8 @@ internal static partial class ExternalDramaInfoReader
     internal static string? FindIntroPath(string projectDirectory) =>
         Read(projectDirectory, new JsonObject()).IntroPath;
 
+    internal static string ReadSynopsisFile(string path) => ExtractIntro(ReadTextFile(path));
+
     private static string ReadMetadataIntro(JsonObject metadata)
     {
         foreach (var key in MetadataIntroKeys)

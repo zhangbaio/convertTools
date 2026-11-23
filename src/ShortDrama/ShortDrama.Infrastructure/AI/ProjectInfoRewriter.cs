@@ -446,7 +446,8 @@ public sealed partial class ProjectInfoRewriter : IProjectInfoRewriter
         string tagline,
         string synopsis,
         IReadOnlyDictionary<string, string> preservedFields,
-        IReadOnlyList<string>? extraKeys = null)
+        IReadOnlyList<string>? extraKeys = null,
+        string? originalSynopsis = null)
     {
         var originalTitleLine = string.IsNullOrWhiteSpace(project.OriginalTitle)
             ? string.Empty
@@ -454,11 +455,15 @@ public sealed partial class ProjectInfoRewriter : IProjectInfoRewriter
         var taglineLine = string.IsNullOrWhiteSpace(tagline)
             ? string.Empty
             : $"推荐语: {tagline}\n";
+        var savedOriginalSynopsis = FirstNonEmpty(originalSynopsis, preservedFields.GetValueOrDefault("原简介"));
+        var originalSynopsisLine = savedOriginalSynopsis is null ? string.Empty
+            : $"原简介: {string.Join(' ', savedOriginalSynopsis.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))}\n";
 
         var text =
             $"{originalTitleLine}" +
             $"新剧名: {title}\n" +
             $"{taglineLine}" +
+            originalSynopsisLine +
             $"简介: {synopsis}\n" +
             $"集数: {project.EpisodeCount}\n" +
             $"制作公司: {project.CompanyName}\n";

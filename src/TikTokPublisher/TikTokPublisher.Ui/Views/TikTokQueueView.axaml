@@ -186,6 +186,7 @@
                     <Button Content="上传短剧" Click="OnUploadTitlesClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="导入本地剧集" Click="OnImportLocalDramaClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="编辑剧集" Click="OnEditSelectedClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
+                    <Button Content="补齐原简介" Click="OnBackfillOriginalSynopsisClick" Classes="contentAction compactAction" Margin="0,0,8,0" />
                     <Button Content="新剧替换草稿" Click="OnReplaceDraftClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="补全版权证明" Click="OnCompleteCopyrightProofClick" Classes="contentAction compactAction" Margin="0,0,8,8" />
                     <Button Content="补全AI大纲（仅PDF）" Click="OnCompleteAiScriptOutlineClick" Classes="contentAction compactAction" Margin="0,0,8,8" />

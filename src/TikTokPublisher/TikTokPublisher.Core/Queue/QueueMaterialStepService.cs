@@ -1687,12 +1687,16 @@ public static class QueueMaterialStepService
         var originalTitle = ResolveOriginalTitle(infoPath, item, context);
         var rewriteHistory = AiRewriteHistoryService.LoadForOriginalTitle(originalTitle);
         var rewriteSynopsis = account?.TiktokAiRewriteSynopsis == true;
-        var sourceSynopsis = rewriteSynopsis
-            ? ResolveOriginalSynopsis(context, originalTitle, rewriteHistory)
-            : ResolveSynopsis(infoPath, item, context);
+        var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var sourceSynopsis = ProjectOriginalSynopsisService.Resolve(context, originalTitle, workflowInfo, () => rewriteHistory);
+        if (sourceSynopsis.Length != 0 &&
+            !ProjectOriginalSynopsisService.IsUsable(workflowInfo.GetValueOrDefault(ProjectOriginalSynopsisService.FieldName), originalTitle))
+        {
+            ProjectInfoTextHelper.WriteOriginalSynopsisIfMissing(infoPath, sourceSynopsis, originalTitle);
+        }
         EnsureRewriteInputDefaults(infoPath, item, context, episodeCount);
         var otherHistory = rewriteHistory
-            .Where(record => !IsCurrentProjectHistory(record, context))
+            .Where(record => !ProjectOriginalSynopsisService.IsCurrentProjectHistory(record, context))
             .ToList();
         if (otherHistory.Count > 0)
         {
@@ -1773,7 +1777,7 @@ public static class QueueMaterialStepService
                         overwriteExisting || outputExists,
                         forbiddenTitles,
                         forbiddenSynopses,
-                        rewriteSynopsis ? sourceSynopsis : null,
+                        rewriteSynopsis || sourceSynopsis.Length != 0 ? sourceSynopsis : null,
                         rewriteVariantKey,
                         archiveOccupancy,
                         account,
@@ -2258,18 +2262,6 @@ public static class QueueMaterialStepService
             Path.GetFileName(context.SourceProjectDir));
     }
 
-    private static string ResolveSynopsis(string infoPath, QueueProjectItem item, ProjectWorkspaceContext context)
-    {
-        var info = ProjectInfoTextHelper.ParseInfoFile(infoPath);
-        var metadata = ReadDownloadMetadata(context.SourceProjectDir);
-        return FirstNonEmpty(
-            info.GetValueOrDefault("简介"),
-            info.GetValueOrDefault("描述"),
-            info.GetValueOrDefault("剧情简介"),
-            item.Description,
-            metadata.Intro);
-    }
-
     private static IReadOnlyList<string> BuildForbiddenTitles(
         QueueProjectItem item,
         ProjectWorkspaceContext context,
@@ -2288,24 +2280,6 @@ public static class QueueMaterialStepService
             item.NewTitle,
             .. history.Select(record => record.NewTitle),
         ]);
-    }
-
-    private static string ResolveOriginalSynopsis(
-        ProjectWorkspaceContext context,
-        string originalTitle,
-        IReadOnlyList<AiRewriteHistoryRecord> history)
-    {
-        var sourceInfo = ProjectInfoTextHelper.ParseInfoFile(Path.Combine(context.SourceProjectDir, "短剧信息.txt"));
-        var originals = new[]
-        {
-            RewriteSourceLanguage.ReadImported(context.SourceProjectDir).Synopsis,
-            RewriteSourceLanguage.ReadImported(context.WorkflowProjectDir).Synopsis,
-            CurrentSynopsis(sourceInfo),
-        }.Concat(history.Where(record => IsCurrentProjectHistory(record, context))
-            .OrderBy(record => record.CreatedAt, StringComparer.Ordinal)
-            .Select(record => record.OriginalSynopsis));
-
-        return originals.FirstOrDefault(synopsis => !IsDefaultSynopsis(synopsis, originalTitle))?.Trim() ?? "";
     }
 
     private static bool ExistingInfoDuplicatesHistory(
@@ -2367,7 +2341,7 @@ public static class QueueMaterialStepService
 
         var synopsisFingerprint = rewriteSynopsis ? SynopsisFingerprint(synopsis) : string.Empty;
         return history.Any(record =>
-            IsCurrentProjectHistory(record, context) &&
+            ProjectOriginalSynopsisService.IsCurrentProjectHistory(record, context) &&
             RewriteVariantKeysEqual(record.VariantKey, rewriteVariantKey) &&
             string.Equals(
                 NormalizeComparableTitle(record.NewTitle),
@@ -2517,7 +2491,7 @@ public static class QueueMaterialStepService
         var accountKey = NewTitleOccupancyService.ReservationAccountKey(account);
         var managementFailureLogged = false;
         var candidates = history
-            .Where(record => IsCurrentProjectHistory(record, context))
+            .Where(record => ProjectOriginalSynopsisService.IsCurrentProjectHistory(record, context))
             .Where(record => !rewriteSynopsis || RewriteVariantKeysEqual(record.VariantKey, rewriteVariantKey))
             .Where(record => !string.IsNullOrWhiteSpace(record.NewTitle))
             .Where(record => !rewriteSynopsis || !string.IsNullOrWhiteSpace(record.NewSynopsis))
@@ -2589,18 +2563,6 @@ public static class QueueMaterialStepService
 
     private static string NormalizeSingleLine(string? text) =>
         string.Join(' ', (text ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()));
-
-    private static bool IsCurrentProjectHistory(AiRewriteHistoryRecord record, ProjectWorkspaceContext context)
-    {
-        if (PathsEqual(record.ProjectDir, context.SourceProjectDir) ||
-            PathsEqual(record.ProjectDir, context.WorkflowProjectDir))
-        {
-            return true;
-        }
-
-        return PathStartsWith(record.VariantKey, context.SourceProjectDir) ||
-               PathStartsWith(record.VariantKey, context.WorkflowProjectDir);
-    }
 
     private static void AppendRewriteHistory(
         ProjectInfoRewriteResult result,
@@ -2950,42 +2912,6 @@ public static class QueueMaterialStepService
         }
 
         return output;
-    }
-
-    private static bool PathsEqual(string? left, string? right)
-    {
-        var leftKey = NormalizePathText(left);
-        var rightKey = NormalizePathText(right);
-        return !string.IsNullOrWhiteSpace(leftKey) &&
-               !string.IsNullOrWhiteSpace(rightKey) &&
-               string.Equals(leftKey, rightKey, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool PathStartsWith(string? value, string? path)
-    {
-        var valueKey = NormalizePathText(value);
-        var pathKey = NormalizePathText(path);
-        if (string.IsNullOrWhiteSpace(valueKey) || string.IsNullOrWhiteSpace(pathKey)) return false;
-
-        return string.Equals(valueKey, pathKey, StringComparison.OrdinalIgnoreCase) ||
-               valueKey.StartsWith(pathKey + "/", StringComparison.OrdinalIgnoreCase) ||
-               valueKey.StartsWith(pathKey + "#", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string NormalizePathText(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "";
-        var text = value.Trim();
-        try
-        {
-            text = Path.GetFullPath(text);
-        }
-        catch
-        {
-            // Variant keys may append "#account"; keep textual normalization in that case.
-        }
-
-        return text.Replace('\\', '/').TrimEnd('/');
     }
 
     private static DownloadMetadata ReadDownloadMetadata(string sourceProjectDir)

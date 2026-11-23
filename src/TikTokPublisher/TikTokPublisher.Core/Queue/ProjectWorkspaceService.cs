@@ -50,7 +50,10 @@ public static class ProjectWorkspaceService
     /// <summary>
     /// 校验 source/workflow 的双向归属，避免陈旧或复制来的元数据把当前项目指向另一项目目录。
     /// </summary>
-    public static void ValidateContextOwnership(ProjectWorkspaceContext context)
+    public static void ValidateContextOwnership(ProjectWorkspaceContext context) =>
+        ValidateContextOwnership(context, repairMovedMetadata: true);
+
+    internal static void ValidateContextOwnership(ProjectWorkspaceContext context, bool repairMovedMetadata)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -76,7 +79,7 @@ public static class ProjectWorkspaceService
         }
 
         var sourceMetadata = ReadMetadata(source);
-        if (TryRepairMovedProjectMetadata(source, workflow, sourceMetadata))
+        if (repairMovedMetadata && TryRepairMovedProjectMetadata(source, workflow, sourceMetadata))
             sourceMetadata = ReadMetadata(source);
 
         var sourceDeclaredBySource = sourceMetadata.GetValueOrDefault("sourceProjectDir");
@@ -267,6 +270,7 @@ public static class ProjectWorkspaceService
     {
         var context = LoadContext(projectDir);
         var workflowDir = PrepareWorkflowProject(context.SourceProjectDir, log);
+        context = context with { WorkflowProjectDir = workflowDir };
         var infoPath = Path.Combine(workflowDir, "短剧信息.txt");
         var metadata = ReadMetadata(context.SourceProjectDir);
         var synopsis = FirstNonEmpty(
@@ -274,6 +278,14 @@ public static class ProjectWorkspaceService
             metadata.GetValueOrDefault("description"));
         var sourceInfo = ProjectInfoTextHelper.ParseInfoFile(
             Path.Combine(context.SourceProjectDir, "短剧信息.txt"));
+        var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(infoPath);
+        var originalTitle = FirstNonEmpty(
+            workflowInfo.GetValueOrDefault("原剧名"),
+            metadata.GetValueOrDefault("title"),
+            metadata.GetValueOrDefault("originalTitle"),
+            metadata.GetValueOrDefault("displayName"),
+            Path.GetFileName(context.SourceProjectDir));
+        var originalSynopsis = ProjectOriginalSynopsisService.Resolve(context, originalTitle, workflowInfo);
         var companyName = FirstNonEmpty(
             sourceInfo.GetValueOrDefault("制作公司"),
             metadata.GetValueOrDefault("companyName"),
@@ -282,15 +294,10 @@ public static class ProjectWorkspaceService
 
         if (!File.Exists(infoPath))
         {
-            var originalTitle = FirstNonEmpty(
-                metadata.GetValueOrDefault("title"),
-                metadata.GetValueOrDefault("originalTitle"),
-                metadata.GetValueOrDefault("displayName"),
-                Path.GetFileName(context.SourceProjectDir));
             var newTitle = FirstNonEmpty(
                 metadata.GetValueOrDefault("newTitle"),
                 originalTitle);
-            WriteMinimalProjectInfo(infoPath, newTitle, originalTitle, Math.Max(1, episodeCount), synopsis);
+            WriteMinimalProjectInfo(infoPath, newTitle, originalTitle, Math.Max(1, episodeCount), synopsis, originalSynopsis);
             log?.Invoke("已生成短剧信息.txt");
         }
         else
@@ -298,6 +305,11 @@ public static class ProjectWorkspaceService
             UpdateProjectInfoField(infoPath, "集数", Math.Max(1, episodeCount).ToString());
             UpdateProjectInfoFieldIfBlank(infoPath, "简介", synopsis);
             UpdateProjectInfoFieldIfBlank(infoPath, "制作公司", companyName);
+            if (originalSynopsis.Length != 0 &&
+                !ProjectOriginalSynopsisService.IsUsable(workflowInfo.GetValueOrDefault(ProjectOriginalSynopsisService.FieldName), originalTitle))
+            {
+                ProjectInfoTextHelper.WriteOriginalSynopsisIfMissing(infoPath, originalSynopsis, originalTitle);
+            }
         }
 
         return workflowDir;
@@ -777,13 +789,16 @@ public static class ProjectWorkspaceService
         string newTitle,
         string originalTitle,
         int episodeCount,
-        string synopsis)
+        string synopsis,
+        string originalSynopsis)
     {
         var lines = new List<string>
         {
             $"新剧名: {newTitle}",
             $"原剧名: {originalTitle}",
         };
+        if (originalSynopsis.Length != 0)
+            lines.Add($"{ProjectOriginalSynopsisService.FieldName}: {originalSynopsis}");
         if (!string.IsNullOrWhiteSpace(synopsis))
             lines.Add($"简介: {synopsis.Trim()}");
         lines.AddRange([

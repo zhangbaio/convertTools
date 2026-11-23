@@ -440,7 +440,11 @@ public static class LocalManualDramaImportService
             $"集数: {Math.Max(1, episodeCount)}",
         };
         if (!string.IsNullOrWhiteSpace(intro))
-            lines.Add($"简介: {intro.Trim()}");
+        {
+            var synopsis = ProjectInfoTextHelper.SingleLineSynopsis(intro);
+            lines.Add($"{ProjectOriginalSynopsisService.FieldName}: {synopsis}");
+            lines.Add($"简介: {synopsis}");
+        }
         File.WriteAllText(infoPath, string.Join(Environment.NewLine, lines) + Environment.NewLine, Encoding.UTF8);
     }
 
