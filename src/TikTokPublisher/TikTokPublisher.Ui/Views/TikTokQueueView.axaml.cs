@@ -3692,14 +3692,27 @@ public partial class TikTokQueueView : UserControl
         }
     }
 
-    private async Task<bool> StartQueueRunAsync(
+    private Task<bool> StartQueueRunAsync(
         QueueRunOptions? optionsOverride = null,
         IReadOnlyCollection<string>? projectDirFilter = null,
         bool confirmForceRerun = false,
         Action? onWorkerStarted = null,
         WorkspaceQueueTarget? targetOverride = null,
         DateTime? preserveProjectLogsSince = null,
-        bool localCheckedQueue = false)
+        bool localCheckedQueue = false) =>
+        Dispatcher.UIThread.InvokeAsync(
+            () => StartQueueRunOnUiAsync(optionsOverride, projectDirFilter, confirmForceRerun, onWorkerStarted,
+                targetOverride, preserveProjectLogsSince, localCheckedQueue),
+            DispatcherPriority.Send);
+
+    private async Task<bool> StartQueueRunOnUiAsync(
+        QueueRunOptions? optionsOverride,
+        IReadOnlyCollection<string>? projectDirFilter,
+        bool confirmForceRerun,
+        Action? onWorkerStarted,
+        WorkspaceQueueTarget? targetOverride,
+        DateTime? preserveProjectLogsSince,
+        bool localCheckedQueue)
     {
         var vm = _vm;
         if (vm is null) return false;
@@ -3846,7 +3859,7 @@ public partial class TikTokQueueView : UserControl
         catch (Exception ex)
         {
             vm.StatusMessage = $"队列出错：{ex.Message}";
-            vm.AppendLog(vm.StatusMessage);
+            vm.AppendLog($"队列出错：{ex}");
         }
         finally
         {
@@ -3897,9 +3910,16 @@ public partial class TikTokQueueView : UserControl
         IReadOnlyList<WorkspaceQueueTarget> targets)
         => StartAllQueueRunAsync(optionsOverride, targets);
 
-    private async Task<bool> StartAllQueueRunAsync(
+    private Task<bool> StartAllQueueRunAsync(
         QueueRunOptions? optionsOverride = null,
-        IReadOnlyList<WorkspaceQueueTarget>? targetsOverride = null)
+        IReadOnlyList<WorkspaceQueueTarget>? targetsOverride = null) =>
+        Dispatcher.UIThread.InvokeAsync(
+            () => StartAllQueueRunOnUiAsync(optionsOverride, targetsOverride),
+            DispatcherPriority.Send);
+
+    private async Task<bool> StartAllQueueRunOnUiAsync(
+        QueueRunOptions? optionsOverride,
+        IReadOnlyList<WorkspaceQueueTarget>? targetsOverride)
     {
         var vm = _vm;
         if (vm is null) return false;
@@ -3962,6 +3982,7 @@ public partial class TikTokQueueView : UserControl
         catch (Exception ex)
         {
             vm.StatusMessage = $"多工作目录队列出错：{ex.Message}";
+            vm.AppendLog($"多工作目录队列出错：{ex}");
         }
         finally
         {

@@ -2640,11 +2640,7 @@ public sealed partial class MainViewModel : ViewModelBase
                 _store,
                 host,
                 finalAction,
-                progress =>
-                {
-                    onProgress(progress);
-                    RefreshRunningWorkspacesSummary();
-                },
+                onProgress,
                 (workspaceRoot, items) =>
                 {
                     if (string.Equals(Path.GetFullPath(workspaceRoot), Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase))
@@ -2796,12 +2792,7 @@ public sealed partial class MainViewModel : ViewModelBase
             try
             {
                 return await _queueExecution.StartPreparedAsync(prepared, _store, host, fallbackFinalAction,
-                    progress =>
-                    {
-                        onProgress(progress);
-                        RefreshRunningWorkspacesSummary();
-                    },
-                    onPersist, ct).ConfigureAwait(true);
+                    onProgress, onPersist, ct).ConfigureAwait(true);
             }
             catch (OperationCanceledException)
             {
@@ -4580,6 +4571,8 @@ public sealed partial class MainViewModel : ViewModelBase
     }
     public void HandleQueueWorkerProgress(QueueWorkerProgress progress)
     {
+        // QueueUiProgressSink delivers the batched progress on the UI thread.
+        RefreshRunningWorkspacesSummary();
         NotifyDailyLimitIfPresent(progress);
         var executionContext = GetWorkspaceQueueExecutionContext(progress.WorkspaceRoot);
         var isActiveWorkspace = IsActiveWorkspace(progress.WorkspaceRoot);
