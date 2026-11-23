@@ -70,7 +70,7 @@ internal static class PosterCoverFrameSizeHelper
         };
     }
 
-    private static bool TryParseSize(string value, out int width, out int height)
+    internal static bool TryParseSize(string value, out int width, out int height)
     {
         width = 0;
         height = 0;

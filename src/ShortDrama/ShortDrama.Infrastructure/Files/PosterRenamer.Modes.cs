@@ -372,92 +372,103 @@ public sealed partial class PosterRenamer
             await ResizeAndSaveAsync(resultBytes, posterW, posterH, outputPath, cancellationToken);
             Log(request, $"已生成封面：{Path.GetFileName(outputPath)} ({posterW}x{posterH})");
 
-            if (!IsPosterTitleVerifyEnabled(config))
-                return;
-
-            var layout = await DetectPosterLayoutAsync(configFile, outputPath, title, request.Log, cancellationToken);
-            var verifyResult = await VerifyGeneratedTitleAsync(
-                config,
-                outputPath,
-                title,
-                layout,
-                request,
-                cancellationToken).ConfigureAwait(false);
-            if (verifyResult.Ok)
-            {
-                Log(request, $"AI 封面标题校验通过：{verifyResult.DetectedTitle ?? title}");
-                return;
-            }
-
-            var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
-            if (verifyResult.IsInconclusive)
-            {
-                if (PosterTitleVerifyModeHelper.ShouldRepaintInconclusive(verifyMode))
-                {
-                    Log(request, $"标题校验没有确定结果，改为去字后重绘：{verifyResult.Reason}");
-                    await FallbackRepaintVerifiedTitleAsync(
-                        config,
-                        outputPath,
-                        title,
-                        layout,
-                        verifyResult,
-                        request,
-                        cancellationToken).ConfigureAwait(false);
-                    return;
-                }
-
-                if (verifyMode == "blocking")
-                    throw new InvalidOperationException($"AI 封面标题校验无法确认：{verifyResult.Reason}");
-
-                Log(request, "AI封面标题校验暂未得到确定结果，已保留首张AI封面并跳过自动改字。");
-                return;
-            }
-
-            if (await TryCleanupDetectedResidualTextAsync(
-                    config,
-                    outputPath,
-                    title,
-                    layout,
-                    verifyResult,
-                    verifyMode,
-                    request,
-                    cancellationToken).ConfigureAwait(false))
-            {
-                return;
-            }
-
-            if (await TryRepairTitleWithAiRetriesAsync(
-                    config,
-                    outputPath,
-                    title,
-                    layout,
-                    verifyResult,
-                    request,
-                    cancellationToken).ConfigureAwait(false))
-            {
-                return;
-            }
-
-            var reason = verifyResult.Reason;
-            if (!string.IsNullOrWhiteSpace(verifyResult.DetectedTitle))
-                reason = $"{reason}（识别标题：{verifyResult.DetectedTitle}）";
-            if (verifyMode == "warn")
-            {
-                Log(request, $"AI 封面标题校验失败：{reason}，已按配置跳过阻断。");
-                return;
-            }
-
-            if (verifyMode == "blocking")
-                throw new InvalidOperationException($"AI 封面标题校验失败：{reason}");
-
-            await FallbackRepaintVerifiedTitleAsync(
-                config, outputPath, title, layout, verifyResult, request, cancellationToken);
+            await VerifyCoverTitleAsync(configFile, config, outputPath, title, request, cancellationToken);
         }
         finally
         {
             if (!string.Equals(renderInputPath, inputPath, StringComparison.Ordinal) && File.Exists(renderInputPath))
                 File.Delete(renderInputPath);
         }
+    }
+
+    private async Task VerifyCoverTitleAsync(
+        string configFile,
+        IReadOnlyDictionary<string, string> config,
+        string outputPath,
+        string title,
+        PosterRenameRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsPosterTitleVerifyEnabled(config))
+            return;
+
+        var layout = await DetectPosterLayoutAsync(configFile, outputPath, title, request.Log, cancellationToken);
+        var verifyResult = await VerifyGeneratedTitleAsync(
+            config,
+            outputPath,
+            title,
+            layout,
+            request,
+            cancellationToken).ConfigureAwait(false);
+        if (verifyResult.Ok)
+        {
+            Log(request, $"AI 封面标题校验通过：{verifyResult.DetectedTitle ?? title}");
+            return;
+        }
+
+        var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
+        if (verifyResult.IsInconclusive)
+        {
+            if (PosterTitleVerifyModeHelper.ShouldRepaintInconclusive(verifyMode))
+            {
+                Log(request, $"标题校验没有确定结果，改为去字后重绘：{verifyResult.Reason}");
+                await FallbackRepaintVerifiedTitleAsync(
+                    config,
+                    outputPath,
+                    title,
+                    layout,
+                    verifyResult,
+                    request,
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (verifyMode == "blocking")
+                throw new InvalidOperationException($"AI 封面标题校验无法确认：{verifyResult.Reason}");
+
+            Log(request, "AI封面标题校验暂未得到确定结果，已保留首张AI封面并跳过自动改字。");
+            return;
+        }
+
+        if (await TryCleanupDetectedResidualTextAsync(
+                config,
+                outputPath,
+                title,
+                layout,
+                verifyResult,
+                verifyMode,
+                request,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await TryRepairTitleWithAiRetriesAsync(
+                config,
+                outputPath,
+                title,
+                layout,
+                verifyResult,
+                request,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        var reason = verifyResult.Reason;
+        if (!string.IsNullOrWhiteSpace(verifyResult.DetectedTitle))
+            reason = $"{reason}（识别标题：{verifyResult.DetectedTitle}）";
+        if (verifyMode == "warn")
+        {
+            Log(request, $"AI 封面标题校验失败：{reason}，已按配置跳过阻断。");
+            return;
+        }
+
+        if (verifyMode == "blocking")
+            throw new InvalidOperationException($"AI 封面标题校验失败：{reason}");
+
+        await FallbackRepaintVerifiedTitleAsync(
+            config, outputPath, title, layout, verifyResult, request, cancellationToken);
     }
 
     private async Task<bool> TryCleanupDetectedResidualTextAsync(

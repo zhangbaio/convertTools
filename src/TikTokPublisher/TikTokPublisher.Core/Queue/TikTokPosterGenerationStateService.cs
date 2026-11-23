@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using ShortDrama.Core.Posters;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
@@ -47,6 +48,24 @@ public static class TikTokPosterGenerationStateService
             ArgumentNullException.ThrowIfNull(settings);
             var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
             var state = LoadState(context);
+            var requestedMode = NormalizePosterMode(settings.PosterMode);
+            var savedMode = GetStateString(state, "effective_poster_mode");
+            var outputPath = GetOutputPath(context);
+
+            if (requestedMode == ClientSettingsDefaults.PosterModeReferenceRegenerate)
+            {
+                if (savedMode != requestedMode || !IsUsableFile(outputPath))
+                    return true;
+
+                var inputPath = ProjectWorkspaceService.FindPosterInputFile(
+                    context.SourceProjectDir, context.WorkflowProjectDir, outputPath);
+                return !IsUsableFile(inputPath) ||
+                       !string.Equals(GetStateString(state, "fingerprint"),
+                           ComputeFingerprint(item, settings, context, inputPath!), StringComparison.Ordinal);
+            }
+
+            if (savedMode == ClientSettingsDefaults.PosterModeReferenceRegenerate)
+                return true;
 
             if (state.Count == 0)
             {
@@ -59,7 +78,7 @@ public static class TikTokPosterGenerationStateService
             // Once a generated poster has a persisted generation record, the output file is
             // authoritative across reinstall, settings reset and source timestamp changes.
             // Regeneration remains available through the queue's explicit force-rerun option.
-            return !IsUsableFile(GetOutputPath(context));
+            return !IsUsableFile(outputPath);
         }
         catch
         {
@@ -146,7 +165,9 @@ public static class TikTokPosterGenerationStateService
             inpaint_retry_prompt = settings.PosterInpaintSafeRetryPrompt ?? string.Empty,
             generation_prompt = settings.PosterGenerationPrompt ?? string.Empty,
             generation_retry_prompt = settings.PosterGenerationSafeRetryPrompt ?? string.Empty,
-            agent_prompt = ClientSettingsStore.ResolvePosterAgentPrompt(settings, posterMode),
+            agent_prompt = posterMode == PosterReferenceCover.Mode
+                ? PosterReferenceCover.DefaultPrompt
+                : ClientSettingsStore.ResolvePosterAgentPrompt(settings, posterMode),
         };
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();

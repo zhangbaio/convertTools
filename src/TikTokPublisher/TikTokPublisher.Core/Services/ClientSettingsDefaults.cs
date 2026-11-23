@@ -364,6 +364,7 @@ public static class ClientSettingsDefaults
 
     public const string PosterModeDirect = "original";
     public const string PosterModeEraseFixedTitle = "erase_fixed_lower_title";
+    public const string PosterModeReferenceRegenerate = ShortDrama.Core.Posters.PosterReferenceCover.Mode;
 
     public const string PosterAgentDirectPrompt = """
         基于输入短剧海报重新设计一张可直接发布的成品海报。

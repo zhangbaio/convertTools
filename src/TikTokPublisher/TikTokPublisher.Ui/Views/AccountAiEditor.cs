@@ -249,7 +249,8 @@ public sealed class AccountAiEditor : UserControl
         var resolution = Input(preset.Resolution);
         var ratio = Input(preset.Ratio);
         var mode = Choice(draft.PosterMode, (ClientSettingsDefaults.PosterModeDirect, "AI 直接生成"),
-            (ClientSettingsDefaults.PosterModeEraseFixedTitle, "去字后固定字体写入"));
+            (ClientSettingsDefaults.PosterModeEraseFixedTitle, "去字后固定字体写入"),
+            (ClientSettingsDefaults.PosterModeReferenceRegenerate, "参考原图生成新封面"));
         var verify = new CheckBox { Content = "启用标题校验", IsChecked = draft.VerifyTitle };
         var verifyMode = Choice(draft.VerifyMode, ("fallback_repaint", "AI 重试后重绘"), ("warn", "AI 重试后仅警告"), ("blocking", "AI 重试后阻断"));
         var dialog = new DetailWindow(owner, "AI 图片详细配置", create);

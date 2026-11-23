@@ -60,7 +60,7 @@ public sealed partial class PosterRenamer
         IReadOnlyDictionary<string, string> config,
         string inputPath,
         string prompt,
-        string safeRetryPrompt,
+        string? safeRetryPrompt,
         string requestSize,
         CancellationToken cancellationToken)
     {
@@ -87,7 +87,7 @@ public sealed partial class PosterRenamer
                 requestUrl, apiPath, modelId, apiKey, inputPath, mediaType, layout, prompt,
                 provider, imageQuality, imageSize, cancellationToken, editFullImage: true);
         }
-        catch (PosterSensitiveContentException)
+        catch (PosterSensitiveContentException) when (safeRetryPrompt is not null)
         {
             return await GeneratePosterWithAiPromptAsync(
                 requestUrl, apiPath, modelId, apiKey, inputPath, mediaType, layout, safeRetryPrompt,

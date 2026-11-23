@@ -444,8 +444,15 @@ public static class ProjectWorkspaceService
         UpdateWorkflowMetadata(sourceProjectDir, workflowProjectDir, overwriteSourceProjectDir: true);
     }
 
-    public static string? FindPosterInputFile(string sourceProjectDir, string workflowProjectDir)
+    public static string? FindPosterInputFile(
+        string sourceProjectDir, string workflowProjectDir, string? excludedPath = null)
     {
+        var excludedFullPath = excludedPath is null ? null : Path.GetFullPath(excludedPath);
+        var pathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        bool IsExcluded(string path) => excludedFullPath is not null &&
+            (string.Equals(Path.GetFullPath(path), excludedFullPath, pathComparison) ||
+             Path.GetFileName(path).StartsWith("海报处理_", StringComparison.Ordinal));
+
         foreach (var root in new[] { sourceProjectDir, workflowProjectDir })
         {
             if (!Directory.Exists(root)) continue;
@@ -458,12 +465,12 @@ public static class ProjectWorkspaceService
                 foreach (var ext in ImageExtensions)
                 {
                     var preferred = Path.Combine(root, $"{stem}{ext}");
-                    if (File.Exists(preferred)) return preferred;
+                    if (!IsExcluded(preferred) && File.Exists(preferred)) return preferred;
                 }
             }
 
             var candidate = Directory.EnumerateFiles(root, "*.*", SearchOption.TopDirectoryOnly)
-                .Where(path => ImageExtensions.Contains(Path.GetExtension(path)))
+                .Where(path => !IsExcluded(path) && ImageExtensions.Contains(Path.GetExtension(path)))
                 .Where(path =>
                 {
                     var fileName = Path.GetFileNameWithoutExtension(path);

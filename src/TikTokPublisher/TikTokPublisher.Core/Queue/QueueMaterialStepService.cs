@@ -1911,7 +1911,7 @@ public static class QueueMaterialStepService
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var workflowDir = ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
-        var outputPath = Path.Combine(workflowDir, "海报图片.png");
+        var outputPath = Path.Combine(workflowDir, TikTokPosterGenerationStateService.OutputFileName);
 
         var posterMode = (settings.PosterMode ?? ClientSettingsDefaults.PosterMode).Trim().ToLowerInvariant();
         var effectiveSettings = settings;
@@ -1951,12 +1951,25 @@ public static class QueueMaterialStepService
             }
         }
 
-        var inputPath = await QueueMaterialPrepareService.PrepareMaterialInputsAsync(item.ProjectDir, log, ct)
-            ?? ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir);
+        var excludedPath = posterMode == ClientSettingsDefaults.PosterModeReferenceRegenerate ? outputPath : null;
+        string? preparedInput = null;
+        if (excludedPath is null)
+        {
+            preparedInput = await QueueMaterialPrepareService.PrepareMaterialInputsAsync(item.ProjectDir, log, ct);
+        }
+        else
+        {
+            ct.ThrowIfCancellationRequested();
+            var episodeCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir);
+            ProjectWorkspaceService.EnsureWorkflowInfo(item.ProjectDir, episodeCount, log);
+        }
+
+        var inputPath = preparedInput ?? ProjectWorkspaceService.FindPosterInputFile(
+            context.SourceProjectDir, workflowDir, excludedPath);
         if (inputPath is null)
         {
             await EnsureDownloadedMaterialsAsync(item, log, ct).ConfigureAwait(false);
-            inputPath = ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir);
+            inputPath = ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir, excludedPath);
         }
 
         if (inputPath is null)
@@ -2027,6 +2040,9 @@ public static class QueueMaterialStepService
         {
             switch (posterMode)
             {
+                case ClientSettingsDefaults.PosterModeReferenceRegenerate:
+                    log("开始参考原图生成新封面…");
+                    break;
                 case "video_frame":
                     log("开始使用视频抽帧画面 AI 生成新封面…");
                     break;
@@ -3061,7 +3077,8 @@ public static class QueueMaterialStepService
     private static bool IsAiPosterMode(string? posterMode)
     {
         var mode = (posterMode ?? "original").Trim().ToLowerInvariant();
-        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "erase_fixed_lower_title" or "video_frame" or "poster_ai_edit";
+        return mode is "original" or "ai" or "poster_ai_erase_pil_title" or "erase_fixed_lower_title"
+            or "video_frame" or "poster_ai_edit" or ClientSettingsDefaults.PosterModeReferenceRegenerate;
     }
 
     private static bool IsHeicLike(string path)

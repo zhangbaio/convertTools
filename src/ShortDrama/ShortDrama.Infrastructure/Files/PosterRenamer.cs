@@ -7,6 +7,7 @@ using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
+using ShortDrama.Core.Posters;
 using ShortDrama.Core.Services;
 using ShortDrama.Infrastructure;
 using ShortDrama.Infrastructure.Config;
@@ -171,16 +172,6 @@ JSON 结构：
         var outputPath = request.OutputFilePath
             ?? Path.Combine(request.ProjectDir, BuildFileName(posterName, request.NameTemplate, extension));
 
-        if (File.Exists(outputPath) && !string.Equals(inputPath, outputPath, StringComparison.Ordinal))
-        {
-            if (!request.Overwrite)
-            {
-                throw new InvalidOperationException($"目标海报文件已存在: {outputPath}");
-            }
-
-            File.Delete(outputPath);
-        }
-
         if (string.IsNullOrWhiteSpace(request.ConfigFile) || !File.Exists(request.ConfigFile))
         {
             throw new InvalidOperationException("AI 海报图片生成必须提供有效的 configFile。");
@@ -188,6 +179,20 @@ JSON 结构：
 
         var config = KeyValueConfigReader.Read(request.ConfigFile);
         var posterMode = NormalizePosterMode(GetOptional(config, "PosterMode"));
+        var samePath = string.Equals(Path.GetFullPath(inputPath), Path.GetFullPath(outputPath),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        if (posterMode == PosterReferenceCover.Mode && samePath)
+            throw new InvalidOperationException("参考原图生成新封面需要独立的原图文件。");
+
+        if (File.Exists(outputPath) && !samePath)
+        {
+            if (!request.Overwrite)
+                throw new InvalidOperationException($"目标海报文件已存在: {outputPath}");
+
+            if (posterMode != PosterReferenceCover.Mode)
+                File.Delete(outputPath);
+        }
+
         var previousCall = CurrentCall.Value;
         CurrentCall.Value = new PosterCallContext(
             request.Log,
@@ -215,6 +220,10 @@ JSON 结构：
     {
         switch (posterMode)
         {
+            case PosterReferenceCover.Mode:
+                await GenerateReferenceCoverAsync(
+                    request, inputPath, outputPath, posterName, cancellationToken);
+                break;
             case "video_frame":
                 await GenerateCoverFromPosterAsync(
                     request, inputPath, outputPath, posterName, request.ConfigFile, cancellationToken);

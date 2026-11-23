@@ -153,6 +153,51 @@ public sealed class LocalManualDramaImportServiceTests
     }
 
     [Fact]
+    public void Reference_poster_refreshes_when_mode_size_or_source_changes()
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"reference-poster-state-{Guid.NewGuid():N}");
+        var source = Path.Combine(workspace, "原剧名");
+        try
+        {
+            Directory.CreateDirectory(source);
+            File.WriteAllBytes(Path.Combine(source, "第1集.mp4"), [1, 2, 3]);
+            File.WriteAllBytes(Path.Combine(source, "原始封面.png"), [4, 5, 6]);
+            var import = LocalManualDramaImportService.Import(workspace, source);
+            var item = WorkspaceQueueService.AddProjectsToQueue(workspace, [source]).Should().ContainSingle().Subject;
+            var inputPath = Path.Combine(source, "海报原图.png");
+            var outputPath = Path.Combine(import.WorkflowProjectDir, TikTokPosterGenerationStateService.OutputFileName);
+            File.WriteAllBytes(outputPath, [7, 8, 9]);
+
+            var original = new ClientSettings();
+            var reference = new ClientSettings { PosterMode = ClientSettingsDefaults.PosterModeReferenceRegenerate };
+            TikTokPosterGenerationStateService.SaveGeneratedState(item, original, inputPath, outputPath);
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, reference).Should().BeTrue();
+
+            TikTokPosterGenerationStateService.SaveGeneratedState(item, reference, inputPath, outputPath);
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, reference).Should().BeFalse();
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, original).Should().BeTrue();
+
+            var resized = reference.Clone();
+            resized.DoubaoImageRatio = "1:1";
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, resized).Should().BeTrue();
+
+            File.WriteAllBytes(inputPath, [9, 8, 7]);
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, reference).Should().BeTrue();
+
+            var outputOnly = Path.Combine(workspace, "output-only");
+            Directory.CreateDirectory(outputOnly);
+            var generated = Path.Combine(outputOnly, TikTokPosterGenerationStateService.OutputFileName);
+            File.Copy(outputPath, generated);
+            File.Copy(outputPath, Path.Combine(outputOnly, "海报处理_修图前.png"));
+            ProjectWorkspaceService.FindPosterInputFile(outputOnly, outputOnly, generated).Should().BeNull();
+        }
+        finally
+        {
+            DeleteBestEffort(workspace);
+        }
+    }
+
+    [Fact]
     public void Import_Truncates_Local_Videos_To_Configured_Keep_Count_Without_Deleting_Files()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"manual-import-truncate-{Guid.NewGuid():N}");
