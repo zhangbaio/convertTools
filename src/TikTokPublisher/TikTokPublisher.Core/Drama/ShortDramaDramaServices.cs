@@ -28,13 +28,15 @@ public static class ShortDramaDramaServices
     public static void UseSettingsDatabase(string? databasePath) =>
         SettingsProvider.Value.UseDatabase(databasePath);
 
-    private static readonly AsyncLocal<int> SettingsHoldDepth = new();
+    private static readonly AsyncLocal<ClientSettings?> HeldSettings = new();
+
+    internal static ClientSettings? OperationSettings => HeldSettings.Value;
 
     public static IDisposable HoldSettings(ClientSettings settings)
     {
-        RefreshSettings(settings);
-        SettingsHoldDepth.Value++;
-        return new SettingsHoldScope();
+        var previous = HeldSettings.Value;
+        HeldSettings.Value = settings.Clone();
+        return new SettingsHoldScope(previous);
     }
 
     public static void RefreshSettings(ClientSettings? settings = null)
@@ -45,13 +47,13 @@ public static class ShortDramaDramaServices
             return;
         }
 
-        if (SettingsHoldDepth.Value > 0)
+        if (HeldSettings.Value is not null)
             return;
 
         SettingsProvider.Value.Reload();
     }
 
-    private sealed class SettingsHoldScope : IDisposable
+    private sealed class SettingsHoldScope(ClientSettings? previous) : IDisposable
     {
         private bool _disposed;
 
@@ -60,8 +62,7 @@ public static class ShortDramaDramaServices
             if (_disposed)
                 return;
             _disposed = true;
-            var depth = SettingsHoldDepth.Value;
-            SettingsHoldDepth.Value = depth > 0 ? depth - 1 : 0;
+            HeldSettings.Value = previous;
         }
     }
 
@@ -292,7 +293,8 @@ public static class ShortDramaDramaServices
         int concurrent,
         string episodeNumberMode,
         string queueEntryDramaType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? beforeWrite = null)
     {
         var bootstrapper = new DramaProjectBootstrapper();
         var result = await bootstrapper.BootstrapAsync(
@@ -305,7 +307,8 @@ public static class ShortDramaDramaServices
                 Concurrent: Math.Clamp(concurrent, 1, 10),
                 EpisodeNumberMode: NormalizeEpisodeNumberMode(episodeNumberMode),
                 QueueEntryDramaType: queueEntryDramaType),
-            cancellationToken);
+            cancellationToken,
+            beforeWrite);
         return result.SourceProjectDir;
     }
 

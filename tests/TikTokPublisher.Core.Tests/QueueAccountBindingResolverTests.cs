@@ -1,5 +1,6 @@
 using System.Reflection;
 using FluentAssertions;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
@@ -8,6 +9,35 @@ namespace TikTokPublisher.Core.Tests;
 
 public sealed class QueueAccountBindingResolverTests
 {
+    [Fact]
+    public void Switching_workspace_accounts_preserves_the_manual_import_binding()
+    {
+        var directory = Directory.CreateTempSubdirectory("manual-upload-binding-");
+        try
+        {
+            var overseas = new TikTokAccountProfile { Id = "overseas", Name = "海外账号" };
+            var local = new TikTokAccountProfile { Id = "local", Name = "当前本土账号" };
+            new TikTokUploadTitleRoute(overseas.Id, TikTokAccountProfile.DramaMarketOverseas, "dramabox")
+                .Save(directory.FullName, "dramabox:52");
+            var item = new QueueProjectItem { ProjectDir = directory.FullName, AccountProfileId = local.Id };
+            var store = CreateAccountStore([local, overseas], local.Id);
+
+            QueueAccountBindingResolver.AlignToEffectiveAccount(item, local).Should().BeFalse();
+            QueueAccountBindingResolver.Resolve(store, item).Should().BeSameAs(overseas);
+            QueueAccountBindingResolver.RepairForWorkspaceDefault(store, item, local).Should().BeTrue();
+            item.AccountProfileId.Should().Be(overseas.Id);
+            QueueAccountBindingResolver.Resolve(store, item).Should().BeSameAs(overseas);
+
+            var missing = CreateAccountStore([local], local.Id);
+            QueueAccountBindingResolver.RepairForWorkspaceDefault(missing, item, local).Should().BeFalse();
+            QueueAccountBindingResolver.Resolve(missing, item).Should().BeNull();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void RepairForWorkspaceDefault_rebinds_deleted_account_to_explicit_workspace_account()
     {

@@ -1444,6 +1444,8 @@ public sealed class QueueWorkerRunner
                     {
                         await QueueMaterialStepService.EnsureDownloadedMaterialsAsync(
                             item,
+                            ClientSettingsStore.Load(),
+                            stepAccount,
                             message => Report(onProgress, workspace, item, message, stepKey),
                             ct).ConfigureAwait(false);
                     }
@@ -2054,8 +2056,8 @@ public sealed class QueueWorkerRunner
         Action<string> log,
         CancellationToken ct)
     {
-        var settings = VisibleDramaSource.SettingsFor(
-            TikTokAccountAiSettings.Apply(ClientSettingsStore.Load(), account), account?.TiktokDramaMarket);
+        var globalSettings = TikTokAccountAiSettings.Apply(ClientSettingsStore.Load(), account);
+        var settings = VisibleDramaSource.SettingsFor(globalSettings, account?.TiktokDramaMarket);
         QueueWorkloadResourceScheduler.Configure(settings);
         var materialOptions = TikTokMaterialValidationService.Options.FromAccount(
             account,
@@ -2073,7 +2075,8 @@ public sealed class QueueWorkerRunner
             case QueueStepRegistry.Download:
                 await QueueMaterialStepService.RunDownloadAsync(
                     item,
-                    settings,
+                    globalSettings,
+                    account,
                     options.ForceRerunCompletedSteps,
                     log,
                     ct).ConfigureAwait(false);
@@ -2095,7 +2098,7 @@ public sealed class QueueWorkerRunner
                     item, settings, account, options.ForceRerunCompletedSteps, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GeneratePoster:
-                await QueueMaterialStepService.RunGeneratePosterAsync(item, settings, log, ct).ConfigureAwait(false);
+                await QueueMaterialStepService.RunGeneratePosterAsync(item, globalSettings, account, log, ct).ConfigureAwait(false);
                 break;
             case QueueStepRegistry.GenerateEpisodeScript:
                 await TikTokEpisodeScriptService.GenerateAsync(

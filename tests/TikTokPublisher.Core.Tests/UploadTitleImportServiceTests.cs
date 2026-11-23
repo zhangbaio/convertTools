@@ -7,6 +7,20 @@ namespace TikTokPublisher.Core.Tests;
 public sealed class UploadTitleImportServiceTests
 {
     [Fact]
+    public void StrictDispatchMatchRequiresUniqueOriginalTitleAndEpisodeTotal()
+    {
+        var first = new DramaSearchItem { BookId = "hongguoapp:1", Title = "The Child’s Story", EpisodeTotal = 52 };
+        var otherVersion = new DramaSearchItem { BookId = "hongguoapp:2", Title = first.Title, EpisodeTotal = first.EpisodeTotal };
+
+        Assert.Same(first, UploadTitleImportService.PickStrictDispatchMatch(" the  child's story ", 52, [first]).Item);
+        Assert.Null(UploadTitleImportService.PickStrictDispatchMatch("The Child's Story 2", 52, [first]).Item);
+        Assert.Null(UploadTitleImportService.PickStrictDispatchMatch("The Child's Story", 60, [first]).Item);
+        Assert.Null(UploadTitleImportService.PickStrictDispatchMatch("The Child's Story", 52, [first, otherVersion]).Item);
+        Assert.Null(UploadTitleImportService.PickStrictDispatchMatch("The Child's Story", 0, [first]).Item);
+    }
+
+
+    [Fact]
     public void BookIdForSeries_maps_hongguo_app_and_offline_to_the_same_chain()
     {
         UploadTitleImportService.BookIdForSeries("hongguoapp", "731").Should().Be("hongguoapp:731");

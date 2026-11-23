@@ -990,13 +990,14 @@ public partial class TikTokQueueView : UserControl
         DeleteUnimportedAndAdd,
     }
 
-    private static async Task<UploadTitlesDialogResult?> ShowUploadTitlesDialogAsync(Window owner)
+    private static async Task<UploadTitlesDialogResult?> ShowUploadTitlesDialogAsync(
+        Window owner, ManualUploadTitleImportTarget target)
     {
         var dialog = new Window
         {
             Title = "上传短剧 - TikTok",
             Width = 560,
-            Height = 460,
+            SizeToContent = SizeToContent.Height,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
         };
         var titleBox = new TextBox
@@ -1033,7 +1034,7 @@ public partial class TikTokQueueView : UserControl
                 ?? UploadTitleImportService.MatchModeTitle;
             dialog.Close(new UploadTitlesDialogResult(titleBox.Text ?? "", mode));
         }, primary: true);
-        var settings = ClientSettingsStore.Load();
+        var settings = target.Settings;
         var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
         var episodeLimitText = settings.TiktokAllowOverLimitUploadImport
             ? $"当前导入集数限制：最小 {episodeBounds.Minimum} 集。超过设定的 {episodeBounds.Maximum} 集仍会加入队列，下载和本地导入都只使用前 {episodeBounds.Maximum} 集。"
@@ -1045,6 +1046,12 @@ public partial class TikTokQueueView : UserControl
             Spacing = 10,
             Children =
             {
+                new TextBlock
+                {
+                    Text = $"搜索链路 · {target.RouteLabel}",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap,
+                    FontWeight = FontWeight.SemiBold,
+                },
                 new TextBlock
                 {
                     Text = "一行输入一个短剧名称。确定后会按精确搜索模式匹配短剧，并加入项目执行队列。",
@@ -1720,22 +1727,27 @@ public partial class TikTokQueueView : UserControl
             return;
         }
 
-        // 弹窗和导入都会跨越 await；在任何 await 前固定工作目录、账号和运行配置。
-        var importTarget = vm.CaptureCurrentWorkspaceQueueTarget();
-        if (importTarget is null)
-        {
-            vm.StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
-            return;
-        }
-        var runOptions = vm.CreateCurrentQueueRunOptionsSnapshot();
-
         var owner = TopLevel.GetTopLevel(this) as Window;
         if (owner is null) return;
 
-        var importGeneration = BeginUploadTitleImport(importTarget.WorkspaceRoot);
+        // 弹窗和导入都会跨越 await，提前固定工作目录、账号和搜索链路。
+        ManualUploadTitleImportTarget importTarget;
         try
         {
-            var request = await ShowUploadTitlesDialogAsync(owner);
+            importTarget = vm.CaptureManualUploadTitleImportTarget();
+        }
+        catch (Exception ex)
+        {
+            vm.StatusMessage = ex.Message;
+            vm.AppendLog($"上传短剧导入失败：{ex.Message}");
+            await ShowMessageAsync(owner, "上传短剧失败", ex.Message, warning: true);
+            return;
+        }
+        var runOptions = vm.CreateCurrentQueueRunOptionsSnapshot();
+        var importGeneration = BeginUploadTitleImport(importTarget.QueueTarget.WorkspaceRoot);
+        try
+        {
+            var request = await ShowUploadTitlesDialogAsync(owner, importTarget);
             if (request is null) return;
             if (string.IsNullOrWhiteSpace(request.RawText))
             {
@@ -1743,7 +1755,7 @@ public partial class TikTokQueueView : UserControl
                 return;
             }
 
-            vm.StatusMessage = "正在按标题导入短剧…";
+            vm.StatusMessage = $"正在搜索短剧 · {importTarget.RouteLabel}";
             UploadTitleImportOutcome? importOutcome;
             try
             {

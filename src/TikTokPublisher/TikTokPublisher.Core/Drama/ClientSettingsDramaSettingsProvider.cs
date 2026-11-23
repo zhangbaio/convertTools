@@ -103,6 +103,9 @@ public sealed class ClientSettingsDramaSettingsProvider : IDramaSettingsProvider
 
     public DramaSourceSettings Get()
     {
+        if (ShortDramaDramaServices.OperationSettings is { } operation)
+            return DramaSourceSettingsMapping.FromClientSettings(operation);
+
         lock (_gate)
         {
             return DramaSourceSettingsMapping.FromClientSettings(_settings);
@@ -114,6 +117,8 @@ public sealed class ClientSettingsDramaSettingsProvider : IDramaSettingsProvider
         lock (_gate)
         {
             _settings.PikachuDeviceId = deviceId.Trim();
+            if (ShortDramaDramaServices.OperationSettings is { } operation)
+                operation.PikachuDeviceId = _settings.PikachuDeviceId;
             ClientSettingsStore.PatchPikachuRuntimeFields(_settings.PikachuFanqieCookie, _settings.PikachuDeviceId, _databasePath);
         }
     }
@@ -124,6 +129,11 @@ public sealed class ClientSettingsDramaSettingsProvider : IDramaSettingsProvider
         {
             _settings.HongguoAppDeviceId = deviceId.Trim();
             _settings.HongguoAppInstallId = installId.Trim();
+            if (ShortDramaDramaServices.OperationSettings is { } operation)
+            {
+                operation.HongguoAppDeviceId = _settings.HongguoAppDeviceId;
+                operation.HongguoAppInstallId = _settings.HongguoAppInstallId;
+            }
             ClientSettingsStore.PatchHongguoAppPlaybackIdentity(
                 _settings.HongguoAppDeviceId,
                 _settings.HongguoAppInstallId,

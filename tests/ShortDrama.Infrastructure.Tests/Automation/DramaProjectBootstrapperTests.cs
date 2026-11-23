@@ -9,6 +9,63 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 public sealed class DramaProjectBootstrapperTests
 {
     [Fact]
+    public async Task BootstrapAsync_creates_a_separate_directory_for_the_same_title_from_another_source()
+    {
+        var root = Directory.CreateTempSubdirectory("shortdrama-bootstrap-sources-");
+        try
+        {
+            var bootstrapper = new DramaProjectBootstrapper();
+            var request = new DramaProjectBootstrapRequest(
+                RootDir: root.FullName,
+                Drama: new DramaSearchItem("dramabox:123", "测试剧", "", 70, "", ""),
+                CompanyName: null);
+            var first = await bootstrapper.BootstrapAsync(request, CancellationToken.None);
+            var second = await bootstrapper.BootstrapAsync(
+                request with { Drama = request.Drama with { BookId = "foreign:123" } }, CancellationToken.None);
+
+            second.SourceProjectDir.Should().NotBe(first.SourceProjectDir);
+            second.ProjectKey.IndexOfAny(Path.GetInvalidFileNameChars()).Should().Be(-1);
+            using var metadata = JsonDocument.Parse(await File.ReadAllTextAsync(
+                Path.Combine(second.SourceProjectDir, "shortdrama-project.json")));
+            metadata.RootElement.GetProperty("bookId").GetString().Should().Be("foreign:123");
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BootstrapAsync_leaves_existing_metadata_when_project_guard_rejects_the_target()
+    {
+        var root = Directory.CreateTempSubdirectory("shortdrama-bootstrap-guard-");
+        try
+        {
+            var project = root.CreateSubdirectory("测试剧");
+            var metadataPath = Path.Combine(project.FullName, "shortdrama-project.json");
+            const string existingMetadata = """{"bookId":"dramabox:123","intro":"已保存简介"}""";
+            await File.WriteAllTextAsync(metadataPath, existingMetadata);
+            var request = new DramaProjectBootstrapRequest(
+                RootDir: root.FullName,
+                Drama: new DramaSearchItem("dramabox:123", "测试剧", "", 70, "新简介", ""),
+                CompanyName: null);
+
+            var bootstrap = () => new DramaProjectBootstrapper().BootstrapAsync(request, CancellationToken.None, dir =>
+            {
+                dir.Should().Be(project.FullName);
+                throw new InvalidOperationException("项目属于其它账号");
+            });
+
+            await bootstrap.Should().ThrowAsync<InvalidOperationException>().WithMessage("项目属于其它账号");
+            (await File.ReadAllTextAsync(metadataPath)).Should().Be(existingMetadata);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task BootstrapAsync_Should_Create_Project_Metadata_Without_ProjectInfo()
     {
         var rootDir = Path.Combine(Path.GetTempPath(), $"shortdrama-bootstrap-{Guid.NewGuid():N}");

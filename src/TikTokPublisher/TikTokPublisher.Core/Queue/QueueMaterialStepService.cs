@@ -34,18 +34,19 @@ public static class QueueMaterialStepService
 
     public static async Task RunDownloadAsync(
         QueueProjectItem item,
-        ClientSettings settings,
+        ClientSettings globalSettings,
+        TikTokAccountProfile? account,
         bool forceRerun,
         Action<string> log,
         CancellationToken ct)
     {
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
-        var bookId = FirstNonEmpty(metadata.BookId);
-        if (string.IsNullOrWhiteSpace(bookId))
-            throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
+        var settings = VisibleDramaSource.SettingsFor(globalSettings, account?.TiktokDramaMarket);
         if (XingeDramaBoxMaterials.ReadAssignment(context.SourceProjectDir) is { } assignment)
         {
+            if (string.IsNullOrWhiteSpace(metadata.BookId))
+                throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
             var expected = ResolveExpectedDownloadedEpisodeNumbers(context.SourceProjectDir, item);
             if (OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(context.SourceProjectDir, out var originalCount))
             {
@@ -60,12 +61,16 @@ public static class QueueMaterialStepService
             await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
             return;
         }
-        if (bookId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(settings.DramaSourceChain, "dramabox", StringComparison.OrdinalIgnoreCase))
+        var importedRoute = TikTokUploadTitleRoute.Read(context.SourceProjectDir);
+        if (importedRoute is not null)
         {
-            settings = settings.Clone();
-            settings.DramaSourceChain = "dramabox";
-            log("这部剧来自 DramaBox，按 DramaBox 下载，不改本机默认数据链路。");
+            var activeRoute = ResolveImportedAccountRoute(globalSettings, account, importedRoute);
+            settings = activeRoute.ApplyTo(globalSettings);
+            log($"上传短剧下载链路：{activeRoute.Describe()}。");
+        }
+        else if (string.IsNullOrWhiteSpace(metadata.BookId))
+        {
+            throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
         }
         using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
 
@@ -83,6 +88,7 @@ public static class QueueMaterialStepService
                 item,
                 metadata,
                 settings,
+                importedRoute,
                 log,
                 ct)
             .ConfigureAwait(false);
@@ -1090,10 +1096,17 @@ public static class QueueMaterialStepService
         QueueProjectItem item,
         DownloadMetadata metadata,
         ClientSettings settings,
+        TikTokUploadTitleRoute? importedRoute,
         Action<string> log,
         CancellationToken ct)
     {
         var selectedSource = NormalizeDramaSource(settings.DramaSourceChain);
+        if (importedRoute is not null)
+        {
+            return await ResolveImportedDownloadBookIdAsync(
+                sourceProjectDir, item, metadata, importedRoute, selectedSource, log, ct).ConfigureAwait(false);
+        }
+
         var selectedLabel = DramaSourceLabel(selectedSource);
         var metadataBookId = FirstNonEmpty(metadata.BookId);
         var metadataSource = InferBookIdSource(metadataBookId);
@@ -1185,6 +1198,51 @@ public static class QueueMaterialStepService
             $"已匹配并缓存 {selectedLabel} 剧集标识：" +
             $"{metadataBookId} → {resolvedBookId}");
         return resolvedBookId;
+    }
+
+    internal static TikTokUploadTitleRoute ResolveImportedAccountRoute(
+        ClientSettings settings,
+        TikTokAccountProfile? account,
+        TikTokUploadTitleRoute importedRoute)
+    {
+        if (account is null || !string.Equals(account.Id, importedRoute.AccountProfileId, StringComparison.Ordinal))
+            throw new InvalidOperationException("找不到导入该剧时绑定的 TikTok 账号，请恢复账号或重新导入该剧。");
+        if (TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket) != importedRoute.DramaMarket)
+            throw new InvalidOperationException("绑定账号的剧集类型已改变，请使用当前剧集类型重新导入该剧。");
+
+        return TikTokUploadTitleRoute.Capture(settings, account);
+    }
+
+    private static async Task<string> ResolveImportedDownloadBookIdAsync(
+        string sourceProjectDir,
+        QueueProjectItem item,
+        DownloadMetadata metadata,
+        TikTokUploadTitleRoute importedRoute,
+        string selectedSource,
+        Action<string> log,
+        CancellationToken ct)
+    {
+        if (importedRoute.DramaSourceChain == selectedSource)
+            return importedRoute.BookId;
+
+        var title = FirstNonEmpty(item.OriginalTitle, metadata.Title);
+        var expectedEpisodes = ResolveRematchEpisodeTotal(sourceProjectDir, item);
+        if (string.IsNullOrWhiteSpace(title) || expectedEpisodes <= 0)
+            throw new InvalidOperationException("数据链路已改变，项目缺少原剧名或真实总集数，无法重新匹配。");
+
+        var selectedLabel = DramaSourceLabel(selectedSource);
+        log($"数据链路由 {DramaSourceLabel(importedRoute.DramaSourceChain)} 切换到 {selectedLabel}，按原剧名《{title}》和真实总集数 {expectedEpisodes} 集重新匹配。");
+        var results = await ShortDramaDramaServices.SearchAsync(title, 1, ct).ConfigureAwait(false);
+        var lookup = UploadTitleImportService.PickStrictDispatchMatch(title, expectedEpisodes, results);
+        if (lookup.Item is null)
+            throw new InvalidOperationException($"切换到 {selectedLabel} 后无法唯一匹配《{title}》：{lookup.Reason}。");
+        if (!IsBookIdForSource(lookup.Item.BookId, selectedSource))
+            throw new InvalidOperationException($"{selectedLabel} 返回了不属于当前链路的剧集标识，无法下载。");
+
+        var bookId = lookup.Item.BookId.Trim();
+        PersistBookReference(sourceProjectDir, selectedSource, bookId, lookup.Item.Title);
+        log($"已在 {selectedLabel} 匹配《{title}》，使用剧集标识 {bookId} 下载。");
+        return bookId;
     }
 
     internal static int ResolveRematchEpisodeTotal(string projectDir, QueueProjectItem item)
@@ -1812,6 +1870,8 @@ public static class QueueMaterialStepService
 
     internal static async Task EnsureDownloadedMaterialsAsync(
         QueueProjectItem item,
+        ClientSettings globalSettings,
+        TikTokAccountProfile? account,
         Action<string> log,
         CancellationToken ct)
     {
@@ -1820,6 +1880,13 @@ public static class QueueMaterialStepService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         if (XingeDramaBoxMaterials.ReadAssignment(context.SourceProjectDir) is not null)
             return;
+        var settings = VisibleDramaSource.SettingsFor(globalSettings, account?.TiktokDramaMarket);
+        if (TikTokUploadTitleRoute.Read(context.SourceProjectDir) is { } importedRoute)
+        {
+            settings = ResolveImportedAccountRoute(globalSettings, account, importedRoute).ApplyTo(globalSettings);
+        }
+
+        using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
         var displayName = FirstNonEmpty(item.OriginalTitle, item.Title, Path.GetFileName(context.SourceProjectDir));
         await router.EnsurePosterAndIntroAsync(
             context.SourceProjectDir,
@@ -1850,10 +1917,12 @@ public static class QueueMaterialStepService
 
     public static async Task RunGeneratePosterAsync(
         QueueProjectItem item,
-        ClientSettings settings,
+        ClientSettings globalSettings,
+        TikTokAccountProfile? account,
         Action<string> log,
         CancellationToken ct)
     {
+        var settings = VisibleDramaSource.SettingsFor(globalSettings, account?.TiktokDramaMarket);
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var workflowDir = ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         var outputPath = Path.Combine(workflowDir, TikTokPosterGenerationStateService.OutputFileName);
@@ -1913,7 +1982,7 @@ public static class QueueMaterialStepService
             context.SourceProjectDir, workflowDir, excludedPath);
         if (inputPath is null)
         {
-            await EnsureDownloadedMaterialsAsync(item, log, ct).ConfigureAwait(false);
+            await EnsureDownloadedMaterialsAsync(item, globalSettings, account, log, ct).ConfigureAwait(false);
             inputPath = ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir, excludedPath);
         }
 

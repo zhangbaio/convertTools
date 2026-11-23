@@ -14,9 +14,14 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
         WriteIndented = true
     };
 
+    public Task<DramaProjectBootstrapResult> BootstrapAsync(
+        DramaProjectBootstrapRequest request,
+        CancellationToken cancellationToken) => BootstrapAsync(request, cancellationToken, beforeWrite: null);
+
     public async Task<DramaProjectBootstrapResult> BootstrapAsync(
         DramaProjectBootstrapRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? beforeWrite)
     {
         if (string.IsNullOrWhiteSpace(request.RootDir))
         {
@@ -38,6 +43,7 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
             : request.Drama.Title.Trim();
         var projectKey = ResolveProjectKey(request.RootDir, displayName, request.Drama.BookId);
         var sourceProjectDir = Path.Combine(request.RootDir, projectKey);
+        beforeWrite?.Invoke(sourceProjectDir);
         var workflowDirName = $"_{projectKey}";
         var workflowProjectDir = Path.Combine(request.RootDir, "workflow", workflowDirName);
         var created = !Directory.Exists(sourceProjectDir);
@@ -160,7 +166,7 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
             return sanitizedTitle;
         }
 
-        return $"{sanitizedTitle}_{bookId.Trim()}";
+        return $"{sanitizedTitle}_{SanitizeDirectoryName(bookId)}";
     }
 
     private static string SanitizeDirectoryName(string title)

@@ -1,3 +1,4 @@
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services;
 
@@ -13,6 +14,9 @@ public static class QueueAccountBindingResolver
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(item);
+
+        if (TryResolveUploadTitleAccount(store, item, out var importedAccount))
+            return importedAccount;
 
         var hasExplicitBinding =
             !string.IsNullOrWhiteSpace(item.AccountProfileId) ||
@@ -37,9 +41,10 @@ public static class QueueAccountBindingResolver
 
         // 已有且可识别的逐项目绑定优先；账号已删除、重新创建或名称也已变化时，
         // 才继承用户当前明确选择的工作目录账号。
-        var account = ResolveExplicit(store, item) ?? workspaceAccount;
-        if (string.Equals((item.AccountProfileId ?? "").Trim(), account.Id, StringComparison.Ordinal) &&
-            string.Equals((item.AccountProfileName ?? "").Trim(), account.DisplayName, StringComparison.Ordinal))
+        var account = TryResolveUploadTitleAccount(store, item, out var importedAccount)
+            ? importedAccount : ResolveExplicit(store, item) ?? workspaceAccount;
+        if (account is null || (string.Equals((item.AccountProfileId ?? "").Trim(), account.Id, StringComparison.Ordinal) &&
+            string.Equals((item.AccountProfileName ?? "").Trim(), account.DisplayName, StringComparison.Ordinal)))
         {
             return false;
         }
@@ -50,13 +55,15 @@ public static class QueueAccountBindingResolver
     }
 
     /// <summary>
-    /// 当前工作目录队列跟随左侧生效账号。同一部剧可以被多个账号上传，
-    /// 账号槽不保留上一次绑定的账号名。
+    /// 普通项目跟随左侧生效账号。通过「上传短剧」导入的项目保留导入时的账号。
     /// </summary>
     public static bool AlignToEffectiveAccount(QueueProjectItem item, TikTokAccountProfile effectiveAccount)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(effectiveAccount);
+
+        if (TikTokUploadTitleRoute.FindProjectWithRoute(item.ProjectDir) is not null)
+            return false;
 
         var accountId = (effectiveAccount.Id ?? "").Trim();
         var accountName = (effectiveAccount.DisplayName ?? "").Trim();
@@ -68,6 +75,27 @@ public static class QueueAccountBindingResolver
 
         item.AccountProfileId = accountId;
         item.AccountProfileName = accountName;
+        return true;
+    }
+
+    private static bool TryResolveUploadTitleAccount(AccountStore store, QueueProjectItem item, out TikTokAccountProfile? account)
+    {
+        account = null;
+        var sourceProject = TikTokUploadTitleRoute.FindProjectWithRoute(item.ProjectDir);
+        if (sourceProject is null)
+            return false;
+
+        try
+        {
+            var route = TikTokUploadTitleRoute.Read(sourceProject);
+            if (route is not null)
+                account = store.Accounts.FirstOrDefault(profile => string.Equals(profile.Id, route.AccountProfileId, StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            // Leave the binding unresolved so this project cannot borrow another account.
+        }
+
         return true;
     }
 

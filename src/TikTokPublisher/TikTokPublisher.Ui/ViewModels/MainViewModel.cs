@@ -57,6 +57,15 @@ public sealed record UploadTitleImportOutcome(
     WorkspaceQueueTarget RunTarget,
     UploadTitleImportApplyOutcome ApplyOutcome);
 
+internal sealed record ManualUploadTitleImportTarget(
+    WorkspaceQueueTarget QueueTarget,
+    TikTokUploadTitleRoute Route,
+    ClientSettings Settings,
+    string AccountName)
+{
+    public string RouteLabel => $"{AccountName} · {Route.Describe()}";
+}
+
 public sealed record UploadTitleAutoRunPreparation(
     WorkspaceQueueTarget? RunTarget,
     int AppendedCount);
@@ -2829,6 +2838,22 @@ public sealed partial class MainViewModel : ViewModelBase
             $"{account?.DisplayName ?? "当前账号"} · {workspace}",
             account?.Id,
             FinalActionOverride: SelectedFinalAction?.Value ?? FinalAction.None);
+    }
+
+    internal ManualUploadTitleImportTarget CaptureManualUploadTitleImportTarget()
+    {
+        var target = CaptureCurrentWorkspaceQueueTarget()
+            ?? throw new InvalidOperationException("请先在「账号管理 → 发布配置」设置上传工作目录。");
+        return CaptureManualUploadTitleImportTarget(target);
+    }
+
+    private ManualUploadTitleImportTarget CaptureManualUploadTitleImportTarget(WorkspaceQueueTarget target)
+    {
+        var account = FindAccountById(target.AccountProfileId)?.Model
+            ?? throw new InvalidOperationException("找不到上传短剧所选账号，请重新选择账号后再试。");
+        var settings = ClientSettingsStore.Load();
+        var route = TikTokUploadTitleRoute.Capture(settings, account);
+        return new ManualUploadTitleImportTarget(target, route, route.ApplyTo(settings), account.DisplayName);
     }
 
     private IReadOnlyList<WorkspaceQueueTarget> BuildAccountWorkspaceTargets(
@@ -6112,14 +6137,15 @@ public sealed partial class MainViewModel : ViewModelBase
         bool keepExistingSelection = false,
         string downloadSource = "",
         string forcedSeriesId = "",
-        bool useXingeProcessedHistory = false)
+        bool useXingeProcessedHistory = false,
+        ManualUploadTitleImportTarget? manualTarget = null)
     {
         var root = Path.GetFullPath(workspaceRoot);
         var market = string.Equals(downloadSource, "dramabox", StringComparison.OrdinalIgnoreCase)
             ? TikTokAccountProfile.DramaMarketOverseas
             : account?.TiktokDramaMarket;
-        var loaded = ClientSettingsStore.Load();
-        var settings = VisibleDramaSource.SettingsFor(loaded, market);
+        var loaded = manualTarget?.Settings ?? ClientSettingsStore.Load();
+        var settings = manualTarget?.Settings ?? VisibleDramaSource.SettingsFor(loaded, market);
         if (autoPublish is not null && forcedSeriesId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase))
         {
             settings = settings.Clone();
@@ -6131,7 +6157,9 @@ public sealed partial class MainViewModel : ViewModelBase
             settings.ManagementDedupEnabled = false;
         }
         using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
-        AppendLog($"使用{VisibleDramaSource.Describe(loaded, market)}导入。");
+        AppendLog(manualTarget is null
+            ? $"使用{VisibleDramaSource.Describe(loaded, market)}导入。"
+            : $"搜索链路 · {manualTarget.RouteLabel}");
         var episodeBounds = OverLimitEpisodePolicy.ResolveEpisodeBounds(settings);
         var result = await UploadTitleImportService.ImportAsync(
             root,
@@ -6145,7 +6173,8 @@ public sealed partial class MainViewModel : ViewModelBase
             ct,
             addProjectsToQueue: false,
             confirmUnknownAuthor: confirmUnknownAuthor,
-            seriesId: forcedSeriesId);
+            seriesId: forcedSeriesId,
+            uploadTitleRoute: manualTarget?.Route);
 
         // 标记必须在项目进入运行队列之前写好，队列观察者才能从第一条进度起识别派单。
         if (autoPublish is not null)
@@ -6464,8 +6493,19 @@ public sealed partial class MainViewModel : ViewModelBase
         string matchMode,
         CancellationToken ct,
         Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null)
+        => await ImportUploadTitlesAsync(CaptureManualUploadTitleImportTarget(target), rawText, episodeMin, episodeMax,
+            matchMode, ct, confirmUnknownAuthor).ConfigureAwait(true);
+
+    internal async Task<UploadTitleImportOutcome?> ImportUploadTitlesAsync(
+        ManualUploadTitleImportTarget target,
+        string rawText,
+        int episodeMin,
+        int episodeMax,
+        string matchMode,
+        CancellationToken ct,
+        Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null)
     {
-        var root = target.WorkspaceRoot.Trim();
+        var root = target.QueueTarget.WorkspaceRoot.Trim();
         if (string.IsNullOrWhiteSpace(root))
         {
             StatusMessage = "请先在「账号管理 → 发布配置」设置上传工作目录";
@@ -6478,7 +6518,8 @@ public sealed partial class MainViewModel : ViewModelBase
             return null;
         }
 
-        var account = FindAccountById(target.AccountProfileId)?.Model;
+        var account = FindAccountById(target.Route.AccountProfileId)?.Model
+            ?? throw new InvalidOperationException("本次导入的账号已不存在，请重新打开「上传短剧」选择账号。");
         return await ImportRemoteUploadTitlesAsync(
             Path.GetFullPath(root),
             account,
@@ -6486,10 +6527,11 @@ public sealed partial class MainViewModel : ViewModelBase
             episodeMin,
             episodeMax,
             matchMode,
-            target.FinalActionOverride,
+            target.QueueTarget.FinalActionOverride,
             allowAppendToRunningQueue: true,
             ct: ct,
-            confirmUnknownAuthor: confirmUnknownAuthor).ConfigureAwait(true);
+            confirmUnknownAuthor: confirmUnknownAuthor,
+            manualTarget: target).ConfigureAwait(true);
     }
 
     public async Task<UploadTitleImportResult?> ImportUploadTitlesAsync(

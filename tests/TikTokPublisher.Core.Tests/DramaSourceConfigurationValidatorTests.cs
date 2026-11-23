@@ -18,6 +18,7 @@ public sealed class DramaSourceConfigurationValidatorTests
         Assert.Equal("hongguoapp", VisibleDramaSource.ChainFor(settings, "local"));
         Assert.Equal("dramabox", VisibleDramaSource.ChainFor(settings, "overseas"));
         Assert.Equal("dramabox", VisibleDramaSource.NormalizeOverseas(""));
+        Assert.Equal("dramabox", VisibleDramaSource.NormalizeOverseas("unknown"));
         Assert.Equal("dramabox", VisibleDramaSource.ChainFor(new ClientSettings
         {
             DramaSourceChain = "playlet",

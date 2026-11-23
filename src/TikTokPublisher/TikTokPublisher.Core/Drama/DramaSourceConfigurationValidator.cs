@@ -8,14 +8,15 @@ public static class VisibleDramaSource
 
     public const string DefaultOverseasChain = "dramabox";
 
-    public static string Normalize(string? value)
+    public static string Normalize(string? value) => NormalizeOrDefault(value, DefaultChain);
+
+    public static string NormalizeOverseas(string? value) => NormalizeOrDefault(value, DefaultOverseasChain);
+
+    private static string NormalizeOrDefault(string? value, string fallback)
     {
         var chain = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return chain is "hghigh" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" or "foreign" ? chain : DefaultChain;
+        return chain is "hghigh" or "pikachu" or "playlet" or "hongguoapp" or "dramabox" or "foreign" ? chain : fallback;
     }
-
-    public static string NormalizeOverseas(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? DefaultOverseasChain : Normalize(value);
 
     public static string ChainFor(ClientSettings settings, string? market)
     {

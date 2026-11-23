@@ -46,6 +46,8 @@ public static class UploadTitleImportService
         @"^(?<title>.+?)[\s　]+(?<count>\d{1,5})\s*集?\s*$",
         RegexOptions.Compiled);
 
+    private static readonly SemaphoreSlim ProjectBootstrapGate = new(1, 1);
+
     public sealed record ExactDramaLookupResult(
         DramaSearchItem? Item,
         string Reason);
@@ -84,11 +86,24 @@ public static class UploadTitleImportService
         CancellationToken ct = default,
         bool addProjectsToQueue = true,
         Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null,
-        string? seriesId = null)
+        string? seriesId = null,
+        TikTokUploadTitleRoute? uploadTitleRoute = null)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
         if (!Directory.Exists(workspace))
             throw new DirectoryNotFoundException($"工作目录不存在：{workspace}");
+
+        if (uploadTitleRoute is not null)
+        {
+            if (account is null || !string.Equals(account.Id, uploadTitleRoute.AccountProfileId, StringComparison.Ordinal) ||
+                TikTokAccountProfile.NormalizeDramaMarket(account.TiktokDramaMarket) != uploadTitleRoute.DramaMarket)
+            {
+                throw new InvalidOperationException("上传账号或剧集类型已变更，请重新打开「上传短剧」。");
+            }
+
+            settings = uploadTitleRoute.ApplyTo(settings);
+        }
+        using var routeScope = uploadTitleRoute is null ? null : ShortDramaDramaServices.HoldSettings(settings);
 
         var (requests, parseFailures) = ParseRequests(rawText, matchMode);
         if (!string.IsNullOrWhiteSpace(seriesId) && requests.Count > 0)
@@ -172,8 +187,18 @@ public static class UploadTitleImportService
 
                 if (matched is null)
                 {
+                    if (uploadTitleRoute is not null && reason == EmptySearchResultReason)
+                        reason = $"{uploadTitleRoute.Describe()} 未返回搜索结果，请检查该链路配置或稍后重试。";
                     result.Failures.Add(new UploadTitleImportFailure(label, reason));
                     log?.Invoke($"未加入：{label}，{reason}");
+                    continue;
+                }
+
+                if (uploadTitleRoute is not null && !QueueMaterialStepService.IsBookIdForSource(matched.BookId, uploadTitleRoute.DramaSourceChain))
+                {
+                    var mismatchReason = $"{uploadTitleRoute.Describe()} 返回了不属于该链路的剧集标识。";
+                    result.Failures.Add(new UploadTitleImportFailure(label, mismatchReason));
+                    log?.Invoke($"未加入：{label}，{mismatchReason}");
                     continue;
                 }
 
@@ -213,20 +238,30 @@ public static class UploadTitleImportService
                 }
 
                 var downloadPlan = ResolveDownloadPlan(matched, settings);
-                var projectDir = await ShortDramaDramaServices.BootstrapAsync(
-                    workspace,
-                    matched,
-                    downloadPlan.Episodes,
-                    quality,
-                    concurrent,
-                    episodeSelection,
-                    ResolveQueueEntryDramaType(matched),
-                    ct).ConfigureAwait(false);
-                if (downloadPlan.Truncated)
+                string projectDir;
+                await ProjectBootstrapGate.WaitAsync(ct).ConfigureAwait(false);
+                try
                 {
-                    UpdateTruncatedProjectMetadata(projectDir, matched.EpisodeTotal, downloadPlan);
-                    log?.Invoke($"超长剧已加入队列：{matched.Title} 原 {matched.EpisodeTotal} 集，仅下载前 {downloadPlan.EffectiveEpisodeCount} 集");
+                    projectDir = await ShortDramaDramaServices.BootstrapAsync(
+                        workspace,
+                        matched,
+                        downloadPlan.Episodes,
+                        quality,
+                        concurrent,
+                        episodeSelection,
+                        ResolveQueueEntryDramaType(matched),
+                        ct,
+                        sourceDir => TikTokUploadTitleRoute.EnsureAccountOwnsProject(sourceDir, account?.Id)).ConfigureAwait(false);
+                    uploadTitleRoute?.Save(projectDir, matched.BookId);
+                    if (downloadPlan.Truncated)
+                        UpdateTruncatedProjectMetadata(projectDir, matched.EpisodeTotal, downloadPlan);
                 }
+                finally
+                {
+                    ProjectBootstrapGate.Release();
+                }
+                if (downloadPlan.Truncated)
+                    log?.Invoke($"超长剧已加入队列：{matched.Title} 原 {matched.EpisodeTotal} 集，仅下载前 {downloadPlan.EffectiveEpisodeCount} 集");
 
                 result.ProjectDirs.Add(projectDir);
                 log?.Invoke($"已创建/更新项目：{matched.Title}（{matched.EpisodeTotal} 集）");
@@ -239,7 +274,8 @@ public static class UploadTitleImportService
         }
 
         if (addProjectsToQueue && result.ProjectDirs.Count > 0)
-            WorkspaceQueueService.AddProjectsToQueue(workspace, result.ProjectDirs);
+            WorkspaceQueueService.AddProjectsToQueue(workspace, result.ProjectDirs,
+                uploadTitleRoute?.AccountProfileId, uploadTitleRoute is null ? null : account?.DisplayName);
         return result;
     }
 
@@ -310,6 +346,23 @@ public static class UploadTitleImportService
         var preview = string.Join("；", items.Take(maxItems).Select(FormatFailureLabel));
         var suffix = items.Count > maxItems ? $"；等共 {items.Count} 个" : "";
         return $"作者排除原因：{preview}{suffix}。";
+    }
+
+    internal static ExactDramaLookupResult PickStrictDispatchMatch(string title, int episodeTotal, IReadOnlyList<DramaSearchItem> results)
+    {
+        static string Key(string value) =>
+            Regex.Replace(value.Trim().Replace('’', '\'').Replace('‘', '\''), @"\s+", " ").ToLowerInvariant();
+
+        if (episodeTotal <= 0 || string.IsNullOrWhiteSpace(title))
+            return new(null, "派单缺少原剧名或总集数");
+        var expectedTitle = Key(title);
+        var sameTitle = Dedupe(results.Where(item => !string.IsNullOrWhiteSpace(item.Title) &&
+            !string.IsNullOrWhiteSpace(item.BookId) && Key(item.Title) == expectedTitle)).ToList();
+        if (sameTitle.Count == 0)
+            return new(null, "当前链路未找到同名剧集");
+
+        var (item, reason) = PickEpisodeTotalMatch(sameTitle, episodeTotal);
+        return new(item, reason);
     }
 
     public static (DramaSearchItem? Item, string Reason) PickPreferredSearchMatch(
