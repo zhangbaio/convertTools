@@ -123,8 +123,8 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     {
         get
         {
+            if (HasStepTone(StepTone.Running)) return RunningBrush;
             if (HasStepTone(StepTone.Failed)) return FailedBrush;
-            if (ToneOf(StatusText) == StepTone.Running || ToneOf(UploadStepStatus) == StepTone.Running) return RunningBrush;
             if (ToneOf(UploadStepStatus) == StepTone.Completed) return CompletedBrush;
             return LinkBrush;
         }
