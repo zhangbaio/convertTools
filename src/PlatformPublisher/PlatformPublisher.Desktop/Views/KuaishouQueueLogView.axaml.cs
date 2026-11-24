@@ -295,14 +295,15 @@ public partial class KuaishouQueueLogView : UserControl
     private static bool IsSuccessStatus(string status) =>
         status.StartsWith("已完成", StringComparison.Ordinal) || status is "完成" or "成功";
 
-    private IEnumerable<string> ReadLogLines()
+    private IEnumerable<(string Text, string ProjectName)> ReadLogLines()
     {
         if (_vm is null)
             return [];
         if (_allAccounts)
             return _vm.ActivityLogRecords.Where(record => record.Platform is
                 PlatformPublisher.Common.Models.PublishPlatform.KuaishouPersonalRevenue or
-                PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue).Select(record => record.Text);
+                PlatformPublisher.Common.Models.PublishPlatform.KuaishouEnterpriseRevenue)
+                .Select(record => (record.Text, record.ProjectName));
         var jobs = CheckedJobs();
         if (!string.IsNullOrEmpty(_selectedProject))
         {
@@ -313,15 +314,15 @@ public partial class KuaishouQueueLogView : UserControl
         }
 
         if (_useAccountScope)
-            return jobs.SelectMany(LinesFor).Concat(ActivityLines("")).Distinct(StringComparer.Ordinal);
+            return jobs.SelectMany(LinesFor).Concat(ActivityLines("")).Distinct();
         return jobs.SelectMany(LinesFor);
     }
 
-    private IEnumerable<string> LinesFor(PublishJobRowViewModel job)
+    private IEnumerable<(string Text, string ProjectName)> LinesFor(PublishJobRowViewModel job)
     {
         var match = FindStored(job);
-        if (match is not null && match.CopyLines().Count > 0)
-            return match.CopyLines();
+        if (match is not null && match.CopyLines() is { Count: > 0 } lines)
+            return lines.Select(line => (line, match.ProjectName));
         return ActivityLines(job.ProjectName);
     }
 
@@ -333,7 +334,7 @@ public partial class KuaishouQueueLogView : UserControl
             MatchesCheckedJob(project.ProjectName, project.ProjectDirectory, job.ProjectName, job.ProjectDirectory));
     }
 
-    private IEnumerable<string> ActivityLines(string projectName)
+    private IEnumerable<(string Text, string ProjectName)> ActivityLines(string projectName)
     {
         if (_vm is null)
             return [];
@@ -344,7 +345,24 @@ public partial class KuaishouQueueLogView : UserControl
             .Where(record => string.IsNullOrEmpty(projectName) ||
                              string.Equals(record.ProjectName, projectName, StringComparison.Ordinal) ||
                              record.Text.Contains(projectName, StringComparison.Ordinal))
-            .Select(record => record.Text);
+            .Select(record => (record.Text, record.ProjectName));
+    }
+
+    public static string FormatProjectLogLine(string text, string? projectName)
+    {
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(projectName))
+            return text;
+
+        var offset = text.Length >= 11 && text[0] == '[' && text[3] == ':' && text[6] == ':' &&
+                     text[9] == ']' && text[10] == ' ' ? 11 : 0;
+        var name = projectName.Trim();
+        var prefix = $"[{name}]";
+        var message = text.AsSpan(offset);
+        if (message.StartsWith(prefix, StringComparison.Ordinal) ||
+            message.StartsWith($"【{name}】", StringComparison.Ordinal))
+            return text;
+
+        return text.Insert(offset, $"{prefix} ");
     }
 
     private void RefreshLog()
@@ -352,7 +370,8 @@ public partial class KuaishouQueueLogView : UserControl
         if (_vm is null) return;
         var problemsOnly = ProblemsOnlyBox.IsChecked == true;
         var lines = ReadLogLines()
-            .Where(line => !problemsOnly || IsProblem(line))
+            .Where(line => !problemsOnly || IsProblem(line.Text))
+            .Select(line => (Text: FormatProjectLogLine(line.Text, line.ProjectName), Foreground: BrushForLogLine(line.Text)))
             .ToList();
         var running = _projects.Count(row => row.Tone == "running");
         var succeeded = _projects.Count(row => row.Tone == "ok");
@@ -365,13 +384,13 @@ public partial class KuaishouQueueLogView : UserControl
             : $"{counts} · {ProjectListTitle(selectedTitle, _selectedProject)} · 日志 {lines.Count} 条";
         var atEnd = LogScrollViewer.Offset.Y >=
                     Math.Max(0, LogScrollViewer.Extent.Height - LogScrollViewer.Viewport.Height - 8);
-        _logText = string.Join(Environment.NewLine, lines);
+        _logText = string.Join(Environment.NewLine, lines.Select(line => line.Text));
         RenderLogLines(lines);
         if (atEnd || AutoFollowBox.IsChecked == true)
             LogScrollViewer.ScrollToEnd();
     }
 
-    private void RenderLogLines(IReadOnlyList<string> lines)
+    private void RenderLogLines(IReadOnlyList<(string Text, IBrush Foreground)> lines)
     {
         LogTextBlock.Inlines?.Clear();
         for (var index = 0; index < lines.Count; index++)
@@ -379,7 +398,7 @@ public partial class KuaishouQueueLogView : UserControl
             if (index > 0)
                 LogTextBlock.Inlines?.Add(new LineBreak());
             var line = lines[index];
-            LogTextBlock.Inlines?.Add(new Run(line) { Foreground = BrushForLogLine(line) });
+            LogTextBlock.Inlines?.Add(new Run(line.Text) { Foreground = line.Foreground });
         }
     }
 

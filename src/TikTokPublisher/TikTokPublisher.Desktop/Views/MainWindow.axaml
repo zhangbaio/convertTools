@@ -200,8 +200,11 @@
                         <views:ArchivedProjectsView x:Name="ArchivedView" IsVisible="False" />
                         <views:TikTokBrowserView x:Name="BrowserView" IsVisible="False" />
                     </Panel>
-                    <Grid x:Name="TikTokQueueFooter" Grid.Row="2" Classes="uploadQueueFooter">
+                    <Grid x:Name="TikTokQueueFooter" Grid.Row="2" Classes="uploadQueueFooter"
+                          ColumnDefinitions="*,Auto" ColumnSpacing="10">
                         <TextBlock Text="{Binding QueueSummaryText}" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Text="{Binding TodayUploadCount, StringFormat='今日已上传剧集：{0}'}"
+                                   Classes="pageSummary" />
                     </Grid>
                 </Grid>
             </Grid>
@@ -247,7 +250,7 @@
         </Panel>
 
         <Border Grid.Row="1" Grid.ColumnSpan="3" Classes="statusBarFrame" Height="28">
-            <Grid ColumnDefinitions="*,*,*,Auto,Auto" Margin="12,0">
+            <Grid ColumnDefinitions="*,*,*,Auto" Margin="12,0">
                 <TextBlock x:Name="PrimaryStatusText" Grid.Column="0"
                            VerticalAlignment="Center"
                            FontSize="12"
@@ -277,8 +280,6 @@
                     <TextBlock x:Name="GpuUsageText" Text="GPU  --" Classes="pageSummary" ToolTip.Tip="整机占用，去重编码也算在里面。" />
                     <TextBlock x:Name="MemUsageText" Text="MEM  --" Classes="pageSummary" ToolTip.Tip="整机占用，去重编码也算在里面。" />
                 </StackPanel>
-                <TextBlock Grid.Column="4" VerticalAlignment="Center" FontSize="12" Classes="pageSummary"
-                           Text="{Binding TodayUploadCount, StringFormat='今日上传完成: {0}'}" />
             </Grid>
         </Border>
     </Grid>

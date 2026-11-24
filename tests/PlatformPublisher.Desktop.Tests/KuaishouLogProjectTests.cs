@@ -6,6 +6,15 @@ namespace PlatformPublisher.Desktop.Tests;
 
 public sealed class KuaishouLogProjectTests
 {
+    [Theory]
+    [InlineData("[16:06:43] [69/110] 开始下载第69集", "离职后前东家慌了", "[16:06:43] [离职后前东家慌了] [69/110] 开始下载第69集")]
+    [InlineData("[16:06:43] [青瑶入海] 下载完成", "青瑶入海", "[16:06:43] [青瑶入海] 下载完成")]
+    [InlineData("[16:06:43] 已开始执行队列", null, "[16:06:43] 已开始执行队列")]
+    public void Formats_project_log_lines_for_display_and_copy(string text, string? projectName, string expected)
+    {
+        Assert.Equal(expected, KuaishouQueueLogView.FormatProjectLogLine(text, projectName));
+    }
+
     [Fact]
     public void Failed_project_keeps_its_own_log_after_other_projects_fill_the_shared_limit()
     {
