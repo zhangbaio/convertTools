@@ -19,7 +19,6 @@ public sealed class AccountAiEditor : UserControl
     [
         (ClientSettingsDefaults.PosterModeDirect, "AI 直接生成"),
         (ClientSettingsDefaults.PosterModeEraseFixedTitle, "去字后固定字体写入"),
-        (ClientSettingsDefaults.PosterModeReferenceRegenerate, "参考原图生成新封面"),
     ];
     private readonly ComboBox _textPresets = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _imagePresets = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -69,7 +68,8 @@ public sealed class AccountAiEditor : UserControl
         _defaults = settings;
         _library = TikTokAccountAiSettings.Load();
         _savedKeys = _library.AccountKeys.GetValueOrDefault(account.Id) ?? new();
-        _draft = account.AiOptions ?? TikTokAccountAiOptions.FromSettings(settings);
+        var options = account.AiOptions ?? TikTokAccountAiOptions.FromSettings(settings);
+        _draft = options with { PosterMode = TikTokAccountAiSettings.ResolvePosterMode(options.PosterMode) };
         _textEdits.Clear();
         _imageEdits.Clear();
         var imageId = _draft.ImagePresetId ?? "";
@@ -193,12 +193,9 @@ public sealed class AccountAiEditor : UserControl
         if (usesVisiblePrompt)
         {
             _imagePrompt.Text = PosterGenerationTemplates.ForMode(mode);
-            var deliveryRule = mode switch
-            {
-                PosterGenerationTemplates.EraseMode => "AI 交付无字底图，程序按原图比例在下半部分用固定字体写入剧名。",
-                PosterReferenceCover.Mode => $"有效画面差异须达到 {PosterReferenceCover.MinimumChangedArea:P0}。实际分数见运行日志，两次未达标时保留已有封面。",
-                _ => "由图片模型在成品中写入剧名。",
-            };
+            var deliveryRule = mode == PosterGenerationTemplates.EraseMode
+                ? "AI 交付无字底图，程序按原图比例在下半部分用固定字体写入剧名。"
+                : "由图片模型在成品中写入剧名。";
             _imagePromptRules.Text = deliveryRule +
                 " 临时接口或图片响应失败时原样重试一次，模型审核拒绝时报告原因。" +
                 (mode == PosterGenerationTemplates.EraseMode ? "" : " {title} 和 {ratio} 会替换为当前剧名和出图比例。") +

@@ -45,7 +45,7 @@ public sealed class TikTokAccountAiSettingsTests
             promptBox.IsReadOnly.Should().BeTrue();
 
             editor.Load(account, defaults);
-            modeOptions.Children.OfType<RadioButton>().Should().HaveCount(3);
+            modeOptions.Children.OfType<RadioButton>().Should().HaveCount(2);
             AssertSelectedMode(ClientSettingsDefaults.PosterModeDirect);
             label.Text.Should().Contain("AI 直接生成");
             promptBox.Text.Should().Be(PosterGenerationTemplates.DirectPrompt);
@@ -58,14 +58,20 @@ public sealed class TikTokAccountAiSettingsTests
             promptBox.Text.Should().Be(PosterGenerationTemplates.ErasePrompt);
             account.AiOptions.Should().Be(initialOptions);
 
-            SelectMode(ClientSettingsDefaults.PosterModeReferenceRegenerate);
-            AssertSelectedMode(ClientSettingsDefaults.PosterModeReferenceRegenerate);
-            label.Text.Should().Contain("参考原图生成新封面");
-            promptBox.Text.Should().Be(PosterGenerationTemplates.ReferencePrompt);
-            account.AiOptions.Should().Be(initialOptions);
-
             editor.Save(account);
-            account.AiOptions!.PosterMode.Should().Be(ClientSettingsDefaults.PosterModeReferenceRegenerate);
+            account.AiOptions!.PosterMode.Should().Be(ClientSettingsDefaults.PosterModeEraseFixedTitle);
+
+            var retiredOptions = initialOptions with { PosterMode = ClientSettingsDefaults.PosterModeReferenceRegenerate };
+            var retiredAccount = new TikTokAccountProfile { Id = "retired", AiOptions = retiredOptions };
+            editor.Load(retiredAccount, defaults);
+            modeOptions.Children.OfType<RadioButton>().Should().HaveCount(2);
+            AssertSelectedMode(ClientSettingsDefaults.PosterModeDirect);
+            label.Text.Should().Contain("AI 直接生成");
+            promptBox.Text.Should().Be(PosterGenerationTemplates.DirectPrompt);
+            retiredAccount.AiOptions.Should().Be(retiredOptions);
+
+            editor.Save(retiredAccount);
+            retiredAccount.AiOptions!.PosterMode.Should().Be(ClientSettingsDefaults.PosterModeDirect);
 
             var legacyAccount = new TikTokAccountProfile
             {
@@ -80,7 +86,7 @@ public sealed class TikTokAccountAiSettingsTests
             legacyAccount.AiOptions!.PosterMode.Should().Be("video_frame");
 
             editor.Load(account, defaults);
-            AssertSelectedMode(ClientSettingsDefaults.PosterModeReferenceRegenerate);
+            AssertSelectedMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
             editor.Clear();
             modeOptions.Children.OfType<RadioButton>().Should().NotContain(button => button.IsChecked == true);
             promptBox.Text.Should().BeEmpty();
@@ -170,7 +176,7 @@ public sealed class TikTokAccountAiSettingsTests
             var account = new TikTokAccountProfile
             {
                 Id = "a",
-                AiOptions = original with { PosterMode = ClientSettingsDefaults.PosterModeReferenceRegenerate },
+                AiOptions = original with { PosterMode = ClientSettingsDefaults.PosterModeEraseFixedTitle },
             };
             TikTokAccountAiSettings.Save(account.Id, new(), [], [preset]);
             var saved = JsonSerializer.Deserialize<TikTokAccountProfile>(JsonSerializer.Serialize(account));
@@ -182,7 +188,7 @@ public sealed class TikTokAccountAiSettingsTests
 
             var path = ClientSettingsWorkflowConfigWriter.WriteTempConfig(selected);
             using var payload = JsonDocument.Parse(File.ReadAllText(path));
-            payload.RootElement.GetProperty("PosterMode").GetString().Should().Be(ClientSettingsDefaults.PosterModeReferenceRegenerate);
+            payload.RootElement.GetProperty("PosterMode").GetString().Should().Be(ClientSettingsDefaults.PosterModeEraseFixedTitle);
             payload.RootElement.GetProperty("ImageSize").GetString().Should().Be("1584x2816");
         }
         finally
@@ -190,6 +196,38 @@ public sealed class TikTokAccountAiSettingsTests
             AppPaths.DataRootOverride = previous;
             if (Directory.Exists(root))
                 Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Effective_settings_use_direct_generation_for_a_retired_reference_poster_mode()
+    {
+        var previous = AppPaths.DataRootOverride;
+        var root = Directory.CreateTempSubdirectory("tiktok-retired-poster-mode-");
+        AppPaths.DataRootOverride = root.FullName;
+        try
+        {
+            var defaults = new ClientSettings { PosterMode = ClientSettingsDefaults.PosterModeEraseFixedTitle };
+            var account = new TikTokAccountProfile
+            {
+                Id = "retired",
+                AiOptions = TikTokAccountAiOptions.FromSettings(defaults) with
+                {
+                    PosterMode = ClientSettingsDefaults.PosterModeReferenceRegenerate,
+                },
+            };
+            var saved = JsonSerializer.Deserialize<TikTokAccountProfile>(JsonSerializer.Serialize(account))!;
+
+            TikTokAccountAiSettings.Apply(defaults, saved).PosterMode.Should().Be(ClientSettingsDefaults.PosterModeDirect);
+            saved.AiOptions!.PosterMode.Should().Be(ClientSettingsDefaults.PosterModeReferenceRegenerate);
+
+            defaults.PosterMode = ClientSettingsDefaults.PosterModeReferenceRegenerate;
+            TikTokAccountAiSettings.Apply(defaults, null).PosterMode.Should().Be(ClientSettingsDefaults.PosterModeDirect);
+        }
+        finally
+        {
+            AppPaths.DataRootOverride = previous;
+            root.Delete(recursive: true);
         }
     }
 

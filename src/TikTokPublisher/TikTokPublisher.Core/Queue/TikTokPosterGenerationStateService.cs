@@ -65,7 +65,7 @@ public static class TikTokPosterGenerationStateService
             }
 
             if (savedMode == ClientSettingsDefaults.PosterModeReferenceRegenerate)
-                return true;
+                return requestedMode != ClientSettingsDefaults.PosterModeDirect || !HasCurrentTitleState(item);
 
             if (state.Count == 0)
             {

@@ -83,6 +83,7 @@ public static class TikTokAccountAiSettings
         settings.PosterTitleVerifyAiRetryCount = ClientSettingsDefaults.PosterTitleVerifyAiRetryCount;
         settings.PosterAgentDirectPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
         settings.PosterAgentErasePrompt = ClientSettingsDefaults.PosterAgentErasePrompt;
+        settings.PosterMode = ResolvePosterMode(account?.AiOptions is { } saved ? saved.PosterMode : defaults.PosterMode);
         if (account?.AiOptions is not { } options)
         {
             settings.AiPublishInfoPrompt = ResolvePublishPrompt(settings.AiPublishInfoPrompt);
@@ -121,10 +122,17 @@ public static class TikTokAccountAiSettings
         settings.AiPublishInfoPrompt = ResolvePublishPrompt(options.PublishPrompt);
         settings.TiktokRoleReferenceSelectionMode = options.RoleSelectionMode;
         settings.TiktokRoleReferenceAiFallbackEnabled = options.RoleFallback;
-        settings.PosterMode = options.PosterMode;
         settings.PosterTitleVerifyEnabled = options.VerifyTitle;
         settings.PosterTitleVerifyMode = options.VerifyMode;
         return settings;
+    }
+
+    public static string ResolvePosterMode(string? value)
+    {
+        var mode = value?.Trim().ToLowerInvariant();
+        return mode is null or "" or ClientSettingsDefaults.PosterModeReferenceRegenerate
+            ? ClientSettingsDefaults.PosterModeDirect
+            : mode;
     }
 
     public static string ResolvePublishPrompt(string? prompt) =>

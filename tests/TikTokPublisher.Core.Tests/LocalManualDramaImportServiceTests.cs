@@ -153,7 +153,7 @@ public sealed class LocalManualDramaImportServiceTests
     }
 
     [Fact]
-    public void Reference_poster_refreshes_when_mode_size_or_source_changes()
+    public void Reference_poster_is_reused_by_the_direct_fallback_for_the_same_title()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"reference-poster-state-{Guid.NewGuid():N}");
         var source = Path.Combine(workspace, "原剧名");
@@ -175,7 +175,16 @@ public sealed class LocalManualDramaImportServiceTests
 
             TikTokPosterGenerationStateService.SaveGeneratedState(item, reference, inputPath, outputPath);
             TikTokPosterGenerationStateService.NeedsGeneratePoster(item, reference).Should().BeFalse();
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, original).Should().BeFalse();
+            TikTokPosterGenerationStateService.NeedsGeneratePoster(item, new ClientSettings
+            {
+                PosterMode = ClientSettingsDefaults.PosterModeEraseFixedTitle,
+            }).Should().BeTrue();
+
+            var savedTitle = item.NewTitle;
+            item.NewTitle = "待重新生成海报的新剧名";
             TikTokPosterGenerationStateService.NeedsGeneratePoster(item, original).Should().BeTrue();
+            item.NewTitle = savedTitle;
 
             var resized = reference.Clone();
             resized.DoubaoImageRatio = "1:1";
