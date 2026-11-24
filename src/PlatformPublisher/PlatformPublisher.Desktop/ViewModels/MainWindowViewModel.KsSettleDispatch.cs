@@ -12,6 +12,7 @@ namespace PlatformPublisher.Desktop.ViewModels;
 
 public sealed partial class MainWindowViewModel
 {
+    private readonly KsSettleRecoverySession _ksRecoverySession = KsSettleRecoverySession.ForCurrentProcess();
     private bool _ksRestartResumeChecked;
     private bool _ksRestartResumeConfirmed;
 
@@ -76,11 +77,14 @@ public sealed partial class MainWindowViewModel
         return accounts;
     }
 
+    internal void NoteKsSettleAssignmentReceived(long assignmentId) => _ksRecoverySession.TryRecord(assignmentId);
+
     public Task<YunfanRemoteCommandResult> ExecuteKsSettlementCommandAsync(
         KsSettleCommand command,
         Func<string, string, string, string, Task> reportAsync,
         CancellationToken cancellationToken)
     {
+        NoteKsSettleAssignmentReceived(command.AssignmentId);
         var done = new TaskCompletionSource<YunfanRemoteCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         Dispatcher.UIThread.Post(async () =>
         {
@@ -101,10 +105,15 @@ public sealed partial class MainWindowViewModel
         Func<long, string, string, string, Task> reportAsync,
         CancellationToken cancellationToken)
     {
+        if (!_ksRecoverySession.CanRecoverAt(DateTimeOffset.Now))
+            return;
+
         var resume = new List<(KsSettleOpenAssignment Item, GlobalAccount Account, string Directory)>();
         foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (_ksRecoverySession.HasSeen(item.Id))
+                continue;
             var located = FindMarkedProject(item.Id);
             var marker = located.Directory is null ? null : KsSettleMarker.Read(located.Directory);
             var action = KsSettleAutoPublishRecovery.Decide(
@@ -127,11 +136,14 @@ public sealed partial class MainWindowViewModel
                     await reportAsync(item.Id, "failed", "", "上次执行已经失败，不再自动重试").ConfigureAwait(false);
                     break;
                 case KsSettleAutoPublishRecovery.Action.Resume when located.Directory is not null && located.Account is not null:
-                    resume.Add((item, located.Account, located.Directory));
+                    if (!IsKsRecoveryProjectBusy(located.Account, located.Directory))
+                        resume.Add((item, located.Account, located.Directory));
                     break;
             }
         }
 
+        resume.RemoveAll(entry => _ksRecoverySession.HasSeen(entry.Item.Id) ||
+            IsKsRecoveryProjectBusy(entry.Account, entry.Directory));
         if (resume.Count == 0 || !await ConfirmKsRestartResumeAsync(resume, cancellationToken).ConfigureAwait(false))
             return;
 
@@ -140,6 +152,15 @@ public sealed partial class MainWindowViewModel
             cancellationToken.ThrowIfCancellationRequested();
             await ResumeMarkedProjectAsync(entry.Item, entry.Account, entry.Directory, reportAsync, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private bool IsKsRecoveryProjectBusy(GlobalAccount account, string directory)
+    {
+        if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var platform))
+            return false;
+        var key = KuaishouRunKey(account.Id, platform);
+        var fullPath = Path.GetFullPath(directory);
+        return IsManualKuaishouRun(key) || LaneDirectories(key).Contains(fullPath, StringComparer.OrdinalIgnoreCase);
     }
 
     // 本次启动只问一次。倒计时结束或点立即执行才续跑，暂不执行则这次启动不再自动续跑。
@@ -399,6 +420,9 @@ public sealed partial class MainWindowViewModel
         Func<long, string, string, string, Task> reportAsync,
         CancellationToken cancellationToken)
     {
+        if (_ksRecoverySession.HasSeen(item.Id) || IsKsRecoveryProjectBusy(account, project))
+            return new YunfanRemoteCommandResult("skipped", "");
+
         if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var platform))
             return new YunfanRemoteCommandResult("failed", "账号还没有选择快手分账类型");
         var edition = platform == PublishPlatform.KuaishouEnterpriseRevenue ? "enterprise" : "personal";
@@ -416,6 +440,11 @@ public sealed partial class MainWindowViewModel
         var directory = Path.GetFullPath(project);
         if (!Directory.Exists(directory))
             return new YunfanRemoteCommandResult("interrupted", "客户端未找到本地项目");
+
+        var savedMarker = KsSettleMarker.Read(directory);
+        if (savedMarker is not { IsActive: true } || savedMarker.AssignmentId != item.Id ||
+            !_ksRecoverySession.TryRecord(item.Id))
+            return new YunfanRemoteCommandResult("skipped", "");
 
         await AddImportedProjectJobsAsync(
             new[] { directory },

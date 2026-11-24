@@ -5,6 +5,26 @@ namespace PlatformPublisher.Desktop.Tests;
 
 public sealed class KsSettleAutoPublishRecoveryTests
 {
+    [Fact]
+    public void RestartRecoveryWaitsOneMinuteAndTracksAssignmentsOnlyWithinTheProcess()
+    {
+        var started = new DateTimeOffset(2026, 11, 24, 16, 17, 38, TimeSpan.FromHours(8));
+        var session = new KsSettleRecoverySession(started);
+        Assert.False(session.CanRecoverAt(started.AddSeconds(59)));
+        Assert.True(session.CanRecoverAt(started.AddMinutes(1)));
+
+        Assert.False(session.HasSeen(700));
+        Assert.True(session.TryRecord(700));
+        Assert.True(session.HasSeen(700));
+        Assert.False(session.TryRecord(700));
+        Assert.False(session.TryRecord(0));
+        Assert.False(session.HasSeen(701));
+
+        var restarted = new KsSettleRecoverySession(started.AddMinutes(10));
+        Assert.False(restarted.HasSeen(700));
+        Assert.False(restarted.CanRecoverAt(started.AddMinutes(10).AddSeconds(59)));
+    }
+
     [Theory]
     [InlineData("success", true, "", true, KsSettleAutoPublishRecovery.Action.None)]
     [InlineData("accepted", true, "", true, KsSettleAutoPublishRecovery.Action.Resume)]

@@ -138,6 +138,7 @@ public sealed class YunfanXingeDispatchService
                         {
                             if (TryReadConfirmItem(message, out var item))
                             {
+                                _viewModel.NoteKsSettleAssignmentReceived(item.AssignmentId);
                                 if (_viewModel.IsKuaishouDailyUploadLimited(ReadString(message.Payload, "account_profile_id")))
                             {
                                 await CompleteAsync(http, config, message.Id, "failed", KuaishouDailyUploadLimit.Detail, KuaishouDailyUploadLimit.FailureKind, ct).ConfigureAwait(false);

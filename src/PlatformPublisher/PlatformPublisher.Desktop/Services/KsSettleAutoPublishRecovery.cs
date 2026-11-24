@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+
 namespace PlatformPublisher.Desktop.Services;
 
 public static class KsSettleAutoPublishRecovery
@@ -51,4 +54,22 @@ public static class KsSettleAutoPublishRecovery
             return Action.ReportInterrupted;
         return Action.None;
     }
+}
+
+public sealed class KsSettleRecoverySession(DateTimeOffset processStartedAt)
+{
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(1);
+    private readonly ConcurrentDictionary<long, byte> _seen = new();
+
+    public static KsSettleRecoverySession ForCurrentProcess()
+    {
+        using var process = Process.GetCurrentProcess();
+        return new KsSettleRecoverySession(process.StartTime);
+    }
+
+    public bool CanRecoverAt(DateTimeOffset now) => now - processStartedAt >= StartupDelay;
+
+    public bool HasSeen(long assignmentId) => _seen.ContainsKey(assignmentId);
+
+    public bool TryRecord(long assignmentId) => assignmentId > 0 && _seen.TryAdd(assignmentId, 0);
 }
