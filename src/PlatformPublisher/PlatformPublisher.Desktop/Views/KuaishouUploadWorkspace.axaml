@@ -12,6 +12,7 @@
             <StackPanel x:Name="SubNavigation" Margin="10,5,10,3" Orientation="Horizontal" Spacing="5" IsEnabled="False">
                 <Button Content="任务队列" Tag="queue" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="发布配置" Tag="config" Classes="topNavItem" Click="SubPage_Click" />
+                <Button Content="全局账号配置" Tag="global" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="剧集上架" Tag="shelf" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="已归档项目" Tag="archived" Classes="topNavItem" Click="SubPage_Click" />
@@ -58,6 +59,19 @@
             <Panel Grid.Row="1">
                 <views:WeixinWorkflowView x:Name="Workflow" Background="{StaticResource PythonPageBgBrush}" IsKuaishouMode="True" IsVisible="False" />
                 <views:KuaishouPersonalConfigDialog x:Name="Configuration" IsVisible="False" />
+                <ScrollViewer x:Name="GlobalConfiguration" IsVisible="False">
+                    <StackPanel Margin="16" Spacing="12">
+                        <TextBlock Text="全局队列并发数" FontWeight="SemiBold" />
+                        <NumericUpDown x:Name="GlobalConcurrency" Minimum="1" Maximum="12" Value="4"
+                                       FormatString="0" Width="120" HorizontalAlignment="Left" />
+                        <TextBlock Text="本机所有快手账号共享此上限，默认 4 部。保存后按新上限安排后续任务。"
+                                   Classes="pageSummary" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Content="保存配置" Classes="primaryAction" Click="SaveGlobalConfiguration_Click" />
+                            <TextBlock x:Name="GlobalConfigurationMessage" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
                 <views:KuaishouQueueLogView x:Name="LogView" IsVisible="False" />
                 <views:KuaishouArchivedProjectsView x:Name="ArchiveView" IsVisible="False" />
                 <StackPanel x:Name="Unavailable" Margin="20" Spacing="10" IsVisible="False">

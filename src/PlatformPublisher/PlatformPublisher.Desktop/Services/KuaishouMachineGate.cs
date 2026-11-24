@@ -218,7 +218,7 @@ public sealed class KuaishouMachineGate
     private static (int Projects, string Mode, int Uploads, int ProjectImages) ReadSettings()
     {
         var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
-        return (settings.TiktokGlobalProjectConcurrency, QueueProjectSlotCoordinator.SlotModeForServer(settings.ServerDispatchMode), settings.TiktokUploadConcurrency, settings.KuaishouProjectImageConcurrency);
+        return (settings.KuaishouGlobalProjectConcurrency.GetValueOrDefault(QueueProjectSlotCoordinator.DefaultCapacity), QueueProjectSlotCoordinator.SlotModeForServer(settings.ServerDispatchMode), settings.TiktokUploadConcurrency, settings.KuaishouProjectImageConcurrency);
     }
 
     private sealed class UploadHolder(string label)

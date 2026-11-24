@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PlatformPublisher.Common.Models;
@@ -124,6 +126,7 @@ public sealed class YunfanXingeDispatchService
                             Notify("XINGE 正在连接...");
                         await _viewModel.Initialization.ConfigureAwait(false);
                         await RegisterAsync(http, config, ct).ConfigureAwait(false);
+                        await FlushCompletedAssignmentsAsync(http, config, ct).ConfigureAwait(false);
                         await RecoverAsync(http, config, ct).ConfigureAwait(false);
                         Notify($"XINGE 已在线：{_viewModel.KsSettleRegistrationAccounts().Count} 个账号");
                         nextRegister = DateTimeOffset.UtcNow.AddSeconds(30);
@@ -274,17 +277,13 @@ public sealed class YunfanXingeDispatchService
         if (!envelope.Ok)
             return;
         var items = (envelope.Data?.Items ?? [])
-            .Where(item => !IsAccountQuotaFull(item.AccountProfileId))
             .Select(item => new MainWindowViewModel.KsSettleOpenAssignment(
                 item.Id, item.Status, item.SeriesId, item.Title, item.AccountProfileId, item.Edition, item.RecoveryCount))
             .ToArray();
-        var skipped = (envelope.Data?.Items.Count ?? 0) - items.Length;
-        if (skipped > 0)
-            _viewModel.LogKsSettleDispatch($"账号今日上传已达上限，已跳过 {skipped} 个快手分账自动派单恢复。");
         await _viewModel.RecoverKsSettleAssignmentsAsync(
             items,
             (id, status, step, detail) => ReportAsync(http, config, id, status, step, detail, status == "interrupted" ? "interrupted" : "", ct),
-            ct).ConfigureAwait(false);
+            ct, IsAccountQuotaFull).ConfigureAwait(false);
     }
 
     private async Task RegisterAsync(HttpClient http, RemoteConfig config, CancellationToken ct)
@@ -306,7 +305,7 @@ public sealed class YunfanXingeDispatchService
             workspace_path = accounts.FirstOrDefault()?.Workspace ?? "",
             active_account_profile_id = accounts.FirstOrDefault()?.Id ?? "",
             drama_source = dramaSource,
-            project_slot_capacity = Math.Clamp(settings.TiktokGlobalProjectConcurrency <= 0 ? QueueProjectSlotCoordinator.DefaultCapacity : settings.TiktokGlobalProjectConcurrency, 1, QueueProjectSlotCoordinator.MaxCapacity),
+            project_slot_capacity = settings.KuaishouGlobalProjectConcurrency.GetValueOrDefault(QueueProjectSlotCoordinator.DefaultCapacity),
             account_profiles = accounts.Select(account =>
             {
                 var profile = new Dictionary<string, object?>
@@ -441,13 +440,70 @@ public sealed class YunfanXingeDispatchService
             message = detail,
             failure_kind = failureKind,
         };
+        string? receiptPath = null;
+        if (status == "success")
+        {
+            try
+            {
+                var folder = CompletedReceiptDirectory(config);
+                Directory.CreateDirectory(folder);
+                receiptPath = Path.Combine(folder, $"{assignmentId}.json");
+                var temporary = receiptPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    File.WriteAllText(temporary, JsonSerializer.Serialize(new CompletedAssignment(assignmentId, step, detail)));
+                    File.Move(temporary, receiptPath, overwrite: true);
+                }
+                finally
+                {
+                    File.Delete(temporary);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _viewModel.LogKsSettleDispatch($"保存快手派单 {assignmentId} 的完成回执失败：{ex.Message}");
+            }
+        }
         try
         {
-            await SendAsync<Envelope<JsonElement>>(http, config, HttpMethod.Post, path, body, ct).ConfigureAwait(false);
+            var response = await SendAsync<Envelope<JsonElement>>(http, config, HttpMethod.Post, path, body, ct).ConfigureAwait(false);
+            if (!response.Ok)
+                throw new InvalidOperationException(response.Message);
+            if (receiptPath is not null)
+                File.Delete(receiptPath);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested || status == "success")
         {
-            _viewModel.LogKsSettleDispatch($"XINGE 快手分账进度上报失败：{ex.Message}");
+            _viewModel.LogKsSettleDispatch($"XINGE 快手派单 {assignmentId} 进度上报失败：{ex.Message}");
+        }
+    }
+
+    private sealed record CompletedAssignment(long AssignmentId, string Step, string Detail);
+
+    private static string CompletedReceiptDirectory(RemoteConfig config)
+    {
+        var scope = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{config.BaseUrl}\n{config.ClientId}")));
+        return Path.Combine(PlatformPublisherPaths.DataRoot, "xinge-kuaishou-completed", scope);
+    }
+
+    private async Task FlushCompletedAssignmentsAsync(HttpClient http, RemoteConfig config, CancellationToken ct)
+    {
+        var folder = CompletedReceiptDirectory(config);
+        if (!Directory.Exists(folder))
+            return;
+        foreach (var path in Directory.EnumerateFiles(folder, "*.json"))
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var receipt = JsonSerializer.Deserialize<CompletedAssignment>(File.ReadAllText(path));
+                if (receipt is { AssignmentId: > 0 })
+                    await ReportAsync(http, config, receipt.AssignmentId, "success", receipt.Step, receipt.Detail, "", ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                _viewModel.LogKsSettleDispatch($"读取快手完成回执失败：{ex.Message}");
+            }
         }
     }
 

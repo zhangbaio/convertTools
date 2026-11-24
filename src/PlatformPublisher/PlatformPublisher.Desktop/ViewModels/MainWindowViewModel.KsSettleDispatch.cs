@@ -4,6 +4,7 @@ using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Publishing;
 using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Kuaishou.Publishing;
+using TikTokPublisher.Core.Archive;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Ui.Views;
 using GlobalAccount = ChannelsPublisher.Core.Models.PublishAccount;
@@ -103,7 +104,8 @@ public sealed partial class MainWindowViewModel
     public async Task RecoverKsSettleAssignmentsAsync(
         IReadOnlyList<KsSettleOpenAssignment> items,
         Func<long, string, string, string, Task> reportAsync,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, bool>? isQuotaFull = null)
     {
         if (!_ksRecoverySession.CanRecoverAt(DateTimeOffset.Now))
             return;
@@ -112,10 +114,17 @@ public sealed partial class MainWindowViewModel
         foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (_ksRecoverySession.HasSeen(item.Id))
-                continue;
             var located = FindMarkedProject(item.Id);
             var marker = located.Directory is null ? null : KsSettleMarker.Read(located.Directory);
+            // 同一进程内的手动重跑也会完成旧派单，账号满额时仍需释放旧占位。
+            if (string.Equals(marker?.FinalStatus, "success", StringComparison.OrdinalIgnoreCase) ||
+                (located.Directory is null && HasCompletedArchivedAssignment(item)))
+            {
+                await reportAsync(item.Id, "success", "upload_series", "已核对到本地完成记录").ConfigureAwait(false);
+                continue;
+            }
+            if (_ksRecoverySession.HasSeen(item.Id) || isQuotaFull?.Invoke(item.AccountProfileId) == true)
+                continue;
             var action = KsSettleAutoPublishRecovery.Decide(
                 item.Status,
                 marker?.IsActive == true,
@@ -609,8 +618,7 @@ public sealed partial class MainWindowViewModel
         var token = lane.Cts.Token;
         try
         {
-            if (work.Command.AssignmentId > 0)
-                await work.ReportAsync("running", "download", $"开始执行「{work.Command.Title}」", "").ConfigureAwait(false);
+            var remaining = work.Directories.Count;
             AppendKuaishouLogProjects(work.Directories, work.Key);
             foreach (var directory in work.Directories)
             {
@@ -620,6 +628,7 @@ public sealed partial class MainWindowViewModel
                     KuaishouAccountOrder(work.Account.Id),
                     token,
                     () => AppendActivityLog($"等待全局剧集名额：{work.Command.Title}"));
+                await work.ReportAsync("running", "download", $"开始执行「{work.Command.Title}」", "").ConfigureAwait(false);
                 var trackedJob = _jobs.FirstOrDefault(job =>
                     job.Platform == work.Request.Platform &&
                     !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
@@ -639,7 +648,18 @@ public sealed partial class MainWindowViewModel
                         trackedJob,
                         trackedJob is null ? null : RowForJob(trackedJob),
                         work.Request,
-                        token).ConfigureAwait(false);
+                        token,
+                        beforeArchive: async () =>
+                        {
+                            KsSettleMarker.WriteFinal(directory, work.Command.AssignmentId, "success");
+                            if (--remaining == 0)
+                            {
+                                var detail = work.Request.Upload
+                                    ? $"上传流程完成：{work.Command.Title}"
+                                    : $"所选步骤已完成：{work.Command.Title}";
+                                await work.ReportAsync("success", work.Request.Upload ? "upload_series" : "", detail, "").ConfigureAwait(false);
+                            }
+                        }).ConfigureAwait(false);
                     SetKuaishouLogTone(directory, "ok");
                     RememberKuaishouUploadReport(directory, work.Request, succeeded: true, error: "");
                 }
@@ -650,11 +670,8 @@ public sealed partial class MainWindowViewModel
                     ActivityLogPlatformScope.Value = null;
                 }
             }
-            foreach (var dir in work.Directories)
-                KsSettleMarker.WriteFinal(dir, work.Command.AssignmentId, "success");
-            await work.ReportAsync("success", "upload_series", $"上传完成：{work.Command.Title}", "").ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             if (IsKuaishouDailyUploadLimited(work.Account.Id) && work.Command.AssignmentId > 0)
             {
@@ -853,6 +870,41 @@ public sealed partial class MainWindowViewModel
                 cleared++;
         }
         return cleared;
+    }
+
+    private bool HasCompletedArchivedAssignment(KsSettleOpenAssignment item)
+    {
+        var account = _globalAccounts.FirstOrDefault(account =>
+            string.Equals(account.Id, item.AccountProfileId, StringComparison.OrdinalIgnoreCase));
+        if (account is null || !KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var platform))
+            return false;
+        var workspace = ResolveKuaishouWorkRoot(account, platform);
+        if (string.IsNullOrWhiteSpace(workspace))
+            return false;
+        try
+        {
+            var (archiveRoot, _) = ReadKuaishouUploadCountSettings(new PublishJob
+            {
+                AccountId = account.Id,
+                Platform = platform,
+                ConfigPath = ResolveGlobalConfigPath(account, platform),
+            });
+            return TikTokArchivedProjectService.List(workspace, archiveRoot).Any(archive =>
+                string.Equals(archive.AccountProfileId, account.Id, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(archive.UploadCompletedAt) &&
+                !string.IsNullOrWhiteSpace(archive.ArchivedSourceDir) &&
+                KsSettleMarker.Read(archive.ArchivedSourceDir) is { } marker &&
+                marker.AssignmentId == item.Id &&
+                (marker.FinalStatus == "success" ||
+                    KuaishouAutoArchivePolicy.UploadCompleted(false, KuaishouArtifactColumnStatusReader.Read(
+                        archive.ArchivedWorkflowDir.Length > 0 ? archive.ArchivedWorkflowDir : archive.ArchivedSourceDir,
+                        platform == PublishPlatform.KuaishouEnterpriseRevenue).UploadStatus)));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            LogKsSettleDispatch($"核对快手派单 {item.Id} 的归档结果失败：{ex.Message}");
+            return false;
+        }
     }
 
     private (string? Directory, GlobalAccount? Account) FindMarkedProject(long assignmentId)

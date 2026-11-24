@@ -2609,7 +2609,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishJobRowViewModel? trackedRow,
         KuaishouPipelineRequest request,
         CancellationToken cancellationToken,
-        int listOrder = int.MaxValue)
+        int listOrder = int.MaxValue,
+        Func<Task>? beforeArchive = null)
     {
         var runLock = _kuaishouProjectRunLocks.GetOrAdd(Path.GetFullPath(projectDirectory), _ => new SemaphoreSlim(1, 1));
         if (!await runLock.WaitAsync(0, cancellationToken))
@@ -2624,7 +2625,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             await RunKuaishouSettlementPipelineCoreAsync(
-                projectDirectory, trackedJob, trackedRow, request, cancellationToken, listOrder);
+                projectDirectory, trackedJob, trackedRow, request, cancellationToken, listOrder, beforeArchive);
         }
         finally
         {
@@ -2638,7 +2639,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         PublishJobRowViewModel? trackedRow,
         KuaishouPipelineRequest request,
         CancellationToken cancellationToken,
-        int listOrder)
+        int listOrder,
+        Func<Task>? beforeArchive)
     {
         var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
         {
@@ -2922,6 +2924,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (!request.Upload)
         {
+            if (beforeArchive is not null)
+                await beforeArchive();
             if (trackedJob is not null &&
                 KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, KuaishouUploadCompleted(trackedJob, projectDirectory, request)))
                 await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
@@ -3008,6 +3012,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
             machineUploadLease?.Dispose();
         }
 
+        if (beforeArchive is not null)
+            await beforeArchive();
+        else if (KsSettleMarker.Read(projectDirectory) is { AssignmentId: > 0 } assignment)
+            KsSettleMarker.WriteFinal(projectDirectory, assignment.AssignmentId, "success");
         if (KuaishouAutoArchivePolicy.ShouldArchive(request.AutoArchive, uploadCompleted: true))
             await TryAutoArchiveKuaishouProjectAsync(trackedJob, cancellationToken);
     }

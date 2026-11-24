@@ -119,7 +119,7 @@ public static class ClientSettingsStore
         var raw = LoadRawObject(path);
         if (raw is null)
         {
-            return new ClientSettings();
+            return new ClientSettings { KuaishouGlobalProjectConcurrency = QueueProjectSlotCoordinator.DefaultCapacity };
         }
 
         RemoveRetiredCommandSettings(raw);
@@ -479,6 +479,10 @@ public static class ClientSettingsStore
             QueueProjectSlotCoordinator.MaxCapacity);
         settings.TiktokAccountScheduleMode = QueueProjectSlotCoordinator.NormalizeMode(settings.TiktokAccountScheduleMode);
         settings.ServerDispatchMode = QueueProjectSlotCoordinator.NormalizeServerDispatchMode(settings.ServerDispatchMode);
+        var kuaishouCapacity = settings.KuaishouGlobalProjectConcurrency ?? settings.TiktokGlobalProjectConcurrency;
+        settings.KuaishouGlobalProjectConcurrency = Math.Clamp(
+            kuaishouCapacity <= 0 ? QueueProjectSlotCoordinator.DefaultCapacity : kuaishouCapacity,
+            1, QueueProjectSlotCoordinator.MaxCapacity);
         settings.TiktokVideoDedupConcurrency = VideoDedupCpuBudget.Normalize(
             settings.TiktokVideoDedupConcurrency,
             Math.Max(1, Environment.ProcessorCount));

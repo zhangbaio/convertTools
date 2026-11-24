@@ -68,6 +68,7 @@ public sealed class ClientSettings
     public int TiktokVisualConcurrency { get; set; } = 2;
     public int TiktokDocumentConcurrency { get; set; } = 2;
     public int TiktokGlobalProjectConcurrency { get; set; } = 4;
+    public int? KuaishouGlobalProjectConcurrency { get; set; }
     public string TiktokAccountScheduleMode { get; set; } = "account_order";
     /// <summary>服务端监控屏的分发模式。空表示还没收到，执行时按轮流分发。</summary>
     public string ServerDispatchMode { get; set; } = "";
@@ -256,6 +257,7 @@ public sealed class ClientSettings
         TiktokVisualConcurrency = TiktokVisualConcurrency,
         TiktokDocumentConcurrency = TiktokDocumentConcurrency,
         TiktokGlobalProjectConcurrency = TiktokGlobalProjectConcurrency,
+        KuaishouGlobalProjectConcurrency = KuaishouGlobalProjectConcurrency,
         TiktokAccountScheduleMode = TiktokAccountScheduleMode,
         ServerDispatchMode = ServerDispatchMode,
         TiktokVideoDedupConcurrency = TiktokVideoDedupConcurrency,
