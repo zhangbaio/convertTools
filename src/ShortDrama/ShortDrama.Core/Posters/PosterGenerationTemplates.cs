@@ -5,6 +5,26 @@ public static class PosterGenerationTemplates
     public const string DirectMode = "original";
     public const string EraseMode = "erase_fixed_lower_title";
 
+    public const string PlainTextDirectPrompt = """
+        根据输入海报识别短剧人物和题材，独立创作一张可直接发布到 TikTok 的成品海报。
+        保留主要人物的身份、核心面部特征和人物关系，选用符合剧情的新场景。重新设计构图、镜头视角、人物站位和画面布局。
+        为人物安排新的动作、服装和表情，重做光影与主色调。通过新场景和新画面完成整体创作，避免局部换字或修补式改图。
+        清除原图的所有文字、字幕、标志和水印。按任务提供的新剧名排版，成品只出现一次该剧名。保持原有拼写、大小写、空格和标点，可自然换行。
+        标题清晰易读，避开人物面部和画面边缘。保持人物比例自然、五官清晰，呈现主体突出的电影海报质感。
+        只输出一张成品，画面避免乱码、额外文字、重复人物和畸形肢体。
+        """;
+
+    public static bool SupportsPlainText(string? mode) => mode is DirectMode or EraseMode;
+
+    public static string ResolvePlainText(string mode, string? prompt) =>
+        string.IsNullOrWhiteSpace(prompt) ? mode == EraseMode ? ErasePrompt : PlainTextDirectPrompt : prompt;
+
+    public static string ComposePlainText(string mode, string? prompt, string title)
+    {
+        var body = ResolvePlainText(mode, prompt);
+        return mode == DirectMode ? $"{body}\n\n本次海报剧名为《{title}》。" : body;
+    }
+
     public const string DirectPrompt = """
         参考原海报和短剧题材，制作一张可发布的新海报。保留主要人物的身份、面部特征和人物关系，更换背景与构图，调整人物站位、动作、服饰和表情，让新场景符合剧情。
         清除原剧名、字幕、标识、水印和其他文字。成品只出现一次“{title}”，保留原有拼写、大小写、空格和标点，允许自然换行。标题醒目、易读，避开人脸和画面边缘。

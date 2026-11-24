@@ -2015,6 +2015,8 @@ public static partial class QueueMaterialStepService
                 posterMode = "original";
                 effectiveSettings = settings.Clone();
                 effectiveSettings.PosterMode = posterMode;
+                effectiveSettings.PosterAgentDirectPrompt = PosterGenerationTemplates.ResolvePlainText(
+                    PosterGenerationTemplates.DirectMode, account?.AiOptions?.DirectPosterPrompt);
             }
         }
 
@@ -2142,7 +2144,8 @@ public static partial class QueueMaterialStepService
                         UseAi: false,
                         Overwrite: true,
                         Log: log,
-                        UseVisibleImagePrompt: PosterGenerationTemplates.IsSupportedMode(posterMode)),
+                        UseVisibleImagePrompt: PosterGenerationTemplates.IsSupportedMode(posterMode),
+                        PlainTextImagePrompt: TikTokAccountAiSettings.GetPlainTextPosterPrompt(settings, posterMode)),
                     cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (QueueWorkerRunner.IsPosterSensitiveContent(ex))

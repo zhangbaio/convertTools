@@ -28,7 +28,8 @@ public sealed class AccountAiEditor : UserControl
     private readonly TextBox _imageKey = KeyBox();
     private readonly TextBox _publish = PromptBox();
     private readonly TextBlock _imagePromptLabel = new() { Text = "图片提示词" };
-    private readonly TextBox _imagePrompt = PromptBox(readOnly: true);
+    private readonly TextBox _imagePrompt = PromptBox();
+    private readonly StackPanel _imagePromptActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
     private readonly TextBlock _imagePromptRules = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Control _titleVerificationPrompt = Field("标题校验提示词（仅报告）",
         PromptBox(readOnly: true, text: PosterGenerationTemplates.TitleVerificationPrompt));
@@ -54,7 +55,14 @@ public sealed class AccountAiEditor : UserControl
         form.Children.Add(PresetRow("AI 图片模型预设", _imagePresets, () => EditImageAsync(false), () => EditImageAsync(true)));
         form.Children.Add(KeyRow("AI 图片 API Key", _imageKey));
         form.Children.Add(Field("海报模式", _posterMode));
-        form.Children.Add(new StackPanel { Spacing = 4, Children = { _imagePromptLabel, _imagePrompt } });
+        var resetImagePrompt = new Button { Content = "恢复默认" };
+        resetImagePrompt.Click += (_, _) => _imagePrompt.Text = PosterGenerationTemplates.ResolvePlainText(DraftPosterMode(), null);
+        var previewImagePrompt = new Button { Content = "发送预览" };
+        previewImagePrompt.Click += async (_, _) => await PreviewImagePromptAsync();
+        _imagePromptActions.Children.Add(resetImagePrompt);
+        _imagePromptActions.Children.Add(previewImagePrompt);
+        form.Children.Add(new StackPanel { Spacing = 4, Children = { _imagePromptLabel, _imagePrompt, _imagePromptActions } });
+        _imagePromptActions.IsVisible = false;
         _imagePromptRules.IsVisible = _titleVerificationPrompt.IsVisible = false;
         form.Children.Add(_imagePromptRules);
         form.Children.Add(_titleVerificationPrompt);
@@ -94,6 +102,7 @@ public sealed class AccountAiEditor : UserControl
         _textKey.Text = _imageKey.Text = _publish.Text = "";
         _imagePromptLabel.Text = "图片提示词";
         _imagePrompt.Text = "";
+        _imagePromptActions.IsVisible = false;
         _imagePromptRules.IsVisible = _titleVerificationPrompt.IsVisible = false;
         _posterMode.Children.Clear();
         _textPresets.Items.Clear();
@@ -111,7 +120,7 @@ public sealed class AccountAiEditor : UserControl
         var keys = ReadKeys();
         if (keys != _savedKeys || _textEdits.Count > 0 || _imageEdits.Count > 0)
             TikTokAccountAiSettings.Save(account.Id, keys, _textEdits.Values, _imageEdits.Values);
-        account.AiOptions = _draft with
+        account.AiOptions = CapturePosterPrompt(_draft) with
         {
             TextPresetId = SelectedId(_textPresets),
             ImagePresetId = SelectedId(_imagePresets),
@@ -127,7 +136,7 @@ public sealed class AccountAiEditor : UserControl
 
     internal object CaptureDraftState() => new
     {
-        Draft = _draft,
+        Draft = _draft is { } draft ? CapturePosterPrompt(draft) : null,
         Keys = ReadKeys(),
         TextPresets = _textEdits.Values.ToArray(),
         ImagePresets = _imageEdits.Values.ToArray(),
@@ -168,7 +177,7 @@ public sealed class AccountAiEditor : UserControl
             if (_draft is null || option.IsChecked != true)
                 return;
 
-            _draft = _draft with { PosterMode = id };
+            _draft = CapturePosterPrompt(_draft) with { PosterMode = id };
             UpdateImagePrompt();
         };
     }
@@ -183,29 +192,79 @@ public sealed class AccountAiEditor : UserControl
         _ => "沿用原图",
     });
 
-    private void UpdateImagePrompt()
+    private TikTokAccountAiOptions CapturePosterPrompt(TikTokAccountAiOptions draft)
+    {
+        var text = _imagePrompt.Text;
+        var prompt = string.IsNullOrWhiteSpace(text) ||
+                     string.Equals(text.ReplaceLineEndings("\n"),
+                         PosterGenerationTemplates.ResolvePlainText(draft.PosterMode, null).ReplaceLineEndings("\n"),
+                         StringComparison.Ordinal) ? null : text;
+        return draft.PosterMode switch
+        {
+            PosterGenerationTemplates.DirectMode => draft with { DirectPosterPrompt = prompt },
+            PosterGenerationTemplates.EraseMode => draft with { ErasePosterPrompt = prompt },
+            _ => draft,
+        };
+    }
+
+    private async Task PreviewImagePromptAsync()
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner ||
+            !PosterGenerationTemplates.SupportsPlainText(DraftPosterMode()))
+            return;
+
+        var mode = DraftPosterMode();
+        var body = _imagePrompt.Text;
+        var fields = new StackPanel { Margin = new Thickness(18), Spacing = 10 };
+        var prompt = PromptBox(readOnly: true);
+        prompt.MaxHeight = 420;
+        if (mode == PosterGenerationTemplates.DirectMode)
+        {
+            var title = Input("示例剧名");
+            fields.Children.Add(Field("预览剧名", title));
+            title.TextChanged += (_, _) => prompt.Text = PosterGenerationTemplates.ComposePlainText(mode, body, title.Text ?? "");
+            prompt.Text = PosterGenerationTemplates.ComposePlainText(mode, body, title.Text ?? "");
+        }
+        else
+        {
+            prompt.Text = PosterGenerationTemplates.ComposePlainText(mode, body, "");
+        }
+        fields.Children.Add(Field("发送内容", prompt));
+        var dialog = new Window
+        {
+            Title = "图片提示词发送预览", Width = 640, SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = fields,
+        };
+        await dialog.ShowDialog(owner);
+    }
+
+    private void UpdateImagePrompt(bool reloadText = true)
     {
         var mode = DraftPosterMode();
         _imagePromptLabel.Text = $"图片提示词（{PosterModeName(mode)}）";
-        var usesVisiblePrompt = PosterGenerationTemplates.IsSupportedMode(mode);
+        var usesVisiblePrompt = PosterGenerationTemplates.SupportsPlainText(mode);
+        _imagePrompt.IsReadOnly = !usesVisiblePrompt;
+        _imagePromptActions.IsVisible = usesVisiblePrompt;
         _imagePromptRules.IsVisible = usesVisiblePrompt;
         _titleVerificationPrompt.IsVisible = usesVisiblePrompt && _draft?.VerifyTitle == true;
         if (usesVisiblePrompt)
         {
-            _imagePrompt.Text = PosterGenerationTemplates.ForMode(mode);
+            if (reloadText)
+                _imagePrompt.Text = PosterGenerationTemplates.ResolvePlainText(mode,
+                    mode == PosterGenerationTemplates.EraseMode ? _draft?.ErasePosterPrompt : _draft?.DirectPosterPrompt);
             var deliveryRule = mode == PosterGenerationTemplates.EraseMode
                 ? "AI 交付无字底图，程序按原图比例在下半部分用固定字体写入剧名。"
                 : "由图片模型在成品中写入剧名。";
             _imagePromptRules.Text = deliveryRule +
                 " 临时接口或图片响应失败时原样重试一次，模型审核拒绝时报告原因。" +
-                (mode == PosterGenerationTemplates.EraseMode ? "" : " {title} 和 {ratio} 会替换为当前剧名和出图比例。") +
+                (mode == PosterGenerationTemplates.EraseMode ? "" : "\n发送时会附上当前剧名，出图尺寸由图片预设提供。") +
                 (_draft?.VerifyTitle == true ? " 标题校验仅报告结果。" : "");
             return;
         }
 
         _imagePrompt.Text = mode switch
         {
-            "video_frame" or "ai" or "poster_ai_edit" => PosterRenamer.BuildImageGenerationPrompt(_defaults.FrameCoverPrompt, "{title}"),
+            "video_frame" or "ai" or "poster_ai_edit" => PosterRenamer.BuildImageGenerationPrompt(_defaults.FrameCoverPrompt, "示例剧名"),
             "poster_ai_erase_pil_title" => PosterRenamer.DefaultPosterAllTextErasePrompt,
             _ => "当前模式直接使用原图，无需调用图片模型。",
         };
@@ -385,7 +444,7 @@ public sealed class AccountAiEditor : UserControl
             VerifyTitle = verify.IsChecked == true,
             VerifyMode = verifyMode is null ? draft.VerifyMode : SelectedId(verifyMode),
         };
-        UpdateImagePrompt();
+        UpdateImagePrompt(reloadText: false);
         RefreshPresets(SelectedId(_textPresets), id);
     }
 

@@ -40,7 +40,9 @@ public sealed partial class PosterRenamer
             var ratio = !writeTitle && hasConfiguredSize
                 ? GetConfiguredAspectRatio(config, provider, configuredWidth, configuredHeight)
                 : FormatAspectRatio(original.Width, original.Height);
-            var prompt = PosterGenerationTemplates.ForMode(posterMode)
+            var prompt = request.PlainTextImagePrompt is { } plainText && PosterGenerationTemplates.SupportsPlainText(posterMode)
+                ? PosterGenerationTemplates.ComposePlainText(posterMode, plainText, title)
+                : PosterGenerationTemplates.ForMode(posterMode)
                 .Replace("{ratio}", ratio, StringComparison.Ordinal)
                 .Replace("{title}", title, StringComparison.Ordinal);
             var requestSize = writeTitle

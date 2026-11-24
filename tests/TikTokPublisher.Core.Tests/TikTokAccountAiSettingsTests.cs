@@ -42,24 +42,36 @@ public sealed class TikTokAccountAiSettingsTests
             var promptBox = row.Children.OfType<TextBox>().Single();
             var verification = fields.Single(panel => panel.Children.OfType<TextBlock>()
                 .Any(field => field.Text == "标题校验提示词（仅报告）"));
-            promptBox.IsReadOnly.Should().BeTrue();
+            promptBox.IsReadOnly.Should().BeFalse();
 
             editor.Load(account, defaults);
             modeOptions.Children.OfType<RadioButton>().Should().HaveCount(2);
             AssertSelectedMode(ClientSettingsDefaults.PosterModeDirect);
             label.Text.Should().Contain("AI 直接生成");
-            promptBox.Text.Should().Be(PosterGenerationTemplates.DirectPrompt);
+            promptBox.Text.Should().Be(PosterGenerationTemplates.PlainTextDirectPrompt).And.NotContain("{");
             verification.IsVisible.Should().BeTrue();
             verification.Children.OfType<TextBox>().Single().Text.Should().Be(PosterGenerationTemplates.TitleVerificationPrompt);
 
+            const string direct = "用电影光线\n\n突出人物。";
+            const string erase = "仅清除文字。";
+            promptBox.Text = direct;
             SelectMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
             AssertSelectedMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
             label.Text.Should().Contain("去字后固定字体写入");
             promptBox.Text.Should().Be(PosterGenerationTemplates.ErasePrompt);
             account.AiOptions.Should().Be(initialOptions);
+            promptBox.Text = erase;
+            SelectMode(ClientSettingsDefaults.PosterModeDirect);
+            promptBox.Text.Should().Be(direct);
+            SelectMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
+            promptBox.Text.Should().Be(erase);
 
             editor.Save(account);
             account.AiOptions!.PosterMode.Should().Be(ClientSettingsDefaults.PosterModeEraseFixedTitle);
+            account = JsonSerializer.Deserialize<TikTokAccountProfile>(JsonSerializer.Serialize(account))!;
+            var effective = TikTokAccountAiSettings.Apply(defaults, account);
+            effective.PosterAgentDirectPrompt.Should().Be(direct);
+            effective.PosterAgentErasePrompt.Should().Be(erase);
 
             var retiredOptions = initialOptions with { PosterMode = ClientSettingsDefaults.PosterModeReferenceRegenerate };
             var retiredAccount = new TikTokAccountProfile { Id = "retired", AiOptions = retiredOptions };
@@ -67,7 +79,7 @@ public sealed class TikTokAccountAiSettingsTests
             modeOptions.Children.OfType<RadioButton>().Should().HaveCount(2);
             AssertSelectedMode(ClientSettingsDefaults.PosterModeDirect);
             label.Text.Should().Contain("AI 直接生成");
-            promptBox.Text.Should().Be(PosterGenerationTemplates.DirectPrompt);
+            promptBox.Text.Should().Be(PosterGenerationTemplates.PlainTextDirectPrompt);
             retiredAccount.AiOptions.Should().Be(retiredOptions);
 
             editor.Save(retiredAccount);
@@ -80,13 +92,19 @@ public sealed class TikTokAccountAiSettingsTests
             };
             editor.Load(legacyAccount, defaults);
             AssertSelectedMode("video_frame");
-            promptBox.Text.Should().Be(PosterRenamer.BuildImageGenerationPrompt(defaults.FrameCoverPrompt, "{title}"));
+            promptBox.Text.Should().Be(PosterRenamer.BuildImageGenerationPrompt(defaults.FrameCoverPrompt, "示例剧名"));
             verification.IsVisible.Should().BeFalse();
             editor.Save(legacyAccount);
             legacyAccount.AiOptions!.PosterMode.Should().Be("video_frame");
 
             editor.Load(account, defaults);
             AssertSelectedMode(ClientSettingsDefaults.PosterModeEraseFixedTitle);
+            promptBox.Text.Should().Be(erase);
+            row.Children.OfType<StackPanel>().Single().Children.OfType<Button>()
+                .Single(button => Equals(button.Content, "恢复默认")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            editor.Save(account);
+            account.AiOptions!.ErasePosterPrompt.Should().BeNull();
+            account.AiOptions.DirectPosterPrompt.Should().Be(direct);
             editor.Clear();
             modeOptions.Children.OfType<RadioButton>().Should().NotContain(button => button.IsChecked == true);
             promptBox.Text.Should().BeEmpty();
@@ -274,15 +292,15 @@ public sealed class TikTokAccountAiSettingsTests
             effective.ImageModelApiKey.Should().Be("local-image-key");
             effective.AiPublishInfoPrompt.Should().Be("account prompt");
             JsonSerializer.Serialize(account).Should().NotContain("local-text-key").And.NotContain("local-image-key");
-            effective.PosterAgentDirectPrompt.Should().Be(ClientSettingsDefaults.PosterAgentDirectPrompt);
-            effective.PosterAgentErasePrompt.Should().Be(ClientSettingsDefaults.PosterAgentErasePrompt);
+            effective.PosterAgentDirectPrompt.Should().Be(PosterGenerationTemplates.PlainTextDirectPrompt);
+            effective.PosterAgentErasePrompt.Should().Be(PosterGenerationTemplates.ErasePrompt);
 
             var legacy = TikTokAccountAiSettings.Apply(defaults, new TikTokAccountProfile());
             legacy.AiTextApiKey.Should().Be(defaults.AiTextApiKey);
             legacy.ImageProvider.Should().Be("doubao");
             legacy.TiktokRoleVectorViewMode.Should().Be("multi_angle");
             legacy.PosterTitleVerifyAiRetryCount.Should().Be(1);
-            legacy.PosterAgentDirectPrompt.Should().Be(ClientSettingsDefaults.PosterAgentDirectPrompt);
+            legacy.PosterAgentDirectPrompt.Should().Be(PosterGenerationTemplates.PlainTextDirectPrompt);
             defaults.PosterAgentDirectPrompt.Should().Be("legacy custom poster prompt");
 
             TikTokAccountAiSettings.Save("b", new(), [preset with { Endpoint = "https://changed.example/v1" }], []);

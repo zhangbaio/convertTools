@@ -5,7 +5,8 @@ public sealed record TikTokAiImagePreset(string Id, string Name, string Endpoint
 public sealed record TikTokAccountAiOptions(
     string TextPresetId, string ImagePresetId, string PublishPrompt,
     string RoleSelectionMode, bool RoleFallback,
-    string PosterMode, bool VerifyTitle, string VerifyMode)
+    string PosterMode, bool VerifyTitle, string VerifyMode,
+    string? DirectPosterPrompt = null, string? ErasePosterPrompt = null)
 {
     public static TikTokAccountAiOptions FromSettings(ClientSettings settings) => new(
         "", "", Services.TikTokAccountAiSettings.ResolvePublishPrompt(settings.AiPublishInfoPrompt),

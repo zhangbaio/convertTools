@@ -166,8 +166,9 @@ public static class TikTokPosterGenerationStateService
             inpaint_retry_prompt = usesVisiblePrompt ? string.Empty : settings.PosterInpaintSafeRetryPrompt ?? string.Empty,
             generation_prompt = usesVisiblePrompt ? string.Empty : settings.PosterGenerationPrompt ?? string.Empty,
             generation_retry_prompt = usesVisiblePrompt ? string.Empty : settings.PosterGenerationSafeRetryPrompt ?? string.Empty,
-            agent_prompt = usesVisiblePrompt ? PosterGenerationTemplates.ForMode(posterMode)
-                : ClientSettingsStore.ResolvePosterAgentPrompt(settings, posterMode),
+            agent_prompt = TikTokAccountAiSettings.GetPlainTextPosterPrompt(settings, posterMode) ??
+                (usesVisiblePrompt ? PosterGenerationTemplates.ForMode(posterMode)
+                : ClientSettingsStore.ResolvePosterAgentPrompt(settings, posterMode)),
         };
         var json = JsonSerializer.Serialize(payload);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();

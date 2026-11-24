@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ShortDrama.Core.Posters;
 using TikTokPublisher.Core.Models;
 
 namespace TikTokPublisher.Core.Services;
@@ -84,6 +85,13 @@ public static class TikTokAccountAiSettings
         settings.PosterAgentDirectPrompt = ClientSettingsDefaults.PosterAgentDirectPrompt;
         settings.PosterAgentErasePrompt = ClientSettingsDefaults.PosterAgentErasePrompt;
         settings.PosterMode = ResolvePosterMode(account?.AiOptions is { } saved ? saved.PosterMode : defaults.PosterMode);
+        if (PosterGenerationTemplates.SupportsPlainText(settings.PosterMode))
+        {
+            settings.PosterAgentDirectPrompt = PosterGenerationTemplates.ResolvePlainText(
+                PosterGenerationTemplates.DirectMode, account?.AiOptions?.DirectPosterPrompt);
+            settings.PosterAgentErasePrompt = PosterGenerationTemplates.ResolvePlainText(
+                PosterGenerationTemplates.EraseMode, account?.AiOptions?.ErasePosterPrompt);
+        }
         if (account?.AiOptions is not { } options)
         {
             settings.AiPublishInfoPrompt = ResolvePublishPrompt(settings.AiPublishInfoPrompt);
@@ -126,6 +134,13 @@ public static class TikTokAccountAiSettings
         settings.PosterTitleVerifyMode = options.VerifyMode;
         return settings;
     }
+
+    internal static string? GetPlainTextPosterPrompt(ClientSettings settings, string mode) => mode switch
+    {
+        PosterGenerationTemplates.DirectMode => settings.PosterAgentDirectPrompt ?? "",
+        PosterGenerationTemplates.EraseMode => settings.PosterAgentErasePrompt ?? "",
+        _ => null,
+    };
 
     public static string ResolvePosterMode(string? value)
     {

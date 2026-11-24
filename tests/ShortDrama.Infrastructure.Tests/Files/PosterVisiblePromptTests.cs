@@ -47,6 +47,26 @@ public sealed class PosterVisiblePromptTests
     }
 
     [Fact]
+    public async Task Plain_text_body_is_sent_verbatim_with_title_and_size_for_direct_mode()
+    {
+        using var project = new PosterProject(PosterGenerationTemplates.DirectMode);
+        const string custom = "  使用自定义构图。\n仅保留用户写入的字面符号 {title} 和 {ratio}。  ";
+        var generated = CreatePng(96, 128, GeneratedColor);
+        using var handler = new RecordingImageHandler((attempt, _) =>
+            attempt == 1 ? TemporaryFailure() : ImageResponse(generated));
+        using var http = new HttpClient(handler);
+        await CreateRenamer(http).RenameAsync(project.Request with { PlainTextImagePrompt = custom }, CancellationToken.None);
+
+        handler.Requests.Should().HaveCount(2);
+        handler.Requests[1].Should().Be(handler.Requests[0]);
+        AssertImageRequest(handler.Requests[0], File.ReadAllBytes(project.InputPath),
+            $"{custom}\n\n本次海报剧名为《{Title}》。");
+        using var body = JsonDocument.Parse(handler.Requests[0].Body);
+        body.RootElement.GetProperty("size").GetString().Should().Be("96x128");
+        PosterGenerationTemplates.ComposePlainText(PosterGenerationTemplates.EraseMode, custom, Title).Should().Be(custom);
+    }
+
+    [Fact]
     public async Task A_second_request_failure_preserves_the_previous_poster()
     {
         using var project = new PosterProject(PosterGenerationTemplates.DirectMode);
