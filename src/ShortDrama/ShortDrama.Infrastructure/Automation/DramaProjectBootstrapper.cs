@@ -73,6 +73,7 @@ public sealed class DramaProjectBootstrapper : IDramaProjectBootstrapper
             intro = request.Drama.Intro?.Trim() ?? string.Empty,
             category,
             episodeCount = Math.Max(0, request.Drama.EpisodeTotal),
+            expectedEpisodeTotal = request.ExpectedEpisodeTotal,
             favoriteCount = Math.Max(0, request.Drama.FavoriteCount),
             posterUrl = request.Drama.PosterUrl?.Trim() ?? string.Empty,
             configDir = string.Empty,

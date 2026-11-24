@@ -294,7 +294,8 @@ public static class ShortDramaDramaServices
         string episodeNumberMode,
         string queueEntryDramaType,
         CancellationToken cancellationToken,
-        Action<string>? beforeWrite = null)
+        Action<string>? beforeWrite = null,
+        int expectedEpisodeTotal = 0)
     {
         var bootstrapper = new DramaProjectBootstrapper();
         var result = await bootstrapper.BootstrapAsync(
@@ -306,7 +307,8 @@ public static class ShortDramaDramaServices
                 Quality: string.IsNullOrWhiteSpace(quality) ? "1080P" : quality.Trim(),
                 Concurrent: Math.Clamp(concurrent, 1, 10),
                 EpisodeNumberMode: NormalizeEpisodeNumberMode(episodeNumberMode),
-                QueueEntryDramaType: queueEntryDramaType),
+                QueueEntryDramaType: queueEntryDramaType,
+                ExpectedEpisodeTotal: expectedEpisodeTotal),
             cancellationToken,
             beforeWrite);
         return result.SourceProjectDir;

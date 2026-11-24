@@ -121,7 +121,8 @@ public sealed class WorkflowRunner : IWorkflowRunner
                         BookId: metadata.BookId,
                         Episodes: metadata.Episodes,
                         Quality: metadata.Quality,
-                        Concurrent: metadata.Concurrent),
+                        Concurrent: metadata.Concurrent,
+                        ExpectedEpisodeTotal: metadata.ExpectedEpisodeTotal),
                     new InlineProgress<string>(message =>
                     {
                         if (!string.IsNullOrWhiteSpace(message))

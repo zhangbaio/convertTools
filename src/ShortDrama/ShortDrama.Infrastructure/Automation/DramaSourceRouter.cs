@@ -818,6 +818,12 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var downloadAttempts = ParsePositiveInt(settings.HongguoEpisodeDownloadAttempts, 5);
         var downloadFileSegments = ParseDownloadFileSegments(settings.DownloadFileSegments);
         var bookId = request.BookId?.Trim() ?? string.Empty;
+        if (request.ExpectedEpisodeTotal > 0 &&
+            (bookId.Length == 0 || DramaDownloadSourceSelector.IsRemovedBookId(bookId) ||
+             DramaDownloadSourceSelector.InferSource(bookId) != DramaDownloadSourceSelector.Normalize(settings.DramaSourceChain)))
+        {
+            return new DramaDownloadResult(false, request.OutputDir, 0, "剧集标识与客户端配置的下载链路不一致，请重新匹配。");
+        }
         if (bookId.Length > 0 && request.ExpectedEpisodeTotal == 0)
         {
             var aligned = await AlignBookIdToCurrentChainAsync(request, bookId, settings, progress, cancellationToken);

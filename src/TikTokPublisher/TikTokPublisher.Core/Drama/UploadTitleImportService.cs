@@ -353,7 +353,7 @@ public static class UploadTitleImportService
         return (null, results.Count == 0 ? EmptySearchResultReason : NoExactMatchReason);
     }
 
-    internal static ExactDramaLookupResult PickStrictDispatchMatch(string title, int episodeTotal, IReadOnlyList<DramaSearchItem> results)
+    public static ExactDramaLookupResult PickStrictDispatchMatch(string title, int episodeTotal, IReadOnlyList<DramaSearchItem> results)
     {
         static string Key(string value) =>
             Regex.Replace(value.Trim().Replace('’', '\'').Replace('‘', '\''), @"\s+", " ").ToLowerInvariant();

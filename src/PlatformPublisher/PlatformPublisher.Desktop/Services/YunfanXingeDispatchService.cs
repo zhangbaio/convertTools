@@ -246,16 +246,17 @@ public sealed class YunfanXingeDispatchService
             await CompleteAsync(http, config, message.Id, "success", "账号今日上传已达上限，已跳过", "", ct).ConfigureAwait(false);
             return;
         }
-        var titles = ReadTitles(payload);
+        var (assignedTitle, episodes) = ReadAssignedDrama(payload);
         var command = new MainWindowViewModel.KsSettleCommand(
             commandName,
             assignmentId,
             ReadString(payload, "auto_publish_progress_path"),
             accountId,
             edition,
-            titles.FirstOrDefault() ?? "",
+            assignedTitle,
             ReadSteps(payload),
-            ReadQueueBool(payload, "force_rerun_completed_steps"));
+            ReadQueueBool(payload, "force_rerun_completed_steps"),
+            episodes);
         var result = await _viewModel.ExecuteKsSettlementCommandAsync(
             command,
             (status, step, detail, failure) => ReportAsync(http, config, command, status, step, detail, failure, ct),
@@ -475,7 +476,7 @@ public sealed class YunfanXingeDispatchService
             AssignmentId = assignmentId,
             AccountName = ReadString(payload, "account_profile_name"),
             Edition = commandName == "ks_personal_upload_series" ? "personal" : ReadString(payload, "edition"),
-            Title = ReadTitles(payload).FirstOrDefault() ?? "",
+            Title = FormatAssignedDrama(payload),
             ConfirmSeconds = (int)ReadLong(payload, "confirm_seconds"),
         };
         return true;
@@ -628,6 +629,29 @@ public sealed class YunfanXingeDispatchService
         if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number))
             return number;
         return long.TryParse(value.ToString(), out var parsed) ? parsed : 0;
+    }
+
+    private static (string Title, int Episodes) ReadAssignedDrama(JsonElement payload)
+    {
+        var title = ReadTitles(payload).FirstOrDefault() ?? "";
+        if (payload.TryGetProperty("series", out var series) && series.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in series.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+                var name = ReadString(item, "title");
+                var episodeCount = ReadLong(item, "episode_cnt");
+                return (string.IsNullOrWhiteSpace(name) ? title : name, episodeCount is > 0 and <= int.MaxValue ? (int)episodeCount : 0);
+            }
+        }
+        return (title, 0);
+    }
+
+    private static string FormatAssignedDrama(JsonElement payload)
+    {
+        var (title, episodes) = ReadAssignedDrama(payload);
+        return episodes > 0 ? $"{title} · {episodes} 集" : title;
     }
 
     private static IReadOnlyList<string> ReadTitles(JsonElement payload)

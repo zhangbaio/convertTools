@@ -18,7 +18,8 @@ internal sealed record ProjectAutomationMetadata(
     int Concurrent,
     string? UploadConfigName,
     string? WorkflowDirName,
-    string? WorkflowProjectDir)
+    string? WorkflowProjectDir,
+    int ExpectedEpisodeTotal = 0)
 {
     public static ProjectAutomationMetadata Resolve(string projectDir)
     {
@@ -108,7 +109,8 @@ internal sealed record ProjectAutomationMetadata(
                     Concurrent = GetInt(root, "concurrent") ?? defaults.Concurrent,
                     UploadConfigName = GetString(root, "uploadConfigName") ?? GetString(root, "upload_config_name"),
                     WorkflowDirName = GetString(root, "workflowDirName") ?? GetString(root, "workflow_dir_name"),
-                    WorkflowProjectDir = GetString(root, "workflowProjectDir") ?? GetString(root, "workflow_project_dir")
+                    WorkflowProjectDir = GetString(root, "workflowProjectDir") ?? GetString(root, "workflow_project_dir"),
+                    ExpectedEpisodeTotal = GetInt(root, "expectedEpisodeTotal") ?? 0
                 };
             }
             catch

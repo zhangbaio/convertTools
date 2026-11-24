@@ -8,7 +8,8 @@ public sealed record DramaProjectBootstrapRequest(
     string Quality = "1080P",
     int Concurrent = 5,
     string EpisodeNumberMode = "source",
-    string QueueEntryDramaType = "");
+    string QueueEntryDramaType = "",
+    int ExpectedEpisodeTotal = 0);
 
 public sealed record DramaProjectBootstrapResult(
     string ProjectKey,

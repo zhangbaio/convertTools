@@ -18,7 +18,8 @@ public sealed class DramaTitleImportService(IDramaSearchService search, YunfanDr
         string workspaceDirectory,
         string titlesText,
         Action<string>? log,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int expectedEpisodes = 0)
     {
         var workspace=Path.GetFullPath(workspaceDirectory);
         if(!Directory.Exists(workspace))throw new DirectoryNotFoundException($"工作目录不存在：{workspace}");
@@ -36,15 +37,23 @@ public sealed class DramaTitleImportService(IDramaSearchService search, YunfanDr
             {
                 var coreItems=await search.SearchAsync(request.Title,1,cancellationToken);
                 var items=coreItems.Select(ShortDramaDramaServices.FromCore).ToArray();
-                var (matched,reason)=UploadTitleImportService.PickPreferredSearchMatch(request.Title,items);
+                var (matched,reason)=expectedEpisodes > 0
+                    ? StrictMatch(request.Title, expectedEpisodes, items)
+                    : UploadTitleImportService.PickPreferredSearchMatch(request.Title,items);
                 if(matched is null){failures.Add(new(request.Title,reason));log?.Invoke($"未加入：{request.Title}，{reason}");continue;}
                 var episodeError=matched.EpisodeTotal<MinimumEpisodes?$"集数 {matched.EpisodeTotal}，小于最小限制 {MinimumEpisodes}":matched.EpisodeTotal>MaximumEpisodes?$"集数 {matched.EpisodeTotal}，大于最大限制 {MaximumEpisodes}":string.Empty;
                 if(!string.IsNullOrWhiteSpace(episodeError)){failures.Add(new(request.Title,episodeError));log?.Invoke($"已过滤：{request.Title}，{episodeError}");continue;}
-                var directory=await ShortDramaDramaServices.BootstrapAsync(workspace,matched,"all",settings.DramaDownloadDefaultQuality,settings.DramaDownloadConcurrent,"source","short",cancellationToken);
+                var directory=await ShortDramaDramaServices.BootstrapAsync(workspace,matched,"all",settings.DramaDownloadDefaultQuality,settings.DramaDownloadConcurrent,"source","short",cancellationToken,expectedEpisodeTotal: expectedEpisodes);
                 projectDirectories.Add(directory);log?.Invoke($"已创建/更新项目：{matched.Title}（{matched.EpisodeTotal} 集）");
             }
             catch(Exception ex) when(ex is not OperationCanceledException){failures.Add(new(request.Title,ex.Message));log?.Invoke($"导入失败：{request.Title}，{ex.Message}");}
         }
         return new(projectDirectories,failures,requests.Count);
     }
+    private static (DramaSearchItem? Item, string Reason) StrictMatch(string title, int episodes, IReadOnlyList<DramaSearchItem> items)
+    {
+        var match = UploadTitleImportService.PickStrictDispatchMatch(title, episodes, items);
+        return (match.Item, match.Reason);
+    }
+
 }

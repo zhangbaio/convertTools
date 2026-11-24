@@ -110,6 +110,32 @@ public sealed class WorkflowRunnerTests
         result.Steps[0].Outputs!["file1"].Should().Be("/tmp/project/videos/新剧名-第1集.mp4");
     }
 
+    [Fact]
+    public async Task DownloadPassesTheDispatchedEpisodeCountFromProjectMetadata()
+    {
+        var directory = Directory.CreateTempSubdirectory("ks-dispatch-");
+        try
+        {
+            File.WriteAllText(Path.Combine(directory.FullName, "shortdrama-project.json"),
+                """{"bookId":"hongguoapp:test","title":"暴雨夜退婚","expectedEpisodeTotal":48}""");
+            var downloader = new FakeDramaDownloader();
+            var runner = new WorkflowRunner(new FakeCostReportBuilder(), new FakeBatchFileRenamer(),
+                new FakePosterRenamer(), new FakeProjectInfoRewriter(), new FakeProjectImageGenerator(),
+                new FakeVideoTranscoder(), new FakeVideoMaterialConverter(), downloader, new FakeWeixinChannelUploader());
+            var definition = new WorkflowDefinition("ks", "暴雨夜退婚", directory.FullName, directory.FullName,
+                [new WorkflowStep("download", null, null, null, null, directory.FullName, null, 0)]);
+
+            var result = await runner.RunAsync(definition, null, CancellationToken.None);
+
+            Assert.True(result.Ok);
+            Assert.Equal(48, downloader.LastRequest?.ExpectedEpisodeTotal);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     private sealed class FakeVideoTranscoder : IVideoTranscoder
     {
         public Task<VideoTranscodeResult> TranscodeAsync(
@@ -129,11 +155,14 @@ public sealed class WorkflowRunnerTests
 
     private sealed class FakeDramaDownloader : IDramaDownloader
     {
+        public DramaDownloadRequest? LastRequest { get; private set; }
+
         public Task<DramaDownloadResult> DownloadAsync(
             DramaDownloadRequest request,
             IProgress<string>? progress,
             CancellationToken cancellationToken)
         {
+            LastRequest = request;
             return Task.FromResult(new DramaDownloadResult(
                 Ok: true,
                 OutputDir: request.OutputDir,

@@ -41,7 +41,8 @@ public sealed partial class MainWindowViewModel
         string Edition,
         string Title,
         IReadOnlyList<string> EnabledSteps,
-        bool? ForceRerun = null);
+        bool? ForceRerun = null,
+        int ExpectedEpisodes = 0);
 
     public sealed record YunfanRemoteCommandResult(string Status, string Summary, string FailureKind = "");
 
@@ -213,10 +214,14 @@ public sealed partial class MainWindowViewModel
                 return EnqueueExistingKsSettleProject(account, commandPlatform, key, located.Directory, command, reportAsync);
         }
 
+        if (command.AssignmentId > 0 && (command.ExpectedEpisodes <= 0 ||
+            string.IsNullOrWhiteSpace(command.Title) || command.Title.Trim().All(char.IsDigit)))
+            return new YunfanRemoteCommandResult("failed", "派单缺少真实原剧名或预期总集数，请更新或重新下发派单。");
+
         DramaTitleImportOutcome outcome;
         try
         {
-            outcome = await _dramaTitleImportService.ImportAsync(workspace, command.Title, AppendActivityLog, cancellationToken)
+            outcome = await _dramaTitleImportService.ImportAsync(workspace, command.Title, AppendActivityLog, cancellationToken, command.ExpectedEpisodes)
                 .ConfigureAwait(true);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
