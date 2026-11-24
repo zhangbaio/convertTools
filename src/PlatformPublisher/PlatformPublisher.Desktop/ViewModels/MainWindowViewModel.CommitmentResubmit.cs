@@ -91,7 +91,7 @@ public sealed partial class MainWindowViewModel
         var result = await service.SubmitAsync(session, found, progress, cancellationToken);
         var summary = $"重新提交结束：已提交 {result.Submitted} 部，失败 {result.Failed} 部。";
         if (result.StoppedByDailyLimit)
-            summary += "今日新建短剧已达 10 部，其余未再提交。";
+            summary += $"{KuaishouDailyUploadLimit.Detail}，其余未再提交。";
         StatusMessage = summary;
         AppendActivityLog(summary);
         var details = result.Lines.Where(line => !line.EndsWith("已重新提交。", StringComparison.Ordinal)).ToArray();

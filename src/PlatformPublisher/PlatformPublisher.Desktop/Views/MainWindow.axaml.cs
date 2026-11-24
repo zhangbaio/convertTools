@@ -731,7 +731,7 @@ public partial class MainWindow : Window
         ViewModel.KuaishouDailyUploadLimitReached += (accountId, message) =>
         {
             _xingeDispatch?.ReportDailyUploadLimit(accountId);
-            _ = ConfirmDialog.ShowAsync(this, "今日短剧上传已达上限", message, 480, 210);
+            _ = ConfirmDialog.ShowAsync(this, KuaishouDailyUploadLimit.Detail, message, 480, 210);
         };
         _xingeDispatch = new YunfanXingeDispatchService(ViewModel);
         _xingeDispatch.StatusChanged += message =>

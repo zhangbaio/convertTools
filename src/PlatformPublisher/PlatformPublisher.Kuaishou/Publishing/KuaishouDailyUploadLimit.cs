@@ -6,13 +6,17 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 public static class KuaishouDailyUploadLimit
 {
     public const string FailureKind = "account_daily_limit";
-    public const string Detail = "快手分账今日新建短剧已达 10 部。还没有草稿的剧今天不再创建，上传失败的草稿可以继续。";
+    public const string Detail = "今日的短剧上传已达上限";
+    private const string LegacyDetail = "快手分账今日新建短剧已达 10 部。还没有草稿的剧今天不再创建，上传失败的草稿可以继续。";
     private static readonly AsyncLocal<string?> Account = new();
     private static readonly object NotedGate = new();
     private static readonly Dictionary<string, DateOnly> NotedDays = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> CreateGates = new(StringComparer.OrdinalIgnoreCase);
 
     public static string CurrentAccountId => Account.Value?.Trim() ?? "";
+
+    public static string FormatSavedMessage(string? message) =>
+        string.Equals(message?.Trim(), LegacyDetail, StringComparison.Ordinal) ? Detail : message ?? string.Empty;
 
     public static IDisposable UseAccount(string? accountId) => new AccountScope(accountId);
 

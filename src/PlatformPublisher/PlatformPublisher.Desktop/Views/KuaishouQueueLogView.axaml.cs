@@ -6,7 +6,9 @@ using Avalonia.Controls.Documents;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using PlatformPublisher.Common.Models;
 using PlatformPublisher.Desktop.ViewModels;
+using PlatformPublisher.Kuaishou.Publishing;
 using TikTokPublisher.Core.Services;
 
 namespace PlatformPublisher.Desktop.Views;
@@ -44,7 +46,7 @@ public partial class KuaishouQueueLogView : UserControl
             if (AutoFollowBox.IsChecked == true)
                 AutoFollowBox.IsChecked = false;
             _selectedProject = row.ProjectName;
-            RefreshLog();
+            RefreshLog(showStart: row.Tone == "failed");
         };
     }
 
@@ -321,9 +323,36 @@ public partial class KuaishouQueueLogView : UserControl
     private IEnumerable<(string Text, string ProjectName)> LinesFor(PublishJobRowViewModel job)
     {
         var match = FindStored(job);
-        if (match is not null && match.CopyLines() is { Count: > 0 } lines)
-            return lines.Select(line => (line, match.ProjectName));
-        return ActivityLines(job.ProjectName);
+        var lines = match is not null && match.CopyLines() is { Count: > 0 } stored
+            ? stored.Select(line => (line, match.ProjectName))
+            : ActivityLines(job.ProjectName);
+        return ToneFromJob(job) == "failed" ? WithSavedFailures(job.Model, lines) : lines;
+    }
+
+    public static IEnumerable<(string Text, string ProjectName)> WithSavedFailures(
+        PublishJob job,
+        IEnumerable<(string Text, string ProjectName)> lines)
+    {
+        var reasons = new HashSet<string>(StringComparer.Ordinal);
+        var failedSteps = job.StepStates.Values
+            .Where(step => step.Status == PublishJobStepStatus.Failed && !string.IsNullOrWhiteSpace(step.Message))
+            .OrderByDescending(step => step.UpdatedAt);
+        foreach (var step in failedSteps)
+        {
+            var reason = KuaishouDailyUploadLimit.FormatSavedMessage(step.Message.Trim());
+            reasons.Add(reason);
+            var label = string.IsNullOrWhiteSpace(step.Label) ? "执行步骤" : step.Label;
+            yield return ($"[{step.UpdatedAt:HH:mm:ss}] {label}失败：{reason}", job.ProjectName);
+        }
+
+        var jobReason = KuaishouDailyUploadLimit.FormatSavedMessage(job.StatusMessage).Trim();
+        if (job.Status == PublishJobStatus.Failed && jobReason.Length > 0 && !reasons.Contains(jobReason))
+        {
+            yield return ($"[{job.UpdatedAt:HH:mm:ss}] 任务失败：{jobReason}", job.ProjectName);
+        }
+
+        foreach (var line in lines)
+            yield return line;
     }
 
     private KuaishouLogProject? FindStored(PublishJobRowViewModel job)
@@ -365,7 +394,7 @@ public partial class KuaishouQueueLogView : UserControl
         return text.Insert(offset, $"{prefix} ");
     }
 
-    private void RefreshLog()
+    private void RefreshLog(bool showStart = false)
     {
         if (_vm is null) return;
         var problemsOnly = ProblemsOnlyBox.IsChecked == true;
@@ -386,7 +415,9 @@ public partial class KuaishouQueueLogView : UserControl
                     Math.Max(0, LogScrollViewer.Extent.Height - LogScrollViewer.Viewport.Height - 8);
         _logText = string.Join(Environment.NewLine, lines.Select(line => line.Text));
         RenderLogLines(lines);
-        if (atEnd || AutoFollowBox.IsChecked == true)
+        if (showStart)
+            LogScrollViewer.Offset = default;
+        else if (atEnd || AutoFollowBox.IsChecked == true)
             LogScrollViewer.ScrollToEnd();
     }
 

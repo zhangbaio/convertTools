@@ -1,5 +1,7 @@
+using PlatformPublisher.Common.Models;
 using PlatformPublisher.Desktop.ViewModels;
 using PlatformPublisher.Desktop.Views;
+using TikTokPublisher.Core.Services;
 using Xunit;
 
 namespace PlatformPublisher.Desktop.Tests;
@@ -40,6 +42,45 @@ public sealed class KuaishouLogProjectTests
         var lines = project.CopyLines();
         Assert.Equal(KuaishouLogProject.MaxLines, lines.Count);
         Assert.Contains("改写信息失败", lines[^1]);
+    }
+
+    [Fact]
+    public void Saved_upload_limit_failure_appears_above_progress_logs()
+    {
+        const string reason = "快手分账今日新建短剧已达 10 部。还没有草稿的剧今天不再创建，上传失败的草稿可以继续。";
+        const string projectName = "测试短剧原剧名";
+        var job = new PublishJob { ProjectName = projectName, Status = PublishJobStatus.Failed, StatusMessage = reason };
+        job.StepStates["weixin-upload"] = new PublishJobStepState
+        {
+            Label = "上传剧集",
+            Status = PublishJobStepStatus.Failed,
+            Message = reason,
+            UpdatedAt = new DateTimeOffset(2026, 1, 1, 16, 35, 56, TimeSpan.FromHours(8)),
+        };
+        var progress = ("[16:35:55] 快手分账 · 企业：单集封面：快手竖屏海报.jpg", projectName);
+
+        var lines = KuaishouQueueLogView.WithSavedFailures(job, [progress]).ToArray();
+
+        Assert.Equal(2, lines.Length);
+        Assert.Equal(("[16:35:56] 上传剧集失败：今日的短剧上传已达上限", projectName), lines[0]);
+        Assert.Equal("error", LogMessageLevelClassifier.InferLevel(lines[0].Text));
+        Assert.Equal(progress, lines[1]);
+    }
+
+    [Fact]
+    public void Saved_job_error_appears_when_no_step_error_or_progress_log_exists()
+    {
+        var job = new PublishJob
+        {
+            ProjectName = "测试短剧",
+            Status = PublishJobStatus.Failed,
+            StatusMessage = "账号登录状态已失效",
+        };
+
+        var line = Assert.Single(KuaishouQueueLogView.WithSavedFailures(job, []));
+
+        Assert.EndsWith("任务失败：账号登录状态已失效", line.Text);
+        Assert.Equal(job.ProjectName, line.ProjectName);
     }
 
     [Fact]

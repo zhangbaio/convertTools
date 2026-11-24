@@ -2252,7 +2252,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (!first)
             return;
         var name = string.IsNullOrWhiteSpace(accountName) ? id : accountName.Trim();
-        var message = $"账号「{name}」今天新建短剧已达 10 部。正在上传的会传完，还没开始的今天不再新建。";
+        var message = $"账号「{name}」{KuaishouDailyUploadLimit.Detail}。正在上传的会传完，还没开始的今天不再新建。";
         AppendActivityLog(message);
         Dispatcher.UIThread.Post(() => KuaishouDailyUploadLimitReached?.Invoke(id, message));
     }
@@ -2309,7 +2309,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         !CanResumeKuaishouUpload(item.directory, request.Platform) &&
                         !ShouldContinueKuaishouReplace(item.directory, request.Platform))
                     {
-                        AppendActivityLog($"今日新建短剧已达 10 部，{projectName} 还没开始上传，今天不再新建。", projectName);
+                        AppendActivityLog($"{KuaishouDailyUploadLimit.Detail}，{projectName} 还没开始上传，今天不再新建。", projectName);
                         SetKuaishouLogTone(item.directory, "none");
                         return;
                     }
@@ -2361,7 +2361,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     else
                     {
                         SetKuaishouLogTone(item.directory, "none");
-                        var skipped = $"今日新建短剧已达 10 部，{projectName} 还没开始上传，今天不再新建。";
+                        var skipped = $"{KuaishouDailyUploadLimit.Detail}，{projectName} 还没开始上传，今天不再新建。";
                         ReportRunStatus(skipped);
                         AppendActivityLog(skipped, projectName);
                     }

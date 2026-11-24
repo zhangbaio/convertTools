@@ -78,7 +78,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
             return string.IsNullOrWhiteSpace(_kuaishou.OverallStatus) ? "待执行" : _kuaishou.OverallStatus;
         }
     }
-    public string StatusMessage => Model.StatusMessage;
+    public string StatusMessage => KuaishouDailyUploadLimit.FormatSavedMessage(Model.StatusMessage);
     public string ScheduleText => Model.ScheduledAt is { } value
         ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
         : "立即/手动";

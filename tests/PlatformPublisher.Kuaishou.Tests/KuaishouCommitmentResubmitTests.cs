@@ -127,7 +127,7 @@ public sealed class KuaishouCommitmentResubmitTests
         Assert.True(result.StoppedByDailyLimit);
         Assert.Equal(2, calls);
         Assert.Contains(result.Lines, line => line.Contains("第一部", StringComparison.Ordinal) && line.Contains("失败", StringComparison.Ordinal));
-        Assert.Contains(result.Lines, line => line.Contains("其余 1 部未再提交", StringComparison.Ordinal));
+        Assert.Contains("今日的短剧上传已达上限，其余 1 部未再提交。", result.Lines);
         Assert.Contains("\"miniSeriesId\":\"2\"", gateway.Bodies[1], StringComparison.Ordinal);
     }
 

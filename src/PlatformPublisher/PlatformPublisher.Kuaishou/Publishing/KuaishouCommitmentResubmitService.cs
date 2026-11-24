@@ -135,8 +135,8 @@ public sealed class KuaishouCommitmentResubmitService
                 stopped = true;
                 var remain = targets.Count - index - 1;
                 var line = remain > 0
-                    ? $"今日新建短剧已达 10 部，其余 {remain} 部未再提交。"
-                    : "今日新建短剧已达 10 部，已停止重新提交。";
+                    ? $"{KuaishouDailyUploadLimit.Detail}，其余 {remain} 部未再提交。"
+                    : $"{KuaishouDailyUploadLimit.Detail}，已停止重新提交。";
                 lines.Add(line);
                 progress?.Report(line);
                 break;

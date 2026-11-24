@@ -76,7 +76,8 @@ public sealed class KuaishouDailyUploadLimitTests
         var account = "acct-create-" + Guid.NewGuid().ToString("N");
         using var scope = KuaishouDailyUploadLimit.UseAccount(account);
         using var document = JsonDocument.Parse("""{"result":11,"error_msg":"为保证内容审核质量，每位创作者每日限传10部"}""");
-        Assert.Throws<KuaishouDailyUploadLimitException>(() => KuaishouSeriesDraft.EnsureSuccess(document.RootElement));
+        var error = Assert.Throws<KuaishouDailyUploadLimitException>(() => KuaishouSeriesDraft.EnsureSuccess(document.RootElement));
+        Assert.Equal("今日的短剧上传已达上限", error.Message);
         Assert.True(KuaishouDailyUploadLimit.IsNoted(account));
         Assert.Equal(account, KuaishouDailyUploadLimit.CurrentAccountId);
     }
