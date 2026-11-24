@@ -159,6 +159,26 @@ public static class KuaishouTodayUploadCounter
 
     public sealed record TodayUpload(string Title, string CompletedAt, string Alias = "");
 
+    public static IReadOnlyDictionary<(PublishPlatform Platform, string AccountId), int> CountRecordedByAccount(
+        DateTime day, string? storeRoot = null)
+    {
+        EnsureMigrated(storeRoot);
+        var counts = new Dictionary<(PublishPlatform, string), int>();
+        var groups = KuaishouUploadRecordStore.ListSuccessForDay(day.Date, storeRoot)
+            .GroupBy(record => (record.Edition, record.AccountId));
+        foreach (var group in groups)
+        {
+            if (!KuaishouAccountEdition.TryGetPlatform(group.Key.Edition, out var platform))
+                continue;
+            var counted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var record in group)
+                Remember(counted, names, record.Directory, DramaIdentity(record.OriginalTitle, record.ProjectName));
+            counts[(platform, group.Key.AccountId)] = counted.Count;
+        }
+        return counts;
+    }
+
     // 今日上传成功的剧，供 XINGE 把用户自己传完的也算进每日上限。同一项目只报一次。
     public static IReadOnlyList<TodayUpload> ListToday(
         PublishPlatform platform,

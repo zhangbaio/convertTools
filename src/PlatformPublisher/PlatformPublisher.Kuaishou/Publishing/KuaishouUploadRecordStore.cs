@@ -182,7 +182,7 @@ public static class KuaishouUploadRecordStore
                        author,episode_count,project_directory,error
                 FROM kuaishou_upload_records
                 WHERE edition=$edition AND account_id=$account AND status='成功' AND record_date=$day
-                ORDER BY recorded_at, project_name
+                ORDER BY recorded_at, project_name, project_key
                 """;
             command.Parameters.AddWithValue("$edition", edition);
             command.Parameters.AddWithValue("$account", accountId.Trim());
@@ -200,6 +200,29 @@ public static class KuaishouUploadRecordStore
             using var command = connection.CreateCommand();
             command.CommandText = "SELECT 1 FROM kuaishou_record_migrations WHERE migration_key='json-ledger-v1'";
             return command.ExecuteScalar() is not null;
+        }
+    }
+
+    internal static IReadOnlyList<(string Edition, string AccountId, string Directory, string OriginalTitle, string ProjectName)>
+        ListSuccessForDay(DateTime day, string? storeRoot)
+    {
+        lock (Gate)
+        {
+            using var connection = Open(storeRoot);
+            EnsureSchema(connection);
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT edition, account_id, project_directory, original_title, project_name
+                FROM kuaishou_upload_records
+                WHERE edition IN ('personal', 'enterprise') AND record_date=$day AND status='成功'
+                ORDER BY recorded_at, project_name, project_key
+                """;
+            command.Parameters.AddWithValue("$day", day.ToString("yyyy-MM-dd"));
+            using var reader = command.ExecuteReader();
+            var records = new List<(string, string, string, string, string)>();
+            while (reader.Read())
+                records.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4)));
+            return records;
         }
     }
 

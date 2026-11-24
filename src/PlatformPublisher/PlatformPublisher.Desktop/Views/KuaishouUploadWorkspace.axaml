@@ -26,14 +26,26 @@
                         <Button Content="删除" Classes="dangerAction" Click="RemoveAccount_Click" />
                     </StackPanel>
                     <TextBox x:Name="AccountSearch" Watermark="昵称 / ID" TextChanged="AccountSearch_TextChanged" />
+                    <TextBlock Text="今日已上传" FontSize="12" Classes="pageSummary"
+                               HorizontalAlignment="Right" Margin="0,0,10,0" />
                 </StackPanel>
-                <ListBox x:Name="AccountList" Classes="uploadAccountList" SelectionChanged="AccountList_SelectionChanged">
+                <ListBox x:Name="AccountList" Classes="uploadAccountList" SelectionChanged="AccountList_SelectionChanged"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListBox.Styles>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Summary}" FontSize="12" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Summary}" FontSize="12" Classes="pageSummary" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding UploadCountText}"
+                                           FontSize="12" Classes="pageSummary" VerticalAlignment="Center" />
+                            </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>

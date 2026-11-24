@@ -207,6 +207,13 @@ public sealed class KuaishouPersonalConfig
         CredentialStore = credentialStore;
     }
 
+    public static (string ArchiveRoot, string Nickname) ReadUploadCountSettings(PublishJob job)
+    {
+        var config = LoadSharedConfig(job);
+        ApplyLegacySettings(config, job.Platform);
+        return (config.ArchiveRootDirectory, config.KuaishouNickname);
+    }
+
     public static KuaishouPersonalConfig Load(PublishJob job)
     {
         var platform = job.Platform == PublishPlatform.KuaishouEnterpriseRevenue

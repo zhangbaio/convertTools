@@ -34,6 +34,37 @@ public sealed class KuaishouTodayUploadCounterTests
     }
 
     [Fact]
+    public void Bulk_counts_match_single_account_counts_and_exclude_failed_or_older_records()
+    {
+        var root = Directory.CreateTempSubdirectory();
+        var store = Path.Combine(root.FullName, "records");
+        var now = new DateTimeOffset(2026, 11, 24, 18, 0, 0, TimeSpan.FromHours(8));
+        var day = now.LocalDateTime.Date;
+        var personal = PublishPlatform.KuaishouPersonalRevenue;
+        var enterprise = PublishPlatform.KuaishouEnterpriseRevenue;
+        var directory = Path.Combine(root.FullName, "红果_测试短剧");
+        KuaishouTodayUploadCounter.RecordSuccess(personal, "account-a", directory, now, store);
+        KuaishouTodayUploadCounter.RecordSuccess(personal, "account-a",
+            Path.Combine(root.FullName, "workflow", "_测试短剧"), now, store);
+        KuaishouTodayUploadCounter.RecordSuccess(enterprise, "account-a", directory, now, store);
+        KuaishouTodayUploadCounter.RecordSuccess(personal, "account-b", directory, now, store);
+        KuaishouTodayUploadCounter.RecordSuccess(personal, "account-b",
+            Path.Combine(root.FullName, "另一部剧"), now, store);
+        KuaishouTodayUploadCounter.RecordSuccess(personal, "account-c", directory, now.AddDays(-1), store);
+        KuaishouUploadRecordStore.Upsert(new KuaishouUploadRecord("personal", "account-b", "", now, "失败",
+            "失败剧集", "失败剧集", "", "", 0, Path.Combine(root.FullName, "失败剧集"), "提交失败"), store);
+
+        var counts = KuaishouTodayUploadCounter.CountRecordedByAccount(day, store);
+
+        Assert.Equal(3, counts.Count);
+        Assert.Equal(1, counts[(personal, "account-a")]);
+        Assert.Equal(1, counts[(enterprise, "account-a")]);
+        Assert.Equal(2, counts[(personal, "account-b")]);
+        Assert.Equal(KuaishouTodayUploadCounter.CountToday(personal, "account-a", null, day, store),
+            counts[(personal, "account-a")]);
+    }
+
+    [Fact]
     public void Same_project_uploaded_twice_today_counts_once_and_workspace_state_fills_missing_records()
     {
         var root = Directory.CreateTempSubdirectory();
@@ -216,6 +247,8 @@ public sealed class KuaishouTodayUploadCounterTests
             }
             """);
 
+        Assert.Equal(0, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", null, today.Date, store));
         Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
             PublishPlatform.KuaishouPersonalRevenue,
             "acct-a",
@@ -223,6 +256,8 @@ public sealed class KuaishouTodayUploadCounterTests
             today.Date,
             store,
             [finished.FullName, yesterday.FullName]));
+        Assert.Equal(1, KuaishouTodayUploadCounter.CountToday(
+            PublishPlatform.KuaishouPersonalRevenue, "acct-a", null, today.Date, store));
     }
 
     [Fact]

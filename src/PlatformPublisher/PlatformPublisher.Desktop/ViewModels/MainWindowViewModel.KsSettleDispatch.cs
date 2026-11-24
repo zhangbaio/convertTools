@@ -642,8 +642,6 @@ public sealed partial class MainWindowViewModel
                         token).ConfigureAwait(false);
                     SetKuaishouLogTone(directory, "ok");
                     RememberKuaishouUploadReport(directory, work.Request, succeeded: true, error: "");
-                    if (IsViewingKuaishouRun(work.Request))
-                        RefreshKuaishouTodayUploadCount();
                 }
                 finally
                 {

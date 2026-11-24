@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.Extensions.DependencyInjection;
 using PlatformPublisher.Adx.Automation;
 using PlatformPublisher.Adx.Storage;
@@ -76,6 +77,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         {
             _viewModel?.SetKuaishouQueueStatusVisible(Workflow.IsVisible);
             RefreshSidebar();
+            _viewModel?.RefreshKuaishouSidebarUploadCounts();
             RefreshHistory();
         }
     }
@@ -179,6 +181,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             _services = services;
             _lease = lease;
             _viewModel = viewModel;
+            _viewModel.KuaishouTodayUploadCountsChanged += RefreshSidebarUploadCounts;
             lease = null;
             services = null;
             viewModel = null;
@@ -302,7 +305,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
                 .Where(account => account.Name.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
                     account.Id.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
                     account.Nickname.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                .Select(account => new SidebarAccount(account, AccountSummary(account)))
+                .Select(account => new SidebarAccount(account, AccountSummary(account), FormatUploadCount(account)))
                 .ToArray();
             AccountList.ItemsSource = rows;
             AccountList.SelectedItem = rows.FirstOrDefault(row => row.Account.Id == _selectedAccount?.Id);
@@ -313,20 +316,22 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         }
     }
 
-    private string AccountSummary(Account account)
+    private static string AccountSummary(Account account) =>
+        KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out _)
+            ? KuaishouAccountEdition.Label(account.KuaishouAccountEdition)
+            : "未设置账号类型";
+
+    private string FormatUploadCount(Account account) =>
+        KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var platform) &&
+        _viewModel?.GetKuaishouTodayUploadCount(platform, account.Id) is { } count
+            ? $"{count} 部"
+            : "—";
+
+    private void RefreshSidebarUploadCounts()
     {
-        if (!KuaishouAccountEdition.TryGetPlatform(account.KuaishouAccountEdition, out var platform))
-            return "未设置账号类型";
-        var enterprise = platform == PublishPlatform.KuaishouEnterpriseRevenue;
-        var key = enterprise ? "kuaishou.enterprise.config" : "kuaishou.personal.config";
-        var path = _services?.GetRequiredService<AccountJsonSettingStore>()
-            .TryLoad<KuaishouPersonalConfig>(account.Id, key, out var config) == true
-            ? config?.AuthStatePath
-            : null;
-        if (string.IsNullOrWhiteSpace(path))
-            path = Path.Combine(PlatformPublisherPaths.DataRoot, "kuaishou-personal", "accounts", account.Id,
-                enterprise ? "kuaishou_enterprise_kdj_auth_state.json" : "kuaishou_personal_kdj_auth_state.json");
-        return $"{(enterprise ? "企业版" : "个人版")} · {(File.Exists(path) ? "已保存授权" : "待授权")}";
+        if (AccountList.ItemsSource is IEnumerable<SidebarAccount> rows)
+            foreach (var row in rows)
+                row.UploadCountText = FormatUploadCount(row.Account);
     }
 
     private async void AccountList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -352,7 +357,8 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
     {
         _selectedAccount = account;
         _viewModel!.UseGlobalAccounts(WorkspaceAccounts, account);
-        _viewModel.EnterKuaishouPage();
+        if (!_viewModel.IsKuaishouPlatform)
+            _viewModel.EnterKuaishouPage();
         Configuration.LoadAccount(account, _viewModel.SelectedPlatform.Value);
         _settings!.Save(SelectedAccountKey, account?.Id ?? "");
         RefreshSidebar();
@@ -425,6 +431,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
     {
         await _viewModel!.ApplyKuaishouEditionAsync(account, edition);
         RefreshSidebar();
+        _viewModel.RefreshKuaishouSidebarUploadCounts();
     }
 
     private void OnAccountsImported(IReadOnlyList<Account> accounts)
@@ -433,6 +440,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             account.KuaishouRemovedFromWorkspace = false;
         _accounts?.Save();
         SelectAccount(accounts.LastOrDefault() ?? WorkspaceAccounts.FirstOrDefault());
+        _viewModel?.RefreshKuaishouSidebarUploadCounts();
     }
 
     private void OnDailyLimitReached(string accountId, string message) =>
@@ -520,6 +528,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         if (_viewModel is not null)
         {
             _viewModel.KuaishouDailyUploadLimitReached -= OnDailyLimitReached;
+            _viewModel.KuaishouTodayUploadCountsChanged -= RefreshSidebarUploadCounts;
             _viewModel.Shutdown();
             _viewModel = null;
         }
@@ -529,8 +538,16 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         _lease = null;
     }
 
-    private sealed record SidebarAccount(Account Account, string Summary)
+    private sealed class SidebarAccount(Account account, string summary, string uploadCountText) : ObservableObject
     {
+        private string _uploadCountText = uploadCountText;
+        public Account Account { get; } = account;
         public string Name => Account.Name;
+        public string Summary { get; } = summary;
+        public string UploadCountText
+        {
+            get => _uploadCountText;
+            set => SetProperty(ref _uploadCountText, value);
+        }
     }
 }

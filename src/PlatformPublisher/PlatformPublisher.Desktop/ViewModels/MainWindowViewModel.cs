@@ -90,8 +90,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private readonly Dictionary<string, PublishJobRowViewModel> _jobRowCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, List<KuaishouLogProject>> _kuaishouLogsByAccount = new(StringComparer.OrdinalIgnoreCase);
     private int _visibleJobGeneration;
-    private int _todayUploadGeneration;
-    private DateTime _countedUploadDay = DateTime.MinValue;
     private int _logRefreshPosted;
     private int _workspaceLoadGeneration;
     private int _kuaishouListingDepth;
@@ -484,14 +482,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             AlignKuaishouPlatformToAccount();
             ApplyKuaishouWorkspace(account);
+            RefreshKuaishouTodayUploadCount();
             _ = EnsureWorkspaceProjectsLoadedAsync();
         }
         else
         {
             RefreshVisibleJobs();
+            RefreshKuaishouTodayUploadCount();
         }
         NotifyKuaishouEditionState();
-        RefreshKuaishouTodayUploadCount();
         RefreshKuaishouArchivedProjects();
         NotifyKuaishouLogProjectsChanged();
         RefreshVisibleAccounts(account?.Id);
@@ -808,6 +807,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         if (!IsWorkspaceLoadCurrent(generation))
             return;
         RefreshVisibleJobs();
+        if (added > 0)
+            RefreshKuaishouTodayUploadCount();
     }
 
     private HashSet<string> KuaishouJobDirectories(PublishPlatform platform)
@@ -1514,6 +1515,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             _kuaishouScannedWorkspace = rootDirectory;
             _kuaishouScannedTick = Environment.TickCount64;
             RefreshVisibleJobs();
+            if (added > 0)
+                RefreshKuaishouTodayUploadCount();
             StatusMessage = $"扫描完成：发现 {directories.Count} 个项目，新增 {added} 个任务。";
             AppendActivityLog(StatusMessage);
         }
@@ -2329,8 +2332,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         index);
                     SetKuaishouLogTone(item.directory, "ok");
                     RememberKuaishouUploadReport(item.directory, request, succeeded: true, error: "");
-                    if (IsViewingKuaishouRun(request))
-                        RefreshKuaishouTodayUploadCount();
                     var done = $"共享项目流水线完成：{Path.GetFileName(item.directory)}";
                     ReportRunStatus(done);
                     AppendActivityLog(done, projectName);
@@ -2420,7 +2421,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var summary = $"勾选队列已停止：成功 {counts[0]}，失败 {counts[1]}。";
         ReportRunStatus(summary);
         AppendActivityLog(summary);
-        TryRefreshKuaishouUploadReport(request.Platform, request.AccountId);
         return (counts[0], counts[1], lastError);
     }
 
@@ -2477,6 +2477,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         bool succeeded,
         string error)
     {
+        if (!request.Upload)
+            return;
+
         try
         {
             KuaishouTodayUploadCounter.AppendRun(
@@ -2487,6 +2490,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 succeeded,
                 error,
                 nickname: KuaishouNickname(request.Platform, request.AccountId));
+            RefreshKuaishouUploadReport(request.Platform, request.AccountId);
         }
         catch (Exception ex)
         {
@@ -2511,13 +2515,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             return "";
         }
-    }
-
-    private void TryRefreshKuaishouUploadReport(PublishPlatform platform, string accountId)
-    {
-        if (SelectedPlatform.Value == platform &&
-            string.Equals(_activeGlobalAccount?.Id, accountId, StringComparison.OrdinalIgnoreCase))
-            RefreshKuaishouTodayUploadCount();
     }
 
     public void ExportKuaishouUploadReport()
@@ -4834,56 +4831,6 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         if (more)
             _ = FlushActivityLogsAfterDelayAsync(200);
-    }
-
-    public void RefreshKuaishouTodayUploadCount()
-    {
-        if (!IsKuaishouPlatform)
-        {
-            KuaishouTodayUploadText = "";
-            return;
-        }
-
-        var generation = Interlocked.Increment(ref _todayUploadGeneration);
-        _countedUploadDay = DateTime.Now.Date;
-        var platform = SelectedPlatform.Value;
-        var accountId = _activeGlobalAccount?.Id ?? "";
-        var workspace = Directory.Exists(DraftProjectDirectory) ? DraftProjectDirectory : null;
-        var directories = _jobs
-            .Where(job => job.Platform == platform &&
-                          string.Equals(job.AccountId, accountId, StringComparison.OrdinalIgnoreCase))
-            .Select(job => job.ProjectDirectory)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .ToArray();
-        string? archiveRoot = null;
-        string? nickname = null;
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(accountId))
-            {
-                var config = KuaishouPersonalConfig.Load(CreateKuaishouArchiveJob(platform, "今日上传"));
-                if (!string.IsNullOrWhiteSpace(config.ArchiveRootDirectory) &&
-                    Directory.Exists(config.ArchiveRootDirectory))
-                    archiveRoot = config.ArchiveRootDirectory;
-                nickname = config.KuaishouNickname;
-            }
-        }
-        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException)
-        {
-            archiveRoot = null;
-        }
-
-        _ = Task.Run(() =>
-        {
-            var count = KuaishouTodayUploadCounter.CountToday(
-                platform, accountId, workspace, projectDirectories: directories, archiveRoot: archiveRoot, nickname: nickname);
-            PostUi(() =>
-            {
-                if (generation != _todayUploadGeneration || !IsKuaishouPlatform)
-                    return;
-                KuaishouTodayUploadText = $"今日已上传剧集：{count}";
-            });
-        });
     }
 
     private void ScheduleFilteredLogRefresh()
