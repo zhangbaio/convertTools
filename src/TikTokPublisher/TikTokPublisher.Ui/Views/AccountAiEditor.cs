@@ -30,9 +30,6 @@ public sealed class AccountAiEditor : UserControl
     private readonly TextBlock _imagePromptLabel = new() { Text = "图片提示词" };
     private readonly TextBox _imagePrompt = PromptBox();
     private readonly StackPanel _imagePromptActions = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
-    private readonly TextBlock _imagePromptRules = new() { TextWrapping = TextWrapping.Wrap };
-    private readonly Control _titleVerificationPrompt = Field("标题校验提示词（仅报告）",
-        PromptBox(readOnly: true, text: PosterGenerationTemplates.TitleVerificationPrompt));
     private readonly Dictionary<string, TikTokAiTextPreset> _textEdits = new();
     private readonly Dictionary<string, TikTokAiImagePreset> _imageEdits = new();
     private ClientSettings _defaults = new();
@@ -63,9 +60,6 @@ public sealed class AccountAiEditor : UserControl
         _imagePromptActions.Children.Add(previewImagePrompt);
         form.Children.Add(new StackPanel { Spacing = 4, Children = { _imagePromptLabel, _imagePrompt, _imagePromptActions } });
         _imagePromptActions.IsVisible = false;
-        _imagePromptRules.IsVisible = _titleVerificationPrompt.IsVisible = false;
-        form.Children.Add(_imagePromptRules);
-        form.Children.Add(_titleVerificationPrompt);
         Content = form;
         _textPresets.SelectionChanged += (_, _) => UpdateDisplayedKeys();
         _imagePresets.SelectionChanged += (_, _) => UpdateDisplayedKeys();
@@ -103,7 +97,6 @@ public sealed class AccountAiEditor : UserControl
         _imagePromptLabel.Text = "图片提示词";
         _imagePrompt.Text = "";
         _imagePromptActions.IsVisible = false;
-        _imagePromptRules.IsVisible = _titleVerificationPrompt.IsVisible = false;
         _posterMode.Children.Clear();
         _textPresets.Items.Clear();
         _imagePresets.Items.Clear();
@@ -238,27 +231,17 @@ public sealed class AccountAiEditor : UserControl
         await dialog.ShowDialog(owner);
     }
 
-    private void UpdateImagePrompt(bool reloadText = true)
+    private void UpdateImagePrompt()
     {
         var mode = DraftPosterMode();
         _imagePromptLabel.Text = $"图片提示词（{PosterModeName(mode)}）";
         var usesVisiblePrompt = PosterGenerationTemplates.SupportsPlainText(mode);
         _imagePrompt.IsReadOnly = !usesVisiblePrompt;
         _imagePromptActions.IsVisible = usesVisiblePrompt;
-        _imagePromptRules.IsVisible = usesVisiblePrompt;
-        _titleVerificationPrompt.IsVisible = usesVisiblePrompt && _draft?.VerifyTitle == true;
         if (usesVisiblePrompt)
         {
-            if (reloadText)
-                _imagePrompt.Text = PosterGenerationTemplates.ResolvePlainText(mode,
-                    mode == PosterGenerationTemplates.EraseMode ? _draft?.ErasePosterPrompt : _draft?.DirectPosterPrompt);
-            var deliveryRule = mode == PosterGenerationTemplates.EraseMode
-                ? "AI 交付无字底图，程序按原图比例在下半部分用固定字体写入剧名。"
-                : "由图片模型在成品中写入剧名。";
-            _imagePromptRules.Text = deliveryRule +
-                " 临时接口或图片响应失败时原样重试一次，模型审核拒绝时报告原因。" +
-                (mode == PosterGenerationTemplates.EraseMode ? "" : "\n发送时会附上当前剧名，出图尺寸由图片预设提供。") +
-                (_draft?.VerifyTitle == true ? " 标题校验仅报告结果。" : "");
+            _imagePrompt.Text = PosterGenerationTemplates.ResolvePlainText(mode,
+                mode == PosterGenerationTemplates.EraseMode ? _draft?.ErasePosterPrompt : _draft?.DirectPosterPrompt);
             return;
         }
 
@@ -444,7 +427,6 @@ public sealed class AccountAiEditor : UserControl
             VerifyTitle = verify.IsChecked == true,
             VerifyMode = verifyMode is null ? draft.VerifyMode : SelectedId(verifyMode),
         };
-        UpdateImagePrompt(reloadText: false);
         RefreshPresets(SelectedId(_textPresets), id);
     }
 

@@ -40,8 +40,6 @@ public sealed class TikTokAccountAiSettingsTests
                 .Single(panel => panel.Children.OfType<TextBlock>().Any(label => label.Text!.StartsWith("图片提示词")));
             var label = row.Children.OfType<TextBlock>().Single();
             var promptBox = row.Children.OfType<TextBox>().Single();
-            var verification = fields.Single(panel => panel.Children.OfType<TextBlock>()
-                .Any(field => field.Text == "标题校验提示词（仅报告）"));
             promptBox.IsReadOnly.Should().BeFalse();
 
             editor.Load(account, defaults);
@@ -49,8 +47,10 @@ public sealed class TikTokAccountAiSettingsTests
             AssertSelectedMode(ClientSettingsDefaults.PosterModeDirect);
             label.Text.Should().Contain("AI 直接生成");
             promptBox.Text.Should().Be(PosterGenerationTemplates.PlainTextDirectPrompt).And.NotContain("{");
-            verification.IsVisible.Should().BeTrue();
-            verification.Children.OfType<TextBox>().Single().Text.Should().Be(PosterGenerationTemplates.TitleVerificationPrompt);
+            fields.SelectMany(panel => panel.Children.OfType<TextBlock>())
+                .Should().NotContain(field => field.Text == "标题校验提示词（仅报告）");
+            ((StackPanel)editor.Content!).Children.OfType<TextBlock>()
+                .Should().NotContain(block => block.Text != null && block.Text.Contains("临时接口或图片响应失败"));
 
             const string direct = "用电影光线\n\n突出人物。";
             const string erase = "仅清除文字。";
@@ -72,6 +72,7 @@ public sealed class TikTokAccountAiSettingsTests
             var effective = TikTokAccountAiSettings.Apply(defaults, account);
             effective.PosterAgentDirectPrompt.Should().Be(direct);
             effective.PosterAgentErasePrompt.Should().Be(erase);
+            effective.PosterTitleVerifyEnabled.Should().BeTrue();
 
             var retiredOptions = initialOptions with { PosterMode = ClientSettingsDefaults.PosterModeReferenceRegenerate };
             var retiredAccount = new TikTokAccountProfile { Id = "retired", AiOptions = retiredOptions };
@@ -93,7 +94,6 @@ public sealed class TikTokAccountAiSettingsTests
             editor.Load(legacyAccount, defaults);
             AssertSelectedMode("video_frame");
             promptBox.Text.Should().Be(PosterRenamer.BuildImageGenerationPrompt(defaults.FrameCoverPrompt, "示例剧名"));
-            verification.IsVisible.Should().BeFalse();
             editor.Save(legacyAccount);
             legacyAccount.AiOptions!.PosterMode.Should().Be("video_frame");
 
