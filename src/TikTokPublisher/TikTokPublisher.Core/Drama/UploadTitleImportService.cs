@@ -56,14 +56,16 @@ public static class UploadTitleImportService
         string title,
         int expectedEpisodeTotal,
         CancellationToken ct,
-        int truncatedKeepCount = 0)
+        int truncatedKeepCount = 0,
+        string? bookId = null)
     {
         var reason = NoExactMatchReason;
         foreach (var query in TitleSearchQueryVariants(title))
         {
             var results = await ShortDramaDramaServices.SearchAsync(query, 1, ct).ConfigureAwait(false);
-            var (matched, currentReason) =
-                PickPreferredSearchMatch(title, results, expectedEpisodeTotal, truncatedKeepCount);
+            var (matched, currentReason) = string.IsNullOrWhiteSpace(bookId)
+                ? PickPreferredSearchMatch(title, results, expectedEpisodeTotal, truncatedKeepCount)
+                : PickDispatchedBook(bookId, results);
             reason = currentReason;
             if (matched is not null)
                 return new ExactDramaLookupResult(matched, string.Empty);
@@ -87,6 +89,7 @@ public static class UploadTitleImportService
         bool addProjectsToQueue = true,
         Func<UnknownAuthorConfirmationRequest, CancellationToken, Task<bool>>? confirmUnknownAuthor = null,
         string? seriesId = null,
+        bool requireExactIdentity = false,
         TikTokUploadTitleRoute? uploadTitleRoute = null)
     {
         var workspace = Path.GetFullPath(workspaceRoot);
@@ -149,41 +152,29 @@ public static class UploadTitleImportService
             ct.ThrowIfCancellationRequested();
             var request = requests[index];
             var label = FormatRequestLabel(request);
-            var useSeriesId = !string.IsNullOrWhiteSpace(request.SeriesId);
-            log?.Invoke(useSeriesId
-                ? $"按剧目 ID 导入 {index + 1}/{requests.Count}：{label}"
-                : $"精确搜索短剧 {index + 1}/{requests.Count}：{label}");
+            var dispatchedBookId = string.IsNullOrWhiteSpace(request.SeriesId)
+                ? ""
+                : BookIdForSeries(settings.DramaSourceChain, request.SeriesId);
+            if (!string.IsNullOrWhiteSpace(request.SeriesId) && dispatchedBookId.Length == 0)
+            {
+                result.Failures.Add(new UploadTitleImportFailure(label, "当前数据链路不能按剧目 ID 导入"));
+                log?.Invoke($"未加入：{label}，当前数据链路不能按剧目 ID 导入");
+                continue;
+            }
+
+            log?.Invoke($"精确搜索短剧 {index + 1}/{requests.Count}：{label}");
             try
             {
-                DramaSearchItem? matched;
-                string reason;
-                if (useSeriesId)
-                {
-                    var bookId = BookIdForSeries(settings.DramaSourceChain, request.SeriesId);
-                    if (bookId.Length == 0)
-                    {
-                        result.Failures.Add(new UploadTitleImportFailure(label, "当前数据链路不能按剧目 ID 导入"));
-                        log?.Invoke($"未加入：{label}，当前数据链路不能按剧目 ID 导入");
-                        continue;
-                    }
-
-                    matched = new DramaSearchItem
-                    {
-                        BookId = bookId,
-                        Title = request.Title,
-                        EpisodeTotal = request.ExpectedEpisodeTotal,
-                    };
-                    reason = "";
-                }
-                else
-                {
-                    var lookup = await FindExactDramaAsync(
+                var lookup = dispatchedBookId.Length == 0 && requireExactIdentity
+                    ? PickStrictDispatchMatch(request.Title, request.ExpectedEpisodeTotal,
+                        await ShortDramaDramaServices.SearchAsync(request.Title, 1, ct).ConfigureAwait(false))
+                    : await FindExactDramaAsync(
                         request.Title,
                         request.ExpectedEpisodeTotal,
-                        ct).ConfigureAwait(false);
-                    matched = lookup.Item;
-                    reason = lookup.Reason;
-                }
+                        ct,
+                        bookId: dispatchedBookId).ConfigureAwait(false);
+                var matched = lookup.Item;
+                var reason = lookup.Reason;
 
                 if (matched is null)
                 {
@@ -202,7 +193,7 @@ public static class UploadTitleImportService
                     continue;
                 }
 
-                if (!useSeriesId && ShouldApplyAuthorExclusion(matched.BookId))
+                if (ShouldApplyAuthorExclusion(matched.BookId))
                 {
                     var authorHit = authorExclude.FirstOrDefault(token => ContainsToken(matched.Author, token));
                     if (!string.IsNullOrWhiteSpace(authorHit))
@@ -237,7 +228,9 @@ public static class UploadTitleImportService
                     continue;
                 }
 
-                var downloadPlan = ResolveDownloadPlan(matched, settings);
+                var downloadPlan = requireExactIdentity
+                    ? new UploadTitleImportDownloadPlan("all", matched.EpisodeTotal, false)
+                    : ResolveDownloadPlan(matched, settings);
                 string projectDir;
                 await ProjectBootstrapGate.WaitAsync(ct).ConfigureAwait(false);
                 try
@@ -346,6 +339,18 @@ public static class UploadTitleImportService
         var preview = string.Join("；", items.Take(maxItems).Select(FormatFailureLabel));
         var suffix = items.Count > maxItems ? $"；等共 {items.Count} 个" : "";
         return $"作者排除原因：{preview}{suffix}。";
+    }
+
+    internal static (DramaSearchItem? Item, string Reason) PickDispatchedBook(
+        string bookId,
+        IReadOnlyList<DramaSearchItem> results)
+    {
+        var expected = bookId.Trim();
+        var matched = results.FirstOrDefault(item =>
+            string.Equals(item.BookId?.Trim(), expected, StringComparison.OrdinalIgnoreCase));
+        if (matched is not null)
+            return (matched, "");
+        return (null, results.Count == 0 ? EmptySearchResultReason : NoExactMatchReason);
     }
 
     internal static ExactDramaLookupResult PickStrictDispatchMatch(string title, int episodeTotal, IReadOnlyList<DramaSearchItem> results)

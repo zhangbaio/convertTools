@@ -21,6 +21,48 @@ public sealed class UploadTitleImportServiceTests
 
 
     [Fact]
+    public void DispatchedBookUsesTheSearchHitThatCarriesTheSynopsis()
+    {
+        var dispatched = new DramaSearchItem
+        {
+            BookId = "dramabox:9001",
+            Title = "The Dragon King's Fated Wet Nurse",
+            EpisodeTotal = 97,
+            Intro = "A wet nurse raises the dragon king.",
+            PosterUrl = "https://cdn.example/poster.jpg",
+        };
+        var sameTitle = new DramaSearchItem
+        {
+            BookId = "dramabox:9002",
+            Title = dispatched.Title,
+            EpisodeTotal = 40,
+            Intro = "Another synopsis",
+        };
+
+        var (item, reason) = UploadTitleImportService.PickDispatchedBook(
+            "dramabox:9001",
+            [sameTitle, dispatched]);
+
+        reason.Should().BeEmpty();
+        item.Should().BeSameAs(dispatched);
+        item!.Intro.Should().Be(dispatched.Intro);
+    }
+
+    [Fact]
+    public void DispatchedBookMissesWhenTheSearchPageDoesNotContainThatId()
+    {
+        var other = new DramaSearchItem { BookId = "dramabox:1", Title = "Other", Intro = "Synopsis" };
+
+        var (missing, missingReason) = UploadTitleImportService.PickDispatchedBook("dramabox:9001", [other]);
+        var (empty, emptyReason) = UploadTitleImportService.PickDispatchedBook("dramabox:9001", []);
+
+        missing.Should().BeNull();
+        missingReason.Should().Be(UploadTitleImportService.NoExactMatchReason);
+        empty.Should().BeNull();
+        emptyReason.Should().Be(UploadTitleImportService.EmptySearchResultReason);
+    }
+
+    [Fact]
     public void BookIdForSeries_maps_hongguo_app_and_offline_to_the_same_chain()
     {
         UploadTitleImportService.BookIdForSeries("hongguoapp", "731").Should().Be("hongguoapp:731");
