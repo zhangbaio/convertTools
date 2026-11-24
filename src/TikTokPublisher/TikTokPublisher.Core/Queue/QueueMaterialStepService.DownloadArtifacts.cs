@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using ShortDrama.Core.Interfaces;
 using ShortDrama.Infrastructure.Automation;
 using SixLabors.ImageSharp;
 using TikTokPublisher.Core.Drama;
@@ -118,19 +119,20 @@ public static partial class QueueMaterialStepService
 
     private static async Task EnsureRequiredDownloadMetadataAsync(
         ProjectWorkspaceContext context, QueueProjectItem item, DownloadMetadata metadata,
-        string displayName, Action<string> log, CancellationToken ct)
+        string displayName, Action<string> log, CancellationToken ct, IDramaDownloader downloader)
     {
         var source = context.SourceProjectDir;
         var synopsis = ResolveDownloadSynopsis(context, item);
         var hasPoster = HasOriginalDownloadPoster(context);
 
-        if ((!hasPoster || synopsis.Length == 0) && ShortDramaDramaServices.Downloader is DramaSourceRouter router)
+        if ((!hasPoster || synopsis.Length == 0) && downloader is DramaSourceRouter router)
         {
             var progress = CreateDownloadProgress(log);
             try
             {
                 await router.EnsurePosterAndIntroAsync(source, displayName, progress, ct,
-                    validatePoster: hasPoster ? null : IsUsableDownloadPoster).ConfigureAwait(false);
+                    validatePoster: hasPoster ? null : IsUsableDownloadPoster,
+                    downloadPoster: !hasPoster).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

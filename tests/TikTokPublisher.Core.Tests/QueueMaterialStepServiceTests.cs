@@ -516,6 +516,116 @@ public sealed class QueueMaterialStepServiceTests
     }
 
     [Fact]
+    public async Task Download_retry_saves_the_synopsis_without_downloading_complete_renamed_videos()
+    {
+        var workspace = Directory.CreateTempSubdirectory("download-synopsis-only-");
+        try
+        {
+            const string synopsis = "Two childhood friends uncover a family secret after reuniting.";
+            var item = CreateDownloadRetryProject(workspace, synopsis);
+            var downloader = new RecordingVideoDownloader();
+
+            await QueueMaterialStepService.RunDownloadAsync(item, new ClientSettings { DramaSourceChain = "hongguoapp" },
+                null, false, _ => { }, CancellationToken.None, downloader);
+
+            downloader.Requests.Should().BeEmpty();
+            File.ReadAllText(Path.Combine(item.ProjectDir, "简介.txt")).Trim().Should().Be(synopsis);
+            Directory.GetFiles(item.ProjectDir, "*.mp4").Select(Path.GetFileName).Should().BeEquivalentTo(new[] { "01.mp4", "02.mp4" });
+            File.ReadAllBytes(Path.Combine(item.ProjectDir, "01.mp4")).Should().Equal(1);
+            File.ReadAllBytes(Path.Combine(item.ProjectDir, "02.mp4")).Should().Equal(2);
+        }
+        finally
+        {
+            workspace.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Download_retry_reports_unavailable_synopsis_without_downloading_complete_renamed_videos()
+    {
+        var workspace = Directory.CreateTempSubdirectory("download-synopsis-unavailable-");
+        try
+        {
+            var item = CreateDownloadRetryProject(workspace, "");
+            var downloader = new RecordingVideoDownloader();
+
+            Func<Task> retry = () => QueueMaterialStepService.RunDownloadAsync(item,
+                new ClientSettings { DramaSourceChain = "hongguoapp" },
+                null, false, _ => { }, CancellationToken.None, downloader);
+
+            await retry.Should().ThrowAsync<InvalidOperationException>().WithMessage("*缺少原简介*");
+            downloader.Requests.Should().BeEmpty();
+            File.Exists(Path.Combine(item.ProjectDir, "简介.txt")).Should().BeFalse();
+        }
+        finally
+        {
+            workspace.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("absent", false, ExistingVideoPolicy.ReuseValid)]
+    [InlineData("empty", false, ExistingVideoPolicy.ReuseValid)]
+    [InlineData("complete", true, ExistingVideoPolicy.ReplaceAll)]
+    public async Task Download_retry_calls_the_video_downloader_for_missing_episodes_or_a_forced_rerun(
+        string episodeState, bool forceRerun, ExistingVideoPolicy expectedPolicy)
+    {
+        var workspace = Directory.CreateTempSubdirectory("download-retry-videos-");
+        try
+        {
+            var item = CreateDownloadRetryProject(workspace, "");
+            var secondEpisode = Path.Combine(item.ProjectDir, "02.mp4");
+            if (episodeState == "absent")
+                File.Delete(secondEpisode);
+            else if (episodeState == "empty")
+                File.WriteAllBytes(secondEpisode, []);
+
+            var downloader = new RecordingVideoDownloader();
+            Func<Task> retry = () => QueueMaterialStepService.RunDownloadAsync(item,
+                new ClientSettings { DramaSourceChain = "hongguoapp" },
+                null, forceRerun, _ => { }, CancellationToken.None, downloader);
+
+            await retry.Should().ThrowAsync<InvalidOperationException>().WithMessage(RecordingVideoDownloader.RequestInterceptedMessage);
+            downloader.Requests.Should().ContainSingle().Which.ExistingVideoPolicy.Should().Be(expectedPolicy);
+        }
+        finally
+        {
+            workspace.Delete(recursive: true);
+        }
+    }
+
+    private static QueueProjectItem CreateDownloadRetryProject(DirectoryInfo workspace, string synopsis)
+    {
+        var source = workspace.CreateSubdirectory("Reunion").FullName;
+        File.WriteAllText(Path.Combine(source, "shortdrama-project.json"),
+            JsonSerializer.Serialize(new { bookId = "hongguoapp:123", title = "Reunion", episodeCount = 2, intro = synopsis }));
+        File.WriteAllText(Path.Combine(source, ".weixin-channel-download-state.json"), """
+            {"ok":true,"episodes":"all","video_count":2,"episode_number_mode":"continuous","episode_mappings":[
+              {"sequence_episode_number":1},{"sequence_episode_number":2}]}
+            """);
+        File.WriteAllBytes(Path.Combine(source, "01.mp4"), [1]);
+        File.WriteAllBytes(Path.Combine(source, "02.mp4"), [2]);
+        WriteCoverFixture(Path.Combine(source, "海报原图.png"));
+        var item = new QueueProjectItem { ProjectDir = source, OriginalTitle = "Reunion", EpisodeCount = 2 };
+        item.StepStates[QueueStepRegistry.VideoDedup] = QueueStepStatus.Completed;
+        return item;
+    }
+
+    private sealed class RecordingVideoDownloader : IDramaDownloader
+    {
+        public const string RequestInterceptedMessage = "This test stops at the video download request.";
+
+        public List<DramaDownloadRequest> Requests { get; } = [];
+
+        public Task<DramaDownloadResult> DownloadAsync(
+            DramaDownloadRequest request, IProgress<string>? progress, CancellationToken cancellationToken)
+        {
+            Requests.Add(request);
+            throw new InvalidOperationException(RequestInterceptedMessage);
+        }
+    }
+
+    [Fact]
     public void A_generated_workflow_cover_does_not_complete_download()
     {
         var workspace = Directory.CreateTempSubdirectory("required-original-cover-");

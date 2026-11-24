@@ -33,16 +33,28 @@ public static partial class QueueMaterialStepService
     private const string AiRewriteStateDocumentType = "ai_rewrite_state";
     private const int AiRewriteStateVersion = 2;
 
-    public static async Task RunDownloadAsync(
+    public static Task RunDownloadAsync(
         QueueProjectItem item,
         ClientSettings globalSettings,
         TikTokAccountProfile? account,
         bool forceRerun,
         Action<string> log,
-        CancellationToken ct)
+        CancellationToken ct) =>
+        RunDownloadAsync(item, globalSettings, account, forceRerun, log, ct, ShortDramaDramaServices.Downloader);
+
+    internal static async Task RunDownloadAsync(
+        QueueProjectItem item,
+        ClientSettings globalSettings,
+        TikTokAccountProfile? account,
+        bool forceRerun,
+        Action<string> log,
+        CancellationToken ct,
+        IDramaDownloader downloader)
     {
+        ct.ThrowIfCancellationRequested();
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
+        var originalBookId = metadata.BookId;
         var settings = VisibleDramaSource.SettingsFor(globalSettings, account?.TiktokDramaMarket);
         XingeAutoPublishMarkerStore.AdoptLocalDramaBoxChain(context.SourceProjectDir);
         var clientAssignment = XingeAutoPublishMarkerStore.TryRead(context.SourceProjectDir);
@@ -99,13 +111,6 @@ public static partial class QueueMaterialStepService
                 ct)
             .ConfigureAwait(false);
         metadata = metadata with { BookId = effectiveBookId };
-        log($"分集下载并发: {concurrent}，单集分块连接数: {fileSegments}，同时下载剧数: {maxParallelProjects}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
-
-        using var downloadSlot = await QueueDownloadSlotCoordinator.WaitAsync(
-            maxParallelProjects,
-            displayName,
-            log,
-            ct).ConfigureAwait(false);
 
         var episodes = strictDownload ? "all" : LimitEpisodesToKeptPrefix(metadata.Episodes, item, settings, context.SourceProjectDir);
         if (!strictDownload && OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(context.SourceProjectDir, out var originalEpisodeCount))
@@ -128,6 +133,33 @@ public static partial class QueueMaterialStepService
             }
         }
 
+        if (!forceRerun && !replacingOtherSource &&
+            string.Equals(originalBookId, effectiveBookId, StringComparison.OrdinalIgnoreCase))
+        {
+            var expected = ResolveRequiredDownloadEpisodeNumbers(context, item, episodes);
+            var local = InspectDownloadedEpisodes(context.SourceProjectDir, item, expected, allowStagedFallback: true);
+            if (local.IsComplete)
+            {
+                log($"本地分集已齐全（{local.Expected}/{local.Expected} 集），只补缺少的原简介或原海报，跳过分集下载。");
+                await EnsureRequiredDownloadMetadataAsync(context, item, metadata, displayName, log, ct, downloader)
+                    .ConfigureAwait(false);
+                if (item.StepStates.GetValueOrDefault(QueueStepRegistry.VideoDedup) != QueueStepStatus.Completed &&
+                    !ProjectWorkspaceService.TryResolveDownloadedEpisodeCount(context.SourceProjectDir, out _))
+                {
+                    await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
+                }
+                FinishDownload(context, item, log, ct);
+                return;
+            }
+        }
+
+        log($"分集下载并发: {concurrent}，单集分块连接数: {fileSegments}，同时下载剧数: {maxParallelProjects}，单集超时: {timeoutSeconds}s，重试次数: {attempts}");
+        using var downloadSlot = await QueueDownloadSlotCoordinator.WaitAsync(
+            maxParallelProjects,
+            displayName,
+            log,
+            ct).ConfigureAwait(false);
+
         var request = BuildDownloadRequest(
             context,
             metadata,
@@ -138,7 +170,7 @@ public static partial class QueueMaterialStepService
             forceRerun || replacingOtherSource ? ExistingVideoPolicy.ReplaceAll : ExistingVideoPolicy.ReuseValid);
 
         var progress = CreateDownloadProgress(log);
-        var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
+        var result = await downloader.DownloadAsync(request, progress, ct).ConfigureAwait(false);
         var expectedEpisodeNumbers = ResolveRequiredDownloadEpisodeNumbers(context, item, episodes);
         if (!result.Ok)
         {
@@ -153,7 +185,8 @@ public static partial class QueueMaterialStepService
                     displayName,
                     expectedEpisodeNumbers,
                     log,
-                    ct).ConfigureAwait(false);
+                    ct,
+                    downloader).ConfigureAwait(false);
             if (!recoveredVideos)
             {
                 if (forceRerun)
@@ -165,12 +198,18 @@ public static partial class QueueMaterialStepService
         {
             log("分集传输结束，正在核验应下载的分集和原始资料。");
             await TryRepairMissingEpisodesAsync(context, item, metadata, settings, displayName,
-                expectedEpisodeNumbers, log, ct).ConfigureAwait(false);
+                expectedEpisodeNumbers, log, ct, downloader).ConfigureAwait(false);
         }
 
         EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, expectedEpisodeNumbers, log);
-        await EnsureRequiredDownloadMetadataAsync(context, item, metadata, displayName, log, ct).ConfigureAwait(false);
+        await EnsureRequiredDownloadMetadataAsync(context, item, metadata, displayName, log, ct, downloader).ConfigureAwait(false);
         await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
+        FinishDownload(context, item, log, ct);
+    }
+
+    private static void FinishDownload(ProjectWorkspaceContext context, QueueProjectItem item, Action<string> log, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
         log("下载验收通过，原简介、原海报和分集均已齐全。");
@@ -277,7 +316,8 @@ public static partial class QueueMaterialStepService
         var found = new HashSet<int>();
         foreach (var video in videos)
         {
-            if (TryReadEpisodeNumberFromFileName(video, out var episode))
+            var file = new FileInfo(video);
+            if (file.Exists && file.Length > 0 && TryReadEpisodeNumberFromFileName(video, out var episode))
                 found.Add(episode);
         }
 
@@ -1517,7 +1557,8 @@ public static partial class QueueMaterialStepService
         string displayName,
         IReadOnlyList<int> expectedEpisodeNumbers,
         Action<string> log,
-        CancellationToken ct)
+        CancellationToken ct,
+        IDramaDownloader? downloader = null)
     {
         XingeAutoPublishMarkerStore.AdoptLocalDramaBoxChain(context.SourceProjectDir);
         var clientAssignment = XingeAutoPublishMarkerStore.TryRead(context.SourceProjectDir);
@@ -1553,7 +1594,7 @@ public static partial class QueueMaterialStepService
             log($"检测到缺集：应 {inspection.Expected} 集，实际 {inspection.FoundCount} 集，缺第 {FormatEpisodePreview(inspection.Missing)} 集。开始补下载（{round}/{MissingEpisodeRepairRounds}），补下载并发 1。");
 
             var repairRequest = BuildDownloadRequest(context, metadata, settings, displayName, selection, concurrent: 1);
-            var repairResult = await ShortDramaDramaServices.Downloader.DownloadAsync(
+            var repairResult = await (downloader ?? ShortDramaDramaServices.Downloader).DownloadAsync(
                 repairRequest,
                 CreateDownloadProgress(log),
                 ct).ConfigureAwait(false);
@@ -1619,7 +1660,8 @@ public static partial class QueueMaterialStepService
         {
             foreach (var file in ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir, allowStagedFallback))
             {
-                if (!EpisodeVideoExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                var info = new FileInfo(file);
+                if (!EpisodeVideoExtensions.Contains(info.Extension, StringComparer.OrdinalIgnoreCase) || !info.Exists || info.Length == 0)
                     continue;
                 videoPaths.Add(file);
                 // 下载文件是「第N集」。本地导入常见 01.mp4、episode-01.mp4，不能只认前一种。

@@ -3119,11 +3119,16 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string displayName,
         IProgress<string>? progress,
         CancellationToken cancellationToken,
-        Func<string, bool>? validatePoster = null)
+        Func<string, bool>? validatePoster = null,
+        bool downloadPoster = true)
     {
         if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
             return;
         WriteIntroFile(projectDirectory, progress);
+
+        if (!downloadPoster)
+            return;
+
         var posterUrl = ReadPosterUrlFromProject(projectDirectory);
         if (!LooksLikeHttpUrl(posterUrl))
             posterUrl = ReadPosterUrlFromLinkedWorkflow(projectDirectory);

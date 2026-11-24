@@ -38,6 +38,34 @@ public sealed class DramaSourceRouterDownloadTests
         }
     }
 
+    [Fact]
+    public async Task Intro_only_recovery_copies_the_synopsis_without_downloading_the_poster()
+    {
+        var directory = Directory.CreateTempSubdirectory("source-intro-only-");
+        var handler = new LocalStreamRecordingHandler();
+        using var http = new HttpClient(handler);
+        try
+        {
+            var router = new DramaSourceRouter(http,
+                new TestDramaSettingsProvider(new DramaSourceSettings()),
+                new HongguoNewApiService(http), new HongguoDramaSearchService(http), new HongguoDramaDownloader(http),
+                new HongguoMemoryReaderService());
+            await File.WriteAllTextAsync(Path.Combine(directory.FullName, "shortdrama-project.json"),
+                """{"intro":"The original description.","posterUrl":"https://cdn.example.com/cover.png"}""");
+
+            await router.EnsurePosterAndIntroAsync(directory.FullName, "Test series", null, CancellationToken.None,
+                downloadPoster: false);
+
+            (await File.ReadAllTextAsync(Path.Combine(directory.FullName, "简介.txt"))).Trim()
+                .Should().Be("The original description.");
+            handler.GetCdnRequests().Should().BeEmpty();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
