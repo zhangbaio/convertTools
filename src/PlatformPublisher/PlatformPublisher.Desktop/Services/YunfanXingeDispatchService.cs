@@ -23,6 +23,7 @@ public sealed class YunfanXingeDispatchService
     };
 
     private readonly MainWindowViewModel _viewModel;
+    private readonly YunfanDramaSettingsProvider? _dramaSettings;
     private readonly CancellationTokenSource _cts = new();
     private readonly object _quotaFullLock = new();
     private readonly DispatchConfirmCoordinator _confirm = new();
@@ -33,9 +34,10 @@ public sealed class YunfanXingeDispatchService
 
     public event Action<string>? StatusChanged;
 
-    public YunfanXingeDispatchService(MainWindowViewModel viewModel)
+    public YunfanXingeDispatchService(MainWindowViewModel viewModel, YunfanDramaSettingsProvider? dramaSettings = null)
     {
         _viewModel = viewModel;
+        _dramaSettings = dramaSettings;
     }
 
     public void Start()
@@ -290,6 +292,7 @@ public sealed class YunfanXingeDispatchService
         if (string.IsNullOrWhiteSpace(machineId))
             machineId = Environment.MachineName;
         var settings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+        var dramaSource = _dramaSettings?.LoadClientSettings().DramaSourceChain ?? settings.DramaSourceChain ?? "";
         var accounts = _viewModel.KsSettleRegistrationAccounts();
         var body = new
         {
@@ -300,7 +303,7 @@ public sealed class YunfanXingeDispatchService
             app_version = $"Yunfan/{version}",
             workspace_path = accounts.FirstOrDefault()?.Workspace ?? "",
             active_account_profile_id = accounts.FirstOrDefault()?.Id ?? "",
-            drama_source = settings.DramaSourceChain ?? "",
+            drama_source = dramaSource,
             project_slot_capacity = Math.Clamp(settings.TiktokGlobalProjectConcurrency <= 0 ? QueueProjectSlotCoordinator.DefaultCapacity : settings.TiktokGlobalProjectConcurrency, 1, QueueProjectSlotCoordinator.MaxCapacity),
             account_profiles = accounts.Select(account =>
             {

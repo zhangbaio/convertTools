@@ -195,7 +195,9 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             SelectAccount(WorkspaceAccounts.FirstOrDefault(account => account.Id == selectedId) ??
                 WorkspaceAccounts.FirstOrDefault());
             _services.GetRequiredService<KuaishouOnlineQueueWorker>().Start();
-            _dispatch = new YunfanXingeDispatchService(_viewModel);
+            _dispatch = new YunfanXingeDispatchService(
+                _viewModel,
+                _services.GetRequiredService<YunfanDramaSettingsProvider>());
             _viewModel.KuaishouDailyUploadLimitReached += OnDailyLimitReached;
             _dispatch.Start();
             ApplyPage();
