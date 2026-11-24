@@ -318,7 +318,6 @@ public static class ProjectWorkspaceService
     public static int ResolveSourceEpisodeCount(string projectDir)
     {
         var context = LoadContext(projectDir);
-        var candidates = new List<int>();
 
         if (OverLimitEpisodePolicy.TryReadKeepCount(context.SourceProjectDir, out var keptCount))
             return keptCount;
@@ -329,6 +328,17 @@ public static class ProjectWorkspaceService
         if (TryResolveDownloadedEpisodeCount(context.SourceProjectDir, out var downloadedCount))
             return downloadedCount;
 
+        var declared = ResolveDeclaredSourceEpisodeCount(context);
+        if (declared > 0)
+            return declared;
+
+        var videoCount = CountDistinctVideoEpisodes(context.SourceProjectDir, context.WorkflowProjectDir);
+        return videoCount > 0 ? videoCount : 1;
+    }
+
+    internal static int ResolveDeclaredSourceEpisodeCount(ProjectWorkspaceContext context)
+    {
+        var candidates = new List<int>();
         foreach (var infoPath in new[]
                  {
                      Path.Combine(context.SourceProjectDir, "短剧信息.txt"),
@@ -344,18 +354,10 @@ public static class ProjectWorkspaceService
         if (TryReadPositiveInt(metadata, out var effectiveCount, "effectiveEpisodeCount", "effective_episode_count", "downloadEpisodeLimit", "download_episode_limit"))
             return effectiveCount;
 
-        if (metadata.TryGetValue("episodeCount", out var episodeRaw) &&
-            int.TryParse(new string(episodeRaw.Where(char.IsDigit).ToArray()), out var metaCount) &&
-            metaCount > 0)
-        {
+        if (TryReadPositiveInt(metadata, out var metaCount, "episodeCount", "episode_count"))
             return metaCount;
-        }
 
-        if (candidates.Count > 0)
-            return candidates.Max();
-
-        var videoCount = CountDistinctVideoEpisodes(context.SourceProjectDir, context.WorkflowProjectDir);
-        return videoCount > 0 ? videoCount : 1;
+        return candidates.Count > 0 ? candidates.Max() : 0;
     }
 
     public static bool TryResolveDownloadedEpisodeCount(string projectDir, out int episodeCount)
@@ -457,7 +459,8 @@ public static class ProjectWorkspaceService
     }
 
     public static string? FindPosterInputFile(
-        string sourceProjectDir, string workflowProjectDir, string? excludedPath = null)
+        string sourceProjectDir, string workflowProjectDir, string? excludedPath = null,
+        Func<string, bool>? isUsable = null)
     {
         var excludedFullPath = excludedPath is null ? null : Path.GetFullPath(excludedPath);
         var pathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
@@ -477,7 +480,8 @@ public static class ProjectWorkspaceService
                 foreach (var ext in ImageExtensions)
                 {
                     var preferred = Path.Combine(root, $"{stem}{ext}");
-                    if (!IsExcluded(preferred) && File.Exists(preferred)) return preferred;
+                    if (!IsExcluded(preferred) && File.Exists(preferred) && isUsable?.Invoke(preferred) != false)
+                        return preferred;
                 }
             }
 
@@ -491,7 +495,7 @@ public static class ProjectWorkspaceService
                            !fileName.StartsWith("seal.prepared", StringComparison.Ordinal);
                 })
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-                .FirstOrDefault();
+                .FirstOrDefault(path => isUsable?.Invoke(path) != false);
 
             if (candidate is not null) return candidate;
         }

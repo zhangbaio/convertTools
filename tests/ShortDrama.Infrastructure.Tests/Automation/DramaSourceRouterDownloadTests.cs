@@ -13,6 +13,83 @@ namespace ShortDrama.Infrastructure.Tests.Automation;
 
 public sealed class DramaSourceRouterDownloadTests
 {
+    [Fact]
+    public async Task Blank_intro_does_not_hide_the_saved_original_description()
+    {
+        var directory = Directory.CreateTempSubdirectory("source-intro-alias-");
+        using var http = new HttpClient(new LocalStreamRecordingHandler());
+        try
+        {
+            var router = new DramaSourceRouter(http,
+                new TestDramaSettingsProvider(new DramaSourceSettings()),
+                new HongguoNewApiService(http), new HongguoDramaSearchService(http), new HongguoDramaDownloader(http),
+                new HongguoMemoryReaderService());
+            await File.WriteAllTextAsync(Path.Combine(directory.FullName, "shortdrama-project.json"),
+                """{"intro":"  ","introduction":"","description":"The original description."}""");
+
+            await router.EnsurePosterAndIntroAsync(directory.FullName, "Test series", null, CancellationToken.None);
+
+            (await File.ReadAllTextAsync(Path.Combine(directory.FullName, "简介.txt"))).Trim()
+                .Should().Be("The original description.");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Poster_recovery_only_replaces_the_original_with_valid_downloaded_content(bool validDownload)
+    {
+        var directory = Directory.CreateTempSubdirectory("poster-recovery-");
+        const string validPoster = "validated cover";
+        const string invalidPoster = "existing invalid cover";
+        var handler = new LocalStreamRecordingHandler
+        {
+            DownloadBytes = Encoding.UTF8.GetBytes(validDownload ? validPoster : "invalid replacement"),
+            DownloadMediaType = "image/png",
+        };
+        using var http = new HttpClient(handler);
+        try
+        {
+            var router = new DramaSourceRouter(http,
+                new TestDramaSettingsProvider(new DramaSourceSettings()),
+                new HongguoNewApiService(http), new HongguoDramaSearchService(http), new HongguoDramaDownloader(http),
+                new HongguoMemoryReaderService());
+            var posterPath = Path.Combine(directory.FullName, "海报原图.png");
+            var metadataPath = Path.Combine(directory.FullName, "shortdrama-project.json");
+            await File.WriteAllTextAsync(posterPath, invalidPoster);
+            await File.WriteAllTextAsync(metadataPath, """{"posterUrl":"https://cdn.example.com/cover.png"}""");
+            var validatedPaths = new List<string>();
+            bool Validate(string path)
+            {
+                validatedPaths.Add(path);
+                return File.ReadAllText(path) == validPoster;
+            }
+
+            Task RecoverPoster() => router.EnsurePosterAndIntroAsync(
+                directory.FullName, "Test series", null, CancellationToken.None, Validate);
+
+            if (validDownload)
+                await RecoverPoster();
+            else
+                (await Assert.ThrowsAsync<InvalidOperationException>(RecoverPoster)).Message.Should().Contain("可用的海报图片");
+
+            (await File.ReadAllTextAsync(posterPath)).Should().Be(validDownload ? validPoster : invalidPoster);
+            validatedPaths.Should().HaveCount(2);
+            validatedPaths[0].Should().Be(posterPath);
+            validatedPaths[1].Should().NotBe(posterPath);
+            handler.GetCdnRequests().Should().ContainSingle();
+            Directory.GetFiles(directory.FullName).Should().BeEquivalentTo(new[] { posterPath, metadataPath });
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

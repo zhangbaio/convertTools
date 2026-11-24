@@ -3030,7 +3030,7 @@ public sealed partial class MainViewModel : ViewModelBase
             return TikTokRemoteCommandResult.Failed(command.Command, "队列视图尚未初始化，无法执行重试。");
 
         var projects = (command.RetryItems ?? [])
-            .Select(item => new QueueRetryProject(item.ProjectPath, item.AutoPublishAssignmentId)).ToArray();
+            .Select(item => new QueueRetryProject(item.ProjectPath, item.AutoPublishAssignmentId, item.ClientDownloadMigration)).ToArray();
         var result = await _queueRetry.ExecuteAsync(command.AccountProfileId, _store, projects,
             IsLocalCheckedQueueRunning,
             target => runQueueRequested(target, null),

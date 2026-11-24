@@ -818,7 +818,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var downloadAttempts = ParsePositiveInt(settings.HongguoEpisodeDownloadAttempts, 5);
         var downloadFileSegments = ParseDownloadFileSegments(settings.DownloadFileSegments);
         var bookId = request.BookId?.Trim() ?? string.Empty;
-        if (bookId.Length > 0)
+        if (bookId.Length > 0 && request.ExpectedEpisodeTotal == 0)
         {
             var aligned = await AlignBookIdToCurrentChainAsync(request, bookId, settings, progress, cancellationToken);
             if (aligned.Error is not null)
@@ -1008,7 +1008,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception) when (request.ExpectedEpisodeTotal == 0)
         {
             var existingResult = await TryBuildSuccessfulResultWhenVideosExistAsync(request, progress, cancellationToken);
             if (existingResult is not null)
@@ -1087,6 +1087,13 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         catch (Exception ex)
         {
             return new DramaDownloadResult(false, request.OutputDir, CountVideoFiles(request.OutputDir), ex.Message);
+        }
+
+        if (request.ExpectedEpisodeTotal > 0 &&
+            !episodes.Select(episode => episode.EpisodeNumber).Order().SequenceEqual(Enumerable.Range(1, request.ExpectedEpisodeTotal)))
+        {
+            return new DramaDownloadResult(false, request.OutputDir, 0,
+                $"分集清单与派单的 {request.ExpectedEpisodeTotal} 集不一致，可能缺集、重复或超出集数");
         }
 
         var episodeNumberMode = NormalizeEpisodeNumberMode(request.EpisodeNumberMode);
@@ -3111,7 +3118,8 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         string projectDirectory,
         string displayName,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, bool>? validatePoster = null)
     {
         if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
             return;
@@ -3119,12 +3127,23 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         var posterUrl = ReadPosterUrlFromProject(projectDirectory);
         if (!LooksLikeHttpUrl(posterUrl))
             posterUrl = ReadPosterUrlFromLinkedWorkflow(projectDirectory);
-        if (!LooksLikeHttpUrl(posterUrl) || PosterFileExists(projectDirectory))
+        if (!LooksLikeHttpUrl(posterUrl) || (validatePoster is null && PosterFileExists(projectDirectory)))
             return;
-        await EnsurePosterAsync(projectDirectory, displayName, posterUrl, progress, cancellationToken);
+        await EnsurePosterAsync(projectDirectory, displayName, posterUrl, progress, cancellationToken, validatePoster);
     }
 
-    private async Task EnsurePosterAsync(string outputDir, string displayName, string posterUrl, IProgress<string>? progress, CancellationToken cancellationToken)
+    public Task<(string Intro, string PosterUrl)> GetDramaBoxBookMaterialsAsync(
+        string bookReference,
+        CancellationToken cancellationToken) =>
+        _dramaBoxApiService.GetBookMaterialsAsync(_settingsProvider.Get(), bookReference, cancellationToken);
+
+    private async Task EnsurePosterAsync(
+        string outputDir,
+        string displayName,
+        string posterUrl,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken,
+        Func<string, bool>? validatePoster = null)
     {
         if (!LooksLikeHttpUrl(posterUrl))
         {
@@ -3133,21 +3152,43 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
 
         var extension = ResolveImageExtensionFromUrl(posterUrl);
         var targetPath = Path.Combine(outputDir, "海报原图" + extension);
-        if (File.Exists(targetPath) && new FileInfo(targetPath).Length > 0)
+        if (File.Exists(targetPath) && (validatePoster?.Invoke(targetPath) ?? new FileInfo(targetPath).Length > 0))
         {
             progress?.Report($"海报已存在，跳过: {Path.GetFileName(targetPath)}");
             return;
         }
 
+        var downloadPath = validatePoster is null
+            ? targetPath
+            : Path.Combine(outputDir, $".poster-download-{Guid.NewGuid():N}.tmp");
         progress?.Report("开始下载海报...");
         try
         {
-            await DownloadPosterFileAsync(posterUrl, targetPath, cancellationToken);
+            await DownloadPosterFileAsync(posterUrl, downloadPath, cancellationToken);
+            if (validatePoster is not null)
+            {
+                if (!validatePoster(downloadPath))
+                    throw new InvalidDataException("下载内容不是可用的海报图片。");
+
+                cancellationToken.ThrowIfCancellationRequested();
+                File.Move(downloadPath, targetPath, overwrite: true);
+            }
             progress?.Report($"海报下载完成: {Path.GetFileName(targetPath)}");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             throw new InvalidOperationException($"海报下载失败：{ex.Message}", ex);
+        }
+        finally
+        {
+            if (validatePoster is not null)
+            {
+                try { File.Delete(downloadPath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Preserve the download result if the temporary file is held open.
+                }
+            }
         }
     }
 
@@ -3219,10 +3260,14 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(metadataPath));
-            return GetString(document.RootElement, "intro")
-                   ?? GetString(document.RootElement, "introduction")
-                   ?? GetString(document.RootElement, "description")
-                   ?? "";
+            foreach (var name in new[] { "intro", "introduction", "description", "desc" })
+            {
+                var value = GetString(document.RootElement, name);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            return "";
         }
         catch
         {
@@ -3301,7 +3346,7 @@ public sealed class DramaSourceRouter : IDramaSearchService, IDramaDownloader
             .ToArray();
     }
 
-    private static HashSet<int>? ParseEpisodeSelection(string? selection)
+    public static HashSet<int>? ParseEpisodeSelection(string? selection)
     {
         if (string.IsNullOrWhiteSpace(selection) ||
             string.Equals(selection.Trim(), "all", StringComparison.OrdinalIgnoreCase))

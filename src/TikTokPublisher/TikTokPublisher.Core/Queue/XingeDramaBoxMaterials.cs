@@ -16,7 +16,7 @@ internal static class XingeDramaBoxMaterials
     public static XingeAutoPublishMarker? ReadAssignment(string projectDir)
     {
         var marker = XingeAutoPublishMarkerStore.TryRead(projectDir);
-        return marker is { AssignmentId: > 0 } && IsDramaBoxSeries(marker.SeriesId) ? marker : null;
+        return marker is { AssignmentId: > 0 } && string.IsNullOrEmpty(marker.ClientDownloadChain) && IsDramaBoxSeries(marker.SeriesId) ? marker : null;
     }
 
     public static bool IsDramaBoxSeries(string? seriesId) =>

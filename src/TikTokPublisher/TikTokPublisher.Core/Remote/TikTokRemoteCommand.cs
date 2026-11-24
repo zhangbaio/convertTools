@@ -7,7 +7,7 @@ namespace TikTokPublisher.Core.Remote;
 public sealed record TikTokUploadSeriesSpec(string Title, int EpisodeCnt = 0, string SeriesId = "");
 
 // TikTokRetryQueueItem 服务端监控屏下发的重试项：账号工作目录下的一个项目。
-public sealed record TikTokRetryQueueItem(string ProjectPath, long TaskId = 0, long AutoPublishAssignmentId = 0);
+public sealed record TikTokRetryQueueItem(string ProjectPath, long TaskId = 0, long AutoPublishAssignmentId = 0, TikTokUploadSeriesSpec? ClientDownloadMigration = null);
 
 public sealed record TikTokRemoteCommand(
     string Command,

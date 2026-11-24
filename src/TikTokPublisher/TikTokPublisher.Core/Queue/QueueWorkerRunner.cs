@@ -1438,23 +1438,6 @@ public sealed class QueueWorkerRunner
             var stepAccount = QueueAccountBindingResolver.Resolve(accountStore, item);
             if (!ShouldRunStep(item, stepKey, options, stepAccount))
             {
-                if (string.Equals(stepKey, QueueStepRegistry.Download, StringComparison.Ordinal))
-                {
-                    try
-                    {
-                        await QueueMaterialStepService.EnsureDownloadedMaterialsAsync(
-                            item,
-                            ClientSettingsStore.Load(),
-                            stepAccount,
-                            message => Report(onProgress, workspace, item, message, stepKey),
-                            ct).ConfigureAwait(false);
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        Report(onProgress, workspace, item, "海报或简介补全失败：" + ex.Message, stepKey);
-                    }
-                }
-
                 Report(onProgress, workspace, item, $"{QueueStepRegistry.LabelOf(stepKey)} 已完成，跳过", stepKey);
                 return;
             }
@@ -2456,17 +2439,7 @@ public sealed class QueueWorkerRunner
             return false;
         }
 
-        try
-        {
-            return ProjectVideoResolver.ResolveUploadVideos(
-                    item.ProjectDir,
-                    allowStagedFallback: true)
-                .Count == 0;
-        }
-        catch
-        {
-            return true;
-        }
+        return !QueueMaterialStepService.HasCompleteDownloadArtifacts(item);
     }
 
     private static string BuildNonQueueCancellationMessage(string stepLabel, OperationCanceledException ex)

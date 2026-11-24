@@ -521,14 +521,17 @@ public static class WorkspaceQueueService
         var sourceInfo = ProjectInfoTextHelper.ParseInfoFile(sourceInfoPath);
         var workflowInfo = ProjectInfoTextHelper.ParseInfoFile(workflowInfoPath);
 
-        var hasDownloadArtifacts = HasVideoFiles(
-            sourceProjectDir,
-            Path.Combine(sourceProjectDir, "videos"),
-            Path.Combine(workflowProjectDir, "videos"),
-            Path.Combine(workflowProjectDir, TikTokUploadStagingService.StagingDirName));
-
-        if (IsPending(item, QueueStepKeys.Download) && hasDownloadArtifacts)
-            item.StepStates[QueueStepKeys.Download] = QueueStepStatus.Completed;
+        var downloadStatus = item.StepStates.GetValueOrDefault(QueueStepKeys.Download, QueueStepStatus.Pending);
+        var preservesCompletedDownload = item.IsUploadCompleted ||
+                                         item.ManualUploadStatus == QueueStepStatus.Completed ||
+                                         item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos) == QueueStepStatus.Completed;
+        if (downloadStatus == QueueStepStatus.Pending ||
+            (downloadStatus == QueueStepStatus.Completed && !preservesCompletedDownload))
+        {
+            item.StepStates[QueueStepKeys.Download] = QueueMaterialStepService.HasCompleteDownloadArtifacts(item)
+                ? QueueStepStatus.Completed
+                : QueueStepStatus.Pending;
+        }
 
         if (IsPending(item, QueueStepKeys.RewriteInfo) &&
             WorkflowRewriteLooksCompleted(sourceProjectDir, workflowInfoPath, sourceInfo, workflowInfo))
@@ -565,21 +568,14 @@ public static class WorkspaceQueueService
             item.StepStates[QueueStepKeys.MaterialValidate] = QueueStepStatus.Completed;
         }
 
-        ReconcileCompletedArtifactStates(item, context, hasDownloadArtifacts, clientSettings);
+        ReconcileCompletedArtifactStates(item, context, clientSettings);
     }
 
     private static void ReconcileCompletedArtifactStates(
         QueueProjectItem item,
         ProjectWorkspaceContext context,
-        bool hasDownloadArtifacts,
         Lazy<ClientSettings>? clientSettings)
     {
-        ResetCompletedWhenMissing(
-            item,
-            QueueStepKeys.Download,
-            () => hasDownloadArtifacts ||
-                  item.StepStates.GetValueOrDefault(QueueStepKeys.UploadSeries) == QueueStepStatus.Completed ||
-                  item.StepStates.GetValueOrDefault(QueueStepKeys.DeleteSourceVideos) == QueueStepStatus.Completed);
         ResetCompletedWhenMissing(
             item,
             QueueStepKeys.RewriteInfo,
@@ -855,54 +851,6 @@ public static class WorkspaceQueueService
         }
 
         return File.Exists(Path.Combine(context.WorkflowProjectDir, "tiktok-upload-manifest.json"));
-    }
-
-    private static bool HasVideoFiles(params string[] roots)
-    {
-        foreach (var root in roots)
-        {
-            if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
-                continue;
-
-            try
-            {
-                if (EnumerateVideoFiles(root).Any())
-                {
-                    return true;
-                }
-            }
-            catch
-            {
-                // Ignore directories that disappear while scanning.
-            }
-        }
-
-        return false;
-    }
-
-    private static IEnumerable<string> EnumerateVideoFiles(string root)
-    {
-        foreach (var path in Directory.EnumerateFiles(root, "*.*", SearchOption.TopDirectoryOnly))
-        {
-            if (ProjectVideoResolver.IsCompleteVideoFile(path))
-                yield return path;
-        }
-
-        foreach (var child in Directory.EnumerateDirectories(root))
-        {
-            var name = Path.GetFileName(child);
-            if (string.IsNullOrWhiteSpace(name) ||
-                name.StartsWith(".", StringComparison.Ordinal) ||
-                name.Equals("workflow", StringComparison.OrdinalIgnoreCase) ||
-                name.Equals("archive", StringComparison.OrdinalIgnoreCase) ||
-                name.Equals(TikTokUploadStagingService.StagingDirName, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            foreach (var path in EnumerateVideoFiles(child))
-                yield return path;
-        }
     }
 
     private static bool IsPending(QueueProjectItem item, string stepKey) =>

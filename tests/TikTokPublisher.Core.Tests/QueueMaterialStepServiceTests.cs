@@ -484,6 +484,67 @@ public sealed class QueueMaterialStepServiceTests
     }
 
     [Fact]
+    public void Required_download_episodes_come_from_the_full_plan_and_not_the_file_count()
+    {
+        var root = Directory.CreateTempSubdirectory("required-download-episodes-");
+        try
+        {
+            var item = new QueueProjectItem { ProjectDir = root.FullName, EpisodeCount = 2 };
+            var context = ProjectWorkspaceService.LoadContext(root.FullName);
+            File.WriteAllText(Path.Combine(root.FullName, "shortdrama-project.json"), """{"episodeCount":5}""");
+            var state = Path.Combine(root.FullName, ".weixin-channel-download-state.json");
+            File.WriteAllText(state, """
+                {"ok":true,"video_count":2,"episodes":"all","episode_mappings":[
+                   {"source_episode_number":1},{"source_episode_number":2},{"source_episode_number":3}]}
+                """);
+            File.WriteAllBytes(Path.Combine(root.FullName, "第1集.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(root.FullName, "第2集.mp4"), [1]);
+
+            var expected = QueueMaterialStepService.ResolveRequiredDownloadEpisodeNumbers(context, item, "all");
+            expected.Should().Equal(1, 2, 3);
+            QueueMaterialStepService.InspectDownloadedEpisodes(root.FullName, item, expected).Missing.Should().Equal(3);
+
+            File.WriteAllText(state, """{"ok":true,"video_count":2,"episodes":"3","episode_mappings":[{"source_episode_number":3}]}""");
+            QueueMaterialStepService.ResolveRequiredDownloadEpisodeNumbers(context, item, "all").Should().Equal(1, 2, 3, 4, 5);
+            QueueMaterialStepService.ResolveRequiredDownloadEpisodeNumbers(context, item, "3").Should().Equal(3);
+            QueueMaterialStepService.InspectDownloadedEpisodes(root.FullName, item, [3]).Missing.Should().Equal(3);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_generated_workflow_cover_does_not_complete_download()
+    {
+        var workspace = Directory.CreateTempSubdirectory("required-original-cover-");
+        try
+        {
+            var source = workspace.CreateSubdirectory("原剧");
+            var workflow = workspace.CreateSubdirectory(Path.Combine("workflow", "_原剧"));
+            var item = new QueueProjectItem { ProjectDir = source.FullName };
+            File.WriteAllText(Path.Combine(source.FullName, "shortdrama-project.json"),
+                JsonSerializer.Serialize(new { episodeCount = 1, workflowDirName = workflow.Name }));
+            File.WriteAllText(Path.Combine(source.FullName, "简介.txt"), "故事讲述两个朋友重逢后的经历。");
+            File.WriteAllBytes(Path.Combine(source.FullName, "第1集.mp4"), [1]);
+            var generated = Path.Combine(workflow.FullName, TikTokPosterGenerationStateService.OutputFileName);
+            WriteCoverFixture(generated);
+
+            QueueMaterialStepService.HasCompleteDownloadArtifacts(item).Should().BeFalse();
+            var original = Path.Combine(workflow.FullName, "海报原图.png");
+            File.WriteAllText(original, "<html>invalid cover</html>");
+            QueueMaterialStepService.HasCompleteDownloadArtifacts(item).Should().BeFalse();
+            WriteCoverFixture(original);
+            QueueMaterialStepService.HasCompleteDownloadArtifacts(item).Should().BeTrue();
+        }
+        finally
+        {
+            workspace.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void NeedsAiRewrite_requires_matching_persisted_synopsis_mode_and_content()
     {
         var workspace = Path.Combine(Path.GetTempPath(), $"rewrite-state-{Guid.NewGuid():N}");
@@ -751,6 +812,9 @@ public sealed class QueueMaterialStepServiceTests
                 LastError = QueueMaterialStepService.EmptyDownloadVideoMessage,
             };
 
+            QueueMaterialStepService.CanSkipFailedDownloadUsingUploadCopies(item).Should().BeFalse();
+            File.WriteAllText(Path.Combine(sourceDir, "简介.txt"), "故事讲述两个朋友重逢后的经历。");
+            WriteCoverFixture(Path.Combine(sourceDir, "海报原图.png"));
             QueueMaterialStepService.CanSkipFailedDownloadUsingUploadCopies(item).Should().BeTrue();
             QueueMaterialStepService.ClearEmptyVideoDownloadFailure(sourceDir);
             using var cleared = JsonDocument.Parse(File.ReadAllText(statePath));
@@ -814,4 +878,7 @@ public sealed class QueueMaterialStepServiceTests
             Directory.Delete(root, recursive: true);
         }
     }
+
+    private static void WriteCoverFixture(string path) => File.WriteAllBytes(path, Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
 }

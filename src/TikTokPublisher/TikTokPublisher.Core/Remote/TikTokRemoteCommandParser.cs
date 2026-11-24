@@ -614,10 +614,16 @@ public static class TikTokRemoteCommandParser
             var projectPath = GetString(entry, "project_path").Trim();
             if (projectPath.Length == 0 || !seen.Add(projectPath))
                 continue;
+            var episodeCount = GetPositiveLong(entry, "episode_cnt");
+            var migrate = string.Equals(GetString(entry, "download_source").Trim(), "client_configured", StringComparison.OrdinalIgnoreCase);
+            var identity = migrate
+                ? new TikTokUploadSeriesSpec(GetString(entry, "title"), episodeCount <= int.MaxValue ? (int)episodeCount : 0, GetString(entry, "series_id"))
+                : null;
             list.Add(new TikTokRetryQueueItem(
                 projectPath,
                 GetPositiveLong(entry, "task_id"),
-                GetPositiveLong(entry, "auto_publish_assignment_id")));
+                GetPositiveLong(entry, "auto_publish_assignment_id"),
+                identity));
         }
 
         return list;

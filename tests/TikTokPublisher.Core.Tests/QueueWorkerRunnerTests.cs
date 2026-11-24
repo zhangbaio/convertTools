@@ -183,6 +183,7 @@ public sealed class QueueWorkerRunnerTests : IDisposable
     {
         var item = CreateReadyToUploadItem(1, account, workspace);
         File.WriteAllText(Path.Combine(item.ProjectDir, "短剧信息.txt"), $"原剧名：{item.OriginalTitle}\n新剧名：{item.NewTitle}\n集数：1");
+        WriteDownloadSourceMaterials(item.ProjectDir);
         return item;
     }
 
@@ -376,6 +377,11 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         var items = Enumerable.Range(1, 7)
             .Select(index => CreateReadyToUploadItem(index, account))
             .ToList();
+        foreach (var item in items)
+        {
+            WriteDownloadSourceMaterials(item.ProjectDir);
+            File.WriteAllText(Path.Combine(item.ProjectDir, "shortdrama-project.json"), """{"episodeCount":1}""");
+        }
         var host = new ImmediatePublishHost();
         var options = new QueueRunOptions
         {
@@ -1320,6 +1326,56 @@ public sealed class QueueWorkerRunnerTests : IDisposable
         item.LastError.Should().Contain("避免误用当前账号");
     }
 
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("简介.txt", true)]
+    [InlineData("海报原图.png", true)]
+    [InlineData("2.mp4", true)]
+    public void Completed_download_runs_again_only_when_required_artifacts_are_missing(string missingFile, bool shouldRun)
+    {
+        var project = Directory.CreateTempSubdirectory("tiktok-download-artifacts-");
+        try
+        {
+            File.WriteAllText(Path.Combine(project.FullName, "shortdrama-project.json"), """{"title":"Family Inheritance","episodeCount":2}""");
+            WriteDownloadSourceMaterials(project.FullName);
+            File.WriteAllBytes(Path.Combine(project.FullName, "1.mp4"), [1]);
+            File.WriteAllBytes(Path.Combine(project.FullName, "2.mp4"), [1]);
+            if (missingFile.Length > 0)
+                File.Delete(Path.Combine(project.FullName, missingFile));
+
+            var item = new QueueProjectItem { ProjectDir = project.FullName, OriginalTitle = "Family Inheritance", EpisodeCount = 2 };
+            item.StepStates[QueueStepRegistry.Download] = QueueStepStatus.Completed;
+            var options = new QueueRunOptions { EnabledSteps = [QueueStepRegistry.Download] };
+
+            QueueWorkerRunner.ShouldRunStep(item, QueueStepRegistry.Download, options).Should().Be(shouldRun);
+        }
+        finally
+        {
+            project.Delete(recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(QueueStepRegistry.UploadSeries)]
+    [InlineData(QueueStepKeys.DeleteSourceVideos)]
+    public void Completed_download_keeps_historical_status_after_upload_or_source_cleanup(string completedStep)
+    {
+        var project = Directory.CreateTempSubdirectory("tiktok-historical-download-");
+        try
+        {
+            var item = new QueueProjectItem { ProjectDir = project.FullName, EpisodeCount = 2 };
+            item.StepStates[QueueStepRegistry.Download] = QueueStepStatus.Completed;
+            item.StepStates[completedStep] = QueueStepStatus.Completed;
+            var options = new QueueRunOptions { EnabledSteps = [QueueStepRegistry.Download] };
+
+            QueueWorkerRunner.ShouldRunStep(item, QueueStepRegistry.Download, options).Should().BeFalse();
+        }
+        finally
+        {
+            project.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public async Task RunAsync_fails_before_browser_when_source_episode_count_is_incomplete()
     {
@@ -1814,6 +1870,13 @@ public sealed class QueueWorkerRunnerTests : IDisposable
                 ? QueueStepStatus.Pending
                 : QueueStepStatus.Completed;
         return item;
+    }
+
+    private static void WriteDownloadSourceMaterials(string projectDir)
+    {
+        File.WriteAllText(Path.Combine(projectDir, "简介.txt"), "A family inheritance dispute brings estranged siblings together.");
+        File.WriteAllBytes(Path.Combine(projectDir, "海报原图.png"), Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
     }
 
     private static byte[] CreateTinyMp4Bytes()

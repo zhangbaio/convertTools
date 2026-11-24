@@ -17,7 +17,8 @@ public sealed record DramaDownloadRequest(
     int Concurrent,
     string EpisodeNumberMode = "source",
     ExistingVideoPolicy ExistingVideoPolicy = ExistingVideoPolicy.ReuseValid,
-    string? MetadataDirectory = null);
+    string? MetadataDirectory = null,
+    int ExpectedEpisodeTotal = 0);
 
 public sealed record DramaDownloadResult(
     bool Ok,

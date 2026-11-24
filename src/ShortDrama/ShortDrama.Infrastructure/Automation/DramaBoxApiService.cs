@@ -205,17 +205,34 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         string bookReference,
         CancellationToken cancellationToken)
     {
-        var bookId = StripPrefix(bookReference, BookPrefix);
-        using var document = await PostSignedAsync(
-            settings,
-            "/drama-box/chapterv2/detail",
-            new { bookId },
-            cancellationToken);
+        using var document = await RequestBookDetailAsync(settings, StripPrefix(bookReference, BookPrefix), cancellationToken);
         var data = DataObject(document.RootElement);
         return data.TryGetProperty("list", out var list) && list.ValueKind == JsonValueKind.Array
             ? list.GetArrayLength()
             : 0;
     }
+
+    internal async Task<(string Intro, string PosterUrl)> GetBookMaterialsAsync(
+        DramaSourceSettings settings,
+        string bookReference,
+        CancellationToken cancellationToken)
+    {
+        if (!bookReference.StartsWith(BookPrefix, StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(bookReference[BookPrefix.Length..]))
+        {
+            throw new ArgumentException("缺少 DramaBox 剧集标识。", nameof(bookReference));
+        }
+
+        var bookId = StripPrefix(bookReference, BookPrefix);
+        using var document = await RequestBookDetailAsync(settings, bookId, cancellationToken);
+        return ReadBookMaterials(document.RootElement, bookId);
+    }
+
+    private Task<JsonDocument> RequestBookDetailAsync(
+        DramaSourceSettings settings,
+        string bookId,
+        CancellationToken cancellationToken) =>
+        PostSignedAsync(settings, "/drama-box/chapterv2/detail", new { bookId }, cancellationToken);
 
     public async Task<IReadOnlyList<GatewayEpisode>> GetEpisodesAsync(
         DramaSourceSettings settings, string bookReference, CancellationToken cancellationToken)
@@ -1228,12 +1245,54 @@ public sealed class DramaBoxApiService(HttpClient httpClient)
         return new DramaBook(
             bookId,
             title,
-            ReadString(item, "introduction") ?? "",
+            ReadIntroduction(item),
             ReadCoverUrl(item),
             ReadEpisodeCount(item),
             JoinTags(item),
             ReadPublishTime(item),
             ReadPlayCount(item));
+    }
+
+    internal static (string Intro, string PosterUrl) ReadBookMaterials(JsonElement root, string bookId) =>
+        root.ValueKind == JsonValueKind.Object ? ReadBookMaterialsFromObject(DataObject(root), bookId) : ("", "");
+
+    private static (string Intro, string PosterUrl) ReadBookMaterialsFromObject(JsonElement item, string bookId)
+    {
+        var returnedId = ReadString(item, "bookId");
+        if (!string.IsNullOrWhiteSpace(returnedId) && !string.Equals(returnedId, bookId, StringComparison.Ordinal))
+            return ("", "");
+
+        var intro = ReadIntroduction(item);
+        var posterUrl = ReadCoverUrl(item);
+        foreach (var name in new[] { "book", "bookInfo", "detail" })
+        {
+            if (intro.Length != 0 && posterUrl.Length != 0)
+                break;
+            if (!item.TryGetProperty(name, out var nested) || nested.ValueKind != JsonValueKind.Object)
+                continue;
+
+            var nestedMaterials = ReadBookMaterialsFromObject(nested, bookId);
+            if (intro.Length == 0)
+                intro = nestedMaterials.Intro;
+            if (posterUrl.Length == 0)
+                posterUrl = nestedMaterials.PosterUrl;
+        }
+
+        return (intro, posterUrl);
+    }
+
+    private static string ReadIntroduction(JsonElement item)
+    {
+        foreach (var name in new[] { "introduction", "intro", "description", "synopsis" })
+        {
+            if (item.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String &&
+                value.GetString()?.Trim() is { Length: > 0 } text)
+            {
+                return text;
+            }
+        }
+
+        return "";
     }
 
     private static IReadOnlyList<DramaChapter> ReadChapters(JsonElement data)

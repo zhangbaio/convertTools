@@ -157,8 +157,7 @@ public sealed class WorkspaceQueueServiceTests
         var marker = video + ".aria2";
         try
         {
-            CreateProject(project);
-            File.WriteAllBytes(video, [1, 2, 3]);
+            CreateDownloadArtifacts(project, episodeCount: 1);
             File.WriteAllBytes(marker, [4, 5, 6]);
 
             LocalManualDramaImportService.ListCandidates(workspace).Should().BeEmpty();
@@ -170,6 +169,65 @@ public sealed class WorkspaceQueueServiceTests
             var completed = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
             completed.PrimaryVideoPath.Should().Be(video);
             completed.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Completed);
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Theory]
+    [InlineData("简介.txt")]
+    [InlineData("海报原图.png")]
+    [InlineData("第2集.mp4")]
+    public void Workspace_scan_requires_all_download_artifacts_to_recover_or_keep_completed_status(string missingFile)
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-download-artifacts-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "待下载短剧");
+        try
+        {
+            CreateDownloadArtifacts(project, episodeCount: 2);
+            var complete = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            complete.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Completed);
+
+            File.Delete(Path.Combine(project, missingFile));
+            var pending = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            pending.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Pending);
+
+            WorkspaceQueueService.SaveProjects(workspace, [complete]);
+            var restored = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+            restored.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Pending);
+        }
+        finally
+        {
+            DeleteWorkspaceBestEffort(workspace);
+        }
+    }
+
+    [Theory]
+    [InlineData(QueueStepKeys.UploadSeries)]
+    [InlineData(QueueStepKeys.DeleteSourceVideos)]
+    public void Workspace_scan_preserves_historical_download_status_after_upload_or_source_cleanup(string completedStep)
+    {
+        var workspace = Path.Combine(Path.GetTempPath(), $"workspace-historical-download-{Guid.NewGuid():N}");
+        var project = Path.Combine(workspace, "已处理短剧");
+        try
+        {
+            CreateProject(project);
+            var item = new QueueProjectItem
+            {
+                ProjectDir = project,
+                StepStates = new Dictionary<string, string>
+                {
+                    [QueueStepKeys.Download] = QueueStepStatus.Completed,
+                    [completedStep] = QueueStepStatus.Completed,
+                },
+            };
+            WorkspaceQueueService.SaveProjects(workspace, [item]);
+
+            var restored = WorkspaceQueueService.ScanProjects(workspace).Should().ContainSingle().Subject;
+
+            restored.StepStates[QueueStepKeys.Download].Should().Be(QueueStepStatus.Completed);
         }
         finally
         {
@@ -756,6 +814,17 @@ public sealed class WorkspaceQueueServiceTests
     {
         Directory.CreateDirectory(projectDir);
         File.WriteAllText(Path.Combine(projectDir, "shortdrama-project.json"), "{}");
+    }
+
+    private static void CreateDownloadArtifacts(string projectDir, int episodeCount)
+    {
+        Directory.CreateDirectory(projectDir);
+        File.WriteAllText(Path.Combine(projectDir, "shortdrama-project.json"), JsonSerializer.Serialize(new { episodeCount }));
+        File.WriteAllText(Path.Combine(projectDir, "简介.txt"), "原剧讲述两位朋友在重逢后找到了各自的新生活。");
+        File.WriteAllBytes(Path.Combine(projectDir, "海报原图.png"), Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
+        for (var episode = 1; episode <= episodeCount; episode++)
+            File.WriteAllBytes(Path.Combine(projectDir, $"第{episode}集.mp4"), [1, 2, 3]);
     }
 
     private static void WriteProjectMetadata(string projectDir, string sourceProjectDir, string workflowProjectDir)

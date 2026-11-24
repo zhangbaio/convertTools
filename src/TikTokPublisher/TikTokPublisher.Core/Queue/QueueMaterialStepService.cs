@@ -24,7 +24,7 @@ public delegate Task<IReadOnlyDictionary<int, string>> RoleReferenceEpisodeFallb
     CancellationToken ct);
 
 /// <summary>队列步骤：下载 / 改写 / 海报 / 删源（对齐 Python drama + tiktok 服务）。</summary>
-public static class QueueMaterialStepService
+public static partial class QueueMaterialStepService
 {
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> PublishedFallbackLocks =
         new(StringComparer.OrdinalIgnoreCase);
@@ -139,15 +139,12 @@ public static class QueueMaterialStepService
 
         var progress = CreateDownloadProgress(log);
         var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
-        var expectedEpisodeNumbers = strictDownload
-            ? Enumerable.Range(1, clientAssignment!.ExpectedEpisodeTotal).ToArray()
-            : ResolveExpectedDownloadedEpisodeNumbers(context.SourceProjectDir, item);
+        var expectedEpisodeNumbers = ResolveRequiredDownloadEpisodeNumbers(context, item, episodes);
         if (!result.Ok)
         {
-            if (ct.IsCancellationRequested)
-                throw new OperationCanceledException(ct);
+            ct.ThrowIfCancellationRequested();
 
-            if (!strictDownload && ShouldUseExistingVideosToRepairFailedDownload(forceRerun) &&
+            var recoveredVideos = !strictDownload && ShouldUseExistingVideosToRepairFailedDownload(forceRerun) &&
                 await TryRepairMissingEpisodesAsync(
                     context,
                     item,
@@ -156,34 +153,27 @@ public static class QueueMaterialStepService
                     displayName,
                     expectedEpisodeNumbers,
                     log,
-                    ct).ConfigureAwait(false))
+                    ct).ConfigureAwait(false);
+            if (!recoveredVideos)
             {
-                ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
-                ProjectWorkspaceService.RefreshQueueItemMetadata(item);
-                await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
-                return;
+                if (forceRerun)
+                    log("强制重跑下载未成功；已保留原视频作为安全备份，但不会把旧文件计为本轮下载成功。");
+                throw new InvalidOperationException(result.Message ?? "下载失败");
             }
-
-            if (forceRerun)
-                log("强制重跑下载未成功；已保留原视频作为安全备份，但不会把旧文件计为本轮下载成功。");
-
-            throw new InvalidOperationException(result.Message ?? "下载失败");
+        }
+        else
+        {
+            log("分集传输结束，正在核验应下载的分集和原始资料。");
+            await TryRepairMissingEpisodesAsync(context, item, metadata, settings, displayName,
+                expectedEpisodeNumbers, log, ct).ConfigureAwait(false);
         }
 
-        log(result.Message ?? $"下载完成，共 {result.VideoCount} 集");
-        await RepairMissingEpisodesIfNeededAsync(
-            context,
-            item,
-            metadata,
-            settings,
-            displayName,
-            expectedEpisodeNumbers,
-            log,
-            ct).ConfigureAwait(false);
         EnsureDownloadedEpisodesComplete(context.SourceProjectDir, item, expectedEpisodeNumbers, log);
+        await EnsureRequiredDownloadMetadataAsync(context, item, metadata, displayName, log, ct).ConfigureAwait(false);
+        await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
         ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
         ProjectWorkspaceService.RefreshQueueItemMetadata(item);
-        await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
+        log("下载验收通过，原简介、原海报和分集均已齐全。");
     }
 
     internal const string EmptyDownloadVideoMessage = "没有视频文件，下载未完成。";
@@ -195,7 +185,12 @@ public static class QueueMaterialStepService
     {
         if (!HasEmptyVideoDownloadFailure(item))
             return false;
-        return UploadCopiesCoverExpectedEpisodes(item.ProjectDir, item);
+        var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
+        var selection = ReadDownloadMetadata(context.SourceProjectDir).Episodes;
+        var expected = ResolveRequiredDownloadEpisodeNumbers(context, item, selection);
+        return expected.Count > 0 &&
+               UploadCopiesCoverEpisodeNumbers(ProjectVideoResolver.ResolveStagedUploadVideos(context.SourceProjectDir), expected) &&
+               HasRequiredDownloadMetadata(context, item);
     }
 
     internal static void ClearEmptyVideoDownloadFailure(string sourceProjectDir)
@@ -270,16 +265,6 @@ public static class QueueMaterialStepService
         {
             return false;
         }
-    }
-
-    private static bool UploadCopiesCoverExpectedEpisodes(string sourceProjectDir, QueueProjectItem item)
-    {
-        var expected = TryReadExpectedEpisodeNumbers(sourceProjectDir, item);
-        if (expected is not { Count: > 1 })
-            return false;
-        return UploadCopiesCoverEpisodeNumbers(
-            ProjectVideoResolver.ResolveStagedUploadVideos(sourceProjectDir),
-            expected);
     }
 
     private static bool UploadCopiesCoverEpisodeNumbers(
@@ -1524,28 +1509,6 @@ public static class QueueMaterialStepService
 
     private static readonly string[] EpisodeVideoExtensions = [".mp4", ".mov", ".m4v", ".mkv", ".ts"];
 
-    private static async Task RepairMissingEpisodesIfNeededAsync(
-        ProjectWorkspaceContext context,
-        QueueProjectItem item,
-        DownloadMetadata metadata,
-        ClientSettings settings,
-        string displayName,
-        IReadOnlyList<int> expectedEpisodeNumbers,
-        Action<string> log,
-        CancellationToken ct)
-    {
-        if (await TryRepairMissingEpisodesAsync(
-                context,
-                item,
-                metadata,
-                settings,
-                displayName,
-                expectedEpisodeNumbers,
-                log,
-                ct).ConfigureAwait(false))
-            return;
-    }
-
     private static async Task<bool> TryRepairMissingEpisodesAsync(
         ProjectWorkspaceContext context,
         QueueProjectItem item,
@@ -1619,10 +1582,9 @@ public static class QueueMaterialStepService
         var inspection = InspectDownloadedEpisodes(sourceProjectDir, item, expectedEpisodeNumbers);
         if (inspection.IsUnknown)
         {
-            log(string.IsNullOrWhiteSpace(inspection.SkipReason)
-                ? "未能确定短剧总集数，跳过集数完整性校验。"
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(inspection.SkipReason)
+                ? "下载未完成：无法确定应下载的集数。请核对原剧集数后重试下载。"
                 : inspection.SkipReason);
-            return;
         }
 
         if (inspection.IsComplete)
@@ -1640,28 +1602,22 @@ public static class QueueMaterialStepService
     internal static DownloadCompleteness InspectDownloadedEpisodes(
         string sourceProjectDir,
         QueueProjectItem item,
-        IReadOnlyList<int>? expectedEpisodeNumbers = null)
+        IReadOnlyList<int>? expectedEpisodeNumbers = null,
+        bool allowStagedFallback = false)
     {
-        var expectedCount = 0;
-        try { expectedCount = ProjectWorkspaceService.ResolveSourceEpisodeCount(item.ProjectDir); }
-        catch { /* 信息文件缺失时回退 item.EpisodeCount */ }
-        if (expectedCount <= 0) expectedCount = item.EpisodeCount;
-
-        var expectedNumbers = (expectedEpisodeNumbers ??
-                               TryReadExpectedEpisodeNumbersFromDownloadState(sourceProjectDir, expectedCount) ??
-                               (expectedCount > 0 ? Enumerable.Range(1, expectedCount).ToArray() : []))
+        var expectedNumbers = (expectedEpisodeNumbers ?? ResolveExpectedDownloadedEpisodeNumbers(sourceProjectDir, item))
             .Where(number => number > 0)
             .Distinct()
             .Order()
             .ToArray();
-        if (expectedNumbers.Length <= 1)
+        if (expectedNumbers.Length == 0)
             return DownloadCompleteness.Unknown;
 
         var found = new HashSet<int>();
         var videoPaths = new List<string>();
         try
         {
-            foreach (var file in ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir))
+            foreach (var file in ProjectVideoResolver.ResolveSourceVideos(sourceProjectDir, allowStagedFallback))
             {
                 if (!EpisodeVideoExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
                     continue;
@@ -1671,9 +1627,9 @@ public static class QueueMaterialStepService
                     found.Add(episode);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            return new DownloadCompleteness(0, found.Count, [], $"集数完整性校验读取目录失败，跳过：{ex.Message}");
+            return new DownloadCompleteness(0, found.Count, [], $"下载未完成：无法读取分集目录。{ex.Message}");
         }
 
         var missing = expectedNumbers.Where(number => !found.Contains(number)).ToList();
@@ -1706,7 +1662,8 @@ public static class QueueMaterialStepService
 
     private static IReadOnlyList<int>? TryReadExpectedEpisodeNumbersFromDownloadState(
         string sourceProjectDir,
-        int expectedCount)
+        int expectedCount,
+        string? matchingSelection = null)
     {
         var statePath = Path.Combine(sourceProjectDir, ".weixin-channel-download-state.json");
         if (!File.Exists(statePath))
@@ -1718,6 +1675,10 @@ public static class QueueMaterialStepService
             var root = document.RootElement;
             if (!root.TryGetProperty("episode_mappings", out var mappings) ||
                 mappings.ValueKind != JsonValueKind.Array)
+                return null;
+
+            if (matchingSelection is not null &&
+                !string.Equals(GetString(root, "episodes")?.Trim(), matchingSelection, StringComparison.OrdinalIgnoreCase))
                 return null;
 
             var mode = root.TryGetProperty("episode_number_mode", out var modeElement)
@@ -1737,7 +1698,8 @@ public static class QueueMaterialStepService
                 .ToArray();
             var representsFullDownload = expectedCount <= 0 ||
                                           numbers.Length == expectedCount;
-            return representsFullDownload && numbers.Length > 1 ? numbers : null;
+            return representsFullDownload && numbers.Length > 0 && numbers.Length == mappings.GetArrayLength()
+                ? numbers : null;
         }
         catch
         {
@@ -2027,12 +1989,13 @@ public static class QueueMaterialStepService
             ProjectWorkspaceService.EnsureWorkflowInfo(item.ProjectDir, episodeCount, log);
         }
 
-        var inputPath = preparedInput ?? ProjectWorkspaceService.FindPosterInputFile(
-            context.SourceProjectDir, workflowDir, excludedPath);
+        var inputPath = preparedInput is not null && IsUsableDownloadPoster(preparedInput)
+            ? preparedInput
+            : ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir, excludedPath, IsUsableDownloadPoster);
         if (inputPath is null)
         {
             await EnsureDownloadedMaterialsAsync(item, globalSettings, account, log, ct).ConfigureAwait(false);
-            inputPath = ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir, excludedPath);
+            inputPath = ProjectWorkspaceService.FindPosterInputFile(context.SourceProjectDir, workflowDir, excludedPath, IsUsableDownloadPoster);
         }
 
         if (inputPath is null)
@@ -2889,7 +2852,7 @@ public static class QueueMaterialStepService
     {
         public static DownloadCompleteness Unknown { get; } = new(0, 0, [], "");
 
-        public bool IsUnknown => Expected <= 1 || !string.IsNullOrWhiteSpace(SkipReason);
+        public bool IsUnknown => Expected <= 0 || !string.IsNullOrWhiteSpace(SkipReason);
         public bool IsComplete => !IsUnknown && Missing.Count == 0;
     }
 

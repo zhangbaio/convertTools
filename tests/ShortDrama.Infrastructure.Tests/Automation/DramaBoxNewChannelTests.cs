@@ -92,6 +92,47 @@ public class DramaBoxNewChannelTests
     }
 
     [Fact]
+    public void Reads_chapter_detail_book_materials_from_the_matching_book()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "data": {
+                "introduction": "   ",
+                "bookInfo": {
+                  "bookId": "123",
+                  "description": "  The original synopsis.  ",
+                  "bookCover": "https://img.example/book.webp"
+                },
+                "list": [{"description":"Episode text"}]
+              }
+            }
+            """);
+
+        var result = DramaBoxApiService.ReadBookMaterials(document.RootElement, "123");
+
+        result.Intro.Should().Be("The original synopsis.");
+        result.PosterUrl.Should().Be("https://img.example/book.webp");
+    }
+
+    [Fact]
+    public void Does_not_read_materials_from_a_different_book_or_the_episode_list()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "data": {
+                "bookInfo": {"bookId":"999","introduction":"A different book","cover":"https://img.example/other.jpg"},
+                "list": [{"introduction":"An episode","cover":"https://img.example/chapter.jpg"}]
+              }
+            }
+            """);
+
+        var result = DramaBoxApiService.ReadBookMaterials(document.RootElement, "123");
+
+        result.Intro.Should().BeEmpty();
+        result.PosterUrl.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Splits_curl_status_from_body()
     {
         var text = DramaBoxApiService.SplitCurlDump("HTTP/1.1 206 Partial Content\r\nContent-Length: 16\r\n\r\n{\"ok\":true}");
