@@ -24,6 +24,19 @@ public sealed class PublishJobRowStatusTests
     }
 
     [Fact]
+    public void Running_poster_step_overrides_previous_failure_in_drama_title()
+    {
+        var job = KuaishouJob();
+        job.Status = PublishJobStatus.Failed;
+        job.StepStates["weixin-upload"] = new PublishJobStepState { Status = PublishJobStepStatus.Failed };
+        job.StepStates["poster-rename"] = new PublishJobStepState { Status = PublishJobStepStatus.Running };
+        var row = new PublishJobRowViewModel(job, loadArtifacts: false, loadTableInfo: false);
+
+        Assert.Equal("执行中", row.PosterStepStatus);
+        Assert.Same(row.PosterStepBrush, row.DramaTitleBrush);
+    }
+
+    [Fact]
     public void Queued_retry_hides_the_previous_upload_failure()
     {
         var root = Path.Combine(Path.GetTempPath(), "ks-retry-status-" + Guid.NewGuid().ToString("N"));
