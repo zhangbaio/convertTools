@@ -386,6 +386,7 @@ public sealed partial class MainViewModel : ViewModelBase
     {
         _xingeRemoteCommandService.Restart(
             ExecuteXingeRemoteCommandAsync,
+            BuildXingeRemotePresenceSnapshotAsync,
             BuildXingeRemoteRegistrationSnapshotAsync,
             AppendLog,
             RecoverOpenAutoPublishAsync,
@@ -824,14 +825,24 @@ public sealed partial class MainViewModel : ViewModelBase
 
     private DateTimeOffset _lastXingeProcessedScanAt;
 
-    private async Task<XingeRemoteRegistrationSnapshot> BuildXingeRemoteRegistrationSnapshotAsync(CancellationToken ct)
+    internal void SyncXingeAccountDispatchPreference(string profileId) =>
+        _ = _xingeRemoteCommandService.SyncAccountDispatchPreferenceAsync(profileId, BuildXingeRemotePresenceSnapshotAsync);
+
+    private async Task<XingeRemoteRegistrationSnapshot> BuildXingeRemotePresenceSnapshotAsync(CancellationToken ct)
+    {
+        var captured = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(CaptureXingeRegistration);
+        ct.ThrowIfCancellationRequested();
+        return ComposeXingeRegistrationSnapshot(captured, ClientSettingsStore.Load(), uploadedToday: null);
+    }
+
+    private async Task<XingeRemoteRegistrationSnapshot> BuildXingeRemoteRegistrationSnapshotAsync(bool forceHistoryScan, CancellationToken ct)
     {
         var captured = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(CaptureXingeRegistration);
         ct.ThrowIfCancellationRequested();
         var settings = ClientSettingsStore.Load();
         var uploaded = await Task.Run(() => ScanUploadedToday(captured.Accounts), ct).ConfigureAwait(false);
         var snapshot = ComposeXingeRegistrationSnapshot(captured, settings, uploaded);
-        if (DateTimeOffset.UtcNow - _lastXingeProcessedScanAt < TimeSpan.FromMinutes(2))
+        if (!forceHistoryScan && DateTimeOffset.UtcNow - _lastXingeProcessedScanAt < TimeSpan.FromMinutes(2))
             return snapshot;
         try
         {
@@ -839,7 +850,7 @@ public sealed partial class MainViewModel : ViewModelBase
             _lastXingeProcessedScanAt = DateTimeOffset.UtcNow;
             return snapshot with { ProcessedSeries = facts };
         }
-        catch (Exception) when (!ct.IsCancellationRequested)
+        catch (Exception) when (!ct.IsCancellationRequested && !forceHistoryScan)
         {
             AppendLog("读取 TikTok 上传和归档历史失败，下次连接将重试。");
             return snapshot;

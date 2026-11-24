@@ -15,7 +15,8 @@ public sealed record XingeRemoteRegistrationSnapshot(
     string ActiveAccountProfileId,
     string DramaSource,
     IReadOnlyList<XingeRemoteAccountSnapshot> AccountProfiles,
-    IReadOnlyList<XingeTikTokProcessedFact>? ProcessedSeries = null);
+    IReadOnlyList<XingeTikTokProcessedFact>? ProcessedSeries = null,
+    bool DispatchSyncing = false);
 
 public sealed record XingeRemoteUploadedDrama(string SeriesId, string Title, string CompletedAt);
 
@@ -38,6 +39,9 @@ public sealed class XingeRemoteCommandService
         WriteIndented = false,
     };
 
+    private static readonly TimeSpan RegistrationInterval = TimeSpan.FromSeconds(30);
+
+    private readonly SemaphoreSlim _registrationGate = new(1, 1);
     private readonly object _sync = new();
     private readonly object _quotaFullLock = new();
     private Dictionary<string, DateTimeOffset> _quotaFullUntil = new(StringComparer.OrdinalIgnoreCase);
@@ -53,7 +57,8 @@ public sealed class XingeRemoteCommandService
 
     public void Restart(
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
-        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> presenceProvider,
+        Func<bool, CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
         Action<string>? log = null,
         Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync = null,
         Action? onIdle = null)
@@ -88,14 +93,13 @@ public sealed class XingeRemoteCommandService
             return;
         }
 
+        Notify(config.NeedsProvisioning ? "XINGE 正在注册本机..." : "XINGE 正在连接...");
         var cts = new CancellationTokenSource();
         lock (_sync)
         {
             _cts = cts;
-            _worker = Task.Run(() => RunAsync(config, executeAsync, snapshotProvider, log, recoverAsync, onIdle, cts.Token));
+            _worker = Task.Run(() => RunAsync(config, executeAsync, presenceProvider, snapshotProvider, log, recoverAsync, onIdle, cts.Token));
         }
-
-        Notify(config.NeedsProvisioning ? "XINGE 正在注册本机..." : "XINGE 正在连接...");
     }
 
     public void ReportDailySeriesLimit(string? accountProfileId)
@@ -172,7 +176,8 @@ public sealed class XingeRemoteCommandService
     private async Task RunAsync(
         XingeRemoteConfig config,
         Func<TikTokRemoteCommand, Task<TikTokRemoteCommandResult>> executeAsync,
-        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> presenceProvider,
+        Func<bool, CancellationToken, Task<XingeRemoteRegistrationSnapshot>> snapshotProvider,
         Action<string>? log,
         Func<IReadOnlyList<XingeOpenAutoPublishAssignment>, Task>? recoverAsync,
         Action? onIdle,
@@ -180,6 +185,7 @@ public sealed class XingeRemoteCommandService
     {
         using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(25) };
         var lastRegisteredAt = DateTimeOffset.MinValue;
+        var startupReady = false;
         var sentProcessedSeries = new HashSet<XingeTikTokProcessedFact>();
         XingeRemoteMessage? replay = null;
 
@@ -195,11 +201,33 @@ public sealed class XingeRemoteCommandService
                 if (config.NeedsProvisioning)
                     await ProvisionAndSaveAsync(config, ct).ConfigureAwait(false);
 
-                if (DateTimeOffset.UtcNow - lastRegisteredAt >= TimeSpan.FromSeconds(30))
+                if (DateTimeOffset.UtcNow - lastRegisteredAt >= RegistrationInterval)
                 {
-                    var snapshot = await snapshotProvider(ct).ConfigureAwait(false);
-                    await SyncProcessedSeriesAsync(http, config, snapshot.ProcessedSeries, sentProcessedSeries, log, ct).ConfigureAwait(false);
-                    var quotaFull = await RegisterAsync(http, config, snapshot, ct).ConfigureAwait(false);
+                    XingeRemoteRegistrationSnapshot snapshot;
+                    if (!startupReady)
+                    {
+                        var presence = await presenceProvider(ct).ConfigureAwait(false);
+                        snapshot = await RegisterStartupAsync(presence, async token =>
+                        {
+                            var full = await snapshotProvider(true, token).ConfigureAwait(false);
+                            if (!await SyncProcessedSeriesAsync(http, config, full.ProcessedSeries, sentProcessedSeries, log, token).ConfigureAwait(false))
+                                throw new InvalidOperationException("历史同步暂未完成，稍后重试");
+                            return full;
+                        }, async (pending, token) =>
+                        {
+                            await RegisterAsync(http, config, pending, presenceProvider, token).ConfigureAwait(false);
+                            Notify($"XINGE 已在线：{pending.AccountProfiles.Count} 个账号，正在同步派单数据...");
+                        }, RegistrationInterval, ct).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        snapshot = await snapshotProvider(false, ct).ConfigureAwait(false);
+                        await SyncProcessedSeriesAsync(http, config, snapshot.ProcessedSeries, sentProcessedSeries, log, ct).ConfigureAwait(false);
+                    }
+
+                    ct.ThrowIfCancellationRequested();
+                    var quotaFull = await RegisterAsync(http, config, snapshot, presenceProvider, ct).ConfigureAwait(false);
+                    startupReady = true;
                     ct.ThrowIfCancellationRequested();
                     RememberQuotaFullAccounts(quotaFull);
                     lastRegisteredAt = DateTimeOffset.UtcNow;
@@ -300,6 +328,8 @@ public sealed class XingeRemoteCommandService
                 {
                     await ProvisionAndSaveAsync(config, ct).ConfigureAwait(false);
                     lastRegisteredAt = DateTimeOffset.MinValue;
+                    startupReady = false;
+                    sentProcessedSeries.Clear();
                 }
                 catch (Exception ex)
                 {
@@ -323,6 +353,49 @@ public sealed class XingeRemoteCommandService
                     break;
                 }
             }
+        }
+    }
+
+    internal static async Task<XingeRemoteRegistrationSnapshot> RegisterStartupAsync(
+        XingeRemoteRegistrationSnapshot presence,
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> loadFullSnapshot,
+        Func<XingeRemoteRegistrationSnapshot, CancellationToken, Task> registerPresence,
+        TimeSpan heartbeatInterval,
+        CancellationToken ct)
+    {
+        var pending = presence with
+        {
+            AccountProfiles = presence.AccountProfiles.Select(account => account with
+            {
+                UploadedToday = null,
+            }).ToArray(),
+            ProcessedSeries = null,
+            DispatchSyncing = true,
+        };
+        await registerPresence(pending, ct).ConfigureAwait(false);
+
+        using var startup = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var full = loadFullSnapshot(startup.Token);
+        try
+        {
+            while (true)
+            {
+                try
+                {
+                    return await full.WaitAsync(heartbeatInterval, ct).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    if (full.IsCompleted)
+                        return await full.ConfigureAwait(false);
+                    await registerPresence(pending, ct).ConfigureAwait(false);
+                }
+            }
+        }
+        finally
+        {
+            startup.Cancel();
+            await ((Task)full).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
     }
 
@@ -377,63 +450,142 @@ public sealed class XingeRemoteCommandService
         HttpClient http,
         XingeRemoteConfig config,
         XingeRemoteRegistrationSnapshot snapshot,
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> presenceProvider,
         CancellationToken ct)
     {
-        var version = typeof(XingeRemoteCommandService).Assembly.GetName().Version?.ToString() ?? "unknown";
-        var machineId = config.SoftwareSession?.MachineId ?? MachineFingerprintHelper.GetMachineFingerprint();
-        if (string.IsNullOrWhiteSpace(machineId))
-            machineId = Environment.MachineName;
-        var body = new
+        await _registrationGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            client_id = config.ClientId,
-            client_token = config.ClientToken,
-            machine_id = machineId,
-            device_name = FirstNonEmpty(config.ClientName, $"TikTokPublisher-{Environment.MachineName}"),
-            app_version = $"TikTokPublisher/{version}",
-            workspace_path = snapshot.WorkspacePath,
-            active_account_profile_id = snapshot.ActiveAccountProfileId,
-            drama_source = snapshot.DramaSource,
-            dramabox_server_media = true,
-            project_slot_capacity = ClientSettingsStore.Load().TiktokGlobalProjectConcurrency,
-            account_profiles = snapshot.AccountProfiles.Select(account =>
+            var present = await presenceProvider(ct).ConfigureAwait(false);
+            var latest = present.AccountProfiles.ToDictionary(account => account.Id, StringComparer.Ordinal);
+            var profiles = snapshot.AccountProfiles.Where(account => latest.ContainsKey(account.Id)).Select(account =>
             {
-                var profile = new Dictionary<string, object?>
+                var current = latest[account.Id];
+                return account with { RemoteDispatchEnabled = current.RemoteDispatchEnabled, AuthReady = current.AuthReady };
+            }).ToArray();
+            var version = typeof(XingeRemoteCommandService).Assembly.GetName().Version?.ToString() ?? "unknown";
+            var machineId = config.SoftwareSession?.MachineId ?? MachineFingerprintHelper.GetMachineFingerprint();
+            if (string.IsNullOrWhiteSpace(machineId))
+                machineId = Environment.MachineName;
+            var body = new
+            {
+                client_id = config.ClientId,
+                client_token = config.ClientToken,
+                machine_id = machineId,
+                device_name = FirstNonEmpty(config.ClientName, $"TikTokPublisher-{Environment.MachineName}"),
+                app_version = $"TikTokPublisher/{version}",
+                workspace_path = snapshot.WorkspacePath,
+                active_account_profile_id = snapshot.ActiveAccountProfileId,
+                drama_source = snapshot.DramaSource,
+                dramabox_server_media = true,
+                project_slot_capacity = ClientSettingsStore.Load().TiktokGlobalProjectConcurrency,
+                tiktok_dispatch_syncing = snapshot.DispatchSyncing,
+                account_profiles = profiles.Select(account =>
                 {
-                    ["id"] = account.Id,
-                    ["name"] = account.Name,
-                    ["auth_ready"] = account.AuthReady,
-                    ["is_current"] = account.IsCurrent,
-                    ["remote_dispatch_enabled"] = account.RemoteDispatchEnabled,
-                    ["queue_running"] = account.QueueRunning,
-                    ["drama_market"] = TikTokPublisher.Core.Models.TikTokAccountProfile.NormalizeDramaMarket(account.DramaMarket),
-                    ["drama_source"] = string.IsNullOrWhiteSpace(account.DramaSource) ? snapshot.DramaSource : account.DramaSource,
-                };
-                if (account.UploadedToday is not null)
-                {
-                    profile["uploaded_today"] = account.UploadedToday.Select(item => new
+                    var profile = new Dictionary<string, object?>
                     {
-                        series_id = item.SeriesId,
-                        title = item.Title,
-                        completed_at = item.CompletedAt,
-                    }).ToArray();
+                        ["id"] = account.Id,
+                        ["name"] = account.Name,
+                        ["auth_ready"] = account.AuthReady,
+                        ["is_current"] = account.IsCurrent,
+                        ["remote_dispatch_enabled"] = !snapshot.DispatchSyncing && account.RemoteDispatchEnabled,
+                        ["remote_dispatch_preference"] = account.RemoteDispatchEnabled,
+                        ["queue_running"] = account.QueueRunning,
+                        ["drama_market"] = TikTokPublisher.Core.Models.TikTokAccountProfile.NormalizeDramaMarket(account.DramaMarket),
+                        ["drama_source"] = string.IsNullOrWhiteSpace(account.DramaSource) ? snapshot.DramaSource : account.DramaSource,
+                    };
+                    if (account.UploadedToday is not null)
+                    {
+                        profile["uploaded_today"] = account.UploadedToday.Select(item => new
+                        {
+                            series_id = item.SeriesId,
+                            title = item.Title,
+                            completed_at = item.CompletedAt,
+                        }).ToArray();
+                    }
+                    return profile;
+                }).ToArray(),
+            };
+
+            var envelope = await SendAsync<XingeApiEnvelope<JsonElement>>(
+                http,
+                config,
+                HttpMethod.Post,
+                "/client-api/remote/register",
+                body,
+                ct).ConfigureAwait(false);
+
+            if (!envelope.Ok)
+                throw new InvalidOperationException(FirstNonEmpty(envelope.Message, "register failed"));
+            RememberDispatchPause(config, envelope);
+            ClientSettingsStore.RememberServerDispatchMode(envelope.DispatchMode);
+            return envelope.QuotaFullAccounts;
+            }
+        finally
+        {
+            _registrationGate.Release();
+        }
+    }
+
+    public async Task SyncAccountDispatchPreferenceAsync(string profileId,
+        Func<CancellationToken, Task<XingeRemoteRegistrationSnapshot>> presenceProvider)
+    {
+        CancellationToken ct;
+        lock (_sync)
+        {
+            if (_cts is null)
+                return;
+            ct = _cts.Token;
+        }
+
+        Notify("账号配置已保存，正在同步至 XINGE...");
+        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(5) };
+        try
+        {
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                await _registrationGate.WaitAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    var config = XingeRemoteConfig.FromSettings(ClientSettingsStore.Load());
+                    if (config.HasClientCredentials)
+                    {
+                        var snapshot = await presenceProvider(ct).ConfigureAwait(false);
+                        var profile = snapshot.AccountProfiles.FirstOrDefault(account => account.Id == profileId);
+                        if (profile is null)
+                            return;
+                        var response = await SendAsync<XingeApiEnvelope<JsonElement>>(http, config, HttpMethod.Post,
+                            "/client-api/tiktok/account-dispatch", new
+                            {
+                                account_profile_id = profile.Id,
+                                remote_dispatch_enabled = profile.RemoteDispatchEnabled,
+                                auth_ready = profile.AuthReady,
+                            }, ct).ConfigureAwait(false);
+                        if (response.Ok)
+                        {
+                            Notify(response.DispatchSyncing
+                                ? $"{profile.Name} 的远程分发设置已同步至 XINGE，派单数据仍在同步。"
+                                : $"{profile.Name} 的远程分发设置已同步至 XINGE。");
+                            return;
+                        }
+                    }
                 }
-                return profile;
-            }).ToArray(),
-        };
-
-        var envelope = await SendAsync<XingeApiEnvelope<JsonElement>>(
-            http,
-            config,
-            HttpMethod.Post,
-            "/client-api/remote/register",
-            body,
-            ct).ConfigureAwait(false);
-
-        if (!envelope.Ok)
-            throw new InvalidOperationException(FirstNonEmpty(envelope.Message, "register failed"));
-        RememberDispatchPause(config, envelope);
-        ClientSettingsStore.RememberServerDispatchMode(envelope.DispatchMode);
-        return envelope.QuotaFullAccounts;
+                catch (Exception) when (!ct.IsCancellationRequested)
+                {
+                    // The next attempt reads the current preference again, including an intervening save.
+                }
+                finally
+                {
+                    _registrationGate.Release();
+                }
+                if (attempt < 2)
+                    await Task.Delay(TimeSpan.FromSeconds(2), ct).ConfigureAwait(false);
+            }
+            Notify("账号配置已保存，等待 XINGE 下次注册同步。");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+        }
     }
 
     private static async Task<XingeRemoteMessage?> PollAsync(
@@ -715,7 +867,7 @@ public sealed class XingeRemoteCommandService
         Notify($"XINGE 账号已登录：{credentials.Username}");
     }
 
-    private static async Task SyncProcessedSeriesAsync(
+    private static async Task<bool> SyncProcessedSeriesAsync(
         HttpClient http,
         XingeRemoteConfig config,
         IReadOnlyList<XingeTikTokProcessedFact>? facts,
@@ -724,7 +876,7 @@ public sealed class XingeRemoteCommandService
         CancellationToken ct)
     {
         if (facts is null)
-            return;
+            return true;
         foreach (var batch in facts.Where(fact => !sent.Contains(fact)).Chunk(100))
         {
             try
@@ -738,9 +890,10 @@ public sealed class XingeRemoteCommandService
             catch (Exception ex) when (!ct.IsCancellationRequested && ex is InvalidOperationException or HttpRequestException or OperationCanceledException)
             {
                 log?.Invoke("XINGE 上传和归档历史暂未同步，下次连接将重试。");
-                return;
+                return false;
             }
         }
+        return true;
     }
 
     private static async Task CompleteAsync(
@@ -964,6 +1117,9 @@ public sealed class XingeRemoteCommandService
 
         [JsonPropertyName("quota_full_accounts")]
         public List<XingeQuotaFullAccount>? QuotaFullAccounts { get; set; }
+
+        [JsonPropertyName("dispatch_syncing")]
+        public bool DispatchSyncing { get; set; }
 
         [JsonPropertyName("dispatch_paused")]
         public bool DispatchPaused { get; set; }

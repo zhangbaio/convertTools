@@ -386,6 +386,8 @@ public partial class AccountProfileEditor : UserControl
             return false;
         }
 
+        var dispatchChanged = _vm.SystemServices.XingeRemoteEnabled &&
+            (!profile.XingeRemoteDispatchConfigured || _persistedRemoteDispatch != (RemoteDispatchBox.IsChecked == true));
         try
         {
             profile.TiktokAccountNickname = NicknameBox.Text?.Trim() ?? "";
@@ -504,6 +506,8 @@ public partial class AccountProfileEditor : UserControl
             _vm.RefreshFilteredAccounts();
             _vm.StatusMessage = $"已保存账号「{profile.DisplayName}」配置";
             ReloadFromSelectedAccount();
+            if (dispatchChanged)
+                _vm.SyncXingeAccountDispatchPreference(profile.Id);
             return true;
         }
         catch (Exception ex)
