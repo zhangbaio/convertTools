@@ -117,6 +117,9 @@ public static partial class QueueMaterialStepService
         }
     }
 
+    internal static Func<string, int, string, CancellationToken, Task<UploadTitleImportService.ExactDramaLookupResult>>?
+        DispatchedMaterialLookupForTests { get; set; }
+
     private static async Task EnsureRequiredDownloadMetadataAsync(
         ProjectWorkspaceContext context, QueueProjectItem item, DownloadMetadata metadata,
         string displayName, Action<string> log, CancellationToken ct, IDramaDownloader downloader)
@@ -124,46 +127,62 @@ public static partial class QueueMaterialStepService
         var source = context.SourceProjectDir;
         var synopsis = ResolveDownloadSynopsis(context, item);
         var hasPoster = HasOriginalDownloadPoster(context);
+        var router = downloader as DramaSourceRouter;
 
-        if ((!hasPoster || synopsis.Length == 0) && downloader is DramaSourceRouter router)
+        if ((!hasPoster || synopsis.Length == 0) &&
+            (router is not null || DispatchedMaterialLookupForTests is not null))
         {
             var progress = CreateDownloadProgress(log);
-            try
+            if (router is not null)
             {
-                await router.EnsurePosterAndIntroAsync(source, displayName, progress, ct,
-                    validatePoster: hasPoster ? null : IsUsableDownloadPoster,
-                    downloadPoster: !hasPoster).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                log($"使用已保存的下载资料补齐简介或海报失败：{ex.Message}");
+                try
+                {
+                    await router.EnsurePosterAndIntroAsync(source, displayName, progress, ct,
+                        validatePoster: hasPoster ? null : IsUsableDownloadPoster,
+                        downloadPoster: !hasPoster).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    log($"使用已保存的下载资料补齐简介或海报失败：{ex.Message}");
+                }
             }
 
             synopsis = ResolveDownloadSynopsis(context, item);
             hasPoster = HasOriginalDownloadPoster(context);
             if ((!hasPoster || synopsis.Length == 0) && !string.IsNullOrWhiteSpace(metadata.BookId))
             {
-                log("正在按原片源补齐简介或原海报。");
+                var searchTitle = FirstNonEmpty(item.OriginalTitle, metadata.Title);
+                log(IsBookIdForSource(metadata.BookId, "dramabox")
+                    ? $"正在按剧名《{searchTitle}》搜索下发剧集。"
+                    : "正在按原片源补齐简介或原海报。");
+                var materials = new DownloadBookMaterials("", "", "");
                 try
                 {
-                    var (intro, posterUrl) = await FetchDownloadBookMaterialsAsync(
-                        router, metadata, item, ct).ConfigureAwait(false);
-                    var title = FirstNonEmpty(item.OriginalTitle, metadata.Title, Path.GetFileName(source));
-                    if (synopsis.Length == 0 && ProjectOriginalSynopsisService.IsUsable(intro, title))
-                        synopsis = ProjectInfoTextHelper.SingleLineSynopsis(intro);
-
-                    if (!hasPoster && Uri.TryCreate(posterUrl, UriKind.Absolute, out var uri) &&
-                        (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
-                    {
-                        SaveRecoveredPosterUrl(source, posterUrl);
-                        await router.EnsurePosterAndIntroAsync(source, displayName, progress, ct,
-                            validatePoster: IsUsableDownloadPoster).ConfigureAwait(false);
-                        hasPoster = HasOriginalDownloadPoster(context);
-                    }
+                    materials = await FetchDownloadBookMaterialsAsync(metadata, item, ct).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     log($"按原片源补齐简介或海报失败：{ex.Message}");
+                }
+
+                if (materials.Failure.Length > 0)
+                    throw new InvalidOperationException(materials.Failure);
+
+                var title = FirstNonEmpty(item.OriginalTitle, metadata.Title, Path.GetFileName(source));
+                if (synopsis.Length == 0 && ProjectOriginalSynopsisService.IsUsable(materials.Intro, title))
+                {
+                    synopsis = ProjectInfoTextHelper.SingleLineSynopsis(materials.Intro);
+                    SaveRecoveredIntro(source, synopsis);
+                }
+
+                if (!hasPoster && router is not null &&
+                    Uri.TryCreate(materials.PosterUrl, UriKind.Absolute, out var uri) &&
+                    (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp))
+                {
+                    SaveRecoveredPosterUrl(source, materials.PosterUrl);
+                    await router.EnsurePosterAndIntroAsync(source, displayName, progress, ct,
+                        validatePoster: IsUsableDownloadPoster).ConfigureAwait(false);
+                    hasPoster = HasOriginalDownloadPoster(context);
                 }
             }
         }
@@ -186,20 +205,52 @@ public static partial class QueueMaterialStepService
             throw new InvalidOperationException($"下载未完成：缺少{string.Join("、", missing)}。请核对片源资料后重试下载。");
     }
 
-    private static async Task<(string Intro, string PosterUrl)> FetchDownloadBookMaterialsAsync(
-        DramaSourceRouter router, DownloadMetadata metadata, QueueProjectItem item, CancellationToken ct)
-    {
-        if (IsBookIdForSource(metadata.BookId, "dramabox"))
-            return await router.GetDramaBoxBookMaterialsAsync(metadata.BookId, ct).ConfigureAwait(false);
+    private readonly record struct DownloadBookMaterials(string Intro, string PosterUrl, string Failure);
 
+    private static async Task<DownloadBookMaterials> FetchDownloadBookMaterialsAsync(
+        DownloadMetadata metadata, QueueProjectItem item, CancellationToken ct)
+    {
         var title = FirstNonEmpty(item.OriginalTitle, metadata.Title);
+        if (IsBookIdForSource(metadata.BookId, "dramabox"))
+        {
+            if (title.Length == 0)
+                return new DownloadBookMaterials("", "", "缺少原剧名，无法搜索下发剧集。");
+
+            var episodes = Math.Max(item.SourceEpisodeCount, item.EpisodeCount);
+            var lookup = DispatchedMaterialLookupForTests is { } lookupForTests
+                ? await lookupForTests(title, episodes, metadata.BookId, ct).ConfigureAwait(false)
+                : await UploadTitleImportService.FindExactDramaAsync(
+                    title, episodes, ct, bookId: metadata.BookId).ConfigureAwait(false);
+            if (lookup.Item is null)
+            {
+                var reason = string.IsNullOrWhiteSpace(lookup.Reason)
+                    ? UploadTitleImportService.NoExactMatchReason
+                    : lookup.Reason;
+                return new DownloadBookMaterials("", "", reason);
+            }
+
+            return new DownloadBookMaterials(lookup.Item.Intro ?? "", lookup.Item.PosterUrl ?? "", "");
+        }
+
         if (title.Length == 0)
-            return ("", "");
+            return new DownloadBookMaterials("", "", "");
 
         var matches = await ShortDramaDramaServices.SearchAsync(title, 1, ct).ConfigureAwait(false);
         var book = matches.FirstOrDefault(match => string.Equals(
             match.BookId, metadata.BookId, StringComparison.OrdinalIgnoreCase));
-        return (book?.Intro ?? "", book?.PosterUrl ?? "");
+        return new DownloadBookMaterials(book?.Intro ?? "", book?.PosterUrl ?? "", "");
+    }
+
+    private static void SaveRecoveredIntro(string source, string intro)
+    {
+        var path = Path.Combine(source, "shortdrama-project.json");
+        if (!File.Exists(path))
+            return;
+
+        var metadata = JsonNode.Parse(File.ReadAllText(path)) as JsonObject
+                       ?? throw new InvalidDataException("shortdrama-project.json 不是有效对象。");
+        metadata["intro"] = intro;
+        WriteDownloadMetadataFile(path, metadata.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static void SaveRecoveredPosterUrl(string source, string posterUrl)

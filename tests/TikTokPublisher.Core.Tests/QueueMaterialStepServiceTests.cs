@@ -2,6 +2,7 @@ using FluentAssertions;
 using ShortDrama.Core.Interfaces;
 using ShortDrama.Core.Models;
 using System.Text.Json;
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Queue;
 using TikTokPublisher.Core.Services;
@@ -563,6 +564,77 @@ public sealed class QueueMaterialStepServiceTests
         }
     }
 
+    [Fact]
+    public async Task DramaBox_download_retry_saves_the_matching_search_synopsis_without_redownloading()
+    {
+        var workspace = Directory.CreateTempSubdirectory("dramabox-synopsis-search-");
+        const string bookId = "dramabox:420";
+        const string synopsis = "Two alpha brothers crave the new student at the academy.";
+        QueueMaterialStepService.DispatchedMaterialLookupForTests = (title, episodes, requestedBookId, _) =>
+        {
+            title.Should().Be("Beast Academy");
+            episodes.Should().Be(2);
+            requestedBookId.Should().Be(bookId);
+            return Task.FromResult(new UploadTitleImportService.ExactDramaLookupResult(
+                new TikTokPublisher.Core.Drama.DramaSearchItem
+                {
+                    BookId = bookId,
+                    Title = title,
+                    Intro = synopsis,
+                    PosterUrl = "https://img.example/beast.jpg",
+                    EpisodeTotal = 96,
+                },
+                ""));
+        };
+        try
+        {
+            var item = CreateDownloadRetryProject(workspace, "", bookId, "Beast Academy");
+            var downloader = new RecordingVideoDownloader();
+
+            await QueueMaterialStepService.RunDownloadAsync(item, new ClientSettings { DramaSourceChain = "dramabox" },
+                null, false, _ => { }, CancellationToken.None, downloader);
+
+            downloader.Requests.Should().BeEmpty();
+            File.ReadAllText(Path.Combine(item.ProjectDir, "简介.txt")).Trim().Should().Be(synopsis);
+            using var project = JsonDocument.Parse(File.ReadAllText(Path.Combine(item.ProjectDir, "shortdrama-project.json")));
+            project.RootElement.GetProperty("intro").GetString().Should().Be(synopsis);
+            Directory.GetFiles(item.ProjectDir, "*.mp4").Select(Path.GetFileName).Should().BeEquivalentTo(new[] { "01.mp4", "02.mp4" });
+        }
+        finally
+        {
+            QueueMaterialStepService.DispatchedMaterialLookupForTests = null;
+            workspace.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DramaBox_download_retry_stops_when_the_dispatched_book_is_not_in_search()
+    {
+        var workspace = Directory.CreateTempSubdirectory("dramabox-synopsis-miss-");
+        QueueMaterialStepService.DispatchedMaterialLookupForTests = (_, _, _, _) =>
+            Task.FromResult(new UploadTitleImportService.ExactDramaLookupResult(
+                null, UploadTitleImportService.NoExactMatchReason));
+        try
+        {
+            var item = CreateDownloadRetryProject(workspace, "", "dramabox:420", "Beast Academy");
+            var downloader = new RecordingVideoDownloader();
+
+            Func<Task> retry = () => QueueMaterialStepService.RunDownloadAsync(item,
+                new ClientSettings { DramaSourceChain = "dramabox" },
+                null, false, _ => { }, CancellationToken.None, downloader);
+
+            await retry.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage(UploadTitleImportService.NoExactMatchReason);
+            downloader.Requests.Should().BeEmpty();
+            File.Exists(Path.Combine(item.ProjectDir, "简介.txt")).Should().BeFalse();
+        }
+        finally
+        {
+            QueueMaterialStepService.DispatchedMaterialLookupForTests = null;
+            workspace.Delete(recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("absent", false, ExistingVideoPolicy.ReuseValid)]
     [InlineData("empty", false, ExistingVideoPolicy.ReuseValid)]
@@ -594,11 +666,12 @@ public sealed class QueueMaterialStepServiceTests
         }
     }
 
-    private static QueueProjectItem CreateDownloadRetryProject(DirectoryInfo workspace, string synopsis)
+    private static QueueProjectItem CreateDownloadRetryProject(
+        DirectoryInfo workspace, string synopsis, string bookId = "hongguoapp:123", string title = "Reunion")
     {
         var source = workspace.CreateSubdirectory("Reunion").FullName;
         File.WriteAllText(Path.Combine(source, "shortdrama-project.json"),
-            JsonSerializer.Serialize(new { bookId = "hongguoapp:123", title = "Reunion", episodeCount = 2, intro = synopsis }));
+            JsonSerializer.Serialize(new { bookId, title, episodeCount = 2, intro = synopsis }));
         File.WriteAllText(Path.Combine(source, ".weixin-channel-download-state.json"), """
             {"ok":true,"episodes":"all","video_count":2,"episode_number_mode":"continuous","episode_mappings":[
               {"sequence_episode_number":1},{"sequence_episode_number":2}]}
@@ -606,7 +679,7 @@ public sealed class QueueMaterialStepServiceTests
         File.WriteAllBytes(Path.Combine(source, "01.mp4"), [1]);
         File.WriteAllBytes(Path.Combine(source, "02.mp4"), [2]);
         WriteCoverFixture(Path.Combine(source, "海报原图.png"));
-        var item = new QueueProjectItem { ProjectDir = source, OriginalTitle = "Reunion", EpisodeCount = 2 };
+        var item = new QueueProjectItem { ProjectDir = source, OriginalTitle = title, EpisodeCount = 2 };
         item.StepStates[QueueStepRegistry.VideoDedup] = QueueStepStatus.Completed;
         return item;
     }
