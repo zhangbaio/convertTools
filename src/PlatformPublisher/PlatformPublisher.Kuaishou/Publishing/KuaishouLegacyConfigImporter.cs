@@ -65,7 +65,6 @@ public static class KuaishouLegacyConfigImporter
         [nameof(KuaishouPersonalConfig.UnlockEpisodeCount)] = "kuaishou_unlock_count",
         [nameof(KuaishouPersonalConfig.FirstPageAction)] = "kuaishou_first_page_submit_action",
         [nameof(KuaishouPersonalConfig.FinalAction)] = "kuaishou_final_submit_action",
-        [nameof(KuaishouPersonalConfig.LoginTimeoutSeconds)] = "kuaishou_login_timeout_seconds",
         [nameof(KuaishouPersonalConfig.QueueMaxParallelProjects)] = "kuaishou_queue_max_parallel_projects",
         [nameof(KuaishouPersonalConfig.SubmitPreCheckWaitSeconds)] = "kuaishou_submit_pre_check_wait_seconds",
         [nameof(KuaishouPersonalConfig.SubmitReadyCheckIntervalSeconds)] = "kuaishou_submit_ready_check_interval_seconds",
@@ -192,7 +191,6 @@ public static class KuaishouLegacyConfigImporter
     {
         var mappings = new Dictionary<string, string>
         {
-            [nameof(KuaishouPersonalConfig.EntryUrl)] = prefix + "upload_entry_url",
             [nameof(KuaishouPersonalConfig.RealName)] = prefix + "real_name",
             [nameof(KuaishouPersonalConfig.Gender)] = prefix + "gender",
             [nameof(KuaishouPersonalConfig.KuaishouNickname)] = prefix + "nickname",
@@ -214,7 +212,6 @@ public static class KuaishouLegacyConfigImporter
             [nameof(KuaishouPersonalConfig.StepUploadVideos)] = prefix + "step_upload_series",
             [nameof(KuaishouPersonalConfig.FirstPageAction)] = prefix + "first_page_submit_action",
             [nameof(KuaishouPersonalConfig.FinalAction)] = prefix + "final_submit_action",
-            [nameof(KuaishouPersonalConfig.LoginTimeoutSeconds)] = prefix + "login_timeout_seconds",
             [nameof(KuaishouPersonalConfig.AuditRecordHeadless)] = prefix + "audit_record_headless",
             [nameof(KuaishouPersonalConfig.AuditRecordPages)] = prefix + "audit_record_pages",
         };

@@ -141,12 +141,14 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         AutoOnlineIntervalBox.Text = _config.AutoOnlineIntervalMinutes.ToString();
         AutoOnlineMaxItemsBox.Text = _config.AutoOnlineMaxItemsPerRound.ToString();
 
-        EntryUrlBox.Text = _config.EntryUrl;
         UsernameBox.Text = FirstNonEmpty(_config.Username, _config.RealName);
         FillChoice(GenderBox, KuaishouFormChoices.Genders, _config.Gender, "");
         CommitmentPdfBox.Text = _config.CommitmentPdfPath;
-        LoginTimeoutBox.Text = _config.LoginTimeoutSeconds.ToString();
-        FillChoice(UploadTransportBox, KuaishouFormChoices.UploadTransports, _config.UploadTransport, KuaishouUploadTransport.Api);
+        var uploadTransports = KuaishouFormChoices.UploadTransports;
+        var transport = KuaishouFormChoices.CanonicalValue(uploadTransports, _config.UploadTransport, KuaishouUploadTransport.Api);
+        FillChoice(UploadTransportBox, uploadTransports,
+            KuaishouUploadTransport.IsApi(transport) ? KuaishouUploadTransport.Api : KuaishouUploadTransport.Playwright,
+            KuaishouUploadTransport.Api);
         FillChoice(RevenueShareBrowserModeBox, KuaishouFormChoices.BrowserModes, _config.RevenueShareHeadless ? "true" : "false", "false");
         KeepBrowserBox.IsChecked = _config.KeepBrowserOpenOnFailure;
         LoadSubmissionTargets(GetSubmissionTarget());
@@ -341,12 +343,10 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.AutoOnlineIntervalMinutes = Positive(AutoOnlineIntervalBox.Text, 30);
         _config.AutoOnlineMaxItemsPerRound = Positive(AutoOnlineMaxItemsBox.Text, 30);
 
-        _config.EntryUrl = EntryUrlBox.Text?.Trim() ?? string.Empty;
         _config.Username = UsernameBox.Text?.Trim() ?? string.Empty;
         _config.RealName = _config.Username;
         _config.Gender = ChoiceValue(GenderBox, "");
         _config.CommitmentPdfPath = CommitmentPdfBox.Text?.Trim() ?? string.Empty;
-        _config.LoginTimeoutSeconds = Positive(LoginTimeoutBox.Text, 300);
         _config.UploadTransport = ChoiceValue(UploadTransportBox, KuaishouUploadTransport.Api);
         _config.RevenueShareHeadless = ChoiceValue(RevenueShareBrowserModeBox, "false") == "true";
         _config.Headless = _config.RevenueShareHeadless;
@@ -386,7 +386,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         UpdateSubmissionOptions();
 
     private bool UsesPageUpload() =>
-        !KuaishouUploadTransport.IsApi(ChoiceValue(UploadTransportBox, KuaishouUploadTransport.Api));
+        ChoiceValue(UploadTransportBox, KuaishouUploadTransport.Api) == KuaishouUploadTransport.Playwright;
 
     private string GetSubmissionTarget()
     {

@@ -65,31 +65,19 @@
                                     <ToggleSwitch x:Name="RemoteDispatchBox" OnContent="远程分发" OffContent="远程分发" AutomationProperties.Name="远程分发" />
                                 </StackPanel>
                             </UniformGrid>
-                            <Expander Header="高级上传设置" HorizontalContentAlignment="Stretch">
-                                <StackPanel Spacing="10">
+                            <StackPanel x:Name="PageUploadOptions" Spacing="10" IsVisible="False">
+                                <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
                                     <StackPanel Spacing="5">
-                                        <TextBlock Classes="configurationLabel" Text="入口 URL" />
-                                        <TextBox x:Name="EntryUrlBox" Classes="configurationInput" AutomationProperties.Name="入口 URL" />
+                                        <TextBlock Classes="configurationLabel" Text="浏览器模式" />
+                                        <ComboBox x:Name="RevenueShareBrowserModeBox" Classes="configurationInput" AutomationProperties.Name="浏览器模式" />
                                     </StackPanel>
-                                    <UniformGrid Columns="2" ColumnSpacing="12" RowSpacing="10">
-                                        <StackPanel Spacing="5">
-                                            <TextBlock Classes="configurationLabel" Text="登录超时（秒）" />
-                                            <TextBox x:Name="LoginTimeoutBox" Classes="configurationInput" AutomationProperties.Name="登录超时（秒）" Watermark="默认 300" />
-                                        </StackPanel>
-                                        <StackPanel Spacing="5">
-                                            <TextBlock Classes="configurationLabel" Text="浏览器模式" />
-                                            <ComboBox x:Name="RevenueShareBrowserModeBox" Classes="configurationInput" AutomationProperties.Name="浏览器模式" />
-                                        </StackPanel>
-                                    </UniformGrid>
-                                    <StackPanel Spacing="10" x:Name="PageUploadOptions">
-                                        <ToggleSwitch x:Name="KeepBrowserBox" OnContent="出错时手工介入" OffContent="出错时手工介入" AutomationProperties.Name="出错时手工介入" />
-                                        <StackPanel Spacing="5" x:Name="SubmitPreCheckOptions">
-                                            <TextBlock Classes="configurationLabel" Text="提交前预等待" />
-                                            <ComboBox x:Name="SubmitPreCheckBox" Classes="configurationInput" AutomationProperties.Name="提交前预等待" />
-                                        </StackPanel>
+                                    <StackPanel Spacing="5" x:Name="SubmitPreCheckOptions">
+                                        <TextBlock Classes="configurationLabel" Text="提交前预等待" />
+                                        <ComboBox x:Name="SubmitPreCheckBox" Classes="configurationInput" AutomationProperties.Name="提交前预等待" />
                                     </StackPanel>
-                                </StackPanel>
-                            </Expander>
+                                </UniformGrid>
+                                <ToggleSwitch x:Name="KeepBrowserBox" OnContent="出错时手工介入" OffContent="出错时手工介入" AutomationProperties.Name="出错时手工介入" />
+                            </StackPanel>
                             <Border Height="1" Background="#E4E9F0" Margin="0,4" />
 
                             <TextBlock Classes="configurationHeading" Text="剧集与售卖" />

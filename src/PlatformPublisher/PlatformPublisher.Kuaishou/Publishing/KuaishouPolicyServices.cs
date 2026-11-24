@@ -9,7 +9,6 @@ public static class KuaishouConfigurationValidator
     public static IReadOnlyList<string> Validate(KuaishouPersonalConfig config)
     {
         var issues = new List<string>();
-        if (string.IsNullOrWhiteSpace(config.EntryUrl)) issues.Add("经营者平台入口不能为空");
         if (config.QueueMaxParallelProjects < 1) issues.Add("并行项目数必须大于 0");
         if (string.IsNullOrWhiteSpace(config.MaterialTitleTemplate)) issues.Add("宣发素材标题模板不能为空");
         if (string.IsNullOrWhiteSpace(config.MaterialType)) issues.Add("宣发素材剪辑类型不能为空");

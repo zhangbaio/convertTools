@@ -68,6 +68,38 @@ public sealed class KuaishouConfigMigrationTests : IDisposable
     }
 
     [Fact]
+    public void ManagementEntryAndLoginTimeoutUseSystemDefaults()
+    {
+        var config = JsonSerializer.Deserialize<KuaishouPersonalConfig>(
+            """{"EntryUrl":"https://old.example.test","LoginTimeoutSeconds":60,"RevenueShareHeadless":true}""")!;
+        using var legacy = JsonDocument.Parse("""
+            {
+              "kuaishou_login_timeout_seconds": 90,
+              "kuaishou_personal_upload_entry_url": "https://personal.example.test",
+              "kuaishou_personal_login_timeout_seconds": 120,
+              "kuaishou_enterprise_upload_entry_url": "https://enterprise.example.test",
+              "kuaishou_enterprise_login_timeout_seconds": 180
+            }
+            """);
+
+        KuaishouLegacyConfigImporter.ImportElement(legacy.RootElement, config, PublishPlatform.KuaishouPersonalRevenue);
+        KuaishouLegacyConfigImporter.ImportElement(legacy.RootElement, config, PublishPlatform.KuaishouEnterpriseRevenue);
+
+        Assert.Equal("https://kdj.kuaishou.com/home/content/content-management", config.EntryUrl);
+        Assert.Equal(300, config.LoginTimeoutSeconds);
+        Assert.True(config.RevenueShareHeadless);
+        using var saved = JsonDocument.Parse(JsonSerializer.Serialize(config));
+        Assert.False(saved.RootElement.TryGetProperty(nameof(KuaishouPersonalConfig.EntryUrl), out _));
+        Assert.False(saved.RootElement.TryGetProperty(nameof(KuaishouPersonalConfig.LoginTimeoutSeconds), out _));
+        foreach (var edition in new[] { "personal", "enterprise" })
+        {
+            var overlay = KuaishouPersonalFormResolver.SettingsOverlay(config, edition == "enterprise");
+            Assert.Equal(config.EntryUrl, overlay[$"kuaishou_{edition}_upload_entry_url"]);
+            Assert.Equal(config.LoginTimeoutSeconds, overlay["kuaishou_login_timeout_seconds"]);
+        }
+    }
+
+    [Fact]
     public void ActorJsonAndTemplateRootCannotBeOverriddenByAccountConfiguration()
     {
         var config = JsonSerializer.Deserialize<KuaishouPersonalConfig>(

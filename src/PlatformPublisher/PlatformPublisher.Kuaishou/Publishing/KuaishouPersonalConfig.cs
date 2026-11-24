@@ -15,7 +15,7 @@ public sealed class KuaishouPersonalConfig
         PropertyNameCaseInsensitive = true,
         WriteIndented = true,
     };
-    public string EntryUrl { get; set; } = "https://kdj.kuaishou.com/home/content/content-management";
+    [JsonIgnore] public string EntryUrl => "https://kdj.kuaishou.com/home/content/content-management";
     public string ApiBaseUrl { get; set; } = "https://ad.e.kuaishou.com";
     public string AppName { get; set; } = string.Empty;
     public string AppId { get; set; } = string.Empty;
@@ -115,7 +115,7 @@ public sealed class KuaishouPersonalConfig
     public int UploadTimeoutMinutes { get; set; } = 60;
     public bool ForceRerun { get; set; }
     public string RunMode { get; set; } = "auto";
-    public int LoginTimeoutSeconds { get; set; } = 300;
+    [JsonIgnore] public int LoginTimeoutSeconds => 300;
     public int QueueMaxParallelProjects { get; set; } = 4;
     public int SubmitPreCheckWaitSeconds { get; set; }
     public int SubmitReadyCheckIntervalSeconds { get; set; } = 30;
@@ -240,9 +240,6 @@ public sealed class KuaishouPersonalConfig
             DatabaseStore.Save(job.AccountId, EnterpriseDatabaseKey, config);
         }
 
-        config.EntryUrl = string.IsNullOrWhiteSpace(config.EntryUrl)
-            ? "https://kdj.kuaishou.com/home/content/content-management"
-            : config.EntryUrl.Trim();
         config.AuthStatePath = Resolve(config.AuthStatePath, accountRoot,
             platform == PublishPlatform.KuaishouEnterpriseRevenue
                 ? "kuaishou_enterprise_kdj_auth_state.json"
