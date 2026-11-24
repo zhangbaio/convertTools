@@ -409,6 +409,24 @@ public partial class WeixinWorkflowView : UserControl
         }
     }
 
+    private async void OnResubmitKuaishouAuditTimeoutClick(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this) is not Window owner || ViewModel is not { } viewModel)
+            return;
+
+        KuaishouAuditTimeoutButton.IsEnabled = false;
+        try
+        {
+            var message = await viewModel.ResubmitKuaishouAuditTimeoutAsync(owner);
+            if (message is not null)
+                await InfoDialog.ShowAsync(owner, message, "审核超时重提", 640, 340);
+        }
+        finally
+        {
+            KuaishouAuditTimeoutButton.IsEnabled = true;
+        }
+    }
+
     private async void OnReplaceKuaishouDraftClick(object? sender, RoutedEventArgs e)
     {
         var owner = TopLevel.GetTopLevel(this) as Window;

@@ -122,7 +122,7 @@ public static class KuaishouShelfApi
         return true;
     }
 
-    private static string ListBody(int pageNum, int pageSize, int sellingStatus, int auditStatus, string[] seriesIds) =>
+    internal static string ListBody(int pageNum, int pageSize, int sellingStatus, int auditStatus, string[] seriesIds) =>
         JsonSerializer.Serialize(new
         {
             pageNum,

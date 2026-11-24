@@ -153,7 +153,7 @@ public sealed class KuaishouCommitmentResubmitService
         return new KuaishouCommitmentResubmitResult(targets.Count, submitted, failed, stopped, lines);
     }
 
-    private static async Task<KuaishouCommitmentResubmit.SaveContext> ReadContextAsync(
+    internal static async Task<KuaishouCommitmentResubmit.SaveContext> ReadContextAsync(
         IKuaishouKdjGateway gateway,
         CancellationToken cancellationToken)
     {
