@@ -47,6 +47,64 @@ public sealed class XingeAutoPublishTests : IDisposable
     }
 
     [Fact]
+    public void RetryMigrationRequiresOriginalAccountAndSeriesAndPersistsTheClientChain()
+    {
+        var command = TikTokRemoteCommandParser.Parse("""
+            {"command":"tiktok_retry_queue","account_profile_id":"profile-a","items":[
+              {"project_path":"D:/legacy/drama","task_id":12,"auto_publish_assignment_id":42,
+               "download_source":"client_configured","series_id":"dramabox:123","title":"Original title","episode_cnt":52},
+              {"project_path":"D:/legacy/other","task_id":13,"auto_publish_assignment_id":43}
+            ]}
+            """);
+        Assert.NotNull(command);
+        var retries = Assert.IsAssignableFrom<IReadOnlyList<TikTokRetryQueueItem>>(command.RetryItems);
+        var migration = Assert.IsType<TikTokUploadSeriesSpec>(retries[0].ClientDownloadMigration);
+        Assert.Null(retries[1].ClientDownloadMigration);
+
+        XingeAutoPublishMarkerStore.Write(_root, new XingeAutoPublishAssignment(
+            41, "/progress", "dramabox:123", "profile-a", "Original title"));
+        Assert.False(QueueRetryUseCase.RefreshAssignment(_root, 42, "profile-b", null, migration, "hongguoapp"));
+        Assert.Equal(41, XingeAutoPublishMarkerStore.TryRead(_root)!.AssignmentId);
+
+        Assert.True(QueueRetryUseCase.RefreshAssignment(_root, 42, "profile-a", null, migration, "hongguoapp"));
+        var marker = XingeAutoPublishMarkerStore.TryRead(_root)!;
+        Assert.Equal(42, marker.AssignmentId);
+        Assert.Equal(52, marker.ExpectedEpisodeTotal);
+        Assert.Equal("Original title", marker.Title);
+        Assert.Equal("hongguoapp", marker.ClientDownloadChain);
+        Assert.True(marker.RequiresClientDownloadLookup);
+        Assert.Null(XingeDramaBoxMaterials.ReadAssignment(_root));
+
+        Assert.True(QueueRetryUseCase.RefreshAssignment(_root, 43, "profile-a", null));
+        marker = XingeAutoPublishMarkerStore.TryRead(_root)!;
+        Assert.Equal("hongguoapp", marker.ClientDownloadChain);
+        Assert.True(marker.RequiresClientDownloadLookup);
+    }
+
+    [Fact]
+    public void EmptyDramaBoxAssignmentAdoptsTheLocalDownloadChain()
+    {
+        var command = TikTokRemoteCommandParser.Parse("""
+            {"command":"tiktok_upload_series","titles":["The Crown"],"download_source":"dramabox",
+             "series":[{"title":"The Crown","series_id":"dramabox:9001","episode_cnt":40}],
+             "auto_publish_assignment_id":42,"auto_publish_progress_path":"/progress","account_profile_id":"acc-1"}
+            """);
+        var assignment = XingeAutoPublishAssignment.FromCommand(command!);
+        Assert.Equal("dramabox", assignment!.ClientDownloadChain);
+        Assert.Equal(40, assignment.ExpectedEpisodeTotal);
+        Assert.False(assignment.RequiresClientDownloadLookup);
+
+        XingeAutoPublishMarkerStore.Write(_root, new XingeAutoPublishAssignment(
+            42, "/progress", "dramabox:9001", "acc-1", "The Crown"));
+        XingeAutoPublishMarkerStore.MarkFinal(_root, 42, XingeAutoPublishStatuses.Failed);
+        XingeAutoPublishMarkerStore.AdoptLocalDramaBoxChain(_root);
+        var marker = XingeAutoPublishMarkerStore.TryRead(_root)!;
+        Assert.Equal("dramabox", marker.ClientDownloadChain);
+        Assert.Equal(XingeAutoPublishStatuses.Failed, marker.FinalStatus);
+        Assert.Null(XingeDramaBoxMaterials.ReadAssignment(_root));
+    }
+
+    [Fact]
     public void Parse_ReadsAutoPublishAssignmentFields()
     {
         var command = TikTokRemoteCommandParser.Parse(

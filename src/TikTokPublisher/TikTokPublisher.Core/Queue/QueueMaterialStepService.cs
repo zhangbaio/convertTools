@@ -12,6 +12,7 @@ using ShortDrama.Infrastructure.Files;
 using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Media;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
@@ -43,34 +44,32 @@ public static class QueueMaterialStepService
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
         var metadata = ReadDownloadMetadata(context.SourceProjectDir);
         var settings = VisibleDramaSource.SettingsFor(globalSettings, account?.TiktokDramaMarket);
-        if (XingeDramaBoxMaterials.ReadAssignment(context.SourceProjectDir) is { } assignment)
+        XingeAutoPublishMarkerStore.AdoptLocalDramaBoxChain(context.SourceProjectDir);
+        var clientAssignment = XingeAutoPublishMarkerStore.TryRead(context.SourceProjectDir);
+        var hasClientChain = !string.IsNullOrWhiteSpace(clientAssignment?.ClientDownloadChain);
+        var strictDownload = clientAssignment is { ExpectedEpisodeTotal: > 0 } && hasClientChain;
+        TikTokUploadTitleRoute? importedRoute = null;
+        if (hasClientChain)
         {
-            if (string.IsNullOrWhiteSpace(metadata.BookId))
-                throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
-            var expected = ResolveExpectedDownloadedEpisodeNumbers(context.SourceProjectDir, item);
-            if (OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(context.SourceProjectDir, out var originalCount))
+            settings = settings.Clone();
+            settings.DramaSourceChain = clientAssignment!.ClientDownloadChain;
+            if (strictDownload && !clientAssignment.RequiresClientDownloadLookup &&
+                !IsBookIdForSource(metadata.BookId, NormalizeDramaSource(settings.DramaSourceChain)))
+                throw new InvalidOperationException("项目剧集标识与派单时配置的下载链路不一致");
+        }
+        else
+        {
+            importedRoute = TikTokUploadTitleRoute.Read(context.SourceProjectDir);
+            if (importedRoute is not null)
             {
-                OverLimitEpisodePolicy.MarkTruncated(context.SourceProjectDir, originalCount, settings, log);
-                expected = Enumerable.Range(1, Math.Min(originalCount, OverLimitEpisodePolicy.ResolveKeepCount(settings))).ToArray();
+                var activeRoute = ResolveImportedAccountRoute(globalSettings, account, importedRoute);
+                settings = activeRoute.ApplyTo(globalSettings);
+                log($"上传短剧下载链路：{activeRoute.Describe()}。");
             }
-            using var slot = await QueueDownloadSlotCoordinator.WaitAsync(
-                Math.Clamp(settings.DramaDownloadMaxParallelProjects, 1, 4), item.Title, log, ct).ConfigureAwait(false);
-            await XingeDramaBoxMaterials.DownloadAsync(context.SourceProjectDir, assignment, settings, expected, forceRerun, log, ct).ConfigureAwait(false);
-            ProjectWorkspaceService.PrepareWorkflowProject(context.SourceProjectDir, log);
-            ProjectWorkspaceService.RefreshQueueItemMetadata(item);
-            await EnsureDownloadedVideosPlayableAsync(context.SourceProjectDir, log, ct, item).ConfigureAwait(false);
-            return;
-        }
-        var importedRoute = TikTokUploadTitleRoute.Read(context.SourceProjectDir);
-        if (importedRoute is not null)
-        {
-            var activeRoute = ResolveImportedAccountRoute(globalSettings, account, importedRoute);
-            settings = activeRoute.ApplyTo(globalSettings);
-            log($"上传短剧下载链路：{activeRoute.Describe()}。");
-        }
-        else if (string.IsNullOrWhiteSpace(metadata.BookId))
-        {
-            throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
+            else if (string.IsNullOrWhiteSpace(metadata.BookId))
+            {
+                throw new InvalidOperationException("项目缺少 bookId，无法执行下载步骤。");
+            }
         }
         using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
 
@@ -83,7 +82,14 @@ public static class QueueMaterialStepService
         var attempts = Math.Clamp(settings.HongguoEpisodeDownloadAttempts, 1, 20);
         var fileSegments = Math.Clamp(settings.DownloadFileSegments <= 0 ? 4 : settings.DownloadFileSegments, 1, 8);
         var displayName = FirstNonEmpty(item.Title, item.OriginalTitle, metadata.Title, Path.GetFileName(context.SourceProjectDir));
-        var effectiveBookId = await ResolveDownloadBookIdAsync(
+        var replacingOtherSource = false;
+        if (strictDownload && clientAssignment!.RequiresClientDownloadLookup)
+        {
+            var matchedBookId = await ResolveMigratedAssignmentBookIdAsync(clientAssignment, settings, log, ct).ConfigureAwait(false);
+            replacingOtherSource = !string.Equals(matchedBookId, metadata.BookId, StringComparison.OrdinalIgnoreCase);
+            metadata = metadata with { BookId = matchedBookId };
+        }
+        var effectiveBookId = strictDownload ? metadata.BookId : await ResolveDownloadBookIdAsync(
                 context.SourceProjectDir,
                 item,
                 metadata,
@@ -101,8 +107,8 @@ public static class QueueMaterialStepService
             log,
             ct).ConfigureAwait(false);
 
-        var episodes = LimitEpisodesToKeptPrefix(metadata.Episodes, item, settings, context.SourceProjectDir);
-        if (OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(context.SourceProjectDir, out var originalEpisodeCount))
+        var episodes = strictDownload ? "all" : LimitEpisodesToKeptPrefix(metadata.Episodes, item, settings, context.SourceProjectDir);
+        if (!strictDownload && OverLimitEpisodePolicy.TryReadOriginalEpisodeCount(context.SourceProjectDir, out var originalEpisodeCount))
         {
             var keep = OverLimitEpisodePolicy.ResolveKeepCount(settings);
             var hadOldKeep = OverLimitEpisodePolicy.TryReadKeepCount(context.SourceProjectDir, out var storedKeep);
@@ -129,17 +135,19 @@ public static class QueueMaterialStepService
             displayName,
             episodes,
             concurrent,
-            forceRerun ? ExistingVideoPolicy.ReplaceAll : ExistingVideoPolicy.ReuseValid);
+            forceRerun || replacingOtherSource ? ExistingVideoPolicy.ReplaceAll : ExistingVideoPolicy.ReuseValid);
 
         var progress = CreateDownloadProgress(log);
         var result = await ShortDramaDramaServices.Downloader.DownloadAsync(request, progress, ct);
-        var expectedEpisodeNumbers = ResolveExpectedDownloadedEpisodeNumbers(context.SourceProjectDir, item);
+        var expectedEpisodeNumbers = strictDownload
+            ? Enumerable.Range(1, clientAssignment!.ExpectedEpisodeTotal).ToArray()
+            : ResolveExpectedDownloadedEpisodeNumbers(context.SourceProjectDir, item);
         if (!result.Ok)
         {
             if (ct.IsCancellationRequested)
                 throw new OperationCanceledException(ct);
 
-            if (ShouldUseExistingVideosToRepairFailedDownload(forceRerun) &&
+            if (!strictDownload && ShouldUseExistingVideosToRepairFailedDownload(forceRerun) &&
                 await TryRepairMissingEpisodesAsync(
                     context,
                     item,
@@ -1079,6 +1087,9 @@ public static class QueueMaterialStepService
         int concurrent,
         ExistingVideoPolicy existingVideoPolicy = ExistingVideoPolicy.ReuseValid)
     {
+        var assignment = XingeAutoPublishMarkerStore.TryRead(context.SourceProjectDir);
+        var expectedEpisodeTotal = !string.IsNullOrWhiteSpace(assignment?.ClientDownloadChain)
+            ? assignment.ExpectedEpisodeTotal : 0;
         return new DramaDownloadRequest(
             ProjectDir: context.SourceProjectDir,
             OutputDir: context.SourceProjectDir,
@@ -1087,8 +1098,25 @@ public static class QueueMaterialStepService
             Episodes: FirstNonEmpty(episodes, "all"),
             Quality: FirstNonEmpty(metadata.Quality, settings.DramaDownloadDefaultQuality, "1080P"),
             Concurrent: Math.Clamp(concurrent, 1, 10),
-            EpisodeNumberMode: FirstNonEmpty(metadata.EpisodeNumberMode, "source"),
-            ExistingVideoPolicy: existingVideoPolicy);
+            EpisodeNumberMode: expectedEpisodeTotal > 0 ? "source" : FirstNonEmpty(metadata.EpisodeNumberMode, "source"),
+            ExistingVideoPolicy: existingVideoPolicy,
+            ExpectedEpisodeTotal: expectedEpisodeTotal);
+    }
+
+    private static async Task<string> ResolveMigratedAssignmentBookIdAsync(
+        XingeAutoPublishMarker assignment, ClientSettings settings, Action<string> log, CancellationToken ct)
+    {
+        var configuration = DramaSourceConfigurationValidator.Check(settings);
+        if (!configuration.IsConfigured)
+            throw new InvalidOperationException(configuration.Message);
+        log($"旧派单改用客户端链路：{VisibleDramaSource.Label(settings.DramaSourceChain)}，校验原剧名与 {assignment.ExpectedEpisodeTotal} 集。");
+        var results = await ShortDramaDramaServices.SearchAsync(assignment.Title, 1, ct).ConfigureAwait(false);
+        var match = UploadTitleImportService.PickStrictDispatchMatch(assignment.Title, assignment.ExpectedEpisodeTotal, results);
+        if (match.Item is null)
+            throw new InvalidOperationException(match.Reason);
+        if (!IsBookIdForSource(match.Item.BookId, settings.DramaSourceChain))
+            throw new InvalidOperationException("搜索返回的剧集标识与客户端配置的链路不一致");
+        return match.Item.BookId;
     }
 
     private static async Task<string> ResolveDownloadBookIdAsync(
@@ -1528,14 +1556,30 @@ public static class QueueMaterialStepService
         Action<string> log,
         CancellationToken ct)
     {
+        XingeAutoPublishMarkerStore.AdoptLocalDramaBoxChain(context.SourceProjectDir);
+        var clientAssignment = XingeAutoPublishMarkerStore.TryRead(context.SourceProjectDir);
+        if (clientAssignment is { ClientDownloadChain: { Length: > 0 } })
+        {
+            settings = settings.Clone();
+            settings.DramaSourceChain = clientAssignment.ClientDownloadChain;
+            if (clientAssignment.ExpectedEpisodeTotal > 0)
+            {
+                if (clientAssignment.RequiresClientDownloadLookup)
+                {
+                    using var migrationScope = ShortDramaDramaServices.HoldSettings(settings);
+                    var matched = await ResolveMigratedAssignmentBookIdAsync(clientAssignment, settings, log, ct).ConfigureAwait(false);
+                    if (!string.Equals(metadata.BookId, matched, StringComparison.OrdinalIgnoreCase))
+                        return false;
+                }
+                else if (!IsBookIdForSource(metadata.BookId, settings.DramaSourceChain))
+                    throw new InvalidOperationException("项目剧集标识与派单时配置的下载链路不一致");
+                expectedEpisodeNumbers = Enumerable.Range(1, clientAssignment.ExpectedEpisodeTotal).ToArray();
+            }
+        }
+        using var chainHold = ShortDramaDramaServices.HoldSettings(settings);
         var inspection = InspectDownloadedEpisodes(context.SourceProjectDir, item, expectedEpisodeNumbers);
         if (inspection.IsUnknown || inspection.IsComplete)
             return inspection.IsComplete;
-        if (XingeDramaBoxMaterials.ReadAssignment(context.SourceProjectDir) is { } assignment)
-        {
-            await XingeDramaBoxMaterials.DownloadAsync(context.SourceProjectDir, assignment, settings, inspection.Missing, false, log, ct).ConfigureAwait(false);
-            return InspectDownloadedEpisodes(context.SourceProjectDir, item, expectedEpisodeNumbers).IsComplete;
-        }
         if (inspection.FoundCount <= 0)
             return false;
 
@@ -1878,10 +1922,15 @@ public static class QueueMaterialStepService
         if (ShortDramaDramaServices.Downloader is not DramaSourceRouter router)
             return;
         var context = ProjectWorkspaceService.LoadContext(item.ProjectDir);
-        if (XingeDramaBoxMaterials.ReadAssignment(context.SourceProjectDir) is not null)
-            return;
+        XingeAutoPublishMarkerStore.AdoptLocalDramaBoxChain(context.SourceProjectDir);
         var settings = VisibleDramaSource.SettingsFor(globalSettings, account?.TiktokDramaMarket);
-        if (TikTokUploadTitleRoute.Read(context.SourceProjectDir) is { } importedRoute)
+        if (XingeAutoPublishMarkerStore.TryRead(context.SourceProjectDir) is { } assignment &&
+            !string.IsNullOrWhiteSpace(assignment.ClientDownloadChain))
+        {
+            settings = settings.Clone();
+            settings.DramaSourceChain = assignment.ClientDownloadChain;
+        }
+        else if (TikTokUploadTitleRoute.Read(context.SourceProjectDir) is { } importedRoute)
         {
             settings = ResolveImportedAccountRoute(globalSettings, account, importedRoute).ApplyTo(globalSettings);
         }

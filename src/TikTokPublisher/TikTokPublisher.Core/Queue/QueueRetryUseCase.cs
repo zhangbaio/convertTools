@@ -1,10 +1,11 @@
+using TikTokPublisher.Core.Drama;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Remote;
 using TikTokPublisher.Core.Services;
 
 namespace TikTokPublisher.Core.Queue;
 
-public sealed record QueueRetryProject(string ProjectPath, long AssignmentId = 0);
+public sealed record QueueRetryProject(string ProjectPath, long AssignmentId = 0, TikTokUploadSeriesSpec? ClientDownloadMigration = null);
 
 public sealed record QueueRetryPreparation(IReadOnlyList<QueueProjectItem> AllItems, QueueRunOptions RunOptions);
 
@@ -35,7 +36,7 @@ public sealed class QueueRetryUseCase(QueueExecutionUseCase execution, Workspace
         if (shouldDefer(root))
             return new(root, "本地勾选队列正在运行，重试将在收尾后处理。", Deferred: true);
 
-        var existing = new List<(string Path, long AssignmentId)>();
+        var existing = new List<QueueRetryProject>();
         var missing = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var retry in projects)
@@ -46,7 +47,7 @@ public sealed class QueueRetryUseCase(QueueExecutionUseCase execution, Workspace
                 continue;
             }
             if (seen.Add(path))
-                existing.Add((path, retry.AssignmentId));
+                existing.Add(retry with { ProjectPath = path });
         }
         if (existing.Count == 0)
             return new(root, $"要重试的项目不在账号「{account.DisplayName}」的工作目录中或已删除：{string.Join("、", missing.Select(Path.GetFileName).Take(5))}");
@@ -58,7 +59,7 @@ public sealed class QueueRetryUseCase(QueueExecutionUseCase execution, Workspace
             return new(root, message + "。", Accepted: true);
         }
 
-        if (execution.IsOwnedBy(root, account.Id))
+        if (execution.IsOwnedBy(root, account.Id) && existing.All(item => item.ClientDownloadMigration is null))
         {
             var candidates = SelectCandidates(WorkspaceQueueService.ScanProjects(root), root, existing, account, report);
             var appended = runner.TryAppendRetryItemsToRunningWorkspace(root, candidates);
@@ -80,7 +81,7 @@ public sealed class QueueRetryUseCase(QueueExecutionUseCase execution, Workspace
             if (idleCandidates.Count == 0)
                 return new(root, "要重试的项目未出现在当前账号队列中。");
 
-            missing.AddRange(existing.Select(item => item.Path).Except(idleCandidates.Select(item => item.ProjectDir),
+            missing.AddRange(existing.Select(item => item.ProjectPath).Except(idleCandidates.Select(item => item.ProjectDir),
                 StringComparer.OrdinalIgnoreCase));
             var options = WorkspaceQueueService.LoadRunOptions(root);
             WorkspaceQueueService.SaveRunOptions(root, items, options);
@@ -105,26 +106,34 @@ public sealed class QueueRetryUseCase(QueueExecutionUseCase execution, Workspace
     }
 
     private static List<QueueProjectItem> SelectCandidates(IEnumerable<QueueProjectItem> items, string root,
-        IReadOnlyCollection<(string Path, long AssignmentId)> retries, TikTokAccountProfile account, Action<string>? report)
+        IReadOnlyCollection<QueueRetryProject> retries, TikTokAccountProfile account, Action<string>? report)
     {
         var byPath = items.Where(item => !item.Archived && !string.IsNullOrWhiteSpace(item.ProjectDir))
             .GroupBy(item => QueueExecutionUseCase.NormalizePath(item.ProjectDir), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var selected = new List<QueueProjectItem>();
-        foreach (var (path, assignmentId) in retries)
+        foreach (var (path, assignmentId, migration) in retries)
         {
             if (WorkspaceQueueService.IsDeletedProjectDir(root, path) || !byPath.TryGetValue(path, out var item) ||
                 (!string.IsNullOrWhiteSpace(item.AccountProfileId) && item.AccountProfileId.Trim() != account.Id))
                 continue;
 
+            if (migration is not null)
+            {
+                var chain = VisibleDramaSource.ChainFor(ClientSettingsStore.Load(), account.TiktokDramaMarket);
+                if (!RefreshAssignment(path, assignmentId, account.Id, report, migration, chain))
+                    continue;
+            }
+            else if (assignmentId > 0)
+            {
+                RefreshAssignment(path, assignmentId, account.Id, report);
+            }
             item.Enabled = true;
             if (string.IsNullOrWhiteSpace(item.AccountProfileId))
             {
                 item.AccountProfileId = account.Id;
                 item.AccountProfileName = account.DisplayName;
             }
-            if (assignmentId > 0)
-                RefreshAssignment(path, assignmentId, account.Id, report);
             selected.Add(item);
         }
         return selected;
@@ -170,24 +179,39 @@ public sealed class QueueRetryUseCase(QueueExecutionUseCase execution, Workspace
         WorkspaceQueueService.RemoveFromQueuePreservingFiles(workspaceRoot, path);
     }
 
-    public static void RefreshAssignment(string projectDir, long assignmentId, string accountId, Action<string>? report)
+    public static bool RefreshAssignment(string projectDir, long assignmentId, string accountId, Action<string>? report,
+        TikTokUploadSeriesSpec? migration = null, string chain = "")
     {
         try
         {
             var marker = XingeAutoPublishMarkerStore.TryRead(projectDir);
-            if (marker is { IsActive: true } && marker.AssignmentId == assignmentId)
-                return;
+            if (migration is not null && (assignmentId <= 0 || migration.EpisodeCnt <= 0 ||
+                string.IsNullOrWhiteSpace(migration.Title) || string.IsNullOrWhiteSpace(chain) ||
+                marker is null || !string.Equals(marker.SeriesId, migration.SeriesId, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(marker.AccountProfileId, accountId, StringComparison.Ordinal)))
+            {
+                report?.Invoke("旧派单的项目标记、账号或剧集身份不匹配，已跳过迁移。");
+                return false;
+            }
+            if (marker is { IsActive: true } && marker.AssignmentId == assignmentId &&
+                (migration is null || marker.RequiresClientDownloadLookup))
+                return true;
 
             var createdAt = marker is not null && marker.AssignmentId == assignmentId && marker.CreatedAt != default
                 ? marker.CreatedAt : (DateTimeOffset?)null;
             XingeAutoPublishMarkerStore.Write(projectDir, new XingeAutoPublishAssignment(
                 assignmentId, $"{XingeAutoPublishProgressReporter.DefaultProgressPathPrefix}{assignmentId}/progress",
                 marker?.SeriesId ?? "", string.IsNullOrWhiteSpace(marker?.AccountProfileId) ? accountId : marker.AccountProfileId,
-                marker?.Title ?? "", marker?.ConnectionScope ?? ""), createdAt);
+                migration?.Title ?? marker?.Title ?? "", marker?.ConnectionScope ?? "",
+                migration?.EpisodeCnt ?? marker?.ExpectedEpisodeTotal ?? 0,
+                migration is not null ? chain : marker?.ClientDownloadChain ?? "",
+                migration is not null || marker?.RequiresClientDownloadLookup == true), createdAt);
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             report?.Invoke($"更新自动上新标记失败：{projectDir}：{ex.Message}");
+            return false;
         }
     }
 }

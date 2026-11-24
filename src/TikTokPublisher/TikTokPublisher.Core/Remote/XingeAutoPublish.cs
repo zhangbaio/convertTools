@@ -48,20 +48,28 @@ public sealed record XingeAutoPublishAssignment(
     string SeriesId,
     string AccountProfileId,
     string Title,
-    string ConnectionScope = "")
+    string ConnectionScope = "",
+    int ExpectedEpisodeTotal = 0,
+    string ClientDownloadChain = "",
+    bool RequiresClientDownloadLookup = false)
 {
     public static XingeAutoPublishAssignment? FromCommand(TikTokRemoteCommand command)
     {
         if (!command.IsUploadCommand || !command.IsAutoPublishAssignment)
             return null;
         var spec = command.Series?.FirstOrDefault();
+        var seriesId = spec?.SeriesId ?? "";
+        var localDramaBox = command.DownloadSource != "client_configured" &&
+            (command.DownloadSource == "dramabox" || seriesId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase));
         return new XingeAutoPublishAssignment(
             command.AutoPublishAssignmentId,
             command.AutoPublishProgressPath.Trim(),
-            spec?.SeriesId ?? "",
+            seriesId,
             command.AccountProfileId.Trim(),
             spec?.Title ?? command.Titles?.FirstOrDefault() ?? "",
-            command.XingeConnectionScope);
+            command.XingeConnectionScope,
+            command.DownloadSource == "client_configured" || localDramaBox ? spec?.EpisodeCnt ?? 0 : 0,
+            localDramaBox ? "dramabox" : "");
     }
 }
 
@@ -108,6 +116,15 @@ public sealed class XingeAutoPublishMarker
     [JsonPropertyName("connection_scope")]
     public string ConnectionScope { get; set; } = "";
 
+    [JsonPropertyName("expected_episode_total")]
+    public int ExpectedEpisodeTotal { get; set; }
+
+    [JsonPropertyName("client_download_chain")]
+    public string ClientDownloadChain { get; set; } = "";
+
+    [JsonPropertyName("requires_client_download_lookup")]
+    public bool RequiresClientDownloadLookup { get; set; }
+
     [JsonPropertyName("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 
@@ -123,7 +140,7 @@ public sealed class XingeAutoPublishMarker
     public bool IsActive => AssignmentId > 0 && string.IsNullOrWhiteSpace(FinalStatus);
 
     public XingeAutoPublishAssignment ToAssignment() =>
-        new(AssignmentId, ProgressPath, SeriesId, AccountProfileId, Title, ConnectionScope);
+        new(AssignmentId, ProgressPath, SeriesId, AccountProfileId, Title, ConnectionScope, ExpectedEpisodeTotal, ClientDownloadChain, RequiresClientDownloadLookup);
 }
 
 public static class XingeAutoPublishMarkerStore
@@ -144,8 +161,22 @@ public static class XingeAutoPublishMarkerStore
             AccountProfileId = assignment.AccountProfileId,
             Title = assignment.Title,
             ConnectionScope = assignment.ConnectionScope,
+            ExpectedEpisodeTotal = assignment.ExpectedEpisodeTotal,
+            ClientDownloadChain = assignment.ClientDownloadChain,
+            RequiresClientDownloadLookup = assignment.RequiresClientDownloadLookup,
             CreatedAt = createdAt ?? DateTimeOffset.Now,
         };
+        Save(projectDir, marker);
+    }
+
+    public static void AdoptLocalDramaBoxChain(string? projectDir)
+    {
+        var marker = TryRead(projectDir);
+        if (string.IsNullOrWhiteSpace(projectDir) || marker is not { AssignmentId: > 0 } || marker.RequiresClientDownloadLookup ||
+            !string.IsNullOrWhiteSpace(marker.ClientDownloadChain) ||
+            !marker.SeriesId.StartsWith("dramabox:", StringComparison.OrdinalIgnoreCase))
+            return;
+        marker.ClientDownloadChain = "dramabox";
         Save(projectDir, marker);
     }
 
