@@ -86,26 +86,11 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         ? "未执行"
         : $"{Model.AttemptCount} 次";
     public string DownloadStepStatus => KuaishouStep(_kuaishou?.DownloadStatus, "download");
-    private int _videoDedupDone;
-    private int _videoDedupTotal;
-    public string VideoDedupStepStatus
+    public string VideoDedupStepStatus => KuaishouStep(null, PlatformPublisher.Desktop.Services.KuaishouVideoDedup.Step) switch
     {
-        get
-        {
-            var status = KuaishouStep(null, PlatformPublisher.Desktop.Services.KuaishouVideoDedup.Step);
-            return status == "进行中" && _videoDedupTotal > 0
-                ? $"进行中 {_videoDedupDone}/{_videoDedupTotal}"
-                : status;
-        }
-    }
-
-    internal void SetVideoDedupProgress(int done, int total)
-    {
-        _videoDedupDone = total == 0 ? 0 : Math.Max(_videoDedupDone, done);
-        _videoDedupTotal = total;
-        OnPropertyChanged(nameof(VideoDedupStepStatus));
-    }
-
+        "执行中" => "进行中",
+        var status => status,
+    };
     public IBrush VideoDedupStepBrush => ForegroundBrush(VideoDedupStepStatus);
     public IBrush VideoDedupStepBackgroundBrush => BackgroundBrush(VideoDedupStepStatus);
     public IBrush VideoDedupStepBorderBrush => BorderBrush(VideoDedupStepStatus);

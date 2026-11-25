@@ -53,16 +53,13 @@ public sealed partial class MainWindowViewModel
 
     private async Task<PublishVideoBatch> PrepareKuaishouDedupAsync(
         string projectDirectory, string projectName, KuaishouPersonalConfig config, KuaishouPipelineRequest request,
-        PublishJobRowViewModel? row,
         CancellationToken cancellationToken)
     {
         var data = await _kuaishouPersonalProjectDataService.ResolveAsync(
             projectDirectory, config, cancellationToken, prepareVideos: false);
         void Log(string message) => AppendActivityLog($"视频去重：{message}", projectName);
         Log($"使用账号「{request.AccountName}」的去重方案。");
-        PostUi(() => row?.SetVideoDedupProgress(0, 0));
         return await KuaishouVideoDedup.RunAsync(data, request.AccountId, request.AccountName, request.VideoDedupPreset!,
-            request.Force, Log, _dramaDownloader.HasFfmpegSupportedVideoAsync, cancellationToken,
-            (done, total) => PostUi(() => row?.SetVideoDedupProgress(done, total)));
+            request.Force, Log, _dramaDownloader.HasFfmpegSupportedVideoAsync, cancellationToken);
     }
 }

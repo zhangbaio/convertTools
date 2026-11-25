@@ -2845,7 +2845,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                 if (request.VideoDedupPreset is not null)
                     await RunTrackedStepAsync(trackedJob, trackedRow, KuaishouVideoDedup.Step, KuaishouVideoDedup.Label,
                         force: true, async () => preparedVideos = await PrepareKuaishouDedupAsync(
-                            projectDirectory, projectName, config, request, trackedRow, cancellationToken));
+                            projectDirectory, projectName, config, request, cancellationToken));
 
                 await SkipIfCompletedMeanwhileAsync("rewrite");
                 await SkipIfCompletedMeanwhileAsync("auto-fill-info");
