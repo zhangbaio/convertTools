@@ -14,7 +14,8 @@
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
             <Setter Property="MinHeight" Value="44" />
-            <Setter Property="Padding" Value="10,6,7,6" />
+            <Setter Property="Padding" Value="7,6,7,6" />
+            <Setter Property="ClipToBounds" Value="True" />
             <Setter Property="FontSize" Value="15" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="#253C56" />
@@ -46,29 +47,59 @@
         <Style Selector="Button.moduleNavItem.moduleNavActive PathIcon">
             <Setter Property="Foreground" Value="#075FAF" />
         </Style>
-        <Style Selector="Grid.moduleRailCollapsed TextBlock.moduleRailLabel">
-            <Setter Property="IsVisible" Value="False" />
+        <Style Selector="Grid.sidebarRail">
+            <Setter Property="ClipToBounds" Value="True" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Width" Duration="0:0:0.24" Easing="CubicEaseInOut" />
+                </Transitions>
+            </Setter>
         </Style>
-        <Style Selector="Grid.moduleRailCollapsed Grid#ModuleHeader">
-            <Setter Property="HorizontalAlignment" Value="Center" />
-            <Setter Property="Margin" Value="0,6" />
-        </Style>
-        <Style Selector="Grid.moduleRailCollapsed Button.moduleNavItem">
+        <Style Selector="Button.sidebarToggle">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="Padding" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="Padding" Value="5,6,8,6" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.moduleRailLabel, Panel#AccountPanelHost">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.16" Easing="CubicEaseOut" />
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.24" Easing="CubicEaseInOut" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Grid.moduleRailCollapsed TextBlock.moduleRailLabel">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="RenderTransform" Value="translateX(8px)" />
+        </Style>
+        <Style Selector="Grid.accountRailCollapsed Panel#AccountPanelHost">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="RenderTransform" Value="translateX(-20px)" />
+        </Style>
+        <Style Selector="Grid.moduleRailCollapsed PathIcon#ModuleRailToggleArrow, Grid.accountRailExpanded PathIcon#AccountRailToggleArrow">
+            <Setter Property="RenderTransform" Value="scaleX(-1)" />
+        </Style>
+        <Style Selector="Grid#AccountRail TextBlock.accountSidebarHeading">
+            <Setter Property="Margin" Value="36,0,0,0" />
+            <Setter Property="MinHeight" Value="22" />
         </Style>
     </Window.Styles>
 
-    <Grid x:Name="WindowLayout" RowDefinitions="*,Auto" ColumnDefinitions="148,198,*">
-        <Grid x:Name="ModuleRail" RowDefinitions="Auto,*,Auto" Background="#EEF4FC">
-            <Grid x:Name="ModuleHeader" ColumnDefinitions="*,Auto" MinHeight="44" Margin="12,6,8,6">
+    <Grid RowDefinitions="*,Auto" ColumnDefinitions="Auto,Auto,*">
+        <Grid x:Name="ModuleRail" Classes="sidebarRail" Width="148" RowDefinitions="Auto,*" Background="#EEF4FC">
+            <Grid MinHeight="44" Margin="0,6">
                 <TextBlock Text="TikTok 短剧助手" Classes="topBrandLabel moduleRailLabel"
-                           Margin="0,0,5,0" VerticalAlignment="Center" TextWrapping="Wrap" />
-                <Button x:Name="ModuleRailToggleButton" Grid.Column="1"
-                        Width="28" Height="28" MinHeight="28" Padding="0" VerticalAlignment="Center"
+                           Width="90" Margin="12,0,0,0" HorizontalAlignment="Left"
+                           VerticalAlignment="Center" TextWrapping="Wrap" />
+                <Button x:Name="ModuleRailToggleButton" Classes="sidebarToggle"
+                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,0,12,0"
                         ToolTip.Tip="收起全局导航" AutomationProperties.Name="收起全局导航"
                         Click="OnModuleRailToggleClick">
-                    <PathIcon Width="16" Height="16" Data="F0 M2,4 H22 V20 H2 Z M4,6 V18 H8 V6 Z M10,6 V18 H20 V6 Z" />
+                    <PathIcon x:Name="ModuleRailToggleArrow" Width="12" Height="12"
+                              Data="M5,2 L11,8 L5,14 L3.5,12.5 L8,8 L3.5,3.5 Z" />
                 </Button>
             </Grid>
             <StackPanel Grid.Row="1" x:Name="ModuleNav" Margin="7,5,7,8" Spacing="4" VerticalAlignment="Top">
@@ -149,15 +180,20 @@
                     </StackPanel>
                 </Button>
             </StackPanel>
-            <Button x:Name="SidebarToggleButton" Grid.Row="2" Content="‹"
-                    Width="30" Height="30" MinHeight="30" Padding="0" Margin="0,6,0,8"
-                    FontSize="16" FontWeight="Bold" HorizontalAlignment="Center"
-                    ToolTip.Tip="收起账号栏" AutomationProperties.Name="收起账号栏" Click="OnSidebarToggleClick" />
         </Grid>
 
-        <Panel x:Name="AccountPanelHost" Grid.Column="1" ClipToBounds="True">
-            <views:AccountSidebarView x:Name="AccountSidebar" />
-        </Panel>
+        <Grid x:Name="AccountRail" Grid.Column="1" Classes="sidebarRail accountRailExpanded"
+              Width="198" Background="{StaticResource PythonPanelBgBrush}" SizeChanged="OnAccountRailSizeChanged">
+            <Button x:Name="SidebarToggleButton" Classes="sidebarToggle" ZIndex="1"
+                    HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8,6,0,0"
+                    ToolTip.Tip="收起账号栏" AutomationProperties.Name="收起账号栏" Click="OnSidebarToggleClick">
+                <PathIcon x:Name="AccountRailToggleArrow" Width="12" Height="12"
+                          Data="M5,2 L11,8 L5,14 L3.5,12.5 L8,8 L3.5,3.5 Z" />
+            </Button>
+            <Panel x:Name="AccountPanelHost" Width="198" HorizontalAlignment="Left" ClipToBounds="True">
+                <views:AccountSidebarView x:Name="AccountSidebar" />
+            </Panel>
+        </Grid>
 
         <Panel x:Name="ContentHostPanel" Grid.Column="2" Grid.IsSharedSizeScope="True" Background="{StaticResource PythonPageBgBrush}">
             <Panel x:Name="BrowserHostMount"

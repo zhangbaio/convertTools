@@ -26,7 +26,7 @@
     <Border x:Name="SidebarFrame" Classes="accountSidebarFrame standaloneAccountFrame" Padding="8,10" ClipToBounds="True">
         <DockPanel>
             <StackPanel DockPanel.Dock="Top" Spacing="7" Margin="0,0,0,10">
-                <TextBlock Text="账号" Classes="pageSummary" />
+                <TextBlock Text="账号" Classes="pageSummary accountSidebarHeading" />
                 <WrapPanel Orientation="Horizontal">
                     <Button x:Name="AddAccountButton" Content="添加账号" Command="{Binding AddAccountCommand}"
                             Classes="sidebarPrimaryAction" Margin="0,0,4,0" />

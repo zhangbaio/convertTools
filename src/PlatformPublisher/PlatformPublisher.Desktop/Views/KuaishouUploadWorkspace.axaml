@@ -21,7 +21,7 @@
         <Border x:Name="Sidebar" Grid.RowSpan="2" Classes="accountSidebarFrame" Padding="8,10" IsEnabled="False">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10" Spacing="7">
-                    <TextBlock Text="账号" Classes="pageSummary" />
+                    <TextBlock Text="账号" Classes="pageSummary accountSidebarHeading" />
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <Button Content="添加账号" Click="AddAccount_Click" />
                         <Button Content="删除" Classes="dangerAction" Click="RemoveAccount_Click" />

@@ -7,7 +7,7 @@
     <Border Classes="accountSidebarFrame" Padding="8,10">
         <DockPanel>
             <StackPanel DockPanel.Dock="Top" Spacing="7" Margin="0,0,0,10">
-                <TextBlock Text="账号" Classes="pageSummary" />
+                <TextBlock Text="账号" Classes="pageSummary accountSidebarHeading" />
 
                 <StackPanel Orientation="Horizontal" Spacing="6">
                     <Button Content="添加账号" Click="OnAddClick" />

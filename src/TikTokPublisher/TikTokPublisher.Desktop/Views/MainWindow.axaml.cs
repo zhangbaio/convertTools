@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     private bool _licenseRequiresClose;
     private bool _tikTokAnalyticsEnabled;
     private bool _historyKuaishou;
+    private const double CollapsedRailWidth = 52;
     private readonly HashSet<string> _collapsedAccountPanels = [];
     private bool _moduleRailCollapsed;
     private bool _compactLayout;
@@ -248,7 +249,7 @@ public partial class MainWindow : Window
     private void OnModuleRailToggleClick(object? sender, RoutedEventArgs e)
     {
         _moduleRailCollapsed = !_moduleRailCollapsed;
-        WindowLayout.ColumnDefinitions[0].Width = new GridLength(_moduleRailCollapsed ? 52 : 148);
+        ModuleRail.Width = _moduleRailCollapsed ? CollapsedRailWidth : 148;
         ModuleRail.Classes.Set("moduleRailCollapsed", _moduleRailCollapsed);
         var label = _moduleRailCollapsed ? "展开全局导航" : "收起全局导航";
         ToolTip.SetTip(ModuleRailToggleButton, label);
@@ -268,17 +269,28 @@ public partial class MainWindow : Window
         var hasAccounts = _activeNavTag is "queue" or "kuaishou" or "weixin";
         var collapsed = _collapsedAccountPanels.Contains(AccountPanelLayoutKey);
         var showAccounts = hasAccounts && !collapsed;
-        WindowLayout.ColumnDefinitions[1].Width = new GridLength(showAccounts ? ExpandedSidebarWidth : 0);
-        AccountPanelHost.IsVisible = showAccounts;
-        AccountSidebar.IsVisible = showAccounts && _activeNavTag == "queue";
-        KuaishouWorkspace.SetAccountPanelVisible(showAccounts && _activeNavTag == "kuaishou");
-        WeixinWorkspace.SetAccountPanelVisible(showAccounts && _activeNavTag == "weixin");
+        AccountRail.IsVisible = hasAccounts;
+        AccountPanelHost.Width = ExpandedSidebarWidth;
+        AccountPanelHost.IsHitTestVisible = showAccounts;
+        if (!hasAccounts || showAccounts)
+            AccountPanelHost.IsVisible = showAccounts;
+        AccountSidebar.IsVisible = _activeNavTag == "queue";
+        KuaishouWorkspace.SetAccountPanelVisible(_activeNavTag == "kuaishou");
+        WeixinWorkspace.SetAccountPanelVisible(_activeNavTag == "weixin");
 
-        SidebarToggleButton.IsVisible = hasAccounts;
-        SidebarToggleButton.Content = collapsed ? "›" : "‹";
+        if (hasAccounts)
+            AccountRail.Width = collapsed ? CollapsedRailWidth : ExpandedSidebarWidth;
+        AccountRail.Classes.Set("accountRailExpanded", showAccounts);
+        AccountRail.Classes.Set("accountRailCollapsed", !showAccounts);
         var toggleLabel = collapsed ? "展开账号栏" : "收起账号栏";
         ToolTip.SetTip(SidebarToggleButton, toggleLabel);
         Avalonia.Automation.AutomationProperties.SetName(SidebarToggleButton, toggleLabel);
+    }
+
+    private void OnAccountRailSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (!AccountPanelHost.IsHitTestVisible && e.NewSize.Width <= CollapsedRailWidth)
+            AccountPanelHost.IsVisible = false;
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
