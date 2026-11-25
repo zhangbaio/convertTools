@@ -321,6 +321,12 @@ public static class VideoDedupService
                         }
                         Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(clips, entry.job.Slices, entry.job.Destination, preset)}");
                         var slices = entry.job.Slices;
+                        if (VideoDedupPlanner.UsesSourceVideoBitrate(preset))
+                        {
+                            var (target, fallback) = VideoDedupPlanner.ResolveVideoBitrate(preset, clips, slices);
+                            var note = fallback ? $"；缺少视频流码率的片段使用手动值 {Num(preset.VideoBitrateMbps)} Mbps" : "";
+                            Write($"第 {episode}/{totalEpisodes} 集原视频码率目标 {Num(target)} Mbps{note}。");
+                        }
                         var useHardware = hardwareTranscoder is { HasDevices: true } &&
                             VideoDedupPlanner.GetHardwareFrame(preset, clips, slices) is { } frame &&
                             await hardwareTranscoder.TryRenderAsync(
@@ -502,6 +508,8 @@ public static class VideoDedupService
     {
         if (string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCrf, StringComparison.Ordinal))
             return $"CRF {preset.Crf.ToString(CultureInfo.InvariantCulture)}";
+        if (VideoDedupPlanner.UsesSourceVideoBitrate(preset))
+            return $"{preset.BitrateMode.ToUpperInvariant()} 按原视频码率重新编码";
         if (string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCbr, StringComparison.Ordinal))
             return $"CBR {Num(preset.VideoBitrateMbps)} Mbps";
         return $"VBR {Num(preset.VideoBitrateMbps)} Mbps，最大码率 {Num(preset.VideoBitrateMbps * 1.45)} Mbps";
@@ -692,7 +700,12 @@ public static class VideoDedupService
         if (code != 0)
             throw new InvalidOperationException($"ffprobe 分析失败：{Path.GetFileName(path)} {stderr.Trim()}");
 
-        using var document = JsonDocument.Parse(stdout);
+        return ReadProbeJson(stdout);
+    }
+
+    internal static VideoDedupProbe ReadProbeJson(string json)
+    {
+        using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         double duration = 0;
         if (root.TryGetProperty("format", out var format) &&
@@ -710,6 +723,7 @@ public static class VideoDedupService
         var videoDuration = 0d;
         var audioDuration = 0d;
         var frameCount = 0L;
+        var videoBitrateBps = 0L;
         VideoDedupSourceFormat? videoFormat = null;
         if (root.TryGetProperty("streams", out var streams) && streams.ValueKind == JsonValueKind.Array)
         {
@@ -732,6 +746,7 @@ public static class VideoDedupService
                         averageFramesPerSecond = ParseFrameRate(rate.GetString());
                     videoFormat = VideoDedupSourceFormat.Read(stream, videos, audios);
                     videoDuration = TrackDuration(stream);
+                    videoBitrateBps = ReadStreamBitrateBps(stream);
                     if (stream.TryGetProperty("nb_frames", out var frames) && frames.ValueKind == JsonValueKind.String)
                         long.TryParse(frames.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out frameCount);
                 }
@@ -747,7 +762,7 @@ public static class VideoDedupService
         }
 
         return new VideoDedupProbe(duration, width, height, hasAudio, audioBitrateKbps, averageFramesPerSecond,
-            videoFormat, videoDuration, audioDuration, frameCount);
+            videoFormat, videoDuration, audioDuration, frameCount, videoBitrateBps);
     }
 
     private static async Task<bool> CheckHardwareOutputAsync(
@@ -828,12 +843,18 @@ public static class VideoDedupService
 
     private static int ReadAudioBitrateKbps(JsonElement stream)
     {
+        var bps = ReadStreamBitrateBps(stream);
+        return bps > 0 ? (int)Math.Clamp(Math.Round(bps / 1000d, MidpointRounding.AwayFromZero), 1, 512) : 0;
+    }
+
+    private static long ReadStreamBitrateBps(JsonElement stream)
+    {
         if (!stream.TryGetProperty("bit_rate", out var node))
             return 0;
         var raw = node.ValueKind == JsonValueKind.String ? node.GetString() : node.GetRawText();
         if (!long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var bps) || bps <= 0)
             return 0;
-        return (int)Math.Clamp((bps + 500) / 1000, 1, 512);
+        return bps;
     }
 
     internal static Task<EncoderChoice> ResolveEncoderForTests(VideoDedupPreset preset, CancellationToken ct) =>

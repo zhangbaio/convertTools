@@ -150,11 +150,21 @@
                     </StackPanel>
                 </UniformGrid>
                 <UniformGrid Classes="dedupFields" Columns="2">
-                    <StackPanel Classes="configurationField" Spacing="5">
+                    <StackPanel x:Name="VideoBitrateSourceField" Classes="configurationField" Spacing="5">
+                        <TextBlock Classes="configurationLabel" Text="码率来源" />
+                        <ComboBox x:Name="VideoBitrateSourceBox" Classes="configurationInput" HorizontalAlignment="Stretch"
+                                  SelectedIndex="0" AutomationProperties.Name="视频码率来源">
+                            <ComboBoxItem Content="手动设置" />
+                            <ComboBoxItem Content="使用原视频码率" />
+                        </ComboBox>
+                        <TextBlock x:Name="SourceVideoBitrateHint" Classes="dedupHint" IsVisible="False"
+                                   Text="按原视频流的平均码率重新编码。读取不到时使用保存的手动码率。" />
+                    </StackPanel>
+                    <StackPanel x:Name="VideoBitrateField" Classes="configurationField" Spacing="5">
                         <TextBlock Classes="configurationLabel" Text="视频码率 Mbps" />
                         <NumericUpDown Classes="configurationInput" x:Name="VideoBitrateBox" Minimum="0.5" Maximum="20" Increment="0.1" FormatString="0.0" />
                     </StackPanel>
-                    <StackPanel Classes="configurationField" Spacing="5">
+                    <StackPanel x:Name="CrfField" Classes="configurationField" Spacing="5" IsVisible="False">
                         <TextBlock Classes="configurationLabel" Text="CRF 质量" />
                         <NumericUpDown Classes="configurationInput" x:Name="CrfBox" Minimum="18" Maximum="32" Increment="1" FormatString="0" />
                     </StackPanel>

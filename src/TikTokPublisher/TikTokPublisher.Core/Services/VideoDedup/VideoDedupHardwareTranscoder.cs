@@ -248,7 +248,7 @@ internal sealed class VideoDedupHardwareTranscoder
         VideoDedupPlanner.HardwareFrame frame, string encoder)
     {
         var key = FormattableString.Invariant(
-            $"{_environment}|{device.CalibrationId}|{probe.Format?.Codec}|{probe.Format?.Profile}|{probe.Width}x{probe.Height}|{probe.AverageFramesPerSecond:F3}|{frame.Size.Width}x{frame.Size.Height}|{frame.AspectRatio}|{encoder}|{_preset.Fps}|{_preset.BitrateMode}|{_preset.VideoBitrateMbps:F3}|{_preset.Crf}");
+            $"{_environment}|{device.CalibrationId}|{probe.Format?.Codec}|{probe.Format?.Profile}|{probe.Width}x{probe.Height}|{probe.AverageFramesPerSecond:F3}|{frame.Size.Width}x{frame.Size.Height}|{frame.AspectRatio}|{encoder}|{_preset.Fps}|{_preset.BitrateMode}|{VideoDedupPlanner.ResolveVideoBitrate(_preset, probe):F3}|{_preset.Crf}");
         return HashKey(key);
     }
 

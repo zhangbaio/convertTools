@@ -15,7 +15,8 @@ internal sealed record VideoDedupProbe(
     VideoDedupSourceFormat? Format = null,
     double VideoDuration = 0,
     double AudioDuration = 0,
-    long FrameCount = 0);
+    long FrameCount = 0,
+    long VideoBitrateBps = 0);
 
 internal sealed record VideoDedupClip(string Path, VideoDedupProbe Probe);
 
@@ -497,7 +498,8 @@ internal static partial class VideoDedupPlanner
 
         args.AddRange(["-threads:v", threads.EncoderThreads.ToString(CultureInfo.InvariantCulture)]);
         AppendEncoder(args, preset, videoEncoder, hasAudio, ResolveSourceAudioBitrateKbps(clips, slices),
-            hardwareFrames: outputDevice is not null);
+            hardwareFrames: outputDevice is not null,
+            videoBitrateMbps: ResolveVideoBitrate(preset, clips, slices).Mbps);
         args.AddRange(["-movflags", "+faststart", outputPath]);
         return args;
     }
@@ -572,21 +574,23 @@ internal static partial class VideoDedupPlanner
         string videoEncoder,
         bool includeAudio,
         int sourceAudioBitrateKbps = 0,
-        bool hardwareFrames = false)
+        bool hardwareFrames = false,
+        double? videoBitrateMbps = null)
     {
         var rate = preset.Fps.ToString(CultureInfo.InvariantCulture);
         args.AddRange(["-r", rate, "-c:v", videoEncoder]);
         var qsv = videoEncoder.Contains("qsv", StringComparison.OrdinalIgnoreCase);
+        var target = videoBitrateMbps ?? preset.VideoBitrateMbps;
         if (videoEncoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase))
-            AppendNvenc(args, preset);
+            AppendNvenc(args, preset, target);
         else if (videoEncoder.Contains("amf", StringComparison.OrdinalIgnoreCase))
-            AppendAmf(args, preset);
+            AppendAmf(args, preset, target);
         else if (qsv)
-            AppendQsv(args, preset);
+            AppendQsv(args, preset, target);
         else if (videoEncoder.Contains("videotoolbox", StringComparison.OrdinalIgnoreCase))
-            AppendVideoToolbox(args, preset);
+            AppendVideoToolbox(args, preset, target);
         else
-            AppendSoftwareVideo(args, preset, videoEncoder);
+            AppendSoftwareVideo(args, preset, videoEncoder, target);
         // QSV 只接收 NV12，直接给 yuv420p 会被拒或多一次隐式转换。
         if (!hardwareFrames)
             args.AddRange(["-pix_fmt", qsv ? "nv12" : "yuv420p"]);
@@ -618,23 +622,52 @@ internal static partial class VideoDedupPlanner
         return 0;
     }
 
-    private static void AppendNvenc(List<string> args, VideoDedupPreset preset)
+    internal static bool UsesSourceVideoBitrate(VideoDedupPreset preset) => preset.UseSourceVideoBitrate && !IsCrf(preset);
+
+    internal static double ResolveVideoBitrate(VideoDedupPreset preset, VideoDedupProbe probe) =>
+        UsesSourceVideoBitrate(preset) && probe.VideoBitrateBps > 0
+            ? probe.VideoBitrateBps / 1_000_000d
+            : preset.VideoBitrateMbps;
+
+    internal static (double Mbps, bool UsesFallback) ResolveVideoBitrate(
+        VideoDedupPreset preset, IReadOnlyList<VideoDedupClip> clips, IReadOnlyList<VideoDedupSlice> slices)
     {
-        var bitrate = BitrateToken(preset);
-        var buffer = BufferToken(preset);
+        if (!UsesSourceVideoBitrate(preset))
+            return (preset.VideoBitrateMbps, false);
+
+        double totalSeconds = 0;
+        double weightedMbps = 0;
+        var usesFallback = false;
+        foreach (var slice in slices)
+        {
+            if ((uint)slice.ClipIndex >= (uint)clips.Count || slice.Length <= 0)
+                continue;
+            var probe = clips[slice.ClipIndex].Probe;
+            usesFallback |= probe.VideoBitrateBps <= 0;
+            weightedMbps += ResolveVideoBitrate(preset, probe) * slice.Length;
+            totalSeconds += slice.Length;
+        }
+
+        return totalSeconds > 0 ? (weightedMbps / totalSeconds, usesFallback) : (preset.VideoBitrateMbps, true);
+    }
+
+    private static void AppendNvenc(List<string> args, VideoDedupPreset preset, double target)
+    {
+        var bitrate = BitrateToken(target);
+        var buffer = BufferToken(target);
         args.AddRange(["-preset", "p2", "-gpu", "any", "-profile:v", "main", "-rc-lookahead", "0", "-bf", "3", "-b_ref_mode", "middle"]);
         if (IsCrf(preset))
             args.AddRange(["-rc", "vbr", "-cq", preset.Crf.ToString(CultureInfo.InvariantCulture), "-b:v", "0"]);
         else if (IsCbr(preset))
             args.AddRange(["-rc", "cbr", "-b:v", bitrate, "-maxrate", bitrate, "-minrate", bitrate, "-bufsize", buffer]);
         else
-            args.AddRange(["-rc", "vbr", "-b:v", bitrate, "-maxrate", MaxRateToken(preset), "-bufsize", buffer]);
+            args.AddRange(["-rc", "vbr", "-b:v", bitrate, "-maxrate", MaxRateToken(target), "-bufsize", buffer]);
     }
 
-    private static void AppendAmf(List<string> args, VideoDedupPreset preset)
+    private static void AppendAmf(List<string> args, VideoDedupPreset preset, double target)
     {
-        var bitrate = BitrateToken(preset);
-        var buffer = BufferToken(preset);
+        var bitrate = BitrateToken(target);
+        var buffer = BufferToken(target);
         args.AddRange(["-usage", "transcoding", "-quality", "speed", "-profile:v", "main"]);
         if (IsCrf(preset))
         {
@@ -646,10 +679,10 @@ internal static partial class VideoDedupPlanner
         else if (IsCbr(preset))
             args.AddRange(["-rc", "cbr", "-b:v", bitrate, "-maxrate", bitrate, "-bufsize", buffer, "-filler_data", "1"]);
         else
-            args.AddRange(["-rc", "vbr_peak", "-b:v", bitrate, "-maxrate", MaxRateToken(preset), "-bufsize", buffer]);
+            args.AddRange(["-rc", "vbr_peak", "-b:v", bitrate, "-maxrate", MaxRateToken(target), "-bufsize", buffer]);
     }
 
-    private static void AppendQsv(List<string> args, VideoDedupPreset preset)
+    private static void AppendQsv(List<string> args, VideoDedupPreset preset, double target)
     {
         args.AddRange(["-profile:v", "main", "-preset", "veryfast"]);
         if (IsCrf(preset))
@@ -658,33 +691,33 @@ internal static partial class VideoDedupPlanner
             return;
         }
 
-        var bitrate = BitrateToken(preset);
+        var bitrate = BitrateToken(target);
         args.AddRange([
             "-b:v", bitrate,
-            "-maxrate", IsCbr(preset) ? bitrate : MaxRateToken(preset),
-            "-bufsize", BufferToken(preset),
+            "-maxrate", IsCbr(preset) ? bitrate : MaxRateToken(target),
+            "-bufsize", BufferToken(target),
         ]);
     }
 
-    private static void AppendVideoToolbox(List<string> args, VideoDedupPreset preset)
+    private static void AppendVideoToolbox(List<string> args, VideoDedupPreset preset, double target)
     {
         if (IsCrf(preset))
             args.AddRange(["-q:v", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
         else
-            args.AddRange(["-b:v", BitrateToken(preset), "-maxrate", IsCbr(preset) ? BitrateToken(preset) : MaxRateToken(preset), "-bufsize", BufferToken(preset)]);
+            args.AddRange(["-b:v", BitrateToken(target), "-maxrate", IsCbr(preset) ? BitrateToken(target) : MaxRateToken(target), "-bufsize", BufferToken(target)]);
     }
 
-    private static void AppendSoftwareVideo(List<string> args, VideoDedupPreset preset, string videoEncoder)
+    private static void AppendSoftwareVideo(List<string> args, VideoDedupPreset preset, string videoEncoder, double target)
     {
         var hevc = IsHevcEncoder(videoEncoder);
         args.AddRange(["-profile:v", "main", "-preset", "veryfast"]);
-        var bitrate = BitrateToken(preset);
+        var bitrate = BitrateToken(target);
         if (IsCrf(preset))
             args.AddRange(["-crf", preset.Crf.ToString(CultureInfo.InvariantCulture)]);
         else if (IsCbr(preset))
             args.AddRange(["-b:v", bitrate, "-minrate", bitrate, "-maxrate", bitrate, "-bufsize", bitrate]);
         else
-            args.AddRange(["-b:v", bitrate, "-maxrate", MaxRateToken(preset), "-bufsize", BufferToken(preset)]);
+            args.AddRange(["-b:v", bitrate, "-maxrate", MaxRateToken(target), "-bufsize", BufferToken(target)]);
         var threads = VideoDedupCpuBudget.ThreadsFor(Environment.ProcessorCount, hardwareEncoder: false);
         if (hevc)
             args.AddRange(["-x265-params", $"log-level=error:pools={threads.EncoderThreads.ToString(CultureInfo.InvariantCulture)}"]);
@@ -717,14 +750,14 @@ internal static partial class VideoDedupPlanner
     private static bool IsCbr(VideoDedupPreset preset) =>
         string.Equals(preset.BitrateMode, VideoDedupPreset.BitrateCbr, StringComparison.Ordinal);
 
-    private static string BitrateToken(VideoDedupPreset preset) =>
-        $"{Math.Max(500, (int)Math.Round(preset.VideoBitrateMbps * 1000)).ToString(CultureInfo.InvariantCulture)}k";
+    private static string BitrateToken(double target) => KbpsToken(target * 1000);
 
-    private static string MaxRateToken(VideoDedupPreset preset) =>
-        $"{Math.Max(500, (int)Math.Round(preset.VideoBitrateMbps * 1450)).ToString(CultureInfo.InvariantCulture)}k";
+    private static string MaxRateToken(double target) => KbpsToken(target * 1450);
 
-    private static string BufferToken(VideoDedupPreset preset) =>
-        $"{Math.Max(500, (int)Math.Round(preset.VideoBitrateMbps * 2000)).ToString(CultureInfo.InvariantCulture)}k";
+    private static string BufferToken(double target) => KbpsToken(target * 2000);
+
+    private static string KbpsToken(double kbps) =>
+        $"{Math.Max(1, Math.Round(kbps)).ToString("0", CultureInfo.InvariantCulture)}k";
 
     private static string BuildFilterComplex(
         VideoDedupPreset preset,

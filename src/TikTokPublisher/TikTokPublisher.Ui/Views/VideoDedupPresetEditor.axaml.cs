@@ -67,6 +67,8 @@ public partial class VideoDedupPresetEditor : UserControl
     public VideoDedupPresetEditor()
     {
         InitializeComponent();
+        RateCrfBox.IsCheckedChanged += (_, _) => UpdateVideoBitrateFields();
+        VideoBitrateSourceBox.SelectionChanged += (_, _) => UpdateVideoBitrateFields();
         Load(null);
         foreach (var toggle in new[] { FrameMixEnabledBox, ReframeEnabledBox, ReframeVaryBox })
             toggle.IsCheckedChanged += (_, _) => RefreshEffectsSummary();
@@ -130,7 +132,9 @@ public partial class VideoDedupPresetEditor : UserControl
         RateCbrBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateCbr;
         RateVbrBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateVbr;
         RateCrfBox.IsChecked = value.BitrateMode == VideoDedupPreset.BitrateCrf;
+        VideoBitrateSourceBox.SelectedIndex = value.UseSourceVideoBitrate ? 1 : 0;
         VideoBitrateBox.Value = (decimal)value.VideoBitrateMbps;
+        UpdateVideoBitrateFields();
         CrfBox.Value = value.Crf;
         AudioDefaultBox.IsChecked = value.AudioCodec == VideoDedupPreset.AudioDefault;
         AudioAacBox.IsChecked = value.AudioCodec != VideoDedupPreset.AudioDefault;
@@ -149,6 +153,16 @@ public partial class VideoDedupPresetEditor : UserControl
         if (durationError is not null)
             throw new InvalidOperationException(durationError);
         return preset;
+    }
+
+    private void UpdateVideoBitrateFields()
+    {
+        var crf = RateCrfBox.IsChecked == true;
+        var source = VideoBitrateSourceBox.SelectedIndex == 1;
+        VideoBitrateSourceField.IsVisible = !crf;
+        VideoBitrateField.IsVisible = !crf && !source;
+        SourceVideoBitrateHint.IsVisible = !crf && source;
+        CrfField.IsVisible = crf;
     }
 
     public void PreserveEpisodeBoundaries()
@@ -214,6 +228,7 @@ public partial class VideoDedupPresetEditor : UserControl
                 : RateCrfBox.IsChecked == true
                     ? VideoDedupPreset.BitrateCrf
                     : VideoDedupPreset.BitrateVbr,
+            UseSourceVideoBitrate = VideoBitrateSourceBox.SelectedIndex == 1,
             VideoBitrateMbps = (double)(VideoBitrateBox.Value ?? (decimal)VideoDedupPreset.DefaultVideoBitrateMbps),
             Crf = (int)(CrfBox.Value ?? 23),
             AudioCodec = AudioDefaultBox.IsChecked == true

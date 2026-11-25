@@ -65,6 +65,7 @@ public sealed class VideoDedupPreset
     public string VideoCodec { get; set; } = CodecH264;
     public int Fps { get; set; } = 30;
     public string BitrateMode { get; set; } = BitrateVbr;
+    public bool UseSourceVideoBitrate { get; set; }
     public double VideoBitrateMbps { get; set; } = DefaultVideoBitrateMbps;
     public int Crf { get; set; } = 23;
 
@@ -118,6 +119,7 @@ public sealed class VideoDedupPreset
         VideoCodec = VideoCodec,
         Fps = Fps,
         BitrateMode = BitrateMode,
+        UseSourceVideoBitrate = UseSourceVideoBitrate,
         VideoBitrateMbps = VideoBitrateMbps,
         Crf = Crf,
         AudioCodec = AudioCodec,
@@ -267,6 +269,8 @@ public sealed class VideoDedupPreset
             Num(preset.AudioLowGainDb),
             Num(preset.AudioMidGainDb),
             Num(preset.AudioHighGainDb));
+        if (preset.UseSourceVideoBitrate)
+            text += "\nvideo-bitrate-source";
         var effects = preset.Effects.FingerprintBody();
         if (effects.Length > 0)
             text += "\n" + effects;

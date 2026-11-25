@@ -71,7 +71,7 @@ internal static partial class VideoDedupPlanner
         args.AddRange(["-threads:v", "1", "-color_range", "tv", "-colorspace", "bt709",
             "-color_primaries", "bt709", "-color_trc", "bt709"]);
         AppendEncoder(args, preset, encoder, hasAudio, sourceAudioBitrateKbps: clip.Probe.AudioBitrateKbps,
-            hardwareFrames: true);
+            hardwareFrames: true, videoBitrateMbps: ResolveVideoBitrate(preset, clip.Probe));
         if (sample)
             args.AddRange(["-frames:v", sampleFrames.ToString(CultureInfo.InvariantCulture), "-f", "null", "-"]);
         else
