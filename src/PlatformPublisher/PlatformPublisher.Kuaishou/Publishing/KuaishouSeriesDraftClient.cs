@@ -82,7 +82,7 @@ public sealed class KuaishouSeriesDraftClient
         var seriesId = await ResolveSeriesIdAsync(gateway, data.Title, existingMiniSeriesId, cancellationToken);
         var requiresNewDraft = !string.IsNullOrWhiteSpace(data.VideoBatchIdentity) && string.IsNullOrWhiteSpace(existingMiniSeriesId);
         if (requiresNewDraft && !string.IsNullOrWhiteSpace(seriesId))
-            throw new InvalidOperationException("快手已有同名短剧，无法确认它使用的去重模板。请先核对旧草稿。");
+            throw new InvalidOperationException("快手已有同名短剧，无法确认它使用的去重方案。请先核对旧草稿。");
         var creating = string.IsNullOrWhiteSpace(seriesId);
         IReadOnlyList<string> episodeIds = [];
         if (!creating)

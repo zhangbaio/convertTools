@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using TikTokPublisher.Core.Models;
 using TikTokPublisher.Core.Services.VideoDedup;
 
@@ -150,7 +151,15 @@ public partial class VideoDedupPresetEditor : UserControl
         return preset;
     }
 
-    internal VideoDedupPreset CaptureDraft()
+    public void PreserveEpisodeBoundaries()
+    {
+        ResegmentationOptions.IsVisible = false;
+        var groupScope = Guid.NewGuid().ToString("N");
+        foreach (var button in this.GetLogicalDescendants().OfType<RadioButton>())
+            button.GroupName += groupScope;
+    }
+
+    public VideoDedupPreset CaptureDraft()
     {
         var resolution = SelectedResolution();
         var preset = new VideoDedupPreset

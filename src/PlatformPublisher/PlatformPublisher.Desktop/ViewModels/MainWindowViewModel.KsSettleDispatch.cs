@@ -810,7 +810,7 @@ public sealed partial class MainWindowViewModel
             KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
             platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版",
             Has("auto_archive"),
-            GetKuaishouDedupPreset(config, selected.Contains("video_dedup") ||
+            GetKuaishouDedupPreset(account.Id, config, selected.Contains("video_dedup") ||
                 (Has("upload_series") && KuaishouVideoDedup.IsEnabled(account.Id))));
     }
 

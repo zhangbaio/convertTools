@@ -12,6 +12,7 @@
             <StackPanel x:Name="SubNavigation" Margin="10,5,10,3" Orientation="Horizontal" Spacing="5" IsEnabled="False">
                 <Button Content="任务队列" Tag="queue" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="发布配置" Tag="config" Classes="topNavItem" Click="SubPage_Click" />
+                <Button Content="视频去重" Tag="dedup" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="全局账号配置" Tag="global" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="剧集上架" Tag="shelf" Classes="topNavItem" Click="SubPage_Click" />
                 <Button Content="运行日志" Tag="logs" Classes="topNavItem" Click="SubPage_Click" />
@@ -59,6 +60,7 @@
             <Panel Grid.Row="1">
                 <views:WeixinWorkflowView x:Name="Workflow" Background="{StaticResource PythonPageBgBrush}" IsKuaishouMode="True" IsVisible="False" />
                 <views:KuaishouPersonalConfigDialog x:Name="Configuration" IsVisible="False" />
+                <views:KuaishouVideoDedupView x:Name="DedupConfiguration" IsVisible="False" />
                 <ScrollViewer x:Name="GlobalConfiguration" IsVisible="False">
                     <StackPanel Margin="16" Spacing="12">
                         <TextBlock Text="全局队列并发数" FontWeight="SemiBold" />

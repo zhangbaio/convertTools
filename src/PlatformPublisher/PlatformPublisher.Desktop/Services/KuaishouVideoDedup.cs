@@ -19,42 +19,37 @@ internal static class KuaishouVideoDedup
     private static readonly JsonSettingStore Settings = new(Database);
     private static readonly AccountJsonSettingStore Accounts = new(Database);
     private const string EnabledKey = "kuaishou.video-dedup.enabled";
+    private const string PresetKey = "kuaishou.video-dedup.account-preset";
 
     internal static bool IsEnabled(string accountId) =>
         Accounts.TryLoad<bool>(accountId, EnabledKey, out var enabled) && enabled;
 
     internal static void SetEnabled(string accountId, bool enabled) => Accounts.Save(accountId, EnabledKey, enabled);
 
-    internal static IReadOnlyDictionary<string, VideoDedupPreset> Templates()
+    internal static VideoDedupPreset LoadPreset(string accountId, string? legacyTemplateId, PlatformDatabase? database = null)
     {
-        var templates = Settings.Load<Dictionary<string, VideoDedupPreset>>(LibraryKey, () => []);
-        templates["default"] = VideoDedupPreset.CreateDefault();
-        return templates;
+        var accounts = database is null ? Accounts : new AccountJsonSettingStore(database);
+        if (accounts.TryLoad<VideoDedupPreset>(accountId, PresetKey, out var saved) && saved is not null)
+            return saved.NormalizedCopy();
+        var settings = database is null ? Settings : new JsonSettingStore(database);
+        if (!string.IsNullOrWhiteSpace(legacyTemplateId) && legacyTemplateId != "default" &&
+            settings.TryLoad<Dictionary<string, VideoDedupPreset>>(LibraryKey, out var legacy))
+            return legacy?.GetValueOrDefault(legacyTemplateId)?.NormalizedCopy() ?? VideoDedupPreset.CreateDefault();
+        return VideoDedupPreset.CreateDefault();
     }
 
-    internal static VideoDedupPreset ReadTemplate(string id) =>
-        Templates().GetValueOrDefault(id ?? "")?.NormalizedCopy()
-        ?? throw new InvalidOperationException("请在快手发布配置为当前账号选择并保存视频去重模板。");
-
-    internal static string Import(string json)
+    internal static void SavePreset(string accountId, VideoDedupPreset preset, PlatformDatabase? database = null)
     {
-        using var document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != JsonValueKind.Object)
-            throw new InvalidDataException("去重模板必须是 JSON 对象。");
-        var preset = document.RootElement.TryGetProperty("steps", out _)
-            ? VideoDedupPresetImporter.FromProcessorJson(json)
-            : JsonSerializer.Deserialize<VideoDedupPreset>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
-        preset.Normalize();
+        preset = preset.NormalizedCopy();
         Validate(preset);
-        var id = Guid.NewGuid().ToString("N");
-        Settings.UpdateObject(LibraryKey, library => library[id] = JsonSerializer.SerializeToNode(preset));
-        return id;
+        var accounts = database is null ? Accounts : new AccountJsonSettingStore(database);
+        accounts.Save(accountId, PresetKey, preset);
     }
 
     internal static void Validate(VideoDedupPreset preset)
     {
         if (preset.HasDurationLimit)
-            throw new InvalidOperationException("快手去重需保留原集数和集序，请选择未设置成片时长限制的模板。");
+            throw new InvalidOperationException("快手去重需保留原集数和集序，不能设置重新分集时长。");
         VideoDedupEffectFilters.Validate(preset);
     }
 

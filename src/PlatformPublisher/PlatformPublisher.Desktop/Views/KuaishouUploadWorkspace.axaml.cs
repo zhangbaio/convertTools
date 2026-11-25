@@ -91,6 +91,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
     }
 
     public Task<bool> TryLeaveAsync(Window owner) =>
+        DedupConfiguration.IsVisible ? DedupConfiguration.TryLeaveAsync(owner) :
         Configuration.IsVisible ? Configuration.TryLeaveAsync(owner) : Task.FromResult(true);
 
     public bool BindAnalytics(AnalyticsView analytics)
@@ -239,8 +240,10 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         _changingPage = true;
         try
         {
-            if (!IsConfigurationPage(page) && Owner is { } owner && !await TryLeaveAsync(owner))
+            if ((!IsConfigurationPage(page) || _page == "dedup") && Owner is { } owner && !await TryLeaveAsync(owner))
                 return;
+            if (page == "dedup")
+                LoadDedupAccount();
             if (page == "global" && _page != page)
             {
                 GlobalConcurrency.Value = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath).KuaishouGlobalProjectConcurrency
@@ -288,6 +291,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         Sidebar.IsEnabled = ready;
         Workflow.IsVisible = ready && _page == "queue";
         Configuration.IsVisible = ready && IsConfigurationPage(_page);
+        DedupConfiguration.IsVisible = ready && _page == "dedup";
         GlobalConfiguration.IsVisible = ready && _page == "global";
         LogView.IsVisible = ready && _page == "logs";
         ArchiveView.IsVisible = ready && _page == "archived";
@@ -391,10 +395,15 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
         if (!_viewModel.IsKuaishouPlatform)
             _viewModel.EnterKuaishouPage();
         Configuration.LoadAccount(account, _viewModel.SelectedPlatform.Value);
+        if (_page == "dedup")
+            LoadDedupAccount();
         _settings!.Save(SelectedAccountKey, account?.Id ?? "");
         RefreshSidebar();
         RefreshHistory();
     }
+
+    private void LoadDedupAccount() =>
+        DedupConfiguration.LoadAccount(_selectedAccount?.Id, _selectedAccount?.Name, Configuration.LegacyVideoDedupTemplateId);
 
     private async void AddAccount_Click(object? sender, RoutedEventArgs e)
     {

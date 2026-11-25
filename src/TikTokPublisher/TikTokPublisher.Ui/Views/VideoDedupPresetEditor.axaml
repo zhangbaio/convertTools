@@ -30,29 +30,31 @@
                     </StackPanel>
                 </Grid>
 
-                <TextBlock Text="单集时长" Classes="configurationHeading" />
-                <TextBlock Classes="dedupHint" Text="两个都留空表示不重新分集。都填写时把全部原片接成一条，按总时长平均切开，每集长度靠近最短和最长的中间。相邻原片可以合进同一集。每一集再做开头、结尾裁剪和变速。转场让某一集超出范围时，向相邻集借一点时长。没有任何分法能落在最短和最长之内时，去重直接失败，不会开始编码。" />
-                <UniformGrid Classes="dedupFields" Columns="2">
-                    <StackPanel Classes="configurationField" Spacing="5">
-                        <TextBlock Classes="configurationLabel" Text="单集最小时长" />
-                        <NumericUpDown Classes="configurationInput" x:Name="MinDurationBox" Minimum="1" Maximum="3600" Increment="1" FormatString="0" Watermark="留空不重新分集" />
-                    </StackPanel>
-                    <StackPanel Classes="configurationField" Spacing="5">
-                        <TextBlock Classes="configurationLabel" Text="单集最大时长" />
-                        <NumericUpDown Classes="configurationInput" x:Name="MaxDurationBox" Minimum="1" Maximum="7200" Increment="1" FormatString="0" Watermark="留空不重新分集" />
-                    </StackPanel>
-                </UniformGrid>
+                <StackPanel x:Name="ResegmentationOptions" Spacing="12">
+                    <TextBlock Text="单集时长" Classes="configurationHeading" />
+                    <TextBlock Classes="dedupHint" Text="两个都留空表示不重新分集。都填写时把全部原片接成一条，按总时长平均切开，每集长度靠近最短和最长的中间。相邻原片可以合进同一集。每一集再做开头、结尾裁剪和变速。转场让某一集超出范围时，向相邻集借一点时长。没有任何分法能落在最短和最长之内时，去重直接失败，不会开始编码。" />
+                    <UniformGrid Classes="dedupFields" Columns="2">
+                        <StackPanel Classes="configurationField" Spacing="5">
+                            <TextBlock Classes="configurationLabel" Text="单集最小时长" />
+                            <NumericUpDown Classes="configurationInput" x:Name="MinDurationBox" Minimum="1" Maximum="3600" Increment="1" FormatString="0" Watermark="留空不重新分集" />
+                        </StackPanel>
+                        <StackPanel Classes="configurationField" Spacing="5">
+                            <TextBlock Classes="configurationLabel" Text="单集最大时长" />
+                            <NumericUpDown Classes="configurationInput" x:Name="MaxDurationBox" Minimum="1" Maximum="7200" Increment="1" FormatString="0" Watermark="留空不重新分集" />
+                        </StackPanel>
+                    </UniformGrid>
 
-                <TextBlock Text="拼接转场" Classes="configurationHeading" />
-                <ToggleSwitch x:Name="TransitionsEnabledBox" OnContent="启用转场" OffContent="启用转场" />
-                <WrapPanel Orientation="Horizontal" IsVisible="{Binding IsChecked, ElementName=TransitionsEnabledBox}">
-                    <CheckBox x:Name="FadeBlackBox" Content="淡黑" Margin="0,0,16,6" />
-                    <CheckBox x:Name="DissolveBox" Content="交叉溶解" Margin="0,0,16,6" />
-                    <CheckBox x:Name="PushBox" Content="推拉" Margin="0,0,16,6" />
-                    <CheckBox x:Name="SlideBox" Content="滑动" Margin="0,0,16,6" />
-                    <CheckBox x:Name="ZoomBox" Content="缩放" Margin="0,0,16,6" />
-                </WrapPanel>
-                <TextBlock Classes="dedupHint" Text="只在不同原片拼成一集时使用，每处 0.3 到 0.6 秒。启用时至少选一种。短于 0.8 秒的片段改为直接拼接。" />
+                    <TextBlock Text="拼接转场" Classes="configurationHeading" />
+                    <ToggleSwitch x:Name="TransitionsEnabledBox" OnContent="启用转场" OffContent="启用转场" />
+                    <WrapPanel Orientation="Horizontal" IsVisible="{Binding IsChecked, ElementName=TransitionsEnabledBox}">
+                        <CheckBox x:Name="FadeBlackBox" Content="淡黑" Margin="0,0,16,6" />
+                        <CheckBox x:Name="DissolveBox" Content="交叉溶解" Margin="0,0,16,6" />
+                        <CheckBox x:Name="PushBox" Content="推拉" Margin="0,0,16,6" />
+                        <CheckBox x:Name="SlideBox" Content="滑动" Margin="0,0,16,6" />
+                        <CheckBox x:Name="ZoomBox" Content="缩放" Margin="0,0,16,6" />
+                    </WrapPanel>
+                    <TextBlock Classes="dedupHint" Text="只在不同原片拼成一集时使用，每处 0.3 到 0.6 秒。启用时至少选一种。短于 0.8 秒的片段改为直接拼接。" />
+                </StackPanel>
 
                 <TextBlock Text="画面" Classes="configurationHeading" />
                 <UniformGrid Classes="dedupFields" Columns="2">
