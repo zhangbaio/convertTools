@@ -17,7 +17,6 @@ public partial class KuaishouVideoDedupView : UserControl
     public KuaishouVideoDedupView()
     {
         InitializeComponent();
-        PresetEditor.PreserveEpisodeBoundaries();
         LoadAccount(null, null, null);
     }
 
@@ -25,7 +24,7 @@ public partial class KuaishouVideoDedupView : UserControl
     {
         _accountId = accountId;
         _accountName = accountName ?? "";
-        AccountSummary.Text = accountId is null ? "请先选择快手账号" : $"当前账号 · {_accountName}。去重保留原集数和集序。";
+        AccountSummary.Text = accountId is null ? "请先选择快手账号" : $"当前账号 · {_accountName}";
         FeedbackText.Text = "";
         _saved = null;
         try

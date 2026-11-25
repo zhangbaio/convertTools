@@ -29,6 +29,19 @@ public static class KuaishouSettlementEpisodeVideoService
             .OrderBy(item => item.Episode).Select(item => item.Path).ToArray();
     }
 
+    public static void EnsureDedupEpisodeOrder(IReadOnlyList<string> videos)
+    {
+        if (videos.Count == 0)
+            throw new InvalidOperationException("快手去重成片为空，请重新执行视频去重。");
+        for (var index = 0; index < videos.Count; index++)
+        {
+            var path = videos[index];
+            if (SettlementEpisode(Path.GetFileNameWithoutExtension(path)) != index + 1 ||
+                !File.Exists(path) || new FileInfo(path).Length == 0)
+                throw new InvalidOperationException($"快手去重成片第 {index + 1} 集缺失或集序不正确，请重新执行视频去重。");
+        }
+    }
+
     public static IReadOnlyList<string> Prepare(string sourceDirectory, string workflowDirectory, string seriesTitle)
     {
         var sourceDir = Path.GetFullPath(sourceDirectory);

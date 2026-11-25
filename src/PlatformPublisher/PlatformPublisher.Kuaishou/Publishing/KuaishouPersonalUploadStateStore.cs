@@ -16,14 +16,23 @@ public sealed class KuaishouPersonalUploadState
     public bool VideosUploaded { get; set; }
     public bool ReviewSubmitted { get; set; }
     public string VideoBatchIdentity { get; set; } = string.Empty;
+    public int VideoBatchEpisodeCount { get; set; }
 
     public void BindVideoBatch(PublishVideoBatch? batch)
     {
         var identity = batch?.Identity ?? "";
+        var count = batch?.Paths.Count ?? 0;
         if (!string.IsNullOrWhiteSpace(MiniSeriesId) &&
-            !string.Equals(VideoBatchIdentity ?? "", identity, StringComparison.Ordinal))
-            throw new InvalidOperationException("已有快手草稿的视频来源与本次不同。请沿用创建草稿时的去重方案和素材，或在快手处理旧草稿后重新开始。");
+            (!string.Equals(VideoBatchIdentity ?? "", identity, StringComparison.Ordinal) ||
+             (VideoBatchEpisodeCount > 0 && VideoBatchEpisodeCount != count)))
+        {
+            var detail = VideoBatchEpisodeCount > 0 && count > 0
+                ? $"旧草稿 {VideoBatchEpisodeCount} 集，本次成片 {count} 集。"
+                : "";
+            throw new InvalidOperationException($"本次分集或视频来源与已有快手草稿不同。{detail}请沿用旧批次续传，或按新分集另建草稿。");
+        }
         VideoBatchIdentity = identity;
+        VideoBatchEpisodeCount = count;
     }
     /// <summary>平台上已有同名且不能再编辑的短剧。本地记完成，但不算进今日已上传。</summary>
     public bool SkipTodayUploadCount { get; set; }

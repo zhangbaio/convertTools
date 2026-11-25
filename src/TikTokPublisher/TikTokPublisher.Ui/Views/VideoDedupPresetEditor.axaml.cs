@@ -67,6 +67,7 @@ public partial class VideoDedupPresetEditor : UserControl
     public VideoDedupPresetEditor()
     {
         InitializeComponent();
+        IsolateRadioGroups();
         RateCrfBox.IsCheckedChanged += (_, _) => UpdateVideoBitrateFields();
         VideoBitrateSourceBox.SelectionChanged += (_, _) => UpdateVideoBitrateFields();
         Load(null);
@@ -165,9 +166,8 @@ public partial class VideoDedupPresetEditor : UserControl
         CrfField.IsVisible = crf;
     }
 
-    public void PreserveEpisodeBoundaries()
+    private void IsolateRadioGroups()
     {
-        ResegmentationOptions.IsVisible = false;
         var groupScope = Guid.NewGuid().ToString("N");
         foreach (var button in this.GetLogicalDescendants().OfType<RadioButton>())
             button.GroupName += groupScope;

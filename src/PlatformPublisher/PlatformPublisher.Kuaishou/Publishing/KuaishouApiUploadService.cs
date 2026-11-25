@@ -229,6 +229,7 @@ public sealed class KuaishouApiUploadService
         state.ReplaceExistingVideos = true;
         state.MiniSeriesId = id;
         state.VideoBatchIdentity = job.PreparedUploadVideos?.Identity ?? "";
+        state.VideoBatchEpisodeCount = job.PreparedUploadVideos?.Paths.Count ?? 0;
         state.SkipTodayUploadCount = true;
         state.Status = "running";
         state.CurrentStage = "replace_draft";

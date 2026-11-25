@@ -33,9 +33,7 @@ public sealed class KuaishouPersonalProjectDataService
         var data = await ResolveAsync(job.ProjectDirectory, config, cancellationToken, prepareVideos: job.PreparedUploadVideos is null);
         if (job.PreparedUploadVideos is not { } batch)
             return data;
-        if (batch.Paths.Count == 0 || batch.Paths.Count != data.VideoPaths.Count ||
-            batch.Paths.Any(path => !File.Exists(path) || new FileInfo(path).Length == 0))
-            throw new InvalidOperationException("快手去重成片缺失或集数不匹配，请重新执行视频去重。");
+        KuaishouSettlementEpisodeVideoService.EnsureDedupEpisodeOrder(batch.Paths);
         return data with { VideoPaths = batch.Paths, VideoBatchIdentity = batch.Identity };
     }
 

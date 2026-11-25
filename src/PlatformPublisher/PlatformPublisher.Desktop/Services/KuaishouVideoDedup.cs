@@ -6,6 +6,7 @@ using PlatformPublisher.Common.Services;
 using PlatformPublisher.Kuaishou.Publishing;
 using PlatformPublisher.Persistence;
 using TikTokPublisher.Core.Models;
+using TikTokPublisher.Core.Services;
 using TikTokPublisher.Core.Services.VideoDedup;
 
 namespace PlatformPublisher.Desktop.Services;
@@ -48,8 +49,8 @@ internal static class KuaishouVideoDedup
 
     internal static void Validate(VideoDedupPreset preset)
     {
-        if (preset.HasDurationLimit)
-            throw new InvalidOperationException("快手去重需保留原集数和集序，不能设置重新分集时长。");
+        if (preset.DurationRangeError() is { } durationError)
+            throw new InvalidOperationException(durationError);
         VideoDedupEffectFilters.Validate(preset);
     }
 
@@ -80,29 +81,29 @@ internal static class KuaishouVideoDedup
         var revision = identity[..32];
         var accountDirectory = Path.Combine(data.WorkflowDirectory, KuaishouSettlementEpisodeVideoService.DedupDirectoryName, accountKey[..16]);
         var directory = Path.Combine(accountDirectory, revision);
-        var cache = Path.Combine(accountDirectory, ".episodes");
-        Directory.CreateDirectory(cache);
-        Directory.CreateDirectory(directory);
-        var paths = episodes.Select(episode => Path.Combine(directory, episode.FileName)).ToArray();
-        var ready = Path.Combine(directory, ".inputs-ready");
-        if (!File.Exists(ready))
+        var originals = Path.Combine(directory, ProjectVideoResolver.SourceOriginalsDirectoryName);
+        Directory.CreateDirectory(originals);
+        foreach (var episode in episodes)
         {
-            for (var index = 0; index < paths.Length; index++)
-            {
-                ct.ThrowIfCancellationRequested();
-                var temporary = paths[index] + ".tmp";
-                await using (var input = File.OpenRead(episodes[index].Source))
-                await using (var output = File.Create(temporary))
-                    await input.CopyToAsync(output, ct);
-                File.Move(temporary, paths[index], overwrite: true);
-            }
-            CheckSources();
-            await WriteMarkerAsync(ready, identity, ct);
+            ct.ThrowIfCancellationRequested();
+            var destination = new FileInfo(Path.Combine(originals, episode.FileName));
+            if (destination.Exists && destination.Length == episode.Size)
+                continue;
+            var temporary = destination.FullName + ".tmp";
+            await using (var input = File.OpenRead(episode.Source))
+            await using (var output = File.Create(temporary))
+                await input.CopyToAsync(output, ct);
+            File.Move(temporary, destination.FullName, overwrite: true);
         }
+        CheckSources();
 
-        var reusable = episodes.Select(episode => ReadReusableEpisode(accountDirectory, cache, episode.Key, episode.FileName, revision)).ToArray();
-        await VideoDedupService.RunStagedSeriesAsync(directory, accountName, paths.Length, preset, force, log, ct, progress, reusable);
-        for (var index = 0; index < paths.Length; index++)
+        var cache = Path.Combine(accountDirectory, ".episodes");
+        var reusable = preset.HasDurationLimit ? null
+            : episodes.Select(episode => ReadReusableEpisode(accountDirectory, cache, episode.Key, episode.FileName, revision)).ToArray();
+        var paths = await VideoDedupService.RunStagedSeriesAsync(directory, accountName, episodes.Count, preset,
+            force, log, ct, progress, reusable);
+        KuaishouSettlementEpisodeVideoService.EnsureDedupEpisodeOrder(paths);
+        for (var index = 0; index < paths.Count; index++)
         {
             ct.ThrowIfCancellationRequested();
             var path = paths[index];
@@ -115,10 +116,14 @@ internal static class KuaishouVideoDedup
         }
         CheckSources();
         await WriteMarkerAsync(Path.Combine(directory, ".validated.json"),
-            JsonSerializer.Serialize(episodes.Select(episode => episode.FileName).ToArray()), ct);
-        for (var index = 0; index < episodes.Count; index++)
-            await WriteMarkerAsync(Path.Combine(cache, episodes[index].Key), $"{revision}|{new FileInfo(paths[index]).Length}", ct);
-        log($"已校验 {paths.Length} 集去重视频。");
+            JsonSerializer.Serialize(paths.Select(path => Path.GetFileName(path)).ToArray()), ct);
+        if (!preset.HasDurationLimit)
+        {
+            Directory.CreateDirectory(cache);
+            for (var index = 0; index < episodes.Count; index++)
+                await WriteMarkerAsync(Path.Combine(cache, episodes[index].Key), $"{revision}|{new FileInfo(paths[index]).Length}", ct);
+        }
+        log($"已校验去重成片，原片 {episodes.Count} 集，成片 {paths.Count} 集。");
         return new PublishVideoBatch(identity, paths);
 
         void CheckSources()

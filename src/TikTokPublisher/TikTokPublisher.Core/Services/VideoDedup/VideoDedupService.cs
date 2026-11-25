@@ -73,7 +73,7 @@ public static class VideoDedupService
             log,
             ct);
 
-    public static async Task RunStagedSeriesAsync(
+    public static async Task<IReadOnlyList<string>> RunStagedSeriesAsync(
         string directory,
         string accountName,
         int episodeCount,
@@ -85,10 +85,15 @@ public static class VideoDedupService
         IReadOnlyList<string?>? reusableEpisodes = null)
     {
         var item = new QueueProjectItem { ProjectDir = directory, EpisodeCount = episodeCount };
-        await RunWithPresetAsync(item, new TikTokAccountProfile { Name = accountName }, preset, episodeCount, force, log, ct,
-            progress, reusableEpisodes);
-        if (item.EpisodeCount != episodeCount)
+        var resegment = preset.HasDurationLimit;
+        await RunWithPresetAsync(item, new TikTokAccountProfile { Name = accountName }, preset,
+            resegment ? 1 : episodeCount, force, log, ct, progress, resegment ? null : reusableEpisodes, stagedSeries: true);
+        var outputs = ListVisibleVideos(Path.GetFullPath(directory));
+        if (outputs.Count == 0 || outputs.Count != item.EpisodeCount)
+            throw new InvalidOperationException("视频去重成片不完整。");
+        if (!resegment && outputs.Count != episodeCount)
             throw new InvalidOperationException("处理后的集数与原剧不一致。");
+        return outputs;
     }
 
     internal static async Task RunWithPresetAsync(
@@ -100,7 +105,8 @@ public static class VideoDedupService
         Action<string>? log,
         CancellationToken ct,
         Action<int, int>? progress = null,
-        IReadOnlyList<string?>? reusableEpisodes = null)
+        IReadOnlyList<string?>? reusableEpisodes = null,
+        bool stagedSeries = false)
     {
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
@@ -126,7 +132,8 @@ public static class VideoDedupService
         }
 
         var archived = ListArchivedVideos(originalsRoot);
-        var (inputs, archiveCopies) = ResolveInputs(project, originalsRoot, visible, archived, fingerprint);
+        var (inputs, archiveCopies) = ResolveInputs(project, originalsRoot, visible, archived,
+            stagedSeries && archived.Count > 0 ? null : fingerprint);
         if (inputs.Count == 0)
             throw new InvalidOperationException("没有可去重的视频。请先完成下载。");
         if (!preset.HasDurationLimit)
@@ -189,8 +196,9 @@ public static class VideoDedupService
         for (var index = 0; index < plan.Count; index++)
         {
             var slices = plan[index];
+            var episodeNumber = (index + 1).ToString(stagedSeries ? "D4" : "00", CultureInfo.InvariantCulture);
             var destination = renumber
-                ? Path.Combine(outputDirectory, $"{(index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4")
+                ? Path.Combine(outputDirectory, stagedSeries ? $"第{episodeNumber}集.mp4" : $"{episodeNumber}.mp4")
                 : VisiblePathFor(project, originalsRoot, clips[slices[0].ClipIndex].Path);
             jobs.Add(new RenderJob(slices, destination));
         }
