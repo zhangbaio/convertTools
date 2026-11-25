@@ -30,7 +30,7 @@ public sealed class KuaishouApiUploadService
         if (configurationIssues.Count > 0)
             throw new InvalidOperationException("快手配置校验失败：" + string.Join("；", configurationIssues));
         var label = job.Platform.DisplayName();
-        var data = await _projectDataService.ResolveAsync(job.ProjectDirectory, config, cancellationToken);
+        var data = await _projectDataService.ResolveForUploadAsync(job, config, cancellationToken);
         var commitmentPdf = await _commitmentService.ResolveAsync(data, config, cancellationToken);
         if (!string.Equals(commitmentPdf, data.CommitmentPdfPath, StringComparison.OrdinalIgnoreCase))
             data = data with { CommitmentPdfPath = commitmentPdf };
@@ -40,6 +40,7 @@ public sealed class KuaishouApiUploadService
         var replacing = state.ReplaceExistingVideos && !string.IsNullOrWhiteSpace(state.MiniSeriesId);
         if (config.ForceRerun && !replacing)
         {
+            state.BindVideoBatch(job.PreparedUploadVideos);
             state = new KuaishouPersonalUploadState();
             replacing = false;
             progress?.Report($"{label}：已按配置忽略旧状态并从头执行。 ");
@@ -54,6 +55,7 @@ public sealed class KuaishouApiUploadService
             progress?.Report($"{label}：项目已经完成，跳过重复执行。 ");
             return;
         }
+        state.BindVideoBatch(job.PreparedUploadVideos);
         if (!replacing && !state.ReviewSubmitted && state.VideosUploaded)
         {
             state.VideosUploaded = false;
@@ -226,6 +228,7 @@ public sealed class KuaishouApiUploadService
             throw new InvalidOperationException(binding);
         state.ReplaceExistingVideos = true;
         state.MiniSeriesId = id;
+        state.VideoBatchIdentity = job.PreparedUploadVideos?.Identity ?? "";
         state.SkipTodayUploadCount = true;
         state.Status = "running";
         state.CurrentStage = "replace_draft";

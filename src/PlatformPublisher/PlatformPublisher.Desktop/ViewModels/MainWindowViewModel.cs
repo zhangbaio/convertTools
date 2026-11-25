@@ -474,6 +474,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public void UseGlobalAccount(GlobalAccount? account)
     {
         _activeGlobalAccount = account;
+        LoadKuaishouDedupOption();
         ApplyFooterLogs();
         UseWeixinAccount(account?.Id, account?.Name, account?.ProfileDir);
         DraftAccountName = account?.Name ?? string.Empty;
@@ -881,6 +882,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     partial void OnSelectedPlatformChanged(PlatformOptionViewModel value)
     {
+        LoadKuaishouDedupOption();
         RefreshVisibleJobs();
         DraftAccountName = _activeGlobalAccount?.Name ?? string.Empty;
         DraftConfigPath = ResolveGlobalConfigPath(_activeGlobalAccount, value.Value);
@@ -1150,6 +1152,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private static void EnsureStepStates(PublishJob job)
     {
         job.StepStates ??= new Dictionary<string, PublishJobStepState>(StringComparer.OrdinalIgnoreCase);
+        if (job.Platform is PublishPlatform.KuaishouPersonalRevenue or PublishPlatform.KuaishouEnterpriseRevenue)
+            job.StepStates.TryAdd(KuaishouVideoDedup.Step, new PublishJobStepState
+                { Key = KuaishouVideoDedup.Step, Label = KuaishouVideoDedup.Label });
         foreach (var (key, label) in WorkflowStepDefinitions)
         {
             if (job.StepStates.ContainsKey(key)) continue;
@@ -1390,7 +1395,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         AllowsKuaishouWork() &&
         (IsKuaishouPlatform ? !IsKuaishouAccountRunning(CurrentKuaishouRunKey()) : !IsBusy) &&
         Directory.Exists(DraftProjectDirectory) &&
-        (PipelineDownloadEnabled || PipelineSmartRecutEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
+        (PipelineDownloadEnabled || (IsKuaishouPlatform && PipelineKuaishouDedupEnabled) || PipelineSmartRecutEnabled || PipelineRewriteEnabled || PipelinePosterEnabled ||
          PipelineTranscodeEnabled || PipelineAutoRepairEnabled || PipelineAutoFillEnabled ||
          PipelineCostReportEnabled || PipelineProjectImageEnabled || PipelineGenerateAiProofEnabled ||
          PipelineGenerateTimestampCertificateEnabled || PipelineMaterialValidateEnabled ||
@@ -2050,7 +2055,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         bool Force,
         int Parallelism,
         string EditionLabel,
-        bool AutoArchive = false);
+        bool AutoArchive = false,
+        VideoDedupPreset? VideoDedupPreset = null);
 
     private KuaishouPipelineRequest CreateKuaishouPipelineRequest()
     {
@@ -2079,7 +2085,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             PipelineForceRerun,
             KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
             enterprise ? "企业版" : "个人版",
-            PipelineAutoArchiveAfterUpload);
+            PipelineAutoArchiveAfterUpload,
+            GetKuaishouDedupPreset(config, PipelineKuaishouDedupEnabled));
     }
 
     private async Task RunCurrentKuaishouAccountPipelineAsync(IReadOnlyList<string> targets)
@@ -2099,6 +2106,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             var taskLabel = SelectedPlatform.Value == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版";
             StatusMessage = $"当前任务是{taskLabel}，账号「{account.Name}」是{KuaishouAccountEdition.Label(account.KuaishouAccountEdition)}，不能执行。";
+            return;
+        }
+
+        KuaishouPipelineRequest request;
+        try
+        {
+            request = CreateKuaishouPipelineRequest();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+            AppendActivityLog(StatusMessage);
             return;
         }
 
@@ -2127,7 +2146,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         try
         {
             PrepareKuaishouLogProjects(targets, key);
-            await RunKuaishouCheckedProjectsAsync(targets, key, CreateKuaishouPipelineRequest(), cts.Token);
+            await RunKuaishouCheckedProjectsAsync(targets, key, request, cts.Token);
         }
         finally
         {
@@ -2284,6 +2303,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         {
             var trackedJob = _jobs.FirstOrDefault(job =>
                 job.Platform == request.Platform &&
+                string.Equals(job.AccountId, request.AccountId, StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
                 string.Equals(Path.GetFullPath(job.ProjectDirectory), directory, StringComparison.OrdinalIgnoreCase));
             if (trackedJob is not null)
@@ -2430,6 +2450,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         var steps = new List<(string Key, string Label)>();
         if (request.Download) steps.Add(("download", "下载剧集"));
+        if (request.VideoDedupPreset is not null) steps.Add((KuaishouVideoDedup.Step, KuaishouVideoDedup.Label));
         if (request.Rewrite) steps.Add(("rewrite", "改写信息"));
         if (request.Poster) steps.Add(("poster-rename", "生成海报"));
         if (request.ProjectImages) steps.Add(("project-image", "生成工程图"));
@@ -2645,6 +2666,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var steps = new (string YunfanKey, string AssistantKey, string Label, bool Enabled)[]
         {
             ("download", "download", "下载剧集", request.Download),
+            (KuaishouVideoDedup.Step, "video_dedup", KuaishouVideoDedup.Label, request.VideoDedupPreset is not null),
             ("rewrite", "rewrite_info", "改写信息", request.Rewrite),
             ("poster-rename", "generate_poster", "生成海报", request.Poster),
             ("project-image", "generate_project_images", "生成工程图", request.ProjectImages),
@@ -2654,6 +2676,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             ? Path.GetFileName(projectDirectory)
             : trackedJob.ProjectName;
         var enabled = steps.Where(step => step.Enabled).ToArray();
+        PublishVideoBatch? preparedVideos = null;
         if (enabled.Length > 0)
         {
             var config = KuaishouPersonalConfig.Load(new PublishJob
@@ -2681,6 +2704,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 foreach (var step in enabled)
                 {
+                    if (step.YunfanKey == KuaishouVideoDedup.Step)
+                        continue;
                     var artifactDone = KuaishouArtifactDone(artifacts, step.AssistantKey);
                     var stepSucceeded = trackedJob?.StepStates.TryGetValue(step.YunfanKey, out var existing) == true
                         && existing.Status == PublishJobStepStatus.Succeeded;
@@ -2817,6 +2842,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     await UpdateStepStateAsync(trackedJob, trackedRow, "download", "下载剧集", PublishJobStepStatus.Succeeded, "执行完成");
                     MarkPrepareStep("download");
                 }
+                if (request.VideoDedupPreset is not null)
+                    await RunTrackedStepAsync(trackedJob, trackedRow, KuaishouVideoDedup.Step, KuaishouVideoDedup.Label,
+                        force: true, async () => preparedVideos = await PrepareKuaishouDedupAsync(
+                            projectDirectory, projectName, config, request, trackedRow, cancellationToken));
+
                 await SkipIfCompletedMeanwhileAsync("rewrite");
                 await SkipIfCompletedMeanwhileAsync("auto-fill-info");
                 if ((request.Rewrite && !preserved.Contains("rewrite")) ||
@@ -3001,7 +3031,15 @@ public sealed partial class MainWindowViewModel : ObservableObject
                     ActivityLogPlatformScope.Value = request.Platform;
                     AppendActivityLog(line, projectName);
                 });
-                await adapter.RunAsync(trackedJob, uploadProgress, cancellationToken);
+                trackedJob.PreparedUploadVideos = preparedVideos;
+                try
+                {
+                    await adapter.RunAsync(trackedJob, uploadProgress, cancellationToken);
+                }
+                finally
+                {
+                    trackedJob.PreparedUploadVideos = null;
+                }
                 trackedJob.Status = PublishJobStatus.Succeeded;
                 trackedJob.StatusMessage = "发布流程执行完成";
                 trackedJob.LastCompletedAt = DateTimeOffset.Now;
@@ -5286,6 +5324,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             row.NewTitle,
             row.StatusText,
             row.DownloadStepStatus,
+            row.VideoDedupStepStatus,
             row.RewriteStepStatus,
             row.PosterStepStatus,
             row.ProjectImageStepStatus,

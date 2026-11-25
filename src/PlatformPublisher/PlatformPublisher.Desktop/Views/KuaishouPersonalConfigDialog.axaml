@@ -78,6 +78,14 @@
                                 </UniformGrid>
                                 <ToggleSwitch x:Name="KeepBrowserBox" OnContent="出错时手工介入" OffContent="出错时手工介入" AutomationProperties.Name="出错时手工介入" />
                             </StackPanel>
+                            <StackPanel Spacing="5">
+                                <TextBlock Classes="configurationLabel" Text="视频去重模板" />
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                    <ComboBox x:Name="VideoDedupTemplateBox" Classes="configurationInput"
+                                              AutomationProperties.Name="视频去重模板" />
+                                    <Button Grid.Column="1" Content="导入去重模板" Click="ImportVideoDedupTemplate_Click" />
+                                </Grid>
+                            </StackPanel>
                             <Border Height="1" Background="#E4E9F0" Margin="0,4" />
 
                             <TextBlock Classes="configurationHeading" Text="剧集与售卖" />

@@ -1,5 +1,6 @@
 using PlatformPublisher.Common.Models;
 using PlatformPublisher.Common.Services;
+using PlatformPublisher.Desktop.Services;
 using PlatformPublisher.Kuaishou.Publishing;
 using ShortDrama.Core.Models;
 using TikTokPublisher.Core.Archive;
@@ -52,7 +53,7 @@ public sealed partial class MainWindowViewModel
                 notes = await _kuaishouUploadService.RepairFailedVideosAsync(
                     sessionJob,
                     titles,
-                    (title, episodes, token) => ResolveRepairFilesAsync(title, episodes, () => restored = true, token),
+                    (title, episodes, token) => ResolveRepairFilesAsync(title, episodes, sessionJob, () => restored = true, token),
                     new Progress<string>(message => LogRepair(RepairProjectForMessage(message), message)),
                     cancellationToken);
                 if (restored)
@@ -93,6 +94,7 @@ public sealed partial class MainWindowViewModel
     private async Task<KuaishouVideoRepairFiles> ResolveRepairFilesAsync(
         string title,
         IReadOnlyList<int> episodes,
+        PublishJob session,
         Action restored,
         CancellationToken cancellationToken)
     {
@@ -106,7 +108,7 @@ public sealed partial class MainWindowViewModel
             {
                 case KuaishouVideoRepairRoute.UploadLocal:
                     AttachRepairLog(title, row!.ProjectDirectory, running: false);
-                    var local = await PrepareRepairVideosAsync(row.ProjectDirectory, title, episodes, cancellationToken);
+                    var local = await PrepareRepairVideosAsync(row.ProjectDirectory, title, episodes, session, cancellationToken);
                     if (!local.ShouldSkip)
                         BeginRepairUpload(title, local.UploadEpisodes ?? episodes);
                     return local;
@@ -115,7 +117,7 @@ public sealed partial class MainWindowViewModel
                     if (source is null)
                         return KuaishouVideoRepairFiles.Skip("回退后没有找到可下载的项目目录。");
                     AttachRepairLog(title, source, running: false);
-                    var restoredFiles = await PrepareRepairVideosAsync(source, title, episodes, cancellationToken);
+                    var restoredFiles = await PrepareRepairVideosAsync(source, title, episodes, session, cancellationToken);
                     if (!restoredFiles.ShouldSkip)
                         BeginRepairUpload(title, restoredFiles.UploadEpisodes ?? episodes);
                     return restoredFiles;
@@ -155,8 +157,25 @@ public sealed partial class MainWindowViewModel
         string projectDirectory,
         string title,
         IReadOnlyList<int> episodes,
+        PublishJob session,
         CancellationToken cancellationToken)
     {
+        var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+        var state = new KuaishouPersonalUploadStateStore().Load(workflow, session.Platform);
+        if (!string.IsNullOrWhiteSpace(state.VideoBatchIdentity))
+        {
+            var dedup = KuaishouVideoDedup.ReadValidatedVideos(workflow, session.AccountId, state.VideoBatchIdentity);
+            var available = new List<int>();
+            foreach (var episode in episodes.Distinct().Order())
+            {
+                var path = KuaishouPersonalEpisodeUploadService.MatchEpisodeFile(dedup, episode);
+                if (path is not null && File.Exists(path) && await _dramaDownloader.HasFfmpegSupportedVideoAsync(path, cancellationToken))
+                    available.Add(episode);
+            }
+            return available.Count == 0
+                ? KuaishouVideoRepairFiles.Skip("当前剧集使用去重视频，原批次的可用成片已缺失。")
+                : KuaishouVideoRepairFiles.Ready(dedup, available);
+        }
         var paths = ListPreparedVideos(projectDirectory, title);
         var refresh = new List<int>();
         foreach (var episode in episodes.Distinct().Order())

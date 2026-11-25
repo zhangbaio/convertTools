@@ -4,6 +4,7 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 
 public static class KuaishouSettlementEpisodeVideoService
 {
+    public const string DedupDirectoryName = ".kuaishou-dedup";
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".mp4", ".mov", ".mkv", ".avi",
@@ -11,12 +12,22 @@ public static class KuaishouSettlementEpisodeVideoService
 
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
-        "material-videos", "material-clip-output", "素材剪辑输出", "videos-智能重剪前",
+        "material-videos", "material-clip-output", "素材剪辑输出", "videos-智能重剪前", DedupDirectoryName,
     };
 
     private static readonly Regex SettlementEpisodePattern = new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
     private static readonly Regex SortEpisodePattern = new(@"第\s*(\d+)\s*集|[Ee][Pp]\s*(\d+)|(\d+)", RegexOptions.Compiled);
     private static readonly Regex InvalidFileNameChars = new(@"[<>:""/\\|?*\u0000-\u001f]", RegexOptions.Compiled);
+
+    public static IReadOnlyList<string> ReadSource(string sourceDirectory, string workflowDirectory)
+    {
+        var videos = Directory.Exists(sourceDirectory) ? Collect(sourceDirectory) : [];
+        var prepared = Path.Combine(workflowDirectory, "videos");
+        if (videos.Count == 0 && Directory.Exists(prepared))
+            videos = Collect(prepared);
+        return videos.Count == 0 ? [] : ResolveEpisodeNumbers(videos)
+            .OrderBy(item => item.Episode).Select(item => item.Path).ToArray();
+    }
 
     public static IReadOnlyList<string> Prepare(string sourceDirectory, string workflowDirectory, string seriesTitle)
     {

@@ -67,11 +67,29 @@ public static class VideoDedupService
         RunWithPresetAsync(
             item,
             account,
-            VideoDedupTemplateStore.CaptureRunPresets([account], log)[account.Id],
+            account.VideoDedupPreset?.Clone(),
             OverLimitEpisodePolicy.ResolveEpisodeBounds(ClientSettingsStore.Load()).Minimum,
             force,
             log,
             ct);
+
+    public static async Task RunStagedSeriesAsync(
+        string directory,
+        string accountName,
+        int episodeCount,
+        VideoDedupPreset preset,
+        bool force,
+        Action<string>? log,
+        CancellationToken ct,
+        Action<int, int>? progress = null,
+        IReadOnlyList<string?>? reusableEpisodes = null)
+    {
+        var item = new QueueProjectItem { ProjectDir = directory, EpisodeCount = episodeCount };
+        await RunWithPresetAsync(item, new TikTokAccountProfile { Name = accountName }, preset, episodeCount, force, log, ct,
+            progress, reusableEpisodes);
+        if (item.EpisodeCount != episodeCount)
+            throw new InvalidOperationException("处理后的集数与原剧不一致。");
+    }
 
     internal static async Task RunWithPresetAsync(
         QueueProjectItem item,
@@ -80,7 +98,9 @@ public static class VideoDedupService
         int minimumEpisodeCount,
         bool force,
         Action<string>? log,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<int, int>? progress = null,
+        IReadOnlyList<string?>? reusableEpisodes = null)
     {
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
@@ -100,6 +120,7 @@ public static class VideoDedupService
             var kept = fingerprint!.Outputs.Count;
             EnsureMinimumEpisodeCount(kept, minimumEpisodeCount);
             item.EpisodeCount = kept;
+            progress?.Invoke(kept, kept);
             log?.Invoke($"跳过：去重成片已与账号「{account.DisplayName}」的方案「{preset.Name}」一致，共 {kept.ToString(CultureInfo.InvariantCulture)} 集。");
             return;
         }
@@ -186,6 +207,7 @@ public static class VideoDedupService
         }
 
         var completed = new System.Collections.Concurrent.ConcurrentDictionary<int, ResumeEpisode>();
+        var processedCount = 0;
         foreach (var episode in resume.Episodes)
             completed[episode.Index] = episode;
         var resumeLock = new object();
@@ -274,6 +296,7 @@ public static class VideoDedupService
                         new FileInfo(temp).Length == saved.Length)
                     {
                         entry.job.TempPath = temp;
+                        progress?.Invoke(Interlocked.Increment(ref processedCount), jobs.Count);
                         Write($"第 {episode}/{totalEpisodes} 集已完成，跳过编码。");
                         return;
                     }
@@ -281,6 +304,21 @@ public static class VideoDedupService
                     try
                     {
                         var clock = Stopwatch.StartNew();
+                        if (!force && !renumber && reusableEpisodes?.Count == jobs.Count &&
+                            reusableEpisodes[entry.index] is { } reusablePath && File.Exists(reusablePath))
+                        {
+                            File.Copy(reusablePath, temp, overwrite: true);
+                            var reusedLength = new FileInfo(temp).Length;
+                            lock (resumeLock)
+                            {
+                                completed[entry.index] = new ResumeEpisode(entry.index, reusedLength);
+                                WriteResume(resumePath, resumeIdentity, completed.Values.OrderBy(item => item.Index).ToArray());
+                            }
+                            entry.job.TempPath = temp;
+                            progress?.Invoke(Interlocked.Increment(ref processedCount), jobs.Count);
+                            Write($"第 {episode}/{totalEpisodes} 集复用已校验成片。");
+                            return;
+                        }
                         Write($"第 {episode}/{totalEpisodes} 集开始去重：{DescribeJob(clips, entry.job.Slices, entry.job.Destination, preset)}");
                         var slices = entry.job.Slices;
                         var useHardware = hardwareTranscoder is { HasDevices: true } &&
@@ -325,6 +363,7 @@ public static class VideoDedupService
                         }
 
                         entry.job.TempPath = temp;
+                        progress?.Invoke(Interlocked.Increment(ref processedCount), jobs.Count);
                         Write($"第 {episode}/{totalEpisodes} 集去重完成，输出 {Path.GetFileName(entry.job.Destination)}，{FormatSize(length)}，耗时 {Num(clock.Elapsed.TotalSeconds)} 秒。");
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)

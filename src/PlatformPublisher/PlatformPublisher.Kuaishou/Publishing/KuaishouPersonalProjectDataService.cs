@@ -1,3 +1,4 @@
+using PlatformPublisher.Common.Models;
 using ShortDrama.Core.Interfaces;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
@@ -16,17 +17,33 @@ public sealed record KuaishouPersonalProjectData(
     string CommitmentPdfPath,
     IReadOnlyList<string> ProjectImagePaths,
     IReadOnlyList<string> VideoPaths,
-    IReadOnlyList<KuaishouPersonalActor> Actors);
+    IReadOnlyList<KuaishouPersonalActor> Actors)
+{
+    public string VideoBatchIdentity { get; init; } = string.Empty;
+}
 
 public sealed class KuaishouPersonalProjectDataService
 {
     private readonly IProjectScanner _projectScanner;
     public KuaishouPersonalProjectDataService(IProjectScanner projectScanner) => _projectScanner = projectScanner;
 
+    public async Task<KuaishouPersonalProjectData> ResolveForUploadAsync(
+        PublishJob job, KuaishouPersonalConfig config, CancellationToken cancellationToken)
+    {
+        var data = await ResolveAsync(job.ProjectDirectory, config, cancellationToken, prepareVideos: job.PreparedUploadVideos is null);
+        if (job.PreparedUploadVideos is not { } batch)
+            return data;
+        if (batch.Paths.Count == 0 || batch.Paths.Count != data.VideoPaths.Count ||
+            batch.Paths.Any(path => !File.Exists(path) || new FileInfo(path).Length == 0))
+            throw new InvalidOperationException("快手去重成片缺失或集数不匹配，请重新执行视频去重。");
+        return data with { VideoPaths = batch.Paths, VideoBatchIdentity = batch.Identity };
+    }
+
     public async Task<KuaishouPersonalProjectData> ResolveAsync(
         string projectDirectory,
         KuaishouPersonalConfig config,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool prepareVideos = true)
     {
         var selected = Path.GetFullPath(projectDirectory);
         var source = selected;
@@ -55,12 +72,15 @@ public sealed class KuaishouPersonalProjectDataService
         var title = First(info.GetValueOrDefault("新剧名"), info.GetValueOrDefault("剧名"), info.GetValueOrDefault("原剧名"), Path.GetFileName(workflow).TrimStart('_'));
         var intro = First(info.GetValueOrDefault("简介"), info.GetValueOrDefault("剧情简介"), info.GetValueOrDefault("剧情"), info.GetValueOrDefault("介绍"));
         if (string.IsNullOrWhiteSpace(intro)) intro = $"《{title}》精彩剧情，人物关系与故事冲突逐步展开。";
-        var videos = KuaishouSettlementEpisodeVideoService.Prepare(source, workflow, title);
+        IReadOnlyList<string> ReadVideos(string directory) => prepareVideos
+            ? KuaishouSettlementEpisodeVideoService.Prepare(directory, workflow, title)
+            : KuaishouSettlementEpisodeVideoService.ReadSource(directory, workflow);
+        var videos = ReadVideos(source);
         if (videos.Count == 0)
         {
             var preparedSource = ReadPreparedSourceDirectory(workflow);
             if (!string.IsNullOrWhiteSpace(preparedSource))
-                videos = KuaishouSettlementEpisodeVideoService.Prepare(preparedSource, workflow, title);
+                videos = ReadVideos(preparedSource);
         }
         var horizontalCover = FindFirst(workflow, "快手横屏封面.*", "横屏封面.*", "海报图片.*");
         var verticalCover = FindFirst(workflow, "快手竖屏海报.*", "竖屏封面.*", "海报图片.*");

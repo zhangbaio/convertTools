@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace PlatformPublisher.Persistence;
 
@@ -58,6 +59,35 @@ public sealed class JsonSettingStore : IJsonSettingStore
             command.Parameters.AddWithValue("$version", schemaVersion);
             command.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O"));
             command.ExecuteNonQuery();
+        }
+        finally { _database.WriteGate.Release(); }
+    }
+
+    public void UpdateObject(string key, Action<JsonObject> update)
+    {
+        PlatformDatabaseInitializer.EnsureMainDatabase(_database);
+        _database.WriteGate.Wait();
+        try
+        {
+            using var connection = _database.Open();
+            using var transaction = connection.BeginTransaction(deferred: false);
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "SELECT value_json FROM app_settings WHERE key=$key LIMIT 1";
+            command.Parameters.AddWithValue("$key", key);
+            var json = command.ExecuteScalar()?.ToString();
+            var value = string.IsNullOrWhiteSpace(json) ? new JsonObject() : JsonNode.Parse(json)!.AsObject();
+            update(value);
+
+            command.CommandText = """
+                INSERT INTO app_settings(key,value_json,updated_at)
+                VALUES($key,$json,$at)
+                ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at
+                """;
+            command.Parameters.AddWithValue("$json", value.ToJsonString());
+            command.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O"));
+            command.ExecuteNonQuery();
+            transaction.Commit();
         }
         finally { _database.WriteGate.Release(); }
     }

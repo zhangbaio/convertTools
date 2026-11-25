@@ -8,6 +8,7 @@ namespace PlatformPublisher.Kuaishou.Publishing;
 
 public sealed class KuaishouPersonalConfig
 {
+    public string VideoDedupTemplateId { get; set; } = string.Empty;
     private static AccountJsonSettingStore? DatabaseStore;
     private static KuaishouCredentialStore? CredentialStore;
     private static readonly JsonSerializerOptions JsonOptions = new()

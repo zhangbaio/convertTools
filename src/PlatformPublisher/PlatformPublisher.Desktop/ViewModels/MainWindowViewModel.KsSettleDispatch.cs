@@ -631,6 +631,7 @@ public sealed partial class MainWindowViewModel
                 await work.ReportAsync("running", "download", $"开始执行「{work.Command.Title}」", "").ConfigureAwait(false);
                 var trackedJob = _jobs.FirstOrDefault(job =>
                     job.Platform == work.Request.Platform &&
+                    string.Equals(job.AccountId, work.Request.AccountId, StringComparison.OrdinalIgnoreCase) &&
                     !string.IsNullOrWhiteSpace(job.ProjectDirectory) &&
                     string.Equals(Path.GetFullPath(job.ProjectDirectory), directory, StringComparison.OrdinalIgnoreCase));
                 if (trackedJob is not null)
@@ -808,7 +809,9 @@ public sealed partial class MainWindowViewModel
             applyVisible ? PipelineForceRerun : false,
             KuaishouProjectQueue.NormalizeParallelism(config.QueueMaxParallelProjects),
             platform == PublishPlatform.KuaishouEnterpriseRevenue ? "企业版" : "个人版",
-            Has("auto_archive"));
+            Has("auto_archive"),
+            GetKuaishouDedupPreset(config, selected.Contains("video_dedup") ||
+                (Has("upload_series") && KuaishouVideoDedup.IsEnabled(account.Id))));
     }
 
     private void ApplyVisibleKuaishouSteps(IReadOnlyList<string> steps, bool? forceRerun)

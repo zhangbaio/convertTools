@@ -357,6 +357,7 @@
                     <WrapPanel Orientation="Horizontal">
                         <TextBlock Text="启用步骤" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,2" />
                         <CheckBox Content="下载" IsChecked="{Binding PipelineDownloadEnabled}" Margin="0,0,12,2" />
+                        <CheckBox Content="视频去重" IsChecked="{Binding PipelineKuaishouDedupEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="改写信息" IsChecked="{Binding PipelineRewriteEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="生成海报" IsChecked="{Binding PipelinePosterEnabled}" Margin="0,0,12,2" />
                         <CheckBox Content="生成工程图" IsChecked="{Binding PipelineProjectImageEnabled}" Margin="0,0,12,2" />
@@ -547,7 +548,7 @@
                               VerticalScrollBarVisibility="Disabled" SizeChanged="OnWorkflowQueueViewportSizeChanged">
                     <Grid x:Name="KuaishouTableRoot" RowDefinitions="Auto,*" HorizontalAlignment="Left">
                         <Border x:Name="KuaishouQueueHeader" Background="#EDF3F9" BorderBrush="#DCE7F3" BorderThickness="0,0,0,1" Padding="0" IsVisible="False">
-                            <views:QueueTableGrid x:Name="KuaishouQueueHeaderGrid" ColumnDefinitions="44,48,168,168,56,100,72,84,84,92,76,84">
+                            <views:QueueTableGrid x:Name="KuaishouQueueHeaderGrid" ColumnDefinitions="44,48,168,168,56,100,72,84,84,84,92,76,84">
                                 <TextBlock Text="序号" Classes="kuaishouTableHeader" />
                                 <TextBlock Grid.Column="1" Text="执行" Classes="kuaishouTableHeader" />
                                 <TextBlock Grid.Column="2" Text="原剧名" Classes="kuaishouTableHeader" />
@@ -555,11 +556,12 @@
                                 <TextBlock Grid.Column="4" Text="集数" Classes="kuaishouTableHeader" />
                                 <TextBlock Grid.Column="5" Text="加入时间" Classes="kuaishouTableHeader" />
                                 <TextBlock Grid.Column="6" Text="下载" Classes="kuaishouTableHeader kuaishouStepHeader" />
-                                <TextBlock Grid.Column="7" Text="改写信息" Classes="kuaishouTableHeader kuaishouStepHeader" />
-                                <TextBlock Grid.Column="8" Text="生成海报" Classes="kuaishouTableHeader kuaishouStepHeader" />
-                                <TextBlock Grid.Column="9" Text="生成工程图" Classes="kuaishouTableHeader kuaishouStepHeader" />
-                                <TextBlock Grid.Column="10" Text="补齐字段" Classes="kuaishouTableHeader kuaishouStepHeader" />
-                                <TextBlock Grid.Column="11" Text="上传剧集" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="7" Text="视频去重" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="8" Text="改写信息" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="9" Text="生成海报" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="10" Text="生成工程图" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="11" Text="补齐字段" Classes="kuaishouTableHeader kuaishouStepHeader" />
+                                <TextBlock Grid.Column="12" Text="上传剧集" Classes="kuaishouTableHeader kuaishouStepHeader" />
                                 <Border Grid.Column="0" Classes="kuaishouColumnResizer" Tag="0" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                                 <Border Grid.Column="1" Classes="kuaishouColumnResizer" Tag="1" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                                 <Border Grid.Column="2" Classes="kuaishouColumnResizer" Tag="2" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
@@ -572,6 +574,7 @@
                                 <Border Grid.Column="9" Classes="kuaishouColumnResizer" Tag="9" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                                 <Border Grid.Column="10" Classes="kuaishouColumnResizer" Tag="10" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                                 <Border Grid.Column="11" Classes="kuaishouColumnResizer" Tag="11" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
+                                <Border Grid.Column="12" Classes="kuaishouColumnResizer" Tag="12" PointerPressed="OnKuaishouColumnResizerPressed" PointerMoved="OnKuaishouColumnResizerMoved" PointerReleased="OnKuaishouColumnResizerReleased" />
                             </views:QueueTableGrid>
                         </Border>
                         <ListBox x:Name="KuaishouQueueList" Grid.Row="1" ItemsSource="{Binding PagedJobs}" SelectedItem="{Binding SelectedJob}"
@@ -579,7 +582,7 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:PublishJobRowViewModel">
                                     <Border Classes="queueTableRow">
-                                        <views:QueueTableGrid ColumnDefinitions="44,48,168,168,56,100,72,84,84,92,76,84">
+                                        <views:QueueTableGrid ColumnDefinitions="44,48,168,168,56,100,72,84,84,84,92,76,84">
                                             <TextBlock Text="{Binding QueueIndex}" VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center" />
                                             <CheckBox Grid.Column="1" IsChecked="{Binding IsChecked}" />
                                             <Button Grid.Column="2" Classes="queueLink" Click="OnOpenSourceDirectoryClick" ToolTip.Tip="{Binding SourceDirectory}">
@@ -593,19 +596,22 @@
                                             <Border Grid.Column="6" Classes="stepStatusBadge" Background="{Binding DownloadStepBackgroundBrush}" BorderBrush="{Binding DownloadStepBorderBrush}" ToolTip.Tip="{Binding DownloadStepStatus}">
                                                 <TextBlock Text="{Binding DownloadStepStatus}" Foreground="{Binding DownloadStepBrush}" Classes="stepStatusText" />
                                             </Border>
-                                            <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding RewriteStepBackgroundBrush}" BorderBrush="{Binding RewriteStepBorderBrush}" ToolTip.Tip="{Binding RewriteStepStatus}">
+                                            <Border Grid.Column="7" Classes="stepStatusBadge" Background="{Binding VideoDedupStepBackgroundBrush}" BorderBrush="{Binding VideoDedupStepBorderBrush}" ToolTip.Tip="{Binding VideoDedupStepStatus}">
+                                                <TextBlock Text="{Binding VideoDedupStepStatus}" Foreground="{Binding VideoDedupStepBrush}" Classes="stepStatusText" />
+                                            </Border>
+                                            <Border Grid.Column="8" Classes="stepStatusBadge" Background="{Binding RewriteStepBackgroundBrush}" BorderBrush="{Binding RewriteStepBorderBrush}" ToolTip.Tip="{Binding RewriteStepStatus}">
                                                 <TextBlock Text="{Binding RewriteStepStatus}" Foreground="{Binding RewriteStepBrush}" Classes="stepStatusText" />
                                             </Border>
-                                            <Border Grid.Column="8" Classes="stepStatusBadge" Background="{Binding PosterStepBackgroundBrush}" BorderBrush="{Binding PosterStepBorderBrush}" ToolTip.Tip="{Binding PosterStepStatus}">
+                                            <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding PosterStepBackgroundBrush}" BorderBrush="{Binding PosterStepBorderBrush}" ToolTip.Tip="{Binding PosterStepStatus}">
                                                 <TextBlock Text="{Binding PosterStepStatus}" Foreground="{Binding PosterStepBrush}" Classes="stepStatusText" />
                                             </Border>
-                                            <Border Grid.Column="9" Classes="stepStatusBadge" Background="{Binding ProjectImageStepBackgroundBrush}" BorderBrush="{Binding ProjectImageStepBorderBrush}" ToolTip.Tip="{Binding ProjectImageStepStatus}">
+                                            <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding ProjectImageStepBackgroundBrush}" BorderBrush="{Binding ProjectImageStepBorderBrush}" ToolTip.Tip="{Binding ProjectImageStepStatus}">
                                                 <TextBlock Text="{Binding ProjectImageStepStatus}" Foreground="{Binding ProjectImageStepBrush}" Classes="stepStatusText" />
                                             </Border>
-                                            <Border Grid.Column="10" Classes="stepStatusBadge" Background="{Binding AutoFillStepBackgroundBrush}" BorderBrush="{Binding AutoFillStepBorderBrush}" ToolTip.Tip="{Binding AutoFillStepStatus}">
+                                            <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding AutoFillStepBackgroundBrush}" BorderBrush="{Binding AutoFillStepBorderBrush}" ToolTip.Tip="{Binding AutoFillStepStatus}">
                                                 <TextBlock Text="{Binding AutoFillStepStatus}" Foreground="{Binding AutoFillStepBrush}" Classes="stepStatusText" />
                                             </Border>
-                                            <Border Grid.Column="11" Classes="stepStatusBadge" Background="{Binding UploadStepBackgroundBrush}" BorderBrush="{Binding UploadStepBorderBrush}" ToolTip.Tip="{Binding UploadStepStatus}">
+                                            <Border Grid.Column="12" Classes="stepStatusBadge" Background="{Binding UploadStepBackgroundBrush}" BorderBrush="{Binding UploadStepBorderBrush}" ToolTip.Tip="{Binding UploadStepStatus}">
                                                 <TextBlock Text="{Binding UploadStepStatus}" Foreground="{Binding UploadStepBrush}" Classes="stepStatusText" />
                                             </Border>
                                         </views:QueueTableGrid>

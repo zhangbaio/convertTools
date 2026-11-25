@@ -55,7 +55,7 @@ public sealed class KuaishouPersonalUploadService
         if (configurationIssues.Count > 0)
             throw new InvalidOperationException("快手配置校验失败：" + string.Join("；", configurationIssues));
         var label = job.Platform.DisplayName();
-        var data = await _projectDataService.ResolveAsync(job.ProjectDirectory, config, cancellationToken);
+        var data = await _projectDataService.ResolveForUploadAsync(job, config, cancellationToken);
         var commitmentPdf = await _commitmentService.ResolveAsync(data, config, cancellationToken);
         if (!string.Equals(commitmentPdf, data.CommitmentPdfPath, StringComparison.OrdinalIgnoreCase))
             data = data with { CommitmentPdfPath = commitmentPdf };
@@ -63,6 +63,7 @@ public sealed class KuaishouPersonalUploadService
         var state = _stateStore.Load(data.WorkflowDirectory, job.Platform);
         if (config.ForceRerun)
         {
+            state.BindVideoBatch(job.PreparedUploadVideos);
             state = new KuaishouPersonalUploadState();
             progress?.Report($"{label}：已按配置忽略旧状态并从头执行。 ");
         }
@@ -72,6 +73,7 @@ public sealed class KuaishouPersonalUploadService
             progress?.Report($"{label}：项目已经完成，跳过重复执行。 ");
             return;
         }
+        state.BindVideoBatch(job.PreparedUploadVideos);
         if (!state.ReviewSubmitted && state.VideosUploaded)
         {
             state.VideosUploaded = false;
@@ -79,7 +81,7 @@ public sealed class KuaishouPersonalUploadService
         }
         progress?.Report($"{label}项目解析完成：《{data.Title}》，视频 {data.VideoPaths.Count} 集，工程图 {data.ProjectImagePaths.Count} 张。 ");
         if (data.VideoPaths.Count > 0)
-            progress?.Report($"{label}：剧集视频已放入新剧名目录 {Path.Combine(data.WorkflowDirectory, "videos")}。 ");
+            progress?.Report($"{label}：本次上传视频目录 {Path.GetDirectoryName(data.VideoPaths[0])}。 ");
         state.Status = "running";
         state.CurrentStage = "opening_browser";
         state.LastError = string.Empty;
@@ -88,7 +90,8 @@ public sealed class KuaishouPersonalUploadService
         {
             await _sessionService.ExecuteUploadAsync(job, async (page, effectiveConfig, ct) =>
             {
-                var resume = ShouldResume(effectiveConfig, state);
+                var resume = ShouldResume(effectiveConfig, state) &&
+                    (string.IsNullOrEmpty(data.VideoBatchIdentity) || !string.IsNullOrWhiteSpace(state.MiniSeriesId));
                 if (resume)
                 {
                     var opened = await NavigateToExistingSeriesAsync(page, data.Title, state, progress, ct);

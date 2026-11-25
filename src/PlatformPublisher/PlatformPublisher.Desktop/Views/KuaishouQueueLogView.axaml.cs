@@ -267,6 +267,7 @@ public partial class KuaishouQueueLogView : UserControl
         {
             job.StatusText,
             job.DownloadStepStatus,
+            job.VideoDedupStepStatus,
             job.RewriteStepStatus,
             job.PosterStepStatus,
             job.ProjectImageStepStatus,

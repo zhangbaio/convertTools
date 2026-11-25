@@ -15,6 +15,16 @@ public sealed class KuaishouPersonalUploadState
     public bool EpisodeInfoCompleted { get; set; }
     public bool VideosUploaded { get; set; }
     public bool ReviewSubmitted { get; set; }
+    public string VideoBatchIdentity { get; set; } = string.Empty;
+
+    public void BindVideoBatch(PublishVideoBatch? batch)
+    {
+        var identity = batch?.Identity ?? "";
+        if (!string.IsNullOrWhiteSpace(MiniSeriesId) &&
+            !string.Equals(VideoBatchIdentity ?? "", identity, StringComparison.Ordinal))
+            throw new InvalidOperationException("已有快手草稿的视频来源与本次不同。请沿用创建草稿时的去重模板和素材，或在快手处理旧草稿后重新开始。");
+        VideoBatchIdentity = identity;
+    }
     /// <summary>平台上已有同名且不能再编辑的短剧。本地记完成，但不算进今日已上传。</summary>
     public bool SkipTodayUploadCount { get; set; }
     /// <summary>这部本地剧占用平台上已有的短剧。继续时只更新，不新建，已有视频也会重传。</summary>

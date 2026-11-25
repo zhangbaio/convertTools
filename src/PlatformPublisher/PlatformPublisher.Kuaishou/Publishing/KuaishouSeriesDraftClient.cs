@@ -80,6 +80,9 @@ public sealed class KuaishouSeriesDraftClient
         var commitmentKey = await UploadFileAsync(gateway, data.CommitmentPdfPath, "承诺函", PdfByteLimit, cancellationToken);
 
         var seriesId = await ResolveSeriesIdAsync(gateway, data.Title, existingMiniSeriesId, cancellationToken);
+        var requiresNewDraft = !string.IsNullOrWhiteSpace(data.VideoBatchIdentity) && string.IsNullOrWhiteSpace(existingMiniSeriesId);
+        if (requiresNewDraft && !string.IsNullOrWhiteSpace(seriesId))
+            throw new InvalidOperationException("快手已有同名短剧，无法确认它使用的去重模板。请先核对旧草稿。");
         var creating = string.IsNullOrWhiteSpace(seriesId);
         IReadOnlyList<string> episodeIds = [];
         if (!creating)
@@ -187,12 +190,12 @@ public sealed class KuaishouSeriesDraftClient
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException && ex is not KuaishouDailyUploadLimitException && ex is not InvalidOperationException)
                 {
-                    var recovered = await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
+                    var recovered = requiresNewDraft ? "" : await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
                     if (recovered.Length > 0) return recovered;
                     throw new InvalidOperationException("快手创建结果无法确认，已停止再次创建。请先在内容管理核对是否已有同名短剧。", ex);
                 }
 
-                var existing = await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
+                var existing = requiresNewDraft ? "" : await FindSingleSeriesIdAsync(gateway, data.Title, cancellationToken);
                 if (existing.Length > 0) return existing;
                 throw new InvalidOperationException("快手创建结果无法确认，已停止再次创建。请先在内容管理核对是否已有同名短剧。");
             }

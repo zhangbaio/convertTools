@@ -83,6 +83,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private void LoadValues()
     {
+        LoadVideoDedupTemplates(_config.VideoDedupTemplateId);
         var edition = _account?.KuaishouAccountEdition ?? "";
         EditionPersonalBox.IsChecked = string.Equals(edition, "personal", StringComparison.OrdinalIgnoreCase);
         EditionEnterpriseBox.IsChecked = string.Equals(edition, "enterprise", StringComparison.OrdinalIgnoreCase);
@@ -298,6 +299,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         _config.TokenHeader = TokenHeaderBox.Text?.Trim() ?? "Access-Token";
 
         _config.CommitmentRecipientCompanyName = CommitmentRecipientBox.Text?.Trim() ?? string.Empty;
+        _config.VideoDedupTemplateId = ChoiceValue(VideoDedupTemplateBox, "");
 
         _config.ContentType = ChoiceValue(ContentTypeBox, "漫剧");
         _config.ProductionMethod = ChoiceValue(ComicMethodBox, "3");
@@ -631,6 +633,46 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         LoginStatusText.Text = _account is null ? "请选择发布账号" : File.Exists(_config.AuthStatePath)
             ? "已保存快手授权文件（可能已登录）"
             : "尚未保存快手授权文件";
+    }
+
+    private void LoadVideoDedupTemplates(string selected)
+    {
+        var choices = new List<KuaishouFormChoice> { new("未选择模板", "") };
+        if (_account is not null)
+            choices.AddRange(KuaishouVideoDedup.Templates()
+                .Select(item => new KuaishouFormChoice(item.Value.Name, item.Key)));
+        FillChoice(VideoDedupTemplateBox, choices, selected, "");
+    }
+
+    private async void ImportVideoDedupTemplate_Click(object? sender, RoutedEventArgs e)
+    {
+        var account = _account;
+        if (account is null)
+            return;
+        try
+        {
+            var files = await Files.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "导入快手视频去重模板",
+                AllowMultiple = false,
+                FileTypeFilter = [new FilePickerFileType("去重模板 JSON") { Patterns = ["*.json"] }],
+            });
+            if (files.Count == 0 || !ReferenceEquals(account, _account))
+                return;
+            await using var stream = await files[0].OpenReadAsync();
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            if (!ReferenceEquals(account, _account))
+                return;
+            LoadVideoDedupTemplates(KuaishouVideoDedup.Import(json));
+            ValidationText.Foreground = Avalonia.Media.Brushes.ForestGreen;
+            ValidationText.Text = "模板已导入，保存配置后应用到当前账号。";
+        }
+        catch (Exception ex)
+        {
+            ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+            ValidationText.Text = $"导入去重模板失败：{ex.Message}";
+        }
     }
 
     private IStorageProvider Files =>

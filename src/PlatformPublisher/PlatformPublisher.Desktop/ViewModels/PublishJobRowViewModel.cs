@@ -86,6 +86,29 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         ? "未执行"
         : $"{Model.AttemptCount} 次";
     public string DownloadStepStatus => KuaishouStep(_kuaishou?.DownloadStatus, "download");
+    private int _videoDedupDone;
+    private int _videoDedupTotal;
+    public string VideoDedupStepStatus
+    {
+        get
+        {
+            var status = KuaishouStep(null, PlatformPublisher.Desktop.Services.KuaishouVideoDedup.Step);
+            return status == "进行中" && _videoDedupTotal > 0
+                ? $"进行中 {_videoDedupDone}/{_videoDedupTotal}"
+                : status;
+        }
+    }
+
+    internal void SetVideoDedupProgress(int done, int total)
+    {
+        _videoDedupDone = total == 0 ? 0 : Math.Max(_videoDedupDone, done);
+        _videoDedupTotal = total;
+        OnPropertyChanged(nameof(VideoDedupStepStatus));
+    }
+
+    public IBrush VideoDedupStepBrush => ForegroundBrush(VideoDedupStepStatus);
+    public IBrush VideoDedupStepBackgroundBrush => BackgroundBrush(VideoDedupStepStatus);
+    public IBrush VideoDedupStepBorderBrush => BorderBrush(VideoDedupStepStatus);
     public string SmartRecutStepStatus => StepStatus("smart-recut");
     public string RewriteStepStatus => KuaishouStep(_kuaishou?.RewriteStatus, "rewrite");
     public string PosterStepStatus => KuaishouStep(_kuaishou?.PosterStatus, "poster-rename");
@@ -151,6 +174,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
 
     private bool HasFailedPrepareStep() =>
         StepFailed("download") ||
+        StepFailed(PlatformPublisher.Desktop.Services.KuaishouVideoDedup.Step) ||
         StepFailed("rewrite") ||
         StepFailed("poster-rename") ||
         StepFailed("project-image") ||
@@ -224,6 +248,7 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
     private bool HasStepTone(StepTone tone) =>
         ToneOf(StatusText) == tone ||
         ToneOf(DownloadStepStatus) == tone ||
+        ToneOf(VideoDedupStepStatus) == tone ||
         ToneOf(RewriteStepStatus) == tone ||
         ToneOf(PosterStepStatus) == tone ||
         ToneOf(ProjectImageStepStatus) == tone ||
@@ -452,6 +477,10 @@ public sealed partial class PublishJobRowViewModel : ObservableObject
         OnPropertyChanged(nameof(ScheduleText));
         OnPropertyChanged(nameof(AttemptSummary));
         OnPropertyChanged(nameof(DownloadStepStatus));
+        OnPropertyChanged(nameof(VideoDedupStepStatus));
+        OnPropertyChanged(nameof(VideoDedupStepBrush));
+        OnPropertyChanged(nameof(VideoDedupStepBackgroundBrush));
+        OnPropertyChanged(nameof(VideoDedupStepBorderBrush));
         OnPropertyChanged(nameof(DownloadStepBrush));
         OnPropertyChanged(nameof(RewriteStepBrush));
         OnPropertyChanged(nameof(PosterStepBrush));

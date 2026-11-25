@@ -37,6 +37,8 @@ public static class PublishJobKindExtensions
 
 public sealed class PublishJob
 {
+    [System.Text.Json.Serialization.JsonIgnore]
+    public PublishVideoBatch? PreparedUploadVideos { get; set; }
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public PublishPlatform Platform { get; set; } = PublishPlatform.WeixinChannel;
     public PublishJobKind Kind { get; set; } = PublishJobKind.Series;
@@ -67,3 +69,5 @@ public sealed class PublishJob
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
 }
+
+public sealed record PublishVideoBatch(string Identity, IReadOnlyList<string> Paths);
