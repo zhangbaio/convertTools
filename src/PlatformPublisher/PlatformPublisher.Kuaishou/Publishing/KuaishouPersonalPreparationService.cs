@@ -32,9 +32,9 @@ public sealed class KuaishouPersonalPreparationService
         cancellationToken.ThrowIfCancellationRequested();
         var workflow = string.IsNullOrWhiteSpace(data.WorkflowDirectory) ? data.SourceDirectory : data.WorkflowDirectory;
         var videosDir = Path.Combine(workflow, "videos");
-        var episodeCount = Directory.Exists(videosDir)
-            ? Directory.EnumerateFiles(videosDir, "*.mp4").Count()
-            : 0;
+        KuaishouSettlementEpisodeVideoService.EnsureDedupReady(workflow);
+        var episodeCount = KuaishouSettlementEpisodeVideoService.ReadDedupManifest(videosDir)?.Files.Length ??
+            (Directory.Exists(videosDir) ? Directory.EnumerateFiles(videosDir, "*.mp4").Count() : 0);
         return Task.FromResult(new KuaishouPersonalPreparationResult(
             workflow,
             Path.Combine(workflow, "快手横屏封面.jpg"),
@@ -60,13 +60,17 @@ public sealed class KuaishouPersonalPreparationService
         if (images.Length != 4) issues.Add(new("project-images", $"工程图应为 4 张，实际 {images.Length} 张。"));
 
         var videosDir = Path.Combine(workflowDirectory, "videos");
-        var videos = Directory.Exists(videosDir)
-            ? Directory.EnumerateFiles(videosDir, "*.mp4").OrderBy(EpisodeNumber).ToArray()
-            : [];
+        KuaishouSettlementEpisodeVideoService.EnsureDedupReady(workflowDirectory);
+        var manifest = KuaishouSettlementEpisodeVideoService.ReadDedupManifest(videosDir);
+        var videos = manifest is not null
+            ? manifest.Files.Select(name => Path.Combine(videosDir, name)).ToArray()
+            : Directory.Exists(videosDir) ? Directory.EnumerateFiles(videosDir, "*.mp4").OrderBy(EpisodeNumber).ToArray() : [];
+        if (manifest is not null)
+            KuaishouSettlementEpisodeVideoService.EnsureDedupEpisodeOrder(videos);
         var info = ParseInfo(Path.Combine(workflowDirectory, "短剧信息.txt"));
         var declared = ParseInt(info.GetValueOrDefault("集数"));
         if (videos.Length == 0) issues.Add(new("videos", "videos 目录没有剧集视频。"));
-        if (declared != videos.Length) issues.Add(new("episode-count", $"短剧信息为 {declared} 集，videos 实际 {videos.Length} 集。"));
+        if (manifest is null && declared != videos.Length) issues.Add(new("episode-count", $"短剧信息为 {declared} 集，videos 实际 {videos.Length} 集。"));
         if (!videos.Select(EpisodeNumber).SequenceEqual(Enumerable.Range(1, videos.Length)))
             issues.Add(new("episode-order", "剧集文件名未按第1集开始连续编号。"));
 

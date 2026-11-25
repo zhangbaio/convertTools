@@ -30,7 +30,10 @@ public sealed class KuaishouApiUploadService
         if (configurationIssues.Count > 0)
             throw new InvalidOperationException("快手配置校验失败：" + string.Join("；", configurationIssues));
         var label = job.Platform.DisplayName();
-        var data = await _projectDataService.ResolveForUploadAsync(job, config, cancellationToken);
+        var (data, lease) = await _projectDataService.OpenForUploadAsync(job, config, cancellationToken);
+        await using var videoLease = lease;
+        var videoBatch = string.IsNullOrEmpty(data.VideoBatchIdentity)
+            ? null : new PublishVideoBatch(data.VideoBatchIdentity, data.VideoPaths);
         var commitmentPdf = await _commitmentService.ResolveAsync(data, config, cancellationToken);
         if (!string.Equals(commitmentPdf, data.CommitmentPdfPath, StringComparison.OrdinalIgnoreCase))
             data = data with { CommitmentPdfPath = commitmentPdf };
@@ -40,7 +43,7 @@ public sealed class KuaishouApiUploadService
         var replacing = state.ReplaceExistingVideos && !string.IsNullOrWhiteSpace(state.MiniSeriesId);
         if (config.ForceRerun && !replacing)
         {
-            state.BindVideoBatch(job.PreparedUploadVideos);
+            state.BindVideoBatch(videoBatch);
             state = new KuaishouPersonalUploadState();
             replacing = false;
             progress?.Report($"{label}：已按配置忽略旧状态并从头执行。 ");
@@ -55,7 +58,7 @@ public sealed class KuaishouApiUploadService
             progress?.Report($"{label}：项目已经完成，跳过重复执行。 ");
             return;
         }
-        state.BindVideoBatch(job.PreparedUploadVideos);
+        state.BindVideoBatch(videoBatch);
         if (!replacing && !state.ReviewSubmitted && state.VideosUploaded)
         {
             state.VideosUploaded = false;
@@ -219,7 +222,7 @@ public sealed class KuaishouApiUploadService
             throw new InvalidOperationException("短剧 ID 只能是数字。");
         var config = KuaishouPersonalConfig.Load(job);
         var label = job.Platform.DisplayName();
-        var data = await _projectDataService.ResolveAsync(job.ProjectDirectory, config, cancellationToken);
+        var data = await _projectDataService.ResolveForUploadAsync(job, config, cancellationToken);
         if (data.VideoPaths.Count == 0)
             throw new InvalidOperationException("这部本地剧没有可上传的视频。");
         var state = _stateStore.Load(data.WorkflowDirectory, job.Platform);
@@ -228,8 +231,8 @@ public sealed class KuaishouApiUploadService
             throw new InvalidOperationException(binding);
         state.ReplaceExistingVideos = true;
         state.MiniSeriesId = id;
-        state.VideoBatchIdentity = job.PreparedUploadVideos?.Identity ?? "";
-        state.VideoBatchEpisodeCount = job.PreparedUploadVideos?.Paths.Count ?? 0;
+        state.VideoBatchIdentity = data.VideoBatchIdentity;
+        state.VideoBatchEpisodeCount = string.IsNullOrEmpty(data.VideoBatchIdentity) ? 0 : data.VideoPaths.Count;
         state.SkipTodayUploadCount = true;
         state.Status = "running";
         state.CurrentStage = "replace_draft";

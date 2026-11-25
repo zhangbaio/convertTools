@@ -26,6 +26,8 @@ public readonly record struct KuaishouVideoRepairFiles(
     string? SkipReason,
     IReadOnlyList<int>? UploadEpisodes = null)
 {
+    public IDisposable? Lease { get; init; }
+
     public bool ShouldSkip => !string.IsNullOrWhiteSpace(SkipReason);
 
     public static KuaishouVideoRepairFiles Skip(string reason) => new([], reason);
@@ -44,6 +46,7 @@ public static partial class KuaishouFailedEpisodeRepair
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
         "material-videos", "material-clip-output", "素材剪辑输出", "videos-智能重剪前", "archive",
+        KuaishouSettlementEpisodeVideoService.DedupDirectoryName, KuaishouSettlementEpisodeVideoService.DedupOutputDirectoryName,
     };
 
     private static readonly Regex UploadReasonPattern = new(

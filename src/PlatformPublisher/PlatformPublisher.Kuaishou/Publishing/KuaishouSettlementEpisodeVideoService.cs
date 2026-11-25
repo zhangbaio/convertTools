@@ -1,10 +1,78 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using PlatformPublisher.Common.Models;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
 
 public static class KuaishouSettlementEpisodeVideoService
 {
     public const string DedupDirectoryName = ".kuaishou-dedup";
+    public const string DedupOutputDirectoryName = "去重成片";
+    public const string VideosDirectoryName = "videos";
+    public const string DedupOriginalsDirectoryName = "原片";
+    public const string DedupManifestName = ".validated.json";
+    public const string DedupWritingName = ".kuaishou-dedup-writing.json";
+
+    public sealed record DedupManifest(string Identity, string AccountKey, string[] Files);
+
+    public static string BatchAccountKey(string accountId) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(accountId.ToUpperInvariant())));
+
+    public static bool HasManagedDedupVideos(string videosDirectory) =>
+        File.Exists(Path.Combine(videosDirectory, DedupManifestName)) ||
+        File.Exists(Path.Combine(videosDirectory, DedupWritingName));
+
+    public static void EnsureDedupReady(string workflowDirectory)
+    {
+        if (File.Exists(Path.Combine(workflowDirectory, VideosDirectoryName, DedupWritingName)))
+            throw new InvalidOperationException("去重成片尚未通过整批校验，请完成视频去重后再上传或补传。");
+    }
+
+    public static DedupManifest? ReadDedupManifest(string videosDirectory)
+    {
+        var path = Path.Combine(videosDirectory, DedupManifestName);
+        if (!File.Exists(path))
+            return null;
+        var manifest = JsonSerializer.Deserialize<DedupManifest>(File.ReadAllText(path));
+        if (manifest is not { Identity.Length: 64, AccountKey.Length: 64, Files.Length: > 0 } ||
+            !manifest.Identity.All(Uri.IsHexDigit) || !manifest.AccountKey.All(Uri.IsHexDigit) ||
+            !manifest.Files.Select((name, index) => name == DedupEpisodeName(index + 1)).All(matches => matches))
+            throw new InvalidOperationException("去重成片校验记录无效，请检查项目的 videos 目录。");
+        return manifest;
+    }
+
+    public static string DedupEpisodeName(int episode) => $"第{episode.ToString(System.Globalization.CultureInfo.InvariantCulture)}集.mp4";
+
+    public static PublishVideoBatch? ReadCurrentDedupBatch(string workflowDirectory, string accountId)
+    {
+        EnsureDedupReady(workflowDirectory);
+        var directory = Path.Combine(workflowDirectory, VideosDirectoryName);
+        if (ReadDedupManifest(directory) is not { } manifest)
+            return null;
+        if (manifest.AccountKey != BatchAccountKey(accountId))
+            throw new InvalidOperationException("videos 中的去重成片属于其他账号，请先使用当前账号重新执行视频去重。");
+        var paths = manifest.Files.Select(file => Path.Combine(directory, file)).ToArray();
+        EnsureDedupEpisodeOrder(paths);
+        return new PublishVideoBatch(manifest.Identity, paths);
+    }
+
+    public static async Task<FileStream> AcquireOutputLockAsync(string workflowDirectory, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(workflowDirectory, ".kuaishou-dedup.lock");
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException ex) when ((ex.HResult & 0xffff) is 32 or 33)
+            {
+                await Task.Delay(150, cancellationToken);
+            }
+        }
+    }
+
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".mp4", ".mov", ".mkv", ".avi",
@@ -12,7 +80,8 @@ public static class KuaishouSettlementEpisodeVideoService
 
     private static readonly HashSet<string> ExcludedDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
-        "material-videos", "material-clip-output", "素材剪辑输出", "videos-智能重剪前", DedupDirectoryName,
+        "material-videos", "material-clip-output", "素材剪辑输出", "videos-智能重剪前",
+        DedupDirectoryName, DedupOutputDirectoryName,
     };
 
     private static readonly Regex SettlementEpisodePattern = new(@"第\s*(\d+)\s*集", RegexOptions.Compiled);
@@ -21,10 +90,16 @@ public static class KuaishouSettlementEpisodeVideoService
 
     public static IReadOnlyList<string> ReadSource(string sourceDirectory, string workflowDirectory)
     {
-        var videos = Directory.Exists(sourceDirectory) ? Collect(sourceDirectory) : [];
-        var prepared = Path.Combine(workflowDirectory, "videos");
-        if (videos.Count == 0 && Directory.Exists(prepared))
-            videos = Collect(prepared);
+        var prepared = Path.GetFullPath(Path.Combine(workflowDirectory, VideosDirectoryName));
+        var originals = Path.GetFullPath(Path.Combine(workflowDirectory, DedupOriginalsDirectoryName));
+        var videos = Directory.Exists(sourceDirectory) ? Collect(sourceDirectory, prepared, originals) : [];
+        if (videos.Count == 0)
+        {
+            if (Directory.Exists(originals))
+                videos = Collect(originals);
+            if (Directory.Exists(prepared))
+                videos.AddRange(Collect(prepared));
+        }
         return videos.Count == 0 ? [] : ResolveEpisodeNumbers(videos)
             .OrderBy(item => item.Episode).Select(item => item.Path).ToArray();
     }
@@ -46,7 +121,9 @@ public static class KuaishouSettlementEpisodeVideoService
     {
         var sourceDir = Path.GetFullPath(sourceDirectory);
         var workflowDir = Path.GetFullPath(workflowDirectory);
-        var videosDir = Path.Combine(workflowDir, "videos");
+        var videosDir = Path.Combine(workflowDir, VideosDirectoryName);
+        if (HasManagedDedupVideos(videosDir))
+            return ReadSource(sourceDir, workflowDir);
         var sourceVideos = Directory.Exists(sourceDir) ? Collect(sourceDir) : [];
         if (sourceVideos.Count == 0 && Directory.Exists(videosDir))
             sourceVideos = Collect(videosDir);
@@ -140,17 +217,21 @@ public static class KuaishouSettlementEpisodeVideoService
         }
     }
 
-    private static List<string> Collect(string directory)
+    private static List<string> Collect(string directory, string? excludedVideos = null, string? excludedOriginals = null)
     {
         var videos = new List<string>();
-        Walk(directory, videos);
+        Walk(Path.GetFullPath(directory), videos, excludedVideos, excludedOriginals);
         return videos
             .OrderBy(path => SortKey(path, directory))
             .ToList();
     }
 
-    private static void Walk(string directory, List<string> videos)
+    private static void Walk(string directory, List<string> videos, string? excludedVideos, string? excludedOriginals)
     {
+        if (string.Equals(directory, excludedVideos, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(directory, excludedOriginals, StringComparison.OrdinalIgnoreCase) ||
+            HasManagedDedupVideos(directory))
+            return;
         foreach (var path in Directory.EnumerateFiles(directory))
         {
             if (!VideoExtensions.Contains(Path.GetExtension(path)))
@@ -165,7 +246,7 @@ public static class KuaishouSettlementEpisodeVideoService
         {
             if (ExcludedDirectories.Contains(Path.GetFileName(child)))
                 continue;
-            Walk(child, videos);
+            Walk(child, videos, excludedVideos, excludedOriginals);
         }
     }
 

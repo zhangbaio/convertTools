@@ -30,18 +30,40 @@ public sealed class KuaishouPersonalProjectDataService
     public async Task<KuaishouPersonalProjectData> ResolveForUploadAsync(
         PublishJob job, KuaishouPersonalConfig config, CancellationToken cancellationToken)
     {
-        var data = await ResolveAsync(job.ProjectDirectory, config, cancellationToken, prepareVideos: job.PreparedUploadVideos is null);
-        if (job.PreparedUploadVideos is not { } batch)
-            return data;
-        KuaishouSettlementEpisodeVideoService.EnsureDedupEpisodeOrder(batch.Paths);
-        return data with { VideoPaths = batch.Paths, VideoBatchIdentity = batch.Identity };
+        var (data, lease) = await OpenForUploadAsync(job, config, cancellationToken);
+        await lease.DisposeAsync();
+        return data;
+    }
+
+    internal async Task<(KuaishouPersonalProjectData Data, FileStream Lease)> OpenForUploadAsync(
+        PublishJob job, KuaishouPersonalConfig config, CancellationToken cancellationToken)
+    {
+        var data = await ResolveAsync(job.ProjectDirectory, config, cancellationToken, readVideos: false);
+        var lease = await KuaishouSettlementEpisodeVideoService.AcquireOutputLockAsync(data.WorkflowDirectory, cancellationToken);
+        try
+        {
+            var batch = KuaishouSettlementEpisodeVideoService.ReadCurrentDedupBatch(data.WorkflowDirectory, job.AccountId);
+            if (job.PreparedUploadVideos is { } expected && expected.Identity != batch?.Identity)
+                throw new InvalidOperationException("去重成片批次已变更，请确认最新成片后重新执行上传。");
+            if (batch is null)
+                data = await ResolveAsync(job.ProjectDirectory, config, cancellationToken);
+            else
+                data = data with { VideoPaths = batch.Paths, VideoBatchIdentity = batch.Identity };
+            return (data, lease);
+        }
+        catch
+        {
+            await lease.DisposeAsync();
+            throw;
+        }
     }
 
     public async Task<KuaishouPersonalProjectData> ResolveAsync(
         string projectDirectory,
         KuaishouPersonalConfig config,
         CancellationToken cancellationToken,
-        bool prepareVideos = true)
+        bool prepareVideos = true,
+        bool readVideos = true)
     {
         var selected = Path.GetFullPath(projectDirectory);
         var source = selected;
@@ -73,8 +95,8 @@ public sealed class KuaishouPersonalProjectDataService
         IReadOnlyList<string> ReadVideos(string directory) => prepareVideos
             ? KuaishouSettlementEpisodeVideoService.Prepare(directory, workflow, title)
             : KuaishouSettlementEpisodeVideoService.ReadSource(directory, workflow);
-        var videos = ReadVideos(source);
-        if (videos.Count == 0)
+        var videos = readVideos ? ReadVideos(source) : [];
+        if (readVideos && videos.Count == 0)
         {
             var preparedSource = ReadPreparedSourceDirectory(workflow);
             if (!string.IsNullOrWhiteSpace(preparedSource))

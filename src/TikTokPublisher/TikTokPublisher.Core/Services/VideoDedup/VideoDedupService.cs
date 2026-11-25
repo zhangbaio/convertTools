@@ -96,6 +96,30 @@ public static class VideoDedupService
         return outputs;
     }
 
+    public static async Task<IReadOnlyList<string>> RunDirectSeriesAsync(
+        string outputDirectory,
+        IReadOnlyList<string> originals,
+        string accountName,
+        VideoDedupPreset preset,
+        Action<IReadOnlyList<string>> prepareOutput,
+        Action<string>? log,
+        CancellationToken ct,
+        Action<int, int>? progress = null)
+    {
+        var item = new QueueProjectItem { ProjectDir = outputDirectory, EpisodeCount = originals.Count };
+        IReadOnlyList<string> outputs = [];
+        await RunWithPresetAsync(item, new TikTokAccountProfile { Name = accountName }, preset,
+            preset.HasDurationLimit ? 1 : originals.Count, true, log, ct, progress,
+            directOutput: new DirectSeries(originals, paths =>
+            {
+                prepareOutput(paths);
+                outputs = paths;
+            })).ConfigureAwait(false);
+        return outputs;
+    }
+
+    internal sealed record DirectSeries(IReadOnlyList<string> Originals, Action<IReadOnlyList<string>> PrepareOutput);
+
     internal static async Task RunWithPresetAsync(
         QueueProjectItem item,
         TikTokAccountProfile account,
@@ -106,7 +130,8 @@ public static class VideoDedupService
         CancellationToken ct,
         Action<int, int>? progress = null,
         IReadOnlyList<string?>? reusableEpisodes = null,
-        bool stagedSeries = false)
+        bool stagedSeries = false,
+        DirectSeries? directOutput = null)
     {
         ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(item.ProjectDir) || !Directory.Exists(item.ProjectDir))
@@ -119,9 +144,9 @@ public static class VideoDedupService
         var project = Path.GetFullPath(item.ProjectDir);
         var originalsRoot = Path.Combine(project, ProjectVideoResolver.SourceOriginalsDirectoryName);
         var fingerprintPath = FingerprintPath(project);
-        var fingerprint = ReadFingerprint(fingerprintPath);
-        var visible = ListVisibleVideos(project);
-        if (!force && OutputsMatch(project, fingerprint, preset, visible))
+        var fingerprint = directOutput is null ? ReadFingerprint(fingerprintPath) : null;
+        var visible = directOutput is null ? ListVisibleVideos(project) : [];
+        if (directOutput is null && !force && OutputsMatch(project, fingerprint, preset, visible))
         {
             var kept = fingerprint!.Outputs.Count;
             EnsureMinimumEpisodeCount(kept, minimumEpisodeCount);
@@ -131,9 +156,11 @@ public static class VideoDedupService
             return;
         }
 
-        var archived = ListArchivedVideos(originalsRoot);
-        var (inputs, archiveCopies) = ResolveInputs(project, originalsRoot, visible, archived,
-            stagedSeries && archived.Count > 0 ? null : fingerprint);
+        var archived = directOutput is null ? ListArchivedVideos(originalsRoot) : [];
+        var (inputs, archiveCopies) = directOutput is null
+            ? ResolveInputs(project, originalsRoot, visible, archived,
+                stagedSeries && archived.Count > 0 ? null : fingerprint)
+            : (directOutput.Originals.Select(path => new DedupInput(path, path)).ToList(), []);
         if (inputs.Count == 0)
             throw new InvalidOperationException("没有可去重的视频。请先完成下载。");
         if (!preset.HasDurationLimit)
@@ -191,33 +218,42 @@ public static class VideoDedupService
         }
 
         var renumber = plan.Count != clips.Count || plan.Any(group => group.Count > 1);
-        var outputDirectory = Path.GetDirectoryName(VisiblePathFor(project, originalsRoot, clips[0].Path)) ?? project;
+        var outputDirectory = directOutput is null
+            ? Path.GetDirectoryName(VisiblePathFor(project, originalsRoot, clips[0].Path)) ?? project
+            : project;
         var jobs = new List<RenderJob>();
         for (var index = 0; index < plan.Count; index++)
         {
             var slices = plan[index];
             var episodeNumber = (index + 1).ToString(stagedSeries ? "D4" : "00", CultureInfo.InvariantCulture);
-            var destination = renumber
-                ? Path.Combine(outputDirectory, stagedSeries ? $"第{episodeNumber}集.mp4" : $"{episodeNumber}.mp4")
-                : VisiblePathFor(project, originalsRoot, clips[slices[0].ClipIndex].Path);
+            var destination = directOutput is not null
+                ? Path.Combine(outputDirectory, $"第{(index + 1).ToString(CultureInfo.InvariantCulture)}集.mp4")
+                : renumber
+                    ? Path.Combine(outputDirectory, stagedSeries ? $"第{episodeNumber}集.mp4" : $"{episodeNumber}.mp4")
+                    : VisiblePathFor(project, originalsRoot, clips[slices[0].ClipIndex].Path);
             jobs.Add(new RenderJob(slices, destination));
         }
 
         var workRoot = Path.Combine(originalsRoot, ".work");
-        Directory.CreateDirectory(workRoot);
         var resumePath = Path.Combine(workRoot, ResumeFileName);
-        var resumeIdentity = ResumeIdentity(preset, clips, originalsRoot);
-        var resume = force ? null : ReadResume(resumePath);
-        if (resume is null || !string.Equals(resume.Identity, resumeIdentity, StringComparison.Ordinal))
-        {
-            ClearDirectory(workRoot);
-            resume = new DedupResume(resumeIdentity, []);
-        }
-
+        var resumeIdentity = string.Empty;
         var completed = new System.Collections.Concurrent.ConcurrentDictionary<int, ResumeEpisode>();
         var processedCount = 0;
-        foreach (var episode in resume.Episodes)
-            completed[episode.Index] = episode;
+        if (directOutput is null)
+        {
+            Directory.CreateDirectory(workRoot);
+            resumeIdentity = ResumeIdentity(preset, clips, originalsRoot);
+            var resume = force ? null : ReadResume(resumePath);
+            if (resume is null || !string.Equals(resume.Identity, resumeIdentity, StringComparison.Ordinal))
+                ClearDirectory(workRoot);
+            else
+                foreach (var episode in resume.Episodes)
+                    completed[episode.Index] = episode;
+        }
+        else
+        {
+            directOutput.PrepareOutput(jobs.Select(job => job.Destination).ToArray());
+        }
         var resumeLock = new object();
         var hevc = preset.VideoCodec is VideoDedupPreset.CodecHevc or VideoDedupPreset.CodecH265;
         var softwareEncoder = hevc ? "libx265" : "libx264";
@@ -293,7 +329,7 @@ public static class VideoDedupService
                 },
                 async (entry, token) =>
                 {
-                    var temp = Path.Combine(
+                    var temp = directOutput is not null ? entry.job.Destination : Path.Combine(
                         workRoot,
                         $"{(entry.index + 1).ToString("00", CultureInfo.InvariantCulture)}.mp4");
                     var seed = Math.Abs(clips[entry.job.Slices[0].ClipIndex].Path.GetHashCode(StringComparison.Ordinal));
@@ -370,10 +406,13 @@ public static class VideoDedupService
                         if (!File.Exists(temp) || new FileInfo(temp).Length == 0)
                             throw new InvalidOperationException($"去重未生成有效文件：{Path.GetFileName(entry.job.Destination)}");
                         var length = new FileInfo(temp).Length;
-                        lock (resumeLock)
+                        if (directOutput is null)
                         {
-                            completed[entry.index] = new ResumeEpisode(entry.index, length);
-                            WriteResume(resumePath, resumeIdentity, completed.Values.OrderBy(item => item.Index).ToArray());
+                            lock (resumeLock)
+                            {
+                                completed[entry.index] = new ResumeEpisode(entry.index, length);
+                                WriteResume(resumePath, resumeIdentity, completed.Values.OrderBy(item => item.Index).ToArray());
+                            }
                         }
 
                         entry.job.TempPath = temp;
@@ -396,6 +435,9 @@ public static class VideoDedupService
 
         if (encodeFailure is not null)
             throw encodeFailure;
+
+        if (directOutput is not null)
+            return;
 
         PublishOutputs(project, visible, fingerprint, jobs);
         if (TikTokUploadStagingService.DiscardCopies(project))

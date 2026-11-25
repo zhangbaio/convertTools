@@ -34,29 +34,35 @@ public sealed class KuaishouVideoDedupTests
             File.WriteAllText(Path.Combine(root.FullName, "短剧信息.txt"), "剧名：测试剧集");
             File.WriteAllText(Path.Combine(root.FullName, "第1集.mp4"), "first original");
             File.WriteAllText(Path.Combine(root.FullName, "第2集.mp4"), "second original");
-            var cache = root.CreateSubdirectory(KuaishouSettlementEpisodeVideoService.DedupDirectoryName);
-            var merged = Path.Combine(cache.FullName, "第0001集.mp4");
+            var videos = root.CreateSubdirectory(KuaishouSettlementEpisodeVideoService.VideosDirectoryName);
+            var merged = Path.Combine(videos.FullName, "第1集.mp4");
             File.WriteAllText(merged, "merged output");
+            const string account = "test-account";
+            var identity = new string('A', 64);
+            File.WriteAllText(Path.Combine(videos.FullName, KuaishouSettlementEpisodeVideoService.DedupManifestName),
+                JsonSerializer.Serialize(new KuaishouSettlementEpisodeVideoService.DedupManifest(
+                    identity, KuaishouSettlementEpisodeVideoService.BatchAccountKey(account), ["第1集.mp4"])));
             var dataService = new KuaishouPersonalProjectDataService(null!);
+            var config = new KuaishouPersonalConfig();
 
             foreach (var platform in new[] { PublishPlatform.KuaishouPersonalRevenue, PublishPlatform.KuaishouEnterpriseRevenue })
             {
-                var job = new PublishJob
-                {
-                    Platform = platform,
-                    ProjectDirectory = root.FullName,
-                    PreparedUploadVideos = new PublishVideoBatch("resplit", [merged]),
-                };
-                var data = await dataService.ResolveForUploadAsync(job, new KuaishouPersonalConfig(), CancellationToken.None);
+                var job = new PublishJob { AccountId = account, Platform = platform, ProjectDirectory = root.FullName };
+                var data = await dataService.ResolveForUploadAsync(job, config, CancellationToken.None);
                 Assert.Equal(merged, Assert.Single(data.VideoPaths));
-                Assert.Equal("resplit", data.VideoBatchIdentity);
+                Assert.Equal(identity, data.VideoBatchIdentity);
                 Assert.Equal(merged, KuaishouPersonalEpisodeUploadService.MatchEpisodeFile(data.VideoPaths, 1));
                 Assert.Null(KuaishouPersonalEpisodeUploadService.MatchEpisodeFile(data.VideoPaths, 2));
+                job.PreparedUploadVideos = new PublishVideoBatch(new string('B', 64), [merged]);
+                await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => dataService.ResolveForUploadAsync(job, config, CancellationToken.None));
             }
 
-            Assert.False(Directory.Exists(Path.Combine(root.FullName, "videos")));
-            Assert.Throws<InvalidOperationException>(() => KuaishouSettlementEpisodeVideoService.EnsureDedupEpisodeOrder(
-                [Path.Combine(cache.FullName, "第0002集.mp4"), merged]));
+            Assert.Equal(2, KuaishouSettlementEpisodeVideoService.ReadSource(root.FullName, root.FullName).Count);
+            File.WriteAllText(Path.Combine(videos.FullName, KuaishouSettlementEpisodeVideoService.DedupWritingName), "[]");
+            var blocked = new PublishJob { AccountId = account, ProjectDirectory = root.FullName };
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => dataService.ResolveForUploadAsync(blocked, config, CancellationToken.None));
         }
         finally
         {
@@ -71,11 +77,14 @@ public sealed class KuaishouVideoDedupTests
         try
         {
             var cache = root.CreateSubdirectory(KuaishouSettlementEpisodeVideoService.DedupDirectoryName);
+            var published = root.CreateSubdirectory(KuaishouSettlementEpisodeVideoService.DedupOutputDirectoryName)
+                .CreateSubdirectory("批次-测试");
             var first = Path.Combine(root.FullName, "第1集.mp4");
             var second = Path.Combine(root.FullName, "第2集.mp4");
             File.WriteAllText(second, "second");
             File.WriteAllText(first, "first");
             File.WriteAllText(Path.Combine(cache.FullName, "第1集.mp4"), "processed");
+            File.WriteAllText(Path.Combine(published.FullName, "第0001集.mp4"), "current output");
 
             var sources = KuaishouSettlementEpisodeVideoService.ReadSource(root.FullName, root.FullName);
 

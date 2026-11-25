@@ -55,7 +55,10 @@ public sealed class KuaishouPersonalUploadService
         if (configurationIssues.Count > 0)
             throw new InvalidOperationException("快手配置校验失败：" + string.Join("；", configurationIssues));
         var label = job.Platform.DisplayName();
-        var data = await _projectDataService.ResolveForUploadAsync(job, config, cancellationToken);
+        var (data, lease) = await _projectDataService.OpenForUploadAsync(job, config, cancellationToken);
+        await using var videoLease = lease;
+        var videoBatch = string.IsNullOrEmpty(data.VideoBatchIdentity)
+            ? null : new PublishVideoBatch(data.VideoBatchIdentity, data.VideoPaths);
         var commitmentPdf = await _commitmentService.ResolveAsync(data, config, cancellationToken);
         if (!string.Equals(commitmentPdf, data.CommitmentPdfPath, StringComparison.OrdinalIgnoreCase))
             data = data with { CommitmentPdfPath = commitmentPdf };
@@ -63,7 +66,7 @@ public sealed class KuaishouPersonalUploadService
         var state = _stateStore.Load(data.WorkflowDirectory, job.Platform);
         if (config.ForceRerun)
         {
-            state.BindVideoBatch(job.PreparedUploadVideos);
+            state.BindVideoBatch(videoBatch);
             state = new KuaishouPersonalUploadState();
             progress?.Report($"{label}：已按配置忽略旧状态并从头执行。 ");
         }
@@ -73,7 +76,7 @@ public sealed class KuaishouPersonalUploadService
             progress?.Report($"{label}：项目已经完成，跳过重复执行。 ");
             return;
         }
-        state.BindVideoBatch(job.PreparedUploadVideos);
+        state.BindVideoBatch(videoBatch);
         if (!state.ReviewSubmitted && state.VideosUploaded)
         {
             state.VideosUploaded = false;
@@ -206,7 +209,7 @@ public sealed class KuaishouPersonalUploadService
         var config = KuaishouPersonalConfig.Load(job);
         if (string.IsNullOrWhiteSpace(config.AuthStatePath) || !File.Exists(config.AuthStatePath))
             throw new InvalidOperationException("请先打开经营者管理平台登录。");
-        var data = await _projectDataService.ResolveAsync(job.ProjectDirectory, config, cancellationToken);
+        var data = await _projectDataService.ResolveForUploadAsync(job, config, cancellationToken);
         if (data.VideoPaths.Count == 0)
             throw new InvalidOperationException("这部本地剧没有可上传的视频。");
         var state = _stateStore.Load(data.WorkflowDirectory, job.Platform);
@@ -424,6 +427,7 @@ public sealed class KuaishouPersonalUploadService
                     }
 
                     var files = await resolveFiles(title, failure.FailedEpisodes, token);
+                    using var videoLease = files.Lease;
                     if (files.ShouldSkip)
                     {
                         notes.Add(Note(title, KuaishouVideoRepairOutcome.Skipped, $"《{title}》{files.SkipReason}"));

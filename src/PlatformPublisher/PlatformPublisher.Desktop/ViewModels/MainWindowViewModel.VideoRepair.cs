@@ -161,6 +161,27 @@ public sealed partial class MainWindowViewModel
         CancellationToken cancellationToken)
     {
         var workflow = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory).WorkflowDirectory;
+        var lease = await KuaishouSettlementEpisodeVideoService.AcquireOutputLockAsync(workflow, cancellationToken);
+        try
+        {
+            var files = await ReadRepairVideosUnderLockAsync(projectDirectory, title, episodes, session, workflow, cancellationToken);
+            if (!files.ShouldSkip)
+                return files with { Lease = lease };
+            await lease.DisposeAsync();
+            return files;
+        }
+        catch
+        {
+            await lease.DisposeAsync();
+            throw;
+        }
+    }
+
+    private async Task<KuaishouVideoRepairFiles> ReadRepairVideosUnderLockAsync(
+        string projectDirectory, string title, IReadOnlyList<int> episodes, PublishJob session,
+        string workflow, CancellationToken cancellationToken)
+    {
+        KuaishouSettlementEpisodeVideoService.EnsureDedupReady(workflow);
         var state = new KuaishouPersonalUploadStateStore().Load(workflow, session.Platform);
         if (!string.IsNullOrWhiteSpace(state.VideoBatchIdentity))
         {
@@ -176,6 +197,8 @@ public sealed partial class MainWindowViewModel
                 ? KuaishouVideoRepairFiles.Skip("当前剧集使用去重视频，原批次的可用成片已缺失。")
                 : KuaishouVideoRepairFiles.Ready(dedup, available);
         }
+        if (KuaishouSettlementEpisodeVideoService.ReadCurrentDedupBatch(workflow, session.AccountId) is not null)
+            return KuaishouVideoRepairFiles.Skip("本地已有新去重批次，但旧上传记录未绑定该批次，无法按旧集号补传。");
         var paths = ListPreparedVideos(projectDirectory, title);
         var refresh = new List<int>();
         foreach (var episode in episodes.Distinct().Order())
