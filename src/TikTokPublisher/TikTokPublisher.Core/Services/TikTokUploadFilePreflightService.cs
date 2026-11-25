@@ -70,7 +70,7 @@ public static class TikTokUploadFilePreflightService
                     ffprobe = MediaBinaryResolver.ResolveFfprobe();
                 probe = await MediaProbe.ProbeAsync(ffprobe, path, ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 issues.Add($"第{episode}集 | {name} | 读取视频时长失败（{ex.Message}）");
                 continue;
@@ -80,6 +80,15 @@ public static class TikTokUploadFilePreflightService
                 issues.Add($"第{episode}集 | {name} | {message}");
             foreach (var message in TikTokMaterialValidationService.ValidateVideoFrame(probe.Width, probe.Height, probe.VideoCodec))
                 issues.Add($"第{episode}集 | {name} | {message}");
+            try
+            {
+                if (await VideoSampleAspectRatio.CheckAsync(path, probe, ct).ConfigureAwait(false) is { } conflict)
+                    issues.Add($"第{episode}集 | {name} | {conflict}");
+            }
+            catch (InvalidOperationException ex)
+            {
+                issues.Add($"第{episode}集 | {name} | {ex.Message}");
+            }
         }
 
         if (issues.Count == 0)

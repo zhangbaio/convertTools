@@ -90,6 +90,7 @@ public sealed class QueueProjectTitleRenameServiceTests
                 "material_validation_state",
                 new Dictionary<string, object?>
                 {
+                    ["params"] = TikTokMaterialValidationService.ValidationParamsVersion + "4",
                     ["fingerprint"] = TikTokMaterialValidationService.ComputeMaterialFingerprint(
                         [oldUploadVideo1, oldUploadVideo2]),
                 },

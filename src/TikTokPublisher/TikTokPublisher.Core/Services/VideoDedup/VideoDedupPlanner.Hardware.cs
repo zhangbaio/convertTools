@@ -25,18 +25,13 @@ internal static partial class VideoDedupPlanner
             (probe.Width & 1) != 0 || (probe.Height & 1) != 0 ||
             !VideoDedupSourceFormat.TryReadRatio(format.NominalFrameRate, '/', out var fpsNumerator, out var fpsDenominator) ||
             Math.Abs((double)fpsNumerator / fpsDenominator - probe.AverageFramesPerSecond) > 0.001 ||
-            !VideoDedupSourceFormat.TryReadRatio(format.SampleAspectRatio, ':', out var sarNumerator, out var sarDenominator))
+            !VideoDedupSourceFormat.TryReadRatio(format.SampleAspectRatio, ':', out _, out _))
             return null;
 
-        var frame = ResolveUploadFrame(probe.Width, probe.Height, preset);
+        var frame = ResolveUploadFrame(probe, preset);
         if (frame.Width is <= 0 or > 8192 || frame.Height is <= 0 or > 8192)
             return null;
-        var numerator = (long)sarNumerator * probe.Width * frame.Height;
-        var denominator = (long)sarDenominator * probe.Height * frame.Width;
-        var divisor = GreatestCommonDivisor(numerator, denominator);
-        if (divisor <= 0 || numerator / divisor > 100000 || denominator / divisor > 100000)
-            return null;
-        return new(frame, FormattableString.Invariant($"{numerator / divisor}:{denominator / divisor}"));
+        return new(frame, "1:1");
     }
 
     public static IReadOnlyList<string> BuildHardwareArguments(
@@ -77,12 +72,5 @@ internal static partial class VideoDedupPlanner
         else
             args.AddRange(["-movflags", "+faststart", outputPath!]);
         return args;
-    }
-
-    private static long GreatestCommonDivisor(long a, long b)
-    {
-        while (b != 0)
-            (a, b) = (b, a % b);
-        return a;
     }
 }

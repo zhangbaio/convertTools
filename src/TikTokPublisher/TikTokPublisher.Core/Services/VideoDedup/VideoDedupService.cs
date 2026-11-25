@@ -1311,7 +1311,7 @@ public static class VideoDedupService
                     length.ToString(CultureInfo.InvariantCulture),
                     clip.Probe.DurationSeconds.ToString("0.####", CultureInfo.InvariantCulture));
             }));
-        return preset.Fingerprint() + "\n" + files;
+        return "square-pixel-v1\n" + preset.Fingerprint() + "\n" + files;
     }
 
     private static DedupResume? ReadResume(string path)

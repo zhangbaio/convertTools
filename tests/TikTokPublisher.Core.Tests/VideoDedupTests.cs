@@ -477,6 +477,40 @@ public sealed class VideoDedupTests : IDisposable
         joined.Should().Contain("crop=trunc(iw*");
     }
 
+    [Theory]
+    [InlineData("3844:3843", 1080, 1922)]
+    [InlineData("4:3", 1382, 1844)]
+    public void Single_episode_scales_after_crop_and_normalizes_sample_aspect_ratio(
+        string sourceRatio, int outputWidth, int outputHeight)
+    {
+        var preset = new VideoDedupPreset
+        {
+            PortraitWidth = 0, PortraitHeight = 0,
+            CropTopPercent = 2, CropBottomPercent = 2, CropLeftPercent = 2, CropRightPercent = 2,
+        };
+        var format = new VideoDedupSourceFormat(
+            "h264", "High", "yuv420p", sourceRatio, "tv", "bt709", "bt709", "bt709",
+            "progressive", "25/1", false, 1, 1);
+        var clip = new VideoDedupClip("tall.mp4", new VideoDedupProbe(42, 1080, 1922, true, Format: format));
+
+        var args = VideoDedupPlanner.BuildArguments(preset, [clip], "out.mp4", "libx264", seed: 1);
+
+        string.Join(" ", args).Should().Contain($"scale={outputWidth}:{outputHeight}:flags=bicubic,setsar=1");
+    }
+
+    [Fact]
+    public void Anamorphic_sd_keeps_its_display_shape_when_upscaled()
+    {
+        var format = new VideoDedupSourceFormat(
+            "h264", "High", "yuv420p", "16:15", "tv", "bt709", "bt709", "bt709",
+            "progressive", "25/1", false, 1, 1);
+        var source = new VideoDedupProbe(42, 720, 576, true, Format: format);
+        var preset = new VideoDedupPreset { PortraitWidth = 0, PortraitHeight = 0 };
+
+        VideoDedupPlanner.ResolveUploadFrame(source, preset)
+            .Should().Be(new VideoDedupPlanner.UploadFrame(1440, 1080, true));
+    }
+
     [Fact]
     public void Mixed_frame_sizes_in_one_episode_scale_to_one_upload_frame()
     {

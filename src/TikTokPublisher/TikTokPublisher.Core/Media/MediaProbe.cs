@@ -8,6 +8,7 @@ public sealed class MediaProbe
     public double DurationSeconds { get; init; }
     public string VideoCodec { get; init; } = "";
     public string VideoCodecTag { get; init; } = "";
+    public string SampleAspectRatio { get; init; } = "";
     public string AudioCodec { get; init; } = "";
     public int AudioBitrateBps { get; init; }
     public int Width { get; init; }
@@ -35,6 +36,7 @@ public sealed class MediaProbe
         var audioCodec = "";
         var videoCodec = "";
         var videoCodecTag = "";
+        var sampleAspectRatio = "";
         var audioBitrate = 0;
         var width = 0;
         var height = 0;
@@ -59,6 +61,9 @@ public sealed class MediaProbe
                     videoCodecTag = stream.TryGetProperty("codec_tag_string", out var codecTagEl)
                         ? codecTagEl.GetString() ?? ""
                         : "";
+                    sampleAspectRatio = stream.TryGetProperty("sample_aspect_ratio", out var sarEl)
+                        ? sarEl.GetString() ?? ""
+                        : "";
                     width = stream.TryGetProperty("width", out var wEl) ? wEl.GetInt32() : 0;
                     height = stream.TryGetProperty("height", out var hEl) ? hEl.GetInt32() : 0;
                     var rate = stream.TryGetProperty("r_frame_rate", out var rEl) ? rEl.GetString() ?? "" : "";
@@ -72,6 +77,7 @@ public sealed class MediaProbe
             DurationSeconds = duration,
             VideoCodec = videoCodec,
             VideoCodecTag = videoCodecTag,
+            SampleAspectRatio = sampleAspectRatio,
             AudioCodec = audioCodec,
             AudioBitrateBps = audioBitrate,
             Width = width,

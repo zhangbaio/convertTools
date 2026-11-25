@@ -12,6 +12,8 @@ namespace TikTokPublisher.Core.Services;
 
 public static class TikTokMaterialValidationService
 {
+    internal const string ValidationParamsVersion = "v3|material-only|";
+
     public sealed class Options
     {
         public int Concurrency { get; init; } = 4;
@@ -152,7 +154,7 @@ public static class TikTokMaterialValidationService
 
             MediaProbe probe;
             try { probe = await MediaProbe.ProbeAsync(ffprobe, uploadPath, ct); }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 issues.Add($"第{episode}集 | {name} | 读时长失败（{ex.Message}）");
                 continue;
@@ -162,6 +164,15 @@ public static class TikTokMaterialValidationService
                 issues.Add($"第{episode}集 | {name} | {message}");
             foreach (var message in ValidateVideoFrame(probe.Width, probe.Height, probe.VideoCodec))
                 issues.Add($"第{episode}集 | {name} | {message}");
+            try
+            {
+                if (await VideoSampleAspectRatio.CheckAsync(uploadPath, probe, ct) is { } conflict)
+                    issues.Add($"第{episode}集 | {name} | {conflict}");
+            }
+            catch (InvalidOperationException ex)
+            {
+                issues.Add($"第{episode}集 | {name} | {ex.Message}");
+            }
 
             if (issues.Any(i => i.StartsWith($"第{episode}集", StringComparison.Ordinal)))
                 continue;
@@ -403,7 +414,7 @@ public static class TikTokMaterialValidationService
     }
 
     private static string ValidationParamsSignature(Options options) =>
-        $"v2|material-only|{options.Concurrency}";
+        $"{ValidationParamsVersion}{options.Concurrency}";
 
     internal static string ComputeMaterialFingerprint(IReadOnlyList<string> uploadVideoPaths)
     {
@@ -447,6 +458,13 @@ public static class TikTokMaterialValidationService
                 context.WorkspaceRoot,
                 context.SourceProjectDir,
                 "material_validation_state");
+            if (!state.TryGetValue("params", out var parameters) ||
+                parameters.ValueKind != JsonValueKind.String ||
+                parameters.GetString()?.StartsWith(ValidationParamsVersion, StringComparison.Ordinal) != true)
+            {
+                return false;
+            }
+
             if (requiredMinimumEpisodeCount is int requiredMinimum &&
                 !SavedEpisodeCountMatches(state, "minimumEpisodeCount", requiredMinimum))
             {

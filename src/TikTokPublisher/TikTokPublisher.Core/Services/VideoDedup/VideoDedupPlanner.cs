@@ -775,8 +775,7 @@ internal static partial class VideoDedupPlanner
             var clip = clips[slice.ClipIndex];
             var input = opened.SliceInput[i].ToString(CultureInfo.InvariantCulture);
             var label = i.ToString(CultureInfo.InvariantCulture);
-            var video = BuildVideoFilter(clip, slice, preset, seed + i * 17, opened.Origin[i], sharedFrame,
-                normalizeSampleAspectRatio: true);
+            var video = BuildVideoFilter(clip, slice, preset, seed + i * 17, opened.Origin[i], sharedFrame);
             if (video.Length == 0)
                 video = "setpts=PTS-STARTPTS";
             graph.Append($"[{input}:v]{video},format=yuv420p,settb=AVTB[v{label}];");
@@ -837,6 +836,30 @@ internal static partial class VideoDedupPlanner
 
     internal readonly record struct UploadFrame(int Width, int Height, bool Scaled);
 
+    internal static UploadFrame ResolveUploadFrame(VideoDedupProbe source, VideoDedupPreset preset)
+    {
+        var width = source.Width;
+        if (preset.KeepsOriginalResolution &&
+            source.Format is { HasDisplayTransform: false } format &&
+            VideoDedupSourceFormat.TryReadRatio(format.SampleAspectRatio, ':', out var numerator, out var denominator))
+        {
+            var displayWidth = width * (double)numerator / denominator;
+            // Keep the coded raster when the difference fits inside one chroma-aligned pixel pair.
+            if (Math.Abs(displayWidth - width) >= 2 && displayWidth is >= 2 and <= int.MaxValue - 1)
+                width = RoundEven(displayWidth);
+        }
+
+        var shortSide = Math.Min(width, source.Height);
+        if (width != source.Width && shortSide is > 0 and < TikTokVideoConstraints.MinShortSide)
+        {
+            var scale = TikTokVideoConstraints.MinShortSide / (double)shortSide;
+            return new UploadFrame(RoundEven(width * scale), RoundEven(source.Height * scale), true);
+        }
+
+        var frame = ResolveUploadFrame(width, source.Height, preset);
+        return frame with { Scaled = frame.Scaled || width != source.Width };
+    }
+
     internal static UploadFrame ResolveUploadFrame(int sourceWidth, int sourceHeight, VideoDedupPreset preset)
     {
         var widthRatio = 1 - (preset.CropLeftPercent + preset.CropRightPercent) / 100d;
@@ -893,7 +916,7 @@ internal static partial class VideoDedupPlanner
         foreach (var slice in slices)
         {
             var probe = clips[slice.ClipIndex].Probe;
-            var frame = ResolveUploadFrame(probe.Width, probe.Height, preset);
+            var frame = ResolveUploadFrame(probe, preset);
             if (frame.Width <= 0 || frame.Height <= 0)
                 continue;
             if (!haveFrame)
@@ -931,6 +954,9 @@ internal static partial class VideoDedupPlanner
 
     private static int Even(int value) => value <= 0 ? 0 : value - (value % 2);
 
+    private static int RoundEven(double value) =>
+        (int)Math.Round(Math.Min(value, int.MaxValue - 1d) / 2, MidpointRounding.AwayFromZero) * 2;
+
     private static string BuildVideoFilter(
         VideoDedupClip clip,
         VideoDedupSlice slice,
@@ -938,8 +964,7 @@ internal static partial class VideoDedupPlanner
         int seed,
         double originSeconds,
         UploadFrame? sharedFrame = null,
-        bool reduceFramesBeforeScaling = false,
-        bool normalizeSampleAspectRatio = false)
+        bool reduceFramesBeforeScaling = false)
     {
         var filters = new List<string>();
         var start = slice.StartSeconds - originSeconds;
@@ -959,7 +984,7 @@ internal static partial class VideoDedupPlanner
         var effects = preset.Effects ?? new VideoDedupEffects();
         filters.AddRange(VideoDedupEffectFilters.CompositionFilters(effects, VideoDedupEffectFilters.CompositionSeed(clip.Path)));
 
-        var frame = sharedFrame ?? ResolveUploadFrame(clip.Probe.Width, clip.Probe.Height, preset);
+        var frame = sharedFrame ?? ResolveUploadFrame(clip.Probe, preset);
         var downsampleBeforeScale = reduceFramesBeforeScaling && frame.Scaled
             && clip.Probe.AverageFramesPerSecond * preset.SpeedFactor > preset.Fps;
         if (downsampleBeforeScale)
@@ -971,10 +996,8 @@ internal static partial class VideoDedupPlanner
                 $"scale={frame.Width.ToString(CultureInfo.InvariantCulture)}:{frame.Height.ToString(CultureInfo.InvariantCulture)}:flags=bicubic");
         }
 
-        // Scaling to the same dimensions can still leave different sample aspect ratios for each segment.
-        if (normalizeSampleAspectRatio || effects.ReframeEnabled && effects.ReframeKeepPercent < 100)
-            filters.Add("setsar=1");
-
+        // Crop and scale can produce a SAR too large for the encoder's bitstream fields.
+        filters.Add("setsar=1");
         filters.Add("format=yuv420p,setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709");
 
         if (!downsampleBeforeScale)

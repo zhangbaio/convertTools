@@ -23,7 +23,7 @@ public sealed class VideoDedupHardwareTests
         var device = new VideoDedupHardwareDevice("GPU", "luid", "model", backend, 2);
         var frame = VideoDedupPlanner.GetHardwareFrame(preset, [clip], [slice]);
         frame.Should().NotBeNull();
-        frame!.Value.AspectRatio.Should().Be("960:961");
+        frame!.Value.AspectRatio.Should().Be("1:1");
 
         var args = VideoDedupPlanner.BuildHardwareArguments(preset, clip, slice, frame.Value,
             device, device.Encoder(hevc: false), "result.mp4").ToList();
@@ -32,7 +32,7 @@ public sealed class VideoDedupHardwareTests
         args[args.IndexOf("-hwaccel_device") + 1].Should().Be("dedup_gpu");
         args[args.IndexOf("-c:v") + 1].Should().Be("h264_" + backend);
         args[args.IndexOf("-vf") + 1].Should().StartWith(filter)
-            .And.Contain("setsar=sar=960/961").And.Contain("setparams=range=tv");
+            .And.Contain("setsar=sar=1/1").And.Contain("setparams=range=tv");
         args.Should().Contain("0:a:0").And.Contain("aac");
         args[^1].Should().Be("result.mp4");
     }

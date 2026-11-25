@@ -232,12 +232,12 @@ public sealed class TikTokMaterialValidationServiceTests
                 new Dictionary<string, object?>
                 {
                     ["fingerprint"] = TikTokMaterialValidationService.ComputeMaterialFingerprint([stagingPath]),
+                    ["params"] = "v2|material-only|4",
                 },
                 workflowDir);
 
-            TikTokMaterialValidationService.HasCurrentValidationState(sourceDir).Should().BeTrue();
-            TikTokMaterialValidationService.HasCurrentValidationState(sourceDir, requiredMinimumEpisodeCount: 30)
-                .Should().BeFalse("旧校验结果没有最小集数，改配置后必须重跑");
+            TikTokMaterialValidationService.HasCurrentValidationState(sourceDir)
+                .Should().BeFalse("旧校验结果没有检查成片的比例元数据");
 
             ProjectStateDocumentStore.SaveDocument(
                 workspace,
@@ -246,10 +246,12 @@ public sealed class TikTokMaterialValidationServiceTests
                 new Dictionary<string, object?>
                 {
                     ["fingerprint"] = TikTokMaterialValidationService.ComputeMaterialFingerprint([stagingPath]),
+                    ["params"] = TikTokMaterialValidationService.ValidationParamsVersion + "4",
                     ["minimumEpisodeCount"] = 30,
                 },
                 workflowDir);
             TikTokMaterialValidationService.HasCurrentValidationState(sourceDir, 30).Should().BeTrue();
+            TikTokMaterialValidationService.HasCurrentValidationState(sourceDir).Should().BeTrue();
             TikTokMaterialValidationService.HasCurrentValidationState(sourceDir, 40).Should().BeFalse();
             TikTokMaterialValidationService.HasCurrentValidationState(sourceDir, 30, 120)
                 .Should().BeFalse("旧校验结果没有最大集数，改配置后必须重跑");
@@ -261,6 +263,7 @@ public sealed class TikTokMaterialValidationServiceTests
                 new Dictionary<string, object?>
                 {
                     ["fingerprint"] = TikTokMaterialValidationService.ComputeMaterialFingerprint([stagingPath]),
+                    ["params"] = TikTokMaterialValidationService.ValidationParamsVersion + "4",
                     ["minimumEpisodeCount"] = 30,
                     ["maximumEpisodeCount"] = 120,
                 },
