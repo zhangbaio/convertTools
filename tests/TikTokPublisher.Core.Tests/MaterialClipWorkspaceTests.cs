@@ -62,6 +62,26 @@ public sealed class MaterialClipWorkspaceTests
     }
 
     [Fact]
+    public void EditedFailedTaskCanRetryWithCurrentDurations()
+    {
+        var task = TaskFor("failed", new ClipConfig());
+        task.Configuration.SetRanges("highlight", [new(420, 510), new(630, 690)]);
+        var previous = task.CreateRun(new(), new());
+        task.BeginRun(previous);
+        task.Finish("失败");
+
+        var edited = new ClipTimeRange(40, 50);
+        task.Configuration.SetRanges("highlight", [edited, edited]);
+        task.MarkConfigurationEdited();
+
+        Assert.True(task.CanRetry);
+        Assert.False(task.Pending);
+        var retry = task.CreateRun(new(), new());
+        Assert.All(Assert.Single(retry.ModeSettings!).Ranges, range => Assert.Equal(edited, range));
+        Assert.Equal(new ClipTimeRange(420, 510), Assert.Single(previous.ModeSettings!).Ranges[0]);
+    }
+
+    [Fact]
     public void LegacyRangesAndReviewTimelineWorkWithoutNewManifestMetadata()
     {
         var config = new MaterialClipTaskConfiguration(new ClipConfig());

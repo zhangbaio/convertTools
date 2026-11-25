@@ -204,10 +204,18 @@ public partial class MaterialClipView : UserControl
             out var number) && number > 0 ? number : null;
     }
 
-    private async void StartQueue(object? sender, RoutedEventArgs e)
+    private async void StartQueue(object? sender, RoutedEventArgs e) =>
+        await RunConfiguredTasksAsync(_queue.Where(item => item.Pending).ToArray());
+
+    private async void RetrySelected(object? sender, RoutedEventArgs e)
     {
-        var tasks = _queue.Where(item => item.Pending).ToArray();
-        if (IsRunning || tasks.Length == 0)
+        if (Selected is { CanRetry: true } task)
+            await RunConfiguredTasksAsync([task]);
+    }
+
+    private async Task RunConfiguredTasksAsync(IReadOnlyList<MaterialClipQueueItem> tasks)
+    {
+        if (IsRunning || _sendingToWeixin || tasks.Count == 0)
             return;
         foreach (var task in tasks)
         {
@@ -234,12 +242,6 @@ public partial class MaterialClipView : UserControl
         await RunAsync(runs);
     }
 
-    private async void RetrySelected(object? sender, RoutedEventArgs e)
-    {
-        if (Selected is { CanRetry: true, LastRun: { } options } task)
-            await RunAsync([(task, options)]);
-    }
-
     private void StopQueue(object? sender, RoutedEventArgs e)
     {
         QueueStatus.Text = "正在停止剪辑，尚未开始的任务会留在队列中。";
@@ -261,6 +263,13 @@ public partial class MaterialClipView : UserControl
                 if (running.IsCancellationRequested)
                     break;
                 task.BeginRun(options);
+                foreach (var mode in options.ModeSettings ?? [])
+                {
+                    var label = MaterialClipModeEditor.Label(mode.Mode, options.StoryHighlights);
+                    var ranges = string.Join("、", mode.Ranges.Select(range => $"{range.MinSeconds}–{range.MaxSeconds} 秒"));
+                    AddLog(task, $"{label}出片时长：{ranges}");
+                }
+                var setupLogCount = task.Logs.Count;
                 if (ReferenceEquals(task, Selected))
                     UpdateOutputs();
                 QueueStatus.Text = $"正在剪辑 {task.Title}";
@@ -273,7 +282,7 @@ public partial class MaterialClipView : UserControl
                     foreach (var path in result.Outputs)
                         AddOutput(task, path, options.FfprobePath);
                     task.Finish(result.Ok ? (result.Issues.Count == 0 ? "已完成" : "有未完成项") : "失败");
-                    if (!result.Ok && result.Error is not null && task.Logs.Count == 0)
+                    if (!result.Ok && result.Error is not null && task.Logs.Count == setupLogCount)
                         AddLog(task, result.Error);
                 }
                 catch (OperationCanceledException) when (running.IsCancellationRequested)
@@ -393,7 +402,7 @@ public partial class MaterialClipView : UserControl
 
     private void ConfigurationChanged(MaterialClipQueueItem task)
     {
-        task.PrepareForNewRun();
+        task.MarkConfigurationEdited();
         UpdateButtons();
     }
 

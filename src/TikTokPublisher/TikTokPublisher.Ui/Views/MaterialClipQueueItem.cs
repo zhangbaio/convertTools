@@ -60,5 +60,13 @@ internal sealed partial class MaterialClipQueueItem(
         RefreshDescription();
     }
 
+    public void MarkConfigurationEdited()
+    {
+        if (CanRetry)
+            RefreshDescription();
+        else
+            PrepareForNewRun();
+    }
+
     public void RefreshDescription() => OnPropertyChanged(nameof(Description));
 }

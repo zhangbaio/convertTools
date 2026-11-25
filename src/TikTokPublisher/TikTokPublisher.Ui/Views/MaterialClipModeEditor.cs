@@ -120,7 +120,7 @@ internal sealed class MaterialClipModeEditor : Border
         {
             var mixed = IsMixed();
             unify.IsVisible = rangeSummary.IsVisible = mixed;
-            rangeSummary.Text = "各条时长不同，可逐条调整或统一应用上方时长。";
+            rangeSummary.Text = "各条时长不同。修改上方秒数会统一应用到各条成片。";
             for (var i = 0; i < perClip.Length; i++)
                 perClip[i].Row.IsVisible = i < Count();
         }
@@ -167,8 +167,8 @@ internal sealed class MaterialClipModeEditor : Border
             syncing = false;
             SaveRanges();
         };
-        min.ValueChanged += (_, _) => { if (!syncing && !IsMixed()) ApplyUniform(); };
-        max.ValueChanged += (_, _) => { if (!syncing && !IsMixed()) ApplyUniform(); };
+        min.ValueChanged += (_, _) => { if (!syncing) ApplyUniform(); };
+        max.ValueChanged += (_, _) => { if (!syncing) ApplyUniform(); };
         unify.Click += (_, _) => ApplyUniform();
         foreach (var row in perClip)
         {
