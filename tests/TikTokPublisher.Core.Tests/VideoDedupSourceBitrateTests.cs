@@ -10,7 +10,15 @@ public sealed class VideoDedupSourceBitrateTests
     [Fact]
     public void ACompletedPresetCopyAndSavedAccountKeepTheSourceSelection()
     {
-        var preset = JsonSerializer.Deserialize<VideoDedupPreset>("""{"VideoBitrateMbps":2.2}""")!;
+        var defaults = VideoDedupPreset.CreateDefault();
+        Assert.False(defaults.UseSourceVideoBitrate);
+        Assert.Equal(VideoDedupPreset.BitrateVbr, defaults.BitrateMode);
+        Assert.Equal(2d, defaults.VideoBitrateMbps);
+        var unset = JsonSerializer.Deserialize<VideoDedupPreset>("""{"VideoBitrateMbps":2.2}""")!;
+        Assert.False(unset.UseSourceVideoBitrate);
+        Assert.Equal(2.2, unset.VideoBitrateMbps);
+
+        var preset = JsonSerializer.Deserialize<VideoDedupPreset>("""{"UseSourceVideoBitrate":false,"VideoBitrateMbps":2.2}""")!;
         Assert.False(preset.UseSourceVideoBitrate);
         var manualFingerprint = preset.Fingerprint();
         preset.UseSourceVideoBitrate = true;
@@ -20,6 +28,16 @@ public sealed class VideoDedupSourceBitrateTests
         Assert.NotEqual(manualFingerprint, restored.Fingerprint());
         restored.UseSourceVideoBitrate = false;
         Assert.Equal(manualFingerprint, restored.Fingerprint());
+    }
+
+    [Fact]
+    public void ImportedPresetWithAnExplicitBitrateKeepsTheManualValue()
+    {
+        var preset = VideoDedupPresetImporter.FromProcessorJson("""
+            {"steps":[{"type":"videoEncode","bitrateKbps":2200}]}
+            """);
+        Assert.False(preset.UseSourceVideoBitrate);
+        Assert.Equal(2.2, preset.VideoBitrateMbps);
     }
 
     [Fact]
