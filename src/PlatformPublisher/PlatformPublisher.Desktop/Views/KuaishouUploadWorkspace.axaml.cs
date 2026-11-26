@@ -192,6 +192,7 @@ public partial class KuaishouUploadWorkspace : UserControl, IDisposable
             Sidebar.DataContext = _viewModel;
             Workflow.Bind(() => _selectedAccount);
             Configuration.UseAccountStore(accounts);
+            Configuration.UseAccountAiStore(_viewModel.AccountAiStore);
             Configuration.ConfigSaved += OnConfigSavedAsync;
             Configuration.ConfirmAccountEdition += ConfirmEditionAsync;
             Configuration.AccountEditionApplied += ApplyEditionAsync;

@@ -3,7 +3,6 @@ using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using ShortDrama.Core.Models;
-using ShortDrama.Infrastructure.Config;
 
 namespace ShortDrama.Infrastructure.Files;
 
@@ -30,7 +29,7 @@ public sealed partial class PosterRenamer
         Action<string>? log,
         CancellationToken cancellationToken)
     {
-        var config = KeyValueConfigReader.Read(configFile);
+        var config = ReadConfig(configFile);
         var previousCall = CurrentCall.Value;
         CurrentCall.Value = new PosterCallContext(log, IsFastPosterLayoutMode(GetOptional(config, "PosterLayoutRequestMode")));
         try

@@ -1,6 +1,5 @@
 using ShortDrama.Core.Models;
 using ShortDrama.Core.Posters;
-using ShortDrama.Infrastructure.Config;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -16,7 +15,7 @@ public sealed partial class PosterRenamer
         CancellationToken cancellationToken)
     {
         var configFile = request.ConfigFile!;
-        var config = KeyValueConfigReader.Read(configFile);
+        var config = ReadConfig(configFile);
         var provider = NormalizeImageProvider(GetOptional(config, "ImageProvider"));
         var imageSize = NormalizeImageSize(GetOptional(config, "ImageSize"), provider);
         if (imageSize.Length == 0)

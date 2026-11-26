@@ -32,6 +32,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 {
     public event Action? ActiveAccountWorkRootDirectoryChanged;
     public event Action<string, string>? KuaishouDailyUploadLimitReached;
+    internal KuaishouAccountAiStore AccountAiStore { get; }
 
     private readonly object _ksDailyLimitGate = new();
     private readonly Dictionary<string, DateOnly> _ksDailyLimitDay = new(StringComparer.OrdinalIgnoreCase);
@@ -135,7 +136,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         KuaishouScheduledShelfService scheduledShelfService,
         KuaishouPersonalUploadService kuaishouUploadService,
         DramaSourceRouter dramaDownloader,
-        YunfanDramaSettingsProvider dramaSettings)
+        YunfanDramaSettingsProvider dramaSettings,
+        KuaishouAccountAiStore accountAiStore)
     {
         _store = store;
         _accountStore = accountStore;
@@ -158,6 +160,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _kuaishouUploadService = kuaishouUploadService;
         _dramaDownloader = dramaDownloader;
         _dramaSettings = dramaSettings;
+        AccountAiStore = accountAiStore;
         Platforms =
         [
             new(PublishPlatform.WeixinChannel, "视频号", "剧集上传、提交与断点恢复"),
@@ -2578,7 +2581,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal);
         PosterImageConfigHelper.ApplyPosterRuntimeConfig(payload, settings);
         string Value(string key) => payload.TryGetValue(key, out var value) ? value?.ToString()?.Trim() ?? "" : "";
-        var endpoint = FirstPosterSetting(Value("ImageEditEndpoint"), settings.ImageModelEndpoint);
+        var endpoint = Value("ImageEditEndpoint");
         return new KuaishouPosterSettings(
             settings.PosterMode,
             erase,
@@ -2587,8 +2590,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
             horizontal,
             prefix + horizontal,
             provider,
-            FirstPosterSetting(Value("ImageEditModelId"), settings.ImageModelId),
-            FirstPosterSetting(Value("ImageEditApiKey"), settings.ImageModelApiKey),
+            Value("ImageEditModelId"),
+            Value("ImageEditApiKey"),
             endpoint,
             FirstPosterSetting(Value("ImageEditPath"), PosterImageConfigHelper.DefaultImageEditPath(endpoint)),
             Value("ImageSize"),
@@ -2739,6 +2742,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
             try
             {
+                var needsAi = enabled.Any(step => !preserved.Contains(step.YunfanKey) &&
+                    step.YunfanKey is "rewrite" or "auto-fill-info" or "poster-rename");
+                var aiSettings = needsAi ? KuaishouAccountAiSettings.Load(request.AccountId, AccountAiStore) : null;
                 async Task SkipIfCompletedMeanwhileAsync(string yunfanKey)
                 {
                     if (request.Force || preserved.Contains(yunfanKey))
@@ -2856,7 +2862,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
                         await UpdateStepStateAsync(trackedJob, trackedRow, "rewrite", "改写信息", PublishJobStepStatus.Running, "正在生成快手发布信息");
                     if (request.AutoFill && !preserved.Contains("auto-fill-info"))
                         await UpdateStepStateAsync(trackedJob, trackedRow, "auto-fill-info", "补齐字段", PublishJobStepStatus.Running, "正在补齐快手字段");
-                    var ai = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
+                    var ai = aiSettings!;
                     await new KuaishouPublishInfoService().PrepareAsync(
                         projectDirectory,
                         config,
@@ -2897,10 +2903,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
                             cancellationToken);
                         SyncKuaishouWorkflow(posterDirectories.SourceDirectory, projectName);
                     }
-                    var imageSettings = ClientSettingsStore.Load(PlatformPublisherPaths.SettingsDatabasePath);
                     await new KuaishouPosterService().PrepareAsync(
                         projectDirectory,
-                        CreateKuaishouPosterSettings(imageSettings),
+                        CreateKuaishouPosterSettings(aiSettings!),
                         new Progress<string>(message => AppendActivityLog(message, projectName)),
                         cancellationToken);
                     await UpdateStepStateAsync(trackedJob, trackedRow, "poster-rename", "生成海报", PublishJobStepStatus.Succeeded, "执行完成");

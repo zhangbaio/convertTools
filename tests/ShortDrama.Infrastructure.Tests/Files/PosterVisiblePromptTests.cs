@@ -67,6 +67,39 @@ public sealed class PosterVisiblePromptTests
     }
 
     [Fact]
+    public async Task PortraitAndLandscapeCanUseAnInMemoryAccountConfiguration()
+    {
+        using var project = new PosterProject(PosterGenerationTemplates.DirectMode);
+        var png = CreatePng(96, 128, GeneratedColor);
+        using var handler = new RecordingImageHandler((_, _) => ImageResponse(png));
+        using var http = new HttpClient(handler);
+        var config = new Dictionary<string, string>
+        {
+            ["PosterMode"] = PosterGenerationTemplates.DirectMode,
+            ["ImageModelEndpoint"] = "https://model.example/v1",
+            ["ImageEditPath"] = "/images/generations",
+            ["ImageModelId"] = "account-image-model",
+            ["ImageModelApiKey"] = "synthetic-account-key",
+            ["ImageSize"] = "96x128",
+        };
+        var renamer = new PosterRenamer(new TxtProjectInfoParser(), new ExternalProcessRunner(),
+            http, NullLogger<PosterRenamer>.Instance, config);
+
+        await renamer.RenameAsync(project.Request with { ConfigFile = null, PlainTextImagePrompt = "账号竖屏提示词" },
+            CancellationToken.None);
+        var landscape = Path.Combine(project.Request.ProjectDir, "横屏封面.jpg");
+        await renamer.GenerateSizedCoverAsync("", project.OutputPath, landscape, Title, "账号横屏提示词",
+            "重试", 160, 100, "128x96", false, false, null, CancellationToken.None);
+
+        handler.Requests.Should().HaveCount(2);
+        handler.Requests.Select(request => request.Key).Should().OnlyContain(key => key == "synthetic-account-key");
+        GetPrompt(handler.Requests[0]).Should().Contain("账号竖屏提示词");
+        GetPrompt(handler.Requests[1]).Should().Contain("账号横屏提示词");
+        var info = await Image.IdentifyAsync(landscape);
+        (info.Width, info.Height).Should().Be((160, 100));
+    }
+
+    [Fact]
     public async Task A_second_request_failure_preserves_the_previous_poster()
     {
         using var project = new PosterProject(PosterGenerationTemplates.DirectMode);
@@ -264,7 +297,7 @@ public sealed class PosterVisiblePromptTests
         return bytes.ToArray();
     }
 
-    private sealed record RecordedRequest(string Path, string Body);
+    private sealed record RecordedRequest(string Path, string Body, string? Key);
 
     private sealed class RecordingImageHandler(Func<int, string, HttpResponseMessage> respond) : HttpMessageHandler
     {
@@ -274,7 +307,7 @@ public sealed class PosterVisiblePromptTests
         {
             var path = request.RequestUri!.AbsolutePath;
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
-            Requests.Add(new RecordedRequest(path, body));
+            Requests.Add(new RecordedRequest(path, body, request.Headers.Authorization?.Parameter));
             return respond(Requests.Count, path);
         }
     }

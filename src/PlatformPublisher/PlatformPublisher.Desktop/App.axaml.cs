@@ -178,6 +178,7 @@ public partial class App : Application
         services.AddSingleton<ISecureBlobStore, SecureBlobStore>();
         services.AddSingleton<IDataProtector, WindowsDataProtector>();
         services.AddSingleton<KuaishouCredentialStore>();
+        services.AddSingleton<KuaishouAccountAiStore>();
         services.AddSingleton<AccountJsonSettingStore>();
         services.AddSingleton<DatabaseBackupService>();
         services.AddSingleton<LegacyDatabaseImporter>();

@@ -7,7 +7,6 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using ShortDrama.Core.Models;
-using ShortDrama.Infrastructure.Config;
 
 namespace ShortDrama.Infrastructure.Files;
 
@@ -65,7 +64,7 @@ public sealed partial class PosterRenamer
     {
         await TryGeneratePosterWithAiAsync(configFile, inputPath, outputPath, title, layout, cancellationToken);
 
-        var config = KeyValueConfigReader.Read(configFile);
+        var config = ReadConfig(configFile);
         if (!IsPosterTitleVerifyEnabled(config))
             return;
 
@@ -233,7 +232,7 @@ public sealed partial class PosterRenamer
         {
             var layout = await DetectPosterLayoutAsync(configFile, renderInputPath, title, request.Log, cancellationToken);
             await WriteGeneratedPosterCandidateAsync(renderInputPath, await File.ReadAllBytesAsync(renderInputPath, cancellationToken), outputPath, cancellationToken);
-            var config = KeyValueConfigReader.Read(configFile);
+            var config = ReadConfig(configFile);
             var verifyEnabled = IsPosterTitleVerifyEnabled(config);
             var verifyMode = PosterTitleVerifyModeHelper.Normalize(config.GetValueOrDefault("PosterTitleVerifyMode"));
             var finalVerify = await FallbackRepaintVerifiedTitleAsync(
@@ -280,7 +279,7 @@ public sealed partial class PosterRenamer
                 await File.ReadAllBytesAsync(renderInputPath, cancellationToken),
                 outputPath,
                 cancellationToken);
-            var config = KeyValueConfigReader.Read(configFile);
+            var config = ReadConfig(configFile);
             var layout = new PosterLayout(0, 0, 1, 1, 0.08f, new Rgba32(255, 214, 0), new Rgba32(0, 0, 0), 0, HorizontalAlignment.Center);
             var erasePrompt = GetOptional(config, "PosterAllTextErasePrompt") ?? DefaultPosterAllTextErasePrompt;
             var erasedBytes = await GenerateTitleErasedPosterBytesAsync(
@@ -359,7 +358,7 @@ public sealed partial class PosterRenamer
             var posterH = posterImage.Height;
             Log(request, $"原始封面：{Path.GetFileName(inputPath)} ({posterW}x{posterH})");
 
-            var config = KeyValueConfigReader.Read(configFile);
+            var config = ReadConfig(configFile);
             var prompt = BuildImageGenerationPrompt(GetOptional(config, "FrameCoverPrompt"), title);
             var apiSize = PosterCoverFrameSizeHelper.ResolveFrameApiSize(posterW, posterH, config);
             Log(request, $"AI 生成中：请求尺寸 {apiSize}");

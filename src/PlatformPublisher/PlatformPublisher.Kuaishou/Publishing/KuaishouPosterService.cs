@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Globalization;
 using ShortDrama.Core.Models;
 using ShortDrama.Infrastructure.Files;
 using ShortDrama.Infrastructure.Networking;
@@ -7,7 +8,6 @@ using ShortDrama.Infrastructure.Process;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
-using System.Text.Json;
 
 namespace PlatformPublisher.Kuaishou.Publishing;
 
@@ -54,11 +54,11 @@ public sealed class KuaishouPosterService
         if (string.IsNullOrWhiteSpace(settings.ImageModelEndpoint) ||
             string.IsNullOrWhiteSpace(settings.ImageModelApiKey) ||
             string.IsNullOrWhiteSpace(settings.ImageModelId))
-            throw new InvalidOperationException("请先在系统设置的 AI图片 中填写模型 Endpoint、API Key 和模型 ID。");
+            throw new InvalidOperationException("请在快手发布配置的 AI 图片中填写模型和 API Key，或使用本机默认。");
         if (string.IsNullOrWhiteSpace(settings.ChatEndpoint) ||
             string.IsNullOrWhiteSpace(settings.ChatApiKey) ||
             string.IsNullOrWhiteSpace(settings.ChatModel))
-            throw new InvalidOperationException("生成海报需要 AI文本 中的接口地址、API Key 和模型名称，用于定位标题。");
+            throw new InvalidOperationException("生成海报需要快手发布配置中的 AI 文本模型和 API Key，用于定位标题。");
 
         var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
         Directory.CreateDirectory(directories.WorkflowDirectory);
@@ -75,33 +75,32 @@ public sealed class KuaishouPosterService
         var verticalJpeg = Path.Combine(directories.WorkflowDirectory, VerticalPosterFileName);
         var horizontalJpeg = Path.Combine(directories.WorkflowDirectory, HorizontalCoverFileName);
         var erasedPng = Path.Combine(directories.WorkflowDirectory, ErasedPosterFileName);
-        var configPath = WriteConfig(directories.WorkflowDirectory, settings);
         var input = source;
         string? sourceCopy = null;
-        if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(portraitPng), StringComparison.OrdinalIgnoreCase))
-        {
-            sourceCopy = Path.Combine(directories.WorkflowDirectory, $".poster-source-{Guid.NewGuid():N}{Path.GetExtension(source)}");
-            File.Copy(source, sourceCopy, overwrite: true);
-            input = sourceCopy;
-        }
-
         try
         {
+            if (string.Equals(Path.GetFullPath(source), Path.GetFullPath(portraitPng), StringComparison.OrdinalIgnoreCase))
+            {
+                sourceCopy = Path.Combine(directories.WorkflowDirectory, $".poster-source-{Guid.NewGuid():N}{Path.GetExtension(source)}");
+                File.Copy(source, sourceCopy, overwrite: true);
+                input = sourceCopy;
+            }
+
             progress?.Report(settings.EraseMode
                 ? "开始清除竖屏海报文字，并用固定字体写入新剧名。"
                 : "开始重新设计竖屏海报。");
-            var http = DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
+            using var http = DefaultNetworkHttp.CreateClient(TimeSpan.FromMinutes(5));
             var renamer = new PosterRenamer(
                 new TxtProjectInfoParser(),
                 new ExternalProcessRunner(),
                 http,
-                NullLogger<PosterRenamer>.Instance);
+                NullLogger<PosterRenamer>.Instance,
+                BuildConfig(settings));
             await renamer.RenameAsync(
                 new PosterRenameRequest(
                     directories.WorkflowDirectory,
                     InputFilePath: input,
                     OutputFilePath: portraitPng,
-                    ConfigFile: configPath,
                     Overwrite: true,
                     Log: message => progress?.Report(message)),
                 cancellationToken);
@@ -119,7 +118,7 @@ public sealed class KuaishouPosterService
                     ? "开始把无文字底图扩展为 16:10 横屏封面。"
                     : "开始把竖屏海报扩展为 16:10 横屏封面。");
                 await renamer.GenerateSizedCoverAsync(
-                    configPath,
+                    configFile: "",
                     landscapeInput,
                     horizontalJpeg,
                     title,
@@ -146,7 +145,6 @@ public sealed class KuaishouPosterService
         }
         finally
         {
-            TryDelete(configPath);
             if (sourceCopy is not null)
                 TryDelete(sourceCopy);
         }
@@ -218,10 +216,9 @@ public sealed class KuaishouPosterService
         await image.SaveAsJpegAsync(targetPath, new JpegEncoder { Quality = 92 }, cancellationToken);
     }
 
-    private static string WriteConfig(string workflowDirectory, KuaishouPosterSettings settings)
+    private static IReadOnlyDictionary<string, string> BuildConfig(KuaishouPosterSettings settings)
     {
-        var path = Path.Combine(workflowDirectory, $".kuaishou-poster-{Guid.NewGuid():N}.json");
-        var payload = new Dictionary<string, object?>
+        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["PosterMode"] = settings.EraseMode ? "erase_fixed_lower_title" : "original",
             ["ImageProvider"] = settings.ImageProvider,
@@ -244,12 +241,10 @@ public sealed class KuaishouPosterService
             ["PosterAllTextErasePrompt"] = settings.VerticalPrompt.Replace("{title}", "", StringComparison.Ordinal),
             ["PosterLayoutDetectPrompt"] = settings.LayoutDetectPrompt,
             ["PosterLayoutRequestMode"] = "standard",
-            ["PosterTitleVerifyEnabled"] = settings.TitleVerifyEnabled,
+            ["PosterTitleVerifyEnabled"] = settings.TitleVerifyEnabled ? "true" : "false",
             ["PosterTitleVerifyMode"] = settings.TitleVerifyMode,
-            ["PosterTitleVerifyAiRetryCount"] = settings.TitleVerifyAiRetryCount,
+            ["PosterTitleVerifyAiRetryCount"] = settings.TitleVerifyAiRetryCount.ToString(CultureInfo.InvariantCulture),
         };
-        File.WriteAllText(path, JsonSerializer.Serialize(payload));
-        return path;
     }
 
     private static string ApplyTitle(string prompt, string title, bool requireTitle)

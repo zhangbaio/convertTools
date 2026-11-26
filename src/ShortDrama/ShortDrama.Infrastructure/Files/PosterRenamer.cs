@@ -138,18 +138,24 @@ JSON 结构：
     private readonly IExternalProcessRunner _processRunner;
     private readonly HttpClient _httpClient;
     private readonly ILogger<PosterRenamer> _logger;
+    private readonly IReadOnlyDictionary<string, string>? _runtimeConfig;
 
     public PosterRenamer(
         IProjectInfoParser projectInfoParser,
         IExternalProcessRunner processRunner,
         HttpClient httpClient,
-        ILogger<PosterRenamer> logger)
+        ILogger<PosterRenamer> logger,
+        IReadOnlyDictionary<string, string>? runtimeConfig = null)
     {
         _projectInfoParser = projectInfoParser;
         _processRunner = processRunner;
         _httpClient = httpClient;
         _logger = logger;
+        _runtimeConfig = runtimeConfig;
     }
+
+    private IReadOnlyDictionary<string, string> ReadConfig(string? path) =>
+        _runtimeConfig ?? KeyValueConfigReader.Read(path!);
 
     public async Task<PosterRenameResult> RenameAsync(
         PosterRenameRequest request,
@@ -165,12 +171,12 @@ JSON 结构：
         var project = await _projectInfoParser.ParsePosterAsync(request.ProjectDir, cancellationToken);
         var inputPath = ResolveInputFile(request.ProjectDir, request.InputFilePath);
 
-        if (string.IsNullOrWhiteSpace(request.ConfigFile) || !File.Exists(request.ConfigFile))
+        if (_runtimeConfig is null && (string.IsNullOrWhiteSpace(request.ConfigFile) || !File.Exists(request.ConfigFile)))
         {
             throw new InvalidOperationException("AI 海报图片生成必须提供有效的 configFile。");
         }
 
-        var config = KeyValueConfigReader.Read(request.ConfigFile);
+        var config = ReadConfig(request.ConfigFile);
         var posterMode = NormalizePosterMode(GetOptional(config, "PosterMode"));
         var useVisiblePrompt = request.UseVisibleImagePrompt && PosterGenerationTemplates.IsSupportedMode(posterMode);
         var posterName = request.UseAi && !useVisiblePrompt
@@ -270,7 +276,7 @@ JSON 结构：
         var renderInputPath = await PrepareRenderableInputAsync(inputPath, cancellationToken);
         try
         {
-            if (string.IsNullOrWhiteSpace(configFile) || !File.Exists(configFile))
+            if (_runtimeConfig is null && (string.IsNullOrWhiteSpace(configFile) || !File.Exists(configFile)))
             {
                 throw new InvalidOperationException("AI 海报图片生成必须提供有效的 configFile。");
             }
@@ -419,12 +425,12 @@ JSON 结构：
         Action<string>? log,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(configFile) || !File.Exists(configFile))
+        if (_runtimeConfig is null && (string.IsNullOrWhiteSpace(configFile) || !File.Exists(configFile)))
         {
             throw new InvalidOperationException("AI 海报布局检测必须提供有效的 configFile。");
         }
 
-        var config = KeyValueConfigReader.Read(configFile);
+        var config = ReadConfig(configFile);
         var endpoint = GetRequired(config, "ChatModelEndpoint").TrimEnd('/');
         var modelId = GetRequired(config, "ChatModelId");
         var apiKey = GetRequired(config, "ChatModelApiKey");
@@ -941,7 +947,7 @@ JSON 结构：
         PosterLayout layout,
         CancellationToken cancellationToken)
     {
-        var config = KeyValueConfigReader.Read(configFile);
+        var config = ReadConfig(configFile);
         var provider = NormalizeImageProvider(GetOptional(config, "ImageProvider"));
         var endpoint = GetOptional(config, "ImageEditEndpoint") ?? GetRequired(config, "ImageModelEndpoint");
         var apiPath = GetOptional(config, "ImageEditPath") ?? GetDefaultImageEditPath(endpoint);
@@ -1764,12 +1770,12 @@ JSON 结构：
         string? configFile,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(configFile))
+        if (_runtimeConfig is null && string.IsNullOrWhiteSpace(configFile))
         {
-            throw new InvalidOperationException("启用 AI 海报名时必须提供 configFile。");
+            throw new InvalidOperationException("启用 AI 海报名时必须提供配置。");
         }
 
-        var config = KeyValueConfigReader.Read(configFile);
+        var config = ReadConfig(configFile);
         var endpoint = GetRequired(config, "ChatModelEndpoint").TrimEnd('/');
         var modelId = GetRequired(config, "ChatModelId");
         var apiKey = GetRequired(config, "ChatModelApiKey");

@@ -62,7 +62,7 @@ public sealed class KuaishouPublishInfoService
         if (!rewrite && !autoFill)
             return;
         if (string.IsNullOrWhiteSpace(ai.Endpoint) || string.IsNullOrWhiteSpace(ai.ApiKey) || string.IsNullOrWhiteSpace(ai.Model))
-            throw new InvalidOperationException("请先在系统设置的 AI文本 中填写接口地址、API Key 和模型名称。");
+            throw new InvalidOperationException("请在快手发布配置的 AI 文本中填写模型和 API Key，或使用本机默认。");
 
         var directories = KuaishouArtifactColumnStatusReader.ResolveDirectories(projectDirectory);
         var infoPath = Path.Combine(directories.WorkflowDirectory, "短剧信息.txt");

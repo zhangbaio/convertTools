@@ -23,6 +23,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
     private string[] _cleanValues = [];
     private bool _legacyImportPending;
     private bool _usesWorkspaceNavigation;
+    private bool _saving;
     public event Func<string, PublishPlatform, string, Task>? ConfigSaved;
     public event Func<ChannelsAccount, string, Task<bool>>? ConfirmAccountEdition;
     public event Func<ChannelsAccount, string, Task>? AccountEditionApplied;
@@ -40,11 +41,14 @@ public partial class KuaishouPersonalConfigDialog : UserControl
                 (control is TextBox { IsReadOnly: false } or ComboBox or ToggleButton))
             .ToArray();
         LoadValues();
+        AiEditor.LoadAccount(null);
         CaptureClean();
         UpdateHeading();
     }
 
     public void UseAccountStore(AccountStore accountStore) => _accountStore = accountStore;
+
+    internal void UseAccountAiStore(KuaishouAccountAiStore store) => AiEditor.Store = store;
 
     internal string LegacyVideoDedupTemplateId => _config.VideoDedupTemplateId;
 
@@ -61,6 +65,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     public async Task<bool> TryLeaveAsync(Window owner)
     {
+        if (_saving) return false;
         if (StandaloneDedupHost.Content is KuaishouVideoDedupView dedup && !await dedup.TryLeaveAsync(owner))
             return false;
         if (!HasUnsavedChanges()) return true;
@@ -89,6 +94,7 @@ public partial class KuaishouPersonalConfigDialog : UserControl
             StandaloneDedupHost.Content = dedup;
         }
         LoadValues();
+        AiEditor.LoadAccount(account?.Id);
         CaptureClean();
         UpdateHeading();
     }
@@ -536,12 +542,28 @@ public partial class KuaishouPersonalConfigDialog : UserControl
 
     private async Task<bool> SaveCurrentAsync()
     {
+        if (_saving) return false;
+        _saving = true;
+        var enabled = IsEnabled;
+        IsEnabled = false;
+        try { return await SaveAccountAsync(); }
+        finally
+        {
+            IsEnabled = enabled;
+            _saving = false;
+        }
+    }
+
+    private async Task<bool> SaveAccountAsync()
+    {
         if (_account is null)
         {
             ValidationText.Text = "请先在左侧选择账号。";
             return false;
         }
         if (!ApplyToConfig()) return false;
+        var accountId = _account.Id;
+        var aiOptions = AiEditor.PendingOptions();
         var edition = SelectedEdition();
         var editionChanged = !string.Equals(edition, _account.KuaishouAccountEdition ?? "", StringComparison.OrdinalIgnoreCase);
         if (editionChanged)
@@ -568,6 +590,17 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         }
         var path = ResolveConfigPath(createDefault: true);
         await _config.SaveAsync(path);
+        if (aiOptions is not null)
+        {
+            try { AiEditor.Save(accountId, aiOptions); }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or
+                System.Security.Cryptography.CryptographicException or Microsoft.Data.Sqlite.SqliteException)
+            {
+                ValidationText.Foreground = Avalonia.Media.Brushes.Red;
+                ValidationText.Text = "发布配置已写入，AI 配置保存失败。请重试保存。";
+                return false;
+            }
+        }
         _account.XingeRemoteDispatchConfigured = true;
         _account.XingeRemoteDispatchEnabled = RemoteDispatchBox.IsChecked == true;
         var stored = _accountStore?.Accounts.FirstOrDefault(item =>
@@ -621,11 +654,13 @@ public partial class KuaishouPersonalConfigDialog : UserControl
         : "";
 
     // Compare the editable values as loaded. Validation and legacy value normalization belong to saving.
-    private bool HasUnsavedChanges() => _legacyImportPending || !CaptureFormValues().SequenceEqual(_cleanValues);
+    private bool HasUnsavedChanges() =>
+        _legacyImportPending || AiEditor.HasChanges || !CaptureFormValues().SequenceEqual(_cleanValues);
 
     private void CaptureClean()
     {
         _cleanValues = CaptureFormValues().ToArray();
+        AiEditor.CaptureClean();
         _legacyImportPending = false;
     }
 

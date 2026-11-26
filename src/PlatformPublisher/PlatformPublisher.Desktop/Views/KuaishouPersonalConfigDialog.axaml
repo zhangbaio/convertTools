@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:PlatformPublisher.Desktop.Views"
              x:Class="PlatformPublisher.Desktop.Views.KuaishouPersonalConfigDialog"
              Background="White">
     <UserControl.Styles>
@@ -216,6 +217,8 @@
                                     <Button Content="恢复系统默认词库" Click="RestoreContentPolicy_Click" HorizontalAlignment="Left" />
                                 </StackPanel>
                             </Expander>
+                            <Border Height="1" Background="#E4E9F0" Margin="0,4" />
+                            <views:KuaishouAccountAiEditor x:Name="AiEditor" />
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>

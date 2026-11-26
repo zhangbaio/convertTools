@@ -173,6 +173,8 @@ public partial class MainWindow : Window
     {
         WeixinPublisherView.UseAccountStore(accountStore);
         KuaishouConfigPage.UseAccountStore(accountStore);
+        if (ViewModel is { } viewModel)
+            KuaishouConfigPage.UseAccountAiStore(viewModel.AccountAiStore);
         KuaishouConfigPage.AccountsImported += accounts =>
         {
             WeixinPublisherView.RefreshImportedAccounts(accounts);
